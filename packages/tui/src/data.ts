@@ -95,7 +95,10 @@ export function conversationAt(store: Store, calls: CallRecord[], index: number)
   return null;
 }
 
-export function runLabel(run: RunRecord, calls: number): string {
+/** What runLabel reads of a run: a RunRecord, or the same fields from a lighter query. */
+export type LabelledRun = Pick<RunRecord, 'mode' | 'status'> & { divergence: { callNo: number } | null; meta?: { covers?: readonly unknown[] | undefined } | undefined };
+
+export function runLabel(run: LabelledRun, calls: number): string {
   // Built from a capture: it holds what crossed the network and has no command, so it is not a
   // recording in the sense the rest of the list means, and cannot be forked until it is replayed.
   if (run.mode !== 'replay' && run.meta?.covers?.length) return 'capture';

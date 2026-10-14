@@ -1,0 +1,206 @@
+import { basename } from 'node:path';
+import { classifyRun, hasRecordedCommand, isFailedOutcome, runOutcome, type AttemptKind, type ClassifiableRun, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { runLabel } from '@shadowlap/tui/data';
+
+/**
+ * Every run in the store, classified, from one light query: the run columns, the few fields of
+ * `meta` that classification and the run list read, and each run's call count. No call is loaded.
+ * The Runs table, its calendar and chips, the Overview and the status bar's counts start here.
+ */
+
+export interface IndexedRun {
+  runId: string;
+  parentRunId: string | null;
+  mode: RunMode;
+  status: RunStatus;
+  divergence: { callNo: number; type: string } | null;
+  argv: string[];
+  codeVersion: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  calls: number;
+  meta: IndexedMeta;
+  /** A run that exited with an error answered one of its calls with an injected failure (`--fail-at`). */
+  injected: boolean;
+  kind: RunKind;
+  /** For an attempt (`--repeat`, a blame probe, a verify attempt): the run it came from. */
+  attemptOf: string | null;
+  attemptKind: AttemptKind | null;
+  /**
+   * An attempt bundled under a run in the store: left out of lists and counts. An attempt whose run
+   * is gone has nowhere else to show, so it is listed like any run.
+   */
+  bundled: boolean;
+  /** For the fork blame rescued a run with: the run it rescued. Blame made it as a probe; it shows as a fork. */
+  rescues: string | null;
+  outcome: RunOutcome;
+  failed: boolean;
+  /** As the sidebar labels it: recording, capture, fork @n, clean replay, replay. */
+  label: string;
+  /** For a run with no command (built from a capture): the file it came from. */
+  source: string | null;
+}
+
+export interface IndexedMeta {
+  labels: string[];
+  imported: { at: number; from: string } | null;
+  covers: string[] | null;
+  repeat: { group: string; attempt: number; of: number } | null;
+  probe: { of: string; callNo: number; passed: boolean } | null;
+  verify: { role: string; passed: boolean } | null;
+  test: { golden: string; session: string } | null;
+  checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
+  blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null } | null;
+  author: string | null;
+}
+
+export interface RunIndex {
+  /** Newest first, as `shadowlap ls` lists them. */
+  runs: IndexedRun[];
+  byId: Map<string, IndexedRun>;
+  /** The attempts bundled under each run. */
+  attempts: Map<string, IndexedRun[]>;
+  /** Runs that are not bundled attempts, and attempts that are. */
+  counts: { runs: number; attempts: number };
+}
+
+const INDEX_SQL = `
+SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS status, r.command AS command,
+       r.code_version AS code, r.started_at AS started, r.ended_at AS ended,
+       r.divergence ->> '$.callNo' AS div_call, r.divergence ->> '$.type' AS div_type,
+       r.meta -> '$.labels' AS labels, r.meta -> '$.imported' AS imported, r.meta -> '$.covers' AS covers,
+       r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify,
+       r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame,
+       r.meta ->> '$.author' AS author,
+       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
+       CASE WHEN r.status = 'failed' THEN EXISTS (
+         SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1
+       ) ELSE 0 END AS injected
+FROM runs r
+ORDER BY r.started_at DESC, r.run_id DESC`;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** A JSON value read with `->`: always JSON text, or null when the key is absent. */
+function json(v: unknown): unknown {
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** Metadata as Shadowlap writes it; anything else (a run from a pack can carry anything) is dropped. */
+function readMeta(row: Record<string, unknown>): IndexedMeta {
+  const labels = json(row.labels);
+  const imported = json(row.imported);
+  const covers = json(row.covers);
+  const repeat = json(row.rep);
+  const probe = json(row.probe);
+  const verify = json(row.verify);
+  const test = json(row.test);
+  const checks = json(row.checks);
+  const blame = json(row.blame);
+  return {
+    labels: Array.isArray(labels) ? labels.filter((l): l is string => typeof l === 'string') : [],
+    imported: isObject(imported) ? { at: num(imported.at) ?? 0, from: str(imported.from) ?? '' } : null,
+    covers: Array.isArray(covers) && covers.length ? covers.filter((c): c is string => typeof c === 'string') : null,
+    repeat: isObject(repeat) ? { group: str(repeat.group) ?? '', attempt: num(repeat.attempt) ?? 0, of: num(repeat.of) ?? 0 } : null,
+    probe: isObject(probe) ? { of: str(probe.of) ?? '', callNo: num(probe.callNo) ?? 0, passed: probe.passed === true } : null,
+    verify: isObject(verify) ? { role: str(verify.role) ?? '', passed: verify.passed === true } : null,
+    test: isObject(test) ? { golden: str(test.golden) ?? '', session: str(test.session) ?? '' } : null,
+    checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail) })) : null,
+    blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId) } : null,
+    author: str(row.author),
+  };
+}
+
+/** The shape classification reads, from an indexed run. */
+export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode' | 'status' | 'divergence' | 'meta'>): ClassifiableRun {
+  const m = r.meta;
+  return {
+    runId: r.runId,
+    parentRunId: r.parentRunId,
+    mode: r.mode,
+    status: r.status,
+    divergence: r.divergence,
+    meta: {
+      ...(m.imported ? { imported: m.imported } : {}),
+      ...(m.covers ? { covers: m.covers } : {}),
+      ...(m.repeat ? { repeat: m.repeat } : {}),
+      ...(m.probe ? { probe: m.probe } : {}),
+      ...(m.verify ? { verify: m.verify } : {}),
+      ...(m.test ? { test: m.test } : {}),
+      ...(m.checks ? { checks: m.checks } : {}),
+      ...(m.blame ? { blame: m.blame } : {}),
+    },
+  };
+}
+
+/** Reads and classifies every run in the store. */
+export function loadRunIndex(store: Store): RunIndex {
+  const rows = store.query(INDEX_SQL);
+  const base = rows.map((row) => {
+    const command = json(row.command);
+    const argv = isObject(command) && Array.isArray(command.argv) ? command.argv.filter((a): a is string => typeof a === 'string') : [];
+    const divCall = num(row.div_call);
+    return {
+      runId: String(row.id),
+      parentRunId: str(row.parent),
+      mode: row.mode as RunMode,
+      status: row.status as RunStatus,
+      divergence: divCall !== null ? { callNo: divCall, type: str(row.div_type) ?? '' } : null,
+      argv,
+      codeVersion: str(row.code),
+      startedAt: Number(row.started),
+      endedAt: num(row.ended),
+      calls: Number(row.calls),
+      meta: readMeta(row),
+      injected: Number(row.injected) === 1,
+    };
+  });
+  // The fork each blame rescued its run with: a probe that shows as a fork of its own.
+  const rescued = new Map<string, string>();
+  for (const r of base) if (r.meta.blame?.rescuedRunId) rescued.set(r.meta.blame.rescuedRunId, r.runId);
+
+  const runs: IndexedRun[] = base.map((r) => {
+    const c = classifiable(r);
+    const rescues = r.meta.probe ? (rescued.get(r.runId) ?? null) : null;
+    const cls = classifyRun(c, { calls: r.calls, rescued: rescues !== null });
+    const outcome = runOutcome(c, { kind: cls.kind, calls: r.calls, injected: r.injected });
+    return {
+      ...r,
+      kind: cls.kind,
+      attemptOf: cls.attemptOf,
+      attemptKind: cls.attemptKind,
+      bundled: false,
+      rescues,
+      outcome,
+      failed: isFailedOutcome(outcome),
+      label: runLabel(c, r.calls),
+      source: hasRecordedCommand({ command: { argv: r.argv } }) ? null : basename(r.meta.imported?.from ?? '') || 'a capture',
+    };
+  });
+  const byId = new Map(runs.map((r) => [r.runId, r]));
+  const attempts = new Map<string, IndexedRun[]>();
+  let bundled = 0;
+  for (const r of runs) {
+    if (!r.attemptKind || !r.attemptOf || !byId.has(r.attemptOf)) continue;
+    r.bundled = true;
+    bundled++;
+    const list = attempts.get(r.attemptOf);
+    if (list) list.push(r);
+    else attempts.set(r.attemptOf, [r]);
+  }
+  return { runs, byId, attempts, counts: { runs: runs.length - bundled, attempts: bundled } };
+}
+
+/** How many ancestors a run has in the store (0 for a recording, 1 for its fork, …). */
+export function depthOf(index: RunIndex, run: IndexedRun): number {
+  let depth = 0;
+  for (let p = run.parentRunId; p && depth < 1000; depth++) p = index.byId.get(p)?.parentRunId ?? null;
+  return depth;
+}
