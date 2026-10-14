@@ -1,0 +1,101 @@
+name: Shadowlap test
+description: Replay committed agent recordings offline and fail the check when the agent's requests change.
+author: devjoinedthechat
+branding:
+  icon: git-branch
+  color: gray-dark
+
+inputs:
+  recordings:
+    description: Recording directories written by `shadowlap pack`, separated by spaces or new lines. A `*` is allowed in the last part of a path.
+    default: goldens/*
+  working-directory:
+    description: Where the recorded commands run and relative paths start.
+    default: .
+  version:
+    description: The shadowlap version from npm, e.g. 0.1.0. Empty builds the CLI from this action's own source, the only option until shadowlap is on npm.
+    default: ''
+  writes:
+    description: What write tools do after a divergence (block, stub or allow).
+    default: block
+  guard:
+    description: The network guard for connections that bypass Shadowlap (block, warn or off).
+    default: block
+  online:
+    description: Allow live model calls after a divergence. By default every provider is offline and a live call fails the recording.
+    default: 'false'
+  fail-on-divergence:
+    description: Fail the step when a recording fails. With false, read the failed output instead.
+    default: 'true'
+  summary:
+    description: Write the report to the job summary.
+    default: 'true'
+  annotations:
+    description: Annotate failed recordings on the pull request.
+    default: 'true'
+  junit:
+    description: Also write a JUnit XML report to this path, relative to working-directory.
+    default: ''
+
+outputs:
+  passed:
+    description: Recordings that passed.
+    value: ${{ steps.test.outputs.passed }}
+  failed:
+    description: Recordings that diverged, made a live call or exited with an error.
+    value: ${{ steps.test.outputs.failed }}
+  report-json:
+    description: Path of the JSON report.
+    value: ${{ steps.test.outputs.report-json }}
+  report-markdown:
+    description: Path of the Markdown report.
+    value: ${{ steps.test.outputs.report-markdown }}
+  junit:
+    description: Path of the JUnit XML report.
+    value: ${{ steps.test.outputs.junit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check Node.js
+      shell: bash
+      run: |
+        node -e 'const [a, b] = process.versions.node.split(".").map(Number); if (a < 22 || (a === 22 && b < 13)) { console.log("::error title=Shadowlap::Shadowlap needs Node.js 22.13 or later; this job has " + process.version + ". Add actions/setup-node with node-version: 22 before this step."); process.exit(1); }'
+
+    - name: Install shadowlap ${{ inputs.version }}
+      id: install
+      if: inputs.version != ''
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        npm install --prefix "$RUNNER_TEMP/shadowlap-cli" --no-save --no-audit --no-fund "shadowlap@$VERSION"
+        echo "cli=$RUNNER_TEMP/shadowlap-cli/node_modules/shadowlap/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
+
+    - name: Build shadowlap from the action's source
+      id: build
+      if: inputs.version == ''
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        if [ ! -f packages/cli/dist/index.js ]; then
+          npm ci --no-audit --no-fund
+          npm run build
+        fi
+        echo "cli=$(pwd)/packages/cli/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
+
+    - name: Replay the recordings
+      id: test
+      shell: bash
+      env:
+        SHADOWLAP_CLI: ${{ steps.install.outputs.cli || steps.build.outputs.cli }}
+        INPUT_RECORDINGS: ${{ inputs.recordings }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_WRITES: ${{ inputs.writes }}
+        INPUT_GUARD: ${{ inputs.guard }}
+        INPUT_ONLINE: ${{ inputs.online }}
+        INPUT_FAIL_ON_DIVERGENCE: ${{ inputs.fail-on-divergence }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
+        INPUT_ANNOTATIONS: ${{ inputs.annotations }}
+        INPUT_JUNIT: ${{ inputs.junit }}
+      run: node "${{ github.action_path }}/action/run.mjs"

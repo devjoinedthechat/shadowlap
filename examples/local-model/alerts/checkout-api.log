@@ -1,0 +1,5 @@
+2026-09-16T02:11:04Z WARN  checkout-api  p99 latency 1840ms (threshold 800ms) region=eu-west-1
+2026-09-16T02:11:34Z ERROR checkout-api  POST /v2/orders 502 upstream=payments-gateway attempt=3/3
+2026-09-16T02:12:02Z ERROR checkout-api  POST /v2/orders 502 upstream=payments-gateway attempt=3/3
+2026-09-16T02:12:40Z ERROR checkout-api  error rate 23.4% over 5m (threshold 2%)
+2026-09-16T02:31:15Z INFO  checkout-api  error rate 0.4% over 5m

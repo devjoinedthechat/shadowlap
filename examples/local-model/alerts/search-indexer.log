@@ -1,0 +1,4 @@
+2026-09-16T03:00:00Z INFO  search-indexer  nightly reindex started (2.1M documents)
+2026-09-16T03:42:18Z WARN  search-indexer  batch 311 retried after timeout (1/5)
+2026-09-16T03:42:51Z INFO  search-indexer  batch 311 indexed
+2026-09-16T04:05:33Z INFO  search-indexer  nightly reindex finished in 65m (budget 90m)

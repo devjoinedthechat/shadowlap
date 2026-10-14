@@ -1,0 +1,72 @@
+name: Live providers
+
+# Shadowlap against the real model APIs, nightly: a tool call and a streamed call per provider,
+# recorded, parsed and replayed offline (testing/frameworks/live). Only providers whose secrets are
+# set run; the rest are skipped. Each run costs a few cents per provider.
+#
+# Secrets: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY; AZURE_OPENAI_API_KEY with the variables
+# AZURE_OPENAI_ENDPOINT and LIVE_AZURE_DEPLOYMENT; AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with
+# the variables AWS_REGION and LIVE_BEDROCK_MODEL; GCP_SERVICE_ACCOUNT_JSON with the variable
+# LIVE_VERTEX_PROJECT. Variables LIVE_<PROVIDER>_MODEL choose other models.
+# Run it by hand. It was nightly; a cron against paid APIs bills the maintainer every day and shows
+# as permanently skipped on forks, so it is opt-in. To restore the schedule, uncomment the cron.
+on:
+  # schedule:
+  #   - cron: '41 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SHADOWLAP_TELEMETRY: '0'
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+      LIVE_AZURE_DEPLOYMENT: ${{ vars.LIVE_AZURE_DEPLOYMENT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      LIVE_BEDROCK_MODEL: ${{ vars.LIVE_BEDROCK_MODEL }}
+      LIVE_VERTEX_PROJECT: ${{ vars.LIVE_VERTEX_PROJECT }}
+      LIVE_VERTEX_LOCATION: ${{ vars.LIVE_VERTEX_LOCATION }}
+      LIVE_ANTHROPIC_MODEL: ${{ vars.LIVE_ANTHROPIC_MODEL }}
+      LIVE_OPENAI_MODEL: ${{ vars.LIVE_OPENAI_MODEL }}
+      LIVE_GEMINI_MODEL: ${{ vars.LIVE_GEMINI_MODEL }}
+      LIVE_VERTEX_MODEL: ${{ vars.LIVE_VERTEX_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            testing/frameworks/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm ci
+        working-directory: testing/frameworks
+      - name: Google credentials
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$GCP_SERVICE_ACCOUNT_JSON" ]; then
+            printf '%s' "$GCP_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/gcp.json"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp.json" >> "$GITHUB_ENV"
+          fi
+      # Unset variables arrive as empty strings; the harness treats them as missing.
+      - name: Test the harness against the scripted fakes
+        run: node --test --test-reporter=spec live/live.test.mjs
+        working-directory: testing/frameworks
+        env:
+          LIVE_SELFTEST: '1'
+      - name: Test against the real providers
+        run: node --test --test-reporter=spec live/live.test.mjs
+        working-directory: testing/frameworks

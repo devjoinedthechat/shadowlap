@@ -1,0 +1,41 @@
+{
+  "name": "shadowlap-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Record, replay and fork AI agent runs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "packages/*",
+    "testing/mock-anthropic",
+    "testing/mock-openai",
+    "testing/mock-gemini",
+    "testing/reference-agent"
+  ],
+  "scripts": {
+    "build": "tsc -b && node packages/dashboard/build-ui.mjs",
+    "clean": "tsc -b --clean && rm -rf packages/*/dist testing/*/dist",
+    "typecheck": "tsc -b --dry && npm run typecheck:tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "golden": "node testing/reference-agent/dist/make-golden.js testing/golden/reference-agent",
+    "site:build": "node site/build.mjs",
+    "set-version": "node scripts/set-version.mjs",
+    "pack:check": "npm pack --dry-run --workspace packages/cli --workspace packages/sdk --workspace packages/adapters 2>&1 | grep -E \"npm notice (name|version|package size|total files|filename)|Tarball Contents\" ",
+    "demo": "node scripts/demo-svg.mjs",
+    "release:rehearse": "node scripts/release-rehearsal.mjs",
+    "bench:dashboard": "node scripts/dashboard-scale.mjs",
+    "video": "node scripts/dashboard-video.mjs",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.0",
+    "marked": "^18.0.0",
+    "shiki": "^4.4.0"
+  }
+}

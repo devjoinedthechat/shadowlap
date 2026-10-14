@@ -1,0 +1,44 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/engine"
+    },
+    {
+      "path": "packages/sidecar"
+    },
+    {
+      "path": "packages/sdk"
+    },
+    {
+      "path": "packages/adapters"
+    },
+    {
+      "path": "packages/tui"
+    },
+    {
+      "path": "packages/collector"
+    },
+    {
+      "path": "packages/dashboard"
+    },
+    {
+      "path": "packages/cli"
+    },
+    {
+      "path": "packages/test"
+    },
+    {
+      "path": "testing/mock-anthropic"
+    },
+    {
+      "path": "testing/reference-agent"
+    },
+    {
+      "path": "testing/mock-openai"
+    },
+    {
+      "path": "testing/mock-gemini"
+    }
+  ]
+}

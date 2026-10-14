@@ -1,0 +1,616 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, normalizeConversation, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
+import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
+import { loadConfig } from './config.js';
+import { askRepairer, buildRepairPrompt, RepairerError, type RepairCase, type Repairer } from './repairer.js';
+import { openStore, type GlobalOpts } from './shared.js';
+import { palette as p, shortId } from './ui.js';
+import { runVerify } from './verify.js';
+
+/**
+ * `shadowlap repair`: blame each failing run, propose fixes, and keep the smallest one the verify gate
+ * accepts. The loop is detect → localize → propose → verify → hand over, and only "propose" involves
+ * a model that isn't the agent's own; blame, applying an edit, replaying and the verdict are all
+ * deterministic, so the repairer never grades its own work.
+ *
+ * Candidates are tried in the working tree, where the agent's command, dependencies and build output
+ * already are: a copy elsewhere would run a recorded absolute path against the original, or fail to
+ * start without its untracked dependencies. The original bytes go to a journal before any edit and
+ * come back after each candidate, on Ctrl-C, and at the start of the next repair if a process died.
+ */
+
+export interface RepairSettings extends AttemptSettings {
+  /** The verify gate's bar: a run passes at `needed` of `attempts`. */
+  attempts: number;
+  needed: number;
+  /** Runs verified at once, and attempts of a blame probe at once. */
+  concurrency: number;
+  /** Candidates to ask the repairer for. */
+  candidates: number;
+  /** A model to rescue with when resampling the recorded one does not. */
+  stronger: string | null;
+  /** Blame only model calls made in this scope: the agent's, not a simulated user's. */
+  scope?: string | null;
+  /** Request fields blame's probes set from the probed call on, such as a temperature that lets them sample. */
+  rescueFields?: Record<string, unknown>;
+  /** The largest growth in input tokens per run a fix may cause, as a fraction. */
+  maxGrowth: number;
+  /** A shell command that builds the agent after its source changes. */
+  build: string | null;
+  repairer: Repairer;
+  /** Whether a repairer was configured at all; without one, only fixes that need no model are tried. */
+  repairerConfigured?: boolean;
+}
+
+export interface RepairOutputs {
+  /** Leave the accepted change in the working tree. */
+  apply: boolean;
+  /** Commit the accepted change to a new branch, without checking it out. */
+  branch: string | null;
+  /** Push the branch and open a pull request with `gh`. */
+  pr: boolean;
+  /** Where the recordings of the fixed runs go in the project, for `shadowlap test`. */
+  goldens: string | null;
+}
+
+export interface RepairInput {
+  opts: GlobalOpts;
+  targets: AttemptTarget[];
+  holdout: AttemptTarget[];
+  good: AttemptTarget[];
+  heldOutAutomatically: boolean;
+  settings: RepairSettings;
+  outputs: RepairOutputs;
+  log: (line: string) => void;
+}
+
+/** Repair could not start; the message says why. */
+export class RepairError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RepairError';
+  }
+}
+
+const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
+
+/** Puts back whatever an interrupted repair left in the working tree. Returns the files it restored. */
+export function recoverWorkingTree(cwd: string): string[] {
+  const path = journalPath(cwd);
+  if (!existsSync(path)) return [];
+  const journal = JSON.parse(readFileSync(path, 'utf8')) as { files: Array<{ path: string; original: string; patched: string }> };
+  const restored: string[] = [];
+  for (const f of journal.files) {
+    const now = existsSync(f.path) ? readFileSync(f.path, 'utf8') : null;
+    // Only undo our own edit: a file someone changed since is theirs now.
+    if (now === Buffer.from(f.patched, 'base64').toString('utf8')) {
+      writeFileSync(f.path, Buffer.from(f.original, 'base64'));
+      restored.push(f.path);
+    }
+  }
+  rmSync(path, { force: true });
+  return restored;
+}
+
+function gitRoot(cwd: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    throw new RepairError('shadowlap repair edits the agent\'s source, so it has to run inside the git repository that holds it');
+  }
+}
+
+const git = (root: string, args: string[], o: { input?: string; env?: NodeJS.ProcessEnv } = {}) =>
+  execFileSync('git', args, { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024, ...(o.input !== undefined ? { input: o.input } : {}), ...(o.env ? { env: o.env } : {}) }).toString();
+
+/** The project's text files: tracked, and untracked but not ignored. */
+function projectFiles(root: string): SourceFile[] {
+  const out: SourceFile[] = [];
+  for (const path of git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')) {
+    if (!path) continue;
+    const abs = join(root, path);
+    try {
+      if (statSync(abs).size > 1024 * 1024) continue;
+      const content = readFileSync(abs, 'utf8');
+      if (!content.includes('\u0000')) out.push({ path, content });
+    } catch {
+      // deleted in the working tree, or unreadable
+    }
+  }
+  return out;
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The texts a model call sends that a fix may rewrite: the system prompt and each tool's description. */
+function surfacesOf(body: unknown): { system: string; tools: Array<{ name: string; description: string }>; surfaces: Surface[] } {
+  const conv = isObject(body) ? normalizeConversation(body) : null;
+  const leading: string[] = [];
+  for (const t of conv?.turns ?? []) {
+    if (t.role !== 'system') break;
+    for (const b of t.blocks) if (b.type === 'text' && b.text.trim()) leading.push(b.text);
+  }
+  const tools: Array<{ name: string; description: string }> = [];
+  if (isObject(body)) {
+    for (const [name, def] of toolDefinitions(body)) {
+      const d = isObject(def) ? def : {};
+      const description = typeof d.description === 'string' ? d.description : '';
+      tools.push({ name, description });
+    }
+  }
+  const surfaces: Surface[] = [...leading.map((text) => ({ label: 'system prompt', text })), ...tools.filter((t) => t.description).map((t) => ({ label: `tool ${t.name}`, text: t.description }))];
+  return { system: leading.join('\n\n'), tools, surfaces };
+}
+
+/** Everything a conversation says, for finding what is particular to a case. */
+function conversationText(c: Conversation | null): string {
+  return (c?.turns ?? [])
+    .flatMap((t) => t.blocks.map((b) => (b.type === 'text' || b.type === 'thinking' ? b.text : b.type === 'tool_call' ? `${b.name} ${JSON.stringify(b.input ?? {})}` : b.type === 'tool_result' ? b.content : '')))
+    .join('\n');
+}
+
+function requestAt(store: Store, runId: string, callNo: number): unknown {
+  const call = store.getCalls(runId).find((c) => c.callNo === callNo);
+  return call?.requestRef ? loadApiRequest(store, call.requestRef) : null;
+}
+
+/** A run's last model request and answer: what a good run shows the model, for telling a case detail from a rule. */
+function lastExchange(store: Store, runId: string): string {
+  const calls = store.getCalls(runId).filter((c) => c.kind === 'api' && c.requestRef);
+  const last = calls.at(-1);
+  if (!last?.requestRef) return '';
+  const conv = normalizeConversation(loadApiRequest(store, last.requestRef) as Record<string, unknown>);
+  return `${conversationText(conv)}\n${describeBlocks(responseBlocks(store, last))}`;
+}
+
+function runBuild(cmd: string, cwd: string): { ok: boolean; tail: string } {
+  const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-5).join('\n');
+  return { ok: r.status === 0, tail };
+}
+
+interface Blamed {
+  target: RepairTarget;
+  repairCase: RepairCase | null;
+  /** The request at the blamed call, whose prompt a fix rewrites. */
+  request: unknown;
+  /** The model the recording asked at the blamed call. */
+  model: string | null;
+}
+
+export async function runRepair(input: RepairInput): Promise<RepairReport> {
+  const { settings: s, log } = input;
+  const cwd = process.cwd();
+  const root = gitRoot(cwd);
+  const restored = recoverWorkingTree(cwd);
+  for (const f of restored) log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
+
+  const config = loadConfig(cwd);
+  const store = openStore(input.opts);
+  let interrupted = false;
+  const onSignal = () => {
+    interrupted = true;
+  };
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
+
+  const oracle = oracleLabels(s.spec);
+  const warnings: string[] = [];
+  const cost = { blame: 0, repairer: null as number | null, verify: 0 };
+  const spent = () => cost.blame + (cost.repairer ?? 0) + cost.verify;
+  const budgetLeft = () => (s.budget === null ? null : s.budget - spent());
+  const outOfBudget = () => {
+    const left = budgetLeft();
+    return left !== null && left <= 0;
+  };
+  const report: RepairReport = {
+    outcome: 'not-fixed',
+    why: null,
+    targets: [],
+    holdout: input.holdout.map((t) => t.parent.runId),
+    good: input.good.map((t) => t.parent.runId),
+    heldOutAutomatically: input.heldOutAutomatically,
+    oracle,
+    repairer: null,
+    diagnosis: null,
+    anchors: 0,
+    candidates: [],
+    accepted: null,
+    patch: null,
+    cost,
+    output: { dir: null, patch: null, report: null, goldens: [], applied: false, branch: null, pr: null },
+    warnings,
+  };
+  const blamed: Blamed[] = [];
+  const candidates: Array<{ c: RepairCandidate; edit: { file: string; offset: number; text: string } }> = [];
+  // What a stopped repair found so far is still reported.
+  const stopped = (why: string): RepairReport => ({ ...report, targets: blamed.map((b) => b.target), candidates: candidates.map((x) => x.c), outcome: 'stopped', why });
+
+  try {
+    // 1. Where each failing run was lost, and a path from there that passed.
+    for (const t of input.targets) {
+      if (interrupted) return stopped('interrupted');
+      if (outOfBudget()) return stopped(`the budget of $${s.budget!.toFixed(2)} is spent`);
+      blamed.push(await blameOne(t, { ...(s.rescueFields ?? {}) }));
+      const last = blamed.at(-1)!;
+      if (last.target.outcome === 'unrescuable' && s.stronger) {
+        log(`  resampling did not rescue ${shortId(t.parent.runId)}; trying ${s.stronger}`);
+        const again = await blameOne(t, { ...(s.rescueFields ?? {}), model: s.stronger });
+        if (again.target.outcome === 'blamed') blamed[blamed.length - 1] = { ...again, target: { ...again.target, rescuedBy: s.stronger } };
+      }
+    }
+    report.targets = blamed.map((b) => b.target);
+    if (interrupted) return stopped('interrupted');
+    const learned = blamed.filter((b) => b.repairCase);
+    if (!learned.length) {
+      report.outcome = 'no-diagnosis';
+      report.why = s.stronger
+        ? `neither resampling nor ${s.stronger} rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools`
+        : 'resampling rescued no failing run, so there is no passing path to learn from; try a stronger model with --stronger <model>, or look at the code and the tools';
+      return report;
+    }
+
+    // 2. What a fix may rewrite, where it lives, and what it must not mention.
+    const files = projectFiles(root);
+    const surfaces: Surface[] = [];
+    let prompt: ReturnType<typeof surfacesOf> | null = null;
+    for (const b of learned) {
+      const found = surfacesOf(b.request);
+      prompt ??= found;
+      for (const x of found.surfaces) if (!surfaces.some((y) => y.label === x.label && y.text === x.text)) surfaces.push(x);
+    }
+    const anchors = findAnchors(surfaces, files);
+    report.anchors = anchors.length;
+    const failingTexts = learned.map((b) => `${conversationText(b.repairCase!.conversation)}\n${describeBlocks(b.repairCase!.recorded)}`);
+    const allowedTexts = [...surfaces.map((x) => x.text), ...input.good.map((g) => lastExchange(store, g.parent.runId))];
+    const forbidden = forbiddenDetails(failingTexts, allowedTexts);
+
+    let nextId = 1;
+
+    // 3a. No model needed: when only a stronger model rescued the runs, the fix is to use it.
+    const byStronger = learned.find((b) => b.target.rescuedBy && b.model);
+    if (byStronger && s.stronger) {
+      const from = byStronger.model!;
+      const quoted = files.flatMap((f) => [`'${from}'`, `"${from}"`, `\`${from}\``].flatMap((q) => [...f.content.matchAll(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))].map((m) => ({ file: f.path, offset: m.index! + 1 }))));
+      if (quoted.length === 1) {
+        const at = quoted[0]!;
+        candidates.push({
+          c: { id: nextId++, source: 'model', strategy: `Use ${s.stronger} instead of ${from}`, why: `Asking ${from} again did not rescue the failing runs; ${s.stronger} did.`, surface: 'model', file: at.file, offset: at.offset, before: from, after: s.stronger, size: editSize(from, s.stronger), state: 'untried', reason: null, verify: null },
+          edit: { file: at.file, offset: at.offset, text: from },
+        });
+      } else {
+        warnings.push(`${s.stronger} rescued the runs, but the model name ${from} appears ${quoted.length ? `${quoted.length} times` : 'nowhere'} in the source as a string, so no model switch was proposed`);
+      }
+    }
+
+    // 4. Try candidates smallest first; the first the gate accepts is kept.
+    let accepted: { c: RepairCandidate; original: string; patched: string } | null = null;
+    const tryAll = async (list: typeof candidates): Promise<void> => {
+      const ordered = [...list].filter((x) => x.c.state === 'untried').sort((a, b) => a.c.size - b.c.size || a.c.id - b.c.id);
+      for (const { c, edit } of ordered) {
+        if (accepted || interrupted || outOfBudget()) return;
+        log(`\n  ${p.bold(`candidate ${c.id}`)} ${p.dim(`(${c.surface}, ${c.size} characters changed)`)}: ${c.after.length > 100 ? `${c.after.slice(0, 99)}…` : c.after}`);
+        const result = await tryCandidate(c, edit);
+        if (result) accepted = { c, ...result };
+      }
+    };
+    await tryAll(candidates);
+
+    // 3b. The repairer, when nothing cheaper worked.
+    if (!accepted && !interrupted && !outOfBudget()) {
+      if (s.repairerConfigured === false) {
+        warnings.push('no repairer is configured, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json');
+      } else if (!anchors.length) {
+        warnings.push('none of the system prompt or tool descriptions appears verbatim, exactly once, in the project\'s files, so the repairer had nothing it could rewrite');
+      } else {
+        const request = buildRepairPrompt({ oracle, system: prompt?.system ?? '', tools: prompt?.tools ?? [], cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
+        log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
+        try {
+          const answer = await askRepairer({ ...s.repairer, ...(config.repair?.baseUrl && !s.repairer.baseUrl ? { baseUrl: config.repair.baseUrl } : {}) }, request, config.prices);
+          cost.repairer = answer.cost;
+          report.repairer = { provider: s.repairer.provider, model: s.repairer.model, served: answer.served, cost: answer.cost };
+          report.diagnosis = answer.diagnosis || null;
+          const fresh: typeof candidates = [];
+          for (const e of answer.edits.slice(0, Math.max(s.candidates, 1) * 2)) {
+            const anchor = anchors.find((a) => a.id === e.anchor);
+            const check = checkEdit(e, anchors, forbidden);
+            const after = e.replace.trim();
+            const c: RepairCandidate = { id: nextId++, source: 'repairer', strategy: e.strategy, why: e.why, surface: anchor?.surface ?? `anchor ${e.anchor}`, file: anchor?.file ?? '', offset: anchor?.offset ?? 0, before: anchor?.text ?? '', after, size: anchor ? editSize(anchor.text, after) : 0, state: check.ok ? 'untried' : 'invalid', reason: check.ok ? null : check.reason, verify: null };
+            if (!check.ok) log(`  ${p.yellow('✗')} candidate ${c.id} set aside: ${check.reason}`);
+            fresh.push({ c, edit: { file: c.file, offset: anchor?.offset ?? 0, text: c.before } });
+          }
+          candidates.push(...fresh);
+          await tryAll(fresh);
+        } catch (err) {
+          if (!(err instanceof RepairerError)) throw err;
+          warnings.push(`the repairer could not be asked: ${err.message}`);
+        }
+      }
+    }
+    report.candidates = candidates.map((x) => x.c);
+
+    if (!accepted) {
+      if (interrupted) return stopped('interrupted');
+      if (outOfBudget()) return stopped(`the budget of $${s.budget!.toFixed(2)} is spent`);
+      report.outcome = 'not-fixed';
+      const tried = candidates.filter((x) => x.c.state !== 'invalid' && x.c.state !== 'untried').length;
+      report.why = !candidates.length ? 'there was no candidate to try' : tried ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried` : 'no candidate could be tried';
+      return report;
+    }
+
+    // 5. Hand it over: a patch and a report always; the change applied, a branch or a pull request on request.
+    const won = accepted as { c: RepairCandidate; original: string; patched: string };
+    report.outcome = 'fixed';
+    report.accepted = won.c.id;
+    report.patch = unifiedDiff(won.c.file, won.original, won.patched);
+    return report;
+  } finally {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+    store.close();
+  }
+
+  /** Blames one failing run, or reuses a blame stored on it under the same oracle and rescue. */
+  async function blameOne(t: AttemptTarget, fields: Record<string, unknown>): Promise<Blamed> {
+    const runId = t.parent.runId;
+    const parentCalls = store.getCalls(runId);
+    const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, s.scope)).map((c) => c.callNo);
+    const base: RepairTarget = { runId, outcome: 'error', callNo: null, step: null, steps: steps.length, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note: null };
+    let callNo: number | null = null;
+    let rescuedRunId: string | null = null;
+    let failures: string[] = judgeRecording(store, t.parent, parentCalls, s.spec, config.prices).failures;
+
+    const stored = store.getRun(runId)?.meta?.blame;
+    const sameSearch = !!stored && JSON.stringify(stored.oracle) === JSON.stringify(oracle) && JSON.stringify(stored.fields ?? {}) === JSON.stringify(fields) && (stored.scope ?? null) === (s.scope ?? null);
+    // A search already made under the same oracle, rescue and scope is not made again, whatever it found.
+    if (sameSearch && stored.outcome === 'unrescuable') {
+      log(`  ${shortId(runId)}: not rescued from any model call, from the blame already stored on it`);
+      return { target: { ...base, outcome: 'unrescuable', reused: true }, repairCase: null, request: null, model: null };
+    }
+    const same = sameSearch && stored.outcome === 'blamed' && stored.callNo !== null && stored.rescuedRunId && store.getRun(stored.rescuedRunId);
+    if (same) {
+      callNo = stored.callNo;
+      rescuedRunId = stored.rescuedRunId;
+      log(`  ${shortId(runId)}: lost at model call #${callNo}, from the blame already stored on it`);
+      base.reused = true;
+    } else {
+      log(`  blaming ${shortId(runId)}${fields.model ? ` with ${String(fields.model)}` : ''}`);
+      const left = budgetLeft();
+      try {
+        const r = await runBlame({
+          opts: input.opts,
+          parent: t.parent,
+          argv: t.argv,
+          commandFromImport: t.commandFromImport,
+          settings: { attempts: 5, needed: 2, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, budget: left, timeoutMs: s.timeoutMs, guard: s.guard },
+          log: (line) => log(`  ${line}`),
+        });
+        cost.blame += r.spent;
+        failures = r.recordedFailures;
+        if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable' }, repairCase: null, request: null, model: null };
+        callNo = r.blamed.callNo;
+        rescuedRunId = r.contrast.rescuedRunId;
+      } catch (err) {
+        if (!(err instanceof BlameError)) throw err;
+        return { target: { ...base, note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null };
+      }
+    }
+    const parentCall = parentCalls.find((c) => c.callNo === callNo);
+    const rescuedCall = store.getCalls(rescuedRunId!).find((c) => c.callNo === callNo);
+    const request = requestAt(store, runId, callNo!);
+    const conversation = isObject(request) ? normalizeConversation(request) : null;
+    const recorded = responseBlocks(store, parentCall);
+    const rescued = responseBlocks(store, rescuedCall);
+    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(recorded), rescued: describeBlocks(rescued) };
+    return {
+      target,
+      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, conversation, recorded, rescued, failures, rescuedBy: typeof fields.model === 'string' ? fields.model : null },
+      request,
+      model: conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
+    };
+  }
+
+  /** Applies a candidate, verifies it, and puts the file back. Returns the file's two versions when the gate accepts it. */
+  async function tryCandidate(c: RepairCandidate, edit: { file: string; offset: number; text: string }): Promise<{ original: string; patched: string } | null> {
+    const abs = join(root, edit.file);
+    const original = readFileSync(abs, 'utf8');
+    let patched: string;
+    try {
+      patched = applyEdit(original, edit, c.after);
+    } catch (err) {
+      c.state = 'invalid';
+      c.reason = `${edit.file}: ${(err as Error).message}`;
+      return null;
+    }
+    mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
+    writeFileSync(journalPath(cwd), JSON.stringify({ pid: process.pid, files: [{ path: abs, original: Buffer.from(original).toString('base64'), patched: Buffer.from(patched).toString('base64') }] }));
+    writeFileSync(abs, patched);
+    try {
+      if (s.build) {
+        const b = runBuild(s.build, cwd);
+        if (!b.ok) {
+          c.state = 'build-failed';
+          c.reason = `${s.build} failed: ${b.tail}`;
+          return null;
+        }
+      }
+      const role = (list: AttemptTarget[], r: VerifyRole) => list.map((t) => ({ ...t, role: r }));
+      const v = await runVerify({
+        opts: input.opts,
+        runs: [...role(input.targets, 'target'), ...role(input.holdout, 'holdout'), ...role(input.good, 'good')],
+        settings: { attempts: s.attempts, needed: s.needed, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard },
+        log: (line) => log(`  ${line}`),
+      });
+      cost.verify += v.spent;
+      c.verify = v;
+      if (v.verdict === 'rejected') {
+        c.state = 'rejected';
+        c.reason = v.reasons[0] ?? 'the gate rejected it';
+        return null;
+      }
+      if (v.verdict === 'incomplete') {
+        c.state = 'incomplete';
+        c.reason = v.reasons.join('; ');
+        return null;
+      }
+      const d = footprintDelta(v.runs);
+      if (d && d.recorded.inputTokens > 0 && d.now.inputTokens > d.recorded.inputTokens * (1 + s.maxGrowth)) {
+        c.state = 'rejected';
+        c.reason = `input tokens per run grow ${Math.round((d.now.inputTokens / d.recorded.inputTokens - 1) * 100)}%, more than --max-growth ${Math.round(s.maxGrowth * 100)}%`;
+        return null;
+      }
+      c.state = 'accepted';
+      log(`  ${p.green('✓')} candidate ${c.id} accepted`);
+      return { original, patched };
+    } finally {
+      const back = recoverWorkingTree(cwd);
+      if (!back.includes(abs)) warnings.push(`${edit.file} changed while candidate ${c.id} was verified, so it was left as it is: check it for the candidate's edit`);
+      if (s.build) {
+        const b = runBuild(s.build, cwd);
+        if (!b.ok) warnings.push(`${s.build} failed after ${edit.file} was restored: ${b.tail}`);
+      }
+    }
+  }
+}
+
+/**
+ * Writes what a repair produced: always a directory with the report (JSON and Markdown) and, for a
+ * fix, the patch and a recording of every fixed run; then, on request, the change applied to the
+ * working tree, committed to a branch, and opened as a pull request.
+ */
+export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
+  const cwd = process.cwd();
+  const root = gitRoot(cwd);
+  const id = `repair-${Date.now().toString(36)}`;
+  const dir = join(cwd, '.shadowlap', 'repairs', id);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const out = report.output;
+  out.dir = relative(cwd, dir);
+  const accepted = report.candidates.find((c) => c.id === report.accepted) ?? null;
+  const rel = (f: string) => relative(cwd, f);
+
+  if (accepted && report.patch) {
+    writeFileSync(join(dir, 'fix.patch'), report.patch);
+    out.patch = rel(join(dir, 'fix.patch'));
+    // A recording of each fixed failing run, made by the fixed code: replayed by `shadowlap test`, it
+    // fails the build if the fix is ever undone.
+    const store = openStore(input.opts);
+    const config = loadConfig(cwd);
+    try {
+      for (const run of accepted.verify?.runs ?? []) {
+        if (run.role === 'good' || run.verdict !== 'pass') continue;
+        const passing = run.attempts.find((a) => a.passed);
+        if (!passing) continue;
+        const target = join(dir, 'goldens', shortId(run.runId));
+        packRun(store, passing.runId, target, { redact: config.redact });
+        out.goldens.push(rel(target));
+      }
+    } finally {
+      store.close();
+    }
+  }
+
+  const md = repairMarkdown(report);
+  writeFileSync(join(dir, 'report.md'), md);
+  out.report = rel(join(dir, 'report.md'));
+
+  if (accepted && report.patch) {
+    const goldensInTree = input.outputs.goldens;
+    if (input.outputs.apply) {
+      const abs = join(root, accepted.file);
+      const now = readFileSync(abs, 'utf8');
+      if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${out.patch} by hand`);
+      writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
+      if (goldensInTree) for (const g of out.goldens) cpSync(join(cwd, g), join(cwd, goldensInTree, g.split(/[\\/]/).at(-1)!), { recursive: true });
+      if (input.settings.build) {
+        const b = runBuild(input.settings.build, cwd);
+        if (!b.ok) report.warnings.push(`${input.settings.build} failed after the fix was applied: ${b.tail}`);
+      }
+      out.applied = true;
+    }
+    if (input.outputs.branch) {
+      out.branch = commitBranch(root, input.outputs.branch, accepted, goldensInTree ? out.goldens.map((g) => ({ from: join(cwd, g), to: join(relative(root, join(cwd, goldensInTree)), g.split(/[\\/]/).at(-1)!) })) : [], commitMessage(report, accepted), dir);
+      input.log(`  committed to ${out.branch}`);
+      if (input.outputs.pr) out.pr = openPullRequest(root, out.branch, commitTitle(accepted), join(dir, 'report.md'));
+    }
+  }
+  writeFileSync(join(dir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  return report;
+}
+
+function commitMessage(r: RepairReport, c: RepairCandidate): string {
+  const v = c.verify;
+  const count = (role: VerifyRole) => v?.runs.filter((x) => x.role === role) ?? [];
+  const pass = (role: VerifyRole) => count(role).filter((x) => x.verdict === 'pass').length;
+  const lines = [commitTitle(c), ''];
+  if (c.why.trim()) lines.push(c.why.trim(), '');
+  lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo} of ${shortId(t.runId)}`).join(', ')}.`);
+  if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, each at ${v.needed} of ${v.attemptsPerRun} attempts.`);
+  return lines.join('\n') + '\n';
+}
+
+/** A commit on a new branch with the fix, made without checking anything out: HEAD and the working tree stay as they are. */
+function commitBranch(root: string, name: string, c: RepairCandidate, extra: Array<{ from: string; to: string }>, message: string, scratch: string): string {
+  try {
+    git(root, ['check-ref-format', '--branch', name]);
+  } catch {
+    throw new RepairError(`"${name}" is not a valid branch name`);
+  }
+  let exists = true;
+  try {
+    git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`]);
+  } catch {
+    exists = false;
+  }
+  if (exists) throw new RepairError(`a branch named ${name} already exists`);
+  let head: string;
+  try {
+    head = git(root, ['show', `HEAD:${c.file}`]);
+  } catch {
+    throw new RepairError(`${c.file} is not committed, so there is nothing to branch from; commit it, or apply the patch`);
+  }
+  // Where the working tree had it, when HEAD's file is the same there; otherwise the one place HEAD has it.
+  let at = head.slice(c.offset, c.offset + c.before.length) === c.before ? c.offset : head.indexOf(c.before);
+  if (at !== c.offset && (at < 0 || head.indexOf(c.before, at + 1) >= 0)) throw new RepairError(`${c.file} at HEAD does not hold the text the fix replaces exactly once; commit your changes to it first, or apply the patch`);
+  at = Math.max(at, 0);
+  const env = { ...process.env, GIT_INDEX_FILE: join(scratch, 'index') };
+  git(root, ['read-tree', 'HEAD'], { env });
+  const mode = git(root, ['ls-tree', 'HEAD', '--', c.file]).split(/\s+/)[0] || '100644';
+  const blob = git(root, ['hash-object', '-w', '--stdin'], { input: applyEdit(head, { offset: at, text: c.before }, c.after) }).trim();
+  git(root, ['update-index', '--add', '--cacheinfo', `${mode},${blob},${c.file}`], { env });
+  const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]));
+  for (const x of extra) {
+    for (const f of files(x.from)) {
+      const b = git(root, ['hash-object', '-w', f]).trim();
+      const to = `${x.to}/${relative(x.from, f)}`.split(/[\\/]+/).join('/');
+      git(root, ['update-index', '--add', '--cacheinfo', `100644,${b},${to}`], { env });
+    }
+  }
+  const tree = git(root, ['write-tree'], { env }).trim();
+  const commit = git(root, ['commit-tree', tree, '-p', 'HEAD', '-F', '-'], { input: message }).trim();
+  git(root, ['update-ref', `refs/heads/${name}`, commit, '']);
+  rmSync(join(scratch, 'index'), { force: true });
+  return name;
+}
+
+function openPullRequest(root: string, branch: string, title: string, body: string): string {
+  const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  if (base === 'HEAD') throw new RepairError('HEAD is detached, so there is no branch to open the pull request against');
+  try {
+    git(root, ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`]);
+  } catch (err) {
+    throw new RepairError(`git push origin ${branch} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() ?? (err as Error).message}`);
+  }
+  const r = spawnSync('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', title, '--body-file', body], { cwd: root, encoding: 'utf8' });
+  if (r.error || r.status !== 0) throw new RepairError(`gh pr create failed: ${(r.stderr || r.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand`);
+  return r.stdout.trim().split('\n').at(-1) ?? '';
+}
+
+/** Splits failing runs into the ones the repairer sees and the ones held out from it: every other run, oldest first. */
+export function splitHoldout<T extends { parent: RunRecord }>(runs: T[]): { targets: T[]; holdout: T[] } {
+  const sorted = [...runs].sort((a, b) => a.parent.startedAt - b.parent.startedAt || a.parent.runId.localeCompare(b.parent.runId));
+  return { targets: sorted.filter((_, i) => i % 2 === 0), holdout: sorted.filter((_, i) => i % 2 === 1) };
+}

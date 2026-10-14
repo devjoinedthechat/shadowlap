@@ -1,0 +1,23 @@
+# Render Blueprint for the telemetry collector, for anyone who wants to host their own.
+# Render detects a Blueprint only at the repository root, so copy this file there in your own fork:
+# New → Blueprint, pick the repository, then add a custom domain you control on the service.
+services:
+  - type: web
+    name: shadowlap-telemetry
+    runtime: docker
+    dockerfilePath: packages/collector/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: PORT
+        value: "8787"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: COLLECTOR_DB
+        value: /data/collector.db
+    disk:
+      name: collector-data
+      mountPath: /data
+      sizeGB: 1

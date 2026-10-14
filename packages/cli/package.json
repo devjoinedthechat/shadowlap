@@ -1,0 +1,63 @@
+{
+  "name": "shadowlap",
+  "version": "0.1.0",
+  "description": "Record, replay and fork AI agent runs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "shadowlap": "./bin/shadowlap.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "guard",
+    "!**/__pycache__"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@shadowlap/engine": "^0.1.0",
+    "@shadowlap/sidecar": "^0.1.0",
+    "commander": "^15.0.0",
+    "@shadowlap/tui": "^0.1.0",
+    "@shadowlap/dashboard": "^0.1.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.126.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "llm",
+    "record-replay",
+    "debugging",
+    "anthropic",
+    "openai",
+    "deterministic-replay"
+  ],
+  "devDependencies": {
+    "@shadowlap/collector": "^0.1.0",
+    "@anthropic-ai/sdk": "^0.126.0"
+  }
+}

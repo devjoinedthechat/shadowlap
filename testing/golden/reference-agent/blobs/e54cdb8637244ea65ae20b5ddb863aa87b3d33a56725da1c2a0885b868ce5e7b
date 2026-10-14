@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"toolu_search_web_23","name":"search_web","input":{"query":"final check"}},{"type":"tool_use","id":"toolu_fetch_page_24","name":"fetch_page","input":{"url":"https://example.com/e"}}]}

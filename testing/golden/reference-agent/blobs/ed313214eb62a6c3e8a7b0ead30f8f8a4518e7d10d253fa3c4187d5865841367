@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"toolu_fetch_page_20","name":"fetch_page","input":{"url":"https://example.com/d"}},{"type":"tool_use","id":"toolu_read_file_21","name":"read_file","input":{"path":"data.csv"}}]}

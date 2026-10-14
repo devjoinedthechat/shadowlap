@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_send_email_26","content":"{\"sent\":true,\"to\":\"team@example.com\"}"}]}

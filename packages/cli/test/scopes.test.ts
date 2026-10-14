@@ -1,0 +1,65 @@
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
+import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+
+/**
+ * Sub-agents that send the same request at the same time, recorded in one order and replayed in the
+ * other. Without scopes they get each other's answers and the replay forks; with scope() it is clean.
+ */
+const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+const AGENT = fileURLToPath(new URL('./subagents-agent.mjs', import.meta.url));
+
+let mock: MockServer;
+let cwd: string;
+beforeAll(async () => {
+  mock = await startMockAnthropic({ script: (ctx) => ({ message: message([text(ctx.assistantTurns === 0 ? `plan ${ctx.requestNo}` : 'done')]) }) });
+  cwd = mkdtempSync(join(tmpdir(), 'fp-scopes-'));
+});
+afterAll(async () => {
+  await mock.close();
+  rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    child.on('exit', (code) => resolve({ code, out }));
+  });
+}
+
+describe('scopes for branches that run at once', () => {
+  it('without them, identical concurrent requests swap answers when the order changes', async () => {
+    const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const replay = await shadowlap(['replay', runId, '--strict'], { ORDER: 'reverse' });
+    expect(replay.code).toBe(1);
+    expect(replay.out).toMatch(/Diverged at call \d+ \(api POST \/v1\/messages\)/);
+  });
+
+  it('with scope(), each branch replays its own answers in any order, and every call carries its scope', async () => {
+    const recorded = await shadowlap(['run', '--', process.execPath, AGENT], { USE_SCOPE: '1' });
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const hits = mock.requests.length;
+    const replay = await shadowlap(['replay', runId, '--strict'], { USE_SCOPE: '1', ORDER: 'reverse' });
+    expect(replay.code, replay.out).toBe(0);
+    expect(replay.out).toMatch(/Replay clean: 4\/4 calls replayed/);
+    expect(mock.requests.length).toBe(hits);
+    const out = JSON.parse(replay.out.split('\n').find((l) => l.startsWith('["'))!) as string[];
+    expect(out).toEqual(JSON.parse(recorded.out.split('\n').find((l) => l.startsWith('["'))!));
+
+    const store = Store.open(join(cwd, 'store.db'));
+    const scopes = store.getCalls(runId).map((c) => c.meta.scope);
+    store.close();
+    expect(scopes.sort()).toEqual(['alpha', 'alpha', 'beta', 'beta']);
+  });
+});

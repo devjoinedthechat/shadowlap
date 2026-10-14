@@ -1,0 +1,35 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    // Tests index fixtures they built themselves; a wrong index fails the assertion anyway, and
+    // writing `x![0]` everywhere would add noise without safety. Every other strict check applies.
+    "noUncheckedIndexedAccess": false,
+    "paths": {
+      "@shadowlap/engine": ["./packages/engine/src/index.ts"],
+      "@shadowlap/sidecar": ["./packages/sidecar/src/index.ts"],
+      "@shadowlap/sdk": ["./packages/sdk/src/index.ts"],
+      "@shadowlap/adapters": ["./packages/adapters/src/index.ts"],
+      "@shadowlap/adapters/*": ["./packages/adapters/src/*"],
+      "@shadowlap/tui": ["./packages/tui/src/index.ts"],
+      "@shadowlap/tui/*": ["./packages/tui/src/*"],
+      "@shadowlap/dashboard": ["./packages/dashboard/src/index.ts"],
+      "@shadowlap/collector": ["./packages/collector/src/index.ts"],
+      "@shadowlap-testing/mock-anthropic": ["./testing/mock-anthropic/src/index.ts"],
+      "@shadowlap-testing/mock-openai": ["./testing/mock-openai/src/index.ts"],
+      "@shadowlap-testing/mock-gemini": ["./testing/mock-gemini/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/test/**/*.ts", "packages/*/test/**/*.tsx", "testing/**/test/**/*.ts"],
+  "exclude": [
+    // This one imports the dashboard's browser modules, which need the DOM library. Adding it here
+    // would shadow Node's fetch typings for every source file in the same pass, so the browser code
+    // keeps its own type-check: build-ui.mjs runs tsc over ui/tsconfig.json before bundling.
+    "packages/dashboard/test/normalize.test.ts"
+  ]
+}

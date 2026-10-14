@@ -1,0 +1,304 @@
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { estimateCost, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
+
+/**
+ * The model `shadowlap repair` asks for candidate fixes: the only model call in the repair loop that is
+ * not the agent's own. It is the user's, configured rather than built in, from any vendor: Anthropic
+ * through the official SDK; anything that speaks OpenAI's Chat Completions (OpenAI, OpenRouter,
+ * Ollama, vLLM) over plain HTTP; or the user's own Claude Code, run in print mode. It proposes; it
+ * never decides what is kept.
+ */
+
+export interface Repairer {
+  provider: 'anthropic' | 'openai' | 'claude-code';
+  model: string;
+  /** Overrides the provider's base URL (ANTHROPIC_BASE_URL or OPENAI_BASE_URL otherwise). */
+  baseUrl?: string;
+}
+
+/** The default when only `anthropic` is named: the current Opus. */
+export const DEFAULT_ANTHROPIC_REPAIRER = 'claude-opus-5-5';
+
+/**
+ * `anthropic`, `anthropic:claude-fable-5-1`, `openai:gpt-6-astra`, `claude-code` or
+ * `claude-code:claude-opus-5-5`. Plain `claude-code` leaves the model to Claude Code's own setting.
+ */
+export function parseRepairer(spec: string): Repairer {
+  const m = /^(anthropic|openai|claude-code)(?::(.+))?$/.exec(spec.trim());
+  if (!m) throw new Error(`a repairer is provider:model, such as anthropic:${DEFAULT_ANTHROPIC_REPAIRER}, openai:<model> or claude-code, got "${spec}"`);
+  const provider = m[1] as Repairer['provider'];
+  const model = m[2]?.trim();
+  if (!model && provider === 'openai') throw new Error('an openai repairer needs a model: openai:<model>');
+  return { provider, model: model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_REPAIRER : '') };
+}
+
+export class RepairerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RepairerError';
+  }
+}
+
+export interface RepairerAnswer {
+  diagnosis: string;
+  edits: ProposedEdit[];
+  /** The model that answered: a server-side fallback can differ from the one asked. */
+  served: string;
+  usage: Usage;
+  /** USD, or null when the model has no price. */
+  cost: number | null;
+}
+
+const SCHEMA = {
+  type: 'object',
+  properties: {
+    diagnosis: { type: 'string', description: 'Why the agent chose wrong, in general terms.' },
+    candidates: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          anchor: { type: 'integer', description: 'The number of the span to rewrite.' },
+          replace: { type: 'string', description: 'The whole new text of that span.' },
+          strategy: { type: 'string', description: 'The change in a few words, as a commit title.' },
+          why: { type: 'string', description: 'Why it makes the right choice clear in general.' },
+        },
+        required: ['anchor', 'replace', 'strategy', 'why'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['diagnosis', 'candidates'],
+  additionalProperties: false,
+} as const;
+
+/** One failing run's evidence for the repairer: where it was lost, and a path from there that passed. */
+export interface RepairCase {
+  step: number;
+  steps: number;
+  callNo: number;
+  /** The conversation the model saw at the blamed call. */
+  conversation: Conversation | null;
+  recorded: Block[];
+  rescued: Block[];
+  /** How the run fails the oracle. */
+  failures: string[];
+  /** The rescue was a stronger model, not asking the same one again. */
+  rescuedBy: string | null;
+}
+
+export interface RepairPromptInput {
+  oracle: string[];
+  system: string;
+  tools: Array<{ name: string; description: string }>;
+  cases: RepairCase[];
+  anchors: Anchor[];
+  candidates: number;
+}
+
+const SYSTEM = `You improve AI agents by rewriting the instructions they are given: the system prompt and the descriptions of their tools.
+
+You will see runs of an agent that failed, the model call where each run was lost, what the agent did there, and what it did in a run from the same point that passed. Find what in the instructions let the agent make the wrong choice, and propose rewrites that make the right choice clear for every case like these, including cases you have not seen.`;
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)} … (${s.length - n} more characters)` : s);
+
+function describeBlock(b: Block | Conversation['turns'][number]['blocks'][number]): string | null {
+  switch (b.type) {
+    case 'text':
+      return b.text.trim() ? clip(b.text.trim(), 1500) : null;
+    case 'tool_call':
+      return `→ ${b.name}(${clip(JSON.stringify(b.input ?? {}), 600)})`;
+    case 'tool_result':
+      return `${b.isError ? '(error) ' : ''}${clip(b.content, 1500)}`;
+    default:
+      return null;
+  }
+}
+
+/** The conversation at the blamed call, latest last, without the system prompt (shown on its own). */
+function renderConversation(c: Conversation | null, turns = 16): string {
+  if (!c) return '  (not available)';
+  const body = c.turns.filter((t, i) => !(t.role === 'system' && c.turns.slice(0, i).every((x) => x.role === 'system')));
+  const shown = body.slice(-turns);
+  const lines = shown.flatMap((t) => {
+    const parts = t.blocks.map(describeBlock).filter((x): x is string => x !== null);
+    return parts.length ? [`  ${t.role}: ${parts.join('\n    ')}`] : [];
+  });
+  return [...(body.length > shown.length ? [`  (${body.length - shown.length} earlier turns not shown)`] : []), ...lines].join('\n');
+}
+
+const answer = (blocks: Block[]) => blocks.map(describeBlock).filter(Boolean).join(' ') || '(nothing)';
+
+export function buildRepairPrompt(input: RepairPromptInput): { system: string; user: string } {
+  const sections: string[] = [];
+  sections.push(`## What a run must do\n\n${input.oracle.map((o) => `- ${o}`).join('\n')}`);
+  sections.push(`## The agent's instructions\n\nSystem prompt:\n${input.system || '(none)'}\n\nTools:\n${input.tools.map((t) => `- ${t.name}: ${t.description || '(no description)'}`).join('\n') || '(none)'}`);
+  input.cases.forEach((c, i) => {
+    sections.push(
+      [
+        `## Failed run ${i + 1} of ${input.cases.length}: lost at model call ${c.step} of ${c.steps}`,
+        `It fails because: ${c.failures.join('; ')}.`,
+        `The conversation up to that call:\n${renderConversation(c.conversation)}`,
+        `What the agent did there: ${answer(c.recorded)}`,
+        `What it did there in a run that passed${c.rescuedBy ? ` (with the model ${c.rescuedBy})` : ''}: ${answer(c.rescued)}`,
+      ].join('\n\n'),
+    );
+  });
+  sections.push(
+    `## Text you may rewrite\n\nEach span appears exactly once in the agent's source, in the file named. A candidate replaces one whole span with new text.\n\n${input.anchors.map((a) => `[${a.id}] ${a.surface}, in ${a.file}: ${a.text}`).join('\n')}`,
+  );
+  sections.push(
+    `## Rules\n\n- Fix the rule, not the case. Never mention names, ids, amounts, dates or any other detail of these conversations: a fix that names them is rejected, and it would not hold for the next case.\n- Change as little as you can. Keep what a span says unless it is wrong.\n- Give up to ${input.candidates} candidates, each a different strategy: for example, stating the rule plainly in the system prompt, saying in a tool's description when not to use it, or saying which tool to use instead.\n- A span on one line stays on one line. A span from a code file goes into a string there, so write it without quotation marks, apostrophes or backslashes; a span from a Markdown or text file is prose.\n- In \`strategy\`, name the change in a few words, as a commit title would.`,
+  );
+  return { system: SYSTEM, user: sections.join('\n\n') };
+}
+
+/** Models that accept `effort` and structured outputs, and those that take the server-side refusal fallback. */
+const EFFORT = /^claude-(fable|mythos|opus-5|opus-4-[5-8]|sonnet-5|sonnet-4-6)/;
+const FALLBACK = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5']);
+
+function parsed(raw: unknown): { diagnosis: string; edits: ProposedEdit[] } {
+  const o = raw as { diagnosis?: unknown; candidates?: unknown };
+  if (!o || typeof o !== 'object' || !Array.isArray(o.candidates)) throw new RepairerError('the repairer did not answer with candidates');
+  const edits = o.candidates.flatMap((c: unknown): ProposedEdit[] => {
+    const x = c as Record<string, unknown>;
+    if (!x || typeof x.anchor !== 'number' || typeof x.replace !== 'string') return [];
+    return [{ anchor: x.anchor, replace: x.replace, strategy: typeof x.strategy === 'string' ? safeLine(x.strategy).slice(0, 120) : 'rewrite', why: typeof x.why === 'string' ? x.why : '' }];
+  });
+  return { diagnosis: typeof o.diagnosis === 'string' ? o.diagnosis : '', edits };
+}
+
+function jsonIn(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    throw new RepairerError('the repairer did not answer with JSON');
+  }
+}
+
+export async function askRepairer(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+  if (r.provider === 'claude-code') return askClaudeCode(r, prompt, prices);
+  return r.provider === 'anthropic' ? askAnthropic(r, prompt, prices) : askOpenAI(r, prompt, prices);
+}
+
+/**
+ * Variables Claude Code sets for the processes it runs, describing its own session. A `claude`
+ * started with them believes it is nested in that session; they are dropped, and nothing else is.
+ */
+const CLAUDE_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_REMOTE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION'];
+
+/**
+ * The user's own Claude Code, in print mode: `claude -p` with the prompt on stdin, no tools, and the
+ * answer held to the schema. It runs in an empty directory, so no project's instructions reach the
+ * prompt. Shadowlap never sees how Claude Code is signed in; it runs the binary the user installed.
+ */
+async function askClaudeCode(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+  const bin = process.env.SHADOWLAP_CLAUDE || 'claude';
+  const env = { ...process.env };
+  for (const v of CLAUDE_SESSION_VARS) delete env[v];
+  const cwd = mkdtempSync(join(tmpdir(), 'shadowlap-repairer-'));
+  const args = ['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2', '--system-prompt', prompt.system, '--json-schema', JSON.stringify(SCHEMA), ...(r.model ? ['--model', r.model] : [])];
+  let stdout = '';
+  let stderr = '';
+  const code = await new Promise<number>((resolveCode, reject) => {
+    const child = spawn(bin, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`the claude-code repairer runs Claude Code, and ${bin} was not found: install it, or set SHADOWLAP_CLAUDE to its path`) : err));
+    child.on('exit', (c) => resolveCode(c ?? 1));
+    child.stdin.end(prompt.user);
+  }).finally(() => rmSync(cwd, { recursive: true, force: true }));
+  let d: { is_error?: boolean; result?: string; structured_output?: unknown; modelUsage?: Record<string, unknown>; total_cost_usd?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
+  try {
+    d = JSON.parse(stdout);
+  } catch {
+    throw new RepairerError(`Claude Code did not answer with its JSON report (exit ${code})${stderr.trim() ? `: ${safeLine(stderr.trim().split('\n').at(-1)!)}` : ''}`);
+  }
+  if (d.is_error) throw new RepairerError(`Claude Code answered with an error: ${safeLine(String(d.result ?? 'no detail'))}`);
+  const out = parsed(d.structured_output ?? jsonIn(d.result ?? ''));
+  const served = Object.keys(d.modelUsage ?? {})[0] ?? (r.model || 'claude-code');
+  const u = d.usage ?? {};
+  const usage: Usage = { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0, ...(u.cache_read_input_tokens ? { cacheReadInputTokens: u.cache_read_input_tokens } : {}), ...(u.cache_creation_input_tokens ? { cacheCreationInputTokens: u.cache_creation_input_tokens } : {}) };
+  // Claude Code's own estimate, at API prices, whatever it is signed in with.
+  return { ...out, served, usage, cost: typeof d.total_cost_usd === 'number' ? d.total_cost_usd : estimateCost(served, usage, prices) };
+}
+
+async function askAnthropic(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+  // An optional peer: installed by those who ask Claude for fixes, and by nobody else.
+  let sdk: typeof import('@anthropic-ai/sdk');
+  let helpers: typeof import('@anthropic-ai/sdk/helpers/beta/json-schema');
+  try {
+    sdk = await import('@anthropic-ai/sdk');
+    helpers = await import('@anthropic-ai/sdk/helpers/beta/json-schema');
+  } catch {
+    throw new RepairerError('an anthropic repairer needs the Anthropic SDK, which Shadowlap does not install for everyone: npm install @anthropic-ai/sdk');
+  }
+  const Anthropic = sdk.default;
+  const { betaJSONSchemaOutputFormat } = helpers;
+  // Credentials come from the environment (ANTHROPIC_API_KEY, or a profile from `ant auth login`).
+  const client = new Anthropic(r.baseUrl ? { baseURL: r.baseUrl } : {});
+  let message;
+  try {
+    message = await client.beta.messages.parse({
+      model: r.model,
+      max_tokens: 16000,
+      system: prompt.system,
+      messages: [{ role: 'user', content: prompt.user }],
+      output_config: { ...(EFFORT.test(r.model) ? { effort: 'high' as const } : {}), format: betaJSONSchemaOutputFormat(SCHEMA) },
+      // On a policy decline the API answers from a fallback model in the same call.
+      ...(FALLBACK.has(r.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) throw new RepairerError('the Anthropic API refused the credentials: set ANTHROPIC_API_KEY, or run ant auth login');
+    if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
+    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}: ${err.message}`);
+    throw err;
+  }
+  if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');
+  if (message.stop_reason === 'max_tokens') throw new RepairerError('the repairer ran out of tokens before it finished its answer');
+  const text = message.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('');
+  const out = parsed(message.parsed_output ?? jsonIn(text));
+  const u = message.usage;
+  const usage: Usage = { inputTokens: u.input_tokens, outputTokens: u.output_tokens, ...(u.cache_read_input_tokens ? { cacheReadInputTokens: u.cache_read_input_tokens } : {}), ...(u.cache_creation_input_tokens ? { cacheCreationInputTokens: u.cache_creation_input_tokens } : {}) };
+  return { ...out, served: message.model, usage, cost: estimateCost(message.model, usage, prices) };
+}
+
+async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
+  const base = (r.baseUrl ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const key = process.env.OPENAI_API_KEY;
+  const res = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
+    body: JSON.stringify({
+      model: r.model,
+      messages: [
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ],
+      response_format: { type: 'json_schema', json_schema: { name: 'repair_candidates', strict: true, schema: SCHEMA } },
+    }),
+  }).catch((err: unknown) => {
+    throw new RepairerError(`could not reach ${base}: ${(err as Error).message}`);
+  });
+  const body = (await res.json().catch(() => null)) as {
+    model?: string;
+    error?: { message?: string };
+    choices?: Array<{ finish_reason?: string; message?: { content?: string | null; refusal?: string | null } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
+  } | null;
+  if (!res.ok) throw new RepairerError(`${base} answered ${res.status}${body?.error?.message ? `: ${body.error.message}` : ''}${res.status === 401 ? ' (set OPENAI_API_KEY)' : ''}`);
+  const choice = body?.choices?.[0];
+  if (choice?.message?.refusal) throw new RepairerError('the repairer declined to answer');
+  if (choice?.finish_reason === 'length') throw new RepairerError('the repairer ran out of tokens before it finished its answer');
+  const out = parsed(jsonIn(choice?.message?.content ?? ''));
+  const cached = body?.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const usage: Usage = { inputTokens: (body?.usage?.prompt_tokens ?? 0) - cached, outputTokens: body?.usage?.completion_tokens ?? 0, ...(cached ? { cacheReadInputTokens: cached } : {}) };
+  const served = body?.model ?? r.model;
+  return { ...out, served, usage, cost: estimateCost(served, usage, prices) };
+}

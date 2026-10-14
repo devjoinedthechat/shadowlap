@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/devjoinedthechat/shadowlap/main/shadowlap.config.schema.json",
+  "title": "shadowlap.config.json",
+  "description": "Project configuration for Shadowlap. Every key is optional; an empty object is valid. Add \"$schema\" pointing at this file for completion and validation in an editor.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "normalize": {
+      "description": "Rules that mask values before fingerprinting, so a generated id or today's date does not fork a replay. Stored content is untouched.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    },
+    "redact": {
+      "description": "Rules applied to stored content on `shadowlap pack`. A redacted pack still replays, because these are applied as normalizers when it does.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    },
+    "clock": {
+      "description": "auto (the default): dates and timestamps near each run's start match across days. exact: they must be equal.",
+      "enum": [
+        "auto",
+        "exact"
+      ]
+    },
+    "prices": {
+      "description": "USD per million tokens, by model name prefix. Extends and overrides the built-in table; used for cost estimates only.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "input",
+          "output"
+        ],
+        "properties": {
+          "input": {
+            "type": "number",
+            "minimum": 0
+          },
+          "output": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cacheRead": {
+            "type": "number",
+            "minimum": 0
+          },
+          "cacheWrite": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "http": {
+      "description": "Hosts called straight from a client library, recorded as tool calls with an effect. A key is a host like api.example.com or *.example.com, with an optional :port.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(\\*\\.)?[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]{1,5})?$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/effect"
+      }
+    },
+    "mcp": {
+      "description": "`shadowlap mcp`: effects by tool name, overriding what the server's annotations imply.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effects"
+      ],
+      "properties": {
+        "effects": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/effect"
+          }
+        }
+      }
+    },
+    "repair": {
+      "description": "`shadowlap repair`: the model that proposes fixes. It is yours, from any vendor, and is only asked; the verify gate decides what is kept.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repairer": {
+          "description": "provider:model, such as anthropic:claude-opus-5-5, openai:<model> or claude-code (your own Claude Code, in print mode). anthropic alone means claude-opus-5-5. --repairer overrides it.",
+          "type": "string",
+          "pattern": "^(anthropic|openai|claude-code)(:.+)?$"
+        },
+        "baseUrl": {
+          "description": "The repairer's API base URL, for a gateway or an OpenAI-compatible server. Defaults to ANTHROPIC_BASE_URL or OPENAI_BASE_URL.",
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "tests": {
+      "description": "Outcome checks for `shadowlap test`, by recording directory relative to this file. `*` is allowed in the last path segment.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "fork": {
+            "description": "The recording is expected to diverge: the replay goes live from the fork and passes on its checks alone.",
+            "type": "boolean"
+          },
+          "repeat": {
+            "description": "Run the replay this many times.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "passes": {
+            "description": "Attempts that must pass, out of `repeat`. Defaults to all of them.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "expect": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tools": {
+                "description": "By tool name: a count, or a count with arguments the call must contain.",
+                "type": "object",
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/count"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "count": {
+                          "$ref": "#/$defs/count"
+                        },
+                        "args": {
+                          "type": "object",
+                          "description": "Counts only calls whose arguments contain these values."
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "modelCalls": {
+                "$ref": "#/$defs/count"
+              },
+              "toolCalls": {
+                "$ref": "#/$defs/count"
+              },
+              "output": {
+                "$ref": "#/$defs/text",
+                "description": "The agent's stdout and stderr."
+              },
+              "answer": {
+                "$ref": "#/$defs/text",
+                "description": "The text of the last model response."
+              },
+              "inputTokens": {
+                "description": "Input tokens the run’s model requests add up to, cache reads included.",
+                "$ref": "#/$defs/count"
+              },
+              "outputTokens": {
+                "description": "Output tokens the run’s model responses add up to.",
+                "$ref": "#/$defs/count"
+              },
+              "cost": {
+                "description": "USD from the price table. A model with no price fails the check rather than passing quietly.",
+                "$ref": "#/$defs/amount"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "effect": {
+      "description": "What the call does to the world outside its arguments. Required by design: the only safe default would be write.",
+      "enum": [
+        "pure",
+        "read",
+        "write"
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replace"
+      ],
+      "properties": {
+        "kind": {
+          "description": "Restrict to one call kind. Omit for any.",
+          "enum": [
+            "api",
+            "tool",
+            "clock",
+            "random"
+          ]
+        },
+        "name": {
+          "description": "Restrict to one call name: a tool name, or e.g. \"POST /v1/messages\". Omit for any.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Where in the request to apply it: a JSONPath subset such as $.messages[0].content, with [*] and .* wildcards and [\"key\"]. Omit to apply `pattern` to every string.",
+          "type": "string",
+          "pattern": "^\\$"
+        },
+        "pattern": {
+          "description": "A named pattern (iso-date, iso-datetime, uuid, ulid, number, email) or a /regex/flags literal. With a path, omit it to replace the whole value.",
+          "type": "string"
+        },
+        "replace": {
+          "description": "What the match becomes while matching, e.g. <uuid>.",
+          "type": "string"
+        }
+      }
+    },
+    "count": {
+      "description": "An exact count, or a range: 0, \">= 1\", \"<= 12\", \"2-4\".",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\s*((>=|<=|>|<|=)?\\s*[0-9]+|[0-9]+\\s*-\\s*[0-9]+)\\s*$"
+        }
+      ]
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includes": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "excludes": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "amount": {
+      "description": "An amount in USD, or a range: 0.5, \"<= 0.50\", \"0.1-0.4\". A leading $ is allowed.",
+      "oneOf": [
+        {
+          "type": "number",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\s*\\$?\\s*((>=|<=|>|<|=)?\\s*\\$?\\s*[0-9]*\\.?[0-9]+|[0-9]*\\.?[0-9]+\\s*-\\s*[0-9]*\\.?[0-9]+)\\s*$"
+        }
+      ]
+    }
+  }
+}

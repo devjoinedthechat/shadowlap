@@ -1,0 +1,81 @@
+# Providers
+
+The proxy is body-agnostic; a provider module only says which hosts it owns, which headers matter, how retries are marked and how to read token usage. Every provider records into the same run, so an agent that calls Anthropic for planning and Bedrock for tools gets one timeline.
+
+| Provider | How calls reach the sidecar | Fingerprinted headers | Never stored |
+|---|---|---|---|
+| Anthropic | `ANTHROPIC_BASE_URL` | `anthropic-version`, `anthropic-beta` | `x-api-key`, `authorization`, cookies |
+| OpenAI and OpenAI-compatible | `OPENAI_BASE_URL` (with `/v1`) | `openai-beta` | `authorization`, `openai-organization`, `openai-project`, cookies |
+| Google Gemini | `GOOGLE_GEMINI_BASE_URL` | none | `x-goog-api-key`, `authorization`, the `?key=` query string |
+| Azure OpenAI | in-process capture | `openai-beta` | `api-key`, `authorization`, `openai-organization`, `openai-project`, cookies |
+| Vertex AI (Claude and Gemini models) | in-process capture | `anthropic-beta` | `authorization`, `x-goog-api-key`, `x-goog-user-project`, cookies |
+| Amazon Bedrock (InvokeModel and Converse, streamed or not) | in-process capture | none | `authorization`, `x-amz-security-token`, `x-amz-date`, `x-amz-content-sha256`, `x-amzn-trace-id`, cookies |
+
+## In-process capture
+
+A base URL can't reach every client. Bedrock clients sign each request for its host, so pointing them at another address breaks the signature. Azure and Vertex clients usually take their endpoint or region in code. And any client can hardcode its base URL.
+
+For Node and Python agents, `shadowlap run`, `replay` and `test` also preload a small capture module, the same way they load the [network guard](./how-it-works.md#the-network-guard). When the agent sends a request to a host a provider owns, the module sends that request to the sidecar instead, byte for byte with every signed header, and names the original host in `x-shadowlap-upstream`. The sidecar records the call and forwards it to that host, or serves it from the recording on replay. The agent's code and configuration stay as they are.
+
+| Runtime | What is captured |
+|---|---|
+| Node | `fetch`, `http.request` and `https.request` (and `get`), `http2.connect`. Covers the AWS SDK (`@aws-sdk/client-bedrock-runtime`, which speaks HTTP/2), `@anthropic-ai/bedrock-sdk`, `@anthropic-ai/vertex-sdk`, `@google/genai` and `AzureOpenAI` from `openai`. |
+| Python | httpx and httpx2 (`anthropic`, `openai`, `google-genai`, including `AnthropicVertex`, `AnthropicBedrock` and `AzureOpenAI`), requests, botocore (`boto3`) and urllib3 for clients that drive it themselves (`pinecone`, `elasticsearch`, `opensearch-py`). A module is patched when the agent first imports it, so an agent that never imports one pays nothing. |
+
+Other runtimes still record through the base-URL variables. The same capture records [HTTP services you declare](./sdk.md#http-services-without-wrapping), such as a vector database, as tool calls.
+
+- **Hosts.** Each provider declares the hosts it owns: `api.anthropic.com`, `api.openai.com`, `generativelanguage.googleapis.com`, `*.openai.azure.com`, `*.cognitiveservices.azure.com` and `*.services.ai.azure.com`, `aiplatform.googleapis.com` and its regional hosts, and `bedrock-runtime.<region>.amazonaws.com`. The sidecar forwards a captured call only to an `https` origin that matches its provider's hosts and refuses anything else with a 403, so a process on your machine can't use the sidecar to relay requests elsewhere.
+- **Signatures.** The path, query, body and signed headers are forwarded unchanged, so SigV4 signatures and Google and Azure tokens still verify upstream. A request that arrived over HTTP/2 is forwarded over HTTP/2 with its original `:authority`, which the AWS SDK signs.
+- **Your own base URL.** If `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` or `GOOGLE_GEMINI_BASE_URL` already points somewhere (a gateway, a local server), that address becomes the upstream, and calls to its host are captured too.
+- **Turning it off.** `SHADOWLAP_CAPTURE=off` leaves the agent's network calls alone. The base-URL variables still apply.
+
+### Credentials on replay
+
+A replayed call never reaches the provider, but the client still has to be willing to send it:
+
+- **Bedrock.** AWS clients refuse to send a request without credentials. `shadowlap test` supplies placeholder credentials to a run with Bedrock calls when the environment has none (no `AWS_ACCESS_KEY_ID`, `AWS_PROFILE`, web identity or container credentials, and no shared config files), so CI needs no AWS secrets. The region still has to come from the code or `AWS_REGION`. `shadowlap replay` goes live after a fork, so it uses your real credentials.
+- **Azure OpenAI.** Any API key works on replay, so set `AZURE_OPENAI_API_KEY` to a placeholder in CI. A client that authenticates with Entra ID fetches a token first, which a replay can't serve.
+- **Vertex AI.** Google clients fetch an OAuth token before calling Vertex, and that request isn't a model call. In CI, give the client a token from the environment (`accessToken` in Node, `access_token` in Python) or use Gemini's express mode with an API key.
+
+## Upstreams
+
+`SHADOWLAP_UPSTREAM_<PROVIDER>` sends a provider's calls somewhere other than where the agent addressed them: a mock, a staging endpoint, or an OpenAI-compatible server. For captured providers it replaces the host the agent named.
+
+```sh
+SHADOWLAP_UPSTREAM_BEDROCK=http://127.0.0.1:4010 shadowlap run -- python agent.py
+```
+
+## OpenAI-compatible servers
+
+Ollama, vLLM, OpenRouter, Groq and others speak the OpenAI wire format. Point the provider's upstream at the server:
+
+```sh
+SHADOWLAP_UPSTREAM_OPENAI=http://localhost:11434 shadowlap run -- node agent.js
+```
+
+The agent keeps using the `openai` SDK as before; `OPENAI_BASE_URL` routes it through the sidecar, which forwards to the upstream you named. If the project already sets `OPENAI_BASE_URL` to the server, Shadowlap uses that and nothing else is needed.
+
+[examples/local-model](https://github.com/devjoinedthechat/shadowlap/tree/main/examples/local-model) does this with the OpenAI Agents SDK and Ollama. GitHub Actions runs it every week against a real Ollama server: record, replay with the server unreachable, fork, and replay as a golden.
+
+## Usage
+
+Token usage is extracted from responses for the "tokens not re-spent" number:
+
+- Anthropic `usage`, in JSON and in the `message_start` and `message_delta` stream events. This also covers Claude on Vertex AI and on Bedrock InvokeModel, whose streams wrap the same events in AWS event-stream frames.
+- OpenAI Chat Completions (`prompt_tokens` and `completion_tokens`, including the final usage chunk when `stream_options.include_usage` is set) and the Responses API (`response.completed`). The same for Azure OpenAI.
+- Gemini `usageMetadata`, on the Gemini API and on Vertex AI.
+- Bedrock Converse `usage`, in JSON and in the stream's `metadata` event.
+
+The model comes from the request body or, for Vertex AI, Bedrock and Azure deployments, from the path. Prices look through Bedrock's region prefixes and version suffixes (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`) and Vertex's `@date` form, so those calls are priced like the models they name.
+
+## Status
+
+Anthropic, OpenAI and Gemini are exercised end to end by their official SDKs in the test suite against scripted fakes of the wire format: `@anthropic-ai/sdk` (streaming, tool use, retries, error responses), `openai` (streaming Chat Completions with tool calls) and `@google/genai` (streaming `generateContent` with function calls).
+
+Azure OpenAI, Vertex AI and Bedrock are exercised by eight official clients, run by the real CLI: record, replay with the upstream unreachable, and fork on a changed prompt. In Node: the AWS SDK (Converse and ConverseStream over HTTP/2), `@anthropic-ai/bedrock-sdk` (InvokeModel, streamed and not), `@anthropic-ai/vertex-sdk` with the region in code, `@google/genai` against Vertex, and `AzureOpenAI` with the endpoint in code. In Python: `boto3`, `openai.AzureOpenAI` and `anthropic.AnthropicVertex`. The Bedrock fake verifies every request's SigV4 signature against the host it was signed for.
+
+None of the fakes is the real service; if a real API behaves differently, please report what you see. The OpenAI wire format is also exercised against a real server, Ollama, with the OpenAI Agents SDK (see above).
+
+## Adding a provider
+
+A provider is one object in `packages/sidecar/src/providers.ts`: `id`, `hosts`, `upstream`, `env(baseUrl)`, `fingerprintHeaders`, `credentialHeaders`, an optional `retryCountHeader`, `isRetryableStatus`, `extractUsage`, `extractStopReason` and `extractModel`. If adding one needs a change in the engine beyond reading its wire format, the abstraction is wrong; open an issue.

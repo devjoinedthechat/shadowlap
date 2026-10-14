@@ -1,0 +1,65 @@
+{
+  "name": "@shadowlap/tui",
+  "version": "0.1.0",
+  "description": "Shadowlap terminal UI: runs, timeline, inspector, play mode and diffs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./actions": {
+      "types": "./dist/actions.d.ts",
+      "default": "./dist/actions.js"
+    },
+    "./data": {
+      "types": "./dist/data.d.ts",
+      "default": "./dist/data.js"
+    },
+    "./sse": {
+      "types": "./dist/sse.d.ts",
+      "default": "./dist/sse.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@shadowlap/engine": "^0.1.0",
+    "ink": "^7.1.1",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git",
+    "directory": "packages/tui"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "llm",
+    "record-replay",
+    "debugging",
+    "anthropic",
+    "openai",
+    "deterministic-replay"
+  ]
+}

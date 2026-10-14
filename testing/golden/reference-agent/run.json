@@ -1,0 +1,27 @@
+{
+  "format": "shadowlap-pack",
+  "version": 1,
+  "createdAt": 1792015159366,
+  "runs": [
+    {
+      "runId": "01M4Y6TKYXFKR5CE85WD7NJYEB",
+      "parentRunId": null,
+      "mode": "record",
+      "status": "completed",
+      "divergence": null,
+      "command": {
+        "argv": [
+          "node",
+          "testing/reference-agent/dist/main.js"
+        ],
+        "cwd": "."
+      },
+      "codeVersion": "golden",
+      "startedAt": 1792015159261,
+      "endedAt": 1792015159359,
+      "meta": {
+        "normalizersHash": "a48d7c2f8b5338c5eb472fa5e0886f4b09ef28e538c7b813b1ba717abd6f0d80"
+      }
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+import { describe, expect, it } from 'vitest';
+import { formatSummary, summarizeRun } from '../src/report.js';
+import type { CallRecord, DivergenceReport, Origin, RunRecord } from '../src/types.js';
+
+const run = (divergence: DivergenceReport | null): RunRecord => ({
+  runId: '01K5CQ4N7G0000000000000001',
+  parentRunId: '01K5CQ4N7G0000000000000000',
+  mode: 'replay',
+  status: 'completed',
+  divergence,
+  command: { argv: ['node', 'agent.js'], cwd: '/' },
+  codeVersion: null,
+  startedAt: 0,
+  endedAt: 1,
+});
+
+const call = (callNo: number, kind: CallRecord['kind'], name: string, origin: Origin): CallRecord => ({
+  runId: '01K5CQ4N7G0000000000000001',
+  callNo,
+  kind,
+  name,
+  fingerprint: 'f'.repeat(64),
+  occurrence: 1,
+  origin,
+  effect: kind === 'tool' ? 'write' : null,
+  requestRef: null,
+  meta: {},
+  at: 0,
+  end: { runId: '01K5CQ4N7G0000000000000001', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at: 1 },
+  attempts: [],
+});
+
+describe('formatSummary after a fork', () => {
+  const divergence: DivergenceReport = { type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1, counterpart: { runId: '01K5CQ4N7G0000000000000000', callNo: 2 } };
+  const notReached = [
+    { callNo: 2, kind: 'api' as const, name: 'POST /v1/messages' },
+    { callNo: 3, kind: 'tool' as const, name: 'open_ticket' },
+  ];
+
+  it('leaves the call the divergence was compared with out of the unused calls', () => {
+    const calls = [call(1, 'api', 'POST /v1/messages', 'replayed'), call(2, 'api', 'POST /v1/messages', 'live'), call(3, 'tool', 'open_ticket', 'stubbed')];
+    const text = formatSummary(summarizeRun(run(divergence), calls, notReached));
+    expect(text).toContain('1 recorded call left unused after the fork: #3 open_ticket');
+    expect(text).not.toContain('#2 POST');
+    expect(text).not.toContain('not reached');
+  });
+
+  it('counts blocked and stubbed writes by what happened to them', () => {
+    const one = (origins: Origin[]) => formatSummary(summarizeRun(run(divergence), [call(1, 'api', 'POST /v1/messages', 'replayed'), call(2, 'api', 'POST /v1/messages', 'live'), ...origins.map((o, i) => call(3 + i, 'tool', 'open_ticket', o))]));
+    expect(one(['stubbed', 'stubbed'])).toContain('then 1 live, 2 writes stubbed;');
+    expect(one(['blocked'])).toContain('then 1 live, 1 write blocked;');
+    expect(one(['blocked', 'stubbed', 'stubbed'])).toContain('3 writes (1 blocked, 2 stubbed);');
+  });
+
+  it('still says "not reached" when a replay without a fork stops early', () => {
+    const text = formatSummary(summarizeRun(run(null), [call(1, 'api', 'POST /v1/messages', 'replayed')], notReached));
+    expect(text).toContain('2 recorded calls not reached: #2 POST /v1/messages, #3 open_ticket');
+  });
+});
+
+describe('summarizeRun: where the calls were answered and paid for', () => {
+  const priced = (c: CallRecord, extra: Record<string, unknown> = {}): CallRecord => ({ ...c, meta: { model: 'claude-sonnet-4-5' }, end: { ...c.end!, meta: { usage: { inputTokens: 1_000_000, outputTokens: 0 }, ...extra } } });
+  const prices = { 'claude-sonnet-4-5': { input: 3, output: 15 } };
+
+  it('counts an imported recording as captured, not spent here, and sends nothing upstream', () => {
+    const imported: RunRecord = { ...run(null), mode: 'record', parentRunId: null, meta: { imported: { at: 1, from: 'session.har' } } };
+    const s = summarizeRun(imported, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });
+    expect(s.imported).toBe(true);
+    expect(s.cost).toMatchObject({ spent: 0, captured: 3 });
+    expect(s.upstreamRequests).toBe(0);
+    // Recorded here, the same call is spend.
+    const local = summarizeRun({ ...imported, meta: {} }, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });
+    expect(local.cost).toMatchObject({ spent: 3, captured: 0 });
+    expect(local.upstreamRequests).toBe(1);
+  });
+
+  it('keeps a replay of an imported recording as spend: that replay ran here', () => {
+    const replay: RunRecord = { ...run(null), meta: { imported: { at: 1, from: 'pack' } } };
+    const s = summarizeRun(replay, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });
+    expect(s.imported).toBe(false);
+    expect(s.cost.spent).toBe(3);
+  });
+
+  it('names an injected failure apart from live calls and does not count it upstream', () => {
+    const divergence: DivergenceReport = { type: 'forced', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 };
+    const failed = call(2, 'api', 'POST /v1/messages', 'live');
+    const injectedCall: CallRecord = { ...failed, end: { ...failed.end!, outcome: 'error', meta: { status: 429, injected: true } } };
+    const s = summarizeRun(run(divergence), [call(1, 'api', 'POST /v1/messages', 'replayed'), injectedCall, call(3, 'api', 'POST /v1/messages', 'live')]);
+    expect(s.injected).toBe(1);
+    expect(s.upstreamRequests).toBe(1);
+    expect(formatSummary(s)).toContain('then 1 live, 1 injected;');
+  });
+});

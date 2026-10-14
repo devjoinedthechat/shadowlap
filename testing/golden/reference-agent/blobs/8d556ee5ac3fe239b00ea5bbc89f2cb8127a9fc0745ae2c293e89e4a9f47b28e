@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"toolu_search_web_15","name":"search_web","input":{"query":"side effects"}},{"type":"tool_use","id":"toolu_search_web_16","name":"search_web","input":{"query":"vector clocks"}}]}

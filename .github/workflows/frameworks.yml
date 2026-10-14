@@ -1,0 +1,68 @@
+name: Frameworks
+
+# The adapters against the real frameworks. Pinned versions (testing/frameworks/package-lock.json)
+# on changes to the adapters, the SDKs or these tests, on Linux; the latest releases on Linux, macOS
+# and Windows every Monday, so an upstream change, or one that only shows on another platform, turns
+# up here before it reaches a user.
+on:
+  push:
+    branches: [main]
+    paths: ['packages/adapters/**', 'packages/sdk/**', 'packages/test/**', 'packages/sidecar/**', 'packages/engine/**', 'packages/cli/**', 'sdks/python/**', 'testing/frameworks/**', 'testing/mock-anthropic/**', '.github/workflows/frameworks.yml']
+  pull_request:
+    paths: ['packages/adapters/**', 'packages/sdk/**', 'packages/test/**', 'packages/sidecar/**', 'packages/engine/**', 'packages/cli/**', 'sdks/python/**', 'testing/frameworks/**', 'testing/mock-anthropic/**', '.github/workflows/frameworks.yml']
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      latest:
+        description: Test against the latest framework releases instead of the pinned ones
+        type: boolean
+        default: false
+      platforms:
+        description: Run on macOS and Windows as well as Linux
+        type: boolean
+        default: false
+
+jobs:
+  frameworks:
+    name: frameworks (${{ matrix.os }}, ${{ (github.event_name == 'schedule' || inputs.latest) && 'latest' || 'pinned' }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON((github.event_name == 'schedule' || inputs.platforms) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
+    env:
+      LATEST: ${{ (github.event_name == 'schedule' || inputs.latest) && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            testing/frameworks/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run build
+      - name: Install the frameworks
+        working-directory: testing/frameworks
+        shell: bash
+        run: |
+          if [ -n "$LATEST" ]; then
+            npm install --no-save ai@latest @openai/agents@latest @mastra/core@latest @langchain/core@latest @langchain/langgraph@latest @anthropic-ai/sdk@latest zod@latest @aws-sdk/client-bedrock-runtime@latest @anthropic-ai/bedrock-sdk@latest @anthropic-ai/vertex-sdk@latest @google/genai@latest openai@latest
+            python -m pip install --quiet pydantic-ai-slim openai-agents langgraph langchain-core crewai boto3 "anthropic[vertex]" pytest pytest-xdist
+          else
+            npm ci
+            python -m pip install --quiet pydantic-ai-slim==2.43.0 openai-agents==0.20.0 langgraph==1.2.11 langchain-core==1.6.3 crewai==1.15.22 boto3==1.43.96 "anthropic[vertex]==1.6.0" pytest==8.4.2 pytest-xdist==3.8.0
+          fi
+          npm ls ai @openai/agents @mastra/core @langchain/core @langchain/langgraph @anthropic-ai/sdk zod --depth=0 || true
+          python -m pip list 2>/dev/null | grep -iE '^(pydantic-ai-slim|openai-agents|langgraph|langchain-core|crewai|boto3|anthropic|pytest|pytest-xdist) '
+      - name: Test
+        working-directory: testing/frameworks
+        shell: bash
+        env:
+          SHADOWLAP_PYTHON: python
+        run: npm test

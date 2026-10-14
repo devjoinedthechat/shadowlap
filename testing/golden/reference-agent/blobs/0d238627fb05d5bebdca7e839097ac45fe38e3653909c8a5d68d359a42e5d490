@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"text","text":"Sending the summary."},{"type":"tool_use","id":"toolu_send_email_26","name":"send_email","input":{"to":"team@example.com","subject":"Research summary","body":"Replay works."}}]}

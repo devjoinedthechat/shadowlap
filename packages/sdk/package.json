@@ -1,0 +1,44 @@
+{
+  "name": "@shadowlap/sdk",
+  "version": "0.1.0",
+  "description": "Shadowlap SDK: effect-typed tool wrapper and clock/random helpers for replayable agents.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "llm",
+    "record-replay",
+    "debugging",
+    "anthropic",
+    "openai",
+    "deterministic-replay"
+  ]
+}

@@ -1,0 +1,75 @@
+name: Action
+
+# The GitHub Action in action.yml, used the way a repository uses it: a committed recording that
+# replays clean, the same recording against a changed agent, and a job where the action has to
+# build the CLI from its own source (as it must until shadowlap is on npm).
+on:
+  push:
+    branches: [main]
+    paths: ['action.yml', 'action/**', 'packages/**', 'testing/golden/**', 'testing/reference-agent/**', '.github/workflows/action.yml']
+  pull_request:
+    paths: ['action.yml', 'action/**', 'packages/**', 'testing/golden/**', 'testing/reference-agent/**', '.github/workflows/action.yml']
+  workflow_dispatch:
+
+jobs:
+  built:
+    name: on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: A recording that still matches passes
+        id: clean
+        uses: ./
+        with:
+          recordings: testing/golden/*
+      - name: The same recording against a changed agent fails
+        id: changed
+        uses: ./
+        env:
+          AGENT_SYSTEM_SUFFIX: Be brief.
+        with:
+          recordings: testing/golden/reference-agent
+          fail-on-divergence: 'false'
+          annotations: 'false'
+      - name: Check what the action reported
+        shell: bash
+        env:
+          CLEAN_PASSED: ${{ steps.clean.outputs.passed }}
+          CLEAN_FAILED: ${{ steps.clean.outputs.failed }}
+          CHANGED_FAILED: ${{ steps.changed.outputs.failed }}
+          CHANGED_REPORT: ${{ steps.changed.outputs.report-markdown }}
+        run: |
+          set -euo pipefail
+          echo "clean: $CLEAN_PASSED passed, $CLEAN_FAILED failed; changed: $CHANGED_FAILED failed"
+          [ "$CLEAN_PASSED" = 1 ] && [ "$CLEAN_FAILED" = 0 ] && [ "$CHANGED_FAILED" = 1 ]
+          grep -q 'diverged at call 3' "$CHANGED_REPORT"
+
+  from-source:
+    name: building the CLI from its source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # No install or build: the action builds shadowlap itself. That build also produces the
+      # reference agent the golden recording runs.
+      - name: Replay the golden
+        id: test
+        uses: ./
+        with:
+          recordings: testing/golden/reference-agent
+      - shell: bash
+        env:
+          PASSED: ${{ steps.test.outputs.passed }}
+        run: '[ "$PASSED" = 1 ]'

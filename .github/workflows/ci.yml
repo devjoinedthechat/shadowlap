@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet anthropic
+      - run: npm ci
+      - run: npm run build
+      # Test files are outside the build graph (each package compiles only src), so they get
+      # their own strict pass. Without it a type error in a test only ever shows up at runtime.
+      - run: npm run typecheck:tests
+      - run: npm test
+      - name: SDK conformance (typescript and python clients)
+        run: node --test --test-reporter=spec testing/conformance/conformance.test.mjs
+      - name: shadowlap test (offline golden replay)
+        shell: bash
+        run: |
+          node packages/cli/bin/shadowlap.js test testing/golden/reference-agent --junit shadowlap-junit.xml
+          grep -q 'failures="0"' shadowlap-junit.xml
+      - name: CLI smoke (record, replay, fork)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d)"
+          node "$GITHUB_WORKSPACE/testing/reference-agent/dist/mock-server.js" > mock.url 2>/dev/null &
+          MOCK=$!
+          for i in $(seq 1 50); do [ -s mock.url ] && break; sleep 0.1; done
+          export SHADOWLAP_UPSTREAM_ANTHROPIC="$(cat mock.url)" NO_COLOR=1
+          CLI="$GITHUB_WORKSPACE/packages/cli/bin/shadowlap.js"
+          AGENT="$GITHUB_WORKSPACE/testing/reference-agent/dist/main.js"
+          # Capture, print, then grep: `cmd | grep -q` under pipefail fails when grep closes the pipe early (EPIPE).
+          OUT="$(node "$CLI" run -- node "$AGENT" 2>&1)"; echo "$OUT" | tail -4; grep -q 'Recorded' <<<"$OUT"
+          RUN="$(node "$CLI" ls | head -1 | awk '{print $1}')"; echo "run: $RUN"
+          OUT="$(node "$CLI" replay "$RUN" --strict 2>&1)"; echo "$OUT" | tail -3; grep -q 'Replay clean: 30/30' <<<"$OUT"
+          # macOS ships bash 3.2, where `VAR=x fn` doesn't reach a function's children; use env.
+          if env AGENT_SYSTEM_SUFFIX='Be brief.' node "$CLI" replay "$RUN" --strict >/dev/null 2>&1; then echo 'expected --strict to fail on a fork'; exit 1; fi
+          OUT="$(env AGENT_SYSTEM_SUFFIX='Be brief.' node "$CLI" replay "$RUN" 2>&1)"; echo "$OUT" | tail -8; grep -q 'Diverged at call 3' <<<"$OUT"
+          OUT="$(node "$CLI" show "$RUN")"; echo "$OUT" | head -8; grep -q 'send_email' <<<"$OUT"
+          # The same scenario in Python, through the CLI: the real anthropic package and the Python SDK.
+          PYAGENT="$GITHUB_WORKSPACE/testing/reference-agent/python/agent.py"
+          OUT="$(env AGENT_DATE=2026-09-16 node "$CLI" run -- python "$PYAGENT" 2>&1)"; echo "$OUT" | tail -3; grep -q 'Recorded' <<<"$OUT"
+          PYRUN="$(node "$CLI" ls | head -1 | awk '{print $1}')"
+          OUT="$(env AGENT_DATE=2026-09-16 node "$CLI" replay "$PYRUN" --strict 2>&1)"; echo "$OUT" | tail -2; grep -q 'Replay clean: 30/30' <<<"$OUT"
+          OUT="$(env AGENT_DATE=2026-09-17 node "$CLI" replay "$PYRUN" 2>&1)"; echo "$OUT" | tail -6; grep -q 'Diverged at call 3' <<<"$OUT"
+          kill $MOCK
+      # `if: always()` is the whole point: the run that fails is the one whose report is worth
+      # keeping. Test files run in parallel workers, so a failure that does not reproduce locally is
+      # only ever identifiable from the report of the run that saw it.
+      - name: Test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}-node${{ matrix.node }}
+          path: |
+            vitest-junit.xml
+            shadowlap-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14

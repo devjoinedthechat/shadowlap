@@ -1,0 +1,48 @@
+{
+  "name": "@shadowlap/collector",
+  "version": "0.1.0",
+  "description": "The tiny telemetry collector for Shadowlap: strict allowlist, SQLite, aggregate stats and a public dashboard.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "shadowlap-collector": "./bin/shadowlap-collector.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git",
+    "directory": "packages/collector"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "llm",
+    "record-replay",
+    "debugging",
+    "anthropic",
+    "openai",
+    "deterministic-replay"
+  ]
+}

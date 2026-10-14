@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shadowlap"
+version = "0.1.0"
+description = "Shadowlap SDK: effect-typed tools and recorded clock/randomness for replayable AI agents."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+dependencies = []
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Debuggers",
+]
+
+[project.entry-points.pytest11]
+shadowlap = "shadowlap.pytest_plugin"
+
+[project.urls]
+Homepage = "https://github.com/devjoinedthechat/shadowlap"
+
+[tool.setuptools]
+packages = ["shadowlap", "shadowlap.adapters"]

@@ -1,0 +1,84 @@
+name: Release
+
+# Publishes on a version tag: `node scripts/set-version.mjs 0.1.0 && npm install && git commit -am "v0.1.0" && git tag v0.1.0 && git push --tags`.
+# npm: provenance-attested, needs the NPM_TOKEN secret (an automation token for the @shadowlap scope and the shadowlap name).
+# PyPI: trusted publishing, needs the shadowlap project on PyPI to trust this repository and the "release" environment.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Rehearse the release against a local registry
+        run: node scripts/release-rehearsal.mjs
+      - name: Tag matches package versions
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          for p in packages/engine packages/sidecar packages/sdk packages/adapters packages/tui packages/dashboard packages/cli packages/test packages/collector; do
+            V="$(node -p "require('./$p/package.json').version")"
+            [ "$V" = "$TAG" ] || { echo "$p is $V, tag is $TAG"; exit 1; }
+          done
+          grep -q "^version = \"$TAG\"" sdks/python/pyproject.toml || { echo "python version differs from tag"; exit 1; }
+
+  npm:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      - name: Publish (dependencies first)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for p in packages/engine packages/sdk packages/sidecar packages/adapters packages/tui packages/dashboard packages/cli packages/test packages/collector; do
+            npm publish --workspace "$p" --provenance --access public
+          done
+
+  pypi:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade build && python -m build sdks/python --outdir dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  github-release:
+    needs: [npm, pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release notes from CHANGELOG.md
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          awk -v tag="$TAG" '/^## /{p = ($2 == tag)} p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Release $TAG" > notes.md
+      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}

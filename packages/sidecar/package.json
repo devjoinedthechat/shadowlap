@@ -1,0 +1,54 @@
+{
+  "name": "@shadowlap/sidecar",
+  "version": "0.1.0",
+  "description": "Shadowlap sidecar: record/replay proxy for model APIs and the call resolution API for SDKs.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@shadowlap/engine": "^0.1.0"
+  },
+  "devDependencies": {
+    "openai": "^7.16.0",
+    "@shadowlap-testing/mock-openai": "^0.1.0",
+    "@shadowlap/sdk": "^0.1.0",
+    "@google/genai": "^2.22.0",
+    "@shadowlap-testing/mock-gemini": "^0.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git",
+    "directory": "packages/sidecar"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "llm",
+    "record-replay",
+    "debugging",
+    "anthropic",
+    "openai",
+    "deterministic-replay"
+  ]
+}

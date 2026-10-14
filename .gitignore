@@ -1,0 +1,49 @@
+# Shadowlap recordings (prompts, tool I/O) never belong in git; share via `shadowlap pack`
+.shadowlap/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+sdks/python/build/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.kilo/
+.kilocode/
+
+# Private notes (plans, decisions, reviews) are dot-prefixed Markdown at the root: never committed
+/.*.md
+
+# Test reports
+vitest-junit.xml
+shadowlap-junit.xml
+
+# Built site (site/index.html is generated from site/template.html and docs/)
+site/dist/
+site/index.html
+
+# Scratch projects the framework tests create
+testing/frameworks/.tmp-*/
+
+# Sample exports for eyeballing
+/.*.html
+
+# Agent worktrees
+/.worktrees/

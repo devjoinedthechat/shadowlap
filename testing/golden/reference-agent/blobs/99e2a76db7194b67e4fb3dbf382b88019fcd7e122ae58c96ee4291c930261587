@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_read_file_9","content":"{\"path\":\"notes.md\",\"content\":\"# Notes\\nShadowlap records and replays agent runs.\"}"},{"type":"tool_result","tool_use_id":"toolu_read_file_10","content":"{\"path\":\"config.json\",\"content\":\"{\\\"model\\\":\\\"claude-opus-5\\\",\\\"max_tokens\\\":1024}\"}"}]}

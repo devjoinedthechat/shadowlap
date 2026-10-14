@@ -1,0 +1,219 @@
+import { describe, expect, it } from 'vitest';
+import { describeBlocks, formatBlame, maxProbes, probeVerdict, searchBlame, type BlameProbe, type BlameReport } from '../src/blame.js';
+
+/** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
+function probes(steps: number[], rate: (i: number) => number, n = 5, needed = 2) {
+  const seen: number[] = [];
+  const probe = async (callNo: number, step: number): Promise<BlameProbe> => {
+    seen.push(callNo);
+    const passes = rate(step - 1);
+    return {
+      callNo,
+      step,
+      passes,
+      rescued: passes >= needed,
+      attempts: Array.from({ length: n }, (_, i) => ({ runId: `r${callNo}-${i}`, passed: i < passes, exitCode: 0, failures: i < passes ? [] : ['x'], spent: 0, upstreamRequests: 1 })),
+    };
+  };
+  return { probe, seen };
+}
+
+const calls = (n: number) => Array.from({ length: n }, (_, i) => 3 + i * 4);
+
+describe('probeVerdict', () => {
+  it('settles as soon as the attempts left cannot change the outcome', () => {
+    expect(probeVerdict(2, 2, 5, 2)).toBe('rescued');
+    expect(probeVerdict(1, 1, 5, 2)).toBe('open');
+    // Four failures of five: even a pass on the last attempt leaves one, short of two.
+    expect(probeVerdict(0, 4, 5, 2)).toBe('lost');
+    expect(probeVerdict(0, 3, 5, 2)).toBe('open');
+    expect(probeVerdict(1, 4, 5, 2)).toBe('open');
+    expect(probeVerdict(1, 5, 5, 2)).toBe('lost');
+    expect(probeVerdict(0, 1, 1, 1)).toBe('lost');
+  });
+
+  it('never decides differently from running every attempt', () => {
+    // Every sequence of 5 outcomes: stopping at the first settled verdict agrees with the full count.
+    for (let bits = 0; bits < 32; bits++) {
+      const outcomes = Array.from({ length: 5 }, (_, i) => ((bits >> i) & 1) === 1);
+      const full = outcomes.filter(Boolean).length >= 2 ? 'rescued' : 'lost';
+      let passes = 0;
+      let early: string = 'open';
+      for (let done = 1; done <= 5 && early === 'open'; done++) {
+        if (outcomes[done - 1]) passes++;
+        early = probeVerdict(passes, done, 5, 2);
+      }
+      expect(early, outcomes.join()).toBe(full);
+    }
+  });
+});
+
+describe('searchBlame', () => {
+  it('finds the last model call whose resampling rescues the run, wherever it is', async () => {
+    for (let n = 1; n <= 17; n++) {
+      for (let boundary = 0; boundary < n; boundary++) {
+        const steps = calls(n);
+        const { probe, seen } = probes(steps, (i) => (i <= boundary ? 4 : 0));
+        const r = await searchBlame({ steps, probe, scan: 0 });
+        expect(r.outcome).toBe('blamed');
+        expect(r.blamed?.callNo, `n=${n} boundary=${boundary}`).toBe(steps[boundary]);
+        expect(r.lost?.callNo ?? null).toBe(boundary + 1 < n ? steps[boundary + 1] : null);
+        expect(r.confidence).toBe('high');
+        expect(seen.length).toBeLessThanOrEqual(maxProbes(n, 0));
+        expect(new Set(seen).size, 'no call probed twice').toBe(seen.length);
+      }
+    }
+  });
+
+  it('probes a run of 30 model calls about six times, not thirty', async () => {
+    const steps = calls(30);
+    const { probe, seen } = probes(steps, (i) => (i <= 16 ? 3 : 0));
+    const r = await searchBlame({ steps, probe, scan: 2 });
+    expect(r.blamed?.step).toBe(17);
+    expect(seen.length).toBeLessThanOrEqual(maxProbes(30, 2));
+    expect(maxProbes(30, 2)).toBe(8);
+  });
+
+  it('reports a run that no resample rescues, after one probe', async () => {
+    const steps = calls(8);
+    const { probe, seen } = probes(steps, () => 0);
+    const r = await searchBlame({ steps, probe, scan: 2 });
+    expect(r).toMatchObject({ outcome: 'unrescuable', blamed: null, confidence: 'high' });
+    expect(r.lost?.callNo).toBe(steps[0]);
+    expect(seen).toEqual([steps[0]]);
+  });
+
+  it('blames the last model call when resampling it still rescues the run', async () => {
+    const steps = calls(6);
+    const { probe } = probes(steps, () => 5);
+    const r = await searchBlame({ steps, probe, scan: 2 });
+    expect(r).toMatchObject({ outcome: 'blamed', lost: null, confidence: 'high' });
+    expect(r.blamed?.callNo).toBe(steps[5]);
+  });
+
+  it('lowers the confidence when the call after the boundary still passes sometimes', async () => {
+    const steps = calls(6);
+    const { probe } = probes(steps, (i) => (i <= 2 ? 3 : i === 3 ? 1 : 0));
+    const r = await searchBlame({ steps, probe, scan: 0 });
+    expect(r.blamed?.step).toBe(3);
+    expect(r.confidence).toBe('medium');
+  });
+
+  it('moves past a boundary that rescue crosses again, and says so', async () => {
+    // Rescuable at steps 1-3, not at 4 or 5, again at 6, never after: not monotone. The binary
+    // search meets the first boundary (3 | 4), and only the scan past it sees step 6.
+    const steps = calls(8);
+    const rescuable = new Set([0, 1, 2, 5]);
+    const { probe } = probes(steps, (i) => (rescuable.has(i) ? 4 : 0));
+    const scanned = await searchBlame({ steps, probe, scan: 2 });
+    expect(scanned.blamed?.step).toBe(6);
+    expect(scanned.confidence).toBe('low');
+    expect(scanned.nonMonotone).toEqual([{ lost: steps[3], rescued: steps[5] }]);
+
+    // Without a scan the search stops at the first boundary and has no evidence against it.
+    const { probe: probe2 } = probes(steps, (i) => (rescuable.has(i) ? 4 : 0));
+    const unscanned = await searchBlame({ steps, probe: probe2, scan: 0 });
+    expect(unscanned.blamed?.step).toBe(3);
+    expect(unscanned.confidence).toBe('high');
+  });
+
+  it('can land past a dip it never probed: binary search finds a boundary, not every one', async () => {
+    const steps = calls(12);
+    const rescuable = new Set([0, 1, 2, 5, 6]);
+    const { probe } = probes(steps, (i) => (rescuable.has(i) ? 4 : 0));
+    const r = await searchBlame({ steps, probe, scan: 2 });
+    expect(r.blamed?.step).toBe(7);
+    expect(r.nonMonotone).toEqual([]);
+  });
+
+  it('stops when a probe cannot run, and keeps what it found', async () => {
+    const steps = calls(16);
+    let left = 3;
+    const inner = probes(steps, (i) => (i <= 9 ? 4 : 0));
+    const r = await searchBlame({ steps, probe: (c, s) => (left-- > 0 ? inner.probe(c, s) : Promise.resolve(null)), scan: 2 });
+    expect(r.outcome).toBe('stopped');
+    expect(r.confidence).toBe('low');
+    expect(r.probes).toHaveLength(3);
+    expect(r.blamed).not.toBeNull();
+  });
+
+  it('refuses a run without model calls', async () => {
+    await expect(searchBlame({ steps: [], probe: async () => null, scan: 0 })).rejects.toThrow(/no model calls/);
+  });
+});
+
+describe('formatBlame', () => {
+  const probe = (callNo: number, step: number, passes: number, n: number, rescued: boolean): BlameProbe => ({
+    callNo,
+    step,
+    passes,
+    rescued,
+    attempts: Array.from({ length: n }, (_, i) => ({ runId: `01K5CR${callNo}${i}`.padEnd(26, '0'), passed: i < passes, exitCode: 0, failures: [], spent: 0.01, upstreamRequests: 2 })),
+  });
+  const base = (over: Partial<BlameReport>): BlameReport => ({
+    outcome: 'blamed',
+    blamed: null,
+    lost: null,
+    probes: [],
+    nonMonotone: [],
+    confidence: 'high',
+    runId: '01K5CQ4N7G8M2XWQH6V3T9RB1D',
+    steps: 4,
+    attemptsPerProbe: 5,
+    needed: 2,
+    rescue: { fields: {} },
+    oracle: ['exit code 0', 'issue_refund called 0 times'],
+    recordedFailures: ['issue_refund called 1 time'],
+    contrast: null,
+    attempts: 9,
+    spent: 0.09,
+    upstreamRequests: 18,
+    unknownModels: [],
+    stopReason: null,
+    warnings: [],
+    ...over,
+  });
+
+  it('names the blamed call, the evidence on both sides of it, and what the model did there', () => {
+    const a = probe(3, 1, 2, 3, true);
+    const b = probe(11, 3, 2, 2, true);
+    const c = probe(15, 4, 0, 4, false);
+    const text = formatBlame(
+      base({
+        blamed: b,
+        lost: c,
+        probes: [a, b, c],
+        contrast: { callNo: 11, recorded: [{ type: 'tool_call', name: 'issue_refund', input: { order_id: 'A-1042' } }], rescued: [{ type: 'text', text: 'Over the limit.' }, { type: 'tool_call', name: 'escalate', input: {} }], rescuedRunId: '01K5CR1100000000000000000' },
+      }),
+    );
+    expect(text).toContain('The run was lost at model call #11 (3 of 4)');
+    expect(text).toContain('Resampling #11 rescued 2 of 2 attempts; resampling #15, the next model call, rescued 0 of 4.');
+    expect(text).toContain('Confidence: high');
+    expect(text).toContain('issue_refund({"order_id":"A-1042"})');
+    expect(text).toContain('"Over the limit.", escalate({})');
+    expect(text).toMatch(/#11 +3 of 4 +2 of 2 passed +rescued  ◂ blamed/);
+    expect(text).toContain('9 attempts · 18 upstream requests');
+    expect(text).toContain('shadowlap diff 01K5CQ4N7G 01K5CR1100');
+  });
+
+  it('says what an unrescuable run means', () => {
+    const text = formatBlame(base({ outcome: 'unrescuable', probes: [probe(3, 1, 0, 4, false)], lost: probe(3, 1, 0, 4, false) }));
+    expect(text).toContain('Not rescued from any model call');
+    expect(text).toContain('passed 0 of 4 attempts, fewer than the 2 a rescue needs');
+    expect(text).toContain('--model');
+    expect(text).not.toContain('Confidence');
+  });
+
+  it('describes a rescue that changes the request', () => {
+    const text = formatBlame(base({ blamed: probe(3, 1, 3, 3, true), probes: [probe(3, 1, 3, 3, true)], rescue: { fields: { model: 'claude-opus-5-5', temperature: 1 } } }));
+    expect(text).toContain('resample from the probed call on with model=claude-opus-5-5, temperature=1');
+  });
+});
+
+describe('describeBlocks', () => {
+  it('shows tool calls with their arguments and the start of the text, and skips reasoning', () => {
+    expect(describeBlocks([{ type: 'thinking', text: 'hmm' }, { type: 'text', text: '  Checking\nthe policy.  ' }, { type: 'tool_call', name: 'check_policy', input: { id: 7 } }])).toBe('"Checking the policy.", check_policy({"id":7})');
+    expect(describeBlocks([])).toBe('(no text or tool calls)');
+    expect(describeBlocks([{ type: 'text', text: 'x'.repeat(300) }], 40).length).toBeLessThanOrEqual(42);
+  });
+});

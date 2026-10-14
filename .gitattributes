@@ -1,0 +1,5 @@
+# Source is LF everywhere, including Windows checkouts.
+* text=auto eol=lf
+
+# Recorded blobs are content-addressed: a single byte of EOL conversion breaks their hash.
+testing/golden/** -text

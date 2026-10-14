@@ -1,0 +1,6 @@
+2026-09-16T02:10:58Z INFO  payments-gateway  deploy 4f1c2e9 started (canary 10%)
+2026-09-16T02:11:02Z ERROR payments-gateway  connection pool exhausted: max=20 in_use=20 waiting=148
+2026-09-16T02:11:30Z ERROR payments-gateway  connection pool exhausted: max=20 in_use=20 waiting=311
+2026-09-16T02:12:10Z WARN  payments-gateway  canary 4f1c2e9 promoted to 100% by pipeline (health check passed on /healthz)
+2026-09-16T02:29:47Z INFO  payments-gateway  rollback to 9ab03d1 by on-call
+2026-09-16T02:30:20Z INFO  payments-gateway  connection pool max=50 in_use=12 waiting=0

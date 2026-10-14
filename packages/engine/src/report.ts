@@ -1,0 +1,216 @@
+import { firstDifference } from './diff.js';
+import { loadApiRequest } from './manifest.js';
+import { estimateCost, formatUsd, type Price } from './prices.js';
+import { safeLine, safeText } from './text.js';
+import type { Store } from './store.js';
+import type { CallKind, CallRecord, DivergenceReport, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
+
+/** The model a call was made with: stored at record time, or supplied by a resolver that can read the request. */
+export type ModelResolver = (call: CallRecord) => string | null | undefined;
+
+export interface SummaryOptions {
+  prices?: Record<string, Price>;
+  modelOf?: ModelResolver;
+}
+
+/** Reads the model out of the stored request, for runs recorded before `meta.model` was stored. */
+export function storedModelResolver(store: Store): ModelResolver {
+  const cache = new Map<string, string | null>();
+  return (call) => {
+    if (call.kind !== 'api' || !call.requestRef) return null;
+    let model = cache.get(call.requestRef);
+    if (model === undefined) {
+      try {
+        const req = loadApiRequest(store, call.requestRef) as { model?: unknown } | null;
+        model = typeof req?.model === 'string' ? req.model : (/models\/([^:/?]+):/.exec(call.name)?.[1] ?? null);
+      } catch {
+        model = null;
+      }
+      cache.set(call.requestRef, model);
+    }
+    return model;
+  };
+}
+
+/** Builds a run summary from its stored calls. `notReached` comes from the session at run end. */
+export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: NotReached[] = [], warnings: string[] = [], options: SummaryOptions = {}): RunSummary {
+  const byOrigin: Record<Origin, number> = { live: 0, replayed: 0, blocked: 0, stubbed: 0, overridden: 0 };
+  const byKind: Record<CallKind, number> = { api: 0, tool: 0, clock: 0, random: 0 };
+  const tokens: Usage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
+  const cost = { spent: 0, saved: 0, captured: 0, unknownModels: [] as string[] };
+  // A run from a pack or a capture holds calls someone else's process made. Counting them as this
+  // store's spend is how importing ten production captures would claim ten times the real cost.
+  const imported = !!run.meta?.imported && run.mode === 'record';
+  let upstreamRequests = 0;
+  let injected = 0;
+  for (const c of calls) {
+    byOrigin[c.origin] = (byOrigin[c.origin] ?? 0) + 1;
+    byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
+    if (c.kind !== 'api') continue;
+    if (c.end?.meta.injected) injected++;
+    // Offline refusals (`shadowlap test`) never reached the provider, and neither did an injected
+    // failure, which Shadowlap answered itself; an imported run's calls were made somewhere else.
+    if (c.origin === 'live' && !imported) upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected).length;
+    const u = c.end?.meta.usage;
+    if (!u) continue;
+    if (c.origin === 'replayed') {
+      tokens.inputTokens += u.inputTokens;
+      tokens.outputTokens += u.outputTokens;
+      tokens.cacheReadInputTokens! += u.cacheReadInputTokens ?? 0;
+      tokens.cacheCreationInputTokens! += u.cacheCreationInputTokens ?? 0;
+    }
+    const model = c.end?.meta.model ?? c.meta.model ?? options.modelOf?.(c) ?? null;
+    const usd = estimateCost(model, u, options.prices);
+    if (usd === null) {
+      if (model && !cost.unknownModels.includes(model)) cost.unknownModels.push(model);
+    } else if (c.origin === 'replayed') cost.saved += usd;
+    else if (c.origin === 'live' && imported) cost.captured += usd;
+    else if (c.origin === 'live') cost.spent += usd;
+  }
+  return {
+    runId: run.runId,
+    mode: run.mode,
+    status: run.status,
+    total: calls.length,
+    byOrigin,
+    byKind,
+    upstreamRequests,
+    injected,
+    imported,
+    tokensNotRespent: tokens,
+    cost,
+    durationMs: run.endedAt !== null ? run.endedAt - run.startedAt : null,
+    notReached,
+    warnings,
+    divergence: run.divergence,
+  };
+}
+
+export interface Palette {
+  green: (s: string) => string;
+  red: (s: string) => string;
+  yellow: (s: string) => string;
+  dim: (s: string) => string;
+  bold: (s: string) => string;
+  cyan: (s: string) => string;
+}
+
+export const plain: Palette = { green: (s) => s, red: (s) => s, yellow: (s) => s, dim: (s) => s, bold: (s) => s, cyan: (s) => s };
+
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
+function shortId(id: string): string {
+  return id.length > 10 ? `${id.slice(0, 10)}…` : id;
+}
+
+/** The end-of-run summary line(s). */
+export function formatSummary(s: RunSummary, p: Palette = plain): string {
+  const lines: string[] = [];
+  const kinds = `${s.byKind.api} api, ${s.byKind.tool} tool` + (s.byKind.clock + s.byKind.random ? `, ${s.byKind.clock + s.byKind.random} clock/random` : '');
+  if (s.total === 0) {
+    lines.push(`${p.yellow('⚠')} ${s.mode === 'record' ? 'Recorded' : 'Replayed'} ${p.bold(s.runId)}: no calls were made. Did the agent start, and does it use the Shadowlap environment?`);
+  } else if (s.mode === 'record') {
+    lines.push(`${p.green('●')} Recorded ${p.bold(s.runId)}: ${s.total} calls (${kinds}), ${s.upstreamRequests} upstream requests${s.cost.spent ? `, ≈${formatUsd(s.cost.spent)}` : ''}`);
+  } else if (!s.divergence) {
+    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    lines.push(
+      `${p.green('✓')} Replay clean: ${s.byOrigin.replayed}/${s.total} calls replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent${s.cost.saved ? ` (≈${formatUsd(s.cost.saved)})` : ''}`,
+    );
+  } else {
+    const d = s.divergence;
+    // An injected failure is stored as live but was answered by Shadowlap (--fail-at), so it is named apart.
+    const live = s.byOrigin.live - s.injected;
+    const { blocked, stubbed } = s.byOrigin;
+    const writes = blocked + stubbed;
+    const fenced = !writes ? '' : blocked && stubbed ? `, ${writes} writes (${blocked} blocked, ${stubbed} stubbed)` : `, ${writes} write${writes === 1 ? '' : 's'} ${blocked ? 'blocked' : 'stubbed'}`;
+    lines.push(
+      `${p.yellow('⑂')} Forked at call ${d.callNo}: ${d.replayedBefore} calls replayed` +
+        (s.byOrigin.overridden ? ` (${s.byOrigin.overridden} overridden)` : '') +
+        `, then ${live} live` +
+        (s.injected ? `, ${s.injected} injected` : '') +
+        fenced +
+        `; ${s.upstreamRequests} upstream requests` +
+        (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} saved)` : ''),
+    );
+  }
+  if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));
+  // After a fork the divergence report already covers the recorded call it was compared with.
+  const counterpart = s.divergence?.counterpart?.callNo;
+  const unused = s.notReached.filter((n) => n.callNo !== counterpart);
+  if (unused.length && s.total > 0) {
+    const preview = unused
+      .slice(0, 3)
+      .map((n) => `#${n.callNo} ${safeLine(n.name)}`)
+      .join(', ');
+    const what = s.divergence ? 'left unused after the fork' : 'not reached';
+    lines.push(p.dim(`  ${unused.length} recorded call${unused.length === 1 ? '' : 's'} ${what}: ${preview}${unused.length > 3 ? ', …' : ''}`));
+  }
+  for (const w of s.warnings) lines.push(p.yellow(`  ! ${safeText(w)}`));
+  return lines.join('\n');
+}
+
+const MAX_STR = 160;
+
+function renderValue(v: unknown, other?: unknown): string {
+  if (typeof v === 'string') {
+    let s = v;
+    let prefix = '';
+    if (typeof other === 'string' && v.length > MAX_STR) {
+      const at = firstDifference(v, other);
+      const start = Math.max(0, at - 40);
+      s = v.slice(start, start + MAX_STR);
+      prefix = start > 0 ? '…' : '';
+    } else if (v.length > MAX_STR) {
+      s = v.slice(0, MAX_STR);
+    }
+    const suffix = s.length < v.length - (prefix ? 40 : 0) ? '…' : '';
+    return JSON.stringify(prefix + s + suffix);
+  }
+  const json = JSON.stringify(v);
+  return json === undefined ? String(v) : json.length > MAX_STR ? json.slice(0, MAX_STR) + '…' : json;
+}
+
+/** The divergence report: the first unmatched call, its closest counterpart, and a structural diff. */
+export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEntries = 12): string {
+  const lines: string[] = [];
+  const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${d.replayedBefore} calls replayed before divergence`;
+  lines.push(head);
+  switch (d.type) {
+    case 'forced':
+      lines.push(p.dim(`  ${safeLine(d.reason ?? 'forced live by --live-tool or --diverge-at')}`));
+      break;
+    case 'beyond_recording':
+      lines.push(p.dim('  beyond the recording: the agent made more calls than were recorded'));
+      break;
+    case 'new_call':
+      lines.push(p.dim(`  new call: ${safeLine(d.reason ?? 'no recorded counterpart')}`));
+      break;
+    case 'request_changed': {
+      if (d.counterpart) lines.push(p.dim(`  compared with run ${shortId(d.counterpart.runId)}, call ${d.counterpart.callNo}`));
+      const entries = d.diff ?? [];
+      for (const e of entries.slice(0, maxEntries)) {
+        const sym = e.op === 'changed' ? '~' : e.op === 'added' ? '+' : '-';
+        lines.push(`  ${p.cyan(sym)} ${safeLine(e.path)}`);
+        if (e.op !== 'added') lines.push(p.red(`      - ${safeText(renderValue(e.before, e.after))}`));
+        if (e.op !== 'removed') lines.push(p.green(`      + ${safeText(renderValue(e.after, e.before))}`));
+      }
+      if (entries.length > maxEntries) lines.push(p.dim(`  … ${entries.length - maxEntries} more`));
+      for (const h of d.hints ?? []) {
+        lines.push(p.yellow(`  hint: ${safeLine(h.message)}`));
+        if (h.normalizer) {
+          const n = h.normalizer;
+          const args = [n.kind ? `--kind ${n.kind}` : '', n.name ? `--name ${JSON.stringify(n.name)}` : '', `--path '${n.path}'`, n.pattern ? `--pattern ${n.pattern}` : '']
+            .filter(Boolean)
+            .join(' ');
+          lines.push(p.yellow(`        shadowlap normalize add ${safeLine(args)}`));
+        }
+      }
+      break;
+    }
+  }
+  return lines.join('\n');
+}

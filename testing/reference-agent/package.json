@@ -1,0 +1,22 @@
+{
+  "name": "@shadowlap-testing/reference-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A streaming, tool-using agent with parallel tool calls and a write tool; the fidelity-suite target.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "reference-agent": "./dist/main.js",
+    "reference-mock": "./dist/mock-server.js",
+    "reference-golden": "./dist/make-golden.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@shadowlap/sdk": "^0.1.0",
+    "@shadowlap-testing/mock-anthropic": "^0.1.0",
+    "@shadowlap/engine": "^0.1.0",
+    "@shadowlap/sidecar": "^0.1.0"
+  }
+}

@@ -1,0 +1,51 @@
+name: Local model
+
+# Shadowlap against a real model server: the triage agent in examples/local-model on the OpenAI
+# Agents SDK, talking to Ollama, recorded, replayed with the server unreachable, forked, and run as
+# a golden. A small model keeps it fast on a CPU runner; the checks hold whatever the model says.
+on:
+  push:
+    branches: [main]
+    paths: ['packages/sidecar/**', 'packages/engine/**', 'packages/adapters/**', 'packages/sdk/**', 'packages/cli/**', 'examples/local-model/**', '.github/workflows/local-model.yml']
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Ollama model to run the agent with
+        type: string
+        default: qwen2.5:1.5b
+
+jobs:
+  ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODEL: ${{ inputs.model || 'qwen2.5:1.5b' }}
+      SHADOWLAP_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/local-model/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Install Ollama and pull the model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          # The installer starts a service, but not always in time (or at all): start one if none answers.
+          sleep 3
+          curl -sf http://127.0.0.1:11434/api/tags > /dev/null || (nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &)
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/tags > /dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:11434/api/tags > /dev/null || { echo "Ollama did not start"; cat "$RUNNER_TEMP/ollama.log" 2>/dev/null; exit 1; }
+          ollama --version
+          ollama pull "$MODEL"
+      - name: Record, replay, fork and test against Ollama
+        working-directory: examples/local-model
+        run: |
+          npm ci --no-audit --no-fund
+          node verify.mjs

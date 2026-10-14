@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fetch_page_20","content":"{\"url\":\"https://example.com/d\",\"title\":\"Page d\",\"text\":\"Content of https://example.com/d\"}"},{"type":"tool_result","tool_use_id":"toolu_read_file_21","content":"{\"path\":\"data.csv\",\"content\":\"id,value\\n1,10\\n2,20\"}"}]}

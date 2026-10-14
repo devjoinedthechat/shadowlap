@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"toolu_search_web_7","name":"search_web","input":{"query":"agent determinism"}}]}

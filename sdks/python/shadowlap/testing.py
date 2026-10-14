@@ -1,0 +1,277 @@
+"""Recordings for test suites: a test records its agent's model and tool calls the first time it runs,
+and replays them offline after that.
+
+The pytest plugin (``@pytest.mark.shadowlap``) is built on this module; any other runner can use
+:func:`recording` directly::
+
+    from shadowlap.testing import recording
+
+    def test_triage(self):
+        with recording("tests/__recordings__/triage") as rec:
+            result = run_agent("triage the inbox")
+            self.assertEqual(rec.called("send_email"), 0)
+        self.assertEqual(len(result.tickets), 3)
+
+On first use, a ``shadowlap serve --recordings`` process starts for this Python process (the
+``shadowlap`` CLI from npm, or ``SHADOWLAP_CLI``). Model calls reach it through in-process capture,
+so clients created before that, at import time, are recorded too.
+
+``SHADOWLAP_RECORD`` picks the mode: ``missing`` (the default) replays a test that has a recording
+and records one that doesn't; ``all`` records every test again; ``none`` only replays, and is the
+default when ``CI`` is set, so a missing recording fails in CI instead of calling a model there.
+"""
+
+import atexit
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import urllib.error
+import urllib.request
+import warnings
+from typing import Any, Dict, List, Optional
+
+__all__ = ["ShadowlapReplayDiverged", "Recording", "recording", "record_mode", "under_shadowlap_run"]
+
+MODES = ("missing", "all", "none")
+
+
+class ShadowlapReplayDiverged(AssertionError):
+    """A test's replay sent a request its recording doesn't have."""
+
+    def __init__(self, message: str, report: str = "", run_id: Optional[str] = None):
+        super().__init__(message + ("\n\n" + report if report else ""))
+        self.summary = message
+        self.report = report
+        self.run_id = run_id
+
+
+class ShadowlapTestError(RuntimeError):
+    """Shadowlap could not start or serve a recording."""
+
+
+def record_mode(explicit: Optional[str] = None) -> str:
+    mode = explicit or os.environ.get("SHADOWLAP_RECORD") or ("none" if os.environ.get("CI") else "missing")
+    if mode not in MODES:
+        raise ShadowlapTestError("SHADOWLAP_RECORD must be missing, all or none, not %r" % mode)
+    return mode
+
+
+class _Host:
+    def __init__(self, root: str):
+        self.root = os.path.abspath(root)
+        self.slot = re.sub(r"[^\w.-]", "-", os.environ.get("PYTEST_XDIST_WORKER") or "main")[:64]
+        command = _cli_command() + ["serve", "--recordings"]
+        try:
+            self.process = subprocess.Popen(command, cwd=self.root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=os.environ.copy())
+        except OSError as err:
+            raise ShadowlapTestError("could not start %s: %s" % (" ".join(command), err)) from None
+        line = _read_line(self.process, timeout=60)
+        if not line:
+            code = self.process.poll()
+            raise ShadowlapTestError("%s exited before it was ready (exit code %s)" % (" ".join(command), code))
+        info = json.loads(line)
+        self.url = info["url"]
+        # Base URLs for this process's slot, set before capture so both read the same values.
+        for key, value in info["env"].items():
+            os.environ[key] = value.replace("__SLOT__", self.slot)
+        if info["capture"]["python"] not in sys.path:
+            sys.path.insert(0, info["capture"]["python"])
+        import _shadowlap_capture  # noqa: F401  (patches httpx, httpx2 and botocore)
+
+        atexit.register(self.close)
+
+    def post(self, path: str, body: dict) -> dict:
+        req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=120) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            text = e.read().decode("utf-8", "replace")
+            try:
+                message = json.loads(text).get("error", {}).get("message", text)
+            except Exception:
+                message = text
+            raise ShadowlapTestError(message) from None
+
+    def close(self) -> None:
+        if self.process.poll() is None:
+            try:
+                self.process.stdin.close()
+                self.process.wait(timeout=10)
+            except Exception:
+                self.process.kill()
+
+
+def _cli_command() -> List[str]:
+    cli = os.environ.get("SHADOWLAP_CLI")
+    if cli:
+        if cli.endswith((".js", ".mjs", ".cjs")):
+            node = shutil.which("node")
+            if not node:
+                raise ShadowlapTestError("SHADOWLAP_CLI is a JavaScript file, but there is no node on PATH")
+            return [node, cli]
+        return [cli]
+    exe = shutil.which("shadowlap")
+    if exe:
+        return [exe]
+    npx = shutil.which("npx")
+    if npx:
+        return [npx, "--no-install", "shadowlap"]
+    raise ShadowlapTestError("the shadowlap CLI was not found. Install it (npm install -g shadowlap) or set SHADOWLAP_CLI")
+
+
+def _read_line(process: subprocess.Popen, timeout: float) -> str:
+    out: List[bytes] = []
+    reader = threading.Thread(target=lambda: out.append(process.stdout.readline()), daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if reader.is_alive():
+        process.kill()
+        raise ShadowlapTestError("shadowlap serve --recordings did not start within %d seconds" % timeout)
+    return out[0].decode("utf-8").strip() if out else ""
+
+
+_host: Optional[_Host] = None
+_outer: Optional[bool] = None
+
+
+def under_shadowlap_run() -> bool:
+    """True when the test runner itself runs under ``shadowlap run`` or ``replay``, which then records everything."""
+    global _outer
+    if _outer is None:
+        _outer = _host is None and bool(os.environ.get("SHADOWLAP_URL"))
+    return _outer
+
+
+def _get_host(root: Optional[str]) -> _Host:
+    global _host
+    if _host is None:
+        _host = _Host(root or os.getcwd())
+    return _host
+
+
+def close() -> None:
+    global _host
+    if _host is not None:
+        _host.close()
+        _host = None
+
+
+def _args_match(actual: Any, expected: Any) -> bool:
+    """Every expected value is present: dicts partially, anything else exactly (as in ``shadowlap test`` checks)."""
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(k in actual and _args_match(actual[k], v) for k, v in expected.items())
+    if isinstance(expected, (list, tuple)):
+        return isinstance(actual, list) and len(actual) == len(expected) and all(_args_match(a, e) for a, e in zip(actual, expected))
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return actual is expected  # JSON true is not 1
+    return actual == expected
+
+
+class Recording:
+    """One test's recording: started before the test, finished after it.
+
+    While the test runs, it also tells what the agent did, to assert on as well as what it returned::
+
+        assert rec.called("send_email") == 0
+        assert rec.called("issue_refund", order_id="A-1042") == 1
+        assert "refund issued" in rec.answer()
+    """
+
+    def __init__(self, path: str, name: Optional[str] = None, mode: Optional[str] = None, command: Optional[List[str]] = None, root: Optional[str] = None):
+        self.path = path
+        self.name = name
+        self.mode = record_mode(mode)
+        self.command = command
+        self.root = root
+        self.run_id: Optional[str] = None
+        #: ``record`` or ``replay``, once started.
+        self.action: Optional[str] = None
+        self.result: Optional[dict] = None
+
+    def start(self) -> "Recording":
+        if under_shadowlap_run():
+            return self
+        host = _get_host(self.root)
+        body = {"recording": os.path.abspath(self.path), "slot": host.slot, "mode": self.mode, "name": self.name}
+        if self.command:
+            body["command"] = self.command
+        started = host.post("/v1/recordings/start", body)
+        self.result = None
+        self.run_id = started["runId"]
+        self.action = started["mode"]
+        return self
+
+    def _read(self) -> Dict[str, Any]:
+        if self.run_id is None:
+            if under_shadowlap_run():
+                raise ShadowlapTestError("this test has no recording of its own to read, because the test runner runs under shadowlap run or replay. Run the tests directly.")
+            raise ShadowlapTestError("the recording has not started: read calls while the test runs")
+        if self.result is not None:
+            raise ShadowlapTestError("the recording has finished: read calls while the test runs")
+        return _host.post("/v1/recordings/calls", {"runId": self.run_id})
+
+    def calls(self) -> List[Dict[str, Any]]:
+        """Every call so far, in order: model calls, tool calls, clock and random reads. Each is a dict with
+        ``call_no``, ``kind``, ``name``, ``origin`` (``live``, ``replayed``, ``blocked``, ``stubbed``) and
+        ``outcome``; tool calls add ``args`` and ``result`` or ``error``, model calls ``model``, and calls
+        made in a scope ``scope``."""
+        return [_call(c) for c in self._read()["calls"]]
+
+    def tool_calls(self, name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Tool calls so far, or those of one tool. Calls blocked after a fork are included."""
+        return [c for c in self.calls() if c["kind"] == "tool" and (name is None or c["name"] == name)]
+
+    def called(self, name: str, /, **args: Any) -> int:
+        """How many times a tool was called, counting only calls whose arguments contain ``args`` when given."""
+        return sum(1 for c in self.tool_calls(name) if not args or _args_match(c.get("args"), args))
+
+    def answer(self) -> Optional[str]:
+        """The text of the last model response; None before one."""
+        return self._read()["answer"]
+
+    def finish(self, passed: bool, error: Optional[BaseException] = None) -> None:
+        """Ends the recording. Raises :class:`ShadowlapReplayDiverged` when the replay diverged."""
+        if self.run_id is None:
+            return
+        self.result = _host.post("/v1/recordings/end", {"runId": self.run_id, "passed": passed})
+        if not self.result["ok"]:
+            message = self.result["message"]
+            if error is not None:
+                detail = str(error).splitlines()[0] if str(error) else ""
+                if len(detail) > 160:
+                    detail = detail[:160] + "…"
+                message += "; the test then failed with %s: %s" % (type(error).__name__, detail)
+            raise ShadowlapReplayDiverged(message, self.result.get("report") or "", self.run_id)
+        if self.result.get("message"):
+            warnings.warn("shadowlap: %s (%s)" % (self.result["message"], self.result["recording"]), stacklevel=2)
+
+    def __enter__(self) -> "Recording":
+        return self.start()
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is None:
+            self.finish(True)
+        else:
+            try:
+                self.finish(False, exc)
+            except ShadowlapReplayDiverged as diverged:
+                raise diverged from exc
+        return False
+
+
+def _call(c: Dict[str, Any]) -> Dict[str, Any]:
+    out = {"call_no": c["callNo"], "kind": c["kind"], "name": c["name"], "origin": c["origin"], "outcome": c["outcome"]}
+    for key in ("scope", "model", "args", "result", "error"):
+        if key in c:
+            out[key] = c[key]
+    return out
+
+
+def recording(path: str, name: Optional[str] = None, mode: Optional[str] = None) -> Recording:
+    """A context manager that replays ``path`` when it holds a recording, and records it otherwise."""
+    return Recording(path, name=name, mode=mode)
