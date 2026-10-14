@@ -1,0 +1,377 @@
+import {
+  applyNormalizers,
+  cacheMisses,
+  compilePattern,
+  conversationRequestFor,
+  hasRecordedCommand,
+  loadApiRequest,
+  normalizerApplies,
+  recordedDurations,
+  runConversations,
+  runInterventions,
+  runStamp,
+  shortModel,
+  showJson,
+  structuralDiff,
+  summarizeRun,
+  toolResultLine,
+  type CacheMiss,
+  type CallRecord,
+  type ConversationSpan,
+  type NotRecorded,
+  type Normalizer,
+  type Price,
+  type RunCache,
+  type RunConversations,
+  type RunIntervention,
+  type RunNote,
+  type RunRecord,
+  type ShowJson,
+  type Store,
+} from '@shadowlap/engine';
+import { modelResolver, runLabel } from '@shadowlap/tui/data';
+
+/**
+ * The run page's read model beyond the rows themselves: where each conversation starts and which
+ * call belongs to which, where the prompt cache stopped hitting, what replaying did not wait for,
+ * what was never recorded, and what the header and banners say (the fork, the flag that made it,
+ * blame, the checks). Plain functions over the store, like the rest of api.ts.
+ */
+
+// ---- per call --------------------------------------------------------------------------------------
+
+/** What a call row adds for the run page; every field is computed for the whole run at once. */
+export interface CallFacts {
+  /** The conversation the call belongs to, numbered from 1 in the order they start; null when it belongs to none. */
+  conversation: number | null;
+  /** A model call whose request starts its conversation. */
+  conversationStart: boolean;
+  /** A tool call: the model call that asked for it, when one did. */
+  requestedBy: number | null;
+  /** A tool call: the tool-use id the provider gave that request. */
+  toolUseId: string | null;
+  /** A model call where the prompt cache stopped hitting: the tokens sent again, and the call it is judged against. */
+  cacheMiss: { sentAgain: number; previousCallNo: number } | null;
+  /** A replayed call: how long the recording it came from waited for it (this run waited for none of it). */
+  recordedMs: number | null;
+}
+
+export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null });
+
+export interface RunAnalysis {
+  conversations: RunConversations;
+  cache: RunCache;
+  recorded: Map<number, number>;
+  facts(callNo: number): CallFacts;
+}
+
+/** Analyses of the runs read lately, per store: the run page asks for a run and then its calls, one by one. */
+const analyses = new WeakMap<Store, Map<string, RunAnalysis>>();
+
+/** A run's conversations, cache misses and recorded durations, computed once per state of the run. */
+export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
+  let byRun = analyses.get(store);
+  if (!byRun) analyses.set(store, (byRun = new Map()));
+  const key = `${run.runId}\n${runStamp(calls)}`;
+  const known = byRun.get(key);
+  if (known) return known;
+  const conversations = runConversations(store, calls, { attribute: true });
+  const cache = cacheMisses(calls, conversations);
+  const recorded = run.mode === 'replay' ? recordedDurations(store, run, calls) : new Map<number, number>();
+  const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
+  const analysis: RunAnalysis = {
+    conversations,
+    cache,
+    recorded,
+    facts(callNo) {
+      const c = conversations.byCall.get(callNo);
+      const miss = misses.get(callNo);
+      return {
+        conversation: c?.conversation ?? null,
+        conversationStart: c?.starts ?? false,
+        requestedBy: c?.requestedBy ?? null,
+        toolUseId: c?.toolUseId ?? null,
+        cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
+        recordedMs: recorded.get(callNo) ?? null,
+      };
+    },
+  };
+  // A handful of runs at most: the one open, and the ones it links to.
+  for (const k of byRun.keys()) if (k.startsWith(`${run.runId}\n`) || byRun.size >= 16) byRun.delete(k);
+  byRun.set(key, analysis);
+  return analysis;
+}
+
+/** What a call row shows that is the call's own: its blobs, its fingerprint and a tool's result in a line. */
+export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null } {
+  let resultShort: string | null = null;
+  if (c.kind === 'tool') {
+    let payload: unknown = null;
+    try {
+      payload = c.end?.responseRef ? store.getJson(c.end.responseRef) : null;
+    } catch {
+      payload = null;
+    }
+    resultShort = toolResultLine(c, payload);
+  }
+  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort };
+}
+
+/** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
+export function conversationSource(store: Store, run: RunRecord, calls: readonly CallRecord[], callNo: number): { call: CallRecord; n: number | null } | null {
+  const a = analyseRun(store, run, calls);
+  const from = conversationRequestFor(calls, a.conversations, callNo);
+  return from ? { call: from, n: a.conversations.byCall.get(from.callNo)?.conversation ?? null } : null;
+}
+
+// ---- per run ---------------------------------------------------------------------------------------
+
+export interface RunBlame {
+  outcome: 'blamed' | 'unrescuable' | 'stopped';
+  /** The model call whose recorded answer lost the run. */
+  callNo: number | null;
+  /** That call counted among the model calls in the blame's scope: "model call k of m". */
+  modelCall: { k: number; m: number } | null;
+  confidence: 'high' | 'medium' | 'low';
+  rescuedRunId: string | null;
+  scope: string | null;
+  at: number;
+}
+
+export interface RunCheck {
+  label: string;
+  /** How this run came out on it. */
+  ok: boolean;
+  detail: string | null;
+  /** Attempts that passed it, of those that ran it: the run's repeat or test attempts together, else this run alone. */
+  count: number;
+  of: number;
+}
+
+export interface RunPageFacts {
+  /** The conversations in the run, in the order they start. */
+  conversations: ConversationSpan[];
+  /** The prompt cache: the share of live input read from it, and every call where it stopped hitting. */
+  cache: { readShare: number | null; readShareAll: number | null; misses: CacheMiss[]; sentAgain: number };
+  /** What replaying did not wait for: the recorded durations of the replayed calls, summed (ms). */
+  notWaitedMs: number;
+  /** What the run did that Shadowlap did not record, so a replay runs it for real; null when nothing. */
+  notRecorded: NotRecorded | null;
+  /** The call a replay forked at. */
+  forkAt: number | null;
+  /** The flag the fork banner names, and every flag the replay ran with. */
+  intervention: RunIntervention | null;
+  interventions: RunIntervention[];
+  /** A fork a blame of its parent found passing: the blamed run and the call it asked again. */
+  rescuedBy: { runId: string; callNo: number | null } | null;
+  /** The last blame of this run. */
+  blame: RunBlame | null;
+  /** The run's outcome checks, counted over the attempts they ran in. */
+  checks: RunCheck[] | null;
+}
+
+const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
+
+function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null {
+  const b = run.meta?.blame;
+  if (!b) return null;
+  // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
+  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, b.scope)).map((c) => c.callNo);
+  const k = b.callNo === null ? 0 : steps.indexOf(b.callNo) + 1;
+  return {
+    outcome: b.outcome,
+    callNo: b.callNo,
+    modelCall: k > 0 ? { k, m: steps.length } : null,
+    confidence: b.confidence,
+    rescuedRunId: b.rescuedRunId,
+    scope: b.scope ?? null,
+    at: b.at,
+  };
+}
+
+/** Attempts run together: one `--repeat` group, or one golden in one test session, under the same parent. */
+function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
+  const repeat = run.meta?.repeat?.group;
+  const test = run.meta?.test;
+  if (!run.parentRunId || (!repeat && !test)) return [run];
+  const together = store.childRuns(run.parentRunId).filter((r) => (repeat ? r.meta?.repeat?.group === repeat : r.meta?.test?.session === test!.session && r.meta?.test?.golden === test!.golden));
+  return together.length ? together : [run];
+}
+
+function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
+  const own = run.meta?.checks;
+  if (!own?.length) return null;
+  const attempts = attemptsOf(store, run);
+  return own.map((c) => {
+    const ran = attempts.map((r) => r.meta?.checks?.find((x) => x.label === c.label)).filter((x) => x !== undefined);
+    return { label: c.label, ok: c.ok, detail: c.detail, count: ran.filter((x) => x.ok).length, of: ran.length };
+  });
+}
+
+/** The run's own hosts; the tools come from the recording when the run is a replay of it. */
+function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
+  const own = run.meta?.notRecorded;
+  let tools = own?.tools ?? [];
+  const seen = new Set([run.runId]);
+  for (let r = run; !tools.length && r.parentRunId && !seen.has(r.parentRunId); ) {
+    seen.add(r.parentRunId);
+    const parent = store.getRun(r.parentRunId);
+    if (!parent) break;
+    tools = parent.meta?.notRecorded?.tools ?? [];
+    r = parent;
+  }
+  const hosts = own?.hosts ?? [];
+  return hosts.length || tools.length ? { hosts, tools } : null;
+}
+
+export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunPageFacts {
+  const a = analyseRun(store, run, calls);
+  const interventions = run.mode === 'replay' ? runInterventions(store, run, calls) : [];
+  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  const rescued = parent?.meta?.blame?.rescuedRunId === run.runId ? parent.meta.blame : null;
+  let notWaitedMs = 0;
+  for (const ms of a.recorded.values()) notWaitedMs += ms;
+  return {
+    conversations: a.conversations.conversations,
+    cache: { readShare: a.cache.readShare, readShareAll: a.cache.readShareAll, misses: a.cache.misses, sentAgain: a.cache.sentAgain },
+    notWaitedMs,
+    notRecorded: notRecordedOf(store, run),
+    forkAt: run.mode === 'replay' ? (run.divergence?.callNo ?? null) : null,
+    intervention: interventions.find((x) => x.flag !== '--inject-as') ?? null,
+    interventions,
+    rescuedBy: rescued && parent ? { runId: parent.runId, callNo: rescued.callNo } : null,
+    blame: blameOf(run, calls),
+    checks: checksOf(store, run),
+  };
+}
+
+// ---- provenance ------------------------------------------------------------------------------------
+
+export interface RunProvenance {
+  runId: string;
+  /** What the run is, as the header names it: recording, clean replay, fork @17, capture. */
+  label: string;
+  /** The command it ran, or null for a run imported from a capture, which never knew it. */
+  command: string[] | null;
+  codeVersion: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  /** The same times in UTC, as `2026-10-01 09:41:07 UTC`. */
+  startedUtc: string;
+  endedUtc: string | null;
+  /** Each model with the number of model calls made with it, most used first. */
+  models: Array<{ model: string; calls: number }>;
+  /** The providers the model calls went to (`anthropic`, `openai`, …), most used first. */
+  providers: Array<{ provider: string; calls: number }>;
+  calls: { model: number; tool: number; other: number; scopes: number };
+  /** Requests that reached a provider, and what the live ones cost. */
+  upstream: { requests: number; spent: number };
+  /** Calls by origin; `injected` counts calls Shadowlap answered itself (`--fail-at`). */
+  origins: Record<string, number>;
+  /** The run and the runs it came from, the recording first. */
+  lineage: Array<{ runId: string; parentRunId: string | null; mode: RunRecord['mode']; label: string; codeVersion: string | null; startedAt: number }>;
+  /** What a copy made now (pack, export html, dataset, pairs) would mask: the rules that apply and the values they hit; null values when not counted. */
+  mask: { rules: number; values: number | null };
+  labels: string[];
+  notes: RunNote[];
+}
+
+/** Counts what a set of redaction rules would mask in one run; the settings page's preview can stand in for it. */
+export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null } | null;
+
+export interface ProvenanceOptions {
+  prices?: Record<string, Price>;
+  /** The project's redaction rules: counted over the run's stored requests and responses. */
+  redact?: Normalizer[];
+  /** Counts instead of the built-in count. */
+  maskCount?: MaskCounter;
+}
+
+const utc = (ms: number) => new Date(ms).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+
+function tally(values: Array<string | null | undefined>): Array<[string, number]> {
+  const m = new Map<string, number>();
+  for (const v of values) if (v) m.set(v, (m.get(v) ?? 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+/**
+ * Values a set of rules would rewrite in a run: each string a rule changes in a stored request
+ * (tool arguments and model requests alike), and each match of a pathless pattern in a response.
+ */
+export function countMasked(store: Store, runId: string, rules: Normalizer[]): number {
+  if (!rules.length) return 0;
+  let values = 0;
+  for (const c of store.getCalls(runId)) {
+    const applicable = rules.filter((r) => normalizerApplies(r, c.kind, c.name));
+    if (!applicable.length) continue;
+    try {
+      if (c.requestRef) {
+        const body = c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef);
+        for (const rule of applicable) values += structuralDiff(body, applyNormalizers(body, [rule], c.kind, c.name)).length;
+      }
+      const bytes = c.end?.responseRef ? store.getBlob(c.end.responseRef) : null;
+      const text = bytes?.toString('utf8');
+      if (text) {
+        for (const rule of applicable) {
+          if (rule.path !== undefined || rule.pattern === undefined) continue;
+          const re = compilePattern(rule.pattern);
+          values += [...text.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))].length;
+        }
+      }
+    } catch {
+      // a call that can't be read masks nothing here
+    }
+  }
+  return values;
+}
+
+export function runProvenance(store: Store, run: RunRecord, options: ProvenanceOptions = {}): RunProvenance {
+  const calls = store.getCalls(run.runId);
+  const modelOf = modelResolver(store);
+  const summary = summarizeRun(run, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
+  const models = calls.filter((c) => c.kind === 'api');
+  const lineage: RunProvenance['lineage'] = [];
+  const seen = new Set<string>();
+  for (let r: RunRecord | null = run; r && !seen.has(r.runId); r = r.parentRunId ? store.getRun(r.parentRunId) : null) {
+    seen.add(r.runId);
+    lineage.unshift({ runId: r.runId, parentRunId: r.parentRunId, mode: r.mode, label: runLabel(r, r === run ? calls.length : store.countCalls(r.runId)), codeVersion: r.codeVersion, startedAt: r.startedAt });
+  }
+  const rules = options.redact ?? [];
+  const mask = options.maskCount?.(store, run.runId) ?? { rules: rules.length, values: rules.length ? countMasked(store, run.runId, rules) : 0 };
+  return {
+    runId: run.runId,
+    label: runLabel(run, calls.length),
+    command: hasRecordedCommand(run) ? run.command.argv : null,
+    codeVersion: run.codeVersion,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt,
+    startedUtc: utc(run.startedAt),
+    endedUtc: run.endedAt === null ? null : utc(run.endedAt),
+    models: tally(models.map((c) => {
+      const m = c.end?.meta.model ?? c.meta.model ?? modelOf(c);
+      return m ? shortModel(m) : null;
+    })).map(([model, n]) => ({ model, calls: n })),
+    providers: tally(models.map((c) => {
+      const p = c.end?.meta.provider ?? c.meta.provider;
+      return typeof p === 'string' ? p : null;
+    })).map(([provider, n]) => ({ provider, calls: n })),
+    calls: {
+      model: summary.byKind.api,
+      tool: summary.byKind.tool,
+      other: summary.byKind.clock + summary.byKind.random,
+      scopes: new Set(calls.map((c) => c.meta.scope).filter((s) => typeof s === 'string')).size,
+    },
+    upstream: { requests: summary.upstreamRequests, spent: summary.cost.spent },
+    origins: { ...summary.byOrigin, injected: summary.injected },
+    lineage,
+    mask,
+    labels: run.meta?.labels ?? [],
+    notes: run.meta?.notes ?? [],
+  };
+}
+
+/** `shadowlap show <run> --json`, exactly as the CLI prints it, without starting the CLI. */
+export function runShowJson(store: Store, run: RunRecord, options: { prices?: Record<string, Price> } = {}): ShowJson {
+  return showJson(store, run, { ...(options.prices ? { prices: options.prices } : {}), modelOf: modelResolver(store) });
+}

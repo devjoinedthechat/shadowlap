@@ -2,6 +2,9 @@ import { basename } from 'node:path';
 import { cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { buildActions, notRun } from '@shadowlap/tui/actions';
 import { loadRunTree, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
+
+export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
 
 /**
  * The dashboard's read model: plain JSON built from the store, one function per endpoint, no HTTP.
@@ -34,7 +37,7 @@ export interface RunListItem {
   labels: string[];
 }
 
-export interface CallRow {
+export interface CallRow extends CallFacts {
   callNo: number;
   kind: CallRecord['kind'];
   name: string;
@@ -64,9 +67,17 @@ export interface CallRow {
   ttftMs: number | null;
   /** The logical branch the call was made in (`scope()` in the SDKs). */
   scope: string | null;
+  // ---- the run page (run-page.ts) ----
+  /** What a replay matches the call on. */
+  fingerprint: string;
+  /** The stored request (a manifest for a model call) and response blobs, by hash; shared by every run that has them. */
+  requestRef: string | null;
+  responseRef: string | null;
+  /** A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call; null for other calls. */
+  resultShort: string | null;
 }
 
-export interface RunDetail {
+export interface RunDetail extends RunPageFacts {
   run: RunRecord;
   label: string;
   /** Set for a run built from a capture, which has no command: where it came from. */
@@ -81,8 +92,12 @@ export interface RunDetail {
 
 export interface CallDetail {
   call: CallRow & { fingerprint: string; occurrence: number; startedAt: number; endedAt: number | null; implHash: string | null; headers: Record<string, string>; provider: string | null };
-  /** The conversation the model saw at this call (a tool call shows the latest model request before it). */
-  conversation: (Conversation & { fromCallNo: number }) | null;
+  /**
+   * The conversation the model saw at this call. A tool call shows its own conversation's latest
+   * request before it (or the first after it, for a call made before its conversation's first
+   * model call), never another scope's or conversation's; `n` is that conversation's number.
+   */
+  conversation: (Conversation & { fromCallNo: number; n: number | null }) | null;
   request: unknown;
   response: NormalizedResponse | null;
   /** Tool calls: the recorded result or error. */
@@ -112,7 +127,7 @@ function oneLine(v: unknown): string {
   return s.length > ONE_LINE ? `${s.slice(0, ONE_LINE - 1)}…` : s;
 }
 
-function row(store: Store, c: CallRecord, options: ReadOptions): CallRow {
+function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS): CallRow {
   const end = c.end;
   const u = end?.meta.usage;
   const model = end?.meta.model ?? c.meta.model ?? (c.kind === 'api' ? modelResolver(store)(c) : null) ?? null;
@@ -141,6 +156,8 @@ function row(store: Store, c: CallRecord, options: ReadOptions): CallRow {
     endedAt: end?.at ?? null,
     ttftMs: c.kind === 'api' && end?.meta.chunks?.length && (end.meta.replayedFrom === undefined) ? (end.meta.chunks[0]?.[1] ?? null) : null,
     scope: typeof c.meta.scope === 'string' ? c.meta.scope : null,
+    ...ownFacts(store, c),
+    ...facts,
   };
 }
 
@@ -190,16 +207,30 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   const calls = store.getCalls(runId);
   const summary = summarizeRun(run, calls, [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  const analysis = analyseRun(store, run, calls);
   return {
     run,
     label: runLabel(run, calls.length),
     source: captureSource(run),
     summary,
-    calls: calls.map((c) => row(store, c, options)),
+    calls: calls.map((c) => row(store, c, options, analysis.facts(c.callNo))),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, store.countCalls(parent.runId)) } : null,
     children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, store.countCalls(r.runId)), startedAt: r.startedAt })),
     actions: actionsFor(run, undefined),
+    ...runPageFacts(store, run, calls),
   };
+}
+
+/** The run's record for the Provenance tab: command, code version, times in UTC, models, providers, lineage, and what a copy would mask. */
+export function provenance(store: Store, idOrPrefix: string, options: ReadOptions & ProvenanceOptions = {}): RunProvenance | null {
+  const run = lookupRun(store, idOrPrefix);
+  return run ? runProvenance(store, run, options) : null;
+}
+
+/** `shadowlap show <run> --json` as the CLI prints it, for Copy show --json. */
+export function showRunJson(store: Store, idOrPrefix: string, options: ReadOptions = {}): ReturnType<typeof runShowJson> | null {
+  const run = lookupRun(store, idOrPrefix);
+  return run ? runShowJson(store, run, options) : null;
 }
 
 /** The model named in a call's path: Gemini and Vertex `models/<model>:…`, Bedrock `/model/<id>/…`. */
@@ -229,18 +260,17 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
       request = { error: `could not load the stored request: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
-  // The conversation at this call: its own request for a model call, else the latest model request before it.
-  for (let i = index; i >= 0; i--) {
-    const prev = calls[i]!;
-    if (prev.kind !== 'api' || !prev.requestRef) continue;
+  // The conversation at this call: its own request for a model call, else its conversation's
+  // latest request, which in a batch or a multi-agent run is not simply the latest one before it.
+  const source = conversationSource(store, run, calls, callNo);
+  if (source?.call.requestRef) {
     try {
-      const body = prev === c ? request : loadApiRequest(store, prev.requestRef);
-      const conv = normalizeConversation(body, modelInPath(prev.name));
-      if (conv) conversation = { ...conv, fromCallNo: prev.callNo };
+      const body = source.call === c ? request : loadApiRequest(store, source.call.requestRef);
+      const conv = normalizeConversation(body, modelInPath(source.call.name));
+      if (conv) conversation = { ...conv, fromCallNo: source.call.callNo, n: source.n };
     } catch {
       // an unreadable request leaves the conversation empty
     }
-    break;
   }
 
   let response: NormalizedResponse | null = null;
@@ -257,7 +287,7 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
 
   return {
     call: {
-      ...row(store, c, options),
+      ...row(store, c, options, analyseRun(store, run, calls).facts(c.callNo)),
       fingerprint: c.fingerprint,
       occurrence: c.occurrence,
       startedAt: c.at,
