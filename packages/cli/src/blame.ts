@@ -1,6 +1,7 @@
-import { formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type RunRecord, type Store } from '@shadowlap/engine';
+import { formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
+import { recordBlameFix } from './fixes.js';
 import { type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 
@@ -51,7 +52,12 @@ export class BlameError extends Error {
   }
 }
 
-export async function runBlame(input: BlameInput): Promise<BlameReport> {
+/** A blame's report, and the fix it opened or joined: null when the store refused to keep it. */
+export interface BlameRun extends BlameReport {
+  fix: { fixId: string; title: string; status: FixStatus; opened: boolean; blameId: string } | null;
+}
+
+export async function runBlame(input: BlameInput): Promise<BlameRun> {
   const { parent, settings: s, log } = input;
   const target = { parent, argv: input.argv, commandFromImport: input.commandFromImport };
   const runner = await AttemptRunner.start(input.opts, s);
@@ -168,7 +174,9 @@ export async function runBlame(input: BlameInput): Promise<BlameReport> {
         spent: runner.spent,
       },
     });
-    return report;
+    // Kept whole, with the fix it opens or joins: the blame on the run is only the latest one.
+    const kept = recordBlameFix(store, { runId: parent.runId, report, settings: s, recording: { checks: baseline.checks, failures: baseline.failures } });
+    return { ...report, fix: kept ? { fixId: kept.fix.fixId, title: kept.fix.title, status: kept.fix.status, opened: kept.created, blameId: kept.blame.blameId } : null };
   } finally {
     await runner.close();
   }

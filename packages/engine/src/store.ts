@@ -4,6 +4,9 @@ import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { manifestRefs } from './manifest.js';
 import { sha256, ulid } from './ids.js';
+import type { BlameReport } from './blame.js';
+import type { RepairOutcome, RepairReport } from './repair.js';
+import type { VerifyOutcome, VerifyReport } from './verify.js';
 import type {
   CallEndRow,
   CallKind,
@@ -107,6 +110,58 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: Fixes. A fix is one failure, from the blame that reproduced it to a change that held: its
+-- title, how runs are grouped into it (the failing run's label, else the check), the check, and
+-- whether it is open, verified or applied. A blame creates or joins one; repair and verify link
+-- to the fix of the runs they were given. Every blame, verdict and repair report is kept whole.
+-- Links and reports name runs by id with no foreign key: a fix outlives a run deleted from the store.
+CREATE TABLE IF NOT EXISTS fixes (
+  fix_id       TEXT    PRIMARY KEY,
+  title        TEXT    NOT NULL,
+  group_key    TEXT    NOT NULL,
+  label        TEXT,
+  check_expect TEXT,
+  check_text   TEXT    NOT NULL,
+  status       TEXT    NOT NULL CHECK (status IN ('open', 'verified', 'applied')),
+  opened_at    INTEGER NOT NULL,
+  verified_at  INTEGER,
+  applied_at   INTEGER,
+  data         TEXT
+);
+CREATE INDEX IF NOT EXISTS fixes_group ON fixes (group_key);
+CREATE TABLE IF NOT EXISTS fix_links (
+  fix_id  TEXT    NOT NULL REFERENCES fixes(fix_id) ON DELETE CASCADE,
+  kind    TEXT    NOT NULL CHECK (kind IN ('failing', 'good', 'blame', 'repair', 'verify')),
+  ref     TEXT    NOT NULL,
+  at      INTEGER NOT NULL,
+  PRIMARY KEY (fix_id, kind, ref)
+);
+CREATE INDEX IF NOT EXISTS fix_links_ref ON fix_links (ref, kind);
+CREATE TABLE IF NOT EXISTS blames (
+  blame_id  TEXT    PRIMARY KEY,
+  run_id    TEXT    NOT NULL,
+  at        INTEGER NOT NULL,
+  outcome   TEXT    NOT NULL,
+  record    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS blames_run ON blames (run_id, at);
+CREATE TABLE IF NOT EXISTS verdicts (
+  verify_id  TEXT    PRIMARY KEY,
+  at         INTEGER NOT NULL,
+  verdict    TEXT    NOT NULL CHECK (verdict IN ('accepted', 'rejected', 'incomplete')),
+  repair_id  TEXT,
+  record     TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verdicts_at ON verdicts (at);
+CREATE TABLE IF NOT EXISTS repairs (
+  repair_id  TEXT    PRIMARY KEY,
+  at         INTEGER NOT NULL,
+  dir        TEXT    NOT NULL,
+  outcome    TEXT    NOT NULL,
+  accepted   INTEGER NOT NULL,
+  record     TEXT    NOT NULL
+);
 `;
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
@@ -124,6 +179,94 @@ export interface StoredEvent {
 }
 
 export type NewStoredEvent = Partial<Pick<StoredEvent, 'eventId' | 'at' | 'actor' | 'runId' | 'ref' | 'data'>> & Pick<StoredEvent, 'kind'>;
+
+// ---- Fixes (v4): the rows of the fixes, fix_links, blames, verdicts and repairs tables. fixes.ts
+// decides what goes in them; these are only their shapes.
+
+export type FixStatus = 'open' | 'verified' | 'applied';
+export type FixLinkKind = 'failing' | 'good' | 'blame' | 'repair' | 'verify';
+
+/** One failure, from the blame that reproduced it to a change that held. */
+export interface StoredFix {
+  /** `fx-<ulid>`. */
+  fixId: string;
+  title: string;
+  /** What groups runs into it: `label:<name>` (the failing run's label) or `check:<canonical --expect>`. */
+  groupKey: string;
+  /** The label it groups by, or null when it groups by its check. */
+  label: string | null;
+  /** The check a run passes: the `--expect` JSON as given (null for the exit code alone), and in words. */
+  check: { expect: unknown; text: string };
+  status: FixStatus;
+  openedAt: number;
+  verifiedAt: number | null;
+  appliedAt: number | null;
+  data: FixData;
+}
+
+export interface FixData {
+  /** Where it came from: a CI provider it was opened under, the pull request a repair opened for it. */
+  source?: { ci?: string; pr?: { url: string; number: number | null } };
+  /** Who opened it (resolveAuthor). */
+  openedBy?: string | null;
+  /** Someone gave it a title of their own (`shadowlap fix title`). */
+  titleEdited?: boolean;
+  /** What `shadowlap fix apply` did. */
+  applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null };
+}
+
+export interface FixLink {
+  fixId: string;
+  kind: FixLinkKind;
+  /** A run id (failing, good), a blame id, a repair id or a verdict id. */
+  ref: string;
+  at: number;
+}
+
+/** One `shadowlap blame`, kept whole: a later blame of the same run doesn't overwrite it, as `meta.blame` is. */
+export interface StoredBlame {
+  /** `bl-<ulid>`. */
+  blameId: string;
+  /** The failed run that was blamed. */
+  runId: string;
+  at: number;
+  outcome: BlameReport['outcome'];
+  report: BlameReport;
+  /** The `--expect` the oracle came from, as given, or null for the exit code alone. */
+  expect: unknown;
+  /** The scope whose model calls were probed, when blame was limited to one. */
+  scope: string | null;
+  /** A command that blames the run the same way again. */
+  command: string;
+}
+
+/** One verdict of `shadowlap verify`, or of the verify a repair ran on the candidate it accepted. */
+export interface StoredVerdict {
+  /** `vf-<ulid>`. */
+  verifyId: string;
+  at: number;
+  verdict: VerifyOutcome;
+  /** The repair whose candidate this verified, and which candidate; null for a verify of the working tree. */
+  repairId: string | null;
+  candidate: number | null;
+  report: VerifyReport;
+  expect: unknown;
+  command: string;
+}
+
+/** One `shadowlap repair`: its report.json, and where its files are. */
+export interface StoredRepair {
+  /** The name of its directory, `repair-<time>`. */
+  repairId: string;
+  at: number;
+  /** Its directory, relative to the folder the repair ran in: `.shadowlap/repairs/<id>`. */
+  dir: string;
+  outcome: RepairOutcome;
+  accepted: boolean;
+  report: RepairReport;
+  expect: unknown;
+  command: string;
+}
 
 export interface CreateRunInput {
   runId?: string;
@@ -339,6 +482,120 @@ export class Store {
       ref: r.ref === null ? null : String(r.ref),
       data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
     }));
+  }
+
+  // ---- Fixes (v4): fixes, their links, and the blame, verdict and repair reports behind them ----
+
+  insertFix(fix: StoredFix): void {
+    this.db
+      .prepare(
+        `INSERT INTO fixes (fix_id, title, group_key, label, check_expect, check_text, status, opened_at, verified_at, applied_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(fix.fixId, fix.title, fix.groupKey, fix.label, fix.check.expect === null || fix.check.expect === undefined ? null : JSON.stringify(fix.check.expect), fix.check.text, fix.status, fix.openedAt, fix.verifiedAt, fix.appliedAt, JSON.stringify(fix.data));
+  }
+
+  getFix(fixId: string): StoredFix | null {
+    const row = this.db.prepare(`SELECT * FROM fixes WHERE fix_id = ?`).get(fixId);
+    return row ? rowToFix(row) : null;
+  }
+
+  /** Every fix, the most recently opened first. */
+  listFixes(): StoredFix[] {
+    return this.db.prepare(`SELECT * FROM fixes ORDER BY opened_at DESC, fix_id DESC`).all().map(rowToFix);
+  }
+
+  /** The fixes that group runs by `groupKey`, the first opened first. */
+  fixesByGroup(groupKey: string): StoredFix[] {
+    return this.db.prepare(`SELECT * FROM fixes WHERE group_key = ? ORDER BY opened_at ASC, fix_id ASC`).all(groupKey).map(rowToFix);
+  }
+
+  updateFix(fixId: string, patch: Partial<Pick<StoredFix, 'title' | 'status' | 'verifiedAt' | 'appliedAt' | 'data'>>): void {
+    const fix = this.getFix(fixId);
+    if (!fix) throw new Error(`unknown fix ${fixId}`);
+    const next = { ...fix, ...patch };
+    this.db
+      .prepare(`UPDATE fixes SET title = ?, status = ?, verified_at = ?, applied_at = ?, data = ? WHERE fix_id = ?`)
+      .run(next.title, next.status, next.verifiedAt, next.appliedAt, JSON.stringify(next.data), fixId);
+  }
+
+  /** Links a run or a report to a fix; linking it again keeps the first link. */
+  addFixLink(fixId: string, kind: FixLinkKind, ref: string, at: number = Date.now()): void {
+    this.db.prepare(`INSERT OR IGNORE INTO fix_links (fix_id, kind, ref, at) VALUES (?, ?, ?, ?)`).run(fixId, kind, ref, at);
+  }
+
+  /** A fix's links, in the order they were made. */
+  fixLinks(fixId: string, kind?: FixLinkKind): FixLink[] {
+    const rows = kind
+      ? this.db.prepare(`SELECT * FROM fix_links WHERE fix_id = ? AND kind = ? ORDER BY at ASC, ref ASC`).all(fixId, kind)
+      : this.db.prepare(`SELECT * FROM fix_links WHERE fix_id = ? ORDER BY at ASC, ref ASC`).all(fixId);
+    return rows.map(rowToFixLink);
+  }
+
+  /** The links to a run or a report, from every fix, in the order they were made. */
+  linksTo(ref: string, kind?: FixLinkKind): FixLink[] {
+    const rows = kind
+      ? this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? AND kind = ? ORDER BY at ASC, fix_id ASC`).all(ref, kind)
+      : this.db.prepare(`SELECT * FROM fix_links WHERE ref = ? ORDER BY at ASC, fix_id ASC`).all(ref);
+    return rows.map(rowToFixLink);
+  }
+
+  /** Every link of one kind, from every fix: what the read models count. */
+  allFixLinks(kind: FixLinkKind): FixLink[] {
+    return this.db.prepare(`SELECT * FROM fix_links WHERE kind = ? ORDER BY at ASC, fix_id ASC, ref ASC`).all(kind).map(rowToFixLink);
+  }
+
+  putBlame(b: StoredBlame): void {
+    this.db
+      .prepare(`INSERT INTO blames (blame_id, run_id, at, outcome, record) VALUES (?, ?, ?, ?, ?)`)
+      .run(b.blameId, b.runId, b.at, b.outcome, JSON.stringify({ report: b.report, expect: b.expect ?? null, scope: b.scope, command: b.command }));
+  }
+
+  getBlame(blameId: string): StoredBlame | null {
+    const row = this.db.prepare(`SELECT * FROM blames WHERE blame_id = ?`).get(blameId);
+    return row ? rowToBlame(row) : null;
+  }
+
+  /** The blames of one run, the first made first. */
+  blamesOfRun(runId: string): StoredBlame[] {
+    return this.db.prepare(`SELECT * FROM blames WHERE run_id = ? ORDER BY at ASC, blame_id ASC`).all(runId).map(rowToBlame);
+  }
+
+  /** Every blame, the first made first. */
+  listBlames(): StoredBlame[] {
+    return this.db.prepare(`SELECT * FROM blames ORDER BY at ASC, blame_id ASC`).all().map(rowToBlame);
+  }
+
+  putVerdict(v: StoredVerdict): void {
+    this.db
+      .prepare(`INSERT INTO verdicts (verify_id, at, verdict, repair_id, record) VALUES (?, ?, ?, ?, ?)`)
+      .run(v.verifyId, v.at, v.verdict, v.repairId, JSON.stringify({ report: v.report, candidate: v.candidate, expect: v.expect ?? null, command: v.command }));
+  }
+
+  getVerdict(verifyId: string): StoredVerdict | null {
+    const row = this.db.prepare(`SELECT * FROM verdicts WHERE verify_id = ?`).get(verifyId);
+    return row ? rowToVerdict(row) : null;
+  }
+
+  /** Every verdict, the first given first. */
+  listVerdicts(): StoredVerdict[] {
+    return this.db.prepare(`SELECT * FROM verdicts ORDER BY at ASC, verify_id ASC`).all().map(rowToVerdict);
+  }
+
+  putRepair(r: StoredRepair): void {
+    this.db
+      .prepare(`INSERT INTO repairs (repair_id, at, dir, outcome, accepted, record) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(r.repairId, r.at, r.dir, r.outcome, r.accepted ? 1 : 0, JSON.stringify({ report: r.report, expect: r.expect ?? null, command: r.command }));
+  }
+
+  getRepair(repairId: string): StoredRepair | null {
+    const row = this.db.prepare(`SELECT * FROM repairs WHERE repair_id = ?`).get(repairId);
+    return row ? rowToRepair(row) : null;
+  }
+
+  /** Every repair, the first made first. */
+  listRepairs(): StoredRepair[] {
+    return this.db.prepare(`SELECT * FROM repairs ORDER BY at ASC, repair_id ASC`).all().map(rowToRepair);
   }
 
   // ---- runs ----
@@ -620,6 +877,75 @@ function parseMeta(raw: unknown): CallMeta {
   } catch {
     return {};
   }
+}
+
+// ---- Fixes (v4): rows to records ----
+
+const nullableNumber = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+const record = (v: unknown): Record<string, unknown> => {
+  const parsed = JSON.parse(String(v)) as unknown;
+  return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+};
+
+function rowToFix(row: Record<string, unknown>): StoredFix {
+  return {
+    fixId: String(row.fix_id),
+    title: String(row.title),
+    groupKey: String(row.group_key),
+    label: row.label === null || row.label === undefined ? null : String(row.label),
+    check: { expect: typeof row.check_expect === 'string' ? (JSON.parse(row.check_expect) as unknown) : null, text: String(row.check_text) },
+    status: row.status as FixStatus,
+    openedAt: Number(row.opened_at),
+    verifiedAt: nullableNumber(row.verified_at),
+    appliedAt: nullableNumber(row.applied_at),
+    data: typeof row.data === 'string' ? (record(row.data) as FixData) : {},
+  };
+}
+
+function rowToFixLink(row: Record<string, unknown>): FixLink {
+  return { fixId: String(row.fix_id), kind: row.kind as FixLinkKind, ref: String(row.ref), at: Number(row.at) };
+}
+
+function rowToBlame(row: Record<string, unknown>): StoredBlame {
+  const r = record(row.record);
+  return {
+    blameId: String(row.blame_id),
+    runId: String(row.run_id),
+    at: Number(row.at),
+    outcome: row.outcome as StoredBlame['outcome'],
+    report: r.report as BlameReport,
+    expect: r.expect ?? null,
+    scope: typeof r.scope === 'string' ? r.scope : null,
+    command: typeof r.command === 'string' ? r.command : '',
+  };
+}
+
+function rowToVerdict(row: Record<string, unknown>): StoredVerdict {
+  const r = record(row.record);
+  return {
+    verifyId: String(row.verify_id),
+    at: Number(row.at),
+    verdict: row.verdict as VerifyOutcome,
+    repairId: row.repair_id === null || row.repair_id === undefined ? null : String(row.repair_id),
+    candidate: typeof r.candidate === 'number' ? r.candidate : null,
+    report: r.report as VerifyReport,
+    expect: r.expect ?? null,
+    command: typeof r.command === 'string' ? r.command : '',
+  };
+}
+
+function rowToRepair(row: Record<string, unknown>): StoredRepair {
+  const r = record(row.record);
+  return {
+    repairId: String(row.repair_id),
+    at: Number(row.at),
+    dir: String(row.dir),
+    outcome: row.outcome as RepairOutcome,
+    accepted: Number(row.accepted) === 1,
+    report: r.report as RepairReport,
+    expect: r.expect ?? null,
+    command: typeof r.command === 'string' ? r.command : '',
+  };
 }
 
 function rowToRun(row: Record<string, unknown>): RunRecord {

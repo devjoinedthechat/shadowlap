@@ -364,7 +364,9 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     let failures: string[] = judgeRecording(store, t.parent, parentCalls, s.spec, config.prices).failures;
 
     const stored = store.getRun(runId)?.meta?.blame;
-    const sameSearch = !!stored && JSON.stringify(stored.oracle) === JSON.stringify(oracle) && JSON.stringify(stored.fields ?? {}) === JSON.stringify(fields) && (stored.scope ?? null) === (s.scope ?? null);
+    // Only a blame kept with its fix is reused, so the repair has a fix to report to.
+    const kept = store.blamesOfRun(runId).at(-1);
+    const sameSearch = !!stored && !!kept && JSON.stringify(stored.oracle) === JSON.stringify(oracle) && JSON.stringify(stored.fields ?? {}) === JSON.stringify(fields) && (stored.scope ?? null) === (s.scope ?? null);
     // A search already made under the same oracle, rescue and scope is not made again, whatever it found.
     if (sameSearch && stored.outcome === 'unrescuable') {
       log(`  ${shortId(runId)}: not rescued from any model call, from the blame already stored on it`);
@@ -385,7 +387,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
           parent: t.parent,
           argv: t.argv,
           commandFromImport: t.commandFromImport,
-          settings: { attempts: 5, needed: 2, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, budget: left, timeoutMs: s.timeoutMs, guard: s.guard },
+          settings: { attempts: 5, needed: 2, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, expect: s.expect, budget: left, timeoutMs: s.timeoutMs, guard: s.guard },
           log: (line) => log(`  ${line}`),
         });
         cost.blame += r.spent;
