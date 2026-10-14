@@ -27,6 +27,7 @@ export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, commandIsImported, hasRecordedCo
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
+export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { MATCH_END, MATCH_START, searchCalls, searchExpression, updateSearchIndex, type SearchHit } from './search.js';

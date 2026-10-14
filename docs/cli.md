@@ -261,7 +261,7 @@ shadowlap import har traffic.har         # model calls out of a HAR, as a record
 shadowlap import nock recording.json     # the same, from a nock recording
 shadowlap import vcr cassette.json       # the same, from a VCR cassette (JSON serialization)
 shadowlap import litellm cap/*.jsonl     # production traffic a LiteLLM proxy captured
-shadowlap import har traffic.har --json  # the calls imported and the entries skipped
+shadowlap import har traffic.har --json  # every run made, by its full id, and the entries skipped
 ```
 
 Turns a capture something else made into a recording you can replay your own code against.
@@ -299,6 +299,38 @@ shadowlap replay <run> -- python agent.py
 That replay is also how an import becomes a CI golden: the model calls come from the capture and
 everything else is recorded live, so the resulting run covers everything and `shadowlap pack` turns
 it into a golden for `shadowlap test`.
+
+Every imported run is labelled `imported`, names who imported it as its author (`SHADOWLAP_AUTHOR`
+when set, `ci` in CI, otherwise git's `user.email`), and appears in the dashboard's activity feed.
+
+### `--json`
+
+Every `import` subcommand takes `--json` and prints one object, whatever the format: each run it
+made, by its full id, with its source and what it holds, then everything it skipped. One LiteLLM
+file can make several runs, one per correlation id; they are all listed.
+
+```json
+{
+  "format": "litellm",
+  "entries": 4,
+  "runs": [
+    {
+      "runId": "01K5CQ9C4H8M2XWQH6V3T9RB1D",
+      "source": "/var/log/shadowlap/worker-1.jsonl",
+      "key": "incident-42",
+      "calls": { "model": 2, "tool": 0 },
+      "labels": ["imported"],
+      "imported": [{ "callNo": 1, "kind": "api", "name": "POST /v1/messages", "provider": "anthropic", "model": "claude-haiku-4-5" }]
+    }
+  ],
+  "skipped": [{ "url": "line 4", "reason": "not JSON (a partly written line?)" }]
+}
+```
+
+`entries` counts what was read (HAR entries, nock definitions, cassette interactions, capture
+lines, spans, observations or runs). `key` is the correlation id for LiteLLM and the trace id for
+OpenTelemetry, otherwise `null`. When nothing could be imported, `runs` is empty and the exit code
+is 1. Started from the dashboard, the command also reports each run to the job that started it.
 
 ## calibrate
 
