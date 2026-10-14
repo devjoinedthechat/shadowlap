@@ -153,6 +153,10 @@ export interface RunMeta {
   labels?: string[];
   /** Notes on the run, or on one of its calls. */
   notes?: RunNote[];
+  /** Who made the run (resolveAuthor): an email, a user name, or `ci`. */
+  author?: string;
+  /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
+  test?: { golden: string; session: string };
 }
 
 /** What `shadowlap blame` found, kept on the run it blamed. */

@@ -45,7 +45,7 @@ interface SqliteDatabase {
   close(): void;
 }
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 const GZIP_THRESHOLD = 512;
 
 const SCHEMA = `
@@ -93,7 +93,37 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- v4: activity. What a command did that leaves nothing else in the store: a normalizer added, a
+-- golden packed, pairs exported, a fix applied. Runs are not repeated here; the activity feed
+-- derives their events from the runs table. No foreign key on run_id: an event outlives its run.
+CREATE TABLE IF NOT EXISTS events (
+  event_id  TEXT    PRIMARY KEY,
+  at        INTEGER NOT NULL,
+  kind      TEXT    NOT NULL,
+  actor     TEXT,
+  run_id    TEXT,
+  ref       TEXT,
+  data      TEXT
+);
+CREATE INDEX IF NOT EXISTS events_at ON events (at);
 `;
+
+/** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
+export interface StoredEvent {
+  eventId: string;
+  at: number;
+  /** Dotted, e.g. `normalizer.added`, `golden.packed`, `fix.applied`. See events.ts. */
+  kind: string;
+  /** Who did it (resolveAuthor), or null when unknown. */
+  actor: string | null;
+  runId: string | null;
+  /** What else it is about: a fix id, a golden path, a file. */
+  ref: string | null;
+  data: Record<string, unknown> | null;
+}
+
+export type NewStoredEvent = Partial<Pick<StoredEvent, 'eventId' | 'at' | 'actor' | 'runId' | 'ref' | 'data'>> & Pick<StoredEvent, 'kind'>;
 
 export interface CreateRunInput {
   runId?: string;
@@ -265,6 +295,50 @@ export class Store {
       this.db.exec('ROLLBACK');
       throw err;
     }
+  }
+
+  // ---- activity events (v4) ----
+
+  /** Appends one activity event; returns it as stored. */
+  addEvent(input: NewStoredEvent): StoredEvent {
+    const event: StoredEvent = {
+      eventId: input.eventId ?? ulidNow(),
+      at: input.at ?? Date.now(),
+      kind: input.kind,
+      actor: input.actor ?? null,
+      runId: input.runId ?? null,
+      ref: input.ref ?? null,
+      data: input.data ?? null,
+    };
+    this.db
+      .prepare(`INSERT INTO events (event_id, at, kind, actor, run_id, ref, data) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(event.eventId, event.at, event.kind, event.actor, event.runId, event.ref, event.data === null ? null : JSON.stringify(event.data));
+    return event;
+  }
+
+  /** Activity events, newest first. `before` pages back (exclusive); `kinds` filters. */
+  listEvents(options: { limit?: number; before?: number; kinds?: string[] } = {}): StoredEvent[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (options.before !== undefined) {
+      where.push('at < ?');
+      params.push(options.before);
+    }
+    if (options.kinds?.length) {
+      where.push(`kind IN (${options.kinds.map(() => '?').join(', ')})`);
+      params.push(...options.kinds);
+    }
+    params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
+    const rows = this.db.prepare(`SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, event_id DESC LIMIT ?`).all(...params);
+    return rows.map((r) => ({
+      eventId: String(r.event_id),
+      at: Number(r.at),
+      kind: String(r.kind),
+      actor: r.actor === null ? null : String(r.actor),
+      runId: r.run_id === null ? null : String(r.run_id),
+      ref: r.ref === null ? null : String(r.ref),
+      data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
+    }));
   }
 
   // ---- runs ----

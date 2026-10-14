@@ -8,7 +8,9 @@ export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, type Clo
 export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { SCHEMA_VERSION, Store } from './store.js';
-export type { CreateRunInput } from './store.js';
+export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
+export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
+export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { describeChanges, type RunChanges } from './changes.js';
