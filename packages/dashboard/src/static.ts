@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactRun, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetail, compare, lineage, listRuns, runDetail } from './api.js';
+import { isAttempt } from './run-index.js';
+import type { MetaView } from './views.js';
 
 /**
  * A run as one HTML file: the dashboard's own UI with the answers it would have asked the server
@@ -50,7 +52,26 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
   const runs = listRuns(store, read).filter((r) => runIds.includes(r.runId));
-  responses['meta'] = { version: opts.version ?? null, dbPath: null, actions: false, static: true, exportedAt: opts.now, runIds, redacted: opts.redacted };
+  const records = runIds.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
+  const attempts = records.filter(isAttempt).length;
+  const meta: MetaView = {
+    version: opts.version ?? null,
+    dbPath: null,
+    actions: false,
+    readOnly: true,
+    readOnlyReason: 'this is an exported copy of a run: it cannot be changed from here',
+    address: null,
+    storeBytes: null,
+    counts: { runs: records.length - attempts, attempts },
+    live: [],
+    jobKinds: [],
+    project: null,
+    static: true,
+    exportedAt: opts.now,
+    runIds,
+    redacted: opts.redacted,
+  };
+  responses['meta'] = meta;
   responses['runs'] = { runs };
   let calls = 0;
   for (const runId of runIds) {

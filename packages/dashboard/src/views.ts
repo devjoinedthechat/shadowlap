@@ -1,0 +1,173 @@
+/**
+ * The shapes the dashboard's API answers with, beyond the run and call views in `api.ts`. Types
+ * only and no imports: the browser code type-checks against this file, and `api.ts` re-exports
+ * everything here.
+ */
+
+/** A link a job or an activity entry offers: a label and a dashboard route such as `#/run/<id>`. */
+export interface JobLink {
+  label: string;
+  href: string;
+}
+
+/**
+ * Something a job wrote inside the project folder. A file downloads from `GET /api/files/<fileId>`
+ * (with the session token, as an attachment); a folder, such as a pack, is only named.
+ */
+export interface JobFile {
+  fileId: string;
+  /** Its name, for the drawer and the download. */
+  name: string;
+  /** Its path relative to the project folder, with `/` separators. */
+  path: string;
+  /** What the command called it ("Pack", "Dataset"), or null. */
+  label: string | null;
+  /** Its size; null for a folder. */
+  bytes: number | null;
+  /** A folder: named in the drawer, not downloadable. */
+  directory: boolean;
+}
+
+/** A job as `GET /api/jobs/:id?after=n` returns it: the CLI run the dashboard started, and what it made. */
+export interface JobView {
+  id: string;
+  /** The registered kind it was started as: `action` for the run actions, then `blame`, `import`, … */
+  kind: string;
+  /** What the drawer calls it: "Replaying", "Forking", "Importing a capture". */
+  title: string;
+  /** The CLI arguments the server built (never sent by the browser), without the `--db` it adds. */
+  args: string[];
+  /** The run the job is about (full id), or null when it is about none (an import, the tests). */
+  runId: string | null;
+  /** Whether the job makes a run to open when it ends. */
+  opensRun: boolean;
+  startedAt: number;
+  endedAt: number | null;
+  done: boolean;
+  /** The exit code; null while running, or when the process was killed by a signal. */
+  code: number | null;
+  /** The run to open: the last one the job reported that is not an attempt (or found in its output). */
+  newRunId: string | null;
+  /** Every run the job made, attempts included, in the order it reported them. */
+  runs: string[];
+  /** Where to go next: the new run, the fix, Tests, the scores. */
+  links: JobLink[];
+  /** Files and folders it wrote inside the project folder. */
+  files: JobFile[];
+  /** The last structured result the CLI reported (what `--json` prints, a verdict), or null. */
+  result: unknown;
+  /** Output lines from `after` on, ANSI colours removed. */
+  lines: string[];
+  /** Output lines so far, counted from the first (the job keeps the last 2,000): pass it as `after`. */
+  total: number;
+}
+
+/** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output. */
+export type JobListItem = Omit<JobView, 'lines'>;
+
+/** A run recording now, with its calls so far. */
+export interface LiveRun {
+  runId: string;
+  calls: number;
+}
+
+/** The project folder the dashboard works in: jobs run there, uploads and exports are kept there. */
+export interface ProjectView {
+  /** The folder's name. */
+  name: string;
+  /** Its absolute path. */
+  path: string;
+}
+
+/** `GET /api/meta`: what the shell needs once, and the status bar. */
+export interface MetaView {
+  version: string | null;
+  /** The store file, or null for a store in memory or an exported copy. */
+  dbPath: string | null;
+  /** Whether actions can run: started by `shadowlap dashboard`, and not read-only. */
+  actions: boolean;
+  /** Nothing can be changed from here: every page shows, actions are disabled with `readOnlyReason`. */
+  readOnly: boolean;
+  /** Why it is read-only, for the disabled actions' hover; null when it is not. */
+  readOnlyReason: string | null;
+  /** Where it listens, such as "127.0.0.1:4777"; null in an exported copy. */
+  address: string | null;
+  /** The store's size on disk (database and write-ahead log), or null. */
+  storeBytes: number | null;
+  /** Runs (attempts left out, as the run count shows them) and attempts (`--repeat`, blame probes, verify). */
+  counts: { runs: number; attempts: number };
+  /** Runs recording now. */
+  live: LiveRun[];
+  /** The job kinds `POST /api/jobs` accepts. */
+  jobKinds: string[];
+  /** The project folder, or null. */
+  project: ProjectView | null;
+  /** An exported HTML copy: recorded data only, no server behind it. */
+  static?: boolean;
+  exportedAt?: number;
+  redacted?: boolean;
+  runIds?: string[];
+}
+
+/** The icon an activity entry shows, as in the mock (each comes with its words beside it or on hover). */
+export type ActivityIcon = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train' | 'release';
+
+/** One entry of the activity feed. */
+export interface ActivityItem {
+  /** Stable across requests: `e:<event id>` for a stored event, `r:<run id>:<what>` or `g:<group>` for one derived from runs. */
+  id: string;
+  at: number;
+  /** The icon. */
+  kind: ActivityIcon;
+  /** What happened, in the mock's words: "Replay clean · 30/30 · 0 upstream". */
+  text: string;
+  /** The run it is about. */
+  runId?: string;
+  /** Where it opens: a dashboard route. */
+  href?: string;
+  /** Who did it: SHADOWLAP_AUTHOR, `ci`, a git email or an OS user. */
+  actor?: string;
+  /** The short code shown at the end: a run id, a file, a rule. */
+  ref?: string;
+  /** The run it is about is recording now (a "Recording started" dot pulses only then). */
+  live?: boolean;
+}
+
+/** `GET /api/activity?limit=&before=`: newest first. Pass `next` as `before` for the page after; null at the end. */
+export interface ActivityPage {
+  items: ActivityItem[];
+  next: number | null;
+}
+
+/**
+ * `GET /api/changes?since=<cursor>`: whether anything the UI shows changed since the cursor. Poll it
+ * (every 2 s is plenty; it reads two tiny tables) and refetch only what it names; ETags make most
+ * refetches a 304 anyway. Without `since`, or with a cursor from before a restart, everything counts
+ * as changed.
+ */
+export interface ChangesView {
+  /** Opaque. Pass it back as `since`. */
+  cursor: string;
+  /** False when nothing changed since `since`. */
+  changed: boolean;
+  /** A run was added, ended, deleted, labelled, noted, blamed or otherwise updated: refetch `/api/runs`, open runs, `/api/meta` counts. */
+  runs: boolean;
+  /** A call was recorded: a live run grew. `live` says which runs are recording. */
+  calls: boolean;
+  /** An activity event was stored: refetch `/api/activity`. */
+  events: boolean;
+  /** A job started, ended, or reported a run, link, file or result: refetch `/api/jobs` or the open job. */
+  jobs: boolean;
+  /** Other counted tables that changed, by name (features add their own: `fixes`, `tests`, …). */
+  other: string[];
+  /** Runs recording now, with their call counts: enough for the live chip and counters without a refetch. */
+  live: LiveRun[];
+}
+
+/** `POST /api/uploads`: a file stored for a job to use, by its id. */
+export interface UploadView {
+  uploadId: string;
+  /** The name it was stored under (letters, digits, `.`, `_`, `-`). */
+  name: string;
+  bytes: number;
+}

@@ -1,9 +1,19 @@
 export { startDashboard } from './server.js';
-export type { Dashboard, DashboardOptions, SpawnCli } from './server.js';
-export { actionArgs, actionsFor, callDetail, compare, listRuns, runDetail } from './api.js';
+export type { Dashboard, DashboardOptions } from './server.js';
+export { cliSpawner, JobManager } from './jobs.js';
+export type { JobBuild, JobBuildContext, JobBuildResult, JobKind, JobRequest, ProjectInfo, SpawnCli, SpawnCliOptions, UploadSource } from './jobs.js';
+export { Router } from './router.js';
+export type { Handler, Method, RouteOptions, RouteRequest } from './router.js';
+export type { ProjectConfig, RouteContext } from './context.js';
+export type { RouteModule } from './routes/index.js';
+export { HttpError } from './http.js';
+export { UploadStore, UPLOAD_LIMIT } from './uploads.js';
+export { metaView } from './meta.js';
+export { actionArgs, actionsFor, callDetail, compare, listRuns, lookupRun, runDetail } from './api.js';
 export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
-export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
+export type { ActionItem, CallDetail, CallRow, LineageNode, ReadOptions, RunDetail, RunListItem } from './api.js';
+export type { ActivityIcon, ActivityItem, ActivityPage, ChangesView, JobFile, JobLink, JobListItem, JobView, LiveRun, MetaView, ProjectView, UploadView } from './views.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';
