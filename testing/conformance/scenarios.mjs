@@ -172,6 +172,45 @@ export const SCENARIOS = [
     },
   },
   {
+    name: 'injected-timeout',
+    why: 'a tool --fail-at times out never runs, and raises a timeout the agent can catch as one',
+    record: 'fail',
+    replay: 'fail',
+    replayOptions: { toolFailures: new Map([[1, { kind: 'timeout' }]]) },
+    check({ replayOut, replayCalls }) {
+      assert.equal(replayOut.implRuns, 0, 'a tool failed by --fail-at MUST NOT run its implementation');
+      assert.equal(replayOut.caught?.timeout, true, 'the failure must be raised as the language\'s timeout error');
+      assert.equal(replayOut.caught?.injected, true, 'the error must say it was injected');
+      const call = one(replayCalls, 'echo');
+      assert.equal(call.end?.outcome, 'error');
+      assert.equal(call.end?.meta.injected, true, 'the sidecar records the failure as injected; the client must not complete the call');
+    },
+  },
+  {
+    name: 'injected-status',
+    why: 'a tool --fail-at answers with an HTTP status raises an error carrying that status',
+    record: 'fail',
+    replay: 'fail',
+    replayOptions: { toolFailures: new Map([[1, { kind: 'status', status: 429 }]]) },
+    check({ replayOut }) {
+      assert.equal(replayOut.implRuns, 0);
+      assert.equal(replayOut.caught?.status, 429, 'an HTTP failure must carry its status');
+      assert.equal(replayOut.caught?.timeout, false);
+    },
+  },
+  {
+    name: 'injected-error',
+    why: 'a tool --fail-at fails with a message raises an error with exactly that message',
+    record: 'fail',
+    replay: 'fail',
+    replayOptions: { toolFailures: new Map([[1, { kind: 'error', message: 'connection reset by peer' }]]) },
+    check({ replayOut }) {
+      assert.equal(replayOut.implRuns, 0);
+      assert.equal(replayOut.caught?.message, 'connection reset by peer');
+      assert.equal(replayOut.caught?.injected, true);
+    },
+  },
+  {
     name: 'inactive',
     why: 'with no SHADOWLAP_URL the wrappers are transparent: the real code runs and nothing is recorded',
     inactive: 'live-ok',

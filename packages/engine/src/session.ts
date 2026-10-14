@@ -1,6 +1,7 @@
 import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
 import { withoutPrompt } from './prompt.js';
 import { hintsFor, structuralDiff } from './diff.js';
+import { formatToolFailure, type ToolFailure } from './interventions.js';
 import type { CallKind, CallRecord, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
 
 /**
@@ -32,6 +33,16 @@ export interface ReplayOptions {
   promptFrom?: number;
   /** Tool results to substitute, by the parent run's call number (tool-result override). */
   overrides?: ReadonlyMap<number, unknown>;
+  /**
+   * Tool calls to fail instead of serving or running them, by the parent run's call number
+   * (`--fail-at 19=timeout`). The tool doesn't run; the agent gets the error, and the run forks there.
+   */
+  toolFailures?: ReadonlyMap<number, ToolFailure>;
+  /**
+   * Text to add to a recorded tool result, by the parent run's call number (`--inject-result 9=…`):
+   * the result is served as recorded with the text planted in it, as an attacker would leave it.
+   */
+  plants?: ReadonlyMap<number, string>;
 }
 
 export const DEFAULT_REPLAY_OPTIONS: ReplayOptions = { writes: 'block', reads: 'live', liveTools: new Set() };
@@ -52,11 +63,21 @@ export interface ResolveInput {
    * recorded answers whatever order they arrive in.
    */
   scope?: string;
+  /**
+   * The request was changed by an intervention the caller applied (`--inject`, `--set`, `--model`):
+   * the call runs live, and the divergence report names the flag (`by`) and the recorded call it
+   * stands in for (`counterpart`, the parent run's call number).
+   */
+  forced?: { by: string; counterpart?: number };
 }
 
 export type Decision =
   | { origin: 'replayed'; occurrence: number; record: CallRecord }
   | { origin: 'overridden'; occurrence: number; record: CallRecord; result: unknown }
+  /** The recorded result with `text` planted in it (`--inject-result`). Stored as overridden. */
+  | { origin: 'planted'; occurrence: number; record: CallRecord; text: string }
+  /** The tool fails as `--fail-at` asked, without running. Stored as live, with the failure marked injected. */
+  | { origin: 'injected'; occurrence: number; record: CallRecord; failure: ToolFailure }
   | { origin: 'live'; occurrence: number }
   | { origin: 'blocked'; occurrence: number }
   | { origin: 'stubbed'; occurrence: number };
@@ -85,6 +106,8 @@ export class Session {
   private readonly index = new Map<string, CallRecord>();
   private readonly parentCalls: CallRecord[];
   private readonly consumed = new Set<number>();
+  /** Recorded calls a tool-call intervention (override, planted text, failure) took effect on. */
+  private readonly applied = new Set<number>();
   private readonly occurrences = new Map<string, number>();
   private readonly forcedTools = new Set<string>();
   private readonly loadRequest: (record: CallRecord) => unknown;
@@ -147,6 +170,17 @@ export class Session {
       const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       if (record && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
     }
+    // A tool asked to fail that the run reaches after its fork: the same tool with the same arguments
+    // (and occurrence) is the recorded call, wherever it now falls.
+    if (input.kind === 'tool' && this.options.toolFailures?.size) {
+      const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
+      const failure = record && !this.consumed.has(record.callNo) ? this.options.toolFailures.get(record.callNo) : undefined;
+      if (record && failure) {
+        this.consumed.add(record.callNo);
+        this.applied.add(record.callNo);
+        return { origin: 'injected', occurrence, record, failure };
+      }
+    }
 
     // Live region.
     if (input.kind === 'tool' && effect === 'write') {
@@ -159,9 +193,35 @@ export class Session {
   /** Serves a matched record, substituting an override for a tool result when one was given. */
   private serve(input: ResolveInput, record: CallRecord, occurrence: number): Decision {
     this.consumed.add(record.callNo);
+    if (input.kind === 'tool') {
+      const failure = this.options.toolFailures?.get(record.callNo);
+      if (failure) {
+        // The tool's answer is replaced by a failure nobody recorded: the run forks here, like a
+        // model call answered with --fail-at, and the replay counts it as no replayed call.
+        this.applied.add(record.callNo);
+        if (this.state === 'replaying') {
+          this.state = 'diverged';
+          this.divergence = {
+            type: 'forced',
+            callNo: input.callNo,
+            kind: input.kind,
+            name: input.name,
+            replayedBefore: this.replayedCount,
+            reason: `forced by --fail-at ${record.callNo}=${formatToolFailure(failure)}: ${input.name} did not run, and the agent got ${failure.kind === 'timeout' ? 'a timeout' : failure.kind === 'status' ? `an HTTP ${failure.status}` : 'an error'} instead, so its error path runs`,
+            counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo },
+          };
+        }
+        return { origin: 'injected', occurrence, record, failure };
+      }
+    }
     this.replayedCount++;
     if (input.kind === 'tool' && this.options.overrides?.has(record.callNo)) {
+      this.applied.add(record.callNo);
       return { origin: 'overridden', occurrence, record, result: this.options.overrides.get(record.callNo) };
+    }
+    if (input.kind === 'tool' && this.options.plants?.has(record.callNo)) {
+      this.applied.add(record.callNo);
+      return { origin: 'planted', occurrence, record, text: this.options.plants.get(record.callNo)! };
     }
     return { origin: 'replayed', occurrence, record };
   }
@@ -173,11 +233,35 @@ export class Session {
       .map((c) => ({ callNo: c.callNo, kind: c.kind, name: c.name }));
   }
 
+  /**
+   * Tool-call interventions that never took effect, each as a sentence: the run forked before
+   * reaching the call, or reached it with other arguments, so the result it was meant to change
+   * was never served. Meaningful once the run has ended.
+   */
+  unapplied(): string[] {
+    const out: string[] = [];
+    const where = this.divergence ? `the replay forked at call ${this.divergence.callNo} before reaching it, and calls after a fork are matched to the recording only when they are the same call` : 'the run never made that call';
+    const note = (flag: string, callNo: number) => {
+      if (this.applied.has(callNo)) return;
+      const rec = this.parentCalls.find((c) => c.callNo === callNo);
+      out.push(`${flag} ${callNo} changed nothing: ${rec ? `#${callNo} ${rec.name} was not served, because ${where}` : `the recording has no call #${callNo}`}`);
+    };
+    for (const n of this.options.toolFailures?.keys() ?? []) note('--fail-at', n);
+    for (const n of this.options.overrides?.keys() ?? []) note('--override', n);
+    for (const n of this.options.plants?.keys() ?? []) {
+      note('--inject-result', n);
+      // Served, yet every later call matched the recording: no model saw the planted text.
+      if (this.applied.has(n) && !this.divergence) out.push(`--inject-result ${n} reached no model: the replay stayed clean, so the agent never passed #${n}'s result on whole (an agent that cuts or summarizes what a tool returns can drop what was added)`);
+    }
+    return out;
+  }
+
   get replayed(): number {
     return this.replayedCount;
   }
 
   private isForced(input: ResolveInput): boolean {
+    if (input.forced) return true;
     // An injected failure is a change to the response, so the run forks there like any other.
     if (input.kind === 'api' && this.options.failAt?.has(input.callNo)) return true;
     if (this.options.divergeAt !== undefined && input.callNo === this.options.divergeAt) return true;
@@ -193,15 +277,16 @@ export class Session {
     const base = { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount };
     if (forced) {
       const failed = input.kind === 'api' ? this.options.failAt?.get(input.callNo) : undefined;
-      const by =
-        failed !== undefined
+      const by = input.forced
+        ? input.forced.by
+        : failed !== undefined
           ? `--fail-at ${input.callNo}=${failed}: answered with HTTP ${failed} instead of the recording, so the agent's error path runs`
           : this.options.divergeAt === input.callNo
             ? `--diverge-at ${input.callNo}`
             : this.options.promptFrom === input.callNo
               ? `--prompt-from ${input.callNo}: calls before it matched without their system prompt and tool definitions`
               : `--live-tool ${input.name}`;
-      const record = this.index.get(key(input.kind, input.fingerprint, occurrence, this.scopeOf(input.scope)));
+      const record = input.forced?.counterpart !== undefined ? this.parentCalls.find((c) => c.callNo === input.forced!.counterpart) : this.index.get(key(input.kind, input.fingerprint, occurrence, this.scopeOf(input.scope)));
       return { ...base, type: 'forced', reason: `forced live by ${by}`, ...(record ? { counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } } : {}) };
     }
 

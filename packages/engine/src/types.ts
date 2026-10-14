@@ -41,7 +41,7 @@ export interface CallMeta {
   retryCount?: number;
   /** Whether an error outcome was retryable (429, 5xx, connection error). */
   retryable?: boolean;
-  /** The failure was injected by `--fail-at`, not returned by the provider. */
+  /** The failure was injected by `--fail-at`, not returned by the provider or the tool. */
   injected?: boolean;
   /** Hash of a tool implementation's source, for the changed-implementation warning. */
   implHash?: string;
@@ -157,6 +157,20 @@ export interface RunMeta {
   author?: string;
   /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
   test?: { golden: string; session: string };
+  /** What a replay changed, as the flags that change it: what made a fork, and how to make it again. */
+  interventions?: RunIntervention[];
+}
+
+/**
+ * One change a replay made, as its flag. `at` is the parent run's call number it applies at, or null
+ * for a policy (`--writes stub`) or a tool named by name (`--live-tool`). `flag` is for display, with
+ * long values shortened; `args` are the exact CLI arguments, left out when a value is too large to keep.
+ */
+export interface RunIntervention {
+  kind: 'inject' | 'set' | 'model' | 'override' | 'plant' | 'fail' | 'diverge' | 'prompt-from' | 'live-tool' | 'writes' | 'reads';
+  at: number | null;
+  flag: string;
+  args?: string[];
 }
 
 /** What `shadowlap blame` found, kept on the run it blamed. */
@@ -226,7 +240,7 @@ export interface RunSummary {
   byKind: Record<CallKind, number>;
   /** Live API calls, i.e. requests that reached the upstream provider. */
   upstreamRequests: number;
-  /** Live API calls Shadowlap answered itself with `--fail-at`: they reached no provider. */
+  /** Live calls Shadowlap answered itself with `--fail-at`: model calls that reached no provider, tools that did not run. */
   injected: number;
   /**
    * The run came from elsewhere — a pack someone recorded, or a capture — so the calls it holds were

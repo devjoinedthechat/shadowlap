@@ -46,8 +46,9 @@ export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: No
   for (const c of calls) {
     byOrigin[c.origin] = (byOrigin[c.origin] ?? 0) + 1;
     byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
-    if (c.kind !== 'api') continue;
+    // Model calls and tool calls alike: Shadowlap answered them itself (--fail-at), though they count as live.
     if (c.end?.meta.injected) injected++;
+    if (c.kind !== 'api') continue;
     // Offline refusals (`shadowlap test`) never reached the provider, and neither did an injected
     // failure, which Shadowlap answered itself; an imported run's calls were made somewhere else.
     if (c.origin === 'live' && !imported) upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected).length;

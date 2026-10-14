@@ -31,6 +31,9 @@ __all__ = [
     "is_active",
     "ShadowlapWriteBlocked",
     "ReplayedError",
+    "ShadowlapInjectedFailure",
+    "ShadowlapInjectedTimeout",
+    "ShadowlapInjectedHTTPError",
     "serialize_error",
     "context_params",
     "scope",
@@ -72,6 +75,69 @@ class ReplayedError(Exception):
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic
         return f"{self.name}: {super().__str__()}"
+
+
+class ShadowlapInjectedFailure(Exception):
+    """Raised instead of running a tool that ``shadowlap replay --fail-at <call>=timeout|error|<status>``
+    fails: the tool does not run, and the agent's error path does. ``tool`` and ``tool_args`` name the
+    call; ``kind`` is ``timeout``, ``error`` or ``status``; ``injected`` is always True, to tell it from
+    a real failure. A timeout is also a ``TimeoutError`` and an HTTP failure carries its status, so the
+    handling the agent has for the real thing is what runs."""
+
+    injected = True
+
+    def __init__(self, tool: str, args: dict, failure: dict, error: dict):
+        super().__init__(error.get("message", "injected failure"))
+        self.tool = tool
+        self.tool_args = args
+        self.failure = failure
+        self.kind = failure.get("kind", "error")
+        self.name = error.get("name", "Error")
+        self.code = error.get("code")
+
+    def __reduce__(self):
+        return (type(self), (self.tool, self.tool_args, self.failure, {"name": self.name, "message": str(self), "code": self.code}))
+
+
+class ShadowlapInjectedTimeout(ShadowlapInjectedFailure, TimeoutError):
+    """A tool timeout ``--fail-at <call>=timeout`` asked for: ``except TimeoutError`` catches it
+    (``asyncio.TimeoutError`` and ``socket.timeout`` are the same class)."""
+
+
+class _InjectedResponse:
+    """The little of an HTTP response an error handler reads: ``status_code``, ``status``, ``headers``, ``text``."""
+
+    def __init__(self, status: int, text: str):
+        self.status_code = status
+        self.status = status
+        self.headers: dict = {}
+        self.text = text
+        self.reason_phrase = text.split(" ", 2)[-1] if text.startswith("HTTP ") else ""
+
+    def json(self) -> dict:
+        return {"error": {"message": self.text}}
+
+
+class ShadowlapInjectedHTTPError(ShadowlapInjectedFailure):
+    """An HTTP failure ``--fail-at <call>=<status>`` asked for, shaped like the errors HTTP clients
+    raise: ``status_code`` and ``status`` on the error and on its ``response``."""
+
+    def __init__(self, tool: str, args: dict, failure: dict, error: dict):
+        super().__init__(tool, args, failure, error)
+        self.status_code = int(failure.get("status", 500))
+        self.status = self.status_code
+        self.response = _InjectedResponse(self.status_code, str(self))
+
+
+def _injected(tool: str, args: dict, failure: dict, error: dict) -> ShadowlapInjectedFailure:
+    kind = failure.get("kind")
+    cls = ShadowlapInjectedTimeout if kind == "timeout" else ShadowlapInjectedHTTPError if kind == "status" else ShadowlapInjectedFailure
+    return cls(tool, args, failure, error)
+
+
+def _unknown_origin(tool: str, origin: Any) -> RuntimeError:
+    # Never guess: running the tool on an answer this SDK doesn't know could repeat a side effect.
+    return RuntimeError(f"shadowlap sidecar answered {tool} with an unknown origin {origin!r}; update the shadowlap package")
 
 
 def _config() -> Optional[tuple]:
@@ -297,9 +363,13 @@ def tool(
                 if origin == "replayed":
                     if r["outcome"] == "ok":
                         return r.get("result")
+                    if r.get("injected"):
+                        raise _injected(tool_name, bound, r["injected"], r["error"])
                     raise ReplayedError(r["error"])
                 if origin == "blocked":
                     raise ShadowlapWriteBlocked(tool_name, bound, r["error"]["message"])
+                if origin not in ("stubbed", "live"):
+                    raise _unknown_origin(tool_name, origin)
                 if origin == "stubbed":
                     stub = on_fork(**bound) if on_fork else None
                     if inspect.isawaitable(stub):
@@ -335,9 +405,13 @@ def tool(
             if origin == "replayed":
                 if r["outcome"] == "ok":
                     return r.get("result")
+                if r.get("injected"):
+                    raise _injected(tool_name, bound, r["injected"], r["error"])
                 raise ReplayedError(r["error"])
             if origin == "blocked":
                 raise ShadowlapWriteBlocked(tool_name, bound, r["error"]["message"])
+            if origin not in ("stubbed", "live"):
+                raise _unknown_origin(tool_name, origin)
             if origin == "stubbed":
                 stub = on_fork(**bound) if on_fork else None
                 complete(cfg, r["callNo"], {"outcome": "ok", "result": _recordable(tool_name, stub), "latencyMs": 0})

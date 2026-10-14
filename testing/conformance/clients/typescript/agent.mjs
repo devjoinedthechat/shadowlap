@@ -127,6 +127,15 @@ switch (step) {
     }
     break;
   }
+  case 'fail': {
+    // Recorded, the tool answers; replayed under --fail-at, it must fail without running.
+    try {
+      out({ result: await echo({ n: 1 }), caught: null, implRuns });
+    } catch (err) {
+      out({ caught: { name: err.name, message: err.message, injected: err.injected === true, timeout: err.name === 'TimeoutError', status: err.status ?? null }, implRuns });
+    }
+    break;
+  }
   default:
     out({ error: `unknown step ${step}` });
     process.exitCode = 1;

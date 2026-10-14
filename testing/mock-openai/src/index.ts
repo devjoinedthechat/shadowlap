@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net';
 /**
  * A scripted fake of the OpenAI Chat Completions API, close enough to the real wire format for the
  * official SDK's streaming client: `data:` chunks, a final usage chunk when `stream_options.include_usage`
- * is set, and `data: [DONE]`. It knows nothing about Shadowlap.
+ * is set, and `data: [DONE]`. It also answers the Responses API (JSON) and embeddings, so an agent that
+ * mixes them can be recorded. It knows nothing about Shadowlap.
  */
 
 export interface ToolCall {
@@ -40,8 +41,22 @@ export type Script = (ctx: ScriptContext) => ScriptResult;
 export interface MockServer {
   url: string;
   requests: Array<{ headers: Record<string, string>; body: ChatRequest }>;
+  /** Requests to the Responses API and to embeddings, with their paths. */
+  otherRequests: Array<{ path: string; headers: Record<string, string>; body: Record<string, unknown> }>;
   close(): Promise<void>;
 }
+
+/** A Responses API request (`POST /v1/responses`), as far as the mock reads it. */
+export interface ResponsesRequest {
+  model: string;
+  input: string | Array<Record<string, unknown>>;
+  instructions?: string;
+  stream?: boolean;
+  [key: string]: unknown;
+}
+
+/** Scripts the Responses API: a turn becomes an output message and function calls. Unscripted, it answers "ok". */
+export type ResponsesScript = (ctx: { request: ResponsesRequest; requestNo: number }) => ScriptResult;
 
 let n = 0;
 export const turn = (content: string | null, opts: Partial<Turn> = {}): Turn => ({
@@ -69,12 +84,38 @@ function split(s: string, parts: number): string[] {
   return out;
 }
 
-export async function startMockOpenAI(opts: { script: Script }): Promise<MockServer> {
+export async function startMockOpenAI(opts: { script: Script; responses?: ResponsesScript }): Promise<MockServer> {
   const requests: MockServer['requests'] = [];
+  const otherRequests: MockServer['otherRequests'] = [];
   let requestNo = 0;
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://mock');
+      // ---- Embeddings and the Responses API ----
+      if (req.method === 'POST' && (url.pathname === '/v1/embeddings' || url.pathname === '/v1/responses')) {
+        const body = JSON.parse((await readBody(req)).toString('utf8')) as Record<string, unknown>;
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers[k] = v;
+        otherRequests.push({ path: url.pathname, headers, body });
+        requestNo++;
+        const send = (status: number, value: unknown) => {
+          const bytes = Buffer.from(JSON.stringify(value));
+          res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length) });
+          res.end(bytes);
+        };
+        if (url.pathname === '/v1/embeddings') {
+          const inputs = Array.isArray(body.input) ? body.input : [body.input];
+          return send(200, { object: 'list', data: inputs.map((_, index) => ({ object: 'embedding', index, embedding: [0.1, 0.2, 0.3] })), model: body.model, usage: { prompt_tokens: 4, total_tokens: 4 } });
+        }
+        const result = opts.responses ? opts.responses({ request: body as ResponsesRequest, requestNo }) : { turn: turn('ok') };
+        if (!('turn' in result)) return send(result.status, result.body);
+        const t = result.turn;
+        const output: unknown[] = [];
+        if (t.content) output.push({ type: 'message', id: `msg_mock_${requestNo}`, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: t.content, annotations: [] }] });
+        for (const tc of t.tool_calls ?? []) output.push({ type: 'function_call', id: `fc_mock_${requestNo}`, call_id: tc.id, name: tc.function.name, arguments: tc.function.arguments, status: 'completed' });
+        const usage = { input_tokens: t.usage.prompt_tokens, output_tokens: t.usage.completion_tokens, total_tokens: t.usage.prompt_tokens + t.usage.completion_tokens, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } };
+        return send(200, { id: `resp_mock_${requestNo}`, object: 'response', created_at: 1_700_000_000 + requestNo, status: 'completed', model: body.model, output, usage, parallel_tool_calls: true, tool_choice: 'auto', tools: [] });
+      }
       if (req.method !== 'POST' || url.pathname !== '/v1/chat/completions') {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: `mock: no route ${req.method} ${url.pathname}`, type: 'invalid_request_error' } }));
@@ -129,6 +170,7 @@ export async function startMockOpenAI(opts: { script: Script }): Promise<MockSer
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    otherRequests,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

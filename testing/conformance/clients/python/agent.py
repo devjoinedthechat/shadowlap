@@ -152,6 +152,22 @@ elif step == "bad-effect":
     except TypeError:
         out({"rejected": True})
 
+elif step == "fail":
+    # Recorded, the tool answers; replayed under --fail-at, it must fail without running.
+    try:
+        out({"result": echo(n=1), "caught": None, "implRuns": state["impl_runs"]})
+    except BaseException as err:
+        out({
+            "caught": {
+                "name": getattr(err, "name", type(err).__name__),
+                "message": str(err),
+                "injected": getattr(err, "injected", False) is True,
+                "timeout": isinstance(err, TimeoutError),
+                "status": getattr(err, "status_code", None),
+            },
+            "implRuns": state["impl_runs"],
+        })
+
 else:
     out({"error": "unknown step %s" % step})
     sys.exit(1)

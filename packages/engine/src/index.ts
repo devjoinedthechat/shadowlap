@@ -28,6 +28,8 @@ export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { withoutPrompt } from './prompt.js';
+export { SHAPE_NAMES, applyInjection, formatToolFailure, modelInRequest, parseToolFailure, placeFields, placeInjection, plantInResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
+export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { MATCH_END, MATCH_START, searchCalls, searchExpression, updateSearchIndex, type SearchHit } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
