@@ -1,0 +1,55 @@
+import { realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+
+/**
+ * Paths for projects: where Shadowlap keeps its own files on this machine, `~` in what people type,
+ * and how a folder is shown. Shared by the registry, folder suggestions and the dashboard's read model.
+ */
+
+/** Shadowlap's folder for this machine's files (the project list): `SHADOWLAP_HOME`, else `~/.shadowlap`. */
+export function shadowlapHome(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  const explicit = env.SHADOWLAP_HOME?.trim();
+  return explicit ? resolve(expandHome(explicit, home)) : join(home, '.shadowlap');
+}
+
+/** `~` and `~/x` (or `~\x`) become the home folder; anything else is returned as given. */
+export function expandHome(path: string, home: string): string {
+  if (path === '~') return home;
+  if (path.startsWith('~/') || path.startsWith('~\\')) return join(home, path.slice(2));
+  return path;
+}
+
+/** True when `child` is `parent` or inside it. Both should be absolute and resolved. */
+export function isWithin(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** The path with symbolic links resolved, or null when it doesn't exist or can't be read. */
+export function realpathOrNull(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A folder as people read it: `~/research-agent` inside the home folder, the absolute path
+ * elsewhere. Forward slashes after `~` on every platform, as the dashboard shows paths.
+ */
+export function displayPath(path: string, home: string): string {
+  const realHome = realpathOrNull(home) ?? resolve(home);
+  for (const base of new Set([resolve(home), realHome])) {
+    if (!isWithin(path, base)) continue;
+    const rel = relative(base, path);
+    return rel ? `~/${rel.split(sep).join('/')}` : '~';
+  }
+  return path;
+}
+
+/** The store of the project in `folder`: `.shadowlap/shadowlap.db`, as every command finds it. */
+export function projectDbPath(folder: string): string {
+  return join(folder, '.shadowlap', 'shadowlap.db');
+}

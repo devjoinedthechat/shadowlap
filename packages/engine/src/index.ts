@@ -11,6 +11,8 @@ export { SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
+// Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
+export * from './projects/index.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { describeChanges, type RunChanges } from './changes.js';
