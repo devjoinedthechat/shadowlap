@@ -1,7 +1,10 @@
+import { basename } from 'node:path';
 import { Command } from 'commander';
+import { recordActivity } from '../activity.js';
 import { configPath, loadConfig, saveConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
 import { formatInit, inspectProject, writeInitialConfig } from '../init.js';
+import { emitJobEvent } from '../job-events.js';
 import { parseChoice, VERSION, type GlobalOpts } from '../shared.js';
 import { palette as p, table } from '../ui.js';
 
@@ -17,7 +20,10 @@ export function register(program: Command): void {
     .action((flags: { json?: boolean }) => {
       const report = inspectProject(process.cwd());
       const wrote = report.languages.length ? writeInitialConfig(report) : false;
-      process.stdout.write((flags.json ? JSON.stringify({ ...report, config: { ...report.config, created: wrote } }, null, 2) : formatInit(report, p, wrote)) + '\n');
+      const data = { ...report, config: { ...report.config, created: wrote } };
+      if (wrote) recordActivity(program.opts<GlobalOpts>(), { kind: 'project.setup', ref: basename(process.cwd()), data: { name: basename(process.cwd()), config: 'created', languages: report.languages } });
+      emitJobEvent({ type: 'result', data });
+      process.stdout.write((flags.json ? JSON.stringify(data, null, 2) : formatInit(report, p, wrote)) + '\n');
     });
 
   program
@@ -51,6 +57,8 @@ export function register(program: Command): void {
         replace: flags.replace,
       });
       saveConfig(cwd, config);
+      const added = config.normalize.at(-1)!;
+      recordActivity(program.opts<GlobalOpts>(), { kind: 'normalizer.added', ref: added.path ?? null, data: { ...added } });
       process.stdout.write(`added normalizer #${config.normalize.length} to ${configPath(cwd)}\n`);
     });
   normalize
@@ -82,6 +90,8 @@ export function register(program: Command): void {
         replace: flags.replace,
       });
       saveConfig(cwd, config);
+      const added = config.redact.at(-1)!;
+      recordActivity(program.opts<GlobalOpts>(), { kind: 'redaction.added', ref: added.pattern ?? null, data: { ...added } });
       process.stdout.write(`added redaction rule #${config.redact.length} to ${configPath(cwd)}\n`);
     });
   redact

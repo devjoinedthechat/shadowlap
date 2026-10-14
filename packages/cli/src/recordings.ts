@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { finalAnswer, formatDivergence, formatSummary, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
+import { stampAuthor } from './activity.js';
 
 /**
  * Recordings for test suites, behind `shadowlap serve --recordings`. A test-runner plugin (pytest,
@@ -111,6 +112,7 @@ export class RecordingHost {
     const command = { argv: Array.isArray(body.command) && body.command.every((a) => typeof a === 'string') ? (body.command as string[]) : ['<test>', String(body.name ?? rel)], cwd: this.root };
     if (mode === 'all' || (!exists && mode === 'missing')) {
       const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot });
+      stampAuthor(this.store, run.runId);
       this.active.set(run.runId, { runId: run.runId, mode: 'record', dir, slot });
       return { runId: run.runId, mode: 'record', recording: rel };
     }
@@ -120,6 +122,7 @@ export class RecordingHost {
     if (!parentRunId) throw new HttpError(422, `${rel} contains no runs`);
     const covers = this.store.getRun(parentRunId)?.meta?.covers;
     const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) } });
+    stampAuthor(this.store, run.runId);
     this.active.set(run.runId, { runId: run.runId, mode: 'replay', dir, slot });
     return { runId: run.runId, mode: 'replay', recording: rel };
   }

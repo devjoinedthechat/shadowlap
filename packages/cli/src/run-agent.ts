@@ -5,8 +5,10 @@ import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
+import { currentAuthor, stampAuthor } from './activity.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
+import { emitJobEvent } from './job-events.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { palette as p } from './ui.js';
@@ -61,6 +63,8 @@ export function guardEnv(mode: GuardMode, base: NodeJS.ProcessEnv = process.env,
 /** The agent's environment for a run: base URLs to the sidecar, and the preloads. */
 export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upstreams: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...sidecar.envFor(runId), ...guardEnv(guard, process.env, upstreams, sidecar.httpRules) };
+  // The dashboard job's event pipe is this command's; an agent that runs shadowlap itself reports nothing into it.
+  delete env.SHADOWLAP_EVENTS_FD;
   // The Node capture preload shows this value to the OpenAI SDK's AzureOpenAI constructor, which takes
   // its baseURL default from OPENAI_BASE_URL and refuses one alongside an endpoint. Everything else,
   // in every runtime, sees the sidecar.
@@ -251,6 +255,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
   const run = start(sidecar);
+  stampAuthor(store, run.runId);
+  emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
   const activeFile = resolve(process.cwd(), '.shadowlap', 'active.json');
@@ -287,6 +293,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const result = sidecar.endRun(run.runId, status);
   await sidecar.close();
   store.close();
+  emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary } });
+  emitJobEvent({ type: 'link', label: `Open run ${run.runId.slice(0, 10)}`, href: `#/run/${run.runId}` });
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
   return { code, run, summary: result.summary };
@@ -330,7 +338,9 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     while (!stopped && next < count) {
       const i = next++;
       const run = start(sidecar);
-      store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count } });
+      const author = currentAuthor();
+      store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...(author ? { author } : {}) });
+      emitJobEvent({ type: 'run', runId: run.runId, role: 'attempt' });
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);

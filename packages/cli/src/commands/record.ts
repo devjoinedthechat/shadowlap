@@ -1,7 +1,9 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { logActivity } from '../activity.js';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
+import { emitJobEvent } from '../job-events.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
@@ -130,6 +132,8 @@ export function register(program: Command): void {
         const first = attempts.find((a) => a.summary.divergence)?.summary.divergence;
         process.stderr.write('\n' + (first ? formatDivergence(first, p) + '\n\n' : '') + formatRepeats(report, p) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a) => ({ exitCode: a.code, summary: a.summary })), report }, null, 2) + '\n');
+        emitJobEvent({ type: 'result', data: { attempts: attempts.map((a) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary })), report } });
+        emitJobEvent({ type: 'link', label: 'Open the attempts', href: `#/run/${parent.runId}/${first?.callNo ?? 1}/forks` });
         const anyDiverged = attempts.some((a) => a.summary.divergence);
         process.exitCode = flags.strict && anyDiverged ? 1 : attempts.length < flags.repeat || attempts.some((a) => a.code !== 0) ? 1 : 0;
         return;
@@ -225,7 +229,9 @@ export function register(program: Command): void {
         if (!outcome) outcome = { clean: false, why: `still diverging after ${flags.maxRounds} rounds`, details: '' };
         const result = outcome;
         const emitJson = () => {
-          if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: !!flags.write && proposals.length > 0, stopped: result.clean ? null : { why: result.why, details: result.details } }, null, 2) + '\n');
+          const data = { runId: parent.runId, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: !!flags.write && proposals.length > 0, stopped: result.clean ? null : { why: result.why, details: result.details } };
+          emitJobEvent({ type: 'result', data });
+          if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
         };
         say('\n');
         if (outcome.clean && proposals.length === 0) {
@@ -240,6 +246,7 @@ export function register(program: Command): void {
           if (flags.write) {
             config.normalize.push(...proposals.map((x) => x.normalizer));
             saveConfig(cwd, config);
+            for (const { normalizer: n } of proposals) logActivity(store, { kind: 'normalizer.added', runId: parent.runId, ref: n.path ?? null, data: { ...n, via: 'calibrate' } });
             say(`${lead} Added to ${configPath(cwd)}.\n`);
           } else {
             say(`${lead} Add them with --write, or one by one:\n${commands.map((c) => `    ${safe(c)}`).join('\n')}\n`);

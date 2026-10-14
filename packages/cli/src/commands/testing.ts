@@ -1,11 +1,13 @@
 import { writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { formatTokens, hasRecordedCommand, packRun, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
+import { logActivity, stampAuthor } from '../activity.js';
 import { specFor, type CheckResult } from '../checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from '../run-agent.js';
@@ -193,6 +195,10 @@ export function register(program: Command): void {
       const result = packRun(store, run.runId, dir, { lineage: flags.lineage === true, redact: rules });
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow('  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
+      const where = relative(process.cwd(), resolve(result.dir)).split('\\').join('/') || '.';
+      logActivity(store, { kind: 'golden.packed', runId: run.runId, ref: where, data: { runs: result.runs.length, calls: result.calls, redacted: result.redacted } });
+      emitJobEvent({ type: 'file', path: result.dir, label: 'Pack' });
+      emitJobEvent({ type: 'result', data: { ...result, dir: where } });
       store.close();
       telemetry().record({ type: 'pack', calls: result.calls });
       await telemetry().flush();
@@ -231,6 +237,8 @@ export function register(program: Command): void {
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
       const run = sidecar.startRun({ mode: 'record', command: { argv: ['<external>'], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
+      stampAuthor(store, run.runId);
+      emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
       const env = sidecar.envFor(run.runId);
       process.stdout.write(Object.entries(env).map(([k, v]) => `export ${k}=${v}`).join('\n') + '\n');
       process.stderr.write(p.dim(`[shadowlap] recording run ${run.runId}; Ctrl-C to end it\n`));
