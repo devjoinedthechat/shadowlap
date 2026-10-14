@@ -9,6 +9,8 @@ export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
+export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
+export { normalizeAddArgs, normalizeAddCommand, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';

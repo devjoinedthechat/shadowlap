@@ -12,6 +12,7 @@ import type {
   CallStartRow,
   DivergenceReport,
   Effect,
+  Normalizer,
   Origin,
   Outcome,
   RunCommand,
@@ -107,7 +108,103 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: tests. Each shadowlap test session and how each golden did in it, so a golden's history
+-- across revisions outlives the runs that gc deletes: no foreign key on run ids. A golden is its
+-- pack folder relative to the project (goldens/refund-flow); the runs a session made carry
+-- meta.test = { golden, session }.
+CREATE TABLE IF NOT EXISTS test_sessions (
+  session_id         TEXT    PRIMARY KEY,
+  started_at         INTEGER NOT NULL,
+  ended_at           INTEGER,
+  command            TEXT    NOT NULL,
+  revision           TEXT,
+  passed             INTEGER NOT NULL DEFAULT 0,
+  failed             INTEGER NOT NULL DEFAULT 0,
+  upstream_requests  INTEGER NOT NULL DEFAULT 0,
+  actor              TEXT
+);
+CREATE INDEX IF NOT EXISTS test_sessions_started ON test_sessions (started_at);
+
+CREATE TABLE IF NOT EXISTS test_results (
+  session_id     TEXT    NOT NULL REFERENCES test_sessions(session_id) ON DELETE CASCADE,
+  golden         TEXT    NOT NULL,
+  at             INTEGER NOT NULL,
+  revision       TEXT,
+  ok             INTEGER NOT NULL CHECK (ok IN (0, 1)),
+  failure        TEXT,
+  reason         TEXT,
+  run_id         TEXT,
+  golden_run_id  TEXT,
+  data           TEXT,
+  PRIMARY KEY (session_id, golden)
+);
+CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
 `;
+
+// ---- tests (v4): the shapes of the test tables ----
+
+/** One `shadowlap test` session: what ran, at which revision, and how it came out. */
+export interface TestSession {
+  sessionId: string;
+  startedAt: number;
+  /** Null while the session runs, or when it never finished. */
+  endedAt: number | null;
+  /** The command as given, without global options: `['shadowlap', 'test', 'goldens/*']`. */
+  command: string[];
+  /** The code version it tested (`codeVersion`): a short sha, with `+dirty` for uncommitted changes. */
+  revision: string | null;
+  passed: number;
+  failed: number;
+  /** Requests that reached a provider: 0 for goldens that replay offline. */
+  upstreamRequests: number;
+  /** Who ran it (resolveAuthor). */
+  actor: string | null;
+}
+
+export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> & Pick<TestSession, 'command'>;
+
+/** Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the agent exited non-zero, it made no calls, or it couldn't run at all. */
+export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error';
+
+/** What a result keeps besides its verdict, for the Tests screen. Every field is optional to readers. */
+export interface TestResultData {
+  /** `replay` must send the requests it recorded; `fork` may diverge and passes on its checks. */
+  mode?: 'replay' | 'fork';
+  calls?: { total: number; replayed: number; live: number; blocked: number; stubbed: number };
+  upstreamRequests?: number;
+  tokensNotRespent?: number;
+  /** Input tokens of the run's model requests, cache reads included: what it costs to run live. */
+  inputTokens?: number;
+  checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
+  /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
+  attempts?: { total: number; passed: number; required: number; runs: string[] };
+  /** Where the replay diverged; `text` is the report as the CLI prints it. */
+  divergence?: { type: string; callNo: number; kind: string; name: string; replayedBefore: number; diff?: Array<{ path: string; op: string; before?: unknown; after?: unknown }>; hints?: Array<{ message: string; normalizer?: Normalizer }>; text: string };
+  /** The failure as the CLI printed it under the golden's line. */
+  details?: string;
+  /** `test --update` re-recorded the golden: the run it replaced, the new one, and its calls. */
+  updated?: { from: string | null; to: string; calls: number };
+}
+
+/** How one golden did in one session. */
+export interface TestResult {
+  sessionId: string;
+  golden: string;
+  at: number;
+  revision: string | null;
+  ok: boolean;
+  failure: TestFailure | null;
+  /** One line: why it failed. */
+  reason: string | null;
+  /** The replay to open: the passing one, or the one that failed. */
+  runId: string | null;
+  /** The recording that was replayed. */
+  goldenRunId: string | null;
+  data: TestResultData | null;
+}
+
+export type NewTestResult = Partial<Pick<TestResult, 'at' | 'revision' | 'failure' | 'reason' | 'runId' | 'goldenRunId' | 'data'>> & Pick<TestResult, 'sessionId' | 'golden' | 'ok'>;
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
 export interface StoredEvent {
@@ -339,6 +436,100 @@ export class Store {
       ref: r.ref === null ? null : String(r.ref),
       data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
     }));
+  }
+
+  // ---- tests (v4): shadowlap test sessions and each golden's result ----
+
+  /** Starts a test session; finishTestSession fills in its totals. */
+  startTestSession(input: NewTestSession): TestSession {
+    const session: TestSession = {
+      sessionId: input.sessionId ?? ulidNow(),
+      startedAt: input.startedAt ?? Date.now(),
+      endedAt: null,
+      command: input.command,
+      revision: input.revision ?? null,
+      passed: 0,
+      failed: 0,
+      upstreamRequests: 0,
+      actor: input.actor ?? null,
+    };
+    this.db
+      .prepare(`INSERT INTO test_sessions (session_id, started_at, ended_at, command, revision, passed, failed, upstream_requests, actor) VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?)`)
+      .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor);
+    return session;
+  }
+
+  /** Records a session's totals once its goldens have run. */
+  finishTestSession(sessionId: string, totals: { passed: number; failed: number; upstreamRequests: number; endedAt?: number }): void {
+    this.db
+      .prepare(`UPDATE test_sessions SET ended_at = ?, passed = ?, failed = ?, upstream_requests = ? WHERE session_id = ?`)
+      .run(totals.endedAt ?? Date.now(), totals.passed, totals.failed, totals.upstreamRequests, sessionId);
+  }
+
+  getTestSession(sessionId: string): TestSession | null {
+    const row = this.db.prepare(`SELECT * FROM test_sessions WHERE session_id = ?`).get(sessionId);
+    return row ? rowToTestSession(row) : null;
+  }
+
+  /** Sessions, newest first; `before` pages back (exclusive), `finished` leaves out sessions that never ended. */
+  listTestSessions(options: { limit?: number; before?: number; finished?: boolean } = {}): TestSession[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (options.before !== undefined) {
+      where.push('started_at < ?');
+      params.push(options.before);
+    }
+    if (options.finished) where.push('ended_at IS NOT NULL');
+    params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
+    return this.db
+      .prepare(`SELECT * FROM test_sessions ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY started_at DESC, session_id DESC LIMIT ?`)
+      .all(...params)
+      .map(rowToTestSession);
+  }
+
+  /** Records how one golden did in a session; a second result for the same golden in the same session replaces the first. */
+  addTestResult(input: NewTestResult): TestResult {
+    const result: TestResult = {
+      sessionId: input.sessionId,
+      golden: input.golden,
+      at: input.at ?? Date.now(),
+      revision: input.revision ?? null,
+      ok: input.ok,
+      failure: input.ok ? null : (input.failure ?? 'error'),
+      reason: input.reason ?? null,
+      runId: input.runId ?? null,
+      goldenRunId: input.goldenRunId ?? null,
+      data: input.data ?? null,
+    };
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO test_results (session_id, golden, at, revision, ok, failure, reason, run_id, golden_run_id, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(result.sessionId, result.golden, result.at, result.revision, result.ok ? 1 : 0, result.failure, result.reason, result.runId, result.goldenRunId, result.data === null ? null : JSON.stringify(result.data));
+    return result;
+  }
+
+  /** Results, newest first: of one session, of one golden, or of every session (`limit`, default 1000). */
+  listTestResults(options: { sessionId?: string; golden?: string; since?: number; limit?: number } = {}): TestResult[] {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (options.sessionId !== undefined) {
+      where.push('session_id = ?');
+      params.push(options.sessionId);
+    }
+    if (options.golden !== undefined) {
+      where.push('golden = ?');
+      params.push(options.golden);
+    }
+    if (options.since !== undefined) {
+      where.push('at >= ?');
+      params.push(options.since);
+    }
+    params.push(Math.max(1, Math.min(100_000, options.limit ?? 1000)));
+    return this.db
+      .prepare(`SELECT * FROM test_results ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, session_id DESC, golden ASC LIMIT ?`)
+      .all(...params)
+      .map(rowToTestResult);
   }
 
   // ---- runs ----
@@ -634,6 +825,46 @@ function rowToRun(row: Record<string, unknown>): RunRecord {
     startedAt: Number(row.started_at),
     endedAt: row.ended_at === null || row.ended_at === undefined ? null : Number(row.ended_at),
     ...(typeof row.meta === 'string' ? { meta: JSON.parse(row.meta) as RunMeta } : {}),
+  };
+}
+
+function parseJsonColumn<T>(raw: unknown, fallback: T): T {
+  if (typeof raw !== 'string' || raw === '') return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function rowToTestSession(row: Record<string, unknown>): TestSession {
+  const command = parseJsonColumn<unknown>(row.command, []);
+  return {
+    sessionId: String(row.session_id),
+    startedAt: Number(row.started_at),
+    endedAt: row.ended_at === null || row.ended_at === undefined ? null : Number(row.ended_at),
+    command: Array.isArray(command) ? command.map(String) : [],
+    revision: row.revision === null || row.revision === undefined ? null : String(row.revision),
+    passed: Number(row.passed),
+    failed: Number(row.failed),
+    upstreamRequests: Number(row.upstream_requests),
+    actor: row.actor === null || row.actor === undefined ? null : String(row.actor),
+  };
+}
+
+function rowToTestResult(row: Record<string, unknown>): TestResult {
+  const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
+  return {
+    sessionId: String(row.session_id),
+    golden: String(row.golden),
+    at: Number(row.at),
+    revision: str(row.revision),
+    ok: Number(row.ok) === 1,
+    failure: str(row.failure) as TestFailure | null,
+    reason: str(row.reason),
+    runId: str(row.run_id),
+    goldenRunId: str(row.golden_run_id),
+    data: parseJsonColumn<TestResultData | null>(row.data, null),
   };
 }
 
