@@ -175,14 +175,14 @@ tools = [with_effect(lookup, "read")]
     const r = inspectProject(empty, {});
     expect(r.languages).toEqual([]);
     expect(formatInit(r, palette, false)).toContain("Run shadowlap init in your agent's project directory");
-    const out = spawnSync(process.execPath, [CLI, 'init'], { cwd: empty, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' } });
+    const out = spawnSync(process.execPath, [CLI, 'init'], { cwd: empty, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: project({}) } });
     expect(out.status).toBe(0);
     expect(existsSync(join(empty, 'shadowlap.config.json'))).toBe(false);
   });
 
   it('prints JSON for tools', () => {
     const dir = project({ 'package.json': JSON.stringify({ dependencies: { openai: '^7' } }), 'agent.mjs': "import OpenAI from 'openai';\n" });
-    const out = spawnSync(process.execPath, [CLI, 'init', '--json'], { cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' } });
+    const out = spawnSync(process.execPath, [CLI, 'init', '--json'], { cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: project({}) } });
     expect(out.status).toBe(0);
     const json = JSON.parse(out.stdout) as { providers: unknown[]; command: { argv: string[] }; config: { created: boolean } };
     expect(json.providers).toEqual([{ id: 'openai', via: 'openai' }]);

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
+import { ProjectRegistry, describeFolder, type FolderKind, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -543,4 +544,190 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
   out();
   out(wroteConfig ? `Created ${CONFIG_FILE} for normalizers and redaction rules.` : `${basename(r.config.path)} already exists; left as it is.`);
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------------------------
+// `init --json`: the findings as the dashboard's setup shows them
+
+/** A found tool, with whether its calls are recorded. */
+export type InitJsonTool = FoundTool & {
+  /** Wrapped with the SDK or an adapter, its effect declared: its calls are recorded, and a fork never repeats a write. */
+  wrapped: boolean;
+};
+
+/**
+ * What `shadowlap init --json` prints: everything {@link inspectProject} found, plus the lines the
+ * dashboard's setup shows (language, model SDK, framework, command, config), each tool flagged when
+ * it isn't wrapped, and the code that wraps those, per language. Running it again re-checks: the
+ * config is left as it is, and the tools are scanned afresh.
+ */
+export interface InitJson extends Omit<InitReport, 'tools' | 'config'> {
+  config: InitReport['config'] & { created: boolean };
+  /** The folder as Add a project describes it. */
+  folder: FolderKind;
+  summary: {
+    /** `Python 3.12 · uv`, `Node 22 · TypeScript · pnpm`; null when nothing was recognised. */
+    language: string | null;
+    /** Model SDKs with their versions: `anthropic 0.69.0`. */
+    sdk: string | null;
+    framework: string | null;
+    command: string | null;
+    commandFrom: string | null;
+    /** What happened to shadowlap.config.json. */
+    config: string;
+  };
+  tools: InitJsonTool[];
+  /** Names of the tools that aren't wrapped: a replay runs them for real, since their calls aren't recorded. */
+  unwrapped: string[];
+  /** Code that wraps them, per language; empty when every tool is wrapped. */
+  wrap: WrapSnippet[];
+}
+
+function readText(path: string, limit = 2 * 1024 * 1024): string {
+  try {
+    if (statSync(path).size > limit) return '';
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** The runtime version a project pins: `.python-version` (3.12), `.nvmrc` or `.node-version` (22). */
+function pinnedVersion(cwd: string, files: string[], minor: boolean): string | null {
+  for (const f of files) {
+    const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(readText(join(cwd, f), 4096));
+    if (m) return minor && m[2] ? `${m[1]}.${m[2]}` : m[1]!;
+  }
+  return null;
+}
+
+const cleanVersion = (v: string) => v.replace(/^[\^~>=<v\s]+/, '').split(/[\s,|]/)[0]!;
+
+/** A package's version: installed (Node), pinned in a lockfile or requirements file (Python), or the declared range. */
+function packageVersion(cwd: string, name: string): string | null {
+  const installed = installedVersion(cwd, name);
+  if (installed) return installed;
+  const declared = ((readJson(join(cwd, 'package.json'))?.dependencies ?? {}) as Record<string, string>)[name] ?? ((readJson(join(cwd, 'package.json'))?.devDependencies ?? {}) as Record<string, string>)[name];
+  if (typeof declared === 'string' && /\d/.test(declared)) return cleanVersion(declared);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_.]/g, '[-_.]');
+  for (const lock of ['uv.lock', 'poetry.lock', 'pdm.lock']) {
+    const m = new RegExp(`\\bname\\s*=\\s*"${escaped}"\\s*\\nversion\\s*=\\s*"([^"]+)"`, 'i').exec(readText(join(cwd, lock)));
+    if (m) return m[1]!;
+  }
+  for (const req of ['requirements.txt', 'requirements.in']) {
+    const m = new RegExp(`^\\s*${escaped}(?:\\[[^\\]]*\\])?\\s*==\\s*([\\w.]+)`, 'im').exec(readText(join(cwd, req)));
+    if (m) return m[1]!;
+  }
+  return null;
+}
+
+function languageLine(cwd: string, r: InitReport, folder: FolderKind): string | null {
+  const parts: string[] = [];
+  const python = r.languages.includes('python');
+  const node = r.languages.includes('typescript') || r.languages.includes('javascript');
+  if (python) parts.push(['Python', pinnedVersion(cwd, ['.python-version'], true)].filter(Boolean).join(' '));
+  if (node) parts.push(['Node', pinnedVersion(cwd, ['.nvmrc', '.node-version'], false)].filter(Boolean).join(' '));
+  if (r.languages.includes('typescript')) parts.push('TypeScript');
+  if (!parts.length) return folder.kind;
+  // With both, the folder knows a manager for each side; the report keeps one.
+  const managers = python && node ? folder.managers : r.packageManager ? [r.packageManager] : [];
+  return [...parts, ...managers].join(' · ');
+}
+
+const jsKey = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : `'${name}'`);
+const camel = (name: string) => name.replace(/[-_.]+(\w)/g, (_, c: string) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, '') || 'myTool';
+
+/** One block per framework, each with its own import, for the tools of one language. */
+function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string {
+  const groups = new Map<string, FoundTool[]>();
+  for (const t of tools) groups.set(t.via, [...(groups.get(t.via) ?? []), t]);
+  const blocks: string[] = [];
+  for (const [via, list] of groups) {
+    if (language === 'python') {
+      const def = (decorators: string[], t: FoundTool) => `${decorators.join('\n')}\ndef ${t.name}(…):\n    …`;
+      if (via === 'openai-agents-python') blocks.push(['from shadowlap.adapters.openai_agents import function_tool', '', list.map((t) => def([`@function_tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      else if (via === 'langchain-python' || via === 'crewai') blocks.push([`from shadowlap.adapters.${via === 'crewai' ? 'crewai' : 'langchain'} import with_effect`, '', `tools = [${list.map((t) => `with_effect(${t.name}, "${t.suggested}")`).join(', ')}]`].join('\n'));
+      else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def(['@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      else blocks.push(['from shadowlap import tool', '', list.map((t) => def([`@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      continue;
+    }
+    const adapter = (module: string, line: (t: FoundTool) => string) => blocks.push([`import { withEffect } from '@shadowlap/adapters/${module}';`, '', ...list.map(line)].join('\n'));
+    if (via === 'ai-sdk') blocks.push([`import { withEffects } from '@shadowlap/adapters/ai-sdk';`, '', `const tools = withEffects({ … }, { ${list.map((t) => `${jsKey(t.name)}: '${t.suggested}'`).join(', ')} });`].join('\n'));
+    else if (via === 'openai-agents') adapter('openai-agents', (t) => `tool(withEffect({ name: '${t.name}', … }, '${t.suggested}'));`);
+    else if (via === 'mastra') adapter('mastra', (t) => `createTool(withEffect({ id: '${t.name}', … }, '${t.suggested}'));`);
+    else if (via === 'langchain') adapter('langchain', (t) => `withEffect(tool(…, { name: '${t.name}', … }), '${t.suggested}');`);
+    else if (via === 'anthropic-tool-runner') adapter('anthropic', (t) => `betaZodTool(withEffect({ name: '${t.name}', … }, '${t.suggested}'));`);
+    else blocks.push([`import { tool } from '@shadowlap/sdk';`, '', ...list.map((t) => `export const ${camel(t.name)} = tool('${t.name}', { effect: '${t.suggested}' }, async (args) => { … });`)].join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
+/** Code that wraps the tools that aren't, with the suggested effect declared, per language. */
+export function wrapSnippets(tools: readonly FoundTool[]): WrapSnippet[] {
+  const byLanguage = new Map<WrapSnippet['language'], FoundTool[]>();
+  for (const t of tools) {
+    if (t.effect) continue;
+    const language: WrapSnippet['language'] = t.file.endsWith('.py') ? 'python' : /\.(ts|tsx|mts|cts)$/.test(t.file) ? 'typescript' : 'javascript';
+    byLanguage.set(language, [...(byLanguage.get(language) ?? []), t]);
+  }
+  return [...byLanguage].map(([language, list]) => ({ language, tools: list.map((t) => t.name), code: wrapCode(language, list) }));
+}
+
+export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
+  const folder = describeFolder(r.cwd);
+  const sdkNames = [...new Set(r.providers.map((p) => p.via.replace(/, imported$/, '')))];
+  const sdk = sdkNames.map((n) => {
+    const version = /^(@[\w.-]+\/)?[\w.-]+$/.test(n) ? packageVersion(r.cwd, n) : null;
+    return version ? `${n} ${version}` : n;
+  });
+  const configName = basename(r.config.path);
+  return {
+    ...r,
+    config: { ...r.config, created: wroteConfig },
+    folder,
+    summary: {
+      language: languageLine(r.cwd, r, folder),
+      sdk: sdk.length ? sdk.join(', ') : null,
+      framework: r.frameworks.length ? r.frameworks.map((f) => (f.version ? `${f.name} ${cleanVersion(f.version)}` : f.name)).join(', ') : null,
+      command: r.command ? quoteArgv(r.command.argv) : null,
+      commandFrom: r.command?.from ?? null,
+      config: wroteConfig ? `wrote an empty ${configName}` : r.config.existed ? `${configName} exists · left as it is` : `no ${configName} written: no project found here`,
+    },
+    tools: r.tools.map((t) => ({ ...t, wrapped: t.effect !== null })),
+    unwrapped: r.tools.filter((t) => !t.effect).map((t) => t.name),
+    wrap: wrapSnippets(r.tools),
+  };
+}
+
+/** The findings as the project list keeps them for the dashboard's setup. */
+export function initFindings(json: InitJson, at: number = Date.now()): SetupFindings {
+  return {
+    at,
+    language: json.summary.language,
+    files: json.folder.files,
+    sdk: json.summary.sdk,
+    framework: json.summary.framework,
+    command: json.command?.argv ?? null,
+    commandFrom: json.command?.from ?? null,
+    config: { file: basename(json.config.path), created: json.config.created, existed: json.config.existed },
+    tools: json.tools.map((t) => ({ name: t.name, effect: t.suggested, wrapped: t.wrapped, why: t.why, file: t.file, line: t.line })),
+    wrap: json.wrap,
+  };
+}
+
+/**
+ * When the folder is a project in the dashboard, its setup's first step is done: the findings go
+ * into the project list, so the setup shows them, in the dashboard or after `init` in a terminal.
+ * Outside a project this reads the list and changes nothing; it never fails `init`.
+ */
+export function noteInspected(cwd: string, json: InitJson, env: NodeJS.ProcessEnv = process.env): string | null {
+  try {
+    const registry = new ProjectRegistry({ env });
+    const project = registry.find(cwd);
+    if (!project) return null;
+    registry.noteInspected(project.id, initFindings(json));
+    return project.id;
+  } catch {
+    return null;
+  }
 }

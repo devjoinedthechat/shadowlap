@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import { configPath, loadConfig, saveConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
-import { formatInit, inspectProject, writeInitialConfig } from '../init.js';
+import { formatInit, initJson, inspectProject, noteInspected, writeInitialConfig } from '../init.js';
+import { emitJobEvent } from '../job-events.js';
 import { parseChoice, VERSION, type GlobalOpts } from '../shared.js';
 import { palette as p, table } from '../ui.js';
 
@@ -13,11 +14,15 @@ export function register(program: Command): void {
   program
     .command('init')
     .description('Set up Shadowlap in this project: detects your model SDKs, framework, agent command and tools, and prints the steps to your first recording')
-    .option('--json', 'machine-readable output')
+    .option('--json', 'machine-readable output: the findings, each tool flagged when it isn\'t wrapped, and the code that wraps it')
     .action((flags: { json?: boolean }) => {
       const report = inspectProject(process.cwd());
       const wrote = report.languages.length ? writeInitialConfig(report) : false;
-      process.stdout.write((flags.json ? JSON.stringify({ ...report, config: { ...report.config, created: wrote } }, null, 2) : formatInit(report, p, wrote)) + '\n');
+      const json = initJson(report, wrote);
+      process.stdout.write((flags.json ? JSON.stringify(json, null, 2) : formatInit(report, p, wrote)) + '\n');
+      // A dashboard job hears the findings; a project in the dashboard has its first setup step done.
+      emitJobEvent({ type: 'result', data: json });
+      noteInspected(process.cwd(), json);
     });
 
   program
