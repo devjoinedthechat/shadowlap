@@ -1,11 +1,12 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
-import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
-import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
+import { addRules, calibrationTarget, commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { codeVersion, configPath, loadConfig } from '../config.js';
+import { emitJobEvent } from '../job-events.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, recordActivity, requireRun, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -162,7 +163,7 @@ export function register(program: Command): void {
   program
     .command('calibrate')
     .description('Replay a recording offline until it is clean, proposing a normalizer for each value the agent generates anew on every run (request ids, temp paths, seeds). Makes no model calls.')
-    .argument('[run]', 'run id or unique prefix (default: the latest recording)')
+    .argument('[run]', 'run id or unique prefix (default: the newest finished recording)')
     .option('--write', 'add the proposed normalizers to shadowlap.config.json')
     .option('--max-rounds <n>', 'replays to try before giving up', parseIntArg, 8)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
@@ -178,8 +179,10 @@ export function register(program: Command): void {
       const config = loadConfig(cwd);
       const store = openStore(opts);
       try {
-        const parent = runArg ? requireRun(store, runArg) : store.allRuns().find((r) => r.mode === 'record');
-        if (!parent) throw new Error('no recording to calibrate: record one with shadowlap run -- <command>');
+        // Hook: the project's setup run, once the projects registry knows it, goes in as setupRunId.
+        const target = runArg ? { run: requireRun(store, runArg), source: 'given' as const } : calibrationTarget(store);
+        if (!target) throw new Error('Record a run first: shadowlap run -- <command>. Calibrate replays a finished recording made here.');
+        const parent = target.run;
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent.runId, parent.command.argv))) {
           process.exitCode = 1;
           return;
@@ -224,12 +227,15 @@ export function register(program: Command): void {
         store.gcBlobs();
         if (!outcome) outcome = { clean: false, why: `still diverging after ${flags.maxRounds} rounds`, details: '' };
         const result = outcome;
+        let written: number[] = [];
         const emitJson = () => {
-          if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: !!flags.write && proposals.length > 0, stopped: result.clean ? null : { why: result.why, details: result.details } }, null, 2) + '\n');
+          const data = { runId: parent.runId, source: target.source, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: written.length > 0, added: written, stopped: result.clean ? null : { why: result.why, details: result.details } };
+          emitJobEvent({ type: 'result', data });
+          if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
         };
         say('\n');
         if (outcome.clean && proposals.length === 0) {
-          say(`${p.green('✓')} Replays clean as it is: nothing to calibrate.\n`);
+          say(`${p.green('✓')} This recording replays clean with the current rules. Nothing to add.\n`);
           emitJson();
           return;
         }
@@ -238,9 +244,10 @@ export function register(program: Command): void {
           const commands = proposals.map(({ normalizer: n }) => `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${quote(n.name)}` : ''} --path ${quote(n.path ?? '$')}${n.pattern ? ` --pattern ${quote(n.pattern)}` : ''} --replace ${quote(n.replace)}`);
           const lead = outcome.clean ? `${p.green('✓')} ${proposals.length} normalizer${proposals.length === 1 ? '' : 's'} make${proposals.length === 1 ? 's' : ''} this recording replay clean.` : `${p.yellow('!')} ${proposals.length} normalizer${proposals.length === 1 ? '' : 's'} found before calibration stopped.`;
           if (flags.write) {
-            config.normalize.push(...proposals.map((x) => x.normalizer));
-            saveConfig(cwd, config);
-            say(`${lead} Added to ${configPath(cwd)}.\n`);
+            const added = addRules(cwd, 'normalize', proposals.map((x) => x.normalizer));
+            written = added.rules.map((r) => r.n);
+            recordActivity(opts, added.events.map((e) => ({ ...e, runId: parent.runId })));
+            say(`${lead} Added to ${configPath(cwd)} as normalizer${written.length === 1 ? '' : 's'} ${written.map((n) => `#${n}`).join(', ')}.\n`);
           } else {
             say(`${lead} Add them with --write, or one by one:\n${commands.map((c) => `    ${safe(c)}`).join('\n')}\n`);
           }

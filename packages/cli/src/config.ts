@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
-import type { ClockMode, Effect, Normalizer, Price } from '@shadowlap/engine';
+import { resolve } from 'node:path';
+import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price } from '@shadowlap/engine';
 import { validHttpHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, type TestEntry } from './checks.js';
 
-export const CONFIG_FILE = 'shadowlap.config.json';
+// The file itself (reading it, and every edit to it) is the engine's, shared with the dashboard.
+export { CONFIG_FILE };
 
 /**
  * The published schema for {@link CONFIG_FILE}. A new config points at it so an editor offers
@@ -33,15 +33,20 @@ export interface ShadowlapConfig {
 
 /** The project's config file. */
 export function configPath(cwd: string): string {
-  return join(cwd, CONFIG_FILE);
+  return configFilePath(cwd);
 }
 
+/**
+ * The project's config, checked. A missing file is an empty config. Rules are checked as every
+ * writer checks them (a bad pattern or path, or a kind that doesn't exist, is reported with the
+ * rule's number as `ls` shows it) rather than failing the first call that would apply them.
+ */
 export function loadConfig(cwd: string): ShadowlapConfig {
-  const path = configPath(cwd);
-  if (!existsSync(path)) return { normalize: [], redact: [] };
-  const file = basename(path);
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<ShadowlapConfig>;
-  const config: ShadowlapConfig = { normalize: Array.isArray(parsed.normalize) ? parsed.normalize : [], redact: Array.isArray(parsed.redact) ? parsed.redact : [] };
+  const stored = readConfigFile(cwd);
+  if (!stored.exists) return { normalize: [], redact: [] };
+  const file = CONFIG_FILE;
+  const parsed = stored.data as Partial<ShadowlapConfig>;
+  const config: ShadowlapConfig = { normalize: parseRules(parsed.normalize, 'normalize'), redact: parseRules(parsed.redact, 'redact') };
   if (parsed.clock !== undefined) {
     if (parsed.clock !== 'auto' && parsed.clock !== 'exact') throw new Error(`${file}: clock must be "auto" or "exact"`);
     config.clock = parsed.clock;
@@ -91,19 +96,21 @@ function parsePrices(raw: unknown, file = CONFIG_FILE): Record<string, Price> | 
 
 /**
  * Writes the rules commands edit (normalizers and redaction) into the file, keeping everything else
- * as the user wrote it: tests, prices, and keys this version doesn't know.
+ * as the user wrote it: tests, prices, and keys this version doesn't know. One atomic replace, under
+ * the lock every writer takes. Commands that add or remove one rule use addRule and removeRule.
  */
 export function saveConfig(cwd: string, config: Pick<ShadowlapConfig, 'normalize' | 'redact'>): void {
-  const path = configPath(cwd);
-  const existing = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>) : {};
-  writeFileSync(path, JSON.stringify({ ...existing, normalize: config.normalize, redact: config.redact }, null, 2) + '\n');
+  editConfigFile(cwd, {}, (data) => {
+    data.normalize = config.normalize;
+    data.redact = config.redact;
+  });
 }
 
 /** `shadowlap test` outcome checks, read only by that command so a mistake in them can't stop a recording. */
 export function loadTests(cwd: string): TestEntry[] {
-  const path = configPath(cwd);
-  if (!existsSync(path)) return [];
-  return parseTests((JSON.parse(readFileSync(path, 'utf8')) as { tests?: unknown }).tests);
+  const stored = readConfigFile(cwd);
+  if (!stored.exists) return [];
+  return parseTests((stored.data as { tests?: unknown }).tests);
 }
 
 /** The store for a project: `.shadowlap/shadowlap.db` in its folder. */
