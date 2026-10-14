@@ -460,8 +460,31 @@ export class Store {
    * content, so they are collected here). Returns what was removed.
    */
   gcBlobs(): { removed: number; bytes: number } {
+    const { hashes, size } = this.unreferencedBlobs();
+    const del = this.db.prepare(`DELETE FROM blobs WHERE hash = ?`);
+    this.transaction(() => {
+      for (const hash of hashes) del.run(hash);
+    });
+    return { removed: hashes.length, bytes: size };
+  }
+
+  /** Gives freed pages back to the filesystem. */
+  vacuum(): void {
+    this.db.exec('VACUUM');
+  }
+
+  // ---- settings: tools across runs, counts, cleanup ----
+
+  /**
+   * The blobs no call would reference once the runs in `without` are deleted, those nothing
+   * references now included: what `gcBlobs` removes after those runs go, found without deleting
+   * anything. `bytes` is what they take in the store, `size` their uncompressed length.
+   */
+  unreferencedBlobs(without: Iterable<string> = []): { hashes: string[]; bytes: number; size: number } {
+    const skip = new Set(without);
     const referenced = new Set<string>();
-    for (const r of this.db.prepare(`SELECT kind, request_ref, response_ref FROM call_events`).all()) {
+    for (const r of this.db.prepare(`SELECT run_id, kind, request_ref, response_ref FROM call_events`).all()) {
+      if (skip.has(String(r.run_id))) continue;
       const req = r.request_ref as string | null;
       const res = r.response_ref as string | null;
       if (res) referenced.add(res);
@@ -470,24 +493,54 @@ export class Store {
         if (r.kind === 'api') for (const h of manifestRefs(this, req)) referenced.add(h);
       }
     }
-    const del = this.db.prepare(`DELETE FROM blobs WHERE hash = ?`);
-    let removed = 0;
+    const hashes: string[] = [];
     let bytes = 0;
-    this.transaction(() => {
-      for (const b of this.db.prepare(`SELECT hash, size FROM blobs`).all()) {
-        const hash = String(b.hash);
-        if (referenced.has(hash)) continue;
-        del.run(hash);
-        removed++;
-        bytes += Number(b.size);
-      }
-    });
-    return { removed, bytes };
+    let size = 0;
+    for (const b of this.db.prepare(`SELECT hash, size, length(bytes) AS stored FROM blobs`).all()) {
+      const hash = String(b.hash);
+      if (referenced.has(hash)) continue;
+      hashes.push(hash);
+      bytes += Number(b.stored);
+      size += Number(b.size);
+    }
+    return { hashes, bytes, size };
   }
 
-  /** Gives freed pages back to the filesystem. */
-  vacuum(): void {
-    this.db.exec('VACUUM');
+  /**
+   * Every tool name called in any run, by the effect it was called with: how many calls, in how many
+   * runs, and the latest. One query over all runs, for the Settings page's tools.
+   */
+  toolUsage(): Array<{ name: string; effect: Effect | null; calls: number; runs: number; lastAt: number }> {
+    const rows = this.db
+      .prepare(`SELECT name, effect, COUNT(*) AS calls, COUNT(DISTINCT run_id) AS runs, MAX(at) AS last_at FROM call_events WHERE phase = 'start' AND kind = 'tool' GROUP BY name, effect ORDER BY name`)
+      .all();
+    return rows.map((r) => ({ name: String(r.name), effect: (r.effect as Effect | null) ?? null, calls: Number(r.calls), runs: Number(r.runs), lastAt: Number(r.last_at) }));
+  }
+
+  /**
+   * How many runs the store holds: `attempts` are the runs blame, verify and `replay --repeat` make
+   * (marked `probe`, `verify` or `repeat`); `recording` are still running.
+   */
+  runCounts(): { runs: number; attempts: number; recording: number } {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN json_valid(meta) THEN (json_type(meta, '$.probe') IS NOT NULL OR json_type(meta, '$.verify') IS NOT NULL OR json_type(meta, '$.repeat') IS NOT NULL) ELSE 0 END) AS attempts,
+                SUM(status = 'running') AS recording
+         FROM runs`,
+      )
+      .get();
+    const total = Number(row?.total ?? 0);
+    const attempts = Number(row?.attempts ?? 0);
+    return { runs: total - attempts, attempts, recording: Number(row?.recording ?? 0) };
+  }
+
+  /** Recordings that ran to an end (completed or failed), newest first. */
+  finishedRecordings(limit = 50): RunRecord[] {
+    return this.db
+      .prepare(`SELECT * FROM runs WHERE mode = 'record' AND status IN ('completed', 'failed') ORDER BY started_at DESC, run_id DESC LIMIT ?`)
+      .all(limit)
+      .map(rowToRun);
   }
 
   // ---- blobs ----

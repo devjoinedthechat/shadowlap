@@ -1,6 +1,8 @@
 import { firstDifference, hintsFor } from './diff.js';
 import { compilePattern, normalizerApplies } from './normalize.js';
-import type { DiffEntry, DivergenceReport, Normalizer } from './types.js';
+import { commandIsImported, hasRecordedCommand } from './pack.js';
+import type { Store } from './store.js';
+import type { DiffEntry, DivergenceReport, Normalizer, RunRecord } from './types.js';
 
 /**
  * `shadowlap calibrate`: a recording replayed with the same code should be clean. When it isn't,
@@ -115,4 +117,24 @@ export function proposeNormalizers(d: DivergenceReport, existing: Normalizer[] =
     unexplained.push(entry);
   }
   return { proposals, unexplained };
+}
+
+/**
+ * The recording `shadowlap calibrate` works on when none is named: the project's setup run when it
+ * has one, else the newest finished recording made here (completed or failed; one imported from a
+ * pack or a capture runs someone else's command, or none). Null when there is none to calibrate,
+ * which the dashboard shows as "Record a run first".
+ */
+export function calibrationTarget(store: Store, options: { setupRunId?: string | null } = {}): { run: RunRecord; source: 'setup' | 'newest' } | null {
+  const usable = (r: RunRecord) => r.mode === 'record' && (r.status === 'completed' || r.status === 'failed') && hasRecordedCommand(r) && !commandIsImported(r);
+  if (options.setupRunId) {
+    const run = store.getRun(options.setupRunId);
+    if (run && usable(run)) return { run, source: 'setup' };
+  }
+  for (let limit = 50; ; limit *= 4) {
+    const runs = store.finishedRecordings(limit);
+    const run = runs.find(usable);
+    if (run) return { run, source: 'newest' };
+    if (runs.length < limit) return null;
+  }
 }

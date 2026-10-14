@@ -70,63 +70,99 @@ export function normalizerApplies(n: Normalizer, kind: CallKind, name: string): 
   return true;
 }
 
+/**
+ * Watches what rules do to a value. The redaction preview uses it to count, without writing
+ * anything, exactly what `shadowlap pack` would mask. `rule` is the position in the list of rules
+ * passed in.
+ */
+export interface RewriteObserver {
+  /** A path rule found a value at its path, whether or not it changed it. */
+  reached?(rule: number, value: unknown): void;
+  /** A rule changed a value: `count` matches replaced, or 1 for a whole value. */
+  changed?(rule: number, before: unknown, after: unknown, count: number): void;
+}
+
 /** Returns a deep copy of `value` with every applicable normalizer applied. */
-export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind: CallKind, name: string): unknown {
-  const applicable = normalizers.filter((n) => normalizerApplies(n, kind, name));
-  if (applicable.length === 0) return value;
-  let copy = structuredClone(value);
-  for (const n of applicable) {
+export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind: CallKind, name: string, observer?: RewriteObserver): unknown {
+  let copy: unknown = value;
+  let cloned = false;
+  normalizers.forEach((n, i) => {
+    if (!normalizerApplies(n, kind, name)) return;
+    if (!cloned) {
+      copy = structuredClone(value);
+      cloned = true;
+    }
     const regex = n.pattern === undefined ? null : compilePattern(n.pattern);
+    const changed = observer?.changed ? (before: unknown, after: unknown, count: number) => observer.changed!(i, before, after, count) : undefined;
     if (n.path === undefined) {
       // No path: the pattern applies to every string in the document.
-      if (regex) copy = rewriteStringsDeep(copy, regex, n.replace);
-      continue;
+      if (regex) copy = rewriteStringsDeep(copy, regex, n.replace, changed);
+      return;
     }
     const segs = parsePath(n.path);
     if (segs.length === 0) {
       // Whole-document normalizer: only meaningful with a pattern on a string root.
-      copy = rewriteLeaf(copy, regex, n.replace);
-      continue;
+      observer?.reached?.(i, copy);
+      copy = rewriteLeaf(copy, regex, n.replace, changed);
+      return;
     }
     visit(copy, segs, 0, (parent, key) => {
       const leaf = (parent as Record<string | number, unknown>)[key];
-      (parent as Record<string | number, unknown>)[key] = rewriteLeaf(leaf, regex, n.replace);
+      observer?.reached?.(i, leaf);
+      (parent as Record<string | number, unknown>)[key] = rewriteLeaf(leaf, regex, n.replace, changed);
     });
-  }
+  });
   return copy;
 }
 
 /** Applies a pattern to every string value in a (JSON-like) value. */
-export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: string): unknown {
+export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: string, onChange?: (before: string, after: string, count: number) => void): unknown {
   if (typeof value === 'string') {
     regex.lastIndex = 0;
-    return value.replace(regex, replace);
+    const out = value.replace(regex, replace);
+    if (onChange && out !== value) onChange(value, out, countMatches(value, regex));
+    return out;
   }
-  if (Array.isArray(value)) return value.map((v) => rewriteStringsDeep(v, regex, replace));
+  if (Array.isArray(value)) return value.map((v) => rewriteStringsDeep(v, regex, replace, onChange));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = rewriteStringsDeep(v, regex, replace);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = rewriteStringsDeep(v, regex, replace, onChange);
     return out;
   }
   return value;
 }
 
 /** Applies every pathless pattern rule to raw text (responses are stored as bytes, not JSON). */
-export function rewriteText(text: string, rules: Normalizer[]): string {
+export function rewriteText(text: string, rules: Normalizer[], observer?: RewriteObserver): string {
   let out = text;
-  for (const n of rules) {
-    if (n.path !== undefined || n.pattern === undefined) continue;
+  rules.forEach((n, i) => {
+    if (n.path !== undefined || n.pattern === undefined) return;
     const regex = compilePattern(n.pattern);
-    out = out.replace(regex, n.replace);
-  }
+    const next = out.replace(regex, n.replace);
+    if (observer?.changed && next !== out) observer.changed(i, out, next, countMatches(out, regex));
+    out = next;
+  });
   return out;
 }
 
-function rewriteLeaf(leaf: unknown, regex: RegExp | null, replace: string): unknown {
-  if (regex === null) return replace;
+/** How many matches `replace` rewrites in `text`: every one for a global pattern, else the first. */
+function countMatches(text: string, regex: RegExp): number {
+  regex.lastIndex = 0;
+  const n = regex.global ? (text.match(regex)?.length ?? 0) : regex.test(text) ? 1 : 0;
+  regex.lastIndex = 0;
+  return n;
+}
+
+function rewriteLeaf(leaf: unknown, regex: RegExp | null, replace: string, onChange?: (before: unknown, after: unknown, count: number) => void): unknown {
+  if (regex === null) {
+    if (onChange && leaf !== replace) onChange(leaf, replace, 1);
+    return replace;
+  }
   if (typeof leaf !== 'string') return leaf;
   regex.lastIndex = 0;
-  return leaf.replace(regex, replace);
+  const out = leaf.replace(regex, replace);
+  if (onChange && out !== leaf) onChange(leaf, out, countMatches(leaf, regex));
+  return out;
 }
 
 function visit(node: unknown, segs: Segment[], depth: number, onLeaf: (parent: object, key: string | number) => void): void {
