@@ -45,6 +45,9 @@ interface SqliteDatabase {
   close(): void;
 }
 
+/** A value a read model's query binds. */
+export type SqlValue = null | number | bigint | string | Uint8Array;
+
 export const SCHEMA_VERSION = 4;
 const GZIP_THRESHOLD = 512;
 
@@ -488,6 +491,27 @@ export class Store {
   /** Gives freed pages back to the filesystem. */
   vacuum(): void {
     this.db.exec('VACUUM');
+  }
+
+  // ---- read models (the dashboard's overview, run list and calendar) ----
+
+  private readonly readStatements = new Map<string, SqliteStatement>();
+
+  /**
+   * Runs one SELECT and returns its rows, for read models that aggregate in SQL instead of loading
+   * every call of every run. Callers pass fixed SQL and bind every value; statements are prepared
+   * once per store.
+   */
+  query(sql: string, ...params: SqlValue[]): Record<string, unknown>[] {
+    if (!/^\s*(SELECT|WITH)\b/i.test(sql) || /\b(INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE|ATTACH|PRAGMA)\b/i.test(sql.replace(/'[^']*'/g, "''"))) {
+      throw new Error('Store.query runs read-only SELECT statements');
+    }
+    let statement = this.readStatements.get(sql);
+    if (!statement) {
+      statement = this.db.prepare(sql);
+      this.readStatements.set(sql, statement);
+    }
+    return statement.all(...params);
   }
 
   // ---- blobs ----

@@ -1,0 +1,254 @@
+/**
+ * What a run is, whether it is an attempt bundled under another run, how it came out, and what
+ * happened to each of its calls: the words the Runs table, the Overview, the calendar and the status
+ * bar count by. Pure functions over a run's record. No Node imports: the dashboard's browser bundle
+ * uses this too.
+ */
+import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
+
+/**
+ * - `recording`: recorded by `shadowlap run`.
+ * - `fork`: a replay that left the recording at some call (`divergence`), on purpose or not.
+ * - `clean`: a finished replay that matched the recording all the way.
+ * - `replay`: any other replay: still running, interrupted, failed before it diverged, or empty.
+ * - `test`: made by `shadowlap test` (`meta.test`).
+ * - `capture`: imported from a capture or a trace: a partial recording with no command (`meta.covers`).
+ * - `pack`: a recording that came from a pack someone else recorded (`meta.imported`).
+ */
+export type RunKind = 'recording' | 'fork' | 'clean' | 'replay' | 'test' | 'capture' | 'pack';
+
+/** Runs made by `--repeat`, by blame's probes and by verify: bundled under the run they came from. */
+export type AttemptKind = 'repeat' | 'probe' | 'verify';
+
+export interface RunClass {
+  kind: RunKind;
+  /** The run an attempt is bundled under; null for a run that is not an attempt. */
+  attemptOf: string | null;
+  attemptKind: AttemptKind | null;
+}
+
+/**
+ * The parts of a run's metadata classification reads. Loosely typed on purpose: a run can come from
+ * a pack, so nothing in it is trusted to be well formed. A `RunMeta` satisfies it.
+ */
+export interface ClassifiableMeta {
+  imported?: unknown;
+  covers?: readonly unknown[] | undefined;
+  repeat?: unknown;
+  probe?: { of?: unknown } | undefined;
+  verify?: unknown;
+  test?: unknown;
+  checks?: ReadonlyArray<{ ok?: unknown; label?: unknown }> | undefined;
+  blame?: { outcome?: unknown; callNo?: unknown; rescuedRunId?: unknown } | undefined;
+}
+
+/** What classification reads of a run. A `RunRecord` has it all; a lighter query can supply it too. */
+export interface ClassifiableRun {
+  runId: string;
+  parentRunId: string | null;
+  mode: RunMode;
+  status: RunStatus;
+  divergence: { callNo: number } | null;
+  meta?: ClassifiableMeta | undefined;
+}
+
+export interface ClassifyContext {
+  /** The calls the run holds. A finished replay with none is not a clean replay. Unknown: assume it has some. */
+  calls?: number;
+  /**
+   * The run is the fork blame rescued its run with (the blamed run's `meta.blame.rescuedRunId`).
+   * Blame made it as a probe, but it is the path that passed, so it shows as a fork of its own.
+   */
+  rescued?: boolean;
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The kind of a run, from its mode, parent, divergence and metadata. */
+export function runKind(run: ClassifiableRun, calls?: number): RunKind {
+  const m = run.meta;
+  if (m?.test) return 'test';
+  if (run.mode !== 'replay' && Array.isArray(m?.covers) && m.covers.length > 0) return 'capture';
+  if (run.mode !== 'replay') return m?.imported ? 'pack' : 'recording';
+  if (run.divergence) return 'fork';
+  return run.status === 'completed' && (calls === undefined || calls > 0) ? 'clean' : 'replay';
+}
+
+/**
+ * A run's kind and, for an attempt, the run it is bundled under. Probes of `shadowlap blame` carry
+ * `meta.probe`, attempts of `shadowlap verify` carry `meta.verify`, and the attempts of
+ * `replay --repeat` carry `meta.repeat`; each belongs to the run it replayed. A test run is never an
+ * attempt: it is the result of its golden in that session.
+ */
+export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): RunClass {
+  const kind = runKind(run, ctx.calls);
+  const m = run.meta;
+  if (!m || m.test || ctx.rescued) return { kind, attemptOf: null, attemptKind: null };
+  const attemptKind: AttemptKind | null = isObject(m.probe) ? 'probe' : isObject(m.verify) ? 'verify' : isObject(m.repeat) ? 'repeat' : null;
+  if (!attemptKind) return { kind, attemptOf: null, attemptKind: null };
+  const of = attemptKind === 'probe' && typeof m.probe?.of === 'string' ? m.probe.of : run.parentRunId;
+  return { kind, attemptOf: of ?? null, attemptKind };
+}
+
+/** The outcome checks a run carries (`meta.checks`, from `shadowlap test` or an attempt's oracle), passed of total. */
+export function checksOf(run: Pick<ClassifiableRun, 'meta'>): { passed: number; total: number } | null {
+  const checks = run.meta?.checks;
+  if (!Array.isArray(checks) || checks.length === 0) return null;
+  return { passed: checks.filter((c) => isObject(c) && c.ok === true).length, total: checks.length };
+}
+
+/** The model call `shadowlap blame` found lost the run, or null when it found none (or never ran). */
+export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
+  const b = run.meta?.blame;
+  return isObject(b) && b.outcome === 'blamed' && typeof b.callNo === 'number' && Number.isInteger(b.callNo) ? b.callNo : null;
+}
+
+/**
+ * How a run came out, as the Runs table's status column says it. Only the outcome: the line under
+ * the run's id already says what kind of run it is.
+ * - `running`: in progress.
+ * - `diverged`: a test replay that left its golden at call `callNo`.
+ * - `lost`: `shadowlap blame` replayed the run, saw it fail, and found the model call that lost it.
+ * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, or the
+ *   agent exited with an error (the first check of every oracle is that it exits 0).
+ * - `passed`: every outcome check passed.
+ * - `clean`: a clean replay, or a test that replayed clean without checks.
+ * - `none`: nothing to report.
+ */
+export type RunOutcome =
+  | { kind: 'running' }
+  | { kind: 'diverged'; callNo: number }
+  | { kind: 'lost'; callNo: number }
+  | { kind: 'check-failed'; check: string | null }
+  | { kind: 'passed'; checks: number }
+  | { kind: 'clean' }
+  | { kind: 'none' };
+
+export interface OutcomeContext {
+  /** The run's kind, when already known. */
+  kind?: RunKind;
+  /** The calls the run holds, for its kind. */
+  calls?: number;
+  /**
+   * The run answered a call with an injected failure (`--fail-at`). An agent that then exits with an
+   * error did what the fork asked of it: that exit is not a failure.
+   */
+  injected?: boolean;
+}
+
+/** How a run came out. Reads `status`, `divergence`, `meta.blame` and `meta.checks`, as `ls --json` and lineage report them. */
+export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunOutcome {
+  if (run.status === 'running') return { kind: 'running' };
+  const kind = ctx.kind ?? runKind(run, ctx.calls);
+  const checks = checksOf(run);
+  // Blame only records a result after replaying the run and seeing it fail.
+  if (isObject(run.meta?.blame)) {
+    const at = lostAt(run);
+    return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstFailedCheck(run) };
+  }
+  if (kind === 'test' && run.divergence && !checks) return { kind: 'diverged', callNo: run.divergence.callNo };
+  if (checks && checks.passed < checks.total) return { kind: 'check-failed', check: firstFailedCheck(run) };
+  if (run.status === 'failed' && !ctx.injected) return { kind: 'check-failed', check: null };
+  if (checks) return { kind: 'passed', checks: checks.total };
+  if (kind === 'clean' || (kind === 'test' && run.status === 'completed')) return { kind: 'clean' };
+  return { kind: 'none' };
+}
+
+function firstFailedCheck(run: ClassifiableRun): string | null {
+  const checks = run.meta?.checks;
+  if (!Array.isArray(checks)) return null;
+  const failed = checks.find((c) => isObject(c) && c.ok !== true);
+  return failed && typeof failed.label === 'string' ? failed.label : null;
+}
+
+/** Whether an outcome is a failure: what the Failed chip and the calendar's red count. */
+export function isFailedOutcome(o: RunOutcome): boolean {
+  return o.kind === 'diverged' || o.kind === 'lost' || o.kind === 'check-failed';
+}
+
+/** The outcome in the words the Runs table uses. */
+export function outcomeLabel(o: RunOutcome): string {
+  switch (o.kind) {
+    case 'running':
+      return 'in progress';
+    case 'diverged':
+      return `diverged at #${o.callNo}`;
+    case 'lost':
+      return `lost at #${o.callNo}`;
+    case 'check-failed':
+      return 'check failed';
+    case 'passed':
+      return `${o.checks} ${o.checks === 1 ? 'check' : 'checks'} passed`;
+    case 'clean':
+      return 'clean';
+    case 'none':
+      return '—';
+  }
+}
+
+// ---- what happened to each call ----
+
+/**
+ * Where a call's answer came from, as every view that colours a call says it. The store keeps an
+ * injected failure (`--fail-at`) as live, but Shadowlap answered it, not the provider. A call whose
+ * answer was an error is `failed`, unless the error is the fence itself (a blocked write) or an
+ * injected one.
+ */
+export type DisplayOrigin = 'replayed' | 'live' | 'overridden' | 'injected' | 'failed' | 'blocked' | 'stubbed';
+
+/** One character per call: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
+export type OriginCode = 'r' | 'l' | 'o' | 'i' | 'f' | 'b' | 's';
+
+export const ORIGIN_CODE: Readonly<Record<DisplayOrigin, OriginCode>> = { replayed: 'r', live: 'l', overridden: 'o', injected: 'i', failed: 'f', blocked: 'b', stubbed: 's' };
+export const ORIGIN_OF_CODE: Readonly<Record<OriginCode, DisplayOrigin>> = { r: 'replayed', l: 'live', o: 'overridden', i: 'injected', f: 'failed', b: 'blocked', s: 'stubbed' };
+/** Every code, in the order legends list them. */
+export const ORIGIN_CODES: readonly OriginCode[] = ['r', 'l', 'b', 's', 'o', 'i', 'f'];
+
+/**
+ * Which origin a range of calls shows when one cell stands for several: the most notable, so one
+ * blocked write among replayed calls stays visible.
+ */
+export const ORIGIN_RANK: Readonly<Record<OriginCode, number>> = { f: 7, i: 6, b: 5, s: 4, o: 3, l: 2, r: 1 };
+
+/** A call's display origin from its stored origin and its final answer (null while it has none). */
+export function displayOrigin(origin: Origin, end: { outcome: Outcome; injected?: unknown } | null): DisplayOrigin {
+  if (end?.injected === true) return 'injected';
+  if (end?.outcome === 'error' && origin !== 'blocked' && origin !== 'stubbed') return 'failed';
+  return origin;
+}
+
+export type OriginCounts = Record<OriginCode, number>;
+
+export function emptyOriginCounts(): OriginCounts {
+  return { r: 0, l: 0, o: 0, i: 0, f: 0, b: 0, s: 0 };
+}
+
+/** Calls per origin in a run's origin string. */
+export function countOrigins(codes: string, into: OriginCounts = emptyOriginCounts()): OriginCounts {
+  for (const ch of codes) if (ch in into) into[ch as OriginCode]++;
+  return into;
+}
+
+/** The most notable origin among the codes, or null for none. */
+export function notableOrigin(codes: string): OriginCode | null {
+  let best: OriginCode | null = null;
+  for (const ch of codes) {
+    const c = ch as OriginCode;
+    if (ORIGIN_RANK[c] !== undefined && (best === null || ORIGIN_RANK[c] > ORIGIN_RANK[best])) best = c;
+  }
+  return best;
+}
+
+/** One cell per `size` calls, each the most notable origin of its range. */
+export function originCells(codes: string, size: number): string {
+  if (size <= 1) return codes;
+  let out = '';
+  for (let i = 0; i < codes.length; i += size) out += notableOrigin(codes.slice(i, i + size)) ?? '';
+  return out;
+}
+
+/** The strip's rule: one cell per call, or past `maxCells` calls one cell per range of `size` calls. */
+export function binOrigins(codes: string, maxCells: number): { size: number; cells: string } {
+  const size = codes.length > maxCells ? Math.ceil(codes.length / maxCells) : 1;
+  return { size, cells: originCells(codes, size) };
+}
