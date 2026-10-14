@@ -383,10 +383,10 @@ Two runs call by call, aligned by position. First, what differs about the runs a
 ## dashboard
 
 ```sh
-shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open]
+shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a taken port falls back to a free one. See [Dashboard](./dashboard.md).
+A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a taken port falls back to a free one. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. See [Dashboard](./dashboard.md).
 
 ## doctor
 

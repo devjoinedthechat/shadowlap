@@ -7,6 +7,7 @@ shadowlap dashboard              # opens http://127.0.0.1:4777/#token=…
 shadowlap dashboard <run>        # opens a run directly
 shadowlap dashboard <run> --call 17   # at a call
 shadowlap dashboard --no-open    # print the link instead
+shadowlap dashboard --read-only  # look around, change nothing
 ```
 
 ## What you see
@@ -28,10 +29,19 @@ shadowlap dashboard --no-open    # print the link instead
 - **Labels and notes**: label a run from its header (`bug`, `good`, `refund-flow`) and leave notes on a call in its details. The runs list shows labels, and its search box matches them.
 - **Search**: three or more characters in the runs search box also searches what the runs recorded: prompts, responses, tool arguments and results. Each match opens its call.
 - **Compare**: any two runs, starting with what changed between them (system prompts, tools, models, code version), then call by call (for a fork, *Compare with parent*): the identical prefix, the first request that differs with its diff, and calls where the same request got a different response.
+- **Activity**: what happened in the project, newest first, each entry with who did it. Most of it comes from the runs themselves: recordings started and finished, clean replays, forks with the flag that made them (`--fail-at 19=529`, `--live-tool`, `--override`), the attempts of one `replay --repeat` as one entry with how many took the same path, captures imported, tests passed or failed with their checks, and blames. The rest is what commands record as they change the project or write something: normalizers and redaction rules added (by hand or by `calibrate --write`), goldens packed, the project set up by `init`. Who did it is the run's author, worked out when it was made: `SHADOWLAP_AUTHOR` if set, `ci` in CI, else git's `user.email`, else the OS user. Nothing about it leaves the machine.
 
 ## Actions
 
-Labels and notes are saved to the store, and, like actions, only from a dashboard started with `shadowlap dashboard`. **Replay** re-runs the recorded command. **Fork at #n** offers what the terminal UI's actions palette offers for the selected call: force a tool live, override a tool's result, inject an instruction, fork with your changed prompt from here, answer a model call with an HTTP failure (`--fail-at`), switch the model, or diverge here; and for the run, stub writes, repeat the replay and compare the attempts (`--repeat`), add the suggested normalizer, or pack the run. A run imported from a capture has no command, so **Replay** asks for yours; the forks that ask for something else are greyed out until that replay exists, since it records every kind of call and every fork works on it. Each runs the CLI in the directory the dashboard was started from; its output streams into a panel, and when it created a run, **Open run** takes you there. **Delete** removes a run and the recorded data nothing else uses.
+Labels and notes are saved to the store, and, like actions, only from a dashboard started with `shadowlap dashboard`. **Replay** re-runs the recorded command. **Fork at #n** offers what the terminal UI's actions palette offers for the selected call: force a tool live, override a tool's result, inject an instruction, fork with your changed prompt from here, answer a model call with an HTTP failure (`--fail-at`), switch the model, or diverge here; and for the run, stub writes, repeat the replay and compare the attempts (`--repeat`), add the suggested normalizer, or pack the run. A run imported from a capture has no command, so **Replay** asks for yours; the forks that ask for something else are greyed out until that replay exists, since it records every kind of call and every fork works on it. **Delete** removes a run and the recorded data nothing else uses.
+
+Each action is a job: the dashboard runs the CLI in the directory it was started from, and the job's output streams into a drawer titled with what it does (Replaying, Forking, Repeating, Packing). The command also tells the job what it made, on a pipe of its own rather than in its output: the runs it started (attempts listed apart, since they open as a bundle), where to go next, the files and folders it wrote, and its result (what `--json` would print). So the drawer ends on the outcome and links to the new run or the attempts without reading the text, names the folder a pack went to, and offers a file a job wrote for download. Closing the drawer leaves the job running.
+
+Some jobs take a file from your browser, such as a capture to import. The dashboard keeps it in `.shadowlap/uploads` in the project folder, readable only by you, at most 64 MB, until the job that uses it ends. A file no job used is deleted after an hour, and every upload is deleted when the dashboard stops. Uploaded files are untrusted data: the command that reads one parses it as it would any file you point it at.
+
+## Read-only
+
+`shadowlap dashboard --read-only` shows every page and changes nothing: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. Downloading a run as HTML still works, since it changes nothing. Use it to look at a store you don't want touched, or to show a colleague your runs. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way.
 
 ## Keys
 
@@ -60,7 +70,30 @@ Recordings hold prompts and tool data, so the dashboard is built to stay local:
 - It listens on 127.0.0.1 only, and refuses requests whose `Host` is not localhost, so a web page on another name that resolves to your machine cannot read it.
 - Every data request needs the session token that `shadowlap dashboard` generates at start and puts in the link's fragment (the part after `#`, which browsers never send to servers or in a Referer). Restarting the dashboard invalidates old links.
 - Requests that change something are refused when they come from another origin.
-- The browser never sends a command line: it names an action, and the server builds the CLI arguments from the run and call. The command you give a capture's replay is placed only after `--`.
+- The browser never sends a command line: it names an action or a job and its fields, and the server builds the CLI arguments from the run, the call and those fields. The command you give a capture's replay is placed only after `--`.
+- A download is only a file a job reported writing, only from inside the project folder (checked again when you download it, links followed), and always saved rather than opened. Uploaded files stay inside the project folder and are deleted as described under Actions.
+- A read-only dashboard refuses every request that would change something.
 - The page loads nothing from the network (fonts are bundled) and runs under a Content-Security-Policy that allows only its own script.
 
 To use it on a remote machine, forward the port over SSH (`ssh -L 4777:127.0.0.1:4777 host`) rather than binding it to a public interface.
+
+## How the page stays current
+
+The server keeps a change feed: one small endpoint that says what changed since the page last asked, so a page that polls it fetches again only what moved. A run added, ended, labelled or deleted, by the dashboard, the CLI or another dashboard, means the run list; calls arriving mean the recording that is growing, with its count; a command's activity entry means the feed; a job's progress means that job. The store counts its own writes, so asking costs almost nothing, even with a recording in progress.
+
+For contributors, the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`:
+
+| Endpoint | |
+|---|---|
+| `GET /api/meta` | Version, store and its size, address, read-only and why, runs and attempts counted apart, live runs, job kinds, project folder |
+| `GET /api/changes?since=<cursor>` | What changed since the cursor: runs, calls, activity, jobs, and the live runs with their call counts |
+| `GET /api/activity?limit=&before=` | The activity feed, newest first; pass `next` as `before` for the page after |
+| `GET /api/runs`, `/api/runs/:id`, `/calls/:n`, `/lineage`, `/export` | Runs, one run, one call, its family, the HTML download |
+| `POST /api/runs/:id/labels`, `/notes`; `DELETE /api/runs/:id` | Changes to a run |
+| `GET /api/search?q=`, `GET /api/compare?a=&b=` | Search recorded content; compare two runs |
+| `POST /api/jobs { kind, … }` | Start a job of a registered kind (`/api/meta` lists them); `POST /api/runs/:id/actions` starts a run action |
+| `GET /api/jobs`, `GET /api/jobs/:id?after=n`, `POST /api/jobs/:id/stop` | Recent jobs; one job's output from line `n`, its runs, links, files and result; stop it |
+| `GET /api/files/:fileId` | A file a job wrote, as an attachment |
+| `POST /api/uploads` | A file for a job (raw body, name in `x-filename`); answers its `uploadId` |
+
+Every request needs the session token in `x-shadowlap-token`. A command reports to its job by writing one JSON object per line to the descriptor `SHADOWLAP_EVENTS_FD` names: `{"type":"run","runId":…,"role":"new"|"attempt"}`, `{"type":"link","label":…,"href":"#/…"}`, `{"type":"file","path":…,"label":…}` and `{"type":"result","data":…}` (`emitJobEvent` in the CLI does it). Outside a dashboard job the variable is unset and nothing is written.

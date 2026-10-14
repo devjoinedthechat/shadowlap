@@ -8,6 +8,8 @@ export type { ProjectConfig, RouteContext } from './context.js';
 export type { RouteModule } from './routes/index.js';
 export { HttpError } from './http.js';
 export { UploadStore, UPLOAD_LIMIT } from './uploads.js';
+export { activity, describeEvent, forkFlag, type EventText } from './activity.js';
+export { changesView } from './changes.js';
 export { metaView } from './meta.js';
 export { actionArgs, actionsFor, callDetail, compare, listRuns, lookupRun, runDetail } from './api.js';
 export { exportHtml, withAncestors } from './static.js';

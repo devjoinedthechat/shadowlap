@@ -1,0 +1,357 @@
+import { basename } from 'node:path';
+import { summarizeRun, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { runIndex } from './run-index.js';
+import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
+
+/**
+ * The activity feed: what happened in this project, newest first. Most of it is read from the runs
+ * themselves (a recording started and finished, a clean replay, a fork and its flag, `--repeat`
+ * attempts, a capture imported, a test's checks, a blame); the rest from the events table, where a
+ * command records what leaves nothing else behind (a normalizer added, a golden packed). The words
+ * are the mock's.
+ */
+
+export const ACTIVITY_LIMIT = 50;
+export const ACTIVITY_MAX = 200;
+
+/** How a stored event reads in the feed. */
+export interface EventText {
+  kind: ActivityIcon;
+  text: string;
+  /** Where it opens; defaults to its run, if it has one. */
+  href?: string;
+}
+
+type Describe = (event: StoredEvent, data: Record<string, unknown>) => EventText;
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : typeof v === 'number' ? String(v) : null);
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+const short = (runId: string) => runId.slice(0, 10);
+const fixHref = (ref: string | null, step?: string) => (ref && /^fx-[\w-]+$/.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
+const inGoldens = (path: string | null) => !!path && /(^|[\\/])goldens([\\/]|$)/.test(path);
+
+/**
+ * The wording of every stored event kind (see packages/engine/src/events.ts). A feature that records
+ * a new kind adds its wording with `describeEvent`; an unknown kind reads as its name and its ref.
+ */
+const EVENT_TEXT = new Map<string, Describe>([
+  ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
+  ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
+  ['redaction.added', (e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.pattern) ?? e.ref ?? ''}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
+  ['redaction.removed', (e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.pattern) ?? e.ref ?? ''}`, href: '#/settings/redaction' })],
+  ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: '#/settings/matching' })],
+  ['golden.packed', (e, d) => (inGoldens(e.ref) ? { kind: 'test', text: `Golden packed · ${e.ref}`, href: '#/tests' } : { kind: 'test', text: `Packed · ${e.ref ?? plural(num(d.runs) ?? 1, 'run')}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'call')}` : ''}` })],
+  ['golden.updated', (e, d) => ({ kind: 'test', text: `Golden updated · ${e.ref ?? str(d.golden) ?? ''} re-recorded, checks passed`, href: '#/tests' })],
+  ['capture.imported', (e, d) => ({ kind: 'cap', text: `Imported ${str(d.source) ?? str(d.file) ?? e.ref ?? 'a capture'}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'model call')}` : ''}` })],
+  [
+    'test.session',
+    (_e, d) => {
+      const failed = num(d.failed) ?? 0;
+      return { kind: failed ? 'fail' : 'test', text: `Tests ran · ${num(d.passed) ?? 0} passed, ${failed} failed`, href: '#/tests' };
+    },
+  ],
+  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: '#/tests' })],
+  ['blame.done', (e, d) => ({ kind: 'blame', text: num(d.callNo) !== null ? `Blamed model call #${num(d.callNo)}${str(d.confidence) ? ` · confidence ${str(d.confidence)}` : ''}` : 'Blamed · no single call rescued the run', href: fixHref(e.ref, 'blame') })],
+  ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
+  ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
+  ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'verify') })],
+  ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'verify') })],
+  ['fix.applied', (e, d) => ({ kind: 'fixok', text: `Patch applied · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
+  ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: '#/training' })],
+  ['model.scored', (e, d) => ({ kind: 'train', text: `Scored on ${plural(num(d.tasks) ?? 0, 'task')}${num(d.mean) !== null ? ` · mean ${num(d.mean)!.toFixed(2)}` : ''}`, href: '#/training/tasks' })],
+  ['project.added', (e, d) => ({ kind: 'project', text: `Project added · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
+  ['project.setup', (e, d) => ({ kind: 'project', text: `Set up ${str(d.name) ?? e.ref ?? 'the project'}${d.config === 'created' ? ' · wrote shadowlap.config.json' : ''}`, href: '#/' })],
+  ['project.removed', (e, d) => ({ kind: 'project', text: `Project removed · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
+  ['org.noted', (e, d) => ({ kind: 'setting', text: `Organisation noted · ${str(d.org) ?? e.ref ?? ''}`, href: '#/settings/project' })],
+  ['store.pushed', (_e, d) => ({ kind: 'project', text: `Pushed ${plural(num(d.runs) ?? 0, 'run')} to the store` })],
+  ['store.pulled', (_e, d) => ({ kind: 'project', text: `Pulled ${plural(num(d.runs) ?? 0, 'run')} from the store` })],
+  ['release.tagged', (e) => ({ kind: 'release', text: `Release ${e.ref ?? ''} tagged`, href: e.ref ? `#/releases/${e.ref}` : '#/releases' })],
+]);
+
+/** Sets how a stored event kind reads in the feed: a feature that records a new kind calls this from its route module. */
+export function describeEvent(kind: string, describe: Describe): void {
+  EVENT_TEXT.set(kind, describe);
+}
+
+function storedItem(e: StoredEvent): ActivityItem {
+  const describe = EVENT_TEXT.get(e.kind);
+  let t: EventText;
+  try {
+    t = describe ? describe(e, e.data ?? {}) : fallback(e);
+  } catch {
+    t = fallback(e);
+  }
+  const href = t.href ?? (e.runId ? `#/run/${e.runId}` : undefined);
+  const ref = e.ref ?? (e.runId ? short(e.runId) : undefined);
+  return { id: `e:${e.eventId}`, at: e.at, kind: t.kind, text: t.text, ...(e.runId ? { runId: e.runId } : {}), ...(href ? { href } : {}), ...(e.actor ? { actor: e.actor } : {}), ...(ref ? { ref } : {}) };
+}
+
+function fallback(e: StoredEvent): EventText {
+  const words = e.kind.replace(/[._-]+/g, ' ').trim();
+  return { kind: 'setting', text: `${words.charAt(0).toUpperCase()}${words.slice(1)}${e.ref ? ` · ${e.ref}` : ''}` };
+}
+
+// ---- what runs tell by themselves ----
+
+interface Facts {
+  summary: RunSummary;
+  /** Calls answered from a changed tool result (`--override`). */
+  overridden: number[];
+  /** Kind and name of each call, in order: the path a run took. */
+  path: string[];
+}
+
+const factsCache = new WeakMap<Store, Map<string, Facts>>();
+
+/** What a run's calls add up to; read once for a finished run. */
+function facts(store: Store, run: RunRecord): Facts {
+  let cache = factsCache.get(store);
+  if (!cache) factsCache.set(store, (cache = new Map()));
+  const key = `${run.runId}:${run.status}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const calls = store.getCalls(run.runId);
+  const f: Facts = {
+    summary: summarizeRun(run, calls),
+    overridden: calls.filter((c) => c.origin === 'overridden').map((c) => c.callNo),
+    path: calls.map((c) => `${c.kind}:${c.name}`),
+  };
+  if (run.status !== 'running') {
+    if (cache.size > 5000) cache.clear();
+    cache.set(key, f);
+  }
+  return f;
+}
+
+const command = (run: RunRecord) => {
+  const text = run.command.argv.join(' ');
+  return text.length > 80 ? `${text.slice(0, 79)}…` : text;
+};
+
+/** The flag a fork was made with, when the run says: `--fail-at 19=529`, `--diverge-at 5`, `--live-tool x`, `--override 9`. */
+export function forkFlag(run: RunRecord, overridden: number[] = []): string | null {
+  const d = run.divergence;
+  if (d?.type === 'forced' && d.reason) {
+    const m = /^forced live by (--[a-z-]+ [^:\s]+)/.exec(d.reason);
+    if (m) return m[1]!;
+  }
+  if (overridden.length) return `--override ${overridden[0]}`;
+  return null;
+}
+
+function checksOutcome(run: RunRecord): { failed: string | null; passed: number; total: number } | null {
+  const checks = run.meta?.checks;
+  if (!checks?.length) return null;
+  const failed = checks.find((c) => !c.ok);
+  return { failed: failed ? failed.label : null, passed: checks.filter((c) => c.ok).length, total: checks.length };
+}
+
+function base(run: RunRecord, id: string, at: number): Omit<ActivityItem, 'kind' | 'text'> {
+  return { id, at, runId: run.runId, href: `#/run/${run.runId}`, ref: short(run.runId), ...(run.meta?.author ? { actor: run.meta.author } : {}) };
+}
+
+function recordingEnd(store: Store, run: RunRecord): ActivityItem {
+  const f = facts(store, run);
+  const calls = plural(f.summary.total, 'call');
+  const checks = checksOutcome(run);
+  const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
+  if (run.status === 'failed') return { ...item, kind: 'fail', text: `Recording failed · ${calls} · ${command(run)}` };
+  if (checks?.failed) return { ...item, kind: 'fail', text: `Recorded ${calls} · check failed: ${checks.failed}` };
+  if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording stopped · ${calls} · ${command(run)}` };
+  return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
+}
+
+function testEnd(store: Store, run: RunRecord, test: { golden: string; session: string }): ActivityItem {
+  const f = facts(store, run);
+  const golden = basename(test.golden.replace(/[\\/]+$/, '')) || test.golden;
+  const checks = checksOutcome(run);
+  const d = run.divergence;
+  const item = { ...base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt) };
+  const reason = d && d.type !== 'forced' ? `diverged at call ${d.callNo}` : checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null;
+  if (reason) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${reason}` };
+  const detail = checks ? `${checks.passed} of ${checks.total} checks passed` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+  return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
+}
+
+function replayEnd(store: Store, run: RunRecord): ActivityItem {
+  if (run.meta?.test) return testEnd(store, run, run.meta.test);
+  const f = facts(store, run);
+  const s = f.summary;
+  const checks = checksOutcome(run);
+  const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
+  const outcome = checks ? (checks.failed ? `check failed: ${checks.failed}` : `${checks.passed} of ${checks.total} checks passed`) : null;
+  const d = run.divergence;
+  if (d) {
+    const flag = forkFlag(run, f.overridden);
+    const parts = [`Forked at #${d.callNo}${flag ? ` with ${flag}` : ''}`, `${s.byOrigin.live} live`];
+    if (s.byOrigin.blocked) parts.push(`${s.byOrigin.blocked} blocked`);
+    if (s.byOrigin.stubbed) parts.push(`${s.byOrigin.stubbed} stubbed`);
+    if (outcome) parts.push(outcome);
+    else if (run.status === 'failed') parts.push('the agent failed');
+    return { ...item, kind: checks?.failed ? 'fail' : 'fork', text: parts.join(' · ') };
+  }
+  if (run.status === 'completed' && s.total > 0) {
+    const parts = ['Replay clean', `${s.byOrigin.replayed}/${s.total}`, `${s.upstreamRequests} upstream`];
+    if (outcome) parts.push(outcome);
+    return { ...item, kind: checks?.failed ? 'fail' : 'clean', text: parts.join(' · ') };
+  }
+  const what = run.status === 'crashed' ? 'Replay stopped' : 'Replay failed';
+  return { ...item, kind: run.status === 'crashed' ? 'clean' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
+}
+
+function imported(store: Store, runs: RunRecord[]): ActivityItem {
+  const first = runs[0]!;
+  const from = first.meta?.imported?.from ?? '';
+  const name = basename(from.replace(/[\\/]+$/, '')) || 'a capture';
+  const item = base(first, `r:${first.runId}:import`, first.meta?.imported?.at ?? first.startedAt);
+  if (first.meta?.covers?.length) {
+    const models = facts(store, first).summary.byKind.api;
+    return { ...item, kind: 'cap', text: `Imported ${name} · ${plural(models, 'model call')}` };
+  }
+  const detail = runs.length > 1 ? plural(runs.length, 'run') : plural(facts(store, first).summary.total, 'call');
+  return { ...item, kind: 'cap', text: `Unpacked ${name} · ${detail}` };
+}
+
+function blamed(run: RunRecord): ActivityItem {
+  const b = run.meta!.blame!;
+  const item = { ...base(run, `r:${run.runId}:blame`, b.at), href: '#/fixes' };
+  if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `Blamed model call #${b.callNo} · confidence ${b.confidence}` };
+  if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(b.probes.length, 'call')} probed` };
+  return { ...item, kind: 'blame', text: 'Blamed · no single call rescued the run' };
+}
+
+function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undefined): ActivityItem {
+  const first = attempts[0]!;
+  const of = first.meta?.repeat?.of ?? attempts.length;
+  const at = Math.max(...attempts.map((a) => a.endedAt ?? a.startedAt));
+  // The call most attempts forked at.
+  const forks = new Map<number, number>();
+  for (const a of attempts) if (a.divergence) forks.set(a.divergence.callNo, (forks.get(a.divergence.callNo) ?? 0) + 1);
+  const forkAt = [...forks.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0]?.[0] ?? null;
+  let outcome: string;
+  const done = attempts.filter((a) => a.status !== 'running');
+  if (done.length && done.every((a) => a.meta?.checks?.length)) {
+    const passed = done.filter((a) => a.meta!.checks!.every((c) => c.ok)).length;
+    outcome = `${passed} of ${done.length} passed their checks`;
+  } else if (forkAt === null) {
+    const clean = done.filter((a) => a.status === 'completed').length;
+    outcome = `${clean} of ${done.length} replayed clean`;
+  } else {
+    // The path past the fork: the kinds and names of the calls each attempt made.
+    const paths = new Map<string, number>();
+    for (const a of done) {
+      const key = facts(store, a).path.join('\n');
+      paths.set(key, (paths.get(key) ?? 0) + 1);
+    }
+    const same = Math.max(0, ...paths.values());
+    outcome = `${same} of ${done.length} took the same path`;
+  }
+  const parentId = parent?.runId ?? first.parentRunId ?? first.runId;
+  return {
+    id: `g:${first.meta?.repeat?.group ?? first.runId}`,
+    at,
+    kind: 'fork',
+    text: `replay --repeat ${of}${forkAt !== null ? ` at #${forkAt}` : ''} · ${outcome}`,
+    runId: parentId,
+    href: `#/run/${parentId}/${forkAt ?? 1}/forks`,
+    ref: short(parentId),
+    ...(first.meta?.author ? { actor: first.meta.author } : {}),
+    ...(attempts.some((a) => a.status === 'running') ? { live: true } : {}),
+  };
+}
+
+interface Stub {
+  id: string;
+  at: number;
+  render: () => ActivityItem;
+}
+
+/** Every item the runs tell, as stubs: cheap to sort, rendered only for the page asked for. */
+function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] {
+  const stubs: Stub[] = [];
+  const byId = runIndex(store).byId;
+  const groups = new Map<string, RunRecord[]>();
+  const unpacked = new Map<string, RunRecord[]>();
+  for (const run of runs) {
+    const m = run.meta;
+    if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: m.blame.at, render: () => blamed(run) });
+    if (m?.probe || m?.verify) continue; // bundled under the blame or verify that made them
+    if (m?.repeat) {
+      const list = groups.get(m.repeat.group) ?? [];
+      list.push(run);
+      groups.set(m.repeat.group, list);
+      continue;
+    }
+    if (m?.imported) {
+      if (m.covers?.length) {
+        if (!covered.has(`import:${run.runId}`)) stubs.push({ id: `r:${run.runId}:import`, at: m.imported.at ?? run.startedAt, render: () => imported(store, [run]) });
+      } else {
+        // A pack can hold a run and its ancestors: one entry for everything one unpack brought in.
+        const key = `${m.imported.at}\n${m.imported.from}`;
+        const list = unpacked.get(key) ?? [];
+        list.push(run);
+        unpacked.set(key, list);
+      }
+      continue;
+    }
+    if (run.mode === 'record') {
+      stubs.push({
+        id: `r:${run.runId}:start`,
+        at: run.startedAt,
+        render: () => ({ ...base(run, `r:${run.runId}:start`, run.startedAt), kind: 'live', text: `Recording started · ${command(run)}`, ...(run.status === 'running' ? { live: true } : {}) }),
+      });
+      if (run.status !== 'running') stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => recordingEnd(store, run) });
+    } else if (run.status !== 'running') {
+      stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => replayEnd(store, run) });
+    }
+  }
+  for (const attempts of groups.values()) {
+    attempts.sort((a, b) => (a.meta!.repeat!.attempt ?? 0) - (b.meta!.repeat!.attempt ?? 0));
+    const first = attempts[0]!;
+    const at = Math.max(...attempts.map((a) => a.endedAt ?? a.startedAt));
+    stubs.push({ id: `g:${first.meta!.repeat!.group}`, at, render: () => repeated(store, attempts, first.parentRunId ? byId.get(first.parentRunId) : undefined) });
+  }
+  for (const list of unpacked.values()) {
+    // Oldest first, so the entry names the root of what was unpacked.
+    list.sort((a, b) => a.startedAt - b.startedAt);
+    const first = list[0]!;
+    if (covered.has(`import:${first.runId}`)) continue;
+    stubs.push({ id: `r:${first.runId}:import`, at: first.meta!.imported!.at ?? first.startedAt, render: () => imported(store, list) });
+  }
+  return stubs;
+}
+
+/** Runs whose derived entry a stored event already tells (an import, a blame recorded with its fix). */
+function coveredByEvents(store: Store): Set<string> {
+  const out = new Set<string>();
+  for (const e of store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 })) {
+    if (!e.runId) continue;
+    out.add(`${e.kind === 'blame.done' ? 'blame' : 'import'}:${e.runId}`);
+  }
+  return out;
+}
+
+const newestFirst = (a: { at: number; id: string }, b: { at: number; id: string }) => b.at - a.at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+
+/**
+ * A page of the feed, newest first: `limit` entries (50 by default, at most 200) from before
+ * `before` (exclusive). A page never splits entries that share a time, so `next` (the time of the
+ * last entry, or null at the end) is safe to pass back as `before`.
+ */
+export function activity(store: Store, options: { limit?: number; before?: number } = {}): ActivityPage {
+  const limit = Math.min(ACTIVITY_MAX, Math.max(1, Math.floor(options.limit ?? ACTIVITY_LIMIT)));
+  const before = options.before ?? Number.POSITIVE_INFINITY;
+  const runs = runIndex(store).runs;
+  const stubs = derived(store, runs, coveredByEvents(store)).filter((s) => s.at < before);
+  const fetch = limit * 2 + 50;
+  const stored = store.listEvents({ ...(Number.isFinite(before) ? { before } : {}), limit: fetch });
+  const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(newestFirst);
+  const page = all.slice(0, limit);
+  if (all.length > limit) {
+    const lastAt = page[page.length - 1]!.at;
+    for (let i = limit; i < all.length && all[i]!.at === lastAt; i++) page.push(all[i]!);
+  }
+  const more = all.length > page.length || stored.length === fetch;
+  return { items: page.map((s) => s.render()), next: more && page.length ? page[page.length - 1]!.at : null };
+}

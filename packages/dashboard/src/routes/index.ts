@@ -1,5 +1,7 @@
 import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
+import * as activity from './activity.js';
+import * as changes from './changes.js';
 import * as compare from './compare.js';
 import * as files from './files.js';
 import * as jobs from './jobs.js';
@@ -19,12 +21,14 @@ export interface RouteModule {
  */
 export const ROUTE_MODULES: RouteModule[] = [
   meta,
+  changes,
   runs,
   search,
   compare,
   jobs,
   files,
   uploads,
+  activity,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

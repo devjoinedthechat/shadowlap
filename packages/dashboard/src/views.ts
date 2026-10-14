@@ -150,11 +150,11 @@ export interface ChangesView {
   cursor: string;
   /** False when nothing changed since `since`. */
   changed: boolean;
-  /** A run was added, ended, deleted, labelled, noted, blamed or otherwise updated: refetch `/api/runs`, open runs, `/api/meta` counts. */
+  /** A run was added, ended, deleted, labelled, noted, blamed or otherwise updated: refetch `/api/runs`, open runs, `/api/meta` and `/api/activity` (much of the feed comes from runs). */
   runs: boolean;
-  /** A call was recorded: a live run grew. `live` says which runs are recording. */
+  /** A call was recorded: a live run grew. `live` says which runs are recording and how many calls each has. */
   calls: boolean;
-  /** An activity event was stored: refetch `/api/activity`. */
+  /** An activity event was stored (a normalizer added, a golden packed): refetch `/api/activity`. */
   events: boolean;
   /** A job started, ended, or reported a run, link, file or result: refetch `/api/jobs` or the open job. */
   jobs: boolean;
