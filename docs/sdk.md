@@ -75,7 +75,7 @@ answers carry them through.
 Input from the terminal is recorded with no code change, by the preloads `shadowlap run` adds:
 
 - **Python:** `input()`, and `sys.stdin.readline()`, `read()`, `readlines()` and `for line in sys.stdin`.
-- **Node:** readline's `rl.question()` (callback, `readline/promises` and `util.promisify`) and `for await (const line of rl)`. Lines read through `'line'` events are not recorded.
+- **Node:** readline's `rl.question()` (callback, `readline/promises` and `util.promisify`) and `for await (const line of rl)`. Lines read through `'line'` events, or straight from `process.stdin`, are not recorded: wrap that read in `userInput()`.
 
 Only the input `shadowlap` gave the agent counts: a terminal, the null device, or the pipe or file
 `shadowlap` itself was given. A child process reading a pipe from its parent, an MCP server for one,
