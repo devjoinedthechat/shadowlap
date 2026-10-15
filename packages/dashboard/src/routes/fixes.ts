@@ -111,6 +111,12 @@ function applyJob(req: JobRequest, store: Store): JobBuildResult {
 
 export function register(router: Router, ctx: RouteContext): void {
   const { store, jobs } = ctx;
+  // A repair writes each candidate into the working tree and puts it back, and an apply changes it
+  // for good: while one runs, another would trip over it.
+  const busy = (): JobBuildResult | null => {
+    const running = jobs.list().find((j) => !j.done && (j.kind === 'repair' || j.kind === 'apply'));
+    return running ? { error: `${running.kind === 'repair' ? 'a repair' : 'an apply'} is running and changes the working tree until it is done: wait for it to finish`, status: 409 } : null;
+  };
 
   router.get('/fixes', (r) => {
     const status = r.query.get('status') ?? 'all';
@@ -141,6 +147,6 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store) });
-  jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
-  jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => applyJob(req, b.store) });
+  jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => busy() ?? repairJob(req, b.store, configuredRepairer(ctx)) });
+  jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => busy() ?? applyJob(req, b.store) });
 }

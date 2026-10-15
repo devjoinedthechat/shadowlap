@@ -169,7 +169,10 @@ export function FixActions({ fix }: { fix: FixDetail }) {
     );
   const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
   const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
-  const why = off ?? missing;
+  // A repair or an apply changes the working tree until it is done: one at a time.
+  const running = app.jobs.find((w) => !w.job.done && !w.lost && (w.job.kind === JOB_KINDS.repair || w.job.kind === JOB_KINDS.applyFix));
+  const busy = running ? `${running.job.kind === JOB_KINDS.repair ? 'A repair' : 'An apply'} is running and changes the working tree until it is done.` : null;
+  const why = off ?? missing ?? busy;
   return (
     <>
       {copy}
@@ -184,15 +187,11 @@ export function FixActions({ fix }: { fix: FixDetail }) {
 
 function RepairDialog({ fix, onClose }: { fix: FixDetail; onClose: () => void }) {
   const app = useApp();
-  const who = fix.repairer.configured ? `${fix.repairer.name}, the repairer shadowlap.config.json names` : 'your own Claude Code (claude-code), unless shadowlap.config.json names another repairer';
+  const who = fix.repairer.configured ? `${fix.repairer.name} (from shadowlap.config.json)` : 'your own Claude Code';
   return (
     <Dialog
       title="Repair from here"
-      text={
-        <>
-          Repair asks {who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is tried in your working tree and put back, so leave those files alone until it is done; an accepted one is kept as a patch, for you to apply.
-        </>
-      }
+      text={`Asks ${who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is tried in your working tree and put back; the one accepted is kept as a patch for you to apply.`}
       ok="Repair"
       onClose={onClose}
       onOk={() => {
@@ -200,7 +199,7 @@ function RepairDialog({ fix, onClose }: { fix: FixDetail; onClose: () => void })
         app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.repair, { fixId: fix.fixId })));
       }}
     >
-      <p className="fxdlg">The agent runs live from where each run was lost, with writes stubbed: its model calls are billed.</p>
+      <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>
       {fix.actions.repair ? <CmdLine>{fix.actions.repair.command}</CmdLine> : null}
     </Dialog>
   );
@@ -229,8 +228,7 @@ function ApplyDialog({ fix, label, onClose }: { fix: FixDetail; label: string; o
   if (fix.actions.applied)
     return <ConfirmDialog title="Finish applying the fix?" text={`The patch is in your working tree. What is left: ${apply.pending ?? 'nothing'}.`} ok={label} command={command} onOk={run} onClose={onClose} />;
   return (
-    <Dialog title="Apply the patch?" text={`This changes your working tree: git apply writes the fix into ${file ?? 'your files'}, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Review the change before you commit it.`} ok={label} onOk={run} onClose={onClose}>
-      {apply.gitApply ? <CmdLine>{apply.gitApply}</CmdLine> : null}
+    <Dialog title="Apply the patch?" text={`This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Review the change before you commit it.`} ok={label} onOk={run} onClose={onClose}>
       <CmdLine>{command}</CmdLine>
     </Dialog>
   );

@@ -38,7 +38,9 @@ async function start(o: Partial<DashboardOptions> = {}): Promise<Dashboard> {
     project: { path: project },
     spawnCli: (args, options) => {
       spawned.push(args);
-      return spawn(process.execPath, ['-e', ''], { stdio: options?.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
+      // A repair takes a while; everything else is over at once.
+      const script = args[0] === 'repair' ? 'setTimeout(() => {}, 20000)' : '';
+      return spawn(process.execPath, ['-e', script], { stdio: options?.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
     },
     ...o,
   });
@@ -54,6 +56,15 @@ async function started(body: Record<string, unknown>): Promise<JobView> {
   const res = await job(body);
   expect(res.status, await res.clone().text()).toBe(202);
   return json<JobView>(res);
+}
+
+/** Waits for a job to end, as the page does before the next repair or apply. */
+async function finished(j: JobView): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    if ((await json<JobView>(await api(`jobs/${j.id}`))).done) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`job ${j.id} did not end`);
 }
 
 function blame(runId: string, o: { outcome?: BlameReport['outcome']; expect?: unknown; report?: BlameReport } = {}) {
@@ -272,19 +283,39 @@ describe('the repair job', () => {
     expect(j.title).toBe('Repairing');
     expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code']);
     expect(good).toBeTruthy();
+    await api(`jobs/${j.id}/stop`, { method: 'POST' });
   });
 
   it('leaves the repairer to the config, and refuses a fix that is not open', async () => {
     const { fixId } = story();
     const run = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
-    await start({ loadConfig: (): ProjectConfig => ({ normalize: [], redact: [], repair: { repairer: 'anthropic' } }) });
-    await started({ kind: 'repair', fixId: fix.fixId });
-    expect(spawned.at(-1)).not.toContain('--repairer');
+    await start({ loadConfig: (): ProjectConfig => ({ normalize: [], redact: [], repair: { repairer: 'anthropic' } }), jobStopGraceMs: 200 });
     const res = await job({ kind: 'repair', fixId });
     expect(res.status).toBe(409);
     expect((await json(res)).error).toMatch(/verified already/);
     expect((await job({ kind: 'repair', fixId: 'fx-NOSUCHFIX' })).status).toBe(404);
+    const j = await started({ kind: 'repair', fixId: fix.fixId });
+    expect(spawned.at(-1)).not.toContain('--repairer');
+    await api(`jobs/${j.id}/stop`, { method: 'POST' });
+  });
+});
+
+describe('a repair or an apply at a time', () => {
+  it('refuses another while one changes the working tree', async () => {
+    const { fixId } = story();
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    await start({ jobStopGraceMs: 200 });
+    const repair = await started({ kind: 'repair', fixId: fix.fixId });
+    for (const body of [{ kind: 'apply', fixId }, { kind: 'repair', fixId: fix.fixId }]) {
+      const res = await job(body);
+      expect(res.status).toBe(409);
+      expect((await json(res)).error).toMatch(/a repair is running/);
+    }
+    // A blame changes nothing in the working tree: it can run meanwhile.
+    await started({ kind: 'blame', runId: run, expect: null });
+    await api(`jobs/${repair.id}/stop`, { method: 'POST' });
   });
 });
 
@@ -295,6 +326,7 @@ describe('the apply job', () => {
     const j = await started({ kind: 'apply', fixId });
     expect(j.title).toBe('Applying the patch');
     expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId]);
+    await finished(j);
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });
     const again = await started({ kind: 'apply', fixId });
     expect(again.title).toBe('Finishing the apply');
