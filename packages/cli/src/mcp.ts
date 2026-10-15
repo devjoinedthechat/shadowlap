@@ -81,7 +81,7 @@ export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = pr
     if (isLoopbackUrl(env.SHADOWLAP_URL)) return { kind: 'sidecar', target: { url: env.SHADOWLAP_URL.replace(/\/$/, ''), runId: env.SHADOWLAP_RUN_ID ?? '' }, from: 'SHADOWLAP_URL' };
     skip(`SHADOWLAP_URL ${env.SHADOWLAP_URL} is not a loopback address; ignoring it`);
   }
-  const chain = processAncestors();
+  const chain = processAncestors(skip);
   const registered = await lookupRegistration({ cwd, chain, skip, ...(o.home !== undefined ? { home: o.home } : {}), ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}) });
   if (registered.kind !== 'none' || chain) return registered;
   const active = discoverSidecar({}, cwd, skip);

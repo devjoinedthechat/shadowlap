@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncReturns } from 'node:child_process';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -162,12 +162,20 @@ export interface ProcessInfo {
   args: string | null;
 }
 
-/** Every process with its parent and command line, from `ps` (macOS and the BSDs) or PowerShell (Windows). */
-function processTable(): Map<number, ProcessInfo> | null {
+/**
+ * Every process with its parent and command line, from `ps` (macOS and the BSDs) or PowerShell
+ * (Windows). Null when the system won't say, and `note` is told why.
+ */
+function processTable(note?: (why: string) => void): Map<number, ProcessInfo> | null {
+  const failed = (cmd: string, r: SpawnSyncReturns<string>) => {
+    const said = (r.stderr ?? '').trim().split(/\r?\n/)[0];
+    note?.(`${cmd} ${r.error ? `didn't start (${r.error.message})` : r.status === 0 ? 'printed nothing' : `exited ${r.status ?? r.signal}`}${said ? `: ${said}` : ''}`);
+    return null;
+  };
   try {
     if (process.platform === 'win32') {
       const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)" }'], { encoding: 'utf8', timeout: 20_000, windowsHide: true });
-      if (r.status !== 0 || !r.stdout) return null;
+      if (r.status !== 0 || !r.stdout) return failed('powershell.exe', r);
       const table = new Map<number, ProcessInfo>();
       for (const line of r.stdout.split(/\r?\n/)) {
         const [pid, ppid, ...rest] = line.split('\t');
@@ -176,14 +184,15 @@ function processTable(): Map<number, ProcessInfo> | null {
       return table;
     }
     const r = spawnSync('ps', ['-A', '-ww', '-o', 'pid=', '-o', 'ppid=', '-o', 'args='], { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024 });
-    if (r.status !== 0 || !r.stdout) return null;
+    if (r.status !== 0 || !r.stdout) return failed('ps', r);
     const table = new Map<number, ProcessInfo>();
     for (const line of r.stdout.split('\n')) {
       const m = /^\s*(\d+)\s+(\d+)\s?(.*)$/.exec(line);
       if (m) table.set(Number(m[1]), { pid: Number(m[1]), ppid: Number(m[2]), args: m[3] || null });
     }
     return table;
-  } catch {
+  } catch (err) {
+    note?.(err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -214,12 +223,13 @@ function procInfo(pid: number): ProcessInfo | null {
 
 /**
  * This process and its ancestors, nearest first, up to (not including) the system's first process.
- * Null when the system won't say beyond the parent.
+ * Null when the system won't say beyond the parent, and then `note` is told why: on Windows that is
+ * PowerShell failing, which a proxy's log should name.
  */
-export function processAncestors(): ProcessInfo[] | null {
+export function processAncestors(note?: (why: string) => void): ProcessInfo[] | null {
   const chain: ProcessInfo[] = [{ pid: process.pid, ppid: process.ppid, args: process.argv.join(' ') }];
   const linux = process.platform === 'linux' && existsSync('/proc/self/stat');
-  const table = linux ? null : processTable();
+  const table = linux ? null : processTable(note && ((why) => note(`the process tree could not be read (${why}), so only this process's parent is looked up for its run`)));
   if (!linux && !table) return null;
   const lookup = (pid: number) => (linux ? procInfo(pid) : (table!.get(pid) ?? null));
   const seen = new Set([process.pid]);
@@ -345,7 +355,7 @@ export async function lookupRegistration(o: { cwd?: string; home?: string | null
   const home = o.home === undefined ? safeHome() : o.home;
   const own = home ? join(home, FOLDER) : null;
   const dirs: RegistryDir[] = [...(own ? [{ dir: own, strict: true }] : []), ...projectDirs(o.cwd ?? process.cwd()).filter((d) => d !== own).map((dir) => ({ dir, strict: false }))];
-  const chain = o.chain === undefined ? processAncestors() : o.chain;
+  const chain = o.chain === undefined ? processAncestors(o.skip) : o.chain;
   if (!chain) {
     // Only the parent is known: enough for a client that is the agent itself.
     return findRegistration([{ pid: process.pid, ppid: process.ppid, args: null }, { pid: process.ppid, ppid: -1, args: null }], dirs, o.skip) ?? { kind: 'none' };

@@ -32,8 +32,18 @@ proxy.stdout.on('data', (chunk) => {
     buf = buf.slice(i + 1);
     if (!line.trim()) continue;
     const m = JSON.parse(line);
-    if (m.id !== undefined && m.method === undefined) waiters.get(m.id)?.(m);
+    if (m.id === undefined || m.method !== undefined) continue;
+    waiters.get(m.id)?.(m);
+    waiters.delete(m.id);
   }
+});
+// A proxy that ends with a request unanswered (it could not start, or it crashed) ends this agent at
+// once, saying how, instead of leaving the test to time out with no cause. Its output is all read by
+// then: 'close' comes after the pipes have ended.
+proxy.on('close', (code, signal) => {
+  if (!waiters.size) return;
+  console.error(`the MCP server ended (${signal ?? `exit code ${code}`}) with ${waiters.size} request(s) unanswered`);
+  process.exit(1);
 });
 let nextId = 1;
 const request = (method, params) => {
