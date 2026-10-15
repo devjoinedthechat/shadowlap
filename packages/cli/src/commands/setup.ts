@@ -90,8 +90,10 @@ export function register(program: Command): void {
         replace: flags.replace,
       });
       saveConfig(cwd, config);
-      const added = config.redact.at(-1)!;
-      recordActivity(program.opts<GlobalOpts>(), { kind: 'redaction.added', ref: added.pattern ?? null, data: { ...added } });
+      // The activity log names the rule by what it puts in place, never by its pattern, which can
+      // hold the very text the rule hides.
+      const { pattern: _pattern, ...added } = config.redact.at(-1)!;
+      recordActivity(program.opts<GlobalOpts>(), { kind: 'redaction.added', ref: added.replace, data: { ...added } });
       process.stdout.write(`added redaction rule #${config.redact.length} to ${configPath(cwd)}\n`);
     });
   redact

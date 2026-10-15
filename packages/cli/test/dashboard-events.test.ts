@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { activity } from '@shadowlap/dashboard';
 import { Store } from '@shadowlap/engine';
-import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 
 /**
@@ -15,6 +16,7 @@ import { referenceScript } from '@shadowlap-testing/reference-agent';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
+const VOLATILE_AGENT = fileURLToPath(new URL('./volatile-agent.mjs', import.meta.url));
 
 interface Outcome {
   code: number | null;
@@ -27,10 +29,10 @@ let cwd: string;
 let db: string;
 let env: NodeJS.ProcessEnv;
 
-function shadowlap(args: string[], options: { cwd?: string; db?: string | null } = {}): Promise<Outcome> {
+function shadowlap(args: string[], options: { cwd?: string; db?: string | null; env?: NodeJS.ProcessEnv } = {}): Promise<Outcome> {
   return new Promise((resolve) => {
     const dbArgs = options.db === null ? [] : ['--db', options.db ?? db];
-    const child = spawn(process.execPath, [CLI, ...dbArgs, ...args], { cwd: options.cwd ?? cwd, env: { ...env, SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, ...dbArgs, ...args], { cwd: options.cwd ?? cwd, env: { ...env, ...options.env, SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
     let out = '';
     let events = '';
     child.stdout!.on('data', (c: Buffer) => (out += c.toString()));
@@ -76,10 +78,16 @@ describe('a command started by a dashboard job', () => {
   });
 
   it('keeps the agent out of the job\'s pipe: an agent that runs shadowlap itself reports nothing into it', async () => {
-    const r = await shadowlap(['run', '--', process.execPath, '-e', 'console.log("events fd: " + (process.env.SHADOWLAP_EVENTS_FD ?? "unset"))']);
+    // The variable is gone, and the descriptor is not inherited: a line written to fd 3 never reaches the job.
+    const agent = [
+      'console.log("events fd: " + (process.env.SHADOWLAP_EVENTS_FD ?? "unset"));',
+      'try { require("node:fs").writeSync(3, JSON.stringify({ type: "link", label: "from the agent", href: "#/runs" }) + "\\n"); } catch (err) { console.log("fd 3: " + err.code); }',
+    ].join(' ');
+    const r = await shadowlap(['run', '--', process.execPath, '-e', agent]);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('events fd: unset');
     expect(r.events.map((e) => e.type)).toEqual(['run', 'result', 'link']);
+    expect(r.events.some((e) => e.label === 'from the agent')).toBe(false);
   });
 
   it('replay --repeat: reports every attempt as an attempt, the report, and where to see them', async () => {
@@ -96,24 +104,52 @@ describe('a command started by a dashboard job', () => {
     });
   });
 
-  it('pack: names the folder it wrote and records it in the activity log', async () => {
+  it('replay with intervention flags: every run it makes says how it was forked', async () => {
+    const r = await shadowlap(['replay', recordingId, '--diverge-at', '5', '--writes', 'stub']);
+    const run = r.events.find((e) => e.type === 'run');
+    expect(run, r.out).toBeDefined();
+    const runId = String(run!.runId);
+    withStore((s) => expect(s.getRun(runId)!.meta).toMatchObject({ author: 'maya@example.com', fork: { flags: ['--diverge-at 5', '--writes stub'] } }));
+    const entry = withStore((s) => activity(s).items.find((i) => i.runId === runId));
+    expect(entry?.text).toMatch(/^Forked at #5 with --diverge-at 5 --writes stub · /);
+    // Attempts of a forked --repeat carry the flags too; a plain replay carries none.
+    const repeated = await shadowlap(['replay', recordingId, '--repeat', '2', '--diverge-at', '5']);
+    const attempts = repeated.events.filter((e) => e.type === 'run').map((e) => String(e.runId));
+    expect(attempts, repeated.out).toHaveLength(2);
+    withStore((s) => {
+      for (const id of attempts) expect(s.getRun(id)!.meta?.fork).toEqual({ flags: ['--diverge-at 5'] });
+    });
+    const plain = await shadowlap(['replay', recordingId]);
+    const plainId = String(plain.events.find((e) => e.type === 'run')!.runId);
+    withStore((s) => expect(s.getRun(plainId)!.meta?.fork).toBeUndefined());
+  });
+
+  it('pack: names the folder it wrote and records it in the activity log, a golden apart from a pack to share', async () => {
     const r = await shadowlap(['pack', recordingId, 'share/first']);
     expect(r.code, r.out).toBe(0);
     expect(r.events).toContainEqual({ type: 'file', path: 'share/first', label: 'Pack' });
     expect(r.events.find((e) => e.type === 'result')).toMatchObject({ data: { dir: 'share/first', runs: [recordingId], calls: 30 } });
-    const [event] = withStore((s) => s.listEvents({ kinds: ['golden.packed'] }));
-    expect(event).toMatchObject({ kind: 'golden.packed', actor: 'maya@example.com', runId: recordingId, ref: 'share/first', data: { runs: 1, calls: 30, redacted: false } });
+    const [event] = withStore((s) => s.listEvents({ kinds: ['run.packed'] }));
+    expect(event).toMatchObject({ kind: 'run.packed', actor: 'maya@example.com', runId: recordingId, ref: 'share/first', data: { runs: 1, calls: 30, redacted: false } });
+    expect((await shadowlap(['pack', recordingId, 'goldens/refund'])).code).toBe(0);
+    expect(withStore((s) => s.listEvents({ kinds: ['golden.packed'] })).map((e) => e.ref)).toEqual(['goldens/refund']);
+    // A pack does not carry who recorded it.
+    expect(readFileSync(join(cwd, 'goldens', 'refund', 'run.json'), 'utf8')).not.toContain('maya@example.com');
   });
 
   it('normalize add and redact add: record who changed the rules', async () => {
     expect((await shadowlap(['normalize', 'add', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'])).code).toBe(0);
-    expect((await shadowlap(['redact', 'add', '--pattern', 'email'])).code).toBe(0);
+    expect((await shadowlap(['redact', 'add', '--pattern', '/ACME-\\d{6}/', '--replace', '<ACCOUNT>', '--path', '$.messages'])).code).toBe(0);
     const events = withStore((s) => s.listEvents({ kinds: ['normalizer.added', 'redaction.added'] }));
     expect(events.map((e) => [e.kind, e.ref, e.actor])).toEqual([
-      ['redaction.added', 'email', 'maya@example.com'],
+      ['redaction.added', '<ACCOUNT>', 'maya@example.com'],
       ['normalizer.added', '$.metadata.user_id', 'maya@example.com'],
     ]);
     expect(events[1]!.data).toEqual({ path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
+    // A redaction rule's pattern can hold what it hides: the log and the feed name it by its replacement.
+    expect(events[0]!.data).toEqual({ path: '$.messages', replace: '<ACCOUNT>' });
+    expect(JSON.stringify(withStore((s) => activity(s).items))).not.toContain('ACME');
+    expect(withStore((s) => activity(s).items.find((i) => i.id === `e:${events[0]!.eventId}`))?.text).toBe('Redaction rule added · <ACCOUNT> at $.messages');
   });
 
   it('adds no store to a project that has none just to log a rule', async () => {
@@ -147,5 +183,62 @@ describe('a command started by a dashboard job', () => {
     } finally {
       rmSync(project, { recursive: true, force: true });
     }
+  });
+});
+
+describe('more commands a dashboard job runs', () => {
+  let volatile: MockServer;
+  beforeAll(async () => {
+    volatile = await startMockAnthropic({ script: () => ({ message: message([text('triaged')]) }) });
+  });
+  afterAll(() => volatile.close());
+
+  it('calibrate --write: reports its result, and records each normalizer it adds', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'sl-dash-calibrate-'));
+    const projectDb = join(project, '.shadowlap', 'shadowlap.db');
+    const options = { cwd: project, db: projectDb, env: { SHADOWLAP_UPSTREAM_ANTHROPIC: volatile.url } };
+    try {
+      const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE_AGENT], options);
+      expect(recorded.code, recorded.out).toBe(0);
+      const runId = String(recorded.events.find((e) => e.type === 'run')!.runId);
+      const r = await shadowlap(['calibrate', runId, '--write'], options);
+      expect(r.code, r.out).toBe(0);
+      expect(r.events.filter((e) => e.type === 'result')).toEqual([{ type: 'result', data: expect.objectContaining({ runId, clean: true, written: true, stopped: null }) }]);
+      const result = r.events.find((e) => e.type === 'result') as { data: { normalizers: unknown[] } };
+      expect(result.data.normalizers).toHaveLength(3);
+      const store = Store.open(projectDb);
+      try {
+        const added = store.listEvents({ kinds: ['normalizer.added'] });
+        expect(added.map((e) => [e.ref, e.runId, e.actor, (e.data as { via?: string }).via])).toEqual(
+          expect.arrayContaining([
+            ['$.metadata.user_id', runId, 'maya@example.com', 'calibrate'],
+            ['$.system', runId, 'maya@example.com', 'calibrate'],
+            ['$.args.path', runId, 'maya@example.com', 'calibrate'],
+          ]),
+        );
+        expect(added).toHaveLength(3);
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  });
+
+  it('serve: reports the run it records as it starts, and marks who made it', async () => {
+    const child = spawn(process.execPath, [CLI, '--db', db, 'serve'], { cwd, env: { ...env, SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+    let events = '';
+    let out = '';
+    child.stdout!.on('data', (c: Buffer) => (out += c.toString()));
+    child.stderr!.on('data', (c: Buffer) => (out += c.toString()));
+    (child.stdio[3] as NodeJS.ReadableStream).on('data', (c: Buffer) => (events += c.toString()));
+    const exited = new Promise<number | null>((resolve) => child.on('close', (code) => resolve(code)));
+    for (let i = 0; i < 400 && !events.includes('\n'); i++) await new Promise((r) => setTimeout(r, 25));
+    const started = JSON.parse(events.split('\n')[0]!) as { type: string; runId: string; role: string };
+    expect(started, out).toMatchObject({ type: 'run', role: 'new' });
+    withStore((s) => expect(s.getRun(started.runId)).toMatchObject({ status: 'running', meta: { author: 'maya@example.com' } }));
+    child.kill('SIGTERM');
+    expect(await exited).toBe(0);
+    withStore((s) => expect(s.getRun(started.runId)!.status).toBe('completed'));
   });
 });

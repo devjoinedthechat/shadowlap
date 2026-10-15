@@ -5,7 +5,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
-import { currentAuthor, stampAuthor } from './activity.js';
+import { newRunMeta, stampAuthor } from './activity.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { emitJobEvent } from './job-events.js';
@@ -338,8 +338,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     while (!stopped && next < count) {
       const i = next++;
       const run = start(sidecar);
-      const author = currentAuthor();
-      store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...(author ? { author } : {}) });
+      store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...newRunMeta() });
       emitJobEvent({ type: 'run', runId: run.runId, role: 'attempt' });
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       const streaming = concurrency === 1;

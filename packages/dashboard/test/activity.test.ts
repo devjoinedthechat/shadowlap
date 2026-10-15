@@ -237,3 +237,43 @@ describe('a pack unpacked', () => {
     store.close();
   });
 });
+
+describe('how a replay parted from its recording', () => {
+  it('reads a value that changes on every run as a drift, an edit as a fork, and a fork by the flags it was made with', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 100 });
+    store.endRun(rec.runId, 'completed', 200);
+    const replay = (at: number, meta?: RunMeta) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: at, ...(meta ? { meta } : {}) });
+      store.endRun(r.runId, 'completed', at + 10);
+      return r.runId;
+    };
+    const model = { kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 0 };
+    const uuid = { path: '$.metadata.user_id', op: 'changed' as const, before: '1b4e28ba-2fa1-41d2-883f-0016d3cca427', after: '6fa459ea-ee8a-4ca4-894e-db77e160355e' };
+    // Only a UUID changed: nobody forked this replay.
+    const drifted = replay(300);
+    store.setDivergence(drifted, { type: 'request_changed', callNo: 1, ...model, diff: [uuid] });
+    // An edit next to a UUID: a fork.
+    const edited = replay(400);
+    store.setDivergence(edited, { type: 'request_changed', callNo: 1, ...model, diff: [uuid, { path: '$.system', op: 'changed', before: 'Refunds up to 500', after: 'Refunds up to 1000' }] });
+    // A fork shadowlap replay stamped with its flags.
+    const injected = replay(500, { fork: { flags: ['--inject 3', '--model 3:claude-opus-5'] } });
+    store.setDivergence(injected, { type: 'request_changed', callNo: 3, ...model, diff: [{ path: '$.messages[4]', op: 'added', after: { role: 'user', content: 'Prefer sources from 2026' } }] });
+    // A test whose golden drifted.
+    const test = replay(600, { test: { golden: 'goldens/refund-in-limit', session: 's1' } });
+    store.setDivergence(test, { type: 'request_changed', callNo: 1, ...model, diff: [uuid] });
+    // What a pack and a redaction rule leave behind.
+    recordEvent(store, { kind: 'run.packed', runId: rec.runId, ref: 'share/refund', data: { runs: 1, calls: 30 }, at: 700 });
+    recordEvent(store, { kind: 'redaction.added', ref: '<IBAN>', data: { pattern: '/DE89 3704 0044 0532 0130 00/', path: '$.messages', replace: '<IBAN>' }, at: 800 });
+
+    const items = activity(store).items;
+    expect(byId(items, `r:${drifted}:end`)).toMatchObject({ kind: 'fail', text: 'Replay diverged at #1 · a UUID' });
+    expect(byId(items, `r:${edited}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #1 · 0 live' });
+    expect(byId(items, `r:${injected}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #3 with --inject 3 --model 3:claude-opus-5 · 0 live' });
+    expect(byId(items, `r:${test}:end`)).toMatchObject({ kind: 'fail', text: 'Test failed · refund-in-limit diverged at call 1, a UUID' });
+    expect(items.find((i) => i.at === 700)).toMatchObject({ kind: 'project', text: 'Packed · share/refund · 30 calls' });
+    expect(items.find((i) => i.at === 800)).toMatchObject({ kind: 'setting', text: 'Redaction rule added · <IBAN> at $.messages' });
+    expect(JSON.stringify(items)).not.toContain('DE89');
+    store.close();
+  });
+});

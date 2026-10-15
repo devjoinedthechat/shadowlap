@@ -55,6 +55,15 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   store.close();
 }
 
+/** Whether a pack folder is one the config's tests name, so a golden wherever it lives. */
+function isTestPack(dir: string): boolean {
+  try {
+    return specFor(loadTests(process.cwd()), resolve(dir), process.cwd()) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function register(program: Command): void {
   program.commandsGroup('Test:');
 
@@ -196,7 +205,9 @@ export function register(program: Command): void {
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow('  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
       const where = relative(process.cwd(), resolve(result.dir)).split('\\').join('/') || '.';
-      logActivity(store, { kind: 'golden.packed', runId: run.runId, ref: where, data: { runs: result.runs.length, calls: result.calls, redacted: result.redacted } });
+      // A golden is a pack in a goldens folder or one the config's tests name; anything else is a pack to share.
+      const golden = /(^|\/)goldens(\/|$)/.test(where) || isTestPack(result.dir);
+      logActivity(store, { kind: golden ? 'golden.packed' : 'run.packed', runId: run.runId, ref: where, data: { runs: result.runs.length, calls: result.calls, redacted: result.redacted } });
       emitJobEvent({ type: 'file', path: result.dir, label: 'Pack' });
       emitJobEvent({ type: 'result', data: { ...result, dir: where } });
       store.close();

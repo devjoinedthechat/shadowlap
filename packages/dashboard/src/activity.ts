@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { summarizeRun, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
 import { runIndex } from './run-index.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 
@@ -29,7 +29,6 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const short = (runId: string) => runId.slice(0, 10);
 const fixHref = (ref: string | null, step?: string) => (ref && /^fx-[\w-]+$/.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
-const inGoldens = (path: string | null) => !!path && /(^|[\\/])goldens([\\/]|$)/.test(path);
 
 /**
  * The wording of every stored event kind (see packages/engine/src/events.ts). A feature that records
@@ -38,10 +37,13 @@ const inGoldens = (path: string | null) => !!path && /(^|[\\/])goldens([\\/]|$)/
 const EVENT_TEXT = new Map<string, Describe>([
   ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
   ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
-  ['redaction.added', (e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.pattern) ?? e.ref ?? ''}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
-  ['redaction.removed', (e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.pattern) ?? e.ref ?? ''}`, href: '#/settings/redaction' })],
+  // A redaction rule reads by what it puts in place and where, never by its pattern: a pattern can
+  // hold the very text the rule is there to hide, and the feed is shown to the whole team.
+  ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
+  ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
   ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: '#/settings/matching' })],
-  ['golden.packed', (e, d) => (inGoldens(e.ref) ? { kind: 'test', text: `Golden packed · ${e.ref}`, href: '#/tests' } : { kind: 'test', text: `Packed · ${e.ref ?? plural(num(d.runs) ?? 1, 'run')}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'call')}` : ''}` })],
+  ['golden.packed', (e) => ({ kind: 'test', text: `Golden packed · ${e.ref ?? 'a golden'}`, href: '#/tests' })],
+  ['run.packed', (e, d) => ({ kind: 'project', text: `Packed · ${e.ref ?? plural(num(d.runs) ?? 1, 'run')}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'call')}` : ''}` })],
   ['golden.updated', (e, d) => ({ kind: 'test', text: `Golden updated · ${e.ref ?? str(d.golden) ?? ''} re-recorded, checks passed`, href: '#/tests' })],
   ['capture.imported', (e, d) => ({ kind: 'cap', text: `Imported ${str(d.source) ?? str(d.file) ?? e.ref ?? 'a capture'}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'model call')}` : ''}` })],
   [
@@ -129,8 +131,17 @@ const command = (run: RunRecord) => {
   return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 };
 
-/** The flag a fork was made with, when the run says: `--fail-at 19=529`, `--diverge-at 5`, `--live-tool x`, `--override 9`. */
+/**
+ * The flags a fork was made with: what `shadowlap replay` stamped on the run (`meta.fork`), or, for
+ * a run without that, what its divergence and calls tell (`--fail-at 19=529`, `--diverge-at 5`,
+ * `--live-tool x`, `--override 9`).
+ */
 export function forkFlag(run: RunRecord, overridden: number[] = []): string | null {
+  const stamped = run.meta?.fork?.flags;
+  if (Array.isArray(stamped)) {
+    const text = stamped.filter((f): f is string => typeof f === 'string').join(' ');
+    if (text) return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+  }
   const d = run.divergence;
   if (d?.type === 'forced' && d.reason) {
     const m = /^forced live by (--[a-z-]+ [^:\s]+)/.exec(d.reason);
@@ -138,6 +149,25 @@ export function forkFlag(run: RunRecord, overridden: number[] = []): string | nu
   }
   if (overridden.length) return `--override ${overridden[0]}`;
   return null;
+}
+
+/** What `pattern` a value that differs on every run matched, in words. */
+const VOLATILE: Record<string, string> = { 'iso-datetime': 'a timestamp', 'iso-date': 'a date', uuid: 'a UUID', ulid: 'a ULID' };
+
+/**
+ * A replay that drifted rather than forked: every value its first changed request differs in is one
+ * that changes on every run (a UUID, a timestamp), which a normalizer would mask. Returns what it
+ * was ("a UUID"), or null for a real change (an edit, a flag).
+ */
+function drift(d: DivergenceReport): string | null {
+  if (d.type !== 'request_changed' || !d.diff?.length) return null;
+  let what: string | null = null;
+  for (const entry of d.diff) {
+    const hint = hintsFor(entry, d.kind, d.name)[0];
+    if (!hint) return null;
+    what ??= VOLATILE[hint.normalizer?.pattern ?? ''] ?? 'a value that changes on every run';
+  }
+  return what;
 }
 
 function checksOutcome(run: RunRecord): { failed: string | null; passed: number; total: number } | null {
@@ -168,7 +198,8 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const checks = checksOutcome(run);
   const d = run.divergence;
   const item = { ...base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt) };
-  const reason = d && d.type !== 'forced' ? `diverged at call ${d.callNo}` : checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null;
+  const drifted = d ? drift(d) : null;
+  const reason = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null;
   if (reason) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${reason}` };
   const detail = checks ? `${checks.passed} of ${checks.total} checks passed` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
@@ -182,6 +213,14 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
   const outcome = checks ? (checks.failed ? `check failed: ${checks.failed}` : `${checks.passed} of ${checks.total} checks passed`) : null;
   const d = run.divergence;
+  const drifted = d ? drift(d) : null;
+  if (d && drifted) {
+    // Nobody forked it: a value that differs on every run parted it from the recording ("diverged · exit 1").
+    const parts = [`Replay diverged at #${d.callNo} · ${drifted}`];
+    if (outcome) parts.push(outcome);
+    else if (run.status === 'failed') parts.push('the agent failed');
+    return { ...item, kind: 'fail', text: parts.join(' · ') };
+  }
   if (d) {
     const flag = forkFlag(run, f.overridden);
     const parts = [`Forked at #${d.callNo}${flag ? ` with ${flag}` : ''}`, `${s.byOrigin.live} live`];

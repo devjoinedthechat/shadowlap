@@ -7,7 +7,8 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *
  * Kinds are dotted, noun first. The ones in use:
  * - `normalizer.added`, `normalizer.removed`, `redaction.added`, `redaction.removed`, `clock.set`
- * - `golden.packed`, `golden.updated`, `capture.imported`
+ * - `golden.packed` (a pack in a goldens folder or named in the config's tests), `run.packed` (any
+ *   other pack), `golden.updated`, `capture.imported`
  * - `test.session` (data: passed, failed), `bisect.found`
  * - `blame.done`, `repair.accepted`, `repair.empty`, `verify.rejected`, `verify.accepted`, `fix.applied`
  * - `pairs.exported`, `model.scored`
