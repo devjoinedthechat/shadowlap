@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -65,9 +66,8 @@ function shadowlap(args: string[]): Promise<{ code: number | null; out: string; 
 
 beforeAll(async () => {
   mock = await startMockAnthropic({ script: (ctx) => ({ message: message([text(JSON.stringify(ctx.request.system ?? '').includes('Be brief') ? 'Short.' : 'Ticket summarized.')]) }) });
-  project = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-bisect-${process.pid}`);
-  rmSync(project, { recursive: true, force: true });
-  mkdirSync(project);
+  // Outside the repository, so an interrupted run never leaves a nested one behind in it.
+  project = mkdtempSync(join(tmpdir(), 'sl-bisect-'));
   sh('git', ['init', '-q', '-b', 'main']);
   sh('git', ['config', 'user.email', 'test@example.com']);
   writeFileSync(join(project, '.gitignore'), '.shadowlap/\n');
@@ -236,9 +236,7 @@ describe('a package this repository links into node_modules', () => {
 
   beforeAll(async () => {
     // A workspace package with the prompt, linked into node_modules as npm workspaces link one.
-    repo = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-bisect-ws-${process.pid}`);
-    rmSync(repo, { recursive: true, force: true });
-    mkdirSync(repo);
+    repo = mkdtempSync(join(tmpdir(), 'sl-bisect-ws-'));
     git(['init', '-q', '-b', 'main']);
     git(['config', 'user.email', 'test@example.com']);
     git(['config', 'user.name', 'Test']);

@@ -31,12 +31,13 @@ describe.skipIf(process.platform === 'win32')('a replay with a time limit', () =
       clock: undefined,
       spec: null,
       argv: ['sh', '-c', `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}; echo never`],
-      timeoutMs: 800,
+      // Long enough for node to start and beat on a machine busy with other test runs.
+      timeoutMs: 3000,
     });
     expect(attempt.kind).toBe('exit');
-    expect(attempt.failure!.message).toBe('the agent was stopped after 800ms');
-    expect(attempt.output).toContain('[shadowlap] stopped after 800ms');
-    expect(existsSync(beat)).toBe(true);
+    expect(attempt.failure!.message).toBe('the agent was stopped after 3.0s');
+    expect(attempt.output).toContain('[shadowlap] stopped after 3.0s');
+    expect(existsSync(beat), 'node started and beat before the limit').toBe(true);
     // The node that sh started is gone too: its heartbeat stops.
     const last = readFileSync(beat, 'utf8');
     const mtime = statSync(beat).mtimeMs;
@@ -61,10 +62,11 @@ describe.skipIf(process.platform === 'win32')('a replay with a time limit', () =
       clock: undefined,
       spec: null,
       argv: [process.execPath, '-e', "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000)"],
-      timeoutMs: 500,
+      // Long enough for node to start and install its handler on a busy machine.
+      timeoutMs: 2500,
     });
     expect(attempt.code).toBe(0);
-    expect(attempt).toMatchObject({ kind: 'exit', failure: { message: 'the agent was stopped after 500ms' } });
+    expect(attempt).toMatchObject({ kind: 'exit', failure: { message: 'the agent was stopped after 2.5s' } });
     store.close();
   });
 });
