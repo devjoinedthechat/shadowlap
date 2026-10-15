@@ -7,6 +7,8 @@ import { ShowMore } from '../components/Table.js';
 import { compactPath } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { sentence } from '../normalize.js';
+import { addPaletteSource } from '../palette-sources.js';
+import { href } from '../route.js';
 import { BulkBar, type PickedRun } from '../runspage/BulkBar.js';
 import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes, type PickedDays } from '../runspage/calendar-model.js';
@@ -47,6 +49,28 @@ export function RunsPage() {
   const { exported } = useApp();
   return exported ? <ExportedRuns /> : <ServerRuns />;
 }
+
+/** The palette's way to the import dialog: Runs opens it when it next shows. */
+const IMPORT_ASKED = 'shadowlap:import';
+let importAsked = false;
+
+addPaletteSource(({ app, go }) =>
+  app.exported || !app.hasKind(JOB_KINDS.importCapture)
+    ? []
+    : [
+        {
+          group: 'Actions',
+          label: 'Import a capture…',
+          hint: 'HAR, nock, VCR, LiteLLM, OpenTelemetry, a Langfuse or LangSmith trace',
+          run: () =>
+            app.guard(() => {
+              importAsked = true;
+              window.dispatchEvent(new Event(IMPORT_ASKED));
+              go(href.runs());
+            }),
+        },
+      ],
+);
 
 /** The text a field holds once it has stopped changing for `ms`. */
 function useSettled<T>(value: T, ms: number): T {
@@ -89,8 +113,18 @@ function ServerRuns() {
   const [picked, setPickedState] = useState(() => new Map(kept.picked));
   const [days, setDaysState] = useState(kept.days);
   const [times, setTimesState] = useState(kept.times);
-  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices }>(null);
+  const [dialog, setDialog] = useState<null | 'import' | { runId: string; choices: BisectChoices }>(() => (importAsked ? 'import' : null));
   const now = Date.now();
+  // Asked from the palette: on this page already, or arriving on it.
+  useEffect(() => {
+    importAsked = false;
+    const on = () => {
+      importAsked = false;
+      setDialog('import');
+    };
+    window.addEventListener(IMPORT_ASKED, on);
+    return () => window.removeEventListener(IMPORT_ASKED, on);
+  }, []);
 
   const setLimit = (n: number) => {
     kept.limit = n;

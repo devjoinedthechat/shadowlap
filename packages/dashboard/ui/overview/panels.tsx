@@ -195,7 +195,9 @@ export function TodayCard({ today, live }: { today: Today; live: readonly LiveRu
                 <span className="t">
                   Recording <code>{shortId(r.runId)}</code>
                 </span>
-                <span className="d">{r.command}</span>
+                <span className="d cmd" title={r.command}>
+                  {r.command}
+                </span>
               </span>
               <span className="go">
                 <span className="now">{plural(calls, 'call')}…</span>

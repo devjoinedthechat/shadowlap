@@ -74,7 +74,9 @@ export function chartScale(values: readonly number[]): { max: number; ticks: num
   const raw = top / 4;
   const pow = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw - 1e-12)!;
-  return { max: step * 4, ticks: [0, step, step * 2, step * 3, step * 4] };
+  // Without float noise: three steps of 0.2 are 0.6, not 0.6000000000000001.
+  const at = (k: number) => Number((step * k).toPrecision(12));
+  return { max: at(4), ticks: [0, at(1), at(2), at(3), at(4)] };
 }
 
 /** A tick on the chart's axis: `$0.20`, `$1.50`, `$12`. */

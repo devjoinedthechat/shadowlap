@@ -1604,3 +1604,4 @@ table.daytable tbody tr:hover td { background: none; }
 .impdlg .capfile .pick { flex: none; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 .feed .w { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
+.ovtoday .attn .d.cmd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-wrap: nowrap; }

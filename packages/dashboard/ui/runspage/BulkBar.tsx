@@ -7,7 +7,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
-import type { BulkSkip } from '../types.js';
+import { bulkToast, named } from './bulk.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
@@ -25,15 +25,6 @@ export interface PickedRun {
 }
 
 type Open = 'label' | 'delete' | 'dataset' | null;
-
-const named = (ids: readonly string[]) => (ids.length === 1 ? shortId(ids[0]!) : `${num(ids.length)} runs`);
-
-/** "Deleted 3 runs", "Labelled 2 of 3 runs “good” · 01K5CQ6L0P was left alone: no such run". */
-export function bulkToast(o: { verb: string; done: readonly string[]; of: number; skipped: readonly BulkSkip[]; suffix?: string }): string {
-  const what = o.done.length === o.of ? named(o.done) : `${num(o.done.length)} of ${num(o.of)} runs`;
-  const why = o.skipped.slice(0, 2).map((s) => `${shortId(s.runId)} ${s.reason === 'still recording' ? 'is still recording' : `was left alone: ${s.reason}`}`);
-  return [`${o.verb} ${what}${o.suffix ?? ''}`, ...why].join(' · ');
-}
 
 export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedRun[]; store: boolean; clear: () => void; onDone: () => void }) {
   const { actionsOff, client, toast, guard, hasKind, watchJob } = useApp();
