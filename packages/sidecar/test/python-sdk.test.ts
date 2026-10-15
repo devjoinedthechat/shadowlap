@@ -133,6 +133,21 @@ describe.skipIf(!PYTHON)('Python SDK', () => {
     expect(`${stdout}${stderr}`).toMatch(/\nOK\s*$/);
   });
 
+  it('fails tools as --fail-at asks, sync and async, without running them', async () => {
+    const calls = store.getCalls(recording.runId);
+    const search = calls.find((c) => c.name === 'search_web')!.callNo;
+    const page = calls.find((c) => c.name === 'fetch_async')!.callNo;
+    const fork = sidecar.startRun({ mode: 'replay', parentRunId: recording.runId, command: { argv: [], cwd: '.' }, replay: { toolFailures: new Map([[search, { kind: 'timeout' as const }], [page, { kind: 'status' as const, status: 503 }]]) } });
+    const out = await runScript(fork);
+    const { summary } = sidecar.endRun(fork.runId, 'completed');
+    expect(out.search).toEqual({ failed: 'ShadowlapInjectedTimeout', message: 'search_web timed out', timeout: true });
+    expect(out.page).toEqual({ failed: 'ShadowlapInjectedHTTPError', status: 503 });
+    expect(out.executed).not.toContain('search_web');
+    expect(out.executed).not.toContain('fetch_async');
+    expect(summary.injected).toBe(2);
+    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: search });
+  });
+
   it('stubs the write with on_fork under --writes stub', async () => {
     const fork = sidecar.startRun({ mode: 'replay', parentRunId: recording.runId, command: { argv: [], cwd: '.' }, replay: { writes: 'stub' } });
     const out = await runScript(fork, { VARIANT: 'changed' });

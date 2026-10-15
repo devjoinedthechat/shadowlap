@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from shadowlap import ShadowlapWriteBlocked, ReplayedError, is_active, now, random, tool, uuid  # noqa: E402
+from shadowlap import ShadowlapInjectedFailure, ShadowlapWriteBlocked, ReplayedError, is_active, now, random, tool, uuid  # noqa: E402
 
 executed = []
 
@@ -54,7 +54,10 @@ def with_context(ctx: RunContext, topic: str) -> dict:
 
 async def main() -> dict:
     out = {"active": is_active(), "started_at": now("start"), "request_id": uuid(), "rand": random()}
-    out["search"] = search_web("replay", limit=2 if os.environ.get("VARIANT") == "changed" else 3)
+    try:
+        out["search"] = search_web("replay", limit=2 if os.environ.get("VARIANT") == "changed" else 3)
+    except ShadowlapInjectedFailure as e:  # a replay with --fail-at on this call
+        out["search"] = {"failed": type(e).__name__, "message": str(e), "timeout": isinstance(e, TimeoutError)}
     out["file"] = read_file(path="notes.md")
     out["file_again"] = read_file("notes.md")
     try:
@@ -63,7 +66,10 @@ async def main() -> dict:
         out["missing"] = f"FileNotFoundError: {e}"
     except ReplayedError as e:
         out["missing"] = f"{e.name}: {e.args[0]}"
-    out["page"] = await fetch_page("https://example.com/a")
+    try:
+        out["page"] = await fetch_page("https://example.com/a")
+    except ShadowlapInjectedFailure as e:
+        out["page"] = {"failed": type(e).__name__, "status": getattr(e, "status_code", None)}
     out["ctx"] = with_context(RunContext(), topic="replay")
     try:
         out["email"] = send_email(to="team@example.com", body="hi")
