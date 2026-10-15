@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type Effect, type RunMeta } from '@shadowlap/engine';
+import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
 import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
@@ -384,9 +384,9 @@ describe('mcpServers', () => {
       },
     }));
     const run = recording({ at: 1 });
-    const via = (callNo: number, name: string, effect: Effect, mcp: Record<string, unknown>) =>
+    const via = (callNo: number, name: string, effect: Effect, mcp: NonNullable<CallMeta['mcp']>) =>
       store.appendCallStart({ runId: run.runId, callNo, kind: 'tool', name, fingerprint: `${name}${callNo}`.padEnd(64, '0'), occurrence: 1, origin: 'live', effect, requestRef: null, meta: { mcp }, at: 100 + callNo });
-    const fs = { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' };
+    const fs = { transport: 'stdio' as const, server: 'npx @modelcontextprotocol/server-filesystem' };
     via(1, 'read_file', 'read', { ...fs, tools: [{ name: 'read_file', effect: 'read' }, { name: 'write_file', effect: 'write' }, { name: 'move_file', effect: 'write' }] });
     via(2, 'write_file', 'write', fs);
     via(3, 'create_issue', 'write', { transport: 'http', server: 'mcp.example.com' });

@@ -166,9 +166,9 @@ describe('mcpServerUsage', () => {
     const store = Store.open(':memory:');
     const a = run(store, { status: 'completed', at: 1 });
     const b = run(store, { status: 'completed', at: 2 });
-    const via = (runId: string, callNo: number, name: string, effect: Effect, at: number, mcp: CallMeta['mcp']) =>
+    const via = (runId: string, callNo: number, name: string, effect: Effect, at: number, mcp: NonNullable<CallMeta['mcp']>) =>
       store.appendCallStart({ runId, callNo, kind: 'tool', name, fingerprint: `${name}${callNo}`, occurrence: 1, origin: 'live', effect, requestRef: null, meta: { mcp }, at });
-    const fs = { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' };
+    const fs = { transport: 'stdio' as const, server: 'npx @modelcontextprotocol/server-filesystem' };
     via(a.runId, 1, 'read_file', 'read', 10, { ...fs, tools: [{ name: 'read_file', effect: 'read' }, { name: 'write_file', effect: 'write' }] });
     via(a.runId, 2, 'write_file', 'write', 20, fs);
     // A later listing wins: the server added a tool.
