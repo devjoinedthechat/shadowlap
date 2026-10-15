@@ -68,17 +68,38 @@ function sampleStore(): Store {
 }
 
 describe('the Tests screen', () => {
-  it('leads with the last session\'s verdict, naming the first failure', () => {
+  it('leads with the verdict, naming the first failure', () => {
     const store = sampleStore();
     const view = testsView(store, goldens);
     expect(view.empty).toBe(false);
     expect(view.verdict).toMatchObject({
       state: 'failing',
       failing: 1,
+      passing: 2,
+      untested: 0,
       title: 'refund-in-limit diverged at call 1',
       first: { golden: 'goldens/refund-in-limit', name: 'refund-in-limit', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R_C_LIMIT' },
       session: { command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: T0, passed: 2, failed: 1, upstreamRequests: 0, actor: 'ci' },
     });
+    store.close();
+  });
+
+  it('counts every golden by its last result after a session that ran only one of them', () => {
+    const store = sampleStore();
+    // Run tests on one golden, as Add normalizer and re-run or a per-golden Run tests does.
+    session(store, 'e3f9b20', T0 + DAY, [{ golden: 'goldens/refund-flow', ok: true, runId: 'R_D_FLOW' }]);
+    const view = testsView(store, goldens);
+    // refund-in-limit still fails: its last result is the one from the full session.
+    expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 2, untested: 0, title: 'refund-in-limit diverged at call 1', first: { golden: 'goldens/refund-in-limit' } });
+    // The line under it is the newest session's: its command, revision and time.
+    expect(view.verdict!.session).toMatchObject({ revision: 'e3f9b20', passed: 1, failed: 0 });
+    expect(view.rows.map((r) => r.last.result)).toEqual(['pass', 'fail', 'pass']);
+    // Once it passes too, all of them do.
+    session(store, 'e3f9b20', T0 + 2 * DAY, [{ golden: 'goldens/refund-in-limit', ok: true, runId: 'R_E_LIMIT' }]);
+    expect(testsView(store, goldens).verdict).toMatchObject({ state: 'passing', failing: 0, passing: 3, title: 'All 3 goldens pass', first: null });
+    // A golden added since has not run yet, and the verdict says so rather than "all pass".
+    const more = [...goldens, { path: 'goldens/new-one', runId: null, packedAt: T0, mode: 'replay' as const, repeat: 1, passes: 1, checks: [] }];
+    expect(testsView(store, more).verdict).toMatchObject({ state: 'passing', passing: 3, untested: 1, title: '3 of 4 goldens pass, 1 not run yet' });
     store.close();
   });
 
@@ -197,32 +218,48 @@ describe('the Tests screen', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/a', ok: true });
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/b', ok: true });
     store.finishTestSession(s.sessionId, { passed: 2, failed: 0, upstreamRequests: 0 });
-    const view = testsView(store, goldens.slice(0, 1));
-    expect(view.verdict).toMatchObject({ state: 'passing', failing: 0, title: 'All 2 goldens pass', first: null });
-    expect(view.rows[0]!.last).toEqual({ result: null, failure: null, line: 'not run yet', at: null, updated: false });
+    const pack = (path: string): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const view = testsView(store, [pack('goldens/a'), pack('goldens/b')]);
+    expect(view.verdict).toMatchObject({ state: 'passing', failing: 0, passing: 2, untested: 0, title: 'All 2 goldens pass', first: null });
     expect(view.commands.updateAll).toBeNull();
+    expect(testsView(store, [pack('goldens/a')]).verdict!.title).toBe('The golden passes');
+    // Results of goldens that are gone say nothing about the ones on disk, which have not run.
+    const other = testsView(store, goldens.slice(0, 1));
+    expect(other.verdict).toBeNull();
+    expect(other.rows[0]!.last).toEqual({ result: null, failure: null, line: 'not run yet', at: null, updated: false });
     store.close();
   });
+
 });
 
 describe('tests on the Overview and in Needs a look', () => {
   it('counts goldens passing, the regressions caught, when they last ran, and the same a week before', () => {
     const store = sampleStore();
-    expect(testsSummary(store, { now: T0 + DAY })).toEqual({ empty: false, total: 3, passing: 2, failing: 1, untested: 0, line: '1 regression caught', lastRunAt: T0 + 100, lastWeek: { passing: 1, total: 1 } });
+    expect(testsSummary(store, { goldens, now: T0 + DAY })).toEqual({ empty: false, total: 3, passing: 2, failing: 1, untested: 0, line: '1 regression caught', lastRunAt: T0 + 100, lastWeek: { passing: 1, total: 1 } });
     expect(testsSummary(store, { goldens: ['goldens/refund-flow', 'goldens/new'], now: T0 + DAY })).toMatchObject({ total: 2, passing: 1, failing: 0, untested: 1, line: 'no regressions' });
-    expect(testsSummary(Store.open(':memory:'))).toMatchObject({ empty: true, total: 0, line: 'no goldens yet', lastRunAt: null, lastWeek: null });
+    expect(testsSummary(Store.open(':memory:'), { goldens: [] })).toMatchObject({ empty: true, total: 0, line: 'no goldens yet', lastRunAt: null, lastWeek: null });
     // The Overview's outcome strip compares with when its week started.
-    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY })).toEqual({ goldens: 3, passing: 2, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
-    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY })).toMatchObject({ lastWeek: 1 });
-    expect(overviewTests(Store.open(':memory:'), { now: T0, weekStart: T0 - DAY })).toBeNull();
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens })).toEqual({ goldens: 3, passing: 2, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens })).toMatchObject({ lastWeek: 1 });
+    expect(overviewTests(Store.open(':memory:'), { now: T0, weekStart: T0 - DAY }, { goldens: [] })).toBeNull();
+    store.close();
+  });
+
+  it('stops counting a golden once it is deleted or renamed', () => {
+    const store = sampleStore();
+    // refund-in-limit, whose last result failed, is gone from disk: it is no regression any more.
+    const left = goldens.filter((g) => g.path !== 'goldens/refund-in-limit');
+    expect(testsSummary(store, { goldens: left, now: T0 + DAY })).toMatchObject({ total: 2, passing: 2, failing: 0, line: 'no regressions' });
+    expect(failingTests(store, { goldens: left })).toEqual([]);
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY }, { goldens: left })).toMatchObject({ goldens: 2, regressions: 0 });
     store.close();
   });
 
   it('lists failing tests with why, linking to the failing run', () => {
     const store = sampleStore();
-    expect(failingTests(store)).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
+    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', at: T0 + 2 }]);
     store.deleteRun('R_C_LIMIT');
-    expect(failingTests(store)[0]).toMatchObject({ runId: null, href: '#/tests' });
+    expect(failingTests(store, { goldens: goldens.map((g) => g.path) })[0]).toMatchObject({ runId: null, href: '#/tests' });
     store.close();
   });
 });

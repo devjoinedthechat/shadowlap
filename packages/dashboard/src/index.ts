@@ -6,7 +6,7 @@ export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './stati
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
 // Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
 export { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob } from './tests.js';
-export type { BisectChoices, DivergenceView, FailingTest, FailureView, FoundCommit, GoldenRow, GoldenSource, HistoryCell, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
+export type { BisectChoices, DivergenceView, FailingTest, FailureView, FoundCommit, GoldenList, GoldenRow, GoldenSource, HistoryCell, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
 export { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
 export type { AlertsSettings, FixOnFailureSettings } from './ci-yaml.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.

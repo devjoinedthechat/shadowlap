@@ -45,13 +45,23 @@ export interface TestsSessionView {
   actor: string | null;
 }
 
-/** The verdict of the last session: the banner at the top of the screen. */
+/**
+ * The banner at the top of the screen: how each golden on disk did the last time it ran (a session
+ * may run only some of them, as Run tests on one golden does), with the newest session's command,
+ * revision, time and upstream requests.
+ */
 export interface TestsVerdict {
   state: 'failing' | 'passing';
+  /** Goldens whose last result failed. */
   failing: number;
-  /** `refund-in-limit diverged at call 1`, or `All 4 goldens pass`. */
+  /** Goldens whose last result passed. */
+  passing: number;
+  /** Goldens that have not run yet. */
+  untested: number;
+  /** `refund-in-limit diverged at call 1` (the first failing golden, in the table's order), `All 4 goldens pass`, or `3 of 4 goldens pass, 1 not run yet`. */
   title: string;
   first: { golden: string; name: string; reason: string; runId: string | null } | null;
+  /** The newest finished session. */
   session: TestsSessionView;
 }
 
@@ -147,7 +157,7 @@ export interface TestsView {
   /** No goldens: the empty state, with the pack command. */
   empty: boolean;
   goldens: number;
-  /** Null until a session has run. */
+  /** Null until one of the goldens has run. */
   verdict: TestsVerdict | null;
   /** The history's columns, oldest first. */
   revisions: Array<string | null>;
@@ -386,16 +396,23 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     }
   }
 
+  // The verdict counts every golden on disk by its last result, whichever session that came from: a
+  // session that ran one golden says nothing about the others.
   let verdict: TestsVerdict | null = null;
-  if (last) {
-    const inSession = store.listTestResults({ sessionId: last.sessionId, limit: 100_000 }).sort((a, b) => a.at - b.at);
-    const failed = inSession.filter((r) => !r.ok);
+  const lastResults = goldens.map((g) => latestOf.get(g.path)).filter((r): r is TestResult => r !== undefined);
+  if (last && lastResults.length) {
+    const failed = lastResults.filter((r) => !r.ok);
     const first = failed[0] ?? null;
-    const total = last.passed + last.failed;
+    const total = goldens.length;
+    const passing = lastResults.length - failed.length;
+    const untested = total - lastResults.length;
     verdict = {
-      state: last.failed ? 'failing' : 'passing',
-      failing: last.failed,
-      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
+      state: failed.length ? 'failing' : 'passing',
+      failing: failed.length,
+      passing,
+      untested,
+      // One golden: "All 1 goldens pass" isn't English.
+      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass, ${untested} not run yet` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(last),
     };
@@ -423,10 +440,19 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   };
 }
 
-/** The latest result of each golden, as of a time, of the goldens given (default: every one tested). */
-function latestResults(store: Store, options: { goldens?: readonly string[]; until?: number } = {}): Map<string, TestResult> {
-  const keep = options.goldens ? new Set(options.goldens) : null;
-  return new Map(store.latestTestResults(options.until !== undefined ? { until: options.until } : {}).filter((r) => !keep || keep.has(r.golden)).map((r) => [r.golden, r]));
+/**
+ * The goldens on disk, as `projectGoldens` lists them or by their paths. Required wherever results
+ * are counted: the history keeps the results of goldens since deleted or renamed, and those must not
+ * count as passing or as regressions forever.
+ */
+export type GoldenList = ReadonlyArray<string | GoldenSource>;
+
+const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path);
+
+/** The latest result of each golden given, as of a time. */
+function latestResults(store: Store, goldens: GoldenList, until?: number): Map<string, TestResult> {
+  const keep = new Set(goldens.map(pathOf));
+  return new Map(store.latestTestResults(until !== undefined ? { until } : {}).filter((r) => keep.has(r.golden)).map((r) => [r.golden, r]));
 }
 
 export interface TestsSummary {
@@ -447,17 +473,17 @@ export interface TestsSummary {
 }
 
 /**
- * The Overview's Tests passing tile. `goldens` (the packs on disk) limits it to goldens that still
- * exist; `weekStart` is when the comparison with last week is made (default: 7 days before `now`).
+ * The Overview's Tests passing tile, over `goldens`, the packs on disk (`projectGoldens`); `weekStart`
+ * is when the comparison with last week is made (default: 7 days before `now`).
  */
-export function testsSummary(store: Store, options: { goldens?: readonly string[]; now?: number; weekStart?: number } = {}): TestsSummary {
+export function testsSummary(store: Store, options: { goldens: GoldenList; now?: number; weekStart?: number }): TestsSummary {
   const now = options.now ?? Date.now();
-  const latest = latestResults(store, options.goldens ? { goldens: options.goldens } : {});
-  const total = options.goldens ? options.goldens.length : latest.size;
+  const latest = latestResults(store, options.goldens);
+  const total = new Set(options.goldens.map(pathOf)).size;
   const passing = [...latest.values()].filter((r) => r.ok).length;
   const failing = latest.size - passing;
   const session = store.listTestSessions({ limit: 1, finished: true })[0] ?? null;
-  const weekAgo = latestResults(store, { ...(options.goldens ? { goldens: options.goldens } : {}), until: options.weekStart ?? now - 7 * 24 * 60 * 60 * 1000 });
+  const weekAgo = latestResults(store, options.goldens, options.weekStart ?? now - 7 * 24 * 60 * 60 * 1000);
   return {
     empty: total === 0,
     total,
@@ -475,8 +501,8 @@ export function testsSummary(store: Store, options: { goldens?: readonly string[
  * goldens with a result, how many pass, how many passed when this week started, the regressions
  * caught, and when the tests last ran. Null when there are no goldens yet.
  */
-export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens?: readonly string[] } = {}): { goldens: number; passing: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
-  const s = testsSummary(store, { ...options, now: asOf.now, weekStart: asOf.weekStart });
+export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
+  const s = testsSummary(store, { goldens: options.goldens, now: asOf.now, weekStart: asOf.weekStart });
   if (s.empty) return null;
   return { goldens: s.total, passing: s.passing, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
 }
@@ -494,15 +520,16 @@ export interface FailingTest {
   at: number;
 }
 
-/** Goldens failing now, newest failure first: Needs a look's failing tests. */
-export function failingTests(store: Store, options: { goldens?: readonly string[]; folder?: string } = {}): FailingTest[] {
+/** Goldens on disk failing now, newest failure first: Needs a look's failing tests. */
+export function failingTests(store: Store, options: { goldens: GoldenList; folder?: string }): FailingTest[] {
   const folder = options.folder ?? 'goldens';
-  return [...latestResults(store, options.goldens ? { goldens: options.goldens } : {}).values()]
+  const checksOf = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g.checks]));
+  return [...latestResults(store, options.goldens).values()]
     .filter((r) => !r.ok)
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
-      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: resultLine(r, []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: resultLine(r, checksOf.get(r.golden) ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
     });
 }
 
