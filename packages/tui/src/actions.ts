@@ -179,6 +179,17 @@ const REPLAY_FLAGS: Record<string, RegExp> = {
 };
 
 /**
+ * The flags a replay kept on its run, or undefined when it kept none. A run's metadata can come from
+ * someone else's pack, so a record that is no list of flags counts as none, and an entry that is no
+ * flag is left out: the run's page still opens.
+ */
+function recordedFlags(run: RunRecord): RunIntervention[] | undefined {
+  const recorded: unknown = run.meta?.interventions;
+  if (!Array.isArray(recorded)) return undefined;
+  return recorded.filter((i): i is RunIntervention => typeof i === 'object' && i !== null && typeof (i as { flag?: unknown }).flag === 'string');
+}
+
+/**
  * The flags that made a replay, to make it again from its parent (Repeat and Stub in the fork menu),
  * or null when the run is no replay Shadowlap made and recorded here. Only what this store recorded is
  * trusted, never a pack's say, and only known flags with values of their shape: a stored record never
@@ -189,7 +200,7 @@ const REPLAY_FLAGS: Record<string, RegExp> = {
 export function forkArgs(run: RunRecord, omit: ReadonlySet<string> = new Set()): string[] | null {
   if (run.mode !== 'replay' || !run.parentRunId || run.meta?.imported) return null;
   // A replay made before replays kept their flags: what made it is unknown, so it is replayed itself.
-  const recorded: RunIntervention[] | undefined = run.meta?.interventions;
+  const recorded = recordedFlags(run);
   if (!recorded) return null;
   const out: string[] = [];
   for (const i of recorded) {
@@ -216,7 +227,7 @@ export function forkArgs(run: RunRecord, omit: ReadonlySet<string> = new Set()):
  */
 export function forkCommand(run: RunRecord): string[] {
   if (run.mode !== 'replay' || run.meta?.imported || !hasRecordedCommand(run)) return [];
-  return run.meta?.interventions?.some((i) => i.kind === 'command') ? ['--', ...run.command.argv] : [];
+  return recordedFlags(run)?.some((i) => i.kind === 'command') ? ['--', ...run.command.argv] : [];
 }
 
 function baseActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext): Action[] {
@@ -231,7 +242,7 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   const base = again ? ['replay', run.parentRunId!, ...again] : ['replay', id];
   const tail = again ? forkCommand(run) : [];
   // The flags as a command line has them: the fork's own command, after `--`, last.
-  const recorded = run.meta?.interventions ?? [];
+  const recorded = recordedFlags(run) ?? [];
   const made = [...recorded.filter((i) => i.kind !== 'command').map((i) => i.flag), ...(run.meta?.expect ? ['--expect …'] : []), ...recorded.filter((i) => i.kind === 'command').map((i) => i.flag)].join(' ');
   actions.push({
     key: 'e',
