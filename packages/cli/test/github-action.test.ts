@@ -36,7 +36,8 @@ describe('the GitHub Action', () => {
   it('passes a clean replay and reports it in the outputs and the job summary', () => {
     const r = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, GUARD: 'off' });
     expect(r.code).toBe(0);
-    expect(r.outputs).toMatchObject({ passed: '1', failed: '0' });
+    expect(r.outputs).toMatchObject({ passed: '1', failed: '0', diverged: '0', 'checks-failed': '0', fixes: '0', 'fix-prs': '' });
+    expect(r.outputs.session).toMatch(/^\w{26}$/);
     expect(readFileSync(r.outputs['report-json']!, 'utf8')).toContain('"passed": 1');
     expect(r.summary).toContain('### Shadowlap: 1 recording passed');
     expect(r.summary).toMatch(/✅ \| `reference-agent` \| clean \| 30\/30/);
@@ -46,7 +47,7 @@ describe('the GitHub Action', () => {
   it('fails a diverging replay, annotates it and puts the diff in the summary', () => {
     const r = action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GUARD: 'off' }, { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
     expect(r.code).toBe(1);
-    expect(r.outputs).toMatchObject({ passed: '0', failed: '1' });
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '1', 'checks-failed': '0' });
     expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=Shadowlap%3A reference-agent::diverged at call 3');
     expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
     expect(r.summary).toContain('+ "You are a research agent. Use the tools, then email a summary. Be brief."');
@@ -70,6 +71,18 @@ describe('the GitHub Action', () => {
     expect(bad.out).toContain('input writes must be block, stub or allow');
     const deep = action({ RECORDINGS: 'testing/*/reference-agent', WORKING_DIRECTORY: ROOT });
     expect(deep.out).toContain('only the last part of a recordings path may contain a wildcard');
+    const budget = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, FIX_BUDGET: 'lots' });
+    expect(budget.out).toContain('input fix-budget must be an amount in dollars');
+    const repairer = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'gpt' });
+    expect(repairer.out).toContain('input repairer must be claude-code, anthropic');
+  });
+
+  it('opens no fix for a divergence, even with fix-on-failure on', () => {
+    const r = action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GUARD: 'off', FIX_ON_FAILURE: 'true', FAIL_ON_DIVERGENCE: 'false' }, { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
+    expect(r.code).toBe(0);
+    expect(r.outputs).toMatchObject({ failed: '1', diverged: '1', fixes: '0' });
+    expect(r.out).toContain('reference-agent: no fix pull request: diverged: never fixed automatically, because most divergences are intended');
+    expect(r.summary).toContain('### Shadowlap: no fix pull request opened');
   });
 });
 

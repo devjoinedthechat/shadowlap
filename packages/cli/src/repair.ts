@@ -111,6 +111,8 @@ function projectFiles(root: string): SourceFile[] {
   const out: SourceFile[] = [];
   for (const path of git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')) {
     if (!path) continue;
+    // A committed recording (a golden, or __recordings__/) holds copies of the prompts, not their source.
+    if (/(^|\/)blobs\/[0-9a-f]{64}$/.test(path)) continue;
     const abs = join(root, path);
     try {
       if (statSync(abs).size > 1024 * 1024) continue;
