@@ -198,6 +198,30 @@ describe('the run page: header and banners', () => {
   });
 });
 
+describe('the run page: metadata from someone else’s pack', () => {
+  it('shows only what is well formed, and never fails the run', () => {
+    const store = Store.open(':memory:');
+    const parent = RunBuilder.start(store, { meta: { blame: { rescuedRunId: 'x', callNo: 'two' } as never } }).end();
+    const meta = {
+      notRecorded: { hosts: ['evil', { target: 'api.example.com:443', count: 2, action: 'exfiltrated' }], tools: [1, 'send_slack'] },
+      checks: 'all good',
+      blame: { outcome: 'pwned', callNo: 1.5, confidence: 9, scope: { x: 1 }, at: 'yesterday' },
+      interventions: { flag: '--fail-at' },
+      repeat: { group: { $ne: null } },
+    } as unknown as RunMeta;
+    const b = RunBuilder.start(store, { parent, meta });
+    b.model({ messages: [user('x')] }, [text('y')]);
+    b.end();
+    const d = runDetail(store, b.runId)!;
+    expect(d.notRecorded).toEqual({ hosts: [{ target: 'api.example.com:443', count: 2, action: 'warned' }], tools: ['send_slack'] });
+    expect(d.checks).toBeNull();
+    expect(d.blame).toEqual({ outcome: 'stopped', callNo: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, at: 0 });
+    expect(d.interventions).toEqual([]);
+    expect(d.rescuedBy).toBeNull();
+    store.close();
+  });
+});
+
 describe('the run page: provenance', () => {
   it('states the record, the lineage and what a copy would mask', () => {
     const store = Store.open(':memory:');

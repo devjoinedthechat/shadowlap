@@ -59,6 +59,25 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
         threading.Thread(target=send, daemon=True).start()
 
+    # Python connects to the address a name resolved to. The names are remembered, so the run says
+    # which host it reached (api.stripe.com:443, not an IP), and an allowed name matches.
+    _names = {}
+    _orig_getaddrinfo = socket.getaddrinfo
+
+    def _getaddrinfo(host, *args, **kwargs):
+        infos = _orig_getaddrinfo(host, *args, **kwargs)
+        try:
+            name = host.decode("idna") if isinstance(host, bytes) else host
+            if isinstance(name, str):
+                for info in infos:
+                    if info[4][0] != name:
+                        _names[info[4][0]] = name
+        except Exception:
+            pass
+        return infos
+
+    socket.getaddrinfo = _getaddrinfo
+
     def _target(sock, address):
         if sock.family not in (socket.AF_INET, getattr(socket, "AF_INET6", None)):
             return None
@@ -69,6 +88,9 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     def _check(sock, address):
         key = _target(sock, address)
         if key is None or key in _allowed:
+            return
+        key = "%s:%s" % (_names.get(address[0], address[0]), address[1])
+        if key in _allowed:
             return
         n = _seen.get(key, 0) + 1
         _seen[key] = n

@@ -79,9 +79,17 @@ export function inferInterventions(store: Store, run: RunRecord, calls: readonly
   return out;
 }
 
-/** A replay's interventions: as stored when it ran, else as its calls show them. */
+/**
+ * A replay's interventions: as stored when it ran, else as its calls show them. A run can come
+ * from someone else's pack, so only well-formed entries are kept.
+ */
 export function runInterventions(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunIntervention[] {
-  return run.meta?.interventions ?? inferInterventions(store, run, calls);
+  const stored: unknown = run.meta?.interventions;
+  if (stored === undefined) return inferInterventions(store, run, calls);
+  if (!Array.isArray(stored)) return [];
+  return stored
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && typeof (x as { flag?: unknown }).flag === 'string')
+    .map((x) => ({ flag: x.flag as string, value: typeof x.value === 'string' ? x.value : null, callNo: Number.isInteger(x.callNo) ? (x.callNo as number) : null }));
 }
 
 const RESULT_MAX = 72;

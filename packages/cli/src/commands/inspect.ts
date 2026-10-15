@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
@@ -106,8 +106,8 @@ export function register(program: Command): void {
       }
       if (flags.json) {
         const config = loadConfig(process.cwd());
-        const summary = summarizeRun(run, calls, [], [], { ...(config.prices ? { prices: config.prices } : {}), modelOf: storedModelResolver(store) });
-        process.stdout.write(JSON.stringify({ run, summary, calls }, null, 2) + '\n');
+        // The same function the dashboard serves it from: one shape for scripts and coding agents.
+        process.stdout.write(JSON.stringify(showJson(store, run, { calls, ...(config.prices ? { prices: config.prices } : {}) }), null, 2) + '\n');
         store.close();
         return;
       }

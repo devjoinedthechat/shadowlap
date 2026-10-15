@@ -172,63 +172,86 @@ export interface RunPageFacts {
 
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
 
+// A run can come from someone else's pack: what its metadata says is checked before it is shown.
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
+const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
+
 function blameOf(run: RunRecord, calls: readonly CallRecord[]): RunBlame | null {
-  const b = run.meta?.blame;
-  if (!b) return null;
+  const b: unknown = run.meta?.blame;
+  if (!isObject(b)) return null;
+  const callNo = int(b.callNo);
+  const scope = str(b.scope);
   // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, b.scope)).map((c) => c.callNo);
-  const k = b.callNo === null ? 0 : steps.indexOf(b.callNo) + 1;
+  const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope)).map((c) => c.callNo);
+  const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
   return {
-    outcome: b.outcome,
-    callNo: b.callNo,
+    outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
+    callNo,
     modelCall: k > 0 ? { k, m: steps.length } : null,
-    confidence: b.confidence,
-    rescuedRunId: b.rescuedRunId,
-    scope: b.scope ?? null,
-    at: b.at,
+    confidence: oneOf(b.confidence, ['high', 'medium', 'low'] as const, 'low'),
+    rescuedRunId: str(b.rescuedRunId),
+    scope,
+    at: typeof b.at === 'number' && Number.isFinite(b.at) ? b.at : 0,
   };
 }
 
+/** A run's checks as stored, keeping only well-formed entries. */
+function storedChecks(run: RunRecord): Array<{ ok: boolean; label: string; detail: string | null }> {
+  const v: unknown = run.meta?.checks;
+  return Array.isArray(v) ? v.filter((c): c is { ok: boolean; label: string; detail: string | null } => isObject(c) && typeof c.ok === 'boolean' && typeof c.label === 'string').map((c) => ({ ok: c.ok, label: c.label, detail: str(c.detail) })) : [];
+}
+
+function storedNotRecorded(run: RunRecord): NotRecorded {
+  const v: unknown = run.meta?.notRecorded;
+  if (!isObject(v)) return { hosts: [], tools: [] };
+  const hosts = Array.isArray(v.hosts) ? v.hosts.filter((h): h is NotRecorded['hosts'][number] => isObject(h) && typeof h.target === 'string' && Number.isInteger(h.count)).map((h) => ({ target: h.target, count: h.count, action: oneOf(h.action, ['warned', 'blocked'] as const, 'warned') })) : [];
+  const tools = Array.isArray(v.tools) ? v.tools.filter((t): t is string => typeof t === 'string') : [];
+  return { hosts, tools };
+}
+
+
 /** Attempts run together: one `--repeat` group, or one golden in one test session, under the same parent. */
 function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
-  const repeat = run.meta?.repeat?.group;
-  const test = run.meta?.test;
-  if (!run.parentRunId || (!repeat && !test)) return [run];
-  const together = store.childRuns(run.parentRunId).filter((r) => (repeat ? r.meta?.repeat?.group === repeat : r.meta?.test?.session === test!.session && r.meta?.test?.golden === test!.golden));
+  const repeat = str(run.meta?.repeat?.group);
+  const session = str(run.meta?.test?.session);
+  const golden = str(run.meta?.test?.golden);
+  if (!run.parentRunId || (!repeat && !session)) return [run];
+  const together = store.childRuns(run.parentRunId).filter((r) => (repeat ? r.meta?.repeat?.group === repeat : r.meta?.test?.session === session && r.meta?.test?.golden === golden));
   return together.length ? together : [run];
 }
 
 function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
-  const own = run.meta?.checks;
-  if (!own?.length) return null;
-  const attempts = attemptsOf(store, run);
+  const own = storedChecks(run);
+  if (!own.length) return null;
+  const attempts = attemptsOf(store, run).map(storedChecks);
   return own.map((c) => {
-    const ran = attempts.map((r) => r.meta?.checks?.find((x) => x.label === c.label)).filter((x) => x !== undefined);
+    const ran = attempts.map((checks) => checks.find((x) => x.label === c.label)).filter((x) => x !== undefined);
     return { label: c.label, ok: c.ok, detail: c.detail, count: ran.filter((x) => x.ok).length, of: ran.length };
   });
 }
 
 /** The run's own hosts; the tools come from the recording when the run is a replay of it. */
 function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
-  const own = run.meta?.notRecorded;
-  let tools = own?.tools ?? [];
+  const own = storedNotRecorded(run);
+  let tools = own.tools;
   const seen = new Set([run.runId]);
   for (let r = run; !tools.length && r.parentRunId && !seen.has(r.parentRunId); ) {
     seen.add(r.parentRunId);
     const parent = store.getRun(r.parentRunId);
     if (!parent) break;
-    tools = parent.meta?.notRecorded?.tools ?? [];
+    tools = storedNotRecorded(parent).tools;
     r = parent;
   }
-  const hosts = own?.hosts ?? [];
-  return hosts.length || tools.length ? { hosts, tools } : null;
+  return own.hosts.length || tools.length ? { hosts: own.hosts, tools } : null;
 }
 
 export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunPageFacts {
   const a = analyseRun(store, run, calls);
   const interventions = run.mode === 'replay' ? runInterventions(store, run, calls) : [];
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
-  const rescued = parent?.meta?.blame?.rescuedRunId === run.runId ? parent.meta.blame : null;
+  const rescued = parent && isObject(parent.meta?.blame) && parent.meta.blame.rescuedRunId === run.runId ? parent.meta.blame : null;
   let notWaitedMs = 0;
   for (const ms of a.recorded.values()) notWaitedMs += ms;
   return {
@@ -239,7 +262,7 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     forkAt: run.mode === 'replay' ? (run.divergence?.callNo ?? null) : null,
     intervention: interventions.find((x) => x.flag !== '--inject-as') ?? null,
     interventions,
-    rescuedBy: rescued && parent ? { runId: parent.runId, callNo: rescued.callNo } : null,
+    rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
     blame: blameOf(run, calls),
     checks: checksOf(store, run),
   };
