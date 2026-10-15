@@ -49,7 +49,8 @@ const COMPARE_ALL_UPTO = 6;
 function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; redacted: boolean; now: number }): { data: StaticPayload; calls: number } {
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
-  const runs = listRuns(store, read).filter((r) => runIds.includes(r.runId));
+  // Every run the file holds is listed, however old, an attempt someone chose to export included.
+  const runs = listRuns(store, { ...read, ids: runIds });
   responses['meta'] = { version: opts.version ?? null, dbPath: null, actions: false, static: true, exportedAt: opts.now, runIds, redacted: opts.redacted };
   responses['runs'] = { runs };
   let calls = 0;

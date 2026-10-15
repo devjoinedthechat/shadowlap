@@ -1,7 +1,8 @@
 import { basename } from 'node:path';
 import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { buildActions, notRun } from '@shadowlap/tui/actions';
-import { loadRunTree, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { modelResolver, runLabel } from '@shadowlap/tui/data';
+import { recentRuns, type RunRow } from './runs-list.js';
 
 /**
  * The dashboard's read model: plain JSON built from the store, one function per endpoint, no HTTP.
@@ -144,28 +145,12 @@ function row(store: Store, c: CallRecord, options: ReadOptions): CallRow {
   };
 }
 
-export function listRuns(store: Store, options: ReadOptions = {}): RunListItem[] {
-  return loadRunTree(store, { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) }).map((n) => ({
-    runId: n.run.runId,
-    parentRunId: n.run.parentRunId,
-    depth: n.depth,
-    mode: n.run.mode,
-    status: n.run.status,
-    label: runLabel(n.run, n.calls),
-    divergence: n.run.divergence ? { callNo: n.run.divergence.callNo, type: n.run.divergence.type } : null,
-    command: n.run.command.argv.join(' '),
-    codeVersion: n.run.codeVersion,
-    startedAt: n.run.startedAt,
-    endedAt: n.run.endedAt,
-    calls: n.calls,
-    spent: n.spent,
-    saved: n.saved,
-    captured: n.captured,
-    imported: !!n.run.meta?.imported,
-    covers: n.run.meta?.covers?.length ? n.run.meta.covers : null,
-    source: captureSource(n.run),
-    labels: n.run.meta?.labels ?? [],
-  }));
+/**
+ * The sidebar's Recent runs (`/api/runs`): the newest runs as a tree, each with its kind, outcome,
+ * origins and the attempts bundled under it. Attempts are not rows unless asked for (`recentRuns`).
+ */
+export function listRuns(store: Store, options: ReadOptions & { includeAttempts?: boolean; ids?: readonly string[] } = {}): RunRow[] {
+  return recentRuns(store, options);
 }
 
 /** What a run with no command came from, shown where its command would be: the capture's file name. */
