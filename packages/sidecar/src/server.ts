@@ -34,6 +34,8 @@ import {
   type SerializedError,
   type Store,
 } from '@shadowlap/engine';
+// The run page: a replay's flags and the guard's hosts, kept on the run (engine run-facts.ts).
+import { describeInterventions, recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, type HttpResult, type HttpRule } from './http.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
 import { SseTimer } from './sse.js';
@@ -99,6 +101,8 @@ export interface StartRunInput {
   interventions?: Interventions;
   /** The command being run came from an imported pack (recorded on the run so later replays ask again). */
   commandFromImport?: boolean;
+  /** Where each `--override` result was read from, as typed (`{ 16: '@policy.json' }`): the run keeps the file's name, never the result. */
+  overrideSources?: OverrideSources;
   /**
    * A stable name the run's traffic arrives under, as `/s/<slot>/…` in the base URLs from
    * `envForSlot`. A test worker creates its model clients once, and each test's run takes the slot
@@ -408,7 +412,7 @@ export class Sidecar {
       parentRunId: input.parentRunId ?? null,
       command: input.command,
       codeVersion: input.codeVersion ?? null,
-      meta: { normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined), ...(input.commandFromImport ? { commandFromImport: true } : {}) },
+      meta: { normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined), ...(input.commandFromImport ? { commandFromImport: true } : {}), ...interventionsMeta(input) },
     });
     const clockRef = this.clock === 'auto' ? run.startedAt : undefined;
     const session = new Session({
@@ -447,6 +451,8 @@ export class Sidecar {
     if (ctx.slot !== null && this.slots.get(ctx.slot) === runId) this.slots.delete(ctx.slot);
     const run = this.store.getRun(runId)!;
     const unguarded = [...ctx.unguarded.entries()].map(([target, v]) => ({ target, ...v })).sort((a, b) => b.count - a.count);
+    // Kept on the run as well as printed: its page says what a replay runs for real.
+    if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
     const warnings = [...ctx.warnings];
     if (unguarded.length) {
       const list = unguarded.map((u) => `${u.target} (${u.count})`).join(', ');
@@ -1199,4 +1205,11 @@ function json(res: ServerResponse, status: number, value: unknown): void {
   const bytes = Buffer.from(JSON.stringify(value), 'utf8');
   res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length) });
   res.end(bytes);
+}
+
+/** A replay's flags, kept on the run so its page can name what made the fork (engine run-facts.ts). */
+function interventionsMeta(input: StartRunInput): { interventions?: ReturnType<typeof describeInterventions> } {
+  if (input.mode !== 'replay') return {};
+  const list = describeInterventions(input.replay, input.interventions, input.overrideSources);
+  return list.length ? { interventions: list } : {};
 }

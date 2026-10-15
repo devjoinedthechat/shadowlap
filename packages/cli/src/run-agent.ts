@@ -11,6 +11,7 @@ import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { emitJobEvent } from './job-events.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
+import { noteUnrecordedTools } from './not-recorded.js';
 import { palette as p } from './ui.js';
 
 /** Running an agent command under a sidecar: its environment (base URLs, capture, the network guard), interventions, repeated attempts, and the offline replays of `shadowlap test` and `calibrate`. */
@@ -291,6 +292,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
   rmSync(activeFile, { force: true });
   const result = sidecar.endRun(run.runId, status);
+  if (run.mode === 'record') noteUnrecordedTools(store, run.runId, process.cwd());
   await sidecar.close();
   store.close();
   emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary } });

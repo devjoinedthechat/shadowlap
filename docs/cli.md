@@ -27,7 +27,7 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 shadowlap run -- <command> [args...]
 ```
 
-Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture) and the network guard into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted).
+Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture) and the network guard into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted). What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded.
 
 ## replay
 
@@ -59,7 +59,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--model <call>:<model>` | Switch the model from model call *n* on |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
 
-See [Interventions](./interventions.md) for what each one does to the conversation prefix.
+See [Interventions](./interventions.md) for what each one does to the conversation prefix. The replay keeps the options that change what it does (`--fail-at`, `--override`, `--inject`, `--model`, `--set`, `--prompt-from`, `--diverge-at`, `--live-tool`, and `--writes` or `--reads` when not the default), so its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from) names what made the fork. It keeps them without what they carried in: `--override 16=@policy.json` keeps the file's name, never the result, and `--inject` and `--set` keep the call (and the key) they apply to; the fork's own calls hold the rest, and a redacted copy masks it there.
 
 ### Repeating a fork
 
