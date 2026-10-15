@@ -16,8 +16,9 @@ import { readStoreFacts } from './store-reader.js';
  * The projects opened in the dashboard on this machine: `projects.json` in Shadowlap's home folder
  * (`~/.shadowlap`, or `SHADOWLAP_HOME`). Each project is a folder with its own store in it, so the
  * list holds only what the folder doesn't: where the project is, how far its setup got, and the
- * commands confirmed for recording there. Removing a project forgets the folder; adding it again
- * brings its runs back, because they never left it.
+ * commands confirmed for recording there. Removing a project takes it off the list and remembers
+ * that part (`removed`); adding the folder again brings it all back, setup and confirmed commands
+ * from the list and runs from the folder, which never left it. Deleting its recordings forgets it.
  *
  * The file is written atomically and owner-only (0600), one writer at a time, and kept as JSON a
  * person can read: unknown keys are preserved, so a newer version's additions survive an older
@@ -29,6 +30,8 @@ export const REGISTRY_FILE = 'projects.json';
 export const REGISTRY_VERSION = 1;
 /** Confirmed commands kept per project; the oldest go first. */
 const MAX_CONFIRMED = 20;
+/** Removed projects remembered, so adding one again brings its setup back; the oldest go first. */
+const MAX_REMOVED = 50;
 const MAX_TOOLS = 200;
 const MAX_WRAP_CHARS = 20_000;
 /** Inspections kept per project, the newest; enough to tell what a recent recording was made with. */
@@ -98,11 +101,14 @@ export class ProjectError extends Error {
 
 export interface AddedProject {
   project: ProjectEntry;
-  /** The folder was a project here before: its runs come back with it. */
+  /** The folder was a project here before: its runs come back with it, and its setup and confirmed commands when the list remembered them. */
   again: boolean;
   /** Runs already in its store. */
   runs: number;
 }
+
+/** A project taken off the list, as the list remembers it: adding the folder again brings this back. */
+export type RemovedEntry = ProjectEntry & { removedAt: number };
 
 export interface RemovedProject {
   project: ProjectEntry;
@@ -229,9 +235,42 @@ function toEntry(raw: unknown): ProjectEntry | null {
 
 const newerList = (file: string) => `${file} was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.`;
 
-/** The name typed in the Remove dialog confirms deleting a project's recordings once it is the project's name exactly. */
+/**
+ * The name typed in the Remove dialog confirms deleting a project's recordings once it is the
+ * project's name exactly, compared composed: macOS keeps a folder named in Finder decomposed
+ * (`Bu` and a combining diaeresis), while a keyboard types `ü`, and the two look the same.
+ */
 export function nameConfirms(typed: string, name: string): boolean {
-  return typed.trim() === name;
+  return typed.trim().normalize('NFC') === name.normalize('NFC');
+}
+
+/** Removed projects as the file keeps them, newest last; entries this version can't read are left out. */
+function removedEntries(raw: Raw): RemovedEntry[] {
+  if (!Array.isArray(raw.removed)) return [];
+  return raw.removed.flatMap((r): RemovedEntry[] => {
+    const entry = toEntry(r);
+    return entry ? [{ ...entry, removedAt: isObject(r) && typeof r.removedAt === 'number' ? r.removedAt : 0 }] : [];
+  });
+}
+
+/** The file's `removed` list without what it remembers of the folder at `path`. */
+function forgetRemoved(raw: Raw, path: string): unknown[] {
+  return (Array.isArray(raw.removed) ? raw.removed : []).filter((r) => !(isObject(r) && r.path === path));
+}
+
+/**
+ * The recording the project list names as the setup's for the project in `folder` (the one the
+ * dashboard recorded, calibrated or packed), for a command that takes the setup's run when none is
+ * named, such as `shadowlap calibrate`. Null when the folder isn't a project, the list names none,
+ * or the list can't be read. The store may hold newer recordings; `deriveSetup` says which one the
+ * setup shows.
+ */
+export function setupRunOf(folder: string, options: RegistryOptions = {}): string | null {
+  try {
+    return new ProjectRegistry(options).find(folder)?.setup.runId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** A folder name as an id: lowercase letters, digits, dots, dashes and underscores. */
@@ -421,12 +460,13 @@ export class ProjectRegistry {
     return { facts, start: initialSetup(facts, countGoldens(real), { inUse }) };
   }
 
-  /** A new entry for a folder, with an id unique among `taken`. */
+  /** A new entry for a folder, with an id unique among `taken`. Its name is the folder's, composed (see {@link nameConfirms}). */
   private newEntry(real: string, taken: readonly ProjectEntry[], start: ReturnType<typeof initialSetup>): ProjectEntry {
     const at = this.now();
+    const name = (basename(real) || real).normalize('NFC');
     return {
-      id: uniqueId(basename(real), taken),
-      name: basename(real) || real,
+      id: uniqueId(name, taken),
+      name,
       path: real,
       addedAt: at,
       setup: { ...emptySetup(at), stage: start.stage, runId: start.runId, golden: start.golden },
@@ -434,25 +474,44 @@ export class ProjectRegistry {
     };
   }
 
+  /**
+   * The entry the list remembered for a folder removed earlier, back on the list: its setup and
+   * confirmed commands as they were, its id if no other project took it meanwhile. A setup finished
+   * since (the store says so) comes back finished.
+   */
+  private restoredEntry(remembered: RemovedEntry, taken: readonly ProjectEntry[], facts: StoreFacts): ProjectEntry {
+    const { removedAt: _removedAt, ...entry } = remembered;
+    const finished = facts.setupEvent && remembered.setup.stage !== 'done' ? initialSetup(facts, 0) : null;
+    return {
+      ...entry,
+      id: taken.some((p) => p.id === remembered.id) ? uniqueId(remembered.name, taken) : remembered.id,
+      addedAt: this.now(),
+      setup: finished ? { ...remembered.setup, stage: 'done', runId: finished.runId ?? remembered.setup.runId, golden: finished.golden ?? remembered.setup.golden } : remembered.setup,
+    };
+  }
+
   private addFolder(real: string, options: { inUse?: boolean; dbPath?: string } = {}): AddedProject {
     const dbPath = options.dbPath ?? projectDbPath(real);
     const { facts, start } = this.startOf(real, dbPath, !!options.inUse);
-    const project = this.mutate((state) => {
+    const { project, restored } = this.mutate((state) => {
       if (state.projects.some((p) => p.path === real)) throw new ProjectError('exists', `${this.display(real)} is already in the dashboard.`);
-      const entry = this.newEntry(real, state.projects, start);
+      const remembered = removedEntries(state.raw).filter((r) => r.path === real).at(-1) ?? null;
+      const entry = remembered ? this.restoredEntry(remembered, state.projects, facts) : this.newEntry(real, state.projects, start);
+      if (remembered) state.raw.removed = forgetRemoved(state.raw, real);
       state.projects.push(entry);
-      return entry;
+      return { project: entry, restored: !!remembered };
     });
-    const again = facts.addedBefore;
+    const again = facts.addedBefore || restored;
     this.activity(project, { kind: 'project.added', ref: project.id, data: { path: this.display(real), name: project.name, ...(again ? { again: true } : {}) } }, true, dbPath);
     return { project, again, runs: facts.runs };
   }
 
   /**
-   * Removes a project from the list. Its folder, store, config and goldens stay, so adding the folder
-   * again brings everything back. With `deleteRecordings`, its store is deleted as well, once the
-   * name typed to confirm matches the project's; goldens in the repository are never touched. The
-   * only project can't be removed.
+   * Removes a project from the list. Its folder, store, config and goldens stay, and the list
+   * remembers its setup and confirmed commands, so adding the folder again brings everything back.
+   * With `deleteRecordings`, its store is deleted as well, once the name typed to confirm matches
+   * the project's, and the list forgets it: adding it again starts its setup afresh. Goldens in the
+   * repository are never touched. The only project can't be removed.
    */
   remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): RemovedProject {
     const list = this.list();
@@ -468,11 +527,14 @@ export class ProjectRegistry {
         throw err;
       }
     }
+    const at = this.now();
     this.mutate((state) => {
       const i = state.projects.findIndex((p) => p.id === id);
       if (i < 0) throw new ProjectError('not-found', `No project ${id}.`);
       if (state.projects.length <= 1) throw new ProjectError('only-project', 'This is the only project. Add another one first.');
-      state.projects.splice(i, 1);
+      const [gone] = state.projects.splice(i, 1);
+      const others = forgetRemoved(state.raw, gone!.path);
+      state.raw.removed = options.deleteRecordings ? others : [...others, { ...gone, removedAt: at }].slice(-MAX_REMOVED);
     });
     if (!options.deleteRecordings) {
       this.activity(project, { kind: 'project.removed', ref: project.id, data: { path: this.display(project.path), name: project.name } }, false);

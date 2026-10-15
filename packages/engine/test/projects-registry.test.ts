@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '../src/index.js';
-import { ProjectError, ProjectRegistry, projectDbPath, type ProjectEntry, type SetupFindings } from '../src/projects/index.js';
+import { ProjectError, ProjectRegistry, nameConfirms, projectDbPath, setupRunOf, type ProjectEntry, type SetupFindings } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -227,6 +227,67 @@ describe('ProjectRegistry: removing', () => {
     // Added again, it starts from an empty store.
     const back = registry.add('~/support-agent');
     expect(back).toMatchObject({ again: false, runs: 0 });
+  });
+
+  it('brings a setup removed halfway back as it was, with its confirmed commands and its id', () => {
+    const { registry, agent, shadowlapDir } = setup();
+    agent('triage-bot');
+    const folder = agent('research-agent', { 'pyproject.toml': '' });
+    registry.add('~/triage-bot');
+    registry.add('~/research-agent');
+    registry.noteInspected('research-agent', findings());
+    registry.confirmCommand('research-agent', ['uv', 'run', 'agent.py']);
+    const runId = record(folder);
+    registry.noteRecording('research-agent', runId, ['uv', 'run', 'agent.py']);
+    registry.noteRecorded('research-agent', runId);
+    registry.noteCalibrated('research-agent', runId, [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }]);
+    const before = registry.get('research-agent')!;
+    expect(before.setup.stage).toBe('clean');
+
+    registry.remove('research-agent');
+    // Remembered in the list, off the switcher.
+    const file = JSON.parse(readFileSync(join(shadowlapDir, 'projects.json'), 'utf8')) as { removed: Array<{ id: string; path: string; removedAt: number }> };
+    expect(file.removed).toEqual([expect.objectContaining({ id: 'research-agent', path: folder, removedAt: expect.any(Number) })]);
+    // Its id is free meanwhile; another folder of the same name takes the next one when it comes back.
+    const back = registry.add('~/research-agent');
+    expect(back).toMatchObject({ again: true, runs: 1 });
+    expect(back.project).toMatchObject({ id: 'research-agent', setup: { stage: 'clean', runId, findings: { sdk: 'anthropic 0.69.0' }, calibration: { added: [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }] } } });
+    expect(back.project.confirmed.map((c) => c.argv)).toEqual([['uv', 'run', 'agent.py']]);
+    expect(registry.isConfirmed('research-agent', ['uv', 'run', 'agent.py'])).toBe(true);
+    // Brought back once: the list no longer remembers it as removed.
+    expect((JSON.parse(readFileSync(join(shadowlapDir, 'projects.json'), 'utf8')) as { removed: unknown[] }).removed).toEqual([]);
+  });
+
+  it('forgets a removed project whose recordings were deleted: added again, its setup starts afresh', () => {
+    const { registry, agent, shadowlapDir } = setup();
+    agent('triage-bot');
+    const folder = agent('research-agent', { 'pyproject.toml': '' });
+    registry.add('~/triage-bot');
+    registry.add('~/research-agent');
+    registry.noteInspected('research-agent', findings());
+    registry.confirmCommand('research-agent', ['uv', 'run', 'agent.py']);
+    record(folder);
+    // Removed and remembered once, then added back and removed again with its recordings.
+    registry.remove('research-agent');
+    registry.add('~/research-agent');
+    registry.remove('research-agent', { deleteRecordings: true, typedName: 'research-agent' });
+    expect((JSON.parse(readFileSync(join(shadowlapDir, 'projects.json'), 'utf8')) as { removed: unknown[] }).removed).toEqual([]);
+    const back = registry.add('~/research-agent');
+    expect(back.project).toMatchObject({ setup: { stage: 'added', findings: null }, confirmed: [] });
+  });
+
+  it('confirms deleting by the name as it looks, however the folder’s name is composed', () => {
+    const { registry, agent } = setup();
+    agent('triage-bot');
+    // Finder names folders decomposed: `u` and a combining diaeresis.
+    agent('Bücher-agent');
+    registry.add('~/triage-bot');
+    const added = registry.add('~/Bücher-agent');
+    expect(added.project).toMatchObject({ name: 'Bücher-agent', id: 'bucher-agent' });
+    expect(nameConfirms('Bücher-agent', 'Bücher-agent')).toBe(true);
+    expect(nameConfirms('Bücher-agent', 'Bücher-agent')).toBe(true);
+    expect(nameConfirms('Bucher-agent', 'Bücher-agent')).toBe(false);
+    expect(registry.remove(added.project.id, { deleteRecordings: true, typedName: 'Bücher-agent' }).project.id).toBe('bucher-agent');
   });
 
   it('won’t delete a store while a run is being recorded into it, or one reached through a link', () => {
@@ -512,6 +573,21 @@ describe('ProjectRegistry: the file', () => {
     expect(registry.roots().roots).toEqual([home, work, more]);
     files(join(work, 'agent'), { 'go.mod': 'module agent\n' });
     expect(registry.add(join(work, 'agent')).project.id).toBe('agent');
+  });
+
+  it('names the setup’s run of a folder for a command that takes it, and nothing it can’t tell', () => {
+    const { registry, agent, home, shadowlapDir } = setup();
+    const folder = agent('research-agent', { 'pyproject.toml': '' });
+    const options = { home, env: { SHADOWLAP_HOME: shadowlapDir } };
+    expect(setupRunOf(folder, options)).toBeNull();
+    registry.add('~/research-agent');
+    expect(setupRunOf(folder, options)).toBeNull();
+    const runId = record(folder);
+    registry.noteRecording('research-agent', runId, ['uv', 'run', 'agent.py']);
+    expect(setupRunOf(folder, options)).toBe(runId);
+    expect(setupRunOf(join(folder, 'sub'), options)).toBeNull();
+    writeFileSync(join(shadowlapDir, 'projects.json'), '{ not json');
+    expect(setupRunOf(folder, options)).toBeNull();
   });
 
   it('waits for another writer’s lock, and takes over one left by a dead process', () => {

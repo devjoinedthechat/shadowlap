@@ -12,7 +12,7 @@ export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
-export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, tildePath } from './projects/index.js';
+export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
 export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';
 export { UPSTREAM_ENV, defaultGolden, freeGoldenPath, goldenPath, modelServerFinding, parseAgentCommand, planRecording, setupCommands, setupJobArgs } from './projects/index.js';
 export { SETUP_STAGES, calibrationOutcome, deriveSetup, emptyStoreFacts, readStoreFacts, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './projects/index.js';
