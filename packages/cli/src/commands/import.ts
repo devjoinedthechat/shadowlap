@@ -104,6 +104,15 @@ function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported:
   console.log(`\nA trace says what was sent, not what sent it. Give your own command:\n  ${p.bold(`shadowlap replay ${shortId(done[0]!.imported.result.run.runId)} -- <your agent command>`)}`);
 }
 
+/** `--name`: a file's name, with no folder in it, recorded as the run's source in place of the file's own. */
+function sourceNameArg(raw: string): string {
+  const name = raw.trim();
+  if (!name || name.length > 200 || /[\\/]/.test(name) || /[\u0000-\u001f\u007f]/.test(name)) throw new InvalidArgumentError(`--name: a file name, without folders, such as traffic.har: "${raw}"`);
+  return name;
+}
+
+const NAME_HELP = "the name to record as the run's source (default: the file's name)";
+
 /** A trace id as Langfuse and LangSmith write them (a UUID, or 32 hex characters), checked before it goes into a URL. */
 function traceIdArg(raw: string): string {
   const id = raw.trim();
@@ -155,8 +164,9 @@ export function register(program: Command): void {
     .command('litellm')
     .description("Model API calls captured by shadowlap.litellm_callback on a LiteLLM proxy: production traffic as recordings, one run per correlation id")
     .argument('<file...>', 'capture files (a proxy writes one per worker process)')
+    .option('--name <name>', NAME_HELP, sourceNameArg)
     .option('--json', 'machine-readable output: every run made, with its full id, source and call counts')
-    .action((files: string[], flags: { json?: boolean }) => {
+    .action((files: string[], flags: { name?: string; json?: boolean }) => {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const who = author();
@@ -192,7 +202,7 @@ export function register(program: Command): void {
         const runs: Array<{ key: string | null; result: ImportResult }> = [];
         for (const { group, files: from } of byKey.values()) {
           if (from.length > 1 && group.calls.every((c) => typeof c.startedAt === 'number')) group.calls.sort((a, b) => a.startedAt! - b.startedAt!);
-          runs.push({ key: group.key, result: importCaptured(store, group, { source: fileSource(from), author: who }) });
+          runs.push({ key: group.key, result: importCaptured(store, group, { source: flags.name ?? fileSource(from), author: who }) });
         }
 
         const json = settleImport(store, { format: 'litellm', entries, runs, author: who });
@@ -231,8 +241,9 @@ export function register(program: Command): void {
       .command(f.name)
       .description(f.description)
       .argument('<file>', f.argument)
+      .option('--name <name>', NAME_HELP, sourceNameArg)
       .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and every entry skipped')
-      .action((file: string, flags: { json?: boolean }) => {
+      .action((file: string, flags: { name?: string; json?: boolean }) => {
         const parsed = readJson(file);
         const store = openStore(program.opts<GlobalOpts>());
         try {
@@ -243,7 +254,7 @@ export function register(program: Command): void {
             throw new InvalidArgumentError((err as Error).message);
           }
           const who = author();
-          const result = importCaptured(store, captured, { source: fileSource([resolve(file)]), author: who });
+          const result = importCaptured(store, captured, { source: flags.name ?? fileSource([resolve(file)]), author: who });
           const json = settleImport(store, { format: f.name, entries: captured.calls.length + captured.skipped.length, runs: [{ key: null, result }], author: who });
           if (flags.json === true) printJson(json);
           else report(result, f.note);
@@ -257,8 +268,9 @@ export function register(program: Command): void {
     .command('otel')
     .description("Model and tool calls out of OpenTelemetry traces (OTLP JSON) with the GenAI semantic conventions or OpenInference's, as partial recordings, one run per trace")
     .argument('<file...>', "OTLP JSON: an export request, or one per line as the collector's file exporter writes them; traces and their logs (the GenAI events) may come in separate files")
+    .option('--name <name>', NAME_HELP, sourceNameArg)
     .option('--json', 'machine-readable output: every run made, with its full id, source and call counts, and what the traces kept')
-    .action((files: string[], flags: { json?: boolean }) => {
+    .action((files: string[], flags: { name?: string; json?: boolean }) => {
       const paths = files.map((f) => resolve(f));
       let read: ReturnType<typeof readOtel>;
       try {
@@ -274,7 +286,7 @@ export function register(program: Command): void {
         const message = (err as Error).message;
         throw new InvalidArgumentError(files.some((f) => message.startsWith(`${f}: `)) ? message : `${files.join(', ')}: ${message}`);
       }
-      const source = fileSource(paths);
+      const source = flags.name ?? fileSource(paths);
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const { json, results } = importTraces(store, 'otel', read.traces, { source, spans: read.spans, author: author() });

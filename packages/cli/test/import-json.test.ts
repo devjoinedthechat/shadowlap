@@ -148,6 +148,26 @@ describe('import --json', () => {
     expect(new Set(json.runs.map((x: { runId: string }) => x.runId)).size).toBe(2);
     expect(json.skipped).toEqual([{ url: 'line 4', reason: 'not JSON (a partly written line?)' }]);
     expect(r.events.filter((e) => e.type === 'run')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'run', runId: x.runId, role: 'imported' })));
+    // A dashboard job links each run it made.
+    expect(r.events.filter((e) => e.type === 'link')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'link', label: `Open ${x.runId.slice(0, 10)}`, href: `#/run/${x.runId}` })));
+  });
+
+  it('records the name given with --name as the source: a dashboard upload is kept under another', async () => {
+    writeFileSync(join(cwd, '01K5CQ4N7G0000000000000000-traffic.har'), JSON.stringify({ log: { version: '1.2', entries: [harEntry('https://api.anthropic.com/v1/messages', 'hi')] } }));
+    const r = await shadowlap(['import', 'har', '01K5CQ4N7G0000000000000000-traffic.har', '--name', 'traffic.har', '--json']);
+    expect(r.code).toBe(0);
+    const [run] = JSON.parse(r.out).runs;
+    expect(run.source).toBe('traffic.har');
+    const store = Store.open(db);
+    try {
+      expect(store.getRun(run.runId)!.meta?.imported?.from).toBe('traffic.har');
+      expect(store.listEvents({ kinds: ['capture.imported'] }).find((e) => e.runId === run.runId)).toMatchObject({ ref: 'traffic.har' });
+    } finally {
+      store.close();
+    }
+    const refused = await shadowlap(['import', 'har', 'traffic.har', '--name', '../elsewhere/traffic.har']);
+    expect(refused.code).not.toBe(0);
+    expect(refused.err).toMatch(/--name: a file name, without folders/);
   });
 
   it('puts an agent run back together from the files of several workers, in the order its calls started', async () => {

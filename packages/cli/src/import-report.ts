@@ -74,6 +74,9 @@ export function fileSource(paths: readonly string[]): string {
   return names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
 }
 
+/** Runs an import links one by one in a dashboard job's drawer; past that, the Runs page. */
+const IMPORT_LINKS = 3;
+
 /**
  * Settles an import: deletes the runs that hold no call, records `capture.imported` for each run
  * kept, reports each to a dashboard job (`{ type: 'run', role: 'imported' }`) followed by the
@@ -106,6 +109,10 @@ export function settleImport(
   const json: ImportJson = { format: o.format, entries: o.entries, runs, skipped, ...(o.kept ? { kept: o.kept } : {}) };
   const env = o.env ?? process.env;
   for (const r of runs) emitJobEvent({ type: 'run', runId: r.runId, role: 'imported' }, env);
+  // A dashboard job opens the run it made. One that made a few links each (a LiteLLM file holds a run
+  // per correlation id); past that, the Runs page lists them, labelled imported, beside the newest.
+  if (runs.length > IMPORT_LINKS) emitJobEvent({ type: 'link', label: `All ${runs.length} on Runs`, href: '#/runs' }, env);
+  else if (runs.length > 1) for (const r of runs) emitJobEvent({ type: 'link', label: `Open ${r.runId.slice(0, 10)}`, href: `#/run/${r.runId}` }, env);
   emitJobEvent({ type: 'result', data: json }, env);
   return json;
 }
