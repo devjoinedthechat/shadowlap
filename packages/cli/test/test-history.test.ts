@@ -223,6 +223,27 @@ describe('shadowlap test --update', () => {
     expect(goldenRunId()).toBe(before);
   });
 
+  it('warns before updating when the request newly carries a field holding a value made anew on every run', async () => {
+    // Sends metadata with a fresh user id only when asked to: the golden is recorded without it.
+    writeFileSync(
+      join(work, 'agent.mjs'),
+      `import { randomUUID } from 'node:crypto';
+const meta = process.env.WITH_USER_ID ? { metadata: { user_id: randomUUID() } } : {};
+const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 32, ...meta, messages: [{ role: 'user', content: 'triage' }] }) });
+if (!res.ok) process.exit(1);
+console.log(JSON.stringify((await res.json()).content));
+`,
+    );
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/meta'])).code).toBe(0);
+    const r = await shadowlap(['test', 'goldens/meta', '--update'], { WITH_USER_ID: '1' });
+    expect(r.out).toContain('+ $.metadata');
+    expect(r.out).toContain('! $.metadata.user_id is new in the request and looks like a UUID, a value that changes every run: after this update the next run diverges on it, unless a normalizer masks it:');
+    expect(r.out).toContain("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
+    expect(r.out).toContain('replaced goldens/meta in the working tree');
+  });
+
   it('warns when what diverged is a value the agent makes anew on every run, and names the normalizer', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
     expect(recorded.code, recorded.out).toBe(0);

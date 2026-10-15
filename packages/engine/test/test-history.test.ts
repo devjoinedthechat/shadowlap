@@ -109,6 +109,19 @@ describe('values that change every run', () => {
     expect(normalizeAddCommand(id.values[0]!.normalizer)).toBe("shadowlap normalize add --kind tool --name lookup --path '$.args.request_id' --replace '<ID>'");
   });
 
+  it('looks inside a field the request carries for the first time, but not inside an appended message', () => {
+    const added = volatileValues(divergence([{ path: '$.metadata', op: 'added', after: { user_id: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', plan: 'pro', trace: { request_id: 'req_8f3a2c' }, tags: ['req_1a2b3c'] } }]));
+    expect(added.values.map((v) => [v.path, v.looks, v.op])).toEqual([
+      ['$.metadata.trace.request_id', 'an id', 'added'],
+      ['$.metadata.user_id', 'a UUID', 'added'],
+    ]);
+    expect(added.values[1]!.normalizer).toEqual({ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
+    expect(added.explainsAll).toBe(false);
+    // A message appended to the conversation carries ids that were recorded, not made anew.
+    const appended = volatileValues(divergence([{ path: '$.messages[3]', op: 'added', after: { role: 'assistant', id: 'msg_01XYZ9', content: [{ type: 'tool_use', id: 'toolu_01ABC' }] } }]));
+    expect(appended.values).toEqual([]);
+  });
+
   it('tells a value the request newly carries from a prompt change', () => {
     const added = volatileValues(divergence([{ path: '$.metadata.user_id', op: 'added', after: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f' }]));
     expect(added.explainsAll).toBe(false);

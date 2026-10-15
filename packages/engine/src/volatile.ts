@@ -91,13 +91,41 @@ export function volatileValue(entry: DiffEntry, d: Pick<DivergenceReport, 'kind'
   return null;
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A field the request carries for the first time, whole (`+ $.metadata {"user_id": "…"}`), as one
+ * added entry per value inside it, with paths as the diff writes them. Only a field added by name:
+ * an element appended to an array is the conversation growing, and the ids inside it (a tool call's,
+ * a message's) were recorded rather than made anew. Nested objects are followed, arrays are not.
+ */
+function addedLeaves(entry: DiffEntry): DiffEntry[] {
+  if (entry.op !== 'added' || !isPlainObject(entry.after) || entry.path.endsWith(']')) return [entry];
+  const out: DiffEntry[] = [];
+  const walk = (value: Record<string, unknown>, path: string, depth: number) => {
+    for (const key of Object.keys(value).sort()) {
+      if (out.length >= 50) return;
+      const child = value[key];
+      if (isPlainObject(child)) {
+        if (depth < 4) walk(child, `${path}.${key}`, depth + 1);
+      } else if (!Array.isArray(child)) {
+        out.push({ path: `${path}.${key}`, op: 'added', after: child });
+      }
+    }
+  };
+  walk(entry.after, entry.path, 1);
+  return out;
+}
+
 /** The changes in a divergence that look like values made anew on every run. */
 export function volatileValues(d: DivergenceReport): VolatileValues {
   const entries = d.type === 'request_changed' ? (d.diff ?? []) : [];
   const values: VolatileValue[] = [];
   for (const entry of entries) {
-    const v = volatileValue(entry, d);
-    if (v && !values.some((x) => x.path === v.path)) values.push(v);
+    for (const one of addedLeaves(entry)) {
+      const v = volatileValue(one, d);
+      if (v && !values.some((x) => x.path === v.path)) values.push(v);
+    }
   }
   const explainsAll = entries.length > 0 && entries.every((e) => values.some((v) => v.path === e.path && v.op === 'changed'));
   return { values, explainsAll };
