@@ -95,6 +95,8 @@ export interface FoundCommit {
   date: string;
   /** Why it fails there. */
   why: string;
+  /** Commits just before it that could not be tested: the first bad one may be among them. */
+  untested: string[];
   replays: number;
   tokens: number;
   at: number;
@@ -259,9 +261,10 @@ function bisectFor(golden: string, history: readonly TestResult[], failed: TestR
 function foundCommits(store: Store): Map<string, FoundCommit> {
   const out = new Map<string, FoundCommit>();
   for (const e of store.listEvents({ kinds: ['bisect.found'], limit: 500 })) {
-    const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; replays?: unknown; tokens?: unknown } | null;
+    const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; untested?: unknown; replays?: unknown; tokens?: unknown } | null;
     if (!e.ref || out.has(e.ref) || typeof d?.first?.rev !== 'string') continue;
-    out.set(e.ref, { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at });
+    const untested = Array.isArray(d.untested) ? d.untested.filter((x): x is string => typeof x === 'string') : [];
+    out.set(e.ref, { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), untested, replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at });
   }
   return out;
 }

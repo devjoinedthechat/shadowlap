@@ -40,9 +40,12 @@ function dollars(budget: string): string {
   return Number.isFinite(n) && n > 0 ? n.toFixed(2) : '2.00';
 }
 
-/** A value safe on one YAML line: anything outside a plain scalar's alphabet is quoted. */
-function scalar(value: string): string {
-  return /^[A-Za-z0-9_./*:@-]+$/.test(value) && !/^[-:]|:$/.test(value) ? value : `'${value.replace(/'/g, "''")}'`;
+/**
+ * A value safe on one YAML line: plain when it is made of letters, digits and `_./*:@-` and starts
+ * with a letter, digit, `_`, `.` or `/` (a leading `*` is an alias, `@` is reserved); quoted otherwise.
+ */
+export function scalar(value: string): string {
+  return /^[A-Za-z0-9_./][A-Za-z0-9_./*:@-]*$/.test(value) && !/:$/.test(value) ? value : `'${value.replace(/'/g, "''")}'`;
 }
 
 /** The Fix on failure step. Its job needs contents and pull-requests write permission, which the comment states. */

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey } from '../src/ci-yaml.js';
+import { ACTION, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -73,6 +73,12 @@ describe('the Alerts steps', () => {
     for (const key of withKeys(yaml)) expect(inputs).toContain(key);
     expect(yaml).toContain('steps.goldens.outputs.failed');
     expect(outputs).toContain('failed');
+  });
+
+  it('quotes a value YAML would read as something else', () => {
+    expect(['goldens/*', 'openai:gpt-5', 'claude-code', './goldens/*'].map(scalar)).toEqual(['goldens/*', 'openai:gpt-5', 'claude-code', './goldens/*']);
+    expect(['*', '*/flow', '@g', '-x', 'a: b', "it's", 'key:', '#x'].map(scalar)).toEqual(["'*'", "'*/flow'", "'@g'", "'-x'", "'a: b'", "'it''s'", "'key:'", "'#x'"]);
+    expect(alertsYaml({ onlyMain: false, secret: 'X', recordings: '*' })).toContain("    recordings: '*'\n");
   });
 
   it('keeps a secret name to what GitHub allows, and says what it needs', () => {
