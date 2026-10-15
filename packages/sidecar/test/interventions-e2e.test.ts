@@ -81,6 +81,14 @@ describe('Anthropic', () => {
     expect(mock.requests.at(-1)!.body.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'system']);
   });
 
+  it('still forks at the call named when the request already had the setting', async () => {
+    const before = mock.requests.length;
+    const { summary } = await replay(sidecar, parent, { set: { fromCall: 2, fields: { max_tokens: 64 } } }, (run) => agent(sidecar, run));
+    // Asked again, not served from the recording: the flag named this call.
+    expect(mock.requests.length - before).toBe(1);
+    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 2, reason: 'forced live by --set 2:max_tokens=64', counterpart: { callNo: 2 } });
+  });
+
   it('sets fields and switches the model from the call named on', async () => {
     const { run } = await replay(sidecar, parent, { set: { fromCall: 2, fields: { temperature: 0, model: 'claude-opus-5' } } }, (r) => agent(sidecar, r));
     expect(mock.requests.at(-1)!.body).toMatchObject({ model: 'claude-opus-5', temperature: 0 });

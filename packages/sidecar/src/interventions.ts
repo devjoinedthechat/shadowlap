@@ -1,4 +1,4 @@
-import { applyInjection, formatToolFailure, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
+import { applyInjection, canonicalize, formatToolFailure, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
 
 /**
  * Request-level interventions for a replay. Both are append-only with respect to the conversation
@@ -87,7 +87,6 @@ export class RequestInterventions {
     this.modelCalls = Math.max(this.modelCalls, apiIndex + 1);
     let nextPath = path;
     let nextBody = body;
-    let changed = false;
     const forced: string[] = [];
     const shape = requestShape(provider, path, body);
     const inj = this.inject;
@@ -103,7 +102,6 @@ export class RequestInterventions {
         const injected = applyInjection(shape, nextBody, inj.text, inj.as, inj.place);
         if (injected) {
           nextBody = injected;
-          changed = true;
           if (apiIndex === inj.apiIndex) forced.push(`--inject ${inj.callNo}${inj.as === 'system' ? ' --inject-as system: an instruction added as a system message' : ': an instruction added to the user turn'}`);
         }
       }
@@ -122,10 +120,7 @@ export class RequestInterventions {
           if (refused(patched)) {
             if (target) return { refused: `--set ${set.callNo}: ${patched.refused}` };
             this.warnOnce(`--set ${set.callNo} left model call ${apiIndex + 1} as it was: ${patched.refused}`);
-          } else {
-            nextBody = patched.body;
-            changed = true;
-          }
+          } else nextBody = patched.body;
         }
         if (set.model !== undefined) {
           const switched = switchModel(provider, nextPath, nextBody, set.model);
@@ -135,12 +130,13 @@ export class RequestInterventions {
           } else {
             nextPath = switched.path;
             nextBody = switched.body;
-            changed = true;
           }
         }
         if (target) forced.push(this.setFlags());
       }
     }
+    // A setting the request already had changes nothing: the caller forces such a call live instead.
+    const changed = nextPath !== path || (nextBody !== body && canonicalize(nextBody) !== canonicalize(body));
     const counterpart = inj && apiIndex === inj.apiIndex ? inj.callNo : (set?.callNo ?? 0);
     return { path: nextPath, body: nextBody, changed, ...(forced.length ? { target: { by: forced.join('; '), counterpart } } : {}) };
   }
