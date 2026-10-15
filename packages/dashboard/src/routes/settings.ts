@@ -21,7 +21,6 @@ import {
   CLEANUP_DAYS,
   SettingsRefusal,
   calibrateRun,
-  ciSettings,
   cleanupArgv,
   codingAgentsSettings,
   matchingSettings,
@@ -49,7 +48,6 @@ import { readTeamStoreInput } from '../team-store.js';
  *   GET    /api/settings/tools/mcp?command=|url=   the `shadowlap mcp` line and client entry for a server (and `copy`, as typed)
  *   GET    /api/settings/project                   name, store, runs and attempts, size, address
  *   GET    /api/settings/store                     the team store: bucket, last sync, the CI step
- *   GET    /api/settings/ci                        the repository and branch the CI tab's YAML names
  *   POST   /api/settings/rules/:list               add a normalizer or redaction rule { rule, expect }
  *   DELETE /api/settings/rules/:list/:n?expect=    remove one by its number
  *   PUT    /api/settings/clock                     { mode: 'auto' | 'exact', expect }
@@ -64,6 +62,8 @@ import { readTeamStoreInput } from '../team-store.js';
  * Job kinds: `calibrate` { runId?, write? } (the setup run, else the newest recording, when none is
  * named) and `gc` { olderThanDays? } (a dry run) or { confirm: <the dry run's job id> } (deletes
  * exactly the runs that dry run listed, or nothing).
+ *
+ * The CI tab reads the tests feature's `GET /api/ci/workflows`; nothing for it is served here.
  */
 
 const LISTS: readonly RuleList[] = ['normalize', 'redact'];
@@ -160,8 +160,6 @@ export function register(router: Router, ctx: RouteContext): void {
     const cwd = folder();
     r.tagged(storeSettings(settings(), readTeamStoreInput({ cwd })));
   });
-
-  router.get('/settings/ci', (r) => r.tagged(ciSettings(folder())));
 
   // ---- edits ----
 

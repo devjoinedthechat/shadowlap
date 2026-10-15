@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
@@ -1152,39 +1151,4 @@ export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input
   }
   const step = ciStep('github', loc);
   return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc } };
-}
-
-// ---- CI ----
-
-export interface CiSettings {
-  /** `owner/name` on GitHub, from the project's `origin`, for the Slack preview's link; null when it isn't a GitHub repository. */
-  repo: string | null;
-  /** The branch the Alerts step posts for: origin's default branch, else `main`. */
-  branch: string;
-}
-
-const git = (cwd: string, args: string[]): string | null => {
-  try {
-    const out = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
-    return out.status === 0 ? out.stdout.trim() : null;
-  } catch {
-    return null;
-  }
-};
-
-/** A GitHub remote's `owner/name`: `git@github.com:owner/name.git`, `https://github.com/owner/name`. */
-export function githubRepo(remote: string | null): string | null {
-  const m = remote ? /github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(remote.trim()) : null;
-  return m ? `${m[1]}/${m[2]}` : null;
-}
-
-/**
- * What the CI tab fills in from the project's repository: where the Slack message links to, and the
- * branch the Alerts step posts for. Everything else on the tab is the YAML the panels write as you
- * pick (ci-yaml.ts); nothing runs on the server.
- */
-export function ciSettings(cwd: string): CiSettings {
-  const head = git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
-  const branch = head?.replace(/^origin\//, '') || 'main';
-  return { repo: githubRepo(git(cwd, ['remote', 'get-url', 'origin'])), branch: /^[\w./-]{1,100}$/.test(branch) ? branch : 'main' };
 }

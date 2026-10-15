@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
-import { agentsSection, cleanupArgv, codingAgentsSettings, githubRepo, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
+import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -516,16 +516,7 @@ describe('projectSettings', () => {
   });
 });
 
-describe('what the CI and Project tabs fill in', () => {
-  it("reads a GitHub repository from origin's address, in any of its forms", () => {
-    expect(githubRepo('git@github.com:devjoinedthechat/shadowlap.git')).toBe('devjoinedthechat/shadowlap');
-    expect(githubRepo('https://github.com/acme/support-agent')).toBe('acme/support-agent');
-    expect(githubRepo('https://github.com/acme/support.agent.git/')).toBe('acme/support.agent');
-    expect(githubRepo('ssh://git@github.com/acme/x.git')).toBe('acme/x');
-    expect(githubRepo('https://gitlab.com/acme/x.git')).toBeNull();
-    expect(githubRepo(null)).toBeNull();
-  });
-
+describe('what the Project tab fills in', () => {
   it('shows paths inside the home folder from ~', () => {
     expect(shownPath(join(cwd, 'agent', '.shadowlap', 'shadowlap.db'), cwd)).toBe('~/agent/.shadowlap/shadowlap.db');
     expect(shownPath(cwd, cwd)).toBe('~');

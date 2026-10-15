@@ -93,7 +93,8 @@ describe('reading the tabs', () => {
     expect(await get('settings/tools')).toMatchObject({ live: [], fenced: [], http: [] });
     expect(await get('settings/project')).toMatchObject({ name: project.split(/[\\/]/).pop(), runs: 0, attempts: 0, store: { path: dbPath }, cleanup: { olderThanDays: 30 } });
     expect(await get('settings/store')).toMatchObject({ configured: null, status: null, ciStep: null, error: null });
-    expect(await get('settings/ci')).toEqual({ repo: null, branch: 'main' });
+    // The CI tab reads the tests feature's endpoint; Settings serves nothing of its own for it.
+    expect((await api('settings/ci')).status).toBe(404);
   });
 
   it('sends the team store, its CI step, and why a store that is not a URL cannot be used', async () => {
