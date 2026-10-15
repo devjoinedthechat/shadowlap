@@ -4,6 +4,7 @@ import { Icon } from '../components/Icon.js';
 import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
 import { addPaletteSource } from '../palette-sources.js';
+import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import type { ProjectsView } from '../projects-api.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -99,6 +100,10 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
 
   // Loaded once, and again whenever the project changes; the menu loads it afresh as it opens.
   useEffect(() => load(), [load, id]);
+
+  // Settings → Project's "Remove from dashboard" opens this same dialog for the current project.
+  const several = list ? list.items.length > 1 : true;
+  useEffect(() => provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProjectDialog }), [id, several]);
 
   // A switch made elsewhere (another tab, a removed project) lands on the Overview, as one made here does.
   useEffect(() => {
