@@ -65,16 +65,16 @@ describe('toolUsage', () => {
 });
 
 describe('runCounts', () => {
-  it('tells runs from the attempts blame, verify and --repeat make, and counts runs still recording', () => {
+  it('tells runs from the attempts blame, verify and --repeat make, and counts runs still running', () => {
     const store = Store.open(':memory:');
-    expect(store.runCounts()).toEqual({ runs: 0, attempts: 0, recording: 0 });
+    expect(store.runCounts()).toEqual({ runs: 0, attempts: 0, running: 0 });
     run(store, { status: 'completed', at: 1 });
     run(store, { status: 'running', at: 2 });
     run(store, { mode: 'replay', status: 'completed', at: 3, meta: { probe: { of: 'X', callNo: 3, passed: true } } });
     run(store, { mode: 'replay', status: 'failed', at: 4, meta: { verify: { role: 'target', passed: false } } });
     run(store, { mode: 'replay', status: 'completed', at: 5, meta: { repeat: { group: 'g', attempt: 1, of: 2 }, labels: ['x'] } });
     run(store, { mode: 'replay', status: 'completed', at: 6, meta: { labels: ['good'] } });
-    expect(store.runCounts()).toEqual({ runs: 3, attempts: 3, recording: 1 });
+    expect(store.runCounts()).toEqual({ runs: 3, attempts: 3, running: 1 });
     store.close();
   });
 });

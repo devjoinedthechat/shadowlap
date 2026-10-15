@@ -519,20 +519,20 @@ export class Store {
 
   /**
    * How many runs the store holds: `attempts` are the runs blame, verify and `replay --repeat` make
-   * (marked `probe`, `verify` or `repeat`); `recording` are still running.
+   * (marked `probe`, `verify` or `repeat`), and `running` the runs not ended yet.
    */
-  runCounts(): { runs: number; attempts: number; recording: number } {
+  runCounts(): { runs: number; attempts: number; running: number } {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS total,
                 SUM(CASE WHEN json_valid(meta) THEN (json_type(meta, '$.probe') IS NOT NULL OR json_type(meta, '$.verify') IS NOT NULL OR json_type(meta, '$.repeat') IS NOT NULL) ELSE 0 END) AS attempts,
-                SUM(status = 'running') AS recording
+                SUM(status = 'running') AS running
          FROM runs`,
       )
       .get();
     const total = Number(row?.total ?? 0);
     const attempts = Number(row?.attempts ?? 0);
-    return { runs: total - attempts, attempts, recording: Number(row?.recording ?? 0) };
+    return { runs: total - attempts, attempts, running: Number(row?.running ?? 0) };
   }
 
   /** Recordings that ran to an end (completed or failed), newest first. */
