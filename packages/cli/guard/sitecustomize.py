@@ -29,6 +29,15 @@ except Exception as _capture_error:  # never break the agent
 finally:
     sys.path.pop(0)
 
+# Recorded user input: input() and reads of sys.stdin become user_input calls a replay serves.
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import _shadowlap_input  # noqa: F401
+except Exception as _input_error:  # never break the agent
+    sys.stderr.write("[shadowlap] recorded user input is off: %s\n" % _input_error)
+finally:
+    sys.path.pop(0)
+
 if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     socket._shadowlap_guard = True
     from urllib.parse import urlparse

@@ -55,7 +55,7 @@ beforeAll(async () => {
   writeFileSync(join(cwd, 'session.har'), JSON.stringify(har));
   const imported = await shadowlap(['import', 'har', 'session.har', '--json']);
   expect(imported.code).toBe(0);
-  runId = (JSON.parse(imported.out) as { runId: string }).runId;
+  runId = (JSON.parse(imported.out) as { runs: Array<{ runId: string }> }).runs[0]!.runId;
 });
 afterAll(() => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 

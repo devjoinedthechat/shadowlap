@@ -27,7 +27,7 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 shadowlap run -- <command> [args...]
 ```
 
-Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture) and the network guard into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted). What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded.
+Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture), the network guard and [recorded user input](./sdk.md#what-a-person-types) into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted). What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded.
 
 ## replay
 
@@ -45,6 +45,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--writes block\|stub\|allow` | What `write` tools do after divergence. Default `block` |
 | `--reads live\|replay` | What `read` tools do after divergence. Default `live` |
 | `--live-tool <name>` | Force this tool's first call live (repeatable); use after fixing a tool |
+| `--live-input` | After the fork, ask for what a person types instead of serving the recorded answers in order ([recorded input](./sdk.md#what-a-person-types)) |
 | `--diverge-at <call>` | Force call *n* live |
 | `--fail-at <call>=<failure>` | Fail call *n* instead of serving it, so the agent's own error path runs: a model call with an HTTP status (`--fail-at 12=429`, [details](./interventions.md#inject-a-failure)), a tool call with `timeout`, `error`, `error:<message>` or a status (`--fail-at 19=timeout`); the tool does not run ([details](./interventions.md#fail-a-tool)). Repeatable |
 | `--inject-result <call>=<text\|@file>` | Plant an instruction in what read tool call *n* returned, as an attacker would leave it; the rest of the result stays. Text that starts with `@` is written `@@…`. Repeatable ([details](./interventions.md#plant-an-instruction-in-a-tool-result)) |
@@ -277,17 +278,21 @@ shadowlap import har traffic.har         # model calls out of a HAR, as a record
 shadowlap import nock recording.json     # the same, from a nock recording
 shadowlap import vcr cassette.json       # the same, from a VCR cassette (JSON serialization)
 shadowlap import litellm cap/*.jsonl     # production traffic a LiteLLM proxy captured
-shadowlap import har traffic.har --json  # the calls imported and the entries skipped
+shadowlap import otel otel-traces.json   # OpenTelemetry traces with the GenAI conventions
+shadowlap import langfuse <trace-id>     # a Langfuse trace, read with the project's keys
+shadowlap import langsmith <trace-id>    # a LangSmith trace, read with your API key
+shadowlap import har traffic.har --json  # every run made, by its full id, and the entries skipped
 ```
 
-Turns a capture something else made into a recording you can replay your own code against.
+Turns a capture something else made, or a [trace you already keep](#traces), into a recording you
+can replay your own code against.
 
 | Format | What writes it |
 |---|---|
 | `har` | mitmproxy, Charles, Proxyman, a browser's devtools, Polly.js |
 | `nock` | `nock.recorder.rec({ output_objects: true })` |
 | `vcr` | VCR.py with its JSON serializer (`vcr.VCR(serializer='json')`). A YAML cassette has to be converted first: Shadowlap reads JSON so that no YAML parser is trusted with a cassette from anywhere |
-| `litellm` | A LiteLLM proxy, through `shadowlap.litellm_callback` — production traffic, one run per correlation id. Takes several files, since a proxy writes one per worker. See [Capturing production traffic](./gateways.md) |
+| `litellm` | A LiteLLM proxy, through `shadowlap.litellm_callback` — production traffic, one run per correlation id. Takes several files, since a proxy writes one per worker: the calls of one agent run spread over several workers' files are put back together, in the order they started. See [Capturing production traffic](./gateways.md) |
 
 Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts are recognised; every other entry is
 skipped, and `--json` lists the reasons. Credentials in the capture are never stored, and header
@@ -315,6 +320,84 @@ shadowlap replay <run> -- python agent.py
 That replay is also how an import becomes a CI golden: the model calls come from the capture and
 everything else is recorded live, so the resulting run covers everything and `shadowlap pack` turns
 it into a golden for `shadowlap test`.
+
+Every imported run is labelled `imported`, names who imported it as its author (`SHADOWLAP_AUTHOR`
+when set, `ci` in CI, otherwise git's `user.email`), and appears in the dashboard's activity feed.
+
+### Traces
+
+```sh
+shadowlap import otel otel-traces.json [otel-logs.json]
+shadowlap import langfuse 7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07 [--host https://langfuse.example.com] [--allow-http]
+shadowlap import langsmith 0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c [--host https://langsmith.example.com/api/v1] [--allow-http]
+```
+
+A trace keeps what its instrumentation logged: the messages and the model settings, tool outputs
+when someone logged them, rarely the tool definitions. Each model call is rebuilt as the request its
+provider's SDK sends and the response it got, in Anthropic's, OpenAI's or Gemini's format (the
+provider the trace names, else the model's family, else OpenAI's, which most other servers speak),
+and stored like a capture's. The run is a partial recording: what the trace didn't keep runs live on
+replay, with writes fenced.
+
+| Source | What it reads |
+|---|---|
+| `otel` | OTLP JSON, as an OTLP/HTTP exporter sends it, the collector's file exporter writes it (one request per line), or Grafana Tempo downloads a trace; several files are read as one, so traces and their logs can come separately. Spans with the OpenTelemetry GenAI conventions: `gen_ai.input.messages` and `gen_ai.output.messages` (with `gen_ai.system_instructions` and `gen_ai.tool.definitions`, also from a `gen_ai.client.inference.operation.details` event), the older `gen_ai.prompt` and `gen_ai.completion` (as JSON, on `gen_ai.content.*` events, or flattened as OpenLLMetry writes them), or the per-message `gen_ai.*.message` and `gen_ai.choice` events, on the span or as log records (`resourceLogs`, tied to the span by its id), which is where the official instrumentations (openai-v2, vertexai, google-genai) send them; the model, provider, settings, token usage and finish reason; `execute_tool` spans for tool calls. Also OpenInference's conventions (Arize Phoenix, and the LlamaIndex, DSPy and smolagents instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `llm.tools` and `llm.invocation_parameters`, rebuilt exactly from `input.value` and `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves, and TOOL spans. One run per trace. When a framework's span wraps the client library's span for the same call, the inner one is kept |
+| `langfuse` | `GET /api/public/traces/<id>` with `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. Generations are model calls; TOOL observations, and spans named after a tool a generation asked for, are tool calls |
+| `langsmith` | `POST /runs/query` for the trace, every page, with `LANGSMITH_API_KEY`. `llm` runs are model calls (LangChain's serialized messages, or the request and response themselves from LangSmith's wrapped OpenAI and Anthropic clients, which rebuild exactly); `tool` runs are tool calls |
+
+The keys are read from the environment and sent only to the host: `--host`, else `LANGFUSE_HOST`
+or `LANGSMITH_ENDPOINT`, else the public APIs (`https://cloud.langfuse.com`,
+`https://api.smith.langchain.com`). A self-hosted LangSmith is reached at its `/api/v1` path. Plain
+http is accepted for this machine (`localhost`, `127.0.0.0/8`, `::1`), since the keys travel with
+every request; `--allow-http` accepts it for another host, on a network you trust. Nothing of the
+keys is stored. The run's source reads `langfuse:<first 8 characters of the id>` (or `langsmith:…`),
+or the file's name for `otel`, and the run is labelled with the source as well as `imported`.
+
+Replay matches each model call on its whole request. A trace that kept everything the agent sends
+replays it with nothing live; where it left something out, typically the tool definitions, the
+replay forks at the first model call that differs and runs live from there, which the import says.
+A tool call replays when the trace kept its arguments (as an object) and its output, and only if
+every call of that tool was kept: such tools are listed in `meta.covers` as `tool:<name>`, and any
+other tool runs live on replay. A model call that failed where it ran, or kept no messages or
+output, is skipped and runs live. A trace from [`export otel`](#export-otel) carries no prompt text,
+so it has nothing to replay: share the run as a [pack](#pack-unpack) instead. `--json` adds what the
+source kept:
+
+```json
+"kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }
+```
+
+### `--json`
+
+Every `import` subcommand takes `--json` and prints one object, whatever the format: each run it
+made, by its full id, with its source and what it holds, then everything it skipped. One LiteLLM
+file can make several runs, one per correlation id; they are all listed.
+
+```json
+{
+  "format": "litellm",
+  "entries": 4,
+  "runs": [
+    {
+      "runId": "01K5CQ9C4H8M2XWQH6V3T9RB1D",
+      "source": "shadowlap-4121.jsonl, shadowlap-4122.jsonl",
+      "key": "incident-42",
+      "calls": { "model": 2, "tool": 0 },
+      "labels": ["imported"],
+      "imported": [{ "callNo": 1, "kind": "api", "name": "POST /v1/messages", "provider": "anthropic", "model": "claude-haiku-4-5" }]
+    }
+  ],
+  "skipped": [{ "url": "line 4", "reason": "not JSON (a partly written line?)" }]
+}
+```
+
+`entries` counts what was read (HAR entries, nock definitions, cassette interactions, capture
+lines, spans, observations or runs). `source` is what the run records as where it came from: the
+file's name (never its folder, which belongs to this machine and would travel with the store), the
+names of the files a LiteLLM run was put together from, or `langfuse:…` / `langsmith:…`. `key` is
+the correlation id for LiteLLM, the trace id for `otel`, `langfuse` and `langsmith`, otherwise
+`null`. When nothing could be imported, `runs` is empty and the exit code is 1. Started from the
+dashboard, the command also reports each run to the job that started it.
 
 ## calibrate
 
@@ -384,9 +467,10 @@ Starts a sidecar with one recording run for a process you launch yourself and pr
 
 ```sh
 shadowlap mcp [--effect <tool=effect>]... -- <server command>
+shadowlap mcp --url <server> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
 ```
 
-A stdio proxy for an MCP server: put it in the client's server configuration in place of the server itself. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. See [MCP servers](./mcp.md).
+A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`${VAR}` read from the environment) with every request; headers go over plain http only to this machine, or anywhere with `--allow-http`. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. The proxy finds its run even when the client starts it with a minimal environment, and when it was started under Shadowlap but can't record, it refuses write tools rather than run them unrecorded. See [MCP servers](./mcp.md).
 
 ## diff
 

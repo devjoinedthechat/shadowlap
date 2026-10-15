@@ -30,6 +30,7 @@ export { safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, runKind, runOutcome } from './classify.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
+export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
 export { SHAPE_NAMES, applyInjection, formatToolFailure, literalValue, modelInRequest, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';

@@ -1,9 +1,10 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
+import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { agentEnv, type GuardMode } from './run-agent.js';
+import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { palette as p } from './ui.js';
 
@@ -160,7 +161,8 @@ export class AttemptRunner {
       ...(target.commandFromImport ? { commandFromImport: true } : {}),
     });
     if (extra.meta) this.store.updateRunMeta(run.runId, extra.meta);
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'] });
+    recordsInput(this.store, run.runId);
+    const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'] }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
     let output = '';
     child.stdout!.on('data', (d: Buffer) => (output += d.toString()));

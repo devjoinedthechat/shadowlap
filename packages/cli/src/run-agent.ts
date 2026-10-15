@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, type CallRecord, type RunRecord, type RunStatus, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
+import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { emitJobEvent } from './job-events.js';
@@ -47,17 +48,35 @@ export function captureConfig(upstreams: Record<string, string>, http: readonly 
 }
 
 /**
- * The environment that loads Shadowlap into a Node or Python agent: in-process capture, and the
- * network guard in `mode`. Capture is on unless SHADOWLAP_CAPTURE=off.
+ * Which input this process was given (`dev:ino` of fd 0), so the preloads record what a person
+ * types on it and on nothing else: an agent's own pipe to a child process is not user input.
+ */
+function stdinIdentity(): string | null {
+  try {
+    // Exact and unsigned, as Python reads them: a pipe's inode on macOS is beyond a double's
+    // precision, and Node's big integers for it are signed.
+    const st = fstatSync(0, { bigint: true });
+    const unsigned = (n: bigint) => (n < 0n ? n + (1n << 64n) : n);
+    return st.ino ? `${unsigned(st.dev)}:${unsigned(st.ino)}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The environment that loads Shadowlap into a Node or Python agent: in-process capture, the
+ * network guard in `mode`, and recorded user input. Capture is on unless SHADOWLAP_CAPTURE=off.
  */
 export function guardEnv(mode: GuardMode, base: NodeJS.ProcessEnv = process.env, upstreams: Record<string, string> = {}, http: readonly HttpRule[] = []): Record<string, string> {
   const dir = fileURLToPath(new URL('../guard/', import.meta.url));
   const nodeImport = `--import=${pathToFileURL(resolve(dir, 'node-preload.mjs')).href}`;
+  const stdin = stdinIdentity();
   return {
     SHADOWLAP_GUARD: mode,
     SHADOWLAP_CAPTURE: base.SHADOWLAP_CAPTURE === 'off' ? 'off' : captureConfig(upstreams, http),
     NODE_OPTIONS: [base.NODE_OPTIONS, nodeImport].filter(Boolean).join(' '),
     PYTHONPATH: [dir, base.PYTHONPATH].filter(Boolean).join(delimiter),
+    ...(stdin ? { SHADOWLAP_STDIN: stdin } : {}),
   };
 }
 
@@ -71,6 +90,15 @@ export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upst
   // in every runtime, sees the sidecar.
   if (env.SHADOWLAP_CAPTURE !== 'off') env.SHADOWLAP_OPENAI_BASE_URL_WAS = process.env.OPENAI_BASE_URL ?? '';
   return env;
+}
+
+/**
+ * Marks a run whose agent starts with the preloads, which record what a person types: a replay of
+ * it treats an input it doesn't hold as a change, where one of a run recorded before input was
+ * recorded runs the agent's reads live (`RunMeta.inputs`).
+ */
+export function recordsInput(store: Store, runId: string): void {
+  store.updateRunMeta(runId, { inputs: true });
 }
 
 const AWS_CREDENTIAL_SOURCES = ['AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'];
@@ -115,9 +143,10 @@ export async function testAttempt(
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
     replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}) },
   });
-  const child = spawn(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (d: Buffer) => (output += d.toString()));
-  child.stderr.on('data', (d: Buffer) => (output += d.toString()));
+  recordsInput(store, run.runId);
+  const child = spawnAgent(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] }, { url: sidecar.url, runId: run.runId });
+  child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
+  child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
       output += `failed to start ${parent.command.argv[0]}: ${err.message}\n`;
@@ -302,6 +331,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   });
   const run = start(sidecar);
   stampAuthor(store, run.runId);
+  recordsInput(store, run.runId);
   emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
@@ -316,7 +346,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     // read-only working directory: the environment still carries SHADOWLAP_URL
   }
 
-  const child = spawn(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+  const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
   const output = extra.capture ? teeOutput(child) : () => '';
   let interrupted = false;
   const onSignal = (sig: NodeJS.Signals) => {
@@ -390,12 +420,13 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const i = next++;
       const run = start(sidecar);
       store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...newRunMeta() });
+      recordsInput(store, run.runId);
       emitJobEvent({ type: 'run', runId: run.runId, role: 'attempt' });
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);
       const tee = streaming && extra.capture;
-      const child = spawn(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+      const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
       running.add(child);
       let output = '';
       const shown = tee ? teeOutput(child) : null;

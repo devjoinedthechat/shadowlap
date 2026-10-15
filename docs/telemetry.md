@@ -14,7 +14,7 @@ One event per `run`, `replay`, `test` pack, `ui` open and `pack`:
 | version, OS, arch, Node version | `0.1.0`, `darwin`, `arm64`, `22.18.0` | |
 | CI system | `github`, `gitlab`, `other`, none | From environment variables |
 | providers | `["anthropic"]` | Which provider modules received calls |
-| SDK languages | `["typescript", "python"]` | From the SDK client's user agent, as a category |
+| SDK languages | `["typescript", "python"]` | From the user agent of what called the sidecar (an SDK, the recorded-input preload, `shadowlap mcp`), as one of `typescript`, `python`, `mcp`, `other` |
 | counts | calls: 30, replayed: 28, live: 2, blocked: 1, stubbed: 0, overridden: 0 | |
 | divergence type | `request_changed`, or none | The category only |
 | tokens not re-spent | 12000 | From recorded usage |

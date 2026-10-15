@@ -1,0 +1,82 @@
+{
+ "pages": [
+  {
+   "runs": [
+    {
+     "id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a9999",
+     "name": "ChatOpenAI",
+     "run_type": "llm",
+     "start_time": "2026-10-01T11:02:10.100000",
+     "end_time": "2026-10-01T11:02:10.900000",
+     "inputs": {
+      "messages": [
+       {
+        "role": "system",
+        "content": "Answer in one word."
+       },
+       {
+        "role": "user",
+        "content": "Capital of France?"
+       }
+      ],
+      "model": "gpt-4.1-mini",
+      "temperature": 0,
+      "max_tokens": 16
+     },
+     "outputs": {
+      "id": "chatcmpl-Zz9",
+      "object": "chat.completion",
+      "created": 1790852530,
+      "model": "gpt-4.1-mini-2025-04-14",
+      "choices": [
+       {
+        "index": 0,
+        "message": {
+         "role": "assistant",
+         "content": "Paris",
+         "refusal": null,
+         "annotations": []
+        },
+        "logprobs": null,
+        "finish_reason": "stop"
+       }
+      ],
+      "usage": {
+       "prompt_tokens": 21,
+       "completion_tokens": 2,
+       "total_tokens": 23,
+       "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+       }
+      },
+      "service_tier": "default",
+      "system_fingerprint": "fp_6f2eabb9a5"
+     },
+     "error": null,
+     "extra": {
+      "invocation_params": {
+       "model": "gpt-4.1-mini",
+       "temperature": 0,
+       "max_tokens": 16
+      },
+      "metadata": {
+       "ls_provider": "openai",
+       "ls_model_type": "chat",
+       "ls_model_name": "gpt-4.1-mini"
+      }
+     },
+     "parent_run_id": null,
+     "trace_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a9999",
+     "status": "success",
+     "prompt_tokens": 21,
+     "completion_tokens": 2,
+     "total_tokens": 23
+    }
+   ],
+   "cursors": {
+    "next": null
+   }
+  }
+ ]
+}

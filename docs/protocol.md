@@ -22,6 +22,7 @@ Two environment variables, set by `shadowlap run` and `shadowlap replay` for the
 | `SHADOWLAP_URL` | Base URL of the sidecar, including a session token path. Absent means Shadowlap is not running. |
 | `SHADOWLAP_RUN_ID` | The run these calls belong to. |
 | `SHADOWLAP_SCOPE` | Optional. The [scope](#scopes) this process starts in, for an agent whose branches are separate processes. A client reads it as the initial scope, and scopes entered in code nest underneath. |
+| `SHADOWLAP_STDIN` | Optional. The input `shadowlap` was given, as `dev:ino` (unsigned). A client that records what a person types reads it from that input only, a terminal, or the null device (see [User input](#user-input)). |
 
 A client MUST treat `SHADOWLAP_URL` as opaque: it already contains the session token as a path
 segment (`http://127.0.0.1:PORT/t/<token>`), and the sidecar rejects any request that does not carry
@@ -133,6 +134,52 @@ The sidecar answers `409` if the call was already completed and `404` if `callNo
 left pending is a hole in the recording: the replay has no answer for it. If the result cannot be
 turned into JSON, the client MUST complete the call with `outcome: "error"` describing that, and
 then raise. Both shipped SDKs do this, and the `unserializable-result` conformance scenario checks it.
+
+### User input
+
+What a person types is input from outside the agent, like a tool's result, and a replay has no one
+to type it. A client records it as a read tool named `user_input`, with the prompt as its argument
+and `"input": true` on `resolve`:
+
+```json
+{ "kind": "tool", "name": "user_input", "effect": "read", "args": { "prompt": "How can I help? " }, "input": true }
+```
+
+It completes the call with the answer as `{ "text": "…" }`, without the line ending. When the input
+ended (Ctrl-D, a closed pipe) it completes with `outcome: "error"` and an error named `EOFError`, and
+raises whatever the language raises at the end of its input. The sidecar stores the call with
+`meta.input = true`.
+
+Before a fork, an input call replays like any read. After one there is no one to type, so the
+sidecar answers `replayed` with the recorded answers **in the order they were given**, whatever the
+prompt now says, until they run out; then it answers `live`. A replay started with `--live-input`
+answers `live` after the fork instead. A `replayed` result is `{ "text": … }`, or a bare string when
+the run overrides the answer (`--override n='"…"'`); a client accepts both.
+
+Every run the CLI starts an agent for is marked `meta.inputs = true`: what a person typed is part of
+what it holds, so an input call a replay of it doesn't find is a change, and the run forks there. A
+recording without the mark and without any input call was made before input was recorded; a replay
+of it answers its input calls `live` and goes on replaying, rather than forking at the first one.
+
+The shipped clients record this without code changes: Shadowlap's preloads record `input()` and reads
+of `sys.stdin` in Python, and readline's `question` and `for await` in Node, on the input `shadowlap`
+gave the agent only (a terminal, the null device, or the pipe or file named by `SHADOWLAP_STDIN` as
+`dev:ino`). `userInput()` / `user_input()` in the SDKs record input that arrives any other way.
+
+### MCP tool calls
+
+`shadowlap mcp` resolves each `tools/call` it forwards like any tool call, with the server's tool
+annotations as its effect, and adds where the call came from:
+
+```json
+{ "kind": "tool", "name": "send_note", "effect": "write", "args": { "to": "billing" },
+  "mcp": { "transport": "http", "server": "mcp.example.com", "tools": [{ "name": "send_note", "effect": "write" }] } }
+```
+
+`transport` is `stdio` or `http`; `server` is the remote server's host, or the local server's
+command (with the package a runner such as `npx` starts), never its arguments or a URL's path.
+`tools` lists the server's tools with their effects, on the first call to that server in a run and
+whenever the list changes. The sidecar checks and bounds the object and stores it as `meta.mcp`.
 
 ### `POST /v1/guard`
 

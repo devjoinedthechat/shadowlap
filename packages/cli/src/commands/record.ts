@@ -7,7 +7,7 @@ import { type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
 import { emitJobEvent } from '../job-events.js';
-import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
+import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
@@ -69,6 +69,7 @@ export function register(program: Command): void {
     .option('--writes <policy>', 'what write tools do after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--reads <policy>', 'what read tools do after divergence: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
     .option('--live-tool <name>', 'force this tool\'s first call live (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--live-input', 'after the fork, ask for what a person types instead of serving the recorded answers in order')
     .option('--diverge-at <call>', 'force call number <call> live', parseIntArg)
     .option('--prompt-from <call>', 'apply your changed system prompt and tool definitions only from model call <call>: earlier model calls replay from the recording', parseIntArg)
     .option('--override <call=result>', 'substitute a recorded tool result: 9=\'{"ok":true}\' or 9=@file.json (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
@@ -85,7 +86,7 @@ export function register(program: Command): void {
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
     .option('--summary-json <file>', 'also write the replay\'s summary (or, with --repeat, every attempt and the report) as JSON to <file>')
-    .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string }) => {
+    .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const store = openStore(opts);
       const parent = requireRun(store, runArg);
@@ -142,6 +143,7 @@ export function register(program: Command): void {
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       if (parent.meta?.covers?.length) replay.kinds = new Set(parent.meta.covers);
+      if (flags.liveInput) replay.liveInput = true;
       if (flags.divergeAt !== undefined) replay.divergeAt = flags.divergeAt;
       if (flags.promptFrom !== undefined) replay.promptFrom = flags.promptFrom;
       if (overrides.size) replay.overrides = overrides;
@@ -333,21 +335,21 @@ export function register(program: Command): void {
 
   program
     .command('mcp')
-    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>. tools/call is recorded and replayed; everything else passes through')
-    .argument('<command...>', 'the MCP server command, as the client would start it')
+    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP. tools/call is recorded and replayed; everything else passes through')
+    .argument('[command...]', 'the MCP server command, as the client would start it')
+    .option('--url <server>', "a remote MCP server's endpoint, reached over Streamable HTTP")
+    .option('--header <header>', 'a header for every request to the --url server, such as "Authorization: Bearer ${TOKEN}" (repeatable; ${VAR} is read from the environment)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--effect <tool=effect>', 'pure | read | write for a tool, overriding the server\'s annotations (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--allow-http', 'send --header values to a --url server over plain http on a network you trust (http is always accepted for this machine)')
     .passThroughOptions()
-    .action(async (argv: string[], flags: { effect: string[] }) => {
-      const config = loadConfig(process.cwd());
-      const effects = { ...config.mcp?.effects, ...parseEffectFlags(flags.effect) };
-      const log = (line: string) => process.stderr.write(`[shadowlap mcp] ${line}\n`);
-      const target = discoverSidecar(process.env, process.cwd(), log);
-      if (!target) log('no active run (SHADOWLAP_URL unset and no .shadowlap/active.json): passing everything through');
-      const { child, done } = startMcpProxy({ clientIn: process.stdin, clientOut: process.stdout, server: { command: argv[0]!, args: argv.slice(1) }, sidecar: target, effects, log });
-      const onSignal = (sig: NodeJS.Signals) => child.kill(sig);
-      process.on('SIGINT', onSignal);
-      process.on('SIGTERM', onSignal);
-      process.exitCode = await done;
+    .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean }) => {
+      let code: number;
+      try {
+        code = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
+      } catch (err) {
+        throw new InvalidArgumentError((err as Error).message);
+      }
+      process.exitCode = code;
     });
 
 }

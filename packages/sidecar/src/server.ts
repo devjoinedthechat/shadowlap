@@ -20,6 +20,7 @@ import {
   summarizeRun,
   toolFailureError,
   type CallKind,
+  type CallMeta,
   type CallRecord,
   type ClockMode,
   type CallStartRow,
@@ -370,6 +371,8 @@ export class Sidecar {
     if (input.slot !== undefined) this.envForSlot(input.slot);
     let parentCalls: CallRecord[] | undefined;
     let parentStartedAt: number | undefined;
+    // Whether the parent was recorded with what a person types (RunMeta.inputs); see the Session.
+    let parentRecordsInput = false;
     let normalizers = this.normalizers;
     // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
     let ownCommand: string[] | undefined;
@@ -384,6 +387,7 @@ export class Sidecar {
       const stored = this.store.getCalls(input.parentRunId);
       // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
       parentStartedAt = parent.startedAt;
+      parentRecordsInput = parent.meta?.inputs === true;
       if (input.replay?.promptFrom !== undefined) {
         const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
         if (!target || target.kind !== 'api') throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}`);
@@ -422,6 +426,7 @@ export class Sidecar {
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: clockRef } } : {}),
+      ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
     this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined));
     if (input.slot !== undefined) this.slots.set(input.slot, run.runId);
@@ -1100,7 +1105,9 @@ export class Sidecar {
     const request = kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' };
     const { fingerprint } = kind === 'tool' ? fingerprintTool(body.name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind, body.label ?? '');
     const callNo = ctx.nextCallNo++;
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}) });
+    // A person's answer (`user_input`): after a fork it is served from the recording in order.
+    const input = kind === 'tool' && body.input === true;
+    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
     const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
     const stored = storedOrigin(kind, decision);
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
@@ -1110,6 +1117,9 @@ export class Sidecar {
     const meta: CallStartRow['meta'] = {};
     if (body.implHash) meta.implHash = body.implHash;
     if (scope) meta.scope = scope;
+    if (input) meta.input = true;
+    const mcp = kind === 'tool' ? mcpCallMeta(body.mcp) : undefined;
+    if (mcp) meta.mcp = mcp;
     this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
 
     if (decision.origin === 'injected') {
@@ -1264,6 +1274,25 @@ export interface ResolveBody {
   args?: unknown;
   label?: string;
   implHash?: string;
+  /** The call is a person's input, recorded as the `user_input` tool (see docs/protocol.md). */
+  input?: boolean;
+  /** The call came through `shadowlap mcp`: from which server, and the tools it offers (see docs/protocol.md). */
+  mcp?: unknown;
+}
+
+/** `mcp` from a resolve body, checked and bounded, as call meta; undefined when it isn't one. */
+function mcpCallMeta(raw: unknown): CallMeta['mcp'] | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { transport, server, tools } = raw as Record<string, unknown>;
+  if ((transport !== 'stdio' && transport !== 'http') || typeof server !== 'string' || !server) return undefined;
+  const text = (v: string) => v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
+  const listed = Array.isArray(tools)
+    ? tools
+        .slice(0, 1000)
+        .filter((t): t is { name: string; effect: Effect } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
+        .map((t) => ({ name: text(t.name), effect: t.effect }))
+    : undefined;
+  return { transport, server: text(server), ...(listed ? { tools: listed } : {}) };
 }
 
 export type ResolveResponse =

@@ -1,0 +1,527 @@
+{
+ "pages": [
+  {
+   "runs": [
+    {
+     "id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "name": "AgentExecutor",
+     "run_type": "chain",
+     "start_time": "2026-10-01T10:36:40.000000",
+     "end_time": "2026-10-01T10:36:43.000000",
+     "inputs": {
+      "input": "My blender arrived broken. Order A-1042."
+     },
+     "outputs": {
+      "output": "A replacement is on its way."
+     },
+     "error": null,
+     "extra": {
+      "metadata": {}
+     },
+     "parent_run_id": null,
+     "trace_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "status": "success"
+    },
+    {
+     "id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b40",
+     "name": "ChatAnthropic",
+     "run_type": "llm",
+     "start_time": "2026-10-01T10:36:40.311000",
+     "end_time": "2026-10-01T10:36:41.207000",
+     "extra": {
+      "invocation_params": {
+       "model": "claude-haiku-4-5",
+       "max_tokens": 1024,
+       "temperature": 0.0,
+       "_type": "anthropic-chat",
+       "stop": null,
+       "stream": false,
+       "tools": [
+        {
+         "name": "lookup_order",
+         "description": "Look an order up by its id.",
+         "input_schema": {
+          "type": "object",
+          "properties": {
+           "order_id": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "order_id"
+          ]
+         }
+        },
+        {
+         "name": "create_replacement",
+         "description": "Ship a replacement for an order.",
+         "input_schema": {
+          "type": "object",
+          "properties": {
+           "order_id": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "order_id"
+          ]
+         }
+        }
+       ]
+      },
+      "options": {
+       "stop": null
+      },
+      "batch_size": 1,
+      "metadata": {
+       "ls_provider": "anthropic",
+       "ls_model_name": "claude-haiku-4-5",
+       "ls_model_type": "chat",
+       "ls_temperature": 0.0,
+       "ls_max_tokens": 1024,
+       "revision_id": "d2e8a1f"
+      },
+      "runtime": {
+       "sdk": "langsmith-py",
+       "sdk_version": "0.4.31",
+       "library": "langchain-core"
+      }
+     },
+     "error": null,
+     "serialized": null,
+     "events": [
+      {
+       "name": "start",
+       "time": "2026-10-01T10:36:40.311000"
+      },
+      {
+       "name": "end",
+       "time": "2026-10-01T10:36:41.207000"
+      }
+     ],
+     "inputs": {
+      "messages": [
+       [
+        {
+         "lc": 1,
+         "type": "constructor",
+         "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "SystemMessage"
+         ],
+         "kwargs": {
+          "content": "You are a support agent.",
+          "type": "system"
+         }
+        },
+        {
+         "lc": 1,
+         "type": "constructor",
+         "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "HumanMessage"
+         ],
+         "kwargs": {
+          "content": "My blender arrived broken. Order A-1042.",
+          "type": "human"
+         }
+        }
+       ]
+      ]
+     },
+     "outputs": {
+      "generations": [
+       [
+        {
+         "text": "",
+         "generation_info": null,
+         "type": "ChatGeneration",
+         "message": {
+          "lc": 1,
+          "type": "constructor",
+          "id": [
+           "langchain",
+           "schema",
+           "messages",
+           "AIMessage"
+          ],
+          "kwargs": {
+           "content": [
+            {
+             "id": "toolu_01X",
+             "input": {
+              "order_id": "A-1042"
+             },
+             "name": "lookup_order",
+             "type": "tool_use"
+            }
+           ],
+           "type": "ai",
+           "tool_calls": [
+            {
+             "name": "lookup_order",
+             "args": {
+              "order_id": "A-1042"
+             },
+             "id": "toolu_01X",
+             "type": "tool_call"
+            }
+           ],
+           "response_metadata": {
+            "id": "msg_01X",
+            "model": "claude-haiku-4-5",
+            "stop_reason": "tool_use",
+            "stop_sequence": null
+           },
+           "usage_metadata": {
+            "input_tokens": 410,
+            "output_tokens": 55,
+            "total_tokens": 465,
+            "input_token_details": {
+             "cache_read": 0,
+             "cache_creation": 0
+            }
+           },
+           "invalid_tool_calls": [],
+           "id": "run-a1-0"
+          }
+         }
+        }
+       ]
+      ],
+      "llm_output": {
+       "id": "msg_01X",
+       "model": "claude-haiku-4-5",
+       "stop_reason": "tool_use"
+      },
+      "run": null,
+      "type": "LLMResult"
+     },
+     "reference_example_id": null,
+     "parent_run_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "tags": [],
+     "session_id": "5f0c3a1e-1111-4222-8333-944455556666",
+     "trace_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "dotted_order": "20261001T103640000000Z0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "status": "success",
+     "prompt_tokens": 410,
+     "completion_tokens": 55,
+     "total_tokens": 465,
+     "first_token_time": null
+    },
+    {
+     "id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b41",
+     "name": "lookup_order",
+     "run_type": "tool",
+     "start_time": "2026-10-01T10:36:41.210000",
+     "end_time": "2026-10-01T10:36:41.260000",
+     "inputs": {
+      "order_id": "A-1042"
+     },
+     "outputs": {
+      "output": {
+       "lc": 1,
+       "type": "constructor",
+       "id": [
+        "langchain",
+        "schema",
+        "messages",
+        "ToolMessage"
+       ],
+       "kwargs": {
+        "content": "{\"order_id\": \"A-1042\", \"status\": \"delivered\"}",
+        "type": "tool",
+        "name": "lookup_order",
+        "tool_call_id": "toolu_01X",
+        "status": "success"
+       }
+      }
+     },
+     "error": null,
+     "extra": {
+      "metadata": {}
+     },
+     "parent_run_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "trace_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "status": "success"
+    }
+   ],
+   "cursors": {
+    "next": "cursor-page-2",
+    "prev": null
+   }
+  },
+  {
+   "runs": [
+    {
+     "id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b42",
+     "name": "create_replacement",
+     "run_type": "tool",
+     "start_time": "2026-10-01T10:36:41.300000",
+     "end_time": "2026-10-01T10:36:41.700000",
+     "inputs": {
+      "input": "{'order_id': 'A-1042'}"
+     },
+     "outputs": {
+      "output": "{'ok': True, 'shipment': 'S-5531'}"
+     },
+     "error": null,
+     "extra": {
+      "metadata": {}
+     },
+     "parent_run_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "trace_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "status": "success"
+    },
+    {
+     "id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b43",
+     "name": "ChatAnthropic",
+     "run_type": "llm",
+     "start_time": "2026-10-01T10:36:41.800000",
+     "end_time": "2026-10-01T10:36:42.900000",
+     "extra": {
+      "invocation_params": {
+       "model": "claude-haiku-4-5",
+       "max_tokens": 1024,
+       "temperature": 0.0,
+       "_type": "anthropic-chat",
+       "stop": null,
+       "stream": false,
+       "tools": [
+        {
+         "name": "lookup_order",
+         "description": "Look an order up by its id.",
+         "input_schema": {
+          "type": "object",
+          "properties": {
+           "order_id": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "order_id"
+          ]
+         }
+        },
+        {
+         "name": "create_replacement",
+         "description": "Ship a replacement for an order.",
+         "input_schema": {
+          "type": "object",
+          "properties": {
+           "order_id": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "order_id"
+          ]
+         }
+        }
+       ]
+      },
+      "options": {
+       "stop": null
+      },
+      "batch_size": 1,
+      "metadata": {
+       "ls_provider": "anthropic",
+       "ls_model_name": "claude-haiku-4-5",
+       "ls_model_type": "chat",
+       "ls_temperature": 0.0,
+       "ls_max_tokens": 1024,
+       "revision_id": "d2e8a1f"
+      },
+      "runtime": {
+       "sdk": "langsmith-py",
+       "sdk_version": "0.4.31",
+       "library": "langchain-core"
+      }
+     },
+     "error": null,
+     "serialized": null,
+     "events": [
+      {
+       "name": "start",
+       "time": "2026-10-01T10:36:41.800000"
+      },
+      {
+       "name": "end",
+       "time": "2026-10-01T10:36:42.900000"
+      }
+     ],
+     "inputs": {
+      "messages": [
+       [
+        {
+         "lc": 1,
+         "type": "constructor",
+         "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "SystemMessage"
+         ],
+         "kwargs": {
+          "content": "You are a support agent.",
+          "type": "system"
+         }
+        },
+        {
+         "lc": 1,
+         "type": "constructor",
+         "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "HumanMessage"
+         ],
+         "kwargs": {
+          "content": "My blender arrived broken. Order A-1042.",
+          "type": "human"
+         }
+        },
+        {
+         "lc": 1,
+         "type": "constructor",
+         "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "AIMessage"
+         ],
+         "kwargs": {
+          "content": [
+           {
+            "id": "toolu_01X",
+            "input": {
+             "order_id": "A-1042"
+            },
+            "name": "lookup_order",
+            "type": "tool_use"
+           }
+          ],
+          "type": "ai",
+          "tool_calls": [
+           {
+            "name": "lookup_order",
+            "args": {
+             "order_id": "A-1042"
+            },
+            "id": "toolu_01X",
+            "type": "tool_call"
+           }
+          ],
+          "response_metadata": {
+           "id": "msg_01X",
+           "model": "claude-haiku-4-5",
+           "stop_reason": "tool_use",
+           "stop_sequence": null
+          },
+          "usage_metadata": {
+           "input_tokens": 410,
+           "output_tokens": 55,
+           "total_tokens": 465,
+           "input_token_details": {
+            "cache_read": 0,
+            "cache_creation": 0
+           }
+          },
+          "invalid_tool_calls": [],
+          "id": "run-a1-0"
+         }
+        },
+        {
+         "lc": 1,
+         "type": "constructor",
+         "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "ToolMessage"
+         ],
+         "kwargs": {
+          "content": "{\"order_id\": \"A-1042\", \"status\": \"delivered\"}",
+          "type": "tool",
+          "name": "lookup_order",
+          "tool_call_id": "toolu_01X",
+          "status": "success"
+         }
+        }
+       ]
+      ]
+     },
+     "outputs": {
+      "generations": [
+       [
+        {
+         "text": "A replacement is on its way.",
+         "generation_info": null,
+         "type": "ChatGeneration",
+         "message": {
+          "lc": 1,
+          "type": "constructor",
+          "id": [
+           "langchain",
+           "schema",
+           "messages",
+           "AIMessage"
+          ],
+          "kwargs": {
+           "content": "A replacement is on its way.",
+           "type": "ai",
+           "tool_calls": [],
+           "response_metadata": {
+            "id": "msg_01Y",
+            "model": "claude-haiku-4-5",
+            "stop_reason": "end_turn",
+            "stop_sequence": null
+           },
+           "usage_metadata": {
+            "input_tokens": 512,
+            "output_tokens": 12,
+            "total_tokens": 524,
+            "input_token_details": {
+             "cache_read": 384,
+             "cache_creation": 0
+            }
+           },
+           "invalid_tool_calls": [],
+           "id": "run-a2-0"
+          }
+         }
+        }
+       ]
+      ],
+      "llm_output": {
+       "id": "msg_01Y",
+       "model": "claude-haiku-4-5",
+       "stop_reason": "end_turn"
+      },
+      "run": null,
+      "type": "LLMResult"
+     },
+     "reference_example_id": null,
+     "parent_run_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "tags": [],
+     "session_id": "5f0c3a1e-1111-4222-8333-944455556666",
+     "trace_id": "0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "dotted_order": "20261001T103640000000Z0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a2b3c",
+     "status": "success",
+     "prompt_tokens": 512,
+     "completion_tokens": 12,
+     "total_tokens": 524,
+     "first_token_time": null
+    }
+   ],
+   "cursors": {
+    "next": null,
+    "prev": "cursor-page-1"
+   }
+  }
+ ]
+}

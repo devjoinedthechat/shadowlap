@@ -1,4 +1,4 @@
-import { apiCallName, fingerprintApi, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type RunRecord, type Store } from '@shadowlap/engine';
+import { apiCallName, fingerprintApi, fingerprintTool, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type Effect, type RunMeta, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
 import { providers, type Provider } from '@shadowlap/sidecar';
 
 /**
@@ -13,6 +13,9 @@ import { providers, type Provider } from '@shadowlap/sidecar';
  * What no capture of the network can carry: tool, clock and randomness calls, which never crossed
  * it. An imported run therefore declares itself partial (`meta.covers`), and a replay of it runs
  * those kinds live instead of treating their absence as a divergence.
+ *
+ * Traces (import-trace.ts) write through the same {@link ImportWriter}: their model calls become
+ * captured calls, and the tool calls a trace kept are added beside them.
  */
 
 /** One request/response pair, however the source format spelled it. */
@@ -47,8 +50,11 @@ export interface Captured {
 
 export interface ImportedCall {
   callNo: number;
+  /** A model API call, or (from a trace) a tool call with the output the trace kept. */
+  kind: 'api' | 'tool';
   name: string;
-  provider: string;
+  /** The provider of a model call; null for a tool call. */
+  provider: string | null;
   model: string | null;
 }
 
@@ -112,44 +118,97 @@ const strip = (headers: Record<string, string>): Record<string, string> => {
   return out;
 };
 
-/** Turns captured calls into one run in `store`. */
-export function importCaptured(store: Store, captured: Captured, opts: { source: string; cwd?: string }): ImportResult {
-  const skipped: Skip[] = [...captured.skipped];
-  const startedAt = captured.calls.find((c) => c.startedAt !== undefined)?.startedAt ?? Date.now();
+/**
+ * Appends every item to `to`. Never `to.push(...items)`: a file from anywhere can hold more entries
+ * than a function call takes arguments (about 110,000), and the import would fail on the spread.
+ */
+export function append<T>(to: T[], items: Iterable<T>): void {
+  for (const item of items) to.push(item);
+}
 
-  const run = store.createRun({
-    mode: 'record',
-    command: { argv: [NO_COMMAND], cwd: opts.cwd ?? process.cwd() },
-    startedAt,
-    meta: {
-      imported: { at: Date.now(), from: opts.source },
-      normalizersHash: normalizersHash([], 'exact', false),
-      // A capture of the network only ever saw API calls.
-      covers: ['api'],
-    },
-  });
+/** Every imported run carries this label, so imports can be listed and filtered as one kind of run. */
+export const IMPORTED_LABEL = 'imported';
 
-  const occurrences = new Map<string, number>();
-  const imported: ImportedCall[] = [];
-  let callNo = 1;
-  let endedAt = startedAt;
+export interface ImportOptions {
+  /** Where the calls came from, kept on the run as its source (`meta.imported.from`): a file's name, or `langfuse:7f3a9c2e`. */
+  source: string;
+  cwd?: string;
+  /** Labels besides `imported`: the trace source a trace came from (`otel`, `langfuse`, `langsmith`). */
+  labels?: string[];
+  /** Who imported it (resolveAuthor), stored as the run's author. */
+  author?: string | null;
+}
 
-  for (const c of captured.calls) {
+/** A tool call a trace kept, with its arguments and what it returned. */
+export interface ImportedToolCall {
+  name: string;
+  args: unknown;
+  outcome: 'ok' | 'error';
+  result?: unknown;
+  error?: SerializedError;
+  /** The trace says nothing about effects, so this is usually null. */
+  effect?: Effect | null;
+  startedAt?: number;
+  timeMs?: number;
+}
+
+/**
+ * Writes one imported run: a model call or a tool call at a time, numbered in the order given, with
+ * the identity (fingerprint, occurrence) a live recording of the same calls would have had.
+ */
+export class ImportWriter {
+  readonly run: RunRecord;
+  readonly imported: ImportedCall[] = [];
+  readonly skipped: Skip[] = [];
+  private callNo = 1;
+  private endedAt: number;
+  private readonly occurrences = new Map<string, number>();
+
+  constructor(
+    private readonly store: Store,
+    opts: ImportOptions & { startedAt: number; covers: NonNullable<RunMeta['covers']> },
+  ) {
+    const labels = [IMPORTED_LABEL, ...(opts.labels ?? []).filter((l) => l !== IMPORTED_LABEL)];
+    this.run = store.createRun({
+      mode: 'record',
+      command: { argv: [NO_COMMAND], cwd: opts.cwd ?? process.cwd() },
+      startedAt: opts.startedAt,
+      meta: {
+        imported: { at: Date.now(), from: opts.source },
+        normalizersHash: normalizersHash([], 'exact', false),
+        covers: opts.covers,
+        labels,
+        ...(opts.author ? { author: opts.author } : {}),
+      },
+    });
+    this.endedAt = opts.startedAt;
+  }
+
+  /** Occurrences are 1-based and counted per kind and fingerprint, as Session.nextOccurrence allocates them. */
+  private occurrence(kind: string, fingerprint: string): number {
+    const key = `${kind}\n${fingerprint}`;
+    const n = (this.occurrences.get(key) ?? 0) + 1;
+    this.occurrences.set(key, n);
+    return n;
+  }
+
+  /** Adds a model API call. One Shadowlap can't replay is skipped, with the reason, and false is returned. */
+  api(c: CapturedCall): boolean {
     let url: URL;
     try {
       url = new URL(c.url);
     } catch {
-      skipped.push({ url: c.url || '(no url)', reason: 'not a URL' });
-      continue;
+      this.skipped.push({ url: c.url || '(no url)', reason: 'not a URL' });
+      return false;
     }
     const provider = providerFor(url);
     if (!provider) {
-      skipped.push({ url: c.url, reason: 'not a model API host' });
-      continue;
+      this.skipped.push({ url: c.url, reason: 'not a model API host' });
+      return false;
     }
     if (!c.responseBytes.length) {
-      skipped.push({ url: c.url, reason: 'no response body was captured' });
-      continue;
+      this.skipped.push({ url: c.url, reason: 'no response body was captured' });
+      return false;
     }
 
     const method = c.method.toUpperCase();
@@ -157,25 +216,22 @@ export function importCaptured(store: Store, captured: Captured, opts: { source:
     const headers = strip(c.requestHeaders);
     const name = apiCallName(method, path);
     const { fingerprint } = fingerprintApi({ method, path, headers, body: c.requestBody }, [], provider.fingerprintHeaders);
-
-    // Occurrences are 1-based, as Session.nextOccurrence allocates them.
-    const key = `api\n${fingerprint}`;
-    const occurrence = (occurrences.get(key) ?? 0) + 1;
-    occurrences.set(key, occurrence);
+    const occurrence = this.occurrence('api', fingerprint);
 
     const fingerprintHeaders: Record<string, string> = {};
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h];
 
-    const at = c.startedAt ?? startedAt;
+    const callNo = this.callNo++;
+    const at = c.startedAt ?? this.run.startedAt;
     const took = c.timeMs !== undefined && c.timeMs >= 0 ? Math.round(c.timeMs) : 0;
     const identity = { kind: 'api' as const, name, fingerprint, occurrence };
-    store.appendCallStart({
-      runId: run.runId,
+    this.store.appendCallStart({
+      runId: this.run.runId,
       callNo,
       ...identity,
       origin: 'live',
       effect: null,
-      requestRef: storeApiRequest(store, c.requestBody),
+      requestRef: storeApiRequest(this.store, c.requestBody),
       meta: { provider: provider.id, fingerprintHeaders, retryCount: 0 },
       at,
     });
@@ -198,13 +254,44 @@ export function importCaptured(store: Store, captured: Captured, opts: { source:
 
     const outcome = c.status >= 400 ? 'error' : 'ok';
     if (outcome === 'error') meta.error = { name: 'HTTPError', message: `HTTP ${c.status}` };
-    store.appendCallEnd(identity, { runId: run.runId, callNo, attempt: 0, responseRef: store.putBlob(c.responseBytes), outcome, meta, at: at + took });
+    this.store.appendCallEnd(identity, { runId: this.run.runId, callNo, attempt: 0, responseRef: this.store.putBlob(c.responseBytes), outcome, meta, at: at + took });
 
-    endedAt = Math.max(endedAt, at + took);
-    imported.push({ callNo, name, provider: provider.id, model });
-    callNo++;
+    this.endedAt = Math.max(this.endedAt, at + took);
+    this.imported.push({ callNo, kind: 'api', name, provider: provider.id, model });
+    return true;
   }
 
-  store.endRun(run.runId, 'completed', endedAt);
-  return { run: store.getRun(run.runId)!, imported, skipped };
+  /** Adds a tool call, stored as the SDKs record one: `{ args }` as the request, `{ result }` or `{ error }` as the response. */
+  tool(t: ImportedToolCall): void {
+    const name = safeLine(t.name).slice(0, 200);
+    const args = t.args ?? null;
+    const { fingerprint } = fingerprintTool(name, args, []);
+    const occurrence = this.occurrence('tool', fingerprint);
+    const callNo = this.callNo++;
+    const at = t.startedAt ?? this.run.startedAt;
+    const took = t.timeMs !== undefined && t.timeMs >= 0 ? Math.round(t.timeMs) : 0;
+    const identity = { kind: 'tool' as const, name, fingerprint, occurrence };
+    this.store.appendCallStart({ runId: this.run.runId, callNo, ...identity, origin: 'live', effect: t.effect ?? null, requestRef: this.store.putJson({ args }), meta: {}, at });
+    const error = t.error ?? { name: 'Error', message: 'the tool failed' };
+    const payload = t.outcome === 'ok' ? { result: t.result ?? null } : { error };
+    const meta: CallMeta = { ...(took ? { latencyMs: took } : {}), ...(t.outcome === 'error' ? { error } : {}) };
+    this.store.appendCallEnd(identity, { runId: this.run.runId, callNo, attempt: 0, responseRef: this.store.putJson(payload), outcome: t.outcome, meta, at: at + took });
+    this.endedAt = Math.max(this.endedAt, at + took);
+    this.imported.push({ callNo, kind: 'tool', name, provider: null, model: null });
+  }
+
+  /** Ends the run and returns what it holds. */
+  finish(): ImportResult {
+    this.store.endRun(this.run.runId, 'completed', this.endedAt);
+    return { run: this.store.getRun(this.run.runId)!, imported: this.imported, skipped: this.skipped };
+  }
+}
+
+/** Turns captured calls into one run in `store`. A capture of the network only ever saw model API calls. */
+export function importCaptured(store: Store, captured: Captured, opts: ImportOptions): ImportResult {
+  const startedAt = captured.calls.find((c) => c.startedAt !== undefined)?.startedAt ?? Date.now();
+  const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api'] });
+  append(writer.skipped, captured.skipped);
+  for (const c of captured.calls) writer.api(c);
+  return writer.finish();
 }
