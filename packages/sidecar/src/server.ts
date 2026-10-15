@@ -1004,17 +1004,31 @@ export class Sidecar {
       return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
     }
     if (decision.origin === 'injected') {
-      // A captured HTTP call fails the way HTTP does: with that status, or with the connection closed
-      // before any response, which the client reports as a network error.
+      // A captured HTTP call fails the way HTTP does: with that status; or, for a timeout or an error,
+      // the way the agent's HTTP library reports one. The capture hooks raise the library's own error
+      // (a fetch TimeoutError, httpx.ReadTimeout, requests' ReadTimeout...) from an answer that names
+      // the failure, and ask for one with x-shadowlap-failures: raise. Any other client gets the
+      // connection closed before a response, which it reports as a network error.
       const f = decision.failure;
       const error = toolFailureError(name, f);
       end(this.store.putJson({ error }), 'error', { injected: true, failure: f, error, latencyMs: 0, ...(f.kind === 'status' ? { status: f.status } : {}) });
       this.log(`run ${ctx.run.runId} call ${callNo}: injected ${f.kind === 'status' ? `HTTP ${f.status}` : f.kind}`);
-      if (f.kind !== 'status') {
+      if (f.kind === 'status') return json(res, f.status, { error: { message: error.message } });
+      if (req.headers['x-shadowlap-failures'] !== 'raise') {
         res.destroy();
         return;
       }
-      return json(res, f.status, { error: { message: error.message } });
+      const bytes = Buffer.from(JSON.stringify({ error: { message: error.message } }), 'utf8');
+      res.writeHead(f.kind === 'timeout' ? 504 : 502, {
+        'content-type': 'application/json',
+        'content-length': String(bytes.length),
+        'x-shadowlap-origin': 'injected',
+        'x-shadowlap-injected': f.kind,
+        // Only a message the flag gave: without one, each library's own wording stands.
+        ...(f.kind === 'error' && f.message ? { 'x-shadowlap-injected-message': encodeURIComponent(f.message) } : {}),
+      });
+      res.end(bytes);
+      return;
     }
     if (decision.origin === 'planted') {
       const recorded = decision.record.end!;

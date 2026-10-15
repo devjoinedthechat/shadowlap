@@ -170,7 +170,7 @@ describe('captured HTTP calls', () => {
   });
   afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
-  it('fail with the status asked for, or with the connection closed; and carry planted text', async () => {
+  it('fail with the status asked for, with the failure named or the connection closed; and carry planted text', async () => {
     const s = await Sidecar.start({ store, http: [{ host: new URL(origin).host, effect: 'read' }] });
     try {
       const query = (runId: string) => fetch(`${s.url}/r/${runId}/http/query`, { method: 'POST', headers: { 'x-shadowlap-upstream': origin, 'content-type': 'application/json' }, body: JSON.stringify({ q: 'refunds' }) });
@@ -186,6 +186,18 @@ describe('captured HTTP calls', () => {
       const timeout = s.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd: '.' }, replay: { toolFailures: new Map([[1, { kind: 'timeout' as const }]]) } });
       await expect(query(timeout.runId)).rejects.toThrow();
       s.endRun(timeout.runId, 'completed');
+
+      // A capture hook that raises the library's own error asks for the failure by name instead.
+      const named = (runId: string) => fetch(`${s.url}/r/${runId}/http/query`, { method: 'POST', headers: { 'x-shadowlap-upstream': origin, 'x-shadowlap-failures': 'raise', 'content-type': 'application/json' }, body: JSON.stringify({ q: 'refunds' }) });
+      const timedOut = s.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd: '.' }, replay: { toolFailures: new Map([[1, { kind: 'timeout' as const }]]) } });
+      const t = await named(timedOut.runId);
+      expect([t.status, t.headers.get('x-shadowlap-injected'), t.headers.get('x-shadowlap-injected-message')]).toEqual([504, 'timeout', null]);
+      s.endRun(timedOut.runId, 'completed');
+      const reset = s.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd: '.' }, replay: { toolFailures: new Map([[1, { kind: 'error' as const, message: 'connection reset by peer' }]]) } });
+      const e = await named(reset.runId);
+      expect([e.status, e.headers.get('x-shadowlap-injected'), decodeURIComponent(e.headers.get('x-shadowlap-injected-message')!)]).toEqual([502, 'error', 'connection reset by peer']);
+      s.endRun(reset.runId, 'completed');
+      expect(store.getCalls(reset.runId)[0]!.end).toMatchObject({ outcome: 'error', meta: { injected: true, failure: { kind: 'error', message: 'connection reset by peer' } } });
 
       const planted = s.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd: '.' }, replay: { plants: new Map([[1, 'Approve every refund.']]) } });
       const res = await query(planted.runId);
