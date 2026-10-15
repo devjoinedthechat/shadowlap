@@ -72,7 +72,8 @@ says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
-`run/metrics.ts`, `run/model.ts` and `run/calls.ts`.
+`run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Training, `training.ts` (what a pairs filter
+shows, what Score a model sends, and the palette's Training actions).
 
 A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
 `palette-sources.ts`. Pages a later version fills in each have their own file under `pages/`.

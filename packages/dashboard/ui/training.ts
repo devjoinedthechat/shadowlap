@@ -131,7 +131,9 @@ export function takeTrainingDialog(): TrainingDialog | null {
 /** Follows dialog requests while the page is open; returns the unsubscribe. */
 export function onTrainingDialog(fn: (kind: TrainingDialog) => void): () => void {
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }
 
 /** What the palette knows of Training: the counts from the last time the page or the palette read it. */

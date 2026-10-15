@@ -480,7 +480,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   return {
     strip: {
       pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: '#/training', high: counts.high, medium: counts.medium },
-      tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
+      tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: input.tasksError ? 'the tasks can’t be read' : [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
       best: { value: best ? best.mean.toFixed(2) : '—', sub: best ? `${best.model} · ${plural(cards.length, 'model')} scored` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
       // The UI adds the export's time (`at`) after the file, as it formats every time.
       left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing until you export it', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },

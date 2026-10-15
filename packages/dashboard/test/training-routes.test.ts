@@ -182,7 +182,7 @@ describe('GET /api/training', () => {
     expect(loads - before).toBeLessThanOrEqual(1);
     const view = (await (await api(broken, 'training')).json()) as TrainingView;
     expect(view.tasks).toMatchObject({ rows: [], empty: null, error: 'shadowlap.config.json: tests["goldens/x"].task.takeover must be a call number' });
-    expect(view.strip.tasks.value).toBe('0 / 0');
+    expect(view.strip.tasks).toMatchObject({ value: '0 / 0', sub: 'the tasks can’t be read' });
     expect(view.pairs.counts.all).toBe(3);
     // Scoring needs the tasks: it says why it can't run.
     const job = await startJob(broken, { kind: 'score', model: 'm' });
