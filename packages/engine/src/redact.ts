@@ -25,10 +25,17 @@ function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst
   if (!ref) return null;
   const bytes = src.getBlob(ref);
   if (!bytes) return null;
+  return dst.putBlob(redactBytes(bytes, rules));
+}
+
+/**
+ * A stored response, or any bytes, with every pathless rule applied to its text. Only what
+ * round-trips as text is rewritten; binary bytes stay as they are.
+ */
+export function redactBytes(bytes: Buffer, rules: Normalizer[]): Buffer {
   const text = bytes.toString('utf8');
-  // Only rewrite what round-trips as text; binary responses stay as they are.
-  if (Buffer.from(text, 'utf8').equals(bytes)) return dst.putBlob(Buffer.from(rewriteText(text, rules), 'utf8'));
-  return dst.putBlob(bytes);
+  if (Buffer.from(text, 'utf8').equals(bytes)) return Buffer.from(rewriteText(text, rules), 'utf8');
+  return bytes;
 }
 
 /** Copies `runId` from `src` into `dst` with `rules` applied. The copy keeps the run id. */

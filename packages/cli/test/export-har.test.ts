@@ -1,5 +1,11 @@
+import { execFile } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, type Normalizer } from '@shadowlap/engine';
 import { runToHar } from '../src/export-har.js';
 import { importHar } from '../src/import-har.js';
 
@@ -82,5 +88,92 @@ describe('export har', () => {
     expect(entries).toBe(0);
     expect(skipped).toEqual([{ callNo: 1, reason: 'the call never completed' }]);
     store.close();
+  });
+});
+
+// ---- redaction ----
+
+const SECRET = 'sk-live-9f8e7d6c5b4a';
+const secretEntry = () => ({
+  startedDateTime: new Date(1_800_000_000_000).toISOString(),
+  time: 120,
+  request: {
+    method: 'POST',
+    url: 'https://api.anthropic.com/v1/messages',
+    headers: [
+      { name: 'content-type', value: 'application/json' },
+      { name: 'anthropic-version', value: '2023-06-01' },
+      { name: 'anthropic-beta', value: `tenant-${SECRET}` },
+    ],
+    postData: {
+      mimeType: 'application/json',
+      text: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 64, metadata: { user_id: 'maya@example.com' }, messages: [{ role: 'user', content: `Rotate the key ${SECRET} for maya@example.com.` }] }),
+    },
+  },
+  response: {
+    status: 200,
+    headers: [
+      { name: 'content-type', value: 'text/event-stream' },
+      { name: 'request-id', value: `req-${SECRET}` },
+    ],
+    content: {
+      mimeType: 'text/event-stream',
+      text: `event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","model":"claude-haiku-4-5","usage":{"input_tokens":10,"output_tokens":1}}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Rotated ${SECRET}."}}\n\n`,
+    },
+  },
+});
+const RULES: Normalizer[] = [
+  { pattern: '/sk-live-[a-z0-9]+/', replace: '<KEY>' },
+  { kind: 'api', path: '$.metadata.user_id', replace: '<USER>' },
+  { pattern: 'email', replace: '<EMAIL>' },
+];
+/** Everything the HAR says, the base64 response bodies decoded. */
+const everything = (har: unknown) => {
+  const log = (har as { log: { entries: Array<{ response: { content: { text: string } } }> } }).log;
+  return JSON.stringify(har) + log.entries.map((e) => Buffer.from(e.response.content.text, 'base64').toString('utf8')).join('\n');
+};
+
+describe('export har: redaction', () => {
+  it('applies every rule: path rules to the request, the others to the URL, headers and the streamed response', () => {
+    const store = Store.open(':memory:');
+    const { run } = importHar(store, har(secretEntry()), { source: 'in.har' });
+    const plain = everything(runToHar(store, run, store.getCalls(run.runId)).har);
+    expect(plain).toContain(SECRET); // what the rules are for
+
+    const { har: out } = runToHar(store, run, store.getCalls(run.runId), { redact: RULES });
+    const text = everything(out);
+    expect(text).not.toContain(SECRET);
+    expect(text).not.toContain('maya@example.com');
+    const [entry] = (out as { log: { entries: Array<Record<string, any>> } }).log.entries;
+    expect(JSON.parse(entry.request.postData.text)).toMatchObject({ metadata: { user_id: '<USER>' }, messages: [{ content: 'Rotate the key <KEY> for <EMAIL>.' }] });
+    expect(entry.request.headers).toContainEqual({ name: 'anthropic-beta', value: 'tenant-<KEY>' });
+    expect(entry.response.headers).toContainEqual({ name: 'request-id', value: 'req-<KEY>' });
+    expect(Buffer.from(entry.response.content.text, 'base64').toString('utf8')).toContain('Rotated <KEY>.');
+    // The rules travel with the file, so a recording imported from it can match under them.
+    expect((out as { log: { _shadowlap?: unknown } }).log._shadowlap).toEqual({ redactions: RULES });
+    store.close();
+  });
+
+  it('masks the secret in the file the CLI writes, with the project\'s rules, unless --no-redact', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-har-redact-'));
+    try {
+      const db = join(dir, 'store.db');
+      const store = Store.open(db);
+      const { run } = importHar(store, har(secretEntry()), { source: 'in.har' });
+      store.close();
+      writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ redact: RULES }));
+      const cli = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+      const exec = (args: string[]) => promisify(execFile)(process.execPath, [cli, '--db', db, ...args], { cwd: dir, env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' }, encoding: 'utf8' });
+
+      const { stdout } = await exec(['export', 'har', run.runId, 'out.har']);
+      expect(stdout).toContain('3 redaction rules applied');
+      const written = readFileSync(join(dir, 'out.har'), 'utf8');
+      expect(everything(JSON.parse(written))).not.toContain(SECRET);
+
+      await exec(['export', 'har', run.runId, 'raw.har', '--no-redact']);
+      expect(everything(JSON.parse(readFileSync(join(dir, 'raw.har'), 'utf8')))).toContain(SECRET);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
