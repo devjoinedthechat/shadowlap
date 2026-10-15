@@ -528,7 +528,7 @@ describe('shadowlap fix', () => {
     // fix apply tests them where they are, and copies nothing again.
     const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
     expect(applied.code, applied.out).toBe(0);
-    expect(json(applied)).toMatchObject({ again: true, patch: 'already', tests: 'passed', goldens: names.map((n) => ({ to: join('tests', 'goldens', n), copied: false })) });
+    expect(json(applied)).toMatchObject({ again: true, patch: 'already', tests: 'passed', goldens: names.map((n) => ({ to: `tests/goldens/${n}`, copied: false })) });
     expect(existsSync(join(project, 'goldens'))).toBe(false);
   });
 
