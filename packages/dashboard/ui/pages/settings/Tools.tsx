@@ -102,7 +102,6 @@ function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSetting
 
 function McpBlock({ data, onAdd }: { data: ToolsSettings; onAdd: () => void }) {
   const rows = mcpRows(data.mcp);
-  const unrecorded = rows.some((r) => r.line);
   const broken = data.mcp.files.filter((f) => f.error);
   return (
     <div className="egrp mcp">
@@ -119,12 +118,11 @@ function McpBlock({ data, onAdd }: { data: ToolsSettings; onAdd: () => void }) {
                 <th>Transport</th>
                 <th>Command or URL</th>
                 <th className="num">Tools</th>
-                {unrecorded ? <th aria-label="Copy the shadowlap mcp line" /> : null}
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <McpServer key={r.key} row={r} unrecorded={unrecorded} />
+                <McpServer key={r.key} row={r} />
               ))}
             </tbody>
           </table>
@@ -164,13 +162,25 @@ function McpBlock({ data, onAdd }: { data: ToolsSettings; onAdd: () => void }) {
   );
 }
 
-function McpServer({ row, unrecorded }: { row: McpRow; unrecorded: boolean }) {
+function McpServer({ row }: { row: McpRow }) {
   const { toast } = useApp();
   return (
     <tr className="still">
       <td>
         <code>{row.name}</code>
-        {row.note ? <small className={`mnote${row.line ? ' warn' : ''}`}>{row.note}</small> : null}
+        {row.note ? (
+          <small className={`mnote${row.line ? ' warn' : ''}`}>
+            {row.note}
+            {row.line ? (
+              <>
+                {' · '}
+                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? `Copied the line for ${row.name} · put it in front of the server in ${row.file}` : 'Copying was refused by the browser'))}>
+                  copy the line
+                </button>
+              </>
+            ) : null}
+          </small>
+        ) : null}
       </td>
       <td>
         <span className="chip">{row.transport === 'http' ? 'HTTP' : 'stdio'}</span>
@@ -191,15 +201,6 @@ function McpServer({ row, unrecorded }: { row: McpRow; unrecorded: boolean }) {
           </>
         )}
       </td>
-      {unrecorded ? (
-        <td className="num">
-          {row.line ? (
-            <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? `Copied the line for ${row.name} · put it in front of the server in ${row.file}` : 'Copying was refused by the browser'))}>
-              Copy line
-            </button>
-          ) : null}
-        </td>
-      ) : null}
     </tr>
   );
 }

@@ -1607,8 +1607,10 @@ code.tipped { cursor: help; }
 .egrp.mcp .tscroll { margin: 4px 0 12px; }
 .egrp.mcp .tchips.mcpeffects { margin: 0 0 12px; }
 .egrp.mcp .codebox.mcpjson { margin-top: 14px; }
-.egrp.mcp td small.mnote { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; }
+.egrp.mcp td small.mnote { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; white-space: normal; min-width: 180px; }
 .egrp.mcp td small.mnote.warn { color: var(--warn); }
+.egrp.mcp td small.mnote .linkbtn { padding: 0; margin: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.egrp.mcp td small.mnote .linkbtn:hover { background: none; text-decoration-color: currentColor; }
 .egrp.mcp .fieldnote { margin: 0 0 12px; }
 .dialog.ruledlg { width: min(560px, 100%); }
 .dialog .advtoggle { margin: 12px 0 0 -7px; }
