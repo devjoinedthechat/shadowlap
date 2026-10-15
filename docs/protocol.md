@@ -160,6 +160,21 @@ of `sys.stdin` in Python, and readline's `question` and `for await` in Node, on 
 gave the agent only (a terminal, the null device, or the pipe or file named by `SHADOWLAP_STDIN` as
 `dev:ino`). `userInput()` / `user_input()` in the SDKs record input that arrives any other way.
 
+### MCP tool calls
+
+`shadowlap mcp` resolves each `tools/call` it forwards like any tool call, with the server's tool
+annotations as its effect, and adds where the call came from:
+
+```json
+{ "kind": "tool", "name": "send_note", "effect": "write", "args": { "to": "billing" },
+  "mcp": { "transport": "http", "server": "mcp.example.com", "tools": [{ "name": "send_note", "effect": "write" }] } }
+```
+
+`transport` is `stdio` or `http`; `server` is the remote server's host, or the local server's
+command (with the package a runner such as `npx` starts), never its arguments or a URL's path.
+`tools` lists the server's tools with their effects, on the first call to that server in a run and
+whenever the list changes. The sidecar checks and bounds the object and stores it as `meta.mcp`.
+
 ### `POST /v1/guard`
 
 Optional. Reports an outbound connection that bypassed Shadowlap, for the network guard's summary.

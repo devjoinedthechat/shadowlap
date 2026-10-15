@@ -17,6 +17,7 @@ import {
   storedModelResolver,
   summarizeRun,
   type CallKind,
+  type CallMeta,
   type CallRecord,
   type ClockMode,
   type CallStartRow,
@@ -1005,6 +1006,8 @@ export class Sidecar {
     if (body.implHash) meta.implHash = body.implHash;
     if (scope) meta.scope = scope;
     if (input) meta.input = true;
+    const mcp = kind === 'tool' ? mcpCallMeta(body.mcp) : undefined;
+    if (mcp) meta.mcp = mcp;
     this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: decision.origin, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
 
     if (decision.origin === 'overridden') {
@@ -1132,6 +1135,23 @@ export interface ResolveBody {
   implHash?: string;
   /** The call is a person's input, recorded as the `user_input` tool (see docs/protocol.md). */
   input?: boolean;
+  /** The call came through `shadowlap mcp`: from which server, and the tools it offers (see docs/protocol.md). */
+  mcp?: unknown;
+}
+
+/** `mcp` from a resolve body, checked and bounded, as call meta; undefined when it isn't one. */
+function mcpCallMeta(raw: unknown): CallMeta['mcp'] | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { transport, server, tools } = raw as Record<string, unknown>;
+  if ((transport !== 'stdio' && transport !== 'http') || typeof server !== 'string' || !server) return undefined;
+  const text = (v: string) => v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
+  const listed = Array.isArray(tools)
+    ? tools
+        .slice(0, 1000)
+        .filter((t): t is { name: string; effect: Effect } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
+        .map((t) => ({ name: text(t.name), effect: t.effect }))
+    : undefined;
+  return { transport, server: text(server), ...(listed ? { tools: listed } : {}) };
 }
 
 export type ResolveResponse =

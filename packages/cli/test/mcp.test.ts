@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
-import { discoverSidecar, effectFromAnnotations, parseEffectFlags, startMcpProxy, type SidecarTarget } from '../src/mcp.js';
+import { discoverSidecar, effectFromAnnotations, parseEffectFlags, startMcpProxy, stdioServerName, type SidecarTarget } from '../src/mcp.js';
 
 const serverScript = fileURLToPath(new URL('./fake-mcp-server.mjs', import.meta.url));
 
@@ -16,6 +16,7 @@ function client(sidecar: SidecarTarget | null, effects?: Record<string, 'pure' |
   const clientOut = new PassThrough();
   const responses = new Map<number, Record<string, unknown>>();
   const waiters = new Map<number, (m: Record<string, unknown>) => void>();
+  const batches: Array<(answers: Array<Record<string, unknown>>) => void> = [];
   let buf = '';
   clientOut.setEncoding('utf8');
   clientOut.on('data', (chunk: string) => {
@@ -25,7 +26,11 @@ function client(sidecar: SidecarTarget | null, effects?: Record<string, 'pure' |
       const line = buf.slice(0, i);
       buf = buf.slice(i + 1);
       if (!line.trim()) continue;
-      const m = JSON.parse(line) as Record<string, unknown>;
+      const m = JSON.parse(line) as Record<string, unknown> | Array<Record<string, unknown>>;
+      if (Array.isArray(m)) {
+        batches.shift()?.(m);
+        continue;
+      }
       responses.set(m.id as number, m);
       waiters.get(m.id as number)?.(m);
     }
@@ -39,11 +44,16 @@ function client(sidecar: SidecarTarget | null, effects?: Record<string, 'pure' |
     return p;
   };
   const call = async (name: string, args: unknown) => request('tools/call', { name, arguments: args });
+  const batch = (messages: unknown[]): Promise<Array<Record<string, unknown>>> => {
+    const p = new Promise<Array<Record<string, unknown>>>((resolve) => batches.push(resolve));
+    clientIn.write(JSON.stringify(messages) + '\n');
+    return p;
+  };
   const close = async () => {
     clientIn.end();
     await proxy.done;
   };
-  return { request, call, close };
+  return { request, call, batch, close };
 }
 
 const text = (m: Record<string, unknown>) => ((m.result as { content: Array<{ text: string }> }).content[0]!.text);
@@ -108,6 +118,9 @@ describe('shadowlap mcp', () => {
       ['boom', 'write', 'error'],
     ]);
     expect(calls[0]!.meta.implHash).toMatch(/^[0-9a-f]{64}$/); // the tool's input schema
+    // A local server is named by its command, never by its arguments.
+    expect(calls.map((c) => c.meta.mcp?.server)).toEqual(['node', 'node', 'node']);
+    expect(calls[0]!.meta.mcp?.tools).toEqual([{ name: 'read_note', effect: 'read' }, { name: 'send_note', effect: 'write' }]);
 
     // Replay: the server is a fresh process (counter would restart at 1) but the client gets the recorded results.
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' } });
@@ -150,6 +163,28 @@ describe('shadowlap mcp', () => {
     expect(store.getCalls(rec.runId)[0]!.effect).toBe('read');
   });
 
+  it('refuses a batch that carries tools/call, and records a call the server never answered', async () => {
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+    const c = client(target(rec.runId));
+    await c.request('tools/list');
+    const answers = await c.batch([{ jsonrpc: '2.0', id: 90, method: 'tools/call', params: { name: 'send_note', arguments: { to: 'x' } } }]);
+    expect(answers).toEqual([{ jsonrpc: '2.0', id: 90, error: { code: -32600, message: expect.stringContaining('batch') } }]);
+    // The server never ran it: its first tool call is still to come.
+    expect(text(await c.call('read_note', { id: 1 }))).toBe('read_note:{"id":1}:1');
+    await c.close();
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getCalls(rec.runId).map((x) => x.name)).toEqual(['read_note']);
+  });
+
+  it('names a local server by its command, and the package a runner starts', () => {
+    expect(stdioServerName('npx', ['-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'])).toBe('npx @modelcontextprotocol/server-filesystem');
+    expect(stdioServerName('/usr/local/bin/uvx', ['mcp-server-fetch'])).toBe('uvx mcp-server-fetch');
+    // A flag that may take a value comes first: the argument after it could be anything, a token included.
+    expect(stdioServerName('npx', ['--registry', 'https://npm.example', 'server'])).toBe('npx');
+    expect(stdioServerName('docker', ['run', '-i', '-e', 'TOKEN=secret', 'mcp/github'])).toBe('docker');
+    expect(stdioServerName('C:\\tools\\python.exe', ['server.py', '--key', 'k'])).toBe('python');
+  });
+
   it('parses flags, annotations and the active-run file', () => {
     expect(parseEffectFlags(['a=read', 'b=write'])).toEqual({ a: 'read', b: 'write' });
     expect(() => parseEffectFlags(['a=maybe'])).toThrow(/pure\|read\|write/);
@@ -159,5 +194,11 @@ describe('shadowlap mcp', () => {
     expect(discoverSidecar({ SHADOWLAP_URL: 'http://127.0.0.1:1/t/', SHADOWLAP_RUN_ID: 'r' }, '/nonexistent')).toEqual({ url: 'http://127.0.0.1:1/t', runId: 'r' });
     expect(discoverSidecar({}, '/nonexistent')).toBeNull();
     expect(discoverSidecar({ SHADOWLAP_URL: 'https://collector.example/t', SHADOWLAP_RUN_ID: 'r' }, '/nonexistent')).toBeNull();
+    // Where the process tree is known, the active run's file counts only for a run this process descends from.
+    const dir = mkdtempSync(join(tmpdir(), 'fp-mcp-tree-'));
+    mkdirSync(join(dir, '.shadowlap'));
+    writeFileSync(join(dir, '.shadowlap', 'active.json'), JSON.stringify({ url: 'http://127.0.0.1:4000/t/x', runId: 'r', pid: process.pid }));
+    expect(discoverSidecar({}, dir, () => {}, [process.pid, process.ppid])).toEqual({ url: 'http://127.0.0.1:4000/t/x', runId: 'r' });
+    expect(discoverSidecar({}, dir, () => {}, [process.ppid])).toBeNull();
   });
 });

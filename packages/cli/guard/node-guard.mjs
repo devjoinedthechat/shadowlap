@@ -4,8 +4,10 @@
 // Shadowlap cannot replay, so it is reported (SHADOWLAP_GUARD=warn) or refused (=block).
 //
 // SHADOWLAP_GUARD=off disables it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets.
+import { readFileSync, realpathSync } from 'node:fs';
 import net from 'node:net';
 import http from 'node:http';
+import { dirname, join } from 'node:path';
 
 const url = process.env.SHADOWLAP_URL;
 const mode = process.env.SHADOWLAP_GUARD ?? 'warn';
@@ -20,8 +22,9 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
   }
   for (const item of (process.env.SHADOWLAP_GUARD_ALLOW ?? '').split(',')) if (item.trim()) allowed.add(item.trim());
   // `shadowlap mcp --url` talks to its server for the agent and records the tool calls itself, so
-  // its connections are not traffic that bypasses Shadowlap. It allows its server's host:port here.
-  globalThis[Symbol.for('shadowlap.guard.allow')] = (key) => allowed.add(String(key));
+  // its connections are not traffic that bypasses Shadowlap: that process alone may allow its
+  // server's host:port. No other process gets the hook, so an agent's code can't lift the guard.
+  if (isShadowlapMcp()) globalThis[Symbol.for('shadowlap.guard.allow')] = (key) => allowed.add(String(key));
   const seen = new Map();
 
   function target(args) {
@@ -75,4 +78,24 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
     }
     return original.apply(this, args);
   };
+}
+
+/** Whether this process is the Shadowlap CLI running `shadowlap mcp`. */
+function isShadowlapMcp() {
+  try {
+    const script = process.argv[1];
+    if (!script) return false;
+    const real = realpathSync(script);
+    const pkg = JSON.parse(readFileSync(join(dirname(dirname(real)), 'package.json'), 'utf8'));
+    if (pkg.name !== 'shadowlap' || join(dirname(dirname(real)), pkg.bin?.shadowlap ?? '') !== real) return false;
+    // The command is the first argument that isn't a global option (--db takes a value).
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--db') i++;
+      else if (!args[i].startsWith('-')) return args[i] === 'mcp';
+    }
+  } catch {
+    // not a script, or not one of ours
+  }
+  return false;
 }

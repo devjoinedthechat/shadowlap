@@ -264,8 +264,9 @@ export function register(program: Command): void {
     .option('--url <server>', "a remote MCP server's endpoint, reached over Streamable HTTP")
     .option('--header <header>', 'a header for every request to the --url server, such as "Authorization: Bearer ${TOKEN}" (repeatable; ${VAR} is read from the environment)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--effect <tool=effect>', 'pure | read | write for a tool, overriding the server\'s annotations (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--allow-http', 'send --header values to a --url server over plain http on a network you trust (http is always accepted for this machine)')
     .passThroughOptions()
-    .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[] }) => {
+    .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean }) => {
       let code: number;
       try {
         code = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);

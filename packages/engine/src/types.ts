@@ -63,6 +63,11 @@ export interface CallMeta {
   scope?: string;
   /** A person's input: a `user_input` tool call whose argument is the prompt and whose result is `{ text }`. */
   input?: boolean;
+  /**
+   * A tool call made through `shadowlap mcp`: the server's transport and its host (`--url`) or
+   * command, and, on the first call to it in a run and whenever they change, the tools it offers.
+   */
+  mcp?: { transport: 'stdio' | 'http'; server: string; tools?: Array<{ name: string; effect: Effect }> };
   [key: string]: unknown;
 }
 

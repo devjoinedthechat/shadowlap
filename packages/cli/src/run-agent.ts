@@ -5,6 +5,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
+import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { type JunitCase } from './junit.js';
@@ -128,9 +129,9 @@ export async function testAttempt(
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
     replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}) },
   });
-  const child = spawn(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (d: Buffer) => (output += d.toString()));
-  child.stderr.on('data', (d: Buffer) => (output += d.toString()));
+  const child = spawnAgent(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] }, { url: sidecar.url, runId: run.runId });
+  child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
+  child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
       output += `failed to start ${parent.command.argv[0]}: ${err.message}\n`;
@@ -282,7 +283,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     // read-only working directory: the environment still carries SHADOWLAP_URL
   }
 
-  const child = spawn(argv[0]!, argv.slice(1), { stdio: 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+  const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
   let interrupted = false;
   const onSignal = (sig: NodeJS.Signals) => {
     interrupted = true;
@@ -352,7 +353,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);
-      const child = spawn(argv[0]!, argv.slice(1), { stdio: streaming ? 'inherit' : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+      const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? 'inherit' : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
       running.add(child);
       let output = '';
       child.stdout?.on('data', (d: Buffer) => (output += d.toString()));
