@@ -87,7 +87,7 @@ Every verdict is kept in the store with its whole report, whether or not `--json
 A verdict counts for a fix only when it checked what the fix checks, on a run that failed it:
 
 - Its oracle has every condition of the fix's check: the same `--expect`, or one that asks for more. A verify without `--expect` checks the exit code alone, so it says nothing about a fix blamed with `--expect '{"tools":{"issue_refund":0}}'`, however many runs it accepts.
-- At least one of the fix's failing runs among its targets and held-out runs failed that oracle as recorded. Fixing runs that already passed proves nothing.
+- At least one of the fix's failing runs among its targets and held-out runs failed that oracle as recorded, or can't be judged from its recording (a check on the agent's output, which is not recorded). Fixing runs that already passed proves nothing.
 
 A verdict that counts brings its runs to the fix: the target and held-out runs that didn't pass as recorded become its failing runs, and the good runs its good runs. An accepted one turns the fix verified. A rejected one counts as a change rejected before it shipped; given after the fix was applied, it means the fix no longer holds, and the fix says so until a later verdict accepts it again. A fix stays verified whatever a later verdict says. A verdict that doesn't count is kept and shown on the fix's Verify step with why, and changes nothing.
 
