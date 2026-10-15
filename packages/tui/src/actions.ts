@@ -1,4 +1,4 @@
-import { commandIsImported, hasRecordedCommand, literalValue, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, literalValue, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
 
 /**
  * The actions palette and the dashboard's fork menu: everything the CLI can do from the selected
@@ -271,11 +271,8 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   const hint = run.divergence?.hints?.find((h) => h.normalizer);
   if (hint?.normalizer) {
     const n = hint.normalizer;
-    const args = ['normalize', 'add', '--path', n.path ?? '$', '--replace', n.replace];
-    if (n.pattern) args.push('--pattern', n.pattern);
-    if (n.kind) args.push('--kind', n.kind);
-    if (n.name) args.push('--name', n.name);
-    actions.push({ key: 'n', label: `Add the suggested normalizer (${n.pattern ?? 'whole value'} at ${n.path ?? '*'})`, flag: 'normalize add', args, opensRun: false });
+    // The same rule the divergence report prints: a hint without a path masks the pattern in every string.
+    actions.push({ key: 'n', label: `Add the suggested normalizer (${n.pattern ?? 'whole value'} at ${n.path ?? '*'})`, flag: 'normalize add', args: normalizeAddArgs(n), opensRun: false });
   }
   actions.push(packAction(id));
   return actions;

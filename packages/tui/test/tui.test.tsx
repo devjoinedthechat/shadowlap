@@ -355,7 +355,7 @@ describe('actions palette', () => {
     expect(toolCall.effect).toBe('read');
     expect(labels.map((l) => l[0])).toEqual(['r', 'o', 't', 'x', 'l', 'a', 'e', 's', 'n', 'p']);
     expect(labels.find((l) => l[0] === 'l')![2]).toEqual(['replay', runId, '--live-tool', toolCall.name]);
-    expect(labels.find((l) => l[0] === 'n')![2]).toEqual(['normalize', 'add', '--path', '$.system', '--replace', '<DATE>', '--pattern', 'iso-date', '--kind', 'api']);
+    expect(labels.find((l) => l[0] === 'n')![2]).toEqual(['normalize', 'add', '--kind', 'api', '--path', '$.system', '--pattern', 'iso-date', '--replace', '<DATE>']);
     store.close();
   });
 });

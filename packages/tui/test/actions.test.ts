@@ -218,3 +218,13 @@ describe('splitCommand', () => {
     expect(splitCommand('')).toEqual([]);
   });
 });
+
+describe('the suggested normalizer', () => {
+  const diverged = (normalizer: { pattern?: string; path?: string; replace: string; kind?: 'api' }) =>
+    run(undefined, { mode: 'replay', parentRunId: 'PARENT', divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, hints: [{ message: 'this looks like a UUID', normalizer }] } as RunRecord['divergence'] });
+
+  it('adds the rule the divergence report prints, with no path for a pattern found in every string', () => {
+    expect(buildActions(diverged({ pattern: 'uuid', replace: '<UUID>' }), undefined).find((a) => a.key === 'n')!.args).toEqual(['normalize', 'add', '--pattern', 'uuid', '--replace', '<UUID>']);
+    expect(buildActions(diverged({ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }), undefined).find((a) => a.key === 'n')!.args).toEqual(['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>']);
+  });
+});
