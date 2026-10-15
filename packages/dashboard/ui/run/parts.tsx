@@ -174,7 +174,17 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           {dialog === 'update' && test ? (
             <UpdateGoldenDialog
               golden={test.golden}
-              normalizer={!!test.volatile?.certain}
+              at={`diverged at #${b.callNo}`}
+              checks={checks.length || null}
+              perRun={test.volatile?.certain ? { path: test.volatile.path, looks: test.volatile.looks } : null}
+              onAddNormalizer={
+                canNormalize
+                  ? () => {
+                      setDialog(null);
+                      job(JOB_KINDS.normalizeAndTest, { runId: r.runId });
+                    }
+                  : null
+              }
               onClose={() => setDialog(null)}
               onOk={() => {
                 setDialog(null);

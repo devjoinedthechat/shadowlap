@@ -34,8 +34,13 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const parent = run.parent ? <a href={href.run(run.parent.runId)}>{shortId(run.parent.runId)}</a> : null;
   const failed = isFailed(like);
   // Why it failed, in the CLI's words: the check it failed, the agent's exit, an interruption.
-  // Short here: the check's words alone; the banner adds what happened.
-  const failure = failureText({ status: r.status, checks: checksOf(run).map((c) => ({ label: c.label, ok: c.ok })), blame: null }) ?? (run.fix?.check && failed ? `check failed: ${run.fix.check}` : null);
+  // A test that diverged failed there, as `shadowlap test` says it; otherwise the check's words alone
+  // (the banner adds what happened), the agent's exit, or the check of the fix blame found it in.
+  const d = r.divergence;
+  const failure =
+    type === 'test' && d && failed
+      ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
+      : (failureText({ status: r.status, checks: checksOf(run).map((c) => ({ label: c.label, ok: c.ok })), blame: null }) ?? (run.fix?.check && failed ? `check failed: ${run.fix.check}` : null));
   const checkFailed = !!failure?.startsWith('check failed');
   const eyebrow = live ? (
     <Eyebrow>recording now</Eyebrow>

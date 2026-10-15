@@ -7,6 +7,7 @@ import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { useApp } from '../state.js';
+import { refusedOffline } from './calls.js';
 import { originOf, tokensText, turnCalls } from './model.js';
 
 /**
@@ -137,9 +138,13 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
         <>
           <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (--fail-at). This is the conversation the agent would have sent.
         </>
+      ) : refusedOffline(c) ? (
+        <>
+          <b>Refused.</b> The replay is offline and this request is not in the recording, so it got HTTP {c.status}. This is what the agent sent.
+        </>
       ) : (
         <>
-          <b>{c.status ? `HTTP ${c.status}.` : 'It failed.'}</b> {c.error ?? 'The call ended in an error.'} This is what the agent sent.
+          <b>{c.status ? `HTTP ${c.status}.` : 'It failed.'}</b> {(c.error ?? 'The call ended in an error').replace(/\.?$/, '.')} This is what the agent sent.
         </>
       )}
     </div>

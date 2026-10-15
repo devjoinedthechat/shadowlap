@@ -85,7 +85,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
       {items.map((it) => (
         <button key={it.key} type="button" role="menuitem" disabled={!!actionsOff && it.key !== 'html'} title={actionsOff && it.key !== 'html' ? actionsOff : undefined} onClick={() => pick(it.key)}>
           <b>{it.label}</b>
-          <small>{it.key === 'link' && offers?.team ? `a redacted report in ${offers.team.store} · expires in 7 days` : it.note}</small>
+          <small title={it.key === 'link' && offers?.team ? `shadowlap share · writes a redacted report to ${offers.team.store}` : undefined}>{it.note}</small>
         </button>
       ))}
       <hr />

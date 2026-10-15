@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { BisectOffer, BlameOffer } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
+import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
 import { bisectCopy, blameCommand, readExpect } from './offers.js';
 
@@ -54,16 +55,56 @@ export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; 
   );
 }
 
-/** Update golden: re-records it live with writes stubbed, replaced only when its checks pass. */
-export function UpdateGoldenDialog({ golden, normalizer, onOk, onClose }: { golden: string; normalizer: boolean; onOk: () => void; onClose: () => void }) {
+/**
+ * Update golden, as the Tests screen words it: what happens (re-recorded live with writes stubbed, its
+ * checks run, replaced only if they pass, reviewed in a pull request), and, when what diverged is a
+ * value made anew on every run, that a normalizer is the lasting fix, with the button to add it instead.
+ */
+export function UpdateGoldenDialog({ golden, at, checks, perRun, onAddNormalizer, onOk, onClose }: { golden: string; at: string; checks: number | null; perRun: { path: string; looks: string } | null; onAddNormalizer: (() => void) | null; onOk: () => void; onClose: () => void }) {
+  const name = golden.replace(/^goldens\//, '');
+  const steps: Array<[string, string]> = [
+    ['Re-recorded live', 'writes stubbed'],
+    ['Its checks run', checks === null ? 'from shadowlap.config.json' : `${checks} ${checks === 1 ? 'check' : 'checks'}`],
+    ['Replaced only if they pass', 'in your working tree'],
+    ['You review the change', 'in your pull request'],
+  ];
   return (
-    <Dialog
-      title={`Update ${golden}?`}
-      text={`Re-records it live with writes stubbed and replaces it only when its checks pass.${normalizer ? ' What diverged changes on every run: a normalizer is the lasting fix, and keeps older recordings matching.' : ''}`}
-      ok="Update golden"
-      onClose={onClose}
-      onOk={onOk}
-    >
+    <Dialog title={`Update ${name}?`} text="Use this when the change was intended. The new recording replaces the old one, and you review it in your pull request." ok={perRun ? 'Update anyway' : 'Update'} onClose={onClose} onOk={onOk}>
+      <div className="rmp">
+        <span className="pa">
+          <Icon name="tests" />
+        </span>
+        <span className="pn">
+          <b>{name}</b>
+          <small>{golden}</small>
+        </span>
+        <span className="rs">{at}</span>
+      </div>
+      <div className="ondisk steps">
+        <span className="k">What happens</span>
+        <ul>
+          {steps.map(([what, where], i) => (
+            <li key={what}>
+              <i aria-hidden="true">{i + 1}</i>
+              <span>{what}</span>
+              <code>{where}</code>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {perRun ? (
+        <div className="dz advise">
+          <b>A normalizer fixes this for good</b>
+          <small>
+            <code>{perRun.path}</code> looks like {perRun.looks}, which changes every run. Updating re-records it, and the next run diverges again.
+          </small>
+          {onAddNormalizer ? (
+            <button className="btn sm" type="button" onClick={onAddNormalizer}>
+              Add the normalizer instead
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <CmdLine>{`shadowlap test ${golden} --update`}</CmdLine>
     </Dialog>
   );

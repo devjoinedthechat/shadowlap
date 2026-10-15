@@ -54,6 +54,11 @@ export function tokensText(c: CallLike): string {
   return `${ktok(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} → ${ktok(c.usage.output)}`;
 }
 
+/** A model call an offline replay refused: not in the recording, so it got HTTP 503 instead of reaching the provider. */
+export function refusedOffline(c: Pick<CallLike, 'status' | 'error'>): boolean {
+  return c.status === 503 && /\boffline\b/i.test(c.error ?? '');
+}
+
 /**
  * The tools each model call asked for, by the calls the run made for it (`requestedBy`), as the Calls
  * view words them: `search_web, read_file`, a tool asked for more than once with its count.
@@ -75,7 +80,7 @@ export function askedTools(calls: ReadonlyArray<{ callNo: number; kind: string; 
  */
 export function callDetail(c: CallLike, asked?: string | null): { text: string; err: boolean } {
   if (c.kind === 'api') {
-    if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : ''}` : (c.error ?? 'error'), err: true };
+    if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : refusedOffline(c) ? ' · refused offline' : ''}` : (c.error ?? 'error'), err: true };
     if (asked) return { text: `→ ${asked}`, err: false };
     if (asked === undefined && c.resultShort) return { text: c.resultShort, err: false };
     return { text: (asked === undefined ? [c.model, c.stopReason] : [c.stopReason]).filter(Boolean).join(' · '), err: false };
