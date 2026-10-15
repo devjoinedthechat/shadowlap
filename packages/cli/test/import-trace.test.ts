@@ -99,12 +99,13 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
         { role: 'user', content: 'Refund order B-7, please.' },
       ],
     });
-    expect(JSON.parse(first!.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id":"B-7"}' } }] } });
+    // The arguments as the model wrote them, which is what the agent sends back.
+    expect(JSON.parse(first!.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] } });
     expect(first!.end.meta.usage).toEqual({ inputTokens: 96, outputTokens: 18 });
     // OpenLLMetry logs a decorated function's arguments as { args, kwargs }.
     expect(tool!.request).toEqual({ args: { order_id: 'B-7' } });
     expect((second!.request.messages as unknown[]).slice(2)).toEqual([
-      { role: 'assistant', content: null, tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id":"B-7"}' } }] },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] },
       { role: 'tool', tool_call_id: 'call_9x', content: '{"order_id": "B-7", "amount": 40}' },
     ]);
     expect(JSON.parse(second!.response as string).choices[0].message.content).toBe('Refunded $40 for order B-7.');
@@ -134,6 +135,61 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     store.close();
   });
 
+  it('reads the events the official instrumentations send as log records, tied to their spans', () => {
+    const read = otel('otel-logs.jsonl');
+    expect(read.traces).toHaveLength(1);
+    const store = open();
+    const { result, counts } = importTrace(store, read.traces[0]!, { source: 'otel-logs.jsonl' });
+    expect(counts).toMatchObject({ modelCalls: 2, modelCallsImported: 2 });
+    const [first, second] = callsOf(store, result.run.runId);
+    expect(first!.request).toEqual({
+      model: 'gpt-4.1-mini',
+      temperature: 0,
+      messages: [
+        { role: 'system', content: 'You are a billing assistant. Look invoices up before you explain a charge.' },
+        { role: 'user', content: 'Why was I charged twice for invoice 7?' },
+      ],
+    });
+    expect(JSON.parse(first!.response as string)).toMatchObject({ id: 'chatcmpl-Bx81', choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_inv7', function: { name: 'get_invoice', arguments: '{"invoice_id": 7}' } }] } }] });
+    expect((second!.request.messages as unknown[]).slice(2)).toEqual([
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call_inv7', type: 'function', function: { name: 'get_invoice', arguments: '{"invoice_id": 7}' } }] },
+      { role: 'tool', tool_call_id: 'call_inv7', content: '{"invoice_id": 7, "lines": [{"amount": 49, "kind": "charge"}, {"amount": 49, "kind": "authorization hold"}]}' },
+    ]);
+    expect(JSON.parse(second!.response as string).choices[0].message.content).toBe('You were charged once. The second line is an authorization hold, which drops off within 3 days.');
+    store.close();
+  });
+
+  it('reads the messages of an inference details event as the span\'s own', () => {
+    const value = (v: unknown): unknown =>
+      typeof v === 'string' ? { stringValue: v } : Array.isArray(v) ? { arrayValue: { values: v.map(value) } } : { kvlistValue: { values: Object.entries(v as object).map(([key, x]) => ({ key, value: value(x) })) } };
+    const read = readOtel([
+      { resourceSpans: [{ scopeSpans: [{ spans: [{ traceId: 'a1', spanId: 's1', name: 'chat claude-haiku-4-5', attributes: [{ key: 'gen_ai.operation.name', value: { stringValue: 'chat' } }, { key: 'gen_ai.provider.name', value: { stringValue: 'anthropic' } }, { key: 'gen_ai.request.model', value: { stringValue: 'claude-haiku-4-5' } }] }] }] }] },
+      {
+        resourceLogs: [
+          {
+            scopeLogs: [
+              {
+                logRecords: [
+                  {
+                    traceId: 'a1',
+                    spanId: 's1',
+                    eventName: 'gen_ai.client.inference.operation.details',
+                    attributes: [
+                      { key: 'gen_ai.input.messages', value: value([{ role: 'user', parts: [{ type: 'text', content: 'Is invoice 7 paid?' }] }]) },
+                      { key: 'gen_ai.output.messages', value: value([{ role: 'assistant', parts: [{ type: 'text', content: 'Yes, on Oct 2.' }], finish_reason: 'stop' }]) },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const [call] = read.traces[0]!.calls;
+    expect(call).toMatchObject({ kind: 'model', messages: [{ role: 'user', parts: [{ type: 'text', text: 'Is invoice 7 paid?' }] }], output: { parts: [{ type: 'text', text: 'Yes, on Oct 2.' }] } });
+  });
+
   it('reads a trace downloaded from Grafana Tempo, which calls resourceSpans batches', () => {
     const exported = JSON.parse(fixture('otel-genai.json')) as { resourceSpans: unknown[] };
     const read = readOtel([{ batches: exported.resourceSpans }]);
@@ -157,6 +213,43 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     const read = readOtel([{ resourceSpans: [{ scopeSpans: [{ spans: [span('a', 'b'), span('b', 'a')] }] }] }]);
     expect(read.traces[0]!.calls).toHaveLength(0);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('ignores a flattened attribute whose index no conversation reaches, rather than building an array that long', () => {
+    const attr = (key: string, value: string) => ({ key, value: { stringValue: value } });
+    const started = Date.now();
+    const read = readOtel([
+      {
+        resourceSpans: [
+          {
+            scopeSpans: [
+              {
+                spans: [
+                  {
+                    traceId: 't',
+                    spanId: 's',
+                    name: 'openai.chat',
+                    attributes: [
+                      attr('llm.request.type', 'chat'),
+                      attr('gen_ai.system', 'openai'),
+                      attr('gen_ai.prompt.0.role', 'user'),
+                      attr('gen_ai.prompt.0.content', 'hi'),
+                      attr('gen_ai.prompt.0.tool_calls.4294967294.name', 'x'),
+                      attr('gen_ai.prompt.4294967294.role', 'user'),
+                      attr('gen_ai.prompt.99999999999999999999.content', 'far'),
+                      attr('gen_ai.completion.0.tool_calls.1001.name', 'y'),
+                      attr('gen_ai.completion.0.content', 'hello'),
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(read.traces[0]!.calls[0]).toMatchObject({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }], output: { parts: [{ type: 'text', text: 'hello' }] } });
   });
 });
 
@@ -333,7 +426,10 @@ describe('reading a trace store', () => {
     expect(traceStoreHost('https://langfuse.example.com/', 'Langfuse')).toBe('https://langfuse.example.com');
     expect(traceStoreHost('http://127.0.0.1:3000', 'Langfuse')).toBe('http://127.0.0.1:3000');
     expect(traceStoreHost('https://ls.example.com/api/v1?x=1', 'LangSmith')).toBe('https://ls.example.com/api/v1');
-    expect(() => traceStoreHost('http://langfuse.internal:3000', 'Langfuse')).toThrow(/use https/);
+    expect(() => traceStoreHost('http://langfuse.internal:3000', 'Langfuse')).toThrow(/use https.*--allow-http/);
+    expect(traceStoreHost('http://langfuse.internal:3000', 'Langfuse', true)).toBe('http://langfuse.internal:3000');
+    expect(traceStoreHost('http://127.0.0.2:3000', 'Langfuse')).toBe('http://127.0.0.2:3000');
+    expect(traceStoreHost('http://[::1]:3000', 'Langfuse')).toBe('http://[::1]:3000');
     expect(() => traceStoreHost('https://pk:sk@cloud.langfuse.com', 'Langfuse')).toThrow(/credentials/);
     expect(() => traceStoreHost('ftp://x', 'Langfuse')).toThrow(/https/);
     expect(() => traceStoreHost('cloud.langfuse.com', 'Langfuse')).toThrow(/needs a URL/);

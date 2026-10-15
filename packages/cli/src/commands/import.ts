@@ -11,7 +11,7 @@ import { traceStoreHost } from '../import-fetch.js';
 import { fetchLangfuseTrace, LANGFUSE_HOST, readLangfuse } from '../import-langfuse.js';
 import { fetchLangsmithRuns, LANGSMITH_HOST, readLangsmith } from '../import-langsmith.js';
 import { parseOtlpFile, readOtel } from '../import-otel.js';
-import { settleImport, sourceName, type ImportJson, type TraceKept } from '../import-report.js';
+import { fileSource, settleImport, type ImportJson, type TraceKept } from '../import-report.js';
 import { importTrace, type Trace, type TraceImport } from '../import-trace.js';
 import { openStore, type GlobalOpts } from '../shared.js';
 import { palette as p, shortId } from '../ui.js';
@@ -112,10 +112,10 @@ function traceIdArg(raw: string): string {
 }
 
 /** The trace store's address: --host, else the variable its own SDK reads, else its public API. */
-function hostFor(flag: string | undefined, envNames: string[], fallback: string, what: string): string {
+function hostFor(flag: string | undefined, envNames: string[], fallback: string, what: string, allowHttp = false): string {
   const fromEnv = envNames.map((n) => process.env[n]?.trim()).find(Boolean);
   try {
-    return traceStoreHost(flag ?? fromEnv ?? fallback, what);
+    return traceStoreHost(flag ?? fromEnv ?? fallback, what, allowHttp);
   } catch (err) {
     throw new InvalidArgumentError((err as Error).message);
   }
@@ -160,7 +160,9 @@ export function register(program: Command): void {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const who = author();
-        const runs: Array<{ key: string | null; result: ImportResult }> = [];
+        // A proxy with several workers writes one file per worker, so one agent run can be spread
+        // over them: its calls are put back together by correlation id, in the order they started.
+        const byKey = new Map<string | null, { group: LitellmGroup; files: string[] }>();
         let entries = 0;
         for (const file of files) {
           const path = resolve(file);
@@ -174,12 +176,23 @@ export function register(program: Command): void {
           try {
             groups = readLitellmGroups(contents);
           } catch (err) {
-            throw new InvalidArgumentError((err as Error).message);
+            throw new InvalidArgumentError(`${file}: ${(err as Error).message}`);
           }
           for (const group of groups) {
             entries += group.calls.length + group.skipped.length;
-            runs.push({ key: group.key, result: importCaptured(store, group, { source: path, author: who }) });
+            const merged = byKey.get(group.key);
+            if (!merged) byKey.set(group.key, { group: { key: group.key, calls: [...group.calls], skipped: [...group.skipped] }, files: [path] });
+            else {
+              merged.group.calls.push(...group.calls);
+              merged.group.skipped.push(...group.skipped);
+              if (!merged.files.includes(path)) merged.files.push(path);
+            }
           }
+        }
+        const runs: Array<{ key: string | null; result: ImportResult }> = [];
+        for (const { group, files: from } of byKey.values()) {
+          if (from.length > 1 && group.calls.every((c) => typeof c.startedAt === 'number')) group.calls.sort((a, b) => a.startedAt! - b.startedAt!);
+          runs.push({ key: group.key, result: importCaptured(store, group, { source: fileSource(from), author: who }) });
         }
 
         const json = settleImport(store, { format: 'litellm', entries, runs, author: who });
@@ -230,7 +243,7 @@ export function register(program: Command): void {
             throw new InvalidArgumentError((err as Error).message);
           }
           const who = author();
-          const result = importCaptured(store, captured, { source: resolve(file), author: who });
+          const result = importCaptured(store, captured, { source: fileSource([resolve(file)]), author: who });
           const json = settleImport(store, { format: f.name, entries: captured.calls.length + captured.skipped.length, runs: [{ key: null, result }], author: who });
           if (flags.json === true) printJson(json);
           else report(result, f.note);
@@ -243,21 +256,30 @@ export function register(program: Command): void {
   importCmd
     .command('otel')
     .description('Model and tool calls out of OpenTelemetry traces (OTLP JSON) with the GenAI semantic conventions, as partial recordings, one run per trace')
-    .argument('<file>', 'OTLP JSON: an export request, or one per line as the collector\'s file exporter writes them')
+    .argument('<file...>', "OTLP JSON: an export request, or one per line as the collector's file exporter writes them; traces and their logs (the GenAI events) may come in separate files")
     .option('--json', 'machine-readable output: every run made, with its full id, source and call counts, and what the traces kept')
-    .action((file: string, flags: { json?: boolean }) => {
-      const path = resolve(file);
+    .action((files: string[], flags: { json?: boolean }) => {
+      const paths = files.map((f) => resolve(f));
       let read: ReturnType<typeof readOtel>;
       try {
-        read = readOtel(parseOtlpFile(readFileSync(path, 'utf8')));
+        const payloads = paths.flatMap((path, i) => {
+          try {
+            return parseOtlpFile(readFileSync(path, 'utf8'));
+          } catch (err) {
+            throw new Error(`${files[i]}: ${(err as Error).message}`);
+          }
+        });
+        read = readOtel(payloads);
       } catch (err) {
-        throw new InvalidArgumentError(`${file}: ${(err as Error).message}`);
+        const message = (err as Error).message;
+        throw new InvalidArgumentError(files.some((f) => message.startsWith(`${f}: `)) ? message : `${files.join(', ')}: ${message}`);
       }
+      const source = fileSource(paths);
       const store = openStore(program.opts<GlobalOpts>());
       try {
-        const { json, results } = importTraces(store, 'otel', read.traces, { source: path, spans: read.spans, author: author() });
+        const { json, results } = importTraces(store, 'otel', read.traces, { source, spans: read.spans, author: author() });
         if (flags.json === true) printJson(json);
-        else reportTraces(json, results, { source: sourceName(path), unit: 'span' });
+        else reportTraces(json, results, { source, unit: 'span' });
       } finally {
         store.close();
       }
@@ -268,12 +290,13 @@ export function register(program: Command): void {
     .description('A Langfuse trace as a partial recording: generations become model calls, tool spans that kept their input and output become tool calls. Reads LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY')
     .argument('<trace-id>', "the id on the trace's page in Langfuse", traceIdArg)
     .option('--host <url>', `the Langfuse API, for a self-hosted instance or another region (default: LANGFUSE_HOST, else ${LANGFUSE_HOST})`)
+    .option('--allow-http', 'send the keys over plain http to a --host on a network you trust (http is always accepted for this machine)')
     .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and what the trace kept')
-    .action(async (traceId: string, flags: { host?: string; json?: boolean }) => {
+    .action(async (traceId: string, flags: { host?: string; allowHttp?: boolean; json?: boolean }) => {
       const publicKey = process.env.LANGFUSE_PUBLIC_KEY?.trim();
       const secretKey = process.env.LANGFUSE_SECRET_KEY?.trim();
       if (!publicKey || !secretKey) throw new InvalidArgumentError("import langfuse reads the project's keys from LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY; set both (they are on the project's settings page in Langfuse)");
-      const host = hostFor(flags.host, ['LANGFUSE_HOST', 'LANGFUSE_BASE_URL'], LANGFUSE_HOST, 'Langfuse');
+      const host = hostFor(flags.host, ['LANGFUSE_HOST', 'LANGFUSE_BASE_URL'], LANGFUSE_HOST, 'Langfuse', flags.allowHttp === true);
       const trace = readLangfuse(await fetchLangfuseTrace(traceId, { host, publicKey, secretKey }));
       const source = `langfuse:${traceId.slice(0, 8)}`;
       const store = openStore(program.opts<GlobalOpts>());
@@ -291,11 +314,12 @@ export function register(program: Command): void {
     .description('A LangSmith trace as a partial recording: llm runs become model calls, tool runs that kept their inputs and outputs become tool calls. Reads LANGSMITH_API_KEY')
     .argument('<trace-id>', "the trace's id (its root run's id) in LangSmith", traceIdArg)
     .option('--host <url>', `the LangSmith API, for a self-hosted instance or another region (default: LANGSMITH_ENDPOINT, else ${LANGSMITH_HOST})`)
+    .option('--allow-http', 'send the key over plain http to a --host on a network you trust (http is always accepted for this machine)')
     .option('--json', 'machine-readable output: the run made, with its full id, source and call counts, and what the trace kept')
-    .action(async (traceId: string, flags: { host?: string; json?: boolean }) => {
+    .action(async (traceId: string, flags: { host?: string; allowHttp?: boolean; json?: boolean }) => {
       const apiKey = (process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY)?.trim();
       if (!apiKey) throw new InvalidArgumentError('import langsmith reads the API key from LANGSMITH_API_KEY; set it (Settings → API Keys in LangSmith)');
-      const host = hostFor(flags.host, ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], LANGSMITH_HOST, 'LangSmith');
+      const host = hostFor(flags.host, ['LANGSMITH_ENDPOINT', 'LANGCHAIN_ENDPOINT'], LANGSMITH_HOST, 'LangSmith', flags.allowHttp === true);
       const runs = await fetchLangsmithRuns(traceId, { host, apiKey });
       const trace = readLangsmith(runs, traceId);
       const source = `langsmith:${traceId.slice(0, 8)}`;

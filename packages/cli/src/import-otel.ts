@@ -32,7 +32,10 @@ import {
  *   `gen_ai.content.completion` events, or flattened into `gen_ai.prompt.0.role`,
  *   `gen_ai.prompt.0.content`, … as OpenLLMetry writes them;
  * - the per-message events `gen_ai.system.message`, `gen_ai.user.message`, `gen_ai.assistant.message`,
- *   `gen_ai.tool.message` and `gen_ai.choice`.
+ *   `gen_ai.tool.message` and `gen_ai.choice`, on the span or as log records (`resourceLogs`), which
+ *   is where the official instrumentations (openai-v2, vertexai, google-genai) put them, tied to
+ *   their span by its id;
+ * - the `gen_ai.client.inference.operation.details` event, whose message attributes count as the span's.
  * Tool calls are `execute_tool` spans with `gen_ai.tool.name`, `gen_ai.tool.call.arguments` and
  * `gen_ai.tool.call.result` (or OpenLLMetry's `traceloop.entity.input` and `output`).
  */
@@ -45,8 +48,15 @@ interface Span {
   start: number | null;
   end: number | null;
   attrs: Record<string, unknown>;
-  events: Array<{ name: string; attrs: Record<string, unknown> }>;
+  events: SpanEvent[];
   error: string | null;
+}
+
+interface SpanEvent {
+  name: string;
+  attrs: Record<string, unknown>;
+  /** Milliseconds, for putting a span's own events and its log records in one order. */
+  time: number | null;
 }
 
 /** An OTLP `AnyValue`; plain values are taken as they are, for exporters that write attributes as an object. */
@@ -72,15 +82,23 @@ function attributes(raw: unknown): Record<string, unknown> {
 /** Nanoseconds since the epoch (a string in OTLP JSON) as milliseconds. */
 function nanosToMs(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return Math.floor(v / 1e6);
-  if (typeof v !== 'string' || !/^\d+$/.test(v)) return null;
+  if (typeof v !== 'string' || !/^\d{1,25}$/.test(v)) return null;
   return Number(BigInt(v) / 1_000_000n);
 }
 
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
+ * The largest index a flattened attribute may carry, at any depth. Real conversations and tool
+ * call lists are far below it; an index from a file is otherwise an array length an attacker
+ * chooses (`tool_calls.4294967294.name` would make a four-billion-slot array to walk).
+ */
+const MAX_INDEX = 1000;
+
+/**
  * Rows of flattened attributes: `gen_ai.prompt.0.role`, `gen_ai.prompt.0.tool_calls.1.name` →
- * `[{ role, tool_calls: [, { name }] }]`, ordered by index.
+ * `[{ role, tool_calls: [, { name }] }]`, ordered by index. An attribute whose path holds an
+ * index beyond {@link MAX_INDEX} is left out.
  */
 function indexed(attrs: Record<string, unknown>, prefix: string): Array<Record<string, unknown>> {
   const rows = new Map<number, Record<string, unknown>>();
@@ -88,8 +106,8 @@ function indexed(attrs: Record<string, unknown>, prefix: string): Array<Record<s
   for (const [key, value] of Object.entries(attrs)) {
     if (!key.startsWith(head)) continue;
     const path = key.slice(head.length).split('.');
-    const index = Number(path[0]);
-    if (!Number.isInteger(index) || index < 0 || path.length < 2 || path.some((p) => UNSAFE.has(p))) continue;
+    const index = /^\d{1,4}$/.test(path[0]!) ? Number(path[0]) : NaN;
+    if (!(index <= MAX_INDEX) || path.length < 2 || path.some((p) => UNSAFE.has(p) || (/^\d+$/.test(p) && !(p.length <= 4 && Number(p) <= MAX_INDEX)))) continue;
     let node: Record<string, unknown> | unknown[] = rows.get(index) ?? {};
     rows.set(index, node as Record<string, unknown>);
     for (let i = 1; i < path.length; i++) {
@@ -249,9 +267,43 @@ function modelCall(s: Span): TraceModelCall {
   };
 }
 
+/** The message attributes a `gen_ai.client.inference.operation.details` event carries for its span. */
+const DETAILS = ['gen_ai.input.messages', 'gen_ai.output.messages', 'gen_ai.system_instructions', 'gen_ai.tool.definitions'];
+
+/**
+ * GenAI events sent as log records (`resourceLogs`), by the span they belong to: `traceId/spanId`.
+ * An event's name is the record's `eventName`, else its `event.name` attribute; its body joins its
+ * attributes as `body`, where the per-message readers look for it.
+ */
+function logEventsOf(requests: unknown[]): Map<string, SpanEvent[]> {
+  const out = new Map<string, SpanEvent[]>();
+  for (const request of requests) {
+    const resources = isObject(request) && Array.isArray(request.resourceLogs) ? request.resourceLogs : [];
+    for (const rl of resources) {
+      if (!isObject(rl)) continue;
+      const scopes = Array.isArray(rl.scopeLogs) ? rl.scopeLogs : Array.isArray(rl.instrumentationLibraryLogs) ? rl.instrumentationLibraryLogs : [];
+      for (const sl of scopes) {
+        if (!isObject(sl) || !Array.isArray(sl.logRecords)) continue;
+        for (const record of sl.logRecords) {
+          if (!isObject(record)) continue;
+          const attrs = attributes(record.attributes);
+          const name = str(record.eventName) ?? str(attrs['event.name']) ?? '';
+          if (!name.startsWith('gen_ai.') || typeof record.spanId !== 'string' || !record.spanId) continue;
+          const key = `${clean(record.traceId, 64)}/${record.spanId}`;
+          const body = anyValue(record.body);
+          const event: SpanEvent = { name, attrs: { ...attrs, ...(body !== undefined ? { body } : {}) }, time: nanosToMs(record.timeUnixNano ?? record.observedTimeUnixNano) };
+          out.set(key, [...(out.get(key) ?? []), event]);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function spansOf(payload: unknown): Span[] {
   const out: Span[] = [];
   const requests = Array.isArray(payload) ? payload : [payload];
+  const logged = logEventsOf(requests);
   for (const request of requests) {
     // Grafana Tempo downloads a trace with the same content under `batches`.
     const resources = isObject(request) ? (Array.isArray(request.resourceSpans) ? request.resourceSpans : Array.isArray(request.batches) ? request.batches : null) : null;
@@ -266,15 +318,23 @@ function spansOf(payload: unknown): Span[] {
           const status = isObject(raw.status) ? raw.status : {};
           const attrs = attributes(raw.attributes);
           const failed = status.code === 2 || status.code === 'STATUS_CODE_ERROR';
+          const traceId = clean(raw.traceId, 64);
+          const spanId = String(raw.spanId ?? '');
+          const own: SpanEvent[] = (Array.isArray(raw.events) ? raw.events : []).filter(isObject).map((e) => ({ name: String(e.name ?? ''), attrs: attributes(e.attributes), time: nanosToMs(e.timeUnixNano) }));
+          const fromLogs = logged.get(`${traceId}/${spanId}`) ?? [];
+          // Stable, so events at the same instant keep the order they were written in.
+          const events = fromLogs.length ? [...own, ...fromLogs].sort((a, b) => (a.time ?? 0) - (b.time ?? 0)) : own;
+          const details = events.find((e) => e.name === 'gen_ai.client.inference.operation.details');
+          if (details) for (const key of DETAILS) if (attrs[key] === undefined && details.attrs[key] !== undefined) attrs[key] = details.attrs[key];
           out.push({
-            traceId: clean(raw.traceId, 64),
-            spanId: String(raw.spanId ?? ''),
+            traceId,
+            spanId,
             parentSpanId: String(raw.parentSpanId ?? ''),
             name: clean(raw.name),
             start: nanosToMs(raw.startTimeUnixNano),
             end: nanosToMs(raw.endTimeUnixNano),
             attrs,
-            events: (Array.isArray(raw.events) ? raw.events : []).filter(isObject).map((e) => ({ name: String(e.name ?? ''), attrs: attributes(e.attributes) })),
+            events,
             error: failed ? clean(str(status.message) ?? str(attrs['error.type']) ?? 'error', 500) : null,
           });
         }
@@ -284,7 +344,7 @@ function spansOf(payload: unknown): Span[] {
   return out;
 }
 
-/** The OTLP requests in a file: one JSON object (or an array of them), or one object per line. */
+/** The OTLP requests in a file: one JSON object (or an array of them), or one object per line. Traces and logs may sit in the same file or in separate ones. */
 export function parseOtlpFile(contents: string): unknown[] {
   const text = contents.replace(/^﻿/, '');
   try {
@@ -300,7 +360,7 @@ export function parseOtlpFile(contents: string): unknown[] {
         // a partly written last line of an exporter still appending
       }
     }
-    if (!out.length) throw new Error('not OTLP JSON: expected an object with "resourceSpans", or one per line');
+    if (!out.length) throw new Error('not OTLP JSON: expected an object with "resourceSpans" (or "resourceLogs"), or one per line');
     return out;
   }
 }

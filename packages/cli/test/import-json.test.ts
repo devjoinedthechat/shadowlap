@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { loadApiRequest, Store } from '@shadowlap/engine';
 import { settleImport, sourceName } from '../src/import-report.js';
 import { importHar } from '../src/import-har.js';
 
@@ -76,6 +76,30 @@ beforeAll(() => {
   writeFileSync(join(cwd, 'traffic.har'), JSON.stringify({ log: { version: '1.2', entries: [harEntry('https://api.anthropic.com/v1/messages', 'hi'), harEntry('https://telemetry.example.com/v1/collect', 'x'), harEntry('https://api.anthropic.com/v1/messages', 'again')] } }));
   writeFileSync(join(cwd, 'gateway.jsonl'), [capture('incident-42', 'one'), capture('incident-43', 'two'), capture('incident-42', 'three'), '{"half a line'].join('\n') + '\n');
   writeFileSync(join(cwd, 'empty.har'), JSON.stringify({ log: { version: '1.2', entries: [harEntry('https://telemetry.example.com/v1/collect', 'x')] } }));
+  const body = (question: string) => ({ model: 'claude-haiku-4-5', max_tokens: 64, messages: [{ role: 'user', content: question }] });
+  writeFileSync(
+    join(cwd, 'recording.json'),
+    JSON.stringify([
+      { scope: 'https://api.anthropic.com:443', method: 'POST', path: '/v1/messages', body: body('hi'), status: 200, response: JSON.parse(answer('hello')), rawHeaders: ['content-type', 'application/json'] },
+      { scope: 'https://telemetry.example.com:443', method: 'POST', path: '/v1/collect', body: {}, status: 204, response: '' },
+    ]),
+  );
+  writeFileSync(
+    join(cwd, 'refund_cassette.json'),
+    JSON.stringify({
+      interactions: [
+        {
+          request: { method: 'POST', uri: 'https://api.anthropic.com/v1/messages', body: JSON.stringify(body('refund?')), headers: { 'content-type': ['application/json'] } },
+          response: { status: { code: 200, message: 'OK' }, headers: { 'content-type': ['application/json'] }, body: { string: answer('no') } },
+        },
+      ],
+      version: 1,
+    }),
+  );
+  // One agent run spread over two worker files, its calls interleaved with another run's.
+  const at = (runKey: string, question: string, startedAt: number) => JSON.stringify({ ...JSON.parse(capture(runKey, question)), startedAt });
+  writeFileSync(join(cwd, 'worker-1.jsonl'), [at('incident-50', 'first', 1000), at('incident-51', 'other', 1500), at('incident-50', 'third', 3000)].join('\n') + '\n');
+  writeFileSync(join(cwd, 'worker-2.jsonl'), [at('incident-50', 'second', 2000)].join('\n') + '\n');
 });
 afterAll(() => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
@@ -88,7 +112,8 @@ describe('import --json', () => {
     expect(json.runs).toHaveLength(1);
     const [run] = json.runs;
     expect(run.runId).toMatch(/^[0-9A-Z]{26}$/);
-    expect(run).toMatchObject({ source: join(cwd, 'traffic.har'), key: null, calls: { model: 2, tool: 0 }, labels: ['imported'] });
+    // The file's name, never its folder, which is this machine's and would travel with the store.
+    expect(run).toMatchObject({ source: 'traffic.har', key: null, calls: { model: 2, tool: 0 }, labels: ['imported'] });
     expect(run.imported.map((c: { callNo: number; kind: string }) => [c.callNo, c.kind])).toEqual([
       [1, 'api'],
       [2, 'api'],
@@ -123,6 +148,35 @@ describe('import --json', () => {
     expect(new Set(json.runs.map((x: { runId: string }) => x.runId)).size).toBe(2);
     expect(json.skipped).toEqual([{ url: 'line 4', reason: 'not JSON (a partly written line?)' }]);
     expect(r.events.filter((e) => e.type === 'run')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'run', runId: x.runId, role: 'imported' })));
+  });
+
+  it('puts an agent run back together from the files of several workers, in the order its calls started', async () => {
+    const r = await shadowlap(['import', 'litellm', 'worker-1.jsonl', 'worker-2.jsonl', '--json']);
+    expect(r.code).toBe(0);
+    const json = JSON.parse(r.out);
+    expect(json.entries).toBe(4);
+    expect(json.runs.map((x: { key: string; source: string; calls: { model: number } }) => [x.key, x.source, x.calls.model])).toEqual([
+      ['incident-50', 'worker-1.jsonl, worker-2.jsonl', 3],
+      ['incident-51', 'worker-1.jsonl', 1],
+    ]);
+    const store = Store.open(db);
+    try {
+      const questions = store.getCalls(json.runs[0].runId).map((c) => (loadApiRequest(store, c.requestRef!) as { messages: Array<{ content: string }> }).messages[0]!.content);
+      expect(questions).toEqual(['first', 'second', 'third']);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('gives the same object for nock and VCR, through the CLI', async () => {
+    const nock = await shadowlap(['import', 'nock', 'recording.json', '--json']);
+    expect(nock.code).toBe(0);
+    const n = JSON.parse(nock.out);
+    expect(n).toMatchObject({ format: 'nock', entries: 2, runs: [{ source: 'recording.json', key: null, calls: { model: 1, tool: 0 }, labels: ['imported'] }], skipped: [{ reason: 'not a model API host' }] });
+    expect(nock.events).toEqual([{ type: 'run', runId: n.runs[0].runId, role: 'imported' }, { type: 'result', data: n }]);
+    const vcr = await shadowlap(['import', 'vcr', 'refund_cassette.json', '--json']);
+    expect(vcr.code).toBe(0);
+    expect(JSON.parse(vcr.out)).toMatchObject({ format: 'vcr', entries: 1, runs: [{ source: 'refund_cassette.json', calls: { model: 1, tool: 0 } }], skipped: [] });
   });
 
   it('prints an empty list and fails when nothing could be imported, keeping no empty run', async () => {

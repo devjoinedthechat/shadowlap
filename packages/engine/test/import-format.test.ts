@@ -30,21 +30,40 @@ describe('guessImportFormat', () => {
     }
   });
 
-  it('lets unmistakable content win over a name that misdescribes it', () => {
+  it('goes by the top-level keys when the name says nothing about the format', () => {
     const otlp = '{"resourceSpans":[{"resource":{"attributes":[]},"scopeSpans":[]}]}';
     expect(guessImportFormat('export.json', otlp)).toEqual({ format: 'otel' });
     expect(guessImportFormat('collector-out.jsonl', otlp + '\n' + otlp)).toEqual({ format: 'otel' });
+    expect(guessImportFormat('collector-logs.json', '{"resourceLogs":[]}')).toEqual({ format: 'otel' });
+    expect(guessImportFormat('tempo-download.json', '{"batches":[]}')).toEqual({ format: 'otel' });
     expect(guessImportFormat('session.json', '{\n  "log": {\n    "version": "1.2",\n    "entries": []\n  }\n}')).toEqual({ format: 'har' });
-    expect(guessImportFormat('trace.json', '{"interactions":[{"request":{}}],"version":1}')).toEqual({ format: 'vcr' });
-    expect(guessImportFormat('otel.json', '[{"scope":"https://api.openai.com:443","method":"POST"}]')).toEqual({ format: 'nock' });
+    expect(guessImportFormat('refunds.json', '{"interactions":[{"request":{}}],"version":1}')).toEqual({ format: 'vcr' });
     expect(guessImportFormat('gateway.json', '{"format":"shadowlap-capture","v":1}')).toEqual({ format: 'litellm' });
+    expect(guessImportFormat('recording.json', '[{"scope":"https://api.openai.com:443","method":"POST"}]')).toEqual({ format: 'nock' });
     // Bytes work as well as text, and a byte-order mark is no obstacle.
     expect(guessImportFormat('export.json', new TextEncoder().encode('\uFEFF' + otlp))).toEqual({ format: 'otel' });
+    // Only the start of a long file is given: its first key is enough.
+    expect(guessImportFormat('export.json', `{"resourceSpans":[${'{"x":1},'.repeat(1000)}`)).toEqual({ format: 'otel' });
+  });
+
+  it('reads nothing a body or a span holds, and never lets content override a name that says the format', () => {
+    // A nock recording of a call that sent a tool schema with "log" and "entries" properties.
+    const schema = JSON.stringify([{ scope: 'https://api.anthropic.com:443', method: 'POST', path: '/v1/messages', body: { tools: [{ input_schema: { properties: { log: { type: 'object', properties: { entries: { type: 'array' } } } } } }] } }]);
+    expect(guessImportFormat('recording.json', schema)).toEqual({ format: 'nock' });
+    // A cassette whose recorded response mentions resourceSpans is still a cassette.
+    expect(guessImportFormat('cassette.json', JSON.stringify({ interactions: [{ response: { body: { string: '{"resourceSpans":[]}' } } }] }))).toEqual({ format: 'vcr' });
+    expect(guessImportFormat('refunds.json', JSON.stringify({ interactions: [{ response: { body: { resourceSpans: [] } } }] }))).toEqual({ format: 'vcr' });
+    expect(guessImportFormat('trace.json', '{"interactions":[{"request":{}}],"version":1}')).toEqual({ format: 'otel' });
+    expect(guessImportFormat('otel.json', '[{"scope":"https://api.openai.com:443","method":"POST"}]')).toEqual({ format: 'otel' });
+    expect(guessImportFormat('traffic.har', '{"resourceSpans":[]}')).toEqual({ format: 'har' });
+    expect(guessImportFormat('otel-export.jsonl', '{"format":"shadowlap-capture"}')).toEqual({ format: 'otel' });
+    expect(guessImportFormat('shadowlap-4121.jsonl', '{"format":"shadowlap-capture","v":1}')).toEqual({ format: 'litellm' });
   });
 
   it('keeps the name-based guess when the content says nothing, and never un-refuses YAML', () => {
     expect(guessImportFormat('otel.json', '{"something":"else"}')).toEqual({ format: 'otel' });
     expect(guessImportFormat('recording.json', 'not json at all')).toEqual({ format: 'nock' });
+    expect(guessImportFormat('recording.json', '{"note":"a \\"log\\": here","log2":{}}')).toEqual({ format: 'nock' });
     expect(guessImportFormat('cassette.yaml', '{"interactions":[]}').format).toBeNull();
   });
 

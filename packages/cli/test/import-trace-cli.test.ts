@@ -92,7 +92,19 @@ describe('shadowlap import otel', () => {
     expect(json).toMatchObject({ format: 'otel', entries: 5, skipped: [] });
     expect(json.kept).toEqual({ traces: 1, spans: 5, modelCalls: 2, modelCallsImported: 2, withSettings: 2, withToolDefinitions: 2, toolCalls: 1, toolCallsKept: 1 });
     expect(json.runs).toHaveLength(1);
-    expect(json.runs[0]).toMatchObject({ source: join(cwd, 'otel-traces.json'), key: '4bf92f3577b34da6a3ce929d0e0e4736', calls: { model: 2, tool: 1 }, labels: ['imported', 'otel'] });
+    expect(json.runs[0]).toMatchObject({ source: 'otel-traces.json', key: '4bf92f3577b34da6a3ce929d0e0e4736', calls: { model: 2, tool: 1 }, labels: ['imported', 'otel'] });
+  });
+
+  it('reads traces and the log records with their messages from separate files', async () => {
+    const [traces, logs] = fixture('otel-logs.jsonl').trim().split('\n');
+    writeFileSync(join(cwd, 'traces.json'), traces!);
+    writeFileSync(join(cwd, 'logs.json'), logs!);
+    const alone = await shadowlap(['import', 'otel', 'traces.json', '--json']);
+    expect(JSON.parse(alone.out).runs).toEqual([]);
+    const r = await shadowlap(['import', 'otel', 'traces.json', 'logs.json', '--json']);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out).runs[0]).toMatchObject({ source: 'traces.json, logs.json', calls: { model: 2, tool: 0 } });
+    expect((await shadowlap(['import', 'otel', 'traces.json', 'missing.json'])).err).toContain('missing.json: ');
   });
 
   it('says in words what it imported and what the trace kept', async () => {
@@ -181,6 +193,9 @@ describe('shadowlap import langfuse and langsmith', () => {
     const cleartext = await shadowlap(['import', 'langfuse', LANGFUSE_ID, '--host', 'http://langfuse.internal:3000'], KEYS);
     expect(cleartext.code).toBe(1);
     expect(cleartext.err).toContain('use https for langfuse.internal:3000');
+    // --allow-http lets the keys go over plain http to a host on a network the person trusts.
+    const allowed = await shadowlap(['import', 'langfuse', LANGFUSE_ID, '--host', 'http://0.0.0.0:1', '--allow-http'], KEYS);
+    expect(allowed.err).toContain('could not reach 0.0.0.0:1');
     const badId = await shadowlap(['import', 'langsmith', '../../etc/passwd', '--host', host], KEYS);
     expect(badId.code).toBe(1);
     expect(badId.err).toContain('not a trace id');

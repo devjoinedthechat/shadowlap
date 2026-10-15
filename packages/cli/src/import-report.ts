@@ -32,7 +32,7 @@ export interface TraceKept {
 export interface ImportJsonRun {
   /** The full run id: what a dashboard job opens. */
   runId: string;
-  /** The run's source as stored (`meta.imported.from`): the file's path, or `langfuse:7f3a9c2e`. */
+  /** The run's source as stored (`meta.imported.from`): the file's name (or names), or `langfuse:7f3a9c2e`. */
   source: string;
   /** LiteLLM: the correlation id the calls shared. A trace: its id where it came from. Otherwise null. */
   key: string | null;
@@ -62,6 +62,16 @@ export interface ImportedRun {
 /** What the activity feed and an import dialog call the source: a file's name, or `langfuse:7f3a9c2e`. */
 export function sourceName(source: string): string {
   return /^(langfuse|langsmith):/.test(source) ? source : basename(source) || source;
+}
+
+/**
+ * The source an import of files records: their names, never their folders. A path names this
+ * machine's folders (a home folder, a dashboard upload's temporary one) and would travel with the
+ * run wherever the store goes. Several files are named up to three, then counted.
+ */
+export function fileSource(paths: readonly string[]): string {
+  const names = [...new Set(paths.map((p) => basename(p)))];
+  return names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
 }
 
 /**

@@ -122,7 +122,7 @@ const strip = (headers: Record<string, string>): Record<string, string> => {
 export const IMPORTED_LABEL = 'imported';
 
 export interface ImportOptions {
-  /** Where the calls came from, kept on the run as its source (`meta.imported.from`): a file's path, or `langfuse:7f3a9c2e`. */
+  /** Where the calls came from, kept on the run as its source (`meta.imported.from`): a file's name, or `langfuse:7f3a9c2e`. */
   source: string;
   cwd?: string;
   /** Labels besides `imported`: the trace source a trace came from (`otel`, `langfuse`, `langsmith`). */

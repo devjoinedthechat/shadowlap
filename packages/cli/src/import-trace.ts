@@ -24,7 +24,8 @@ import { ImportWriter, type CapturedCall, type ImportOptions, type ImportResult,
 
 export type Part =
   | { type: 'text'; text: string }
-  | { type: 'tool_call'; id: string; name: string; arguments: unknown }
+  /** `argumentsText`: the arguments exactly as the model wrote them, when the source kept that string (OpenAI's wire form). */
+  | { type: 'tool_call'; id: string; name: string; arguments: unknown; argumentsText?: string }
   | { type: 'tool_result'; id: string; name?: string; content: unknown };
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
@@ -199,15 +200,17 @@ function unwrapLangchain(m: Record<string, unknown>): Record<string, unknown> {
 /** A tool call in any of the shapes sources log: OpenAI's, LangChain's, Anthropic's, Gemini's, OpenTelemetry's. */
 function toolCallOf(raw: unknown): Part | null {
   if (!isObject(raw)) return null;
+  // The model wrote the arguments as a string; the agent sends that string back, byte for byte.
+  const text = (v: unknown) => (typeof v === 'string' && isObject(maybeJson(v)) ? { argumentsText: v } : {});
   if (isObject(raw.function)) {
     const name = str(raw.function.name);
-    return name ? { type: 'tool_call', id: String(raw.id ?? ''), name, arguments: maybeJson(raw.function.arguments ?? {}) } : null;
+    return name ? { type: 'tool_call', id: String(raw.id ?? ''), name, arguments: maybeJson(raw.function.arguments ?? {}), ...text(raw.function.arguments) } : null;
   }
   if (raw.type === 'tool_use' || raw.type === 'tool_call' || 'args' in raw || 'arguments' in raw || 'input' in raw) {
     const name = str(raw.name);
     if (!name) return null;
     const args = raw.args ?? raw.arguments ?? raw.input ?? {};
-    return { type: 'tool_call', id: String(raw.id ?? ''), name, arguments: maybeJson(args) };
+    return { type: 'tool_call', id: String(raw.id ?? ''), name, arguments: maybeJson(args), ...text(args) };
   }
   if (isObject(raw.functionCall)) {
     const name = str(raw.functionCall.name);
@@ -440,7 +443,7 @@ function openaiMessages(messages: TraceMessage[]): unknown[] {
     if (m.role === 'system') out.push({ role: 'system', content: text });
     else if (m.role === 'assistant') {
       const calls = m.parts.filter((p): p is Extract<Part, { type: 'tool_call' }> => p.type === 'tool_call');
-      out.push({ role: 'assistant', content: text || (calls.length ? null : ''), ...(calls.length ? { tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: argsText(c.arguments) } })) } : {}) });
+      out.push({ role: 'assistant', content: text || (calls.length ? null : ''), ...(calls.length ? { tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.argumentsText ?? argsText(c.arguments) } })) } : {}) });
     } else {
       // A tool result is its own message in this dialect, wherever the source put it.
       for (const p of m.parts) if (p.type === 'tool_result') out.push({ role: 'tool', tool_call_id: p.id, content: resultText(p.content) });
@@ -640,7 +643,7 @@ export function rebuildResponse(c: TraceModelCall, dialect: Dialect, n: number, 
 
   const id = c.responseId ?? `chatcmpl-imported-${n}`;
   const finishReason = { stop: 'stop', tool: 'tool_calls', length: 'length', filter: 'content_filter' }[finish];
-  const toolCalls = calls.map((p, i) => ({ id: p.id || `call_imported_${n}_${i}`, type: 'function', function: { name: p.name, arguments: argsText(p.arguments) } }));
+  const toolCalls = calls.map((p, i) => ({ id: p.id || `call_imported_${n}_${i}`, type: 'function', function: { name: p.name, arguments: p.argumentsText ?? argsText(p.arguments) } }));
   const u = usage ? { prompt_tokens: usage.total, completion_tokens: usage.output, total_tokens: usage.total + usage.output, ...(c.usage?.cacheRead !== undefined ? { prompt_tokens_details: { cached_tokens: usage.cacheRead } } : {}) } : null;
   if (!c.stream) {
     const body = { id, object: 'chat.completion', created, model, choices: [{ index: 0, message: { role: 'assistant', content: text || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}), refusal: null }, finish_reason: finishReason, logprobs: null }], ...(u ? { usage: u } : {}) };

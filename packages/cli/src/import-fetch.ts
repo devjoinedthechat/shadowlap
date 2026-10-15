@@ -1,3 +1,5 @@
+import { isLoopbackHost } from './loopback.js';
+
 /**
  * Reading a trace store's API (Langfuse, LangSmith) with the keys on this machine. The keys go to
  * the host named and nowhere else; they are never stored, logged or put in an error message.
@@ -15,13 +17,12 @@ export interface TraceStoreOptions {
 /** The most one response may hold: a trace of thousands of observations fits many times over. */
 const MAX_BYTES = 64 * 1024 * 1024;
 
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
 /**
  * A trace store's base URL, checked: http or https, no user name or password in it, and https
- * unless it is this machine, because the keys travel with every request.
+ * unless it is this machine, because the keys travel with every request. `allowHttp` accepts plain
+ * http anywhere, for a self-hosted instance on a network the person trusts.
  */
-export function traceStoreHost(raw: string, what: string): string {
+export function traceStoreHost(raw: string, what: string, allowHttp = false): string {
   let url: URL;
   try {
     url = new URL(raw);
@@ -30,7 +31,9 @@ export function traceStoreHost(raw: string, what: string): string {
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`--host: ${what} is reached over https, not ${url.protocol}`);
   if (url.username || url.password) throw new Error('--host: leave credentials out of the URL; the keys come from the environment');
-  if (url.protocol === 'http:' && !LOOPBACK.has(url.hostname)) throw new Error(`--host: use https for ${url.host}: the keys would cross the network in the clear (http is accepted for this machine only)`);
+  if (url.protocol === 'http:' && !allowHttp && !isLoopbackHost(url.hostname)) {
+    throw new Error(`--host: use https for ${url.host}: the keys would cross the network in the clear. http is accepted for this machine, or with --allow-http on a network you trust`);
+  }
   url.hash = '';
   url.search = '';
   return url.href.replace(/\/+$/, '');
