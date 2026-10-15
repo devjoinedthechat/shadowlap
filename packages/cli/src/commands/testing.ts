@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { formatTokens, hasRecordedCommand, packRun, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
@@ -205,9 +205,12 @@ export function register(program: Command): void {
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow('  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
       const where = relative(process.cwd(), resolve(result.dir)).split('\\').join('/') || '.';
+      // The activity log names a pack outside the project by its folder alone: a path climbing out
+      // of it would put this machine's folders in a feed the whole team reads.
+      const outside = where === '..' || where.startsWith('../') || isAbsolute(where);
       // A golden is a pack in a goldens folder or one the config's tests name; anything else is a pack to share.
-      const golden = /(^|\/)goldens(\/|$)/.test(where) || isTestPack(result.dir);
-      logActivity(store, { kind: golden ? 'golden.packed' : 'run.packed', runId: run.runId, ref: where, data: { runs: result.runs.length, calls: result.calls, redacted: result.redacted } });
+      const golden = (!outside && /(^|\/)goldens(\/|$)/.test(where)) || isTestPack(result.dir);
+      logActivity(store, { kind: golden ? 'golden.packed' : 'run.packed', runId: run.runId, ref: outside ? basename(resolve(result.dir)) : where, data: { runs: result.runs.length, calls: result.calls, redacted: result.redacted, ...(outside ? { outside: true } : {}) } });
       emitJobEvent({ type: 'file', path: result.dir, label: 'Pack' });
       emitJobEvent({ type: 'result', data: { ...result, dir: where } });
       store.close();

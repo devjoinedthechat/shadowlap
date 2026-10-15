@@ -126,6 +126,17 @@ describe('a command started by a dashboard job', () => {
     expect(withStore((s) => s.listEvents({ kinds: ['golden.packed'] })).map((e) => e.ref)).toEqual(['goldens/refund']);
     // A pack does not carry who recorded it.
     expect(readFileSync(join(cwd, 'goldens', 'refund', 'run.json'), 'utf8')).not.toContain('maya@example.com');
+    // Written outside the project: the log names the folder, never the way out of the project to it.
+    const elsewhere = mkdtempSync(join(tmpdir(), 'sl-dash-events-elsewhere-'));
+    try {
+      expect((await shadowlap(['pack', recordingId, join(elsewhere, 'share-with-ravi')])).code).toBe(0);
+      const outside = withStore((s) => s.listEvents({ kinds: ['run.packed'] }))[0]!;
+      expect(outside).toMatchObject({ ref: 'share-with-ravi', data: { outside: true } });
+      expect(JSON.stringify(outside)).not.toContain('..');
+      expect(JSON.stringify(outside)).not.toContain(elsewhere);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
   });
 
   it('normalize add and redact add: record who changed the rules', async () => {
