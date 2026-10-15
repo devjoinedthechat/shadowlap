@@ -73,9 +73,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
   const keep = opts.keepAuthor;
-  const runs = listRuns(store, read)
-    .filter((r) => runIds.includes(r.runId))
-    .map((r) => (keep ? r : anonymous(r)));
+  // Every run the file holds is listed, however old, an attempt someone chose to export included.
+  const runs = listRuns(store, { ...read, ids: runIds }).map((r) => (keep ? r : anonymous(r)));
   const records = runIds.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
   const attempts = records.filter(isAttempt).length;
   const meta: MetaView = {

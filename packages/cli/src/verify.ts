@@ -54,7 +54,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       results[i] = result;
       const label = `${ROLE[role].padEnd(8)}  ${shortId(parent.runId)}`;
       while (result.verdict === 'open' && result.attempts.length < s.attempts && !(s.failFast && failed) && runner.canStart()) {
-        const a = await runner.attempt(target, interventions ? { interventions } : {});
+        const marks = { repeat: { group: `${group}-${parent.runId}`, attempt: result.attempts.length + 1, of: s.attempts }, verify: { role, passed: false } };
+        const a = await runner.attempt(target, { ...(interventions ? { interventions } : {}), meta: marks });
         // Stopped by Ctrl-C part way: what it did is no evidence either way.
         if (runner.interrupted) break;
         const n = result.attempts.length + 1;
@@ -71,7 +72,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           upstreamRequests: a.summary.upstreamRequests,
           footprint: footprintOf(a.calls, runner.costOf),
         });
-        store.updateRunMeta(a.run.runId, { repeat: { group: `${group}-${parent.runId}`, attempt: n, of: s.attempts }, verify: { role, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
+        store.updateRunMeta(a.run.runId, { verify: { role, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
         result.verdict = runVerdict(result.passes, n, s.attempts, s.needed, result.deterministic);
         log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}${result.deterministic ? p.dim(' · clean replay, so it settles the run') : ''}`);
       }

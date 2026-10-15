@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CallRecord, Origin, RunRecord, Store } from '@shadowlap/engine';
 import { formatDuration, formatTokens, formatUsd, shortModel, summarizeRun, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
-import { ago, loadRequest, loadResponseBytes, runLabel } from '../data.js';
+import { ago, kindFacts, loadRequest, loadResponseBytes, runLabel } from '../data.js';
 import { truncate } from '../render.js';
 import { displayOrigin, kindLabel, originColor } from '../theme.js';
 import { ActionsView, buildActions, notRun, type Action } from './ActionsView.js';
@@ -260,7 +260,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
 
   const start = Math.max(0, Math.min(selected - Math.floor(listRows / 2), visibleCalls.length - listRows));
   const rows = visibleCalls.slice(start, start + listRows);
-  const label = runLabel(run, calls.length);
+  const label = runLabel(run, kindFacts(store, run, calls.length));
   const divergenceRow = run.divergence?.callNo;
 
   // Exact column widths: a row that overflows its box gets flex-shrunk by the layout engine,

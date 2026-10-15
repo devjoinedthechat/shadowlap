@@ -1,4 +1,4 @@
-import { loadApiRequest, normalizeConversation, storedModelResolver, summarizeRun, type CallRecord, type ModelResolver, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
+import { kindLabel, loadApiRequest, normalizeConversation, runKind, storedModelResolver, summarizeRun, type CallRecord, type ClassifiableRun, type KindFacts, type ModelResolver, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
 
 /** Read model for the TUI. Everything here is a thin, read-only view over the engine's store. */
 
@@ -6,6 +6,8 @@ export interface RunNode {
   run: RunRecord;
   depth: number;
   calls: number;
+  /** The run's kind in words (`runLabel`). */
+  label: string;
   /** Approximate USD spent on live model calls and saved by replayed ones. */
   spent: number;
   saved: number;
@@ -53,7 +55,8 @@ export function loadRunTree(store: Store, options: CostOptions, limit = 500): Ru
   const roots = runs.filter((r) => !r.parentRunId || !ids.has(r.parentRunId)).sort((a, b) => a.startedAt - b.startedAt);
   const out: RunNode[] = [];
   const walk = (run: RunRecord, depth: number) => {
-    out.push({ run, depth, calls: store.countCalls(run.runId), ...runCost(store, run, options) });
+    const calls = store.countCalls(run.runId);
+    out.push({ run, depth, calls, label: runLabel(run, kindFacts(store, run, calls)), ...runCost(store, run, options) });
     for (const child of store.childRuns(run.runId)) if (ids.has(child.runId)) walk(child, depth + 1);
   };
   roots.forEach((r) => walk(r, 0));
@@ -95,13 +98,28 @@ export function conversationAt(store: Store, calls: CallRecord[], index: number)
   return null;
 }
 
-export function runLabel(run: RunRecord, calls: number): string {
-  // Built from a capture: it holds what crossed the network and has no command, so it is not a
-  // recording in the sense the rest of the list means, and cannot be forked until it is replayed.
-  if (run.mode !== 'replay' && run.meta?.covers?.length) return 'capture';
-  if (run.mode !== 'replay') return 'recording';
-  if (run.divergence) return `fork @${run.divergence.callNo}`;
-  return run.status === 'completed' && calls > 0 ? 'clean replay' : 'replay';
+/** What runLabel reads of a run: a RunRecord, or the same fields from a lighter query. */
+export type LabelledRun = Pick<ClassifiableRun, 'mode' | 'status' | 'divergence' | 'meta'>;
+
+/**
+ * What a run's kind depends on besides the run: its calls and, for a replay that exited with an
+ * error without leaving its recording, the run it replayed, since a replay that served every call
+ * of a recording that failed the same way reproduced that failure (a clean replay). The run it
+ * replayed is read only then.
+ */
+export function kindFacts(store: Store, run: LabelledRun & Pick<ClassifiableRun, 'parentRunId'>, calls: number): KindFacts {
+  if (run.mode !== 'replay' || run.divergence || run.status !== 'failed' || !run.parentRunId) return { calls };
+  const parent = store.getRun(run.parentRunId);
+  return { calls, parent: parent ? { calls: store.countCalls(parent.runId), status: parent.status } : null };
+}
+
+/**
+ * A run's kind in words: recording, capture, fork @n, clean replay, replay or test. The engine's
+ * classification decides, as it does for the dashboard's run list. Given only a call count, a
+ * replay that exited with an error is not called clean: pass `kindFacts` for that.
+ */
+export function runLabel(run: LabelledRun, facts: number | KindFacts): string {
+  return kindLabel(runKind(run, typeof facts === 'number' ? { calls: facts } : facts), run.divergence);
 }
 
 export function ago(ms: number, now = Date.now()): string {

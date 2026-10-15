@@ -2,6 +2,7 @@ import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, runDet
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
+import { deleteRuns } from '../runs-list.js';
 import { exportHtml, withAncestors } from '../static.js';
 
 /** Runs: the list, one run, its calls and family, labels and notes, the HTML download, delete. */
@@ -16,13 +17,15 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(d);
   });
 
+  // As the Runs page deletes: the attempts bundled under the run go with it, and a run still
+  // recording, or one a replay in progress still serves answers from, is left alone. A write, so a
+  // read-only dashboard refuses it before it gets here.
   router.delete('/runs/:id', (r) => {
-    const run = store.getRun(r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
-    if (run.status === 'running') throw new HttpError(409, 'this run is still recording');
-    store.deleteRun(run.runId);
-    const gc = store.gcBlobs();
-    r.json({ deleted: run.runId, blobs: gc.removed, bytes: gc.bytes });
+    const out = deleteRuns(store, [r.params.id!]);
+    if ('error' in out) throw new HttpError(400, out.error);
+    const skipped = out.skipped[0];
+    if (skipped) throw skipped.reason === 'no such run' ? new HttpError(404, `no run ${r.params.id}`) : new HttpError(409, `this run can't be deleted now: ${skipped.reason}`);
+    r.json({ deleted: out.done[0], attempts: out.attempts, blobs: out.blobs, bytes: out.bytes });
   });
 
   router.get('/runs/:id/calls/:n', (r) => {

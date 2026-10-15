@@ -253,7 +253,7 @@ export const NO_COMMAND = '<no-recorded-command>';
  * Whether the run knows how to start its agent. Replaying one that does not needs the agent's own
  * command supplied; the replay that results records everything, so it has a command of its own.
  */
-export function hasRecordedCommand(run: RunRecord): boolean {
+export function hasRecordedCommand(run: { command: { argv: readonly string[] } }): boolean {
   const argv = run.command.argv;
   return argv.length > 0 && !(argv.length === 1 && argv[0] === NO_COMMAND);
 }

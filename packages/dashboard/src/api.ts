@@ -1,7 +1,8 @@
-import { basename } from 'node:path';
-import { cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { buildActions, notRun } from '@shadowlap/tui/actions';
-import { loadRunTree, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { captureSource } from './run-index.js';
+import { recentRuns, type RunRow } from './runs-list.js';
 
 /**
  * The dashboard's read model: plain JSON built from the store, one function per endpoint, no HTTP.
@@ -144,33 +145,12 @@ function row(store: Store, c: CallRecord, options: ReadOptions): CallRow {
   };
 }
 
-export function listRuns(store: Store, options: ReadOptions = {}): RunListItem[] {
-  return loadRunTree(store, { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) }).map((n) => ({
-    runId: n.run.runId,
-    parentRunId: n.run.parentRunId,
-    depth: n.depth,
-    mode: n.run.mode,
-    status: n.run.status,
-    label: runLabel(n.run, n.calls),
-    divergence: n.run.divergence ? { callNo: n.run.divergence.callNo, type: n.run.divergence.type } : null,
-    command: n.run.command.argv.join(' '),
-    codeVersion: n.run.codeVersion,
-    startedAt: n.run.startedAt,
-    endedAt: n.run.endedAt,
-    calls: n.calls,
-    spent: n.spent,
-    saved: n.saved,
-    captured: n.captured,
-    imported: !!n.run.meta?.imported,
-    covers: n.run.meta?.covers?.length ? n.run.meta.covers : null,
-    source: captureSource(n.run),
-    labels: n.run.meta?.labels ?? [],
-  }));
-}
-
-/** What a run with no command came from, shown where its command would be: the capture's file name. */
-function captureSource(run: RunRecord): string | null {
-  return hasRecordedCommand(run) ? null : basename(run.meta?.imported?.from ?? '') || 'a capture';
+/**
+ * The sidebar's Recent runs (`/api/runs`): the newest runs as a tree, each with its kind, outcome,
+ * origins and the attempts bundled under it. Attempts are not rows unless asked for (`recentRuns`).
+ */
+export function listRuns(store: Store, options: ReadOptions & { includeAttempts?: boolean; ids?: readonly string[] } = {}): RunRow[] {
+  return recentRuns(store, options);
 }
 
 /** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
@@ -192,12 +172,12 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   return {
     run,
-    label: runLabel(run, calls.length),
+    label: runLabel(run, kindFacts(store, run, calls.length)),
     source: captureSource(run),
     summary,
     calls: calls.map((c) => row(store, c, options)),
-    parent: parent ? { runId: parent.runId, label: runLabel(parent, store.countCalls(parent.runId)) } : null,
-    children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, store.countCalls(r.runId)), startedAt: r.startedAt })),
+    parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
+    children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt })),
     actions: actionsFor(run, undefined),
   };
 }
@@ -374,21 +354,20 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
     if (out.length >= 1000) return;
     const calls = store.getCalls(r.runId);
     const s = summarizeRun(r, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
-    const checks = r.meta?.checks;
     out.push({
       runId: r.runId,
       parentRunId: r.parentRunId,
       depth,
       mode: r.mode,
       status: r.status,
-      label: runLabel(r, calls.length),
+      label: runLabel(r, kindFacts(store, r, calls.length)),
       divergence: r.divergence ? { callNo: r.divergence.callNo, type: r.divergence.type } : null,
       calls: calls.length,
       spent: s.cost.spent,
       saved: s.cost.saved,
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
-      checks: checks?.length ? { passed: checks.filter((c) => c.ok).length, total: checks.length } : null,
+      checks: checksOf(r),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };

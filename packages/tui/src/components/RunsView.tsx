@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import { formatDuration, formatUsd, safeLine } from '@shadowlap/engine';
 import { useEffect, useMemo, useState } from 'react';
 import type { RunNode } from '../data.js';
-import { ago, runLabel } from '../data.js';
+import { ago } from '../data.js';
 import { truncate } from '../render.js';
 import type { OpenDashboard } from './TimelineView.js';
 import { copyToClipboard } from '../clipboard.js';
@@ -138,7 +138,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
         shown.map((n, i) => {
           const idx = start + i;
           const sel = idx === selected;
-          const label = runLabel(n.run, n.calls);
+          const label = n.label;
           const labelColor = n.run.divergence ? 'yellow' : label === 'clean replay' ? 'cyan' : 'white';
           const status = n.run.status;
           const statusColor = status === 'completed' ? 'green' : status === 'running' ? 'yellow' : 'red';
