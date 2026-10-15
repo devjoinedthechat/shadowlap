@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -192,6 +192,64 @@ describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
     expect(out).not.toContain('first bad commit ' + rev['Ask for brevity']);
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
     expect(readdirSync(join(project, '.shadowlap', 'bisect'))).toEqual([]);
+  });
+});
+
+describe('a package this repository links into node_modules', () => {
+  let repo = '';
+  const at: Record<string, string> = {};
+  const git = (args: string[]) => execFileSync('git', args, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  const step = (name: string, files: Record<string, string>) => {
+    for (const [f, content] of Object.entries(files)) {
+      mkdirSync(join(repo, f, '..'), { recursive: true });
+      writeFileSync(join(repo, f), content);
+    }
+    git(['add', '.']);
+    git(['commit', '-q', '-m', name]);
+    at[name] = git(['rev-parse', '--short', 'HEAD']);
+  };
+  const run = (args: string[]) =>
+    new Promise<{ code: number | null; out: string; stdout: string }>((resolve) => {
+      const child = spawn(process.execPath, [CLI, ...args], { cwd: repo, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      let stdout = '';
+      child.stdout.on('data', (d: Buffer) => {
+        out += d.toString();
+        stdout += d.toString();
+      });
+      child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      child.on('exit', (code) => resolve({ code, out, stdout }));
+    });
+
+  beforeAll(async () => {
+    // A workspace package with the prompt, linked into node_modules as npm workspaces link one.
+    repo = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-bisect-ws-${process.pid}`);
+    rmSync(repo, { recursive: true, force: true });
+    mkdirSync(repo);
+    git(['init', '-q', '-b', 'main']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Test']);
+    const agent = AGENT.replace("const system = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();", "import { system } from '@acme/prompt';").replace("const marker = readFileSync(new URL('./marker.txt', import.meta.url), 'utf8').trim();", "const marker = '';").replace("import { readFileSync } from 'node:fs';\n", '');
+    step('Start', { '.gitignore': '.shadowlap/\nnode_modules/\n', 'agent.mjs': agent, 'lib/prompt/package.json': JSON.stringify({ name: '@acme/prompt', type: 'module', exports: './index.mjs' }), 'lib/prompt/index.mjs': "export const system = 'You summarize support tickets.';\n" });
+    mkdirSync(join(repo, 'node_modules', '@acme'), { recursive: true });
+    symlinkSync(join('..', '..', 'lib', 'prompt'), join(repo, 'node_modules', '@acme', 'prompt'));
+    const recorded = await run(['run', '--', process.execPath, 'agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    expect((await run(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/ws'])).code).toBe(0);
+    step('Document it', { 'README.md': 'docs\n' });
+    step('Ask for brevity in the package', { 'lib/prompt/index.mjs': "export const system = 'You summarize support tickets. Be brief.';\n" });
+    step('More docs', { 'README.md': 'more docs\n' });
+  });
+  afterAll(() => rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+
+  it('replays each commit with its own copy of the package, not the working tree\'s', async () => {
+    const r = await run(['bisect', 'goldens/ws', '--good', at['Start']!]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain("node_modules is linked from your working tree, with this repository's own packages as they were at each commit");
+    expect(r.stdout).toContain(`first bad commit ${at['Ask for brevity in the package']} · Ask for brevity in the package`);
+    // The working tree's own node_modules is untouched.
+    expect(lstatSync(join(repo, 'node_modules', '@acme', 'prompt')).isSymbolicLink()).toBe(true);
+    expect(git(['worktree', 'list']).split('\n')).toHaveLength(1);
   });
 });
 

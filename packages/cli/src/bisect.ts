@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
@@ -153,6 +153,46 @@ export function mapArgv(argv: readonly string[], m: { root: string; worktree: st
   });
 }
 
+/**
+ * Gives a worktree the installed packages of the working tree it was made from, so the agent can run
+ * at an old commit without installing anything: each entry of `from/node_modules` is linked into
+ * `to/node_modules`, except a package linked from this repository itself (a workspace package),
+ * which is linked to the worktree's own copy, so it runs as it was at that commit. Returns the
+ * entries linked; nothing when there is no node_modules, or the commit has one of its own.
+ */
+export function linkDependencies(root: string, from: string, to: string, worktree: string): number {
+  const src = join(from, 'node_modules');
+  const dst = join(to, 'node_modules');
+  if (!existsSync(src) || existsSync(dst)) return 0;
+  const link = (target: string, path: string) => symlinkSync(target, path, process.platform === 'win32' ? 'junction' : undefined);
+  let linked = 0;
+  const one = (entry: string, path: string) => {
+    let target = entry;
+    try {
+      if (lstatSync(entry).isSymbolicLink()) {
+        const real = realpathSync(entry);
+        const rel = relative(root, real);
+        // In this repository and not an installed package: the commit's own copy.
+        if (rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[\\/]/).includes('node_modules')) target = join(worktree, rel);
+      }
+      link(target, path);
+      linked++;
+    } catch {
+      // a dangling link, or one that can't be made: that package is missing at this commit
+    }
+  };
+  mkdirSync(dst, { recursive: true });
+  for (const name of readdirSync(src)) {
+    if (name.startsWith('@') && statSync(join(src, name)).isDirectory() && !lstatSync(join(src, name)).isSymbolicLink()) {
+      mkdirSync(join(dst, name), { recursive: true });
+      for (const sub of readdirSync(join(src, name))) one(join(src, name, sub), join(dst, name, sub));
+    } else {
+      one(join(src, name), join(dst, name));
+    }
+  }
+  return linked;
+}
+
 /** The recording to bisect, copied into a store of its own: replays at old commits never touch the project's. */
 function loadTarget(input: BisectInput, projectDir: string, store: Store): { run: RunRecord; kind: 'golden' | 'run'; name: string; golden: string | null } {
   const dir = resolve(projectDir, input.target);
@@ -256,6 +296,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
    * won't check out or build is skipped; an error that isn't about the commit (the sidecar couldn't
    * start, say) ends the bisect with it, rather than being taken for the commit's verdict.
    */
+  let announced = false;
   const probe = async (rev: string): Promise<BisectStep> => {
     const t0 = Date.now();
     const info = commitInfo(root, rev);
@@ -273,6 +314,15 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
         return done(false, true, `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`);
       }
       const worktreeCwd = join(worktree, inRepo);
+      // Without a build step, the working tree's packages serve every commit, this repository's own
+      // from the commit itself. A build step installs what it needs, so nothing is linked for it.
+      if (!input.build) {
+        const linked = linkDependencies(root, root, worktree, worktree) + (inRepo ? linkDependencies(root, input.cwd, worktreeCwd, worktree) : 0);
+        if (linked && !announced) {
+          announced = true;
+          input.log('  node_modules is linked from your working tree, with this repository\'s own packages as they were at each commit; give --build to install them per commit instead');
+        }
+      }
       if (input.build) {
         const b = spawnSync(input.build, { cwd: worktreeCwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (b.status !== 0) return done(false, true, `could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${input.build} exited ${b.status ?? b.signal}`}`);
