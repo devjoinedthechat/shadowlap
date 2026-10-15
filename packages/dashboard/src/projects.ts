@@ -284,7 +284,7 @@ export interface RecordStep extends StepBase {
    * replaces it.
    */
   again: { label: string; action: 'record'; command: { value: string; enabled: boolean }; cli: string[] } | null;
-  /** The newest recording held no calls: nothing was recorded, and why that usually is. */
+  /** The newest recording held no calls: nothing was recorded, and why that usually is (until the replay is made clean). */
   empty: { runId: string; href: string; text: string } | null;
 }
 
@@ -448,7 +448,8 @@ export function setupView(input: SetupInput): SetupView {
       ? `${plural(missed.length, 'tool')} ${missed.length === 1 ? 'wasn’t' : 'weren’t'} wrapped, so ${missed.length === 1 ? 'its' : 'their'} calls aren’t in this recording. ${wrappedSince ? `${missed.length === 1 ? 'It is' : 'They are'} wrapped now: record again` : `Wrap ${missed.length === 1 ? 'it' : 'them'} and record again`} before you keep it as a test.`
       : null,
     again: missed.length && !clean && !tested && !finished ? { label: 'Record again', action: 'record', command, cli: commands.record } : null,
-    empty: setup.empty
+    // Until the replay is made clean: past that, a later recording that held nothing changes nothing for the setup.
+    empty: setup.empty && !clean && !tested && !finished
       ? {
           runId: setup.empty.runId,
           href: `#/run/${setup.empty.runId}`,

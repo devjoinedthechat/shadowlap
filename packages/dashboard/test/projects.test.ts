@@ -346,6 +346,9 @@ describe('setupView', () => {
     // An earlier recording stays the setup's, and the empty one is still pointed out.
     const kept = view(entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN }), facts({ runs: 2, recordings: [typo, run()] }));
     expect(kept.record).toMatchObject({ state: 'done', recorded: { runId: RUN }, empty: { runId: typo.runId } });
+    // Once the replay is clean, an empty recording after it no longer concerns the setup.
+    const clean = view(entry('research-agent', { stage: 'clean', findings: findings({ tools: [], wrap: [] }), runId: RUN, calibration: { added: [] } }), facts({ runs: 2, recordings: [typo, run()] }));
+    expect(clean.record).toMatchObject({ state: 'done', recorded: { runId: RUN }, empty: null });
   });
 
   it('offers the free golden path the server found, and counts a pack made in a terminal as kept', () => {
