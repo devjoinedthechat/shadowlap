@@ -298,3 +298,22 @@ describe('a feed polled while things happen', () => {
     store.close();
   });
 });
+
+describe('runs from a pack someone else made', () => {
+  it('cannot break the feed with meta it does not expect', () => {
+    const store = Store.open(':memory:');
+    const odd = (runId: string, meta: Record<string, unknown>) =>
+      store.importRun({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.js'], cwd: '.' }, codeVersion: null, startedAt: 100, endedAt: 200, meta: meta as RunMeta });
+    odd('01K5CQ4P2R0000000000000011', { imported: { at: 'yesterday', from: 'odd' }, blame: { at: 'soon', outcome: 'stopped' } });
+    odd('01K5CQ4P2R0000000000000012', { imported: { at: 300, from: 42 }, covers: ['api'], repeat: { group: { x: 1 }, attempt: 'one', of: 2 } });
+    odd('01K5CQ4P2R0000000000000013', { blame: { at: 400, outcome: 'blamed', callNo: 3, confidence: 'high' }, fork: { flags: [7, '--inject 3'] } });
+    const items = activity(store).items;
+    expect(items.length).toBeGreaterThan(0);
+    for (const i of items) expect(Number.isFinite(i.at)).toBe(true);
+    expect(items.find((i) => i.id === 'r:01K5CQ4P2R0000000000000011:blame')).toMatchObject({ at: 200, text: 'Blame stopped · 0 calls probed' });
+    // Paging still works through them.
+    const first = activity(store, { limit: 1 });
+    expect(activity(store, { limit: 50, before: first.next }).items.length).toBe(items.length - 1);
+    store.close();
+  });
+});

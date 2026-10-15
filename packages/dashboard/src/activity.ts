@@ -26,6 +26,8 @@ type Describe = (event: StoredEvent, data: Record<string, unknown>) => EventText
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : typeof v === 'number' ? String(v) : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+/** A time from run meta, which a pack someone else made can carry as anything. */
+const time = (v: unknown, fallback: number): number => num(v) ?? fallback;
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const short = (runId: string) => runId.slice(0, 10);
 const fixHref = (ref: string | null, step?: string) => (ref && /^fx-[\w-]+$/.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
@@ -256,9 +258,9 @@ function imported(store: Store, runs: RunRecord[], at: number): ActivityItem {
 
 function blamed(run: RunRecord): ActivityItem {
   const b = run.meta!.blame!;
-  const item = { ...base(run, `r:${run.runId}:blame`, b.at), href: '#/fixes' };
+  const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: '#/fixes' };
   if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `Blamed model call #${b.callNo} · confidence ${b.confidence}` };
-  if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(b.probes.length, 'call')} probed` };
+  if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
   return { ...item, kind: 'blame', text: 'Blamed · no single call rescued the run' };
 }
 
@@ -317,7 +319,7 @@ const UNPACK_SPREAD_MS = 5000;
  * before from a folder of the same name belongs with it too.
  */
 function unpackGroups(runs: RunRecord[]): Array<{ at: number; runs: RunRecord[] }> {
-  const stamp = (run: RunRecord) => ({ at: run.meta?.imported?.at ?? run.startedAt, from: run.meta?.imported?.from ?? '' });
+  const stamp = (run: RunRecord) => ({ at: time(run.meta?.imported?.at, run.startedAt), from: typeof run.meta?.imported?.from === 'string' ? run.meta.imported.from : '' });
   const sorted = [...runs].sort((a, b) => stamp(a).at - stamp(b).at || a.startedAt - b.startedAt);
   const groups: Array<{ from: string; at: number; runs: RunRecord[] }> = [];
   const byStamp = new Map<string, (typeof groups)[number]>();
@@ -346,17 +348,18 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
   const unpacked: RunRecord[] = [];
   for (const run of runs) {
     const m = run.meta;
-    if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: m.blame.at, render: () => blamed(run) });
+    if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: time(m.blame.at, run.endedAt ?? run.startedAt), render: () => blamed(run) });
     if (m?.probe || m?.verify) continue; // bundled under the blame or verify that made them
     if (m?.repeat) {
-      const list = groups.get(m.repeat.group) ?? [];
+      const group = String(m.repeat.group);
+      const list = groups.get(group) ?? [];
       list.push(run);
-      groups.set(m.repeat.group, list);
+      groups.set(group, list);
       continue;
     }
     if (m?.imported) {
       if (m.covers?.length) {
-        const at = m.imported.at ?? run.startedAt;
+        const at = time(m.imported.at, run.startedAt);
         if (!covered.has(`import:${run.runId}`)) stubs.push({ id: `r:${run.runId}:import`, at, render: () => imported(store, [run], at) });
       } else {
         // A pack can hold a run and its ancestors: one entry for everything one unpack brought in.
@@ -376,10 +379,10 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
     }
   }
   for (const attempts of groups.values()) {
-    attempts.sort((a, b) => (a.meta!.repeat!.attempt ?? 0) - (b.meta!.repeat!.attempt ?? 0));
+    attempts.sort((a, b) => time(a.meta!.repeat!.attempt, 0) - time(b.meta!.repeat!.attempt, 0));
     const first = attempts[0]!;
     const at = Math.max(...attempts.map((a) => a.endedAt ?? a.startedAt));
-    stubs.push({ id: `g:${first.meta!.repeat!.group}`, at, render: () => repeated(store, attempts, first.parentRunId ? byId.get(first.parentRunId) : undefined) });
+    stubs.push({ id: `g:${String(first.meta!.repeat!.group)}`, at, render: () => repeated(store, attempts, first.parentRunId ? byId.get(first.parentRunId) : undefined) });
   }
   for (const { at, runs: list } of unpackGroups(unpacked)) {
     // Oldest first, so the entry names the root of what was unpacked.
@@ -447,6 +450,15 @@ function after(cursor: Cursor | null, entry: { at: number; id: string }): boolea
   return order({ at: cursor.at, id: cursor.id }, entry) < 0;
 }
 
+/** An entry, or a plain line in its place when its run carries something the feed cannot read (a pack can hold anything). */
+function render(stub: Stub): ActivityItem {
+  try {
+    return stub.render();
+  } catch {
+    return { id: stub.id, at: stub.at, kind: 'setting', text: 'An entry the feed could not read' };
+  }
+}
+
 /** `next`, opaque to the page: base64url of `[at, id]`. */
 function encodeCursor(entry: { at: number; id: string }): string {
   return Buffer.from(JSON.stringify([entry.at, entry.id])).toString('base64url');
@@ -497,5 +509,5 @@ export function activity(store: Store, options: { limit?: number; before?: strin
   const stored = store.listEvents({ ...storedAfter(cursor), limit: limit + 1 });
   const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(order);
   const page = all.slice(0, limit);
-  return { items: page.map((s) => s.render()), next: all.length > limit ? encodeCursor(page[page.length - 1]!) : null };
+  return { items: page.map(render), next: all.length > limit ? encodeCursor(page[page.length - 1]!) : null };
 }
