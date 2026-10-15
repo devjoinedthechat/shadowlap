@@ -12,9 +12,9 @@ import { REDACTION_EXPORTS, Store, storeApiRequest, type RedactionExport } from 
  * details; each export is made through the CLI and searched for them. A new export fails here until
  * it has an entry.
  *
- * REDACTION_EXPORTS describes decision 6 as the merged product has it. An export another slice adds
- * (`export pairs`) is checked once the CLI has it, and one whose rules another slice is adding
- * (`export har`, E9) once it takes `--no-redact`, which every export that applies the rules takes.
+ * REDACTION_EXPORTS describes decision 6. Every export the CLI has must take `--no-redact`, which
+ * every export that applies the rules takes; one listed that the CLI doesn't have is checked once it
+ * does.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
@@ -99,8 +99,8 @@ const EXPORTS = [...EXPORT_HELP.slice(EXPORT_HELP.indexOf('Commands:')).matchAll
 const argsOf = (e: RedactionExport) => (e.id === 'pack' ? ['pack'] : ['export', e.id]);
 const inThisBuild = (e: RedactionExport) => e.id === 'pack' || EXPORTS.includes(e.id);
 const appliesRules = (e: RedactionExport) => inThisBuild(e) && help(argsOf(e)).includes('--no-redact');
-/** Exports whose rules another slice is adding, so this build may not apply them yet. */
-const PENDING: Partial<Record<RedactionExport['id'], string>> = { har: 'E9, export har applying the rules' };
+/** Exports whose rules are still to come, so this build may not apply them yet: none now. */
+const PENDING: Partial<Record<RedactionExport['id'], string>> = {};
 
 beforeAll(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-redact-exports-')));
