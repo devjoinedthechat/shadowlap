@@ -39,7 +39,8 @@ const PUSH_MAX = 1000;
 const RUN_ID = /^[0-9A-Z]{26}$/;
 
 export function register(router: Router, ctx: RouteContext): void {
-  router.get('/store', (r) => r.json({ store: teamStoreFor(ctx) }));
+  // Asked whenever runs change (the status bar, Runs, the Overview): an unchanged answer is a 304.
+  router.get('/store', (r) => r.tagged({ store: teamStoreFor(ctx) }));
 
   // Push: the runs picked (their ancestors go too, as the CLI does), or with `all` every run only on
   // this machine. A run still recording is queued by the CLI and goes when it ends.
