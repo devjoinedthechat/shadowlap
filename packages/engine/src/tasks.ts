@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_VERSION } from './pack.js';
+import { join, relative, resolve, sep } from 'node:path';
+import { hasRecordedCommand, PACK_FORMAT, PACK_VERSION } from './pack.js';
 import { PACK_LIMITS, PackError, validateCall, validateRun } from './pack-schema.js';
 import { safeLine } from './text.js';
 import type { CallRecord, RunRecord, Usage } from './types.js';
@@ -23,6 +23,12 @@ import type { CallRecord, RunRecord, Usage } from './types.js';
  * blamed run (the decision the run turned on), else the first model call after the last recorded
  * input (the agent's answer to the last thing a person said), else the first model call. What a task
  * rewards defaults to its outcome checks.
+ *
+ * A fourth, `scope`, names the scope the agent's model calls are made in when a simulated user's are
+ * made in another (`scope()` in the SDKs): the default takeover is then the agent's call, never the
+ * user's. It defaults to the scope blame was limited to. A golden whose model calls are made in more
+ * than one scope can't be scored yet, since from the takeover on every model call would go to the
+ * model under test, the simulated user's too.
  */
 
 export interface TaskFields {
@@ -32,16 +38,20 @@ export interface TaskFields {
   why?: string;
   /** The behaviour a passing attempt shows, in a few words: `escalate above the limit`. */
   rewards?: string;
+  /** The scope the agent's model calls are made in, when a simulated user's are made in another. */
+  scope?: string;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
+const TASK_KEYS = ['takeover', 'why', 'rewards', 'scope'];
+
 /** The `task` object of a tests entry, checked; `where` names it in errors. */
 export function parseTaskFields(raw: unknown, where: string): TaskFields {
   if (raw === undefined) return {};
-  if (!isObject(raw)) throw new Error(`${where} must be an object with "takeover", "why" and "rewards"`);
-  for (const key of Object.keys(raw)) if (!['takeover', 'why', 'rewards'].includes(key)) throw new Error(`${where} has an unknown key "${key}" (expected "takeover", "why", "rewards")`);
+  if (!isObject(raw)) throw new Error(`${where} must be an object with "takeover", "why", "rewards" and "scope"`);
+  for (const key of Object.keys(raw)) if (!TASK_KEYS.includes(key)) throw new Error(`${where} has an unknown key "${key}" (expected ${TASK_KEYS.map((k) => `"${k}"`).join(', ')})`);
   const out: TaskFields = {};
   if (raw.takeover !== undefined) {
     if (typeof raw.takeover !== 'number' || !Number.isSafeInteger(raw.takeover) || raw.takeover < 1) throw new Error(`${where}.takeover must be a model call number, such as 17`);
@@ -52,6 +62,11 @@ export function parseTaskFields(raw: unknown, where: string): TaskFields {
     if (v === undefined) continue;
     if (typeof v !== 'string' || !v.trim() || v.length > 200 || CONTROL.test(v)) throw new Error(`${where}.${key} must be a short line of text (at most 200 characters)`);
     out[key] = v.trim();
+  }
+  if (raw.scope !== undefined) {
+    // As the sidecar reads a scope: printable, at most 200 characters.
+    if (typeof raw.scope !== 'string' || !raw.scope.trim() || raw.scope.trim().length > 200 || CONTROL.test(raw.scope)) throw new Error(`${where}.scope must be the name of a scope, such as "agent"`);
+    out.scope = raw.scope.trim();
   }
   return out;
 }
@@ -216,6 +231,10 @@ export interface Task {
   /** The golden's run. */
   runId: string | null;
   takeover: Takeover | null;
+  /** The scope the model under test plays when the golden's model calls are scoped: the task's, blame's, or the only one; null otherwise. */
+  scope: string | null;
+  /** Every scope the golden's model calls were made in, null for calls made outside any. */
+  scopes: Array<string | null>;
   /** What a passing attempt does. */
   rewards: string | null;
   /** The golden's checks; caps are listed, but only the others score an attempt. */
@@ -258,13 +277,29 @@ function runName(run: RunRecord): string {
   return safeLine(run.meta?.labels?.[0] ?? run.runId.slice(0, 10));
 }
 
-function modelCalls(calls: readonly CallRecord[]): CallRecord[] {
-  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok');
+/** A model call that answers no conversation: embeddings and token counts decide nothing, so nothing takes over there. */
+export function answersNothing(callName: string): boolean {
+  return /(\/embeddings|\/count_tokens|:(batchEmbedContents|embedContent|countTokens))$/.test(callName.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '');
 }
 
-/** Where a model takes over when the config doesn't say. */
-export function defaultTakeover(golden: Golden, ancestors: readonly RunRecord[] = []): Takeover | null {
-  const models = modelCalls(golden.calls);
+function modelCalls(calls: readonly CallRecord[]): CallRecord[] {
+  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && !answersNothing(c.name));
+}
+
+const scopeOf = (c: CallRecord): string | null => (typeof c.meta.scope === 'string' ? c.meta.scope : null);
+
+/** The scope blame was limited to, on the golden's run or the nearest run it came from that has one. */
+function blamedScope(golden: Golden, ancestors: readonly RunRecord[]): string | null {
+  for (const run of [golden.run, ...[...golden.lineage].reverse(), ...ancestors]) {
+    const s = run.meta?.blame?.scope;
+    if (typeof s === 'string' && s) return s;
+  }
+  return null;
+}
+
+/** Where a model takes over when the config doesn't say: among the calls made in `scope` when one is given. */
+export function defaultTakeover(golden: Golden, ancestors: readonly RunRecord[] = [], scope: string | null = null): Takeover | null {
+  const models = modelCalls(golden.calls).filter((c) => scope === null || scopeOf(c) === scope);
   if (!models.length) return null;
   // The run the golden came from, or the golden itself, was blamed: the call it was lost at is the decision.
   const nearestFirst = [golden.run, ...[...golden.lineage].reverse(), ...ancestors];
@@ -296,27 +331,36 @@ function usageFrom(calls: readonly CallRecord[], from: number): Usage | null {
   return any ? u : null;
 }
 
-const uniq = (xs: string[]) => [...new Set(xs)];
+const uniq = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
+
+const scopeName = (s: string | null) => (s === null ? 'no scope' : s);
 
 /** A golden as a task: where a model takes over, why, what it rewards, and whether it can be scored. */
 export function describeTask(input: TaskInput): Task {
   const { golden, fields, checks } = input;
   const name = input.path.split('/').at(-1) ?? input.path;
-  const base: Task = { golden: input.path, name, status: 'ready', note: null, runId: golden?.run.runId ?? null, takeover: null, rewards: null, checks, after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null };
+  const base: Task = { golden: input.path, name, status: 'ready', note: null, runId: golden?.run.runId ?? null, takeover: null, scope: null, scopes: [], rewards: null, checks, after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null };
   const outcome = checks.filter((c) => !c.cap);
   base.rewards = fields.rewards ?? (outcome.length ? outcome.map((c) => c.label).join(' · ') : null);
   if (!golden) return { ...base, status: 'no-golden', note: 'the golden is gone' };
 
+  // The scope the model under test plays: the task's, blame's, or the only one there is.
+  const models = modelCalls(golden.calls);
+  base.scopes = uniq(models.map(scopeOf));
+  base.scope = fields.scope ?? blamedScope(golden, input.ancestors ?? []) ?? (base.scopes.length === 1 ? (base.scopes[0] ?? null) : null);
+  if (fields.scope !== undefined && !models.some((c) => scopeOf(c) === fields.scope)) return { ...base, status: 'not-a-task', note: `no model call of the golden's run is made in scope ${fields.scope}` };
+
   let takeover: Takeover | null;
   if (fields.takeover !== undefined) {
     const call = golden.calls.find((c) => c.callNo === fields.takeover);
-    if (!call || call.kind !== 'api') return { ...base, status: 'not-a-task', note: `#${fields.takeover} is not a model call of the golden's run` };
+    if (!call || call.kind !== 'api' || answersNothing(call.name)) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is not a model call of the golden's run` };
+    if (base.scope !== null && scopeOf(call) !== base.scope) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is made in ${scopeOf(call) === null ? 'no scope' : `scope ${scopeOf(call)}`}, not the agent's (${base.scope})` };
     takeover = { callNo: fields.takeover, why: fields.why ?? 'set in shadowlap.config.json', from: 'config' };
   } else {
-    takeover = defaultTakeover(golden, input.ancestors ?? []);
+    takeover = defaultTakeover(golden, input.ancestors ?? [], base.scope);
     if (takeover && fields.why) takeover = { ...takeover, why: fields.why };
   }
-  if (!takeover) return { ...base, status: 'not-a-task', note: "the golden's run made no model calls" };
+  if (!takeover) return { ...base, status: 'not-a-task', note: base.scope !== null && models.length ? `no model call of the golden's run is made in scope ${base.scope}` : "the golden's run made no model calls" };
 
   const k = takeover.callNo;
   const call = golden.calls.find((c) => c.callNo === k)!;
@@ -334,9 +378,15 @@ export function describeTask(input: TaskInput): Task {
     tokensAfter: usageFrom(golden.calls, k),
   };
   if (!outcome.length) return { ...task, status: 'not-a-task', note: checks.length ? 'its checks only cap tokens and cost' : 'it has no checks' };
+  // As shadowlap test refuses it: a golden packed straight from a capture can't start its agent.
+  if (!hasRecordedCommand(golden.run)) return { ...task, status: 'blocked', note: NO_COMMAND_NOTE };
+  if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
   if (input.testFailed === true) return { ...task, status: 'blocked', note: 'its test fails' };
   return task;
 }
+
+/** Why a golden packed from a capture is blocked: its test can't run, and how to give it a command. */
+export const NO_COMMAND_NOTE = 'it was imported from a capture and has no command to run: replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run';
 
 export interface OneSided {
   /** What every ready task rewards. */
@@ -372,8 +422,23 @@ export function attemptScore(results: ReadonlyArray<{ ok: boolean }>): number {
   return results.length ? results.filter((r) => r.ok).length / results.length : 0;
 }
 
-/** The task a golden name or path refers to: `refund-over-limit` or `goldens/refund-over-limit`. */
+/**
+ * The task a golden's path or name refers to: `goldens/refund-over-limit`, or `refund-over-limit`
+ * when only one golden has that name. Two goldens can share a name in different folders
+ * (`goldens/a/refund`, `goldens/b/refund`): the name alone is then ambiguous, and they are listed.
+ */
+export function matchTask<T extends Pick<Task, 'golden' | 'name'>>(tasks: readonly T[], name: string): { task: T } | { ambiguous: string[] } | null {
+  const clean = name.trim().replace(/[\\/]+$/, '').replace(/^\.\//, '');
+  const exact = tasks.find((t) => t.golden === clean);
+  if (exact) return { task: exact };
+  if (/[\\/]/.test(clean)) return null;
+  const named = tasks.filter((t) => t.name === clean);
+  if (named.length === 1) return { task: named[0]! };
+  return named.length ? { ambiguous: named.map((t) => t.golden) } : null;
+}
+
+/** The one task a golden's path or name refers to: null when there is none, or more than one. */
 export function findTask<T extends Pick<Task, 'golden' | 'name'>>(tasks: readonly T[], name: string): T | null {
-  const clean = name.replace(/[\\/]+$/, '');
-  return tasks.find((t) => t.golden === clean) ?? tasks.find((t) => t.name === clean) ?? tasks.find((t) => basename(t.golden) === basename(clean)) ?? null;
+  const m = matchTask(tasks, name);
+  return m && 'task' in m ? m.task : null;
 }

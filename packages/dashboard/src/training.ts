@@ -354,7 +354,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     return {
       golden: t.golden,
       name: t.name,
-      sub: t.takeover && t.status !== 'no-golden' ? `takes over at #${t.takeover.callNo} · ${t.takeover.why}` : 'no call to take over',
+      sub: t.takeover && t.status !== 'no-golden' ? `takes over at #${t.takeover.callNo} · ${t.takeover.why}${t.scope !== null && t.scopes.length > 1 ? ` · plays scope ${t.scope}` : ''}` : 'no call to take over',
       takeover: k,
       checks,
       after: k !== null ? t.after : null,

@@ -50,6 +50,10 @@ export interface RecordOptions {
   /** Calls before the model's first one, such as a recorded user input. */
   before?: Array<{ name: string; result: unknown }>;
   usage?: Usage;
+  /** The scope each model call is made in, by its place among them (`scope()` in the SDKs). */
+  scopes?: (i: number) => string | undefined;
+  /** The command the run was recorded with. */
+  argv?: string[];
 }
 
 let seq = 0;
@@ -64,7 +68,7 @@ export function testRunId(): string {
 
 export function recordRun(store: Store, steps: Step[], o: RecordOptions = {}): { run: RunRecord; models: number[] } {
   const startedAt = o.startedAt ?? 1_760_000_000_000 + seq * 1000;
-  const run = store.createRun({ runId: o.runId ?? testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: o.codeVersion ?? null, startedAt, ...(o.meta ? { meta: o.meta } : {}) });
+  const run = store.createRun({ runId: o.runId ?? testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: o.argv ?? ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: o.codeVersion ?? null, startedAt, ...(o.meta ? { meta: o.meta } : {}) });
   const ids = o.ids ?? run.runId.slice(-4);
   const model = o.model ?? 'claude-sonnet-5';
   const messages: unknown[] = [{ role: 'user', content: o.user ?? 'The customer asks for a refund on order A-1042.' }];
@@ -88,8 +92,9 @@ export function recordRun(store: Store, steps: Step[], o: RecordOptions = {}): {
     const usage = o.usage ?? { inputTokens: 1000 + i * 100, outputTokens: 40 };
     const response = { id: `msg_${ids}_${i}`, type: 'message', role: 'assistant', model, content, stop_reason: uses.length ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens } };
     const fingerprint = sha256(JSON.stringify(body.messages.length) + i);
-    store.appendCallStart({ runId: run.runId, callNo, kind: 'api', name: 'POST /v1/messages', fingerprint, occurrence: 1, origin: o.parentRunId ? 'replayed' : 'live', effect: null, requestRef: storeApiRequest(store, body), meta: { provider: 'anthropic' }, at: at() });
-    store.appendCallEnd({ kind: 'api', name: 'POST /v1/messages', fingerprint, occurrence: 1 }, { runId: run.runId, callNo, attempt: 0, responseRef: store.putJson(response), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic', model, usage, stopReason: response.stop_reason }, at: at() });
+    const scope = o.scopes?.(i);
+    store.appendCallStart({ runId: run.runId, callNo, kind: 'api', name: 'POST /v1/messages', fingerprint, occurrence: 1, origin: o.parentRunId ? 'replayed' : 'live', effect: null, requestRef: storeApiRequest(store, body), meta: { provider: 'anthropic', ...(scope ? { scope } : {}) }, at: at() });
+    store.appendCallEnd({ kind: 'api', name: 'POST /v1/messages', fingerprint, occurrence: 1 }, { runId: run.runId, callNo, attempt: 0, responseRef: store.putJson(response), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic', model, usage, stopReason: response.stop_reason, ...(scope ? { scope } : {}) }, at: at() });
     messages.push({ role: 'assistant', content });
     if (!uses.length) return;
     const results: unknown[] = [];

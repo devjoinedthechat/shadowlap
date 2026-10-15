@@ -2,9 +2,9 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { packRun } from '../src/pack.js';
+import { NO_COMMAND, packRun } from '../src/pack.js';
 import { Store } from '../src/store.js';
-import { attemptScore, averageTokens, describeTask, entryFor, findTask, goldenPaths, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
+import { attemptScore, averageTokens, describeTask, entryFor, goldenPaths, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from './training-fixtures.js';
 
 /** Goldens as tasks: where a model takes over, why, what the task rewards, and whether it can be scored. */
@@ -109,11 +109,44 @@ describe('tasks', () => {
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: CAPS, testFailed: false }))).toEqual(['not-a-task', 'its checks only cap tokens and cost']);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: [], testFailed: false }))).toEqual(['not-a-task', 'it has no checks']);
     expect(status(describeTask({ path: 'gone', golden: null, fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['no-golden', 'the golden is gone']);
+    // Packed straight from a capture: shadowlap test can't start its agent, so neither can a score.
+    const captured = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { argv: [NO_COMMAND] }).run;
+    packRun(store, captured.runId, join(root, 'captured'));
+    expect(status(describeTask({ path: 'captured', golden: readGolden(join(root, 'captured'), 'captured'), fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['blocked', NO_COMMAND_NOTE]);
+    store.close();
+  });
+
+  it('play the agent\'s scope when a simulated user answers in another, and are not scored yet', () => {
+    const { root, store } = project();
+    // The agent's model calls in scope "agent", a simulated customer's in "user", turn about; blame was limited to the agent's.
+    const turnAbout = (i: number) => (i % 2 === 0 ? 'agent' : 'user');
+    const lost = recordRun(store, [LOOKUP, { text: 'It was $240.' }, POLICY, { text: 'Fine.' }, REFUND, DONE], { status: 'failed', scopes: turnAbout, before: [{ name: 'user_input', result: 'Refund A-1042' }] }).run;
+    packRun(store, lost.runId, join(root, 'goldens', 'dialogue'));
+    const golden = readGolden(join(root, 'goldens', 'dialogue'), 'goldens/dialogue');
+    const models = golden.calls.filter((c) => c.kind === 'api').map((c) => [c.callNo, c.meta.scope]);
+    expect(models).toEqual([[2, 'agent'], [4, 'user'], [5, 'agent'], [7, 'user'], [8, 'agent'], [10, 'user']]);
+    const task = describeTask({ path: 'goldens/dialogue', golden, fields: { scope: 'agent' }, checks: OUTCOME, testFailed: null });
+    expect(task).toMatchObject({ scope: 'agent', scopes: ['agent', 'user'], takeover: { callNo: 2, from: 'input' }, status: 'not-a-task' });
+    expect(task.note).toBe("its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test");
+    // Blame was limited to the agent's scope: its call is the takeover, and its scope the task's.
+    store.updateRunMeta(lost.runId, { blame: { at: 1, outcome: 'blamed', callNo: 8, confidence: 'high', rescuedRunId: null, fields: {}, scope: 'agent', oracle: [], probes: [], spent: 0 } });
+    expect(describeTask({ path: 'goldens/dialogue', golden, fields: {}, checks: OUTCOME, testFailed: null, ancestors: [store.getRun(lost.runId)!] })).toMatchObject({ scope: 'agent', takeover: { callNo: 8, from: 'blame' } });
+    // The first agent call, never the customer's, when nothing else says; and a takeover set at the customer's is refused.
+    const noInput = recordRun(store, [{ text: 'Hello.' }, LOOKUP, POLICY, ESCALATE], { scopes: (i) => (i === 0 ? 'user' : 'agent') }).run;
+    packRun(store, noInput.runId, join(root, 'goldens', 'greeting'));
+    const greeting = readGolden(join(root, 'goldens', 'greeting'), 'goldens/greeting');
+    expect(describeTask({ path: 'goldens/greeting', golden: greeting, fields: { scope: 'agent' }, checks: OUTCOME, testFailed: null }).takeover).toMatchObject({ callNo: 2, from: 'first' });
+    expect(describeTask({ path: 'goldens/greeting', golden: greeting, fields: { scope: 'agent', takeover: 1 }, checks: OUTCOME, testFailed: null })).toMatchObject({ status: 'not-a-task', note: "#1 is made in scope user, not the agent's (agent)" });
+    expect(describeTask({ path: 'goldens/greeting', golden: greeting, fields: { scope: 'planner' }, checks: OUTCOME, testFailed: null })).toMatchObject({ status: 'not-a-task', note: "no model call of the golden's run is made in scope planner" });
+    // Every model call in one scope: that is the agent's, and nothing stands in the way.
+    const solo = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { scopes: () => 'agent' }).run;
+    packRun(store, solo.runId, join(root, 'goldens', 'solo'));
+    expect(describeTask({ path: 'goldens/solo', golden: readGolden(join(root, 'goldens', 'solo'), 'goldens/solo'), fields: {}, checks: OUTCOME, testFailed: null })).toMatchObject({ status: 'ready', scope: 'agent', scopes: ['agent'], takeover: { callNo: 1 } });
     store.close();
   });
 
   it('warn when every ready task rewards the same behaviour, naming one that rewards another', () => {
-    const t = (golden: string, status: Task['status'], rewards: string): Task => ({ golden, name: golden, status, note: status === 'blocked' ? 'its test fails' : null, runId: null, takeover: null, rewards, checks: [], after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null });
+    const t = (golden: string, status: Task['status'], rewards: string): Task => ({ golden, name: golden, status, note: status === 'blocked' ? 'its test fails' : null, runId: null, takeover: null, scope: null, scopes: [], rewards, checks: [], after: { live: [], stubbed: [] }, prefix: 0, model: null, provider: null, callName: null, tokensAfter: null });
     expect(oneSided([t('a', 'ready', 'escalate above the limit'), t('b', 'ready', 'escalate above the limit'), t('c', 'blocked', 'refund within the limit')])).toEqual({
       rewards: 'escalate above the limit',
       tasks: ['a', 'b'],
@@ -128,14 +161,20 @@ describe('tasks', () => {
     expect(averageTokens([t({ inputTokens: 1000, outputTokens: 100 }), t({ inputTokens: 3000, outputTokens: 300, cacheReadInputTokens: 400 }), t(null)])).toEqual({ inputTokens: 2000, outputTokens: 200, cacheReadInputTokens: 200, cacheCreationInputTokens: 0 });
     expect(averageTokens([])).toBeNull();
     expect(attemptScore([{ ok: true }, { ok: false }, { ok: true }, { ok: true }])).toBe(0.75);
-    const tasks = [{ golden: 'goldens/refund-over-limit', name: 'refund-over-limit' }];
-    expect(findTask(tasks, 'refund-over-limit')).toBe(tasks[0]);
-    expect(findTask(tasks, 'goldens/refund-over-limit/')).toBe(tasks[0]);
-    expect(findTask(tasks, 'nope')).toBeNull();
+    const tasks = [{ golden: 'goldens/refund-over-limit', name: 'refund-over-limit' }, { golden: 'goldens/a/refund', name: 'refund' }, { golden: 'goldens/b/refund', name: 'refund' }];
+    expect(matchTask(tasks, 'refund-over-limit')).toEqual({ task: tasks[0] });
+    expect(matchTask(tasks, 'goldens/refund-over-limit/')).toEqual({ task: tasks[0] });
+    expect(matchTask(tasks, './goldens/a/refund')).toEqual({ task: tasks[1] });
+    // Two goldens share the name: it alone says neither, and both are named.
+    expect(matchTask(tasks, 'refund')).toEqual({ ambiguous: ['goldens/a/refund', 'goldens/b/refund'] });
+    expect(matchTask(tasks, 'goldens/c/refund')).toBeNull();
+    expect(matchTask(tasks, 'nope')).toBeNull();
   });
 
   it('check the task block of a tests entry', () => {
-    expect(parseTaskFields({ takeover: 17, why: ' decides ', rewards: 'escalate' }, 'task')).toEqual({ takeover: 17, why: 'decides', rewards: 'escalate' });
+    expect(parseTaskFields({ takeover: 17, why: ' decides ', rewards: 'escalate', scope: ' agent ' }, 'task')).toEqual({ takeover: 17, why: 'decides', rewards: 'escalate', scope: 'agent' });
+    expect(() => parseTaskFields({ scope: '' }, 'task')).toThrow('task.scope must be the name of a scope');
+    expect(() => parseTaskFields({ scope: 3 }, 'task')).toThrow('task.scope must be the name of a scope');
     expect(parseTaskFields(undefined, 'task')).toEqual({});
     expect(() => parseTaskFields({ takeover: 0 }, 'tests["g"].task')).toThrow('tests["g"].task.takeover must be a model call number');
     expect(() => parseTaskFields({ teaches: 'x' }, 'task')).toThrow('unknown key "teaches"');

@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { contextLine, countPairs, findPairs, pairRows } from '../src/pairs.js';
 import { normalizeConversation } from '../src/conversation.js';
-import { loadApiRequest } from '../src/manifest.js';
+import { sha256 } from '../src/ids.js';
+import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { Store } from '../src/store.js';
-import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from './training-fixtures.js';
+import type { RunMeta, RunRecord, RunStatus } from '../src/types.js';
+import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, testRunId, type Step } from './training-fixtures.js';
 
 /**
  * Preference pairs from attempts already in the store. The support agent's run turns on its third
@@ -139,9 +141,25 @@ describe('pairs from verify and --repeat', () => {
   it('never takes blame, verify, test or scoring attempts for --repeat ones', () => {
     const store = Store.open(':memory:');
     const rec = recordRun(store, SAVED).run;
-    recordRun(store, LOST, { parentRunId: rec.runId, status: 'failed', meta: { repeat: { group: 'x', attempt: 1, of: 2 }, task: { golden: 'goldens/a', model: 'm', takeover: 5, attempt: 1, of: 2, score: 0, session: 's' } } });
-    recordRun(store, SAVED, { parentRunId: rec.runId, meta: { repeat: { group: 'x', attempt: 2, of: 2 }, task: { golden: 'goldens/a', model: 'm', takeover: 5, attempt: 2, of: 2, score: 1, session: 's' } } });
-    expect(findPairs(store)).toEqual({ pairs: [], sources: [] });
+    const task = (attempt: number, score: number | null, stopped?: string): NonNullable<RunMeta['task']> => ({ golden: 'goldens/a', model: 'm', takeover: 5, attempt, of: 2, score, session: 'score-1', ...(stopped ? { stopped } : {}) });
+    // Every kind of attempt carries a repeat group of its own, failing and passing alike.
+    const marks: Array<[string, (passed: boolean) => RunMeta]> = [
+      ['probe', (passed) => ({ probe: { of: 'elsewhere', callNo: 5, passed } })],
+      ['verify', (passed) => ({ verify: { role: 'target', passed } })],
+      ['test', () => ({ test: { golden: 'goldens/a', session: 't-1' } })],
+      ['task', (passed) => ({ task: task(passed ? 2 : 1, passed ? 1 : 0) })],
+    ];
+    for (const [group, mark] of marks) {
+      recordRun(store, LOST, { parentRunId: rec.runId, status: 'failed', meta: { repeat: { group, attempt: 1, of: 2 }, ...mark(false) } });
+      recordRun(store, SAVED, { parentRunId: rec.runId, meta: { repeat: { group, attempt: 2, of: 2 }, ...mark(true) } });
+    }
+    // A scoring attempt that stopped (the endpoint was down, the golden forked first) has no score, and is a scoring attempt all the same.
+    recordRun(store, LOST, { parentRunId: rec.runId, status: 'failed', meta: { repeat: { group: 'score-1-a', attempt: 1, of: 2 }, task: task(1, null, "my-finetune didn't answer #5") } });
+    recordRun(store, SAVED, { parentRunId: rec.runId, meta: { repeat: { group: 'score-1-a', attempt: 2, of: 2 }, task: task(2, 1) } });
+    const { pairs, sources } = findPairs(store);
+    // Verify's attempts make verify's pairs; none of them, and nothing else, is read as a --repeat.
+    expect(sources.map((s) => s.kind)).toEqual(['verify']);
+    expect(pairs.map((p) => p.sourceKind)).toEqual(['verify']);
     store.close();
   });
 });
@@ -199,6 +217,183 @@ describe('pairs as training rows', () => {
     // The store is unchanged.
     const call = store.getCalls(pairs[0]!.rejected.runId).find((c) => c.callNo === 5)!;
     expect(JSON.stringify(loadApiRequest(store, call.requestRef!))).toContain('dana@example.com');
+    store.close();
+  });
+});
+
+// ---- reading them ----
+
+/** A copy of a run whose model requests are stored whole, as requests that aren't messages-shaped are. */
+function wholeCopy(store: Store, run: RunRecord, o: { status: Exclude<RunStatus, 'running'>; meta: RunMeta }): RunRecord {
+  const copy = store.createRun({ runId: testRunId(), parentRunId: run.parentRunId, mode: 'replay', command: run.command, codeVersion: null, startedAt: run.startedAt + 1, meta: o.meta });
+  for (const c of store.getCalls(run.runId)) {
+    const requestRef = c.kind === 'api' && c.requestRef ? store.putJson({ v: 1, kind: 'whole', blob: store.putJson(loadApiRequest(store, c.requestRef)), encoding: 'json' }) : c.requestRef;
+    store.appendCallStart({ runId: copy.runId, callNo: c.callNo, kind: c.kind, name: c.name, fingerprint: c.fingerprint, occurrence: c.occurrence, origin: c.origin, effect: c.effect, requestRef, meta: c.meta, at: c.at });
+    if (c.end) store.appendCallEnd(c, { ...c.end, runId: copy.runId });
+  }
+  store.endRun(copy.runId, o.status);
+  return store.getRun(copy.runId)!;
+}
+
+/** A one-call OpenAI chat run: the policy read with a tool call, then the model's answer. */
+function recordChat(store: Store, answer: string, o: { parentRunId: string; status: Exclude<RunStatus, 'running'>; meta: RunMeta; ids: string; whole?: boolean; policy?: string }): RunRecord {
+  const run = store.createRun({ runId: testRunId(), parentRunId: o.parentRunId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: null, meta: o.meta });
+  const body = {
+    model: 'gpt-5-mini',
+    messages: [
+      { role: 'system', content: 'You are a support agent.' },
+      { role: 'user', content: 'Refund A-1042: $240.' },
+      { role: 'assistant', content: null, tool_calls: [{ id: `call_${o.ids}`, type: 'function', function: { name: 'read_policy', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: `call_${o.ids}`, content: o.policy ?? 'Refunds above $100 need a manager.' },
+    ],
+    tools: [{ type: 'function', function: { name: 'escalate', parameters: { type: 'object', properties: {} } } }],
+  };
+  const requestRef = o.whole ? store.putJson({ v: 1, kind: 'whole', blob: store.putJson(body), encoding: 'json' }) : storeApiRequest(store, body);
+  const response = { id: `chatcmpl-${o.ids}`, object: 'chat.completion', model: 'gpt-5-mini', choices: [{ index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' }] };
+  const identity = { kind: 'api' as const, name: 'POST /v1/chat/completions', fingerprint: sha256(o.ids), occurrence: 1 };
+  store.appendCallStart({ runId: run.runId, callNo: 1, ...identity, origin: 'live', effect: null, requestRef, meta: { provider: 'openai' }, at: 1 });
+  store.appendCallEnd(identity, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putJson(response), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'openai', model: 'gpt-5-mini' }, at: 2 });
+  store.endRun(run.runId, o.status);
+  return store.getRun(run.runId)!;
+}
+
+describe('reading pairs', () => {
+  it('knows a conversation whether its request was stored message by message or whole, in either shape', () => {
+    const store = Store.open(':memory:');
+    const rec = recordRun(store, SAVED).run;
+    const repeat = (group: string, n: number): RunMeta => ({ repeat: { group, attempt: n, of: 2 } });
+    // Anthropic's shape: a failing attempt stored as messages, a passing one stored whole.
+    recordRun(store, LOST, { parentRunId: rec.runId, status: 'failed', meta: repeat('anthropic', 1) });
+    wholeCopy(store, recordRun(store, SAVED, { parentRunId: rec.runId }).run, { status: 'completed', meta: repeat('anthropic', 2) });
+    // OpenAI's chat shape, with its tool messages, the same way round; and once with another tool result, which is another conversation.
+    recordChat(store, 'Refunded $240.', { parentRunId: rec.runId, status: 'failed', meta: repeat('openai', 1), ids: 'a' });
+    recordChat(store, 'Escalated: $240 is over the limit.', { parentRunId: rec.runId, status: 'completed', meta: repeat('openai', 2), ids: 'b', whole: true });
+    recordChat(store, 'Refunded $240.', { parentRunId: rec.runId, status: 'failed', meta: repeat('parted', 1), ids: 'c' });
+    recordChat(store, 'Escalated: $240 is over the limit.', { parentRunId: rec.runId, status: 'completed', meta: repeat('parted', 2), ids: 'd', whole: true, policy: 'Refunds need a manager.' });
+
+    const { pairs, sources } = findPairs(store);
+    const made = Object.fromEntries(sources.map((s) => [s.key, s.made]));
+    expect(made).toEqual({ 'repeat:anthropic': 1, 'repeat:openai': 1, 'repeat:parted': 0 });
+    expect(pairs.find((p) => p.source === 'repeat:openai')).toMatchObject({ callNo: 1, rejected: { text: '"Refunded $240."' }, chosen: { text: '"Escalated: $240 is over the limit."' }, context: 'Refund A-1042: $240. · read_policy returned Refunds above $100 need a manager.' });
+    expect(pairs.find((p) => p.source === 'repeat:anthropic')).toMatchObject({ callNo: 5, rejected: { text: expect.stringContaining('issue_refund') }, chosen: { text: expect.stringContaining('escalate') } });
+    store.close();
+  });
+
+  it('reads a long run at a handful of its calls, so a screen that shows pairs stays quick', () => {
+    const store = Store.open(':memory:');
+    const N = 400;
+    // A run of 400 model calls, then verify attempts whose first prompt changed, so every request differs
+    // from the recording's; they answer alike until the last call, where some give up and some finish.
+    const record = (system: string, last: string, o: { parentRunId?: string; status: Exclude<RunStatus, 'running'>; meta?: RunMeta; ids: string }) => {
+      const run = store.createRun({ runId: testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: 'c1', ...(o.meta ? { meta: o.meta } : {}) });
+      const messages: unknown[] = [{ role: 'user', content: 'Work through the backlog.' }];
+      for (let i = 0; i < N; i++) {
+        const final = i === N - 1;
+        const content = [{ type: 'text', text: final ? last : `Step ${i}: on to the next item.` }, ...(final ? [] : [{ type: 'tool_use', id: `toolu_${o.ids}_${i}`, name: 'step', input: { n: i } }])];
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`${o.ids}${i}`), occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'claude-sonnet-5', system, messages }), meta: { provider: 'anthropic' }, at: i });
+        store.appendCallEnd(identity, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putJson({ type: 'message', role: 'assistant', model: 'claude-sonnet-5', content, stop_reason: final ? 'end_turn' : 'tool_use' }), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic' }, at: i });
+        messages.push({ role: 'assistant', content });
+        if (!final) messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_${o.ids}_${i}`, content: `item ${i} done` }] });
+      }
+      store.endRun(run.runId, o.status);
+      return run;
+    };
+    const target = record('You are an agent.', 'Gave up.', { status: 'failed', ids: 't' });
+    for (let a = 0; a < 4; a++) {
+      const passed = a % 2 === 0;
+      record('You are an agent. Finish every item.', passed ? 'All done.' : 'Gave up.', { parentRunId: target.runId, status: passed ? 'completed' : 'failed', ids: `a${a}`, meta: { verify: { role: 'target', passed }, repeat: { group: `v1-${target.runId}`, attempt: a + 1, of: 4 } } });
+    }
+    const read = vi.spyOn(store, 'getJson');
+    const started = performance.now();
+    const { pairs } = findPairs(store);
+    const ms = performance.now() - started;
+    const manifests = read.mock.results.filter((x) => (x.value as { kind?: unknown } | null)?.kind === 'chunked').length;
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ callNo: N, rejected: { text: '"Gave up."' }, chosen: { text: '"All done."' } });
+    // Reading every call of five 400-call runs would read 2,000 requests, each the whole conversation so far.
+    expect(manifests).toBeLessThan(150);
+    expect(ms).toBeLessThan(5_000);
+    // Read again, nothing changed: nothing is read.
+    read.mockClear();
+    expect(findPairs(store).pairs.map((p) => p.id)).toEqual(pairs.map((p) => p.id));
+    expect(read).not.toHaveBeenCalled();
+    store.close();
+  });
+
+  it('reads the store again once a run changes', () => {
+    const store = Store.open(':memory:');
+    const { run } = blamed(store);
+    expect(findPairs(store).pairs).toHaveLength(2);
+    store.updateRunMeta(run.runId, { blame: { ...run.meta!.blame!, outcome: 'unrescuable', callNo: null } });
+    expect(findPairs(store)).toMatchObject({ pairs: [], sources: [{ made: 0, why: expect.stringContaining('Not rescued') }] });
+    store.close();
+  });
+});
+
+// ---- scopes ----
+
+/**
+ * A conversation between an agent and a simulated customer, each a model in its own scope: the agent
+ * answers in scope "agent", the customer in scope "user", turn about. Each side's requests hold the
+ * dialogue as that side sees it.
+ */
+function recordDialogue(store: Store, lines: string[], o: { parentRunId?: string; status?: Exclude<RunStatus, 'running'>; meta?: RunMeta }): RunRecord {
+  const run = store.createRun({ runId: testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: ['python', 'run_task.py'], cwd: '/work' }, codeVersion: 'c7', ...(o.meta ? { meta: o.meta } : {}) });
+  const said: Array<{ by: 'agent' | 'user'; text: string }> = [{ by: 'user', text: 'Hi, I want a refund for order A-1042.' }];
+  lines.forEach((text, i) => {
+    const scope = i % 2 === 0 ? 'agent' : 'user';
+    // Each side sees its own lines as the assistant's and the other side's as the user's.
+    const messages = said.map((x) => ({ role: x.by === scope ? 'assistant' : 'user', content: x.text }));
+    const body = { model: 'claude-sonnet-5', max_tokens: 256, system: scope === 'agent' ? 'You are a support agent.' : 'You are a customer who wants a refund.', messages: scope === 'user' ? [{ role: 'user', content: '(start)' }, ...messages] : messages };
+    const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`${run.runId}${i}`), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: i + 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, body), meta: { provider: 'anthropic', scope }, at: i });
+    store.appendCallEnd(identity, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putJson({ type: 'message', role: 'assistant', model: 'claude-sonnet-5', content: [{ type: 'text', text }], stop_reason: 'end_turn' }), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic', scope }, at: i });
+    said.push({ by: scope, text });
+  });
+  store.endRun(run.runId, o.status ?? 'completed');
+  return store.getRun(run.runId)!;
+}
+
+describe('pairs in a run with a simulated user', () => {
+  const A1 = 'Let me look order A-1042 up.';
+  const U1 = 'Sure, it was $240.';
+  const verifyOf = (store: Store, target: RunRecord) => (lines: string[], passed: boolean, n: number) => recordDialogue(store, lines, { parentRunId: target.runId, status: passed ? 'completed' : 'failed', meta: { verify: { role: 'target', passed }, repeat: { group: `v3-${target.runId}`, attempt: n, of: 3 } } });
+
+  it('pairs the agent\'s answers in the scope blame named, never the simulated user\'s lines', () => {
+    const store = Store.open(':memory:');
+    const target = recordDialogue(store, [A1, U1, 'Refunded $240.', 'Thanks!'], { status: 'failed' });
+    store.updateRunMeta(target.runId, { blame: { at: 1, outcome: 'blamed', callNo: 3, confidence: 'high', rescuedRunId: null, fields: {}, scope: 'agent', oracle: [], probes: [], spent: 0 } });
+    const attempt = verifyOf(store, target);
+    const failing = attempt([A1, U1, 'Refunded $240.', 'Thanks!'], false, 1);
+    const passing = attempt([A1, U1, 'That is over $100: a manager will call you.', 'Okay.'], true, 2);
+    // The simulated customer said something else first: the agent's next conversation is another one, so nothing pairs there.
+    attempt([A1, 'Actually, it was $80.', 'Refunded $80.', 'Thanks!'], true, 3);
+
+    const { pairs, sources } = findPairs(store);
+    const verify = sources.find((s) => s.kind === 'verify')!;
+    expect(pairs.filter((p) => p.sourceKind === 'verify')).toEqual([expect.objectContaining({ callNo: 3, rejected: expect.objectContaining({ runId: failing.runId, text: '"Refunded $240."' }), chosen: expect.objectContaining({ runId: passing.runId, text: '"That is over $100: a manager will call you."' }) })]);
+    expect(verify.made).toBe(1);
+    expect(verify.why).toContain('Once the attempts saw different conversations before their answers differed');
+    store.close();
+  });
+
+  it('makes no verify or --repeat pairs from runs in several scopes when nothing says which is the agent\'s, and says why', () => {
+    const store = Store.open(':memory:');
+    const target = recordDialogue(store, [A1, U1, 'Refunded $240.', 'Thanks!'], { status: 'failed' });
+    const attempt = verifyOf(store, target);
+    attempt([A1, U1, 'Refunded $240.', 'Thanks!'], false, 1);
+    attempt([A1, 'Actually, it was $80.', 'Refunded $80.', 'Thanks!'], true, 2);
+    recordDialogue(store, [A1, U1, 'Refunded $240.', 'Thanks!'], { parentRunId: target.runId, status: 'failed', meta: { repeat: { group: 'r9', attempt: 1, of: 2 } } });
+    recordDialogue(store, [A1, 'Actually, it was $80.', 'Refunded $80.', 'Thanks!'], { parentRunId: target.runId, status: 'completed', meta: { repeat: { group: 'r9', attempt: 2, of: 2 } } });
+
+    const { pairs, sources } = findPairs(store);
+    expect(pairs).toEqual([]);
+    for (const s of sources) {
+      expect(s.made).toBe(0);
+      expect(s.why).toContain("model calls are made in more than one scope (agent, user), and no blame says which is the agent's");
+    }
+    expect(sources.map((s) => s.kind).sort()).toEqual(['repeat', 'verify']);
     store.close();
   });
 });

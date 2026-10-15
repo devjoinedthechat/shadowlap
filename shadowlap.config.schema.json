@@ -199,6 +199,12 @@
                 "description": "What a passing attempt does, in a few words, such as \"escalate above the limit\". Defaults to the outcome checks.",
                 "type": "string",
                 "maxLength": 200
+              },
+              "scope": {
+                "description": "The scope the agent's model calls are made in, when a simulated user's are made in another (scope() in the SDKs): the default takeover is the agent's call. Defaults to the scope blame was limited to.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
               }
             }
           }

@@ -1,13 +1,15 @@
+import { createHash, type Hash } from 'node:crypto';
 import { describeBlocks } from './blame.js';
 import { canonicalize } from './canonical.js';
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
 import { messagesOf, type DatasetMessage } from './dataset.js';
 import type { Block } from './deltas.js';
 import { sha256 } from './ids.js';
-import { loadApiRequest } from './manifest.js';
+import { loadApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern } from './normalize.js';
 import { normalizeResponse } from './responses.js';
 import type { Store } from './store.js';
+import { answersNothing } from './tasks.js';
 import { openAITools } from './translate.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
 
@@ -29,6 +31,11 @@ import type { CallRecord, Normalizer, RunRecord } from './types.js';
  * answer the same conversation: attempts whose paths parted before their answers did (a live read
  * that returned something else) make none, and neither does an answer that also passed, from the
  * same point, in another attempt.
+ *
+ * Scopes: a run whose model calls are made in more than one scope (an agent and the simulated user
+ * it talks to) is read in its agent's scope only, the one blame was limited to (`--scope`), so a
+ * pair is never the simulated user's lines. Without a blame to say which scope is the agent's, such
+ * a run makes no verify or `--repeat` pairs, and its source says so.
  */
 
 export type PairConfidence = 'high' | 'medium';
@@ -94,37 +101,52 @@ export interface PairsResult {
 }
 
 type ModelCall = CallRecord & { end: NonNullable<CallRecord['end']> };
+type ChunkedManifest = Extract<RequestManifest, { kind: 'chunked' }>;
 
 const squash = (s: string) => s.trim().replace(/\s+/g, ' ');
 const short = (id: string) => id.slice(0, 10);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A run as a source names it: its first label, or its short id. */
 function runName(run: RunRecord): string {
   return run.meta?.labels?.[0] ?? short(run.runId);
 }
 
+/** What makes a turn the same turn whatever ids, whitespace and reasoning it carried; '' for one with nothing that counts. */
+function turnKey(t: Turn): string {
+  const blocks = t.blocks.flatMap((b: TurnBlock): unknown[] => {
+    if (b.type === 'thinking') return [];
+    if (b.type === 'text') return squash(b.text) ? [{ t: squash(b.text) }] : [];
+    if (b.type === 'tool_call') return [{ c: b.name, i: b.input ?? {} }];
+    if (b.type === 'tool_result') return [{ res: squash(b.content), e: b.isError === true }];
+    return [{ o: b.label }];
+  });
+  return blocks.length ? sha256(canonicalize({ r: t.role, b: blocks })) : '';
+}
+
+/** A conversation's key is the tools it offers, then each turn's key in order. */
+const startKey = (tools: readonly string[]): Hash => createHash('sha256').update(`${JSON.stringify(tools)}\n`);
+
 /** The same conversation whatever ids, whitespace and reasoning the attempts carried. */
-function conversationKey(turns: Turn[], tools: string[]): string {
-  const reduced = turns
-    .map((t) => ({
-      r: t.role,
-      b: t.blocks.flatMap((b: TurnBlock): unknown[] => {
-        if (b.type === 'thinking') return [];
-        if (b.type === 'text') return squash(b.text) ? [{ t: squash(b.text) }] : [];
-        if (b.type === 'tool_call') return [{ c: b.name, i: b.input ?? {} }];
-        if (b.type === 'tool_result') return [{ res: squash(b.content), e: b.isError === true }];
-        return [{ o: b.label }];
-      }),
-    }))
-    .filter((t) => t.b.length);
-  return sha256(canonicalize({ turns: reduced, tools }));
+function conversationKey(turns: readonly Turn[], tools: readonly string[]): string {
+  const h = startKey(tools);
+  for (const t of turns) {
+    const k = turnKey(t);
+    if (k) h.update(`${k}\n`);
+  }
+  return h.digest('hex');
 }
 
 /** The same answer whatever ids, whitespace and reasoning came with it; '' for one with nothing to say. */
 function answerKey(blocks: readonly Block[]): string {
   const parts = blocks.flatMap((b): unknown[] => (b.type === 'text' ? (squash(b.text) ? [{ t: squash(b.text) }] : []) : b.type === 'tool_call' ? [{ c: b.name, i: b.input ?? {} }] : []));
   return parts.length ? canonicalize(parts) : '';
+}
+
+/** A message only OpenAI's chat shape has: what makes normalizeConversation read a body as OpenAI's. */
+function openAIOnly(m: unknown): boolean {
+  return isObject(m) && (m.role === 'tool' || m.role === 'developer' || Array.isArray(m.tool_calls) || (m.role === 'system' && typeof m.content === 'string'));
 }
 
 const cut = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 1)}…` : s);
@@ -155,11 +177,21 @@ export function contextLine(turns: readonly Turn[], width = 140): string {
   return last ? cut(`${head} · ${last}`, width) : head;
 }
 
-/** Reads what pairs need from the store once: calls, conversations and answers. */
+/**
+ * Reads what pairs need from the store, each thing once. A model request is stored as its messages
+ * plus a list of them, so a conversation's key is made from its messages' keys, each message read
+ * and keyed once: a run's thousandth call costs no more to key than reading its list. Turns are
+ * rebuilt only for the calls pairs come from.
+ */
 class Reader {
   private readonly calls = new Map<string, CallRecord[]>();
-  private readonly prompts = new Map<string, { key: string; turns: Turn[] } | null>();
+  private readonly models = new Map<string, ModelCall[]>();
+  private readonly keys = new Map<string, string | null>();
+  /** A message's turn key as an Anthropic-shaped message and as an OpenAI-shaped one, and whether only OpenAI's shape has it. */
+  private readonly messages = new Map<string, { anthropic: string; openai: string; openAIOnly: boolean } | null>();
+  private readonly parts = new Map<string, string | string[] | null>();
   private readonly answers = new Map<string, Block[]>();
+  private readonly answerKeys = new Map<string, string>();
   constructor(readonly store: Store) {}
 
   callsOf(runId: string): CallRecord[] {
@@ -168,44 +200,145 @@ class Reader {
     return calls;
   }
 
-  /** The run's model calls that were answered, in order. */
-  modelCalls(runId: string): ModelCall[] {
-    return this.callsOf(runId).filter((c): c is ModelCall => c.kind === 'api' && !!c.requestRef && c.end !== null && c.end.outcome === 'ok' && !!c.end.responseRef);
+  /** The run's model calls that were answered, in order; with a scope, only those made in it. */
+  modelCalls(runId: string, scope: string | null = null): ModelCall[] {
+    const id = `${runId}\n${scope ?? ''}`;
+    let calls = this.models.get(id);
+    if (!calls) {
+      calls =
+        scope === null
+          ? this.callsOf(runId).filter((c): c is ModelCall => c.kind === 'api' && !!c.requestRef && c.end !== null && c.end.outcome === 'ok' && !!c.end.responseRef && !answersNothing(c.name))
+          : this.modelCalls(runId).filter((c) => c.meta.scope === scope);
+      this.models.set(id, calls);
+    }
+    return calls;
   }
 
   modelCall(runId: string, callNo: number): ModelCall | null {
     return this.modelCalls(runId).find((c) => c.callNo === callNo) ?? null;
   }
 
-  prompt(call: ModelCall): { key: string; turns: Turn[] } | null {
+  /** The scopes a run's model calls were made in; null for calls made outside any. */
+  scopesOf(runId: string): Array<string | null> {
+    return [...new Set(this.modelCalls(runId).map((c) => (typeof c.meta.scope === 'string' ? c.meta.scope : null)))];
+  }
+
+  /** The conversation a model call answered, as a key; null when its request can't be read as one. */
+  key(call: ModelCall): string | null {
     const ref = call.requestRef!;
-    if (!this.prompts.has(ref)) {
-      let value: { key: string; turns: Turn[] } | null = null;
-      try {
+    let key = this.keys.get(ref);
+    if (key !== undefined) return key;
+    key = null;
+    try {
+      const manifest = this.store.getJson<RequestManifest>(ref);
+      if (manifest?.kind === 'chunked') key = this.chunkedKey(manifest);
+      else if (manifest) {
         const conv = normalizeConversation(loadApiRequest(this.store, ref));
-        if (conv) value = { key: conversationKey(conv.turns, conv.tools), turns: conv.turns };
-      } catch {
-        value = null;
+        if (conv) key = conversationKey(conv.turns, conv.tools);
       }
-      this.prompts.set(ref, value);
+    } catch {
+      key = null;
     }
-    return this.prompts.get(ref) ?? null;
+    this.keys.set(ref, key);
+    return key;
+  }
+
+  /** The key conversationKey would give the stored request, from its messages' keys. */
+  private chunkedKey(m: ChunkedManifest): string | null {
+    const messages = m.messages.map((hash) => this.message(hash));
+    if (messages.some((x) => x === null)) return null;
+    // normalizeConversation reads a body as OpenAI's chat when it has no system field and a message only OpenAI's shape has.
+    const openai = m.system === null && messages.some((x) => x!.openAIOnly);
+    const tools = this.part(`tools\n${m.tools ?? ''}\n${m.fields.toolConfig === undefined ? '' : JSON.stringify(m.fields.toolConfig)}`, () => normalizeConversation({ ...(m.tools !== null ? { tools: this.store.getJson(m.tools) } : {}), ...(m.fields.toolConfig !== undefined ? { toolConfig: m.fields.toolConfig } : {}), messages: [] })?.tools ?? []);
+    if (tools === null) return null;
+    const h = startKey(tools as string[]);
+    if (m.system !== null) {
+      const system = this.part(`system\n${m.system}`, () => {
+        const turn = normalizeConversation({ system: this.store.getJson(m.system!), messages: [] })?.turns[0];
+        return turn ? turnKey(turn) : '';
+      });
+      if (system === null) return null;
+      if (system) h.update(`${system as string}\n`);
+    }
+    for (const x of messages) {
+      const k = openai ? x!.openai : x!.anthropic;
+      if (k) h.update(`${k}\n`);
+    }
+    return h.digest('hex');
+  }
+
+  /** One stored message's turn, keyed under each shape a request can give it (normalizeConversation decides the shape from the whole body). */
+  private message(hash: string): { anthropic: string; openai: string; openAIOnly: boolean } | null {
+    let v = this.messages.get(hash);
+    if (v !== undefined) return v;
+    v = null;
+    try {
+      const m = this.store.getJson<unknown>(hash);
+      if (m !== null) {
+        const asAnthropic = normalizeConversation({ system: '', messages: [m] })?.turns[1];
+        const asOpenAI = normalizeConversation({ messages: [{ role: 'developer', content: '' }, m] })?.turns[1];
+        v = { anthropic: asAnthropic ? turnKey(asAnthropic) : '', openai: asOpenAI ? turnKey(asOpenAI) : '', openAIOnly: openAIOnly(m) };
+      }
+    } catch {
+      v = null;
+    }
+    this.messages.set(hash, v);
+    return v;
+  }
+
+  private part(id: string, make: () => string | string[]): string | string[] | null {
+    let v = this.parts.get(id);
+    if (v !== undefined) return v;
+    try {
+      v = make();
+    } catch {
+      v = null;
+    }
+    this.parts.set(id, v);
+    return v;
+  }
+
+  /** The conversation a model call answered, as turns: rebuilt only for the calls pairs come from. */
+  turns(call: ModelCall): Turn[] | null {
+    try {
+      return normalizeConversation(loadApiRequest(this.store, call.requestRef!))?.turns ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether two model calls answered the same conversation: the same stored request, or the same key. */
+  samePrompt(a: ModelCall, b: ModelCall): boolean {
+    if (a.requestRef === b.requestRef) return true;
+    const k = this.key(a);
+    return k !== null && k === this.key(b);
   }
 
   answer(call: ModelCall): Block[] {
-    const ref = call.end.responseRef!;
-    const provider = call.end.meta.provider ?? call.meta.provider;
-    const key = `${ref}:${typeof provider === 'string' ? provider : ''}`;
-    let blocks = this.answers.get(key);
+    const id = this.answerId(call);
+    let blocks = this.answers.get(id);
     if (!blocks) {
+      const provider = call.end.meta.provider ?? call.meta.provider;
       try {
-        blocks = normalizeResponse(this.store.getBlob(ref), call.end.meta.headers?.['content-type'], call.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined).blocks.filter((b) => b.type !== 'thinking');
+        blocks = normalizeResponse(this.store.getBlob(call.end.responseRef!), call.end.meta.headers?.['content-type'], call.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined).blocks.filter((b) => b.type !== 'thinking');
       } catch {
         blocks = [];
       }
-      this.answers.set(key, blocks);
+      this.answers.set(id, blocks);
     }
     return blocks;
+  }
+
+  answerKey(call: ModelCall): string {
+    const id = this.answerId(call);
+    let key = this.answerKeys.get(id);
+    if (key === undefined) this.answerKeys.set(id, (key = answerKey(this.answer(call))));
+    return key;
+  }
+
+  private answerId(call: ModelCall): string {
+    const provider = call.end.meta.provider ?? call.meta.provider;
+    return `${call.end.responseRef!}:${typeof provider === 'string' ? provider : ''}`;
   }
 
   modelOf(call: ModelCall): string | null {
@@ -219,19 +352,31 @@ interface Candidate {
   chosen: { run: RunRecord; call: ModelCall; what: string };
 }
 
-/** The first model call where two attempts answered the same conversation differently. */
-function firstDifference(r: Reader, a: RunRecord, b: RunRecord): { kind: 'pair'; i: number; ca: ModelCall; cb: ModelCall } | { kind: 'same' } | { kind: 'paths'; at: number } {
-  const ma = r.modelCalls(a.runId);
-  const mb = r.modelCalls(b.runId);
-  for (let i = 0; i < Math.min(ma.length, mb.length); i++) {
-    const ca = ma[i]!;
-    const cb = mb[i]!;
-    const pa = r.prompt(ca);
-    const pb = r.prompt(cb);
-    if (!pa || !pb || pa.key !== pb.key) return { kind: 'paths', at: ca.callNo };
-    if (answerKey(r.answer(ca)) !== answerKey(r.answer(cb))) return { kind: 'pair', i, ca, cb };
+/**
+ * The model call where two attempts first answered the same conversation differently, among the
+ * calls made in `scope` (all of them when null). A conversation only grows, so once two attempts'
+ * conversations part they stay parted, and the last call where they agree is found by halving: a
+ * long run is keyed at a handful of calls, not at every one. They pair there when their answers
+ * differ; when the answers agree and the next conversations don't, a read returned something else
+ * and their paths parted.
+ */
+function firstDifference(r: Reader, a: RunRecord, b: RunRecord, scope: string | null): { kind: 'pair'; i: number; ca: ModelCall; cb: ModelCall } | { kind: 'same' } | { kind: 'paths'; at: number } {
+  const ma = r.modelCalls(a.runId, scope);
+  const mb = r.modelCalls(b.runId, scope);
+  const n = Math.min(ma.length, mb.length);
+  if (!n) return { kind: 'same' };
+  const agree = (i: number) => r.samePrompt(ma[i]!, mb[i]!);
+  if (!agree(0)) return { kind: 'paths', at: ma[0]!.callNo };
+  let lo = 0;
+  let hi = n - 1;
+  if (agree(hi)) lo = hi;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (agree(mid)) lo = mid;
+    else hi = mid;
   }
-  return { kind: 'same' };
+  if (r.answerKey(ma[lo]!) !== r.answerKey(mb[lo]!)) return { kind: 'pair', i: lo, ca: ma[lo]!, cb: mb[lo]! };
+  return lo === n - 1 ? { kind: 'same' } : { kind: 'paths', at: ma[lo + 1]!.callNo };
 }
 
 function answerOf(r: Reader, run: RunRecord, call: ModelCall, what: string): PairAnswer {
@@ -240,21 +385,20 @@ function answerOf(r: Reader, run: RunRecord, call: ModelCall, what: string): Pai
 }
 
 function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate): Pair | null {
-  const prompt = r.prompt(c.rejected.call);
-  if (!prompt) return null;
+  const key = r.key(c.rejected.call);
+  const turns = key === null ? null : r.turns(c.rejected.call);
+  if (key === null || !turns) return null;
   const rejected = answerOf(r, c.rejected.run, c.rejected.call, c.rejected.what);
   const chosen = answerOf(r, c.chosen.run, c.chosen.call, c.chosen.what);
-  const rk = answerKey(rejected.blocks);
-  const ck = answerKey(chosen.blocks);
   return {
     // Without the source: the same two answers to the same conversation are one pair, however many found them.
-    id: `pr-${sha256(`${prompt.key}|${rk}|${ck}`).slice(0, 12)}`,
+    id: `pr-${sha256(`${key}|${r.answerKey(c.rejected.call)}|${r.answerKey(c.chosen.call)}`).slice(0, 12)}`,
     confidence: source.confidence,
     source: source.key,
     sourceKind: source.kind,
     runId: about.runId,
     callNo: c.rejected.call.callNo,
-    context: contextLine(prompt.turns),
+    context: contextLine(turns),
     model: r.modelOf(c.rejected.call),
     rejected,
     chosen,
@@ -266,31 +410,21 @@ function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate)
  * Pairs between the failing and passing attempts of one run (verify) or one `--repeat` invocation.
  * Each failing attempt meets each passing one at the first model call where their answers differ;
  * the pair is kept unless the "rejected" answer also passed from the same point in another attempt,
- * or the "chosen" one also failed from it.
+ * or the "chosen" one also failed from it. The same point is the same conversation at the same call
+ * of the attempt, so only the calls pairs come from are read in the others.
  */
-function contrast(r: Reader, failing: RunRecord[], passing: RunRecord[], whatFailed: (run: RunRecord) => string, whatPassed: (run: RunRecord) => string) {
-  const answersAt = (runs: RunRecord[]) => {
-    const seen = new Map<string, Set<string>>();
-    for (const run of runs) {
-      for (const call of r.modelCalls(run.runId)) {
-        const p = r.prompt(call);
-        if (!p) continue;
-        let set = seen.get(p.key);
-        if (!set) seen.set(p.key, (set = new Set()));
-        set.add(answerKey(r.answer(call)));
-      }
-    }
-    return seen;
+function contrast(r: Reader, failing: RunRecord[], passing: RunRecord[], scope: string | null, whatFailed: (run: RunRecord) => string, whatPassed: (run: RunRecord) => string) {
+  const answered = (run: RunRecord, i: number, like: ModelCall, answer: string) => {
+    const c = r.modelCalls(run.runId, scope)[i];
+    return !!c && r.samePrompt(c, like) && r.answerKey(c) === answer;
   };
-  const passed = answersAt(passing);
-  const failed = answersAt(failing);
   const out: Candidate[] = [];
   let same = 0;
   let paths = 0;
   let ambiguous = 0;
   for (const f of failing) {
     for (const p of passing) {
-      const d = firstDifference(r, f, p);
+      const d = firstDifference(r, f, p, scope);
       if (d.kind === 'same') {
         same++;
         continue;
@@ -299,10 +433,9 @@ function contrast(r: Reader, failing: RunRecord[], passing: RunRecord[], whatFai
         paths++;
         continue;
       }
-      const prompt = r.prompt(d.ca)!.key;
-      const rk = answerKey(r.answer(d.ca));
-      const ck = answerKey(r.answer(d.cb));
-      if (!rk || !ck || passed.get(prompt)?.has(rk) || failed.get(prompt)?.has(ck)) {
+      const rk = r.answerKey(d.ca);
+      const ck = r.answerKey(d.cb);
+      if (!rk || !ck || passing.some((x) => x !== p && answered(x, d.i, d.ca, rk)) || failing.some((x) => x !== f && answered(x, d.i, d.ca, ck))) {
         ambiguous++;
         continue;
       }
@@ -347,9 +480,52 @@ function verifyInvocation(run: RunRecord): string {
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
 
+const scopeList = (scopes: Array<string | null>) => scopes.map((s) => (s === null ? 'no scope' : s)).join(', ');
+
+/**
+ * The scope the agent answers in, for attempts of these recordings: the one a blame of one of them
+ * (or of a run it came from) was limited to. When none was, every model call is the agent's if they
+ * were all made in one scope; when they were made in several, nothing says which is the agent's.
+ */
+function agentScope(r: Reader, store: Store, byId: Map<string, RunRecord>, recordings: string[], attempts: RunRecord[]): { scope: string | null } | { several: Array<string | null> } {
+  for (const id of recordings) {
+    let run = byId.get(id) ?? store.getRun(id);
+    for (let depth = 0; run && depth < 100; depth++) {
+      const s = run.meta?.blame?.scope;
+      if (typeof s === 'string' && s) return { scope: s };
+      run = run.parentRunId ? (byId.get(run.parentRunId) ?? store.getRun(run.parentRunId)) : null;
+    }
+  }
+  const scopes = [...new Set(attempts.flatMap((a) => r.scopesOf(a.runId)))];
+  return scopes.length > 1 ? { several: scopes } : { scope: null };
+}
+
+/**
+ * What findPairs last found for a store, and the runs it read it from: the pairs change only when a
+ * run does (a new attempt, a blame, a run that ends), so a screen that reads them on every load reads
+ * them once.
+ */
+const memo = new WeakMap<Store, { signature: string; result: PairsResult }>();
+
+/** What pairs are read from: each run's place, outcome and meta (blame, probes, verify, repeat groups), and a running run's calls so far. */
+function signature(store: Store, runs: readonly RunRecord[]): string {
+  const h = createHash('sha256');
+  for (const r of runs) h.update(`${r.runId}|${r.parentRunId ?? ''}|${r.status}|${r.startedAt}|${r.endedAt ?? ''}|${r.codeVersion ?? ''}|${JSON.stringify(r.meta ?? null)}|${r.status === 'running' ? store.countCalls(r.runId) : ''}\n`);
+  return h.digest('hex');
+}
+
 /** Every pair the attempts in the store make, and every source read, including those that made none. */
 export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): PairsResult {
   const runs = options.runs ?? store.allRuns();
+  const sig = options.runs ? null : signature(store, runs);
+  const known = sig === null ? undefined : memo.get(store);
+  if (known && known.signature === sig) return { pairs: [...known.result.pairs], sources: [...known.result.sources] };
+  const result = readPairs(store, runs);
+  if (sig !== null) memo.set(store, { signature: sig, result });
+  return { pairs: [...result.pairs], sources: [...result.sources] };
+}
+
+function readPairs(store: Store, runs: RunRecord[]): PairsResult {
   const byId = new Map(runs.map((x) => [x.runId, x]));
   const r = new Reader(store);
   const pairs: Pair[] = [];
@@ -375,24 +551,22 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
     }
     const k = blame.callNo;
     const recorded = r.modelCall(run.runId, k);
-    const prompt = recorded && r.prompt(recorded);
-    if (!recorded || !prompt) {
+    if (!recorded || r.key(recorded) === null) {
       source.why = `The recording's answer at #${k} can't be read, so there is nothing to pair it with.`;
       continue;
     }
-    const rejectedKey = answerKey(r.answer(recorded));
+    const rejectedKey = r.answerKey(recorded);
     const passing = attempts.filter((a) => a.meta?.probe?.callNo === k && a.meta.probe.passed);
     let same = 0;
     let parted = 0;
     const candidates: Candidate[] = [];
     for (const a of passing) {
       const call = r.modelCall(a.runId, k);
-      const p = call && r.prompt(call);
-      if (!call || !p || p.key !== prompt.key) {
+      if (!call || !r.samePrompt(call, recorded)) {
         parted++;
         continue;
       }
-      const key = answerKey(r.answer(call));
+      const key = r.answerKey(call);
       if (!key || key === rejectedKey) {
         same++;
         continue;
@@ -435,36 +609,40 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
     const versions = [...new Set(attempts.map((a) => a.codeVersion).filter((v): v is string => !!v))];
     const source: PairSource = { key: `verify:${key}`, kind: 'verify', runId: first.parentRunId!, runIds: [...byRun.keys()], label: `verify · ${versions[0] ?? day(first.startedAt)}`, confidence: 'medium', made: 0, attempts: attempts.length, callNo: null, why: '', at: first.startedAt };
     sources.push(source);
+    // One verify checks one fix to one agent: a blame of any run it replayed says which scope is the agent's.
+    const scope = agentScope(r, store, byId, [...byRun.keys()], attempts);
     const mixed: string[] = [];
-    let same = 0;
-    let paths = 0;
-    let ambiguous = 0;
-    let elsewhere = 0;
+    const n = { same: 0, paths: 0, ambiguous: 0, elsewhere: 0, scoped: 0 };
     for (const [runId, list] of byRun) {
       const failing = list.filter((a) => a.meta?.verify?.passed === false);
       const passing = list.filter((a) => a.meta?.verify?.passed === true);
       if (!failing.length || !passing.length) continue;
       const role = list[0]!.meta?.verify?.role ?? 'target';
       mixed.push(`${role === 'holdout' ? 'held-out' : role} ${short(runId)} failed ${failing.length} of ${list.length}`);
-      const c = contrast(r, failing, passing, () => 'verify attempt, failed', () => 'verify attempt, passed');
-      same += c.same;
-      paths += c.paths;
-      ambiguous += c.ambiguous;
+      if ('several' in scope) {
+        n.scoped++;
+        continue;
+      }
+      const c = contrast(r, failing, passing, scope.scope, () => 'verify attempt, failed', () => 'verify attempt, passed');
+      n.same += c.same;
+      n.paths += c.paths;
+      n.ambiguous += c.ambiguous;
       const about = byId.get(runId) ?? store.getRun(runId);
       if (!about) continue;
       const before = pairs.length;
       const added = addPairs(r, pairs, seen, source, about, c.candidates);
       source.made += added.made;
-      elsewhere += added.elsewhere;
+      n.elsewhere += added.elsewhere;
       if (source.callNo === null && pairs.length > before) source.callNo = pairs[before]!.callNo;
     }
-    source.why = whyContrast(mixed, { same, paths, ambiguous, elsewhere }, source.made, 'No run both passed and failed: each passed every attempt or none.');
+    source.why = whyContrast(mixed, n, 'several' in scope ? scope.several : [], source.made, 'No run both passed and failed: each passed every attempt or none.');
   }
 
   // ---- --repeat: medium, by exit status ----
   const groups = new Map<string, RunRecord[]>();
   for (const run of runs) {
     const m = run.meta;
+    // Blame's probes, verify's and test's attempts and a model's scoring attempts all carry a repeat group of their own: none is a --repeat.
     if (!m?.repeat || m.probe || m.verify || m.task || m.test) continue;
     groups.set(m.repeat.group, [...(groups.get(m.repeat.group) ?? []), run]);
   }
@@ -482,13 +660,19 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
       source.why = !finished.length ? 'No attempt finished, so there is nothing to contrast.' : !failing.length ? `${finished.length === 1 ? 'The attempt' : `All ${finished.length} attempts`} exited 0, so there is nothing to contrast.` : `${finished.length === 1 ? 'The attempt' : `All ${finished.length} attempts`} exited with an error, so there is nothing to contrast.`;
       continue;
     }
-    const c = contrast(r, failing, passing, (a) => `attempt, ${a.status === 'failed' ? 'exited with an error' : 'failed'}`, () => 'attempt, exited 0');
+    const mixed = [`${failing.length} of ${finished.length} attempts exited with an error`];
+    const scope = agentScope(r, store, byId, [parentId], finished);
+    if ('several' in scope) {
+      source.why = whyContrast(mixed, { same: 0, paths: 0, ambiguous: 0, elsewhere: 0, scoped: 1 }, scope.several, 0, '');
+      continue;
+    }
+    const c = contrast(r, failing, passing, scope.scope, (a) => `attempt, ${a.status === 'failed' ? 'exited with an error' : 'failed'}`, () => 'attempt, exited 0');
     const about = byId.get(parentId) ?? store.getRun(parentId) ?? first;
     const before = pairs.length;
     const added = addPairs(r, pairs, seen, source, about, c.candidates);
     source.made = added.made;
     if (pairs.length > before) source.callNo = pairs[before]!.callNo;
-    source.why = whyContrast([`${failing.length} of ${finished.length} attempts exited with an error`], { same: c.same, paths: c.paths, ambiguous: c.ambiguous, elsewhere: added.elsewhere }, source.made, '');
+    source.why = whyContrast(mixed, { same: c.same, paths: c.paths, ambiguous: c.ambiguous, elsewhere: added.elsewhere, scoped: 0 }, [], source.made, '');
   }
 
   const kindOrder: Record<PairSourceKind, number> = { blame: 0, verify: 1, repeat: 2 };
@@ -498,9 +682,10 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
   return { pairs, sources };
 }
 
-function whyContrast(mixed: string[], n: { same: number; paths: number; ambiguous: number; elsewhere: number }, made: number, none: string): string {
+function whyContrast(mixed: string[], n: { same: number; paths: number; ambiguous: number; elsewhere: number; scoped: number }, scopes: Array<string | null>, made: number, none: string): string {
   if (!mixed.length) return none;
   const lines = [`${mixed.join('; ')}.`.replace(/^./, (c) => c.toUpperCase())];
+  if (n.scoped) lines.push(`${n.scoped === 1 ? 'Its' : 'Their'} model calls are made in more than one scope (${scopeList(scopes)}), and no blame says which is the agent's, so none is read: blame ${n.scoped === 1 ? 'the run' : 'one of the runs'} with --scope <the agent's>, and its pairs come from that scope's calls.`);
   if (made) lines.push(`Pairs come from the first model call where a failing and a passing attempt answered differently.`);
   if (n.same) lines.push(`${n.same === 1 ? 'Once' : `${n.same} times`} a failing attempt answered every model call as a passing one did: its failure wasn't an answer.`);
   if (n.paths) lines.push(`${n.paths === 1 ? 'Once' : `${n.paths} times`} the attempts saw different conversations before their answers differed, as when a live read returns something else.`);

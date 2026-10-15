@@ -34,6 +34,8 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ex
   note: status === 'blocked' ? 'its test fails' : status === 'not-a-task' ? 'its checks only cap tokens and cost' : status === 'no-golden' ? 'the golden is gone' : null,
   runId: status === 'no-golden' ? null : `RUN_${golden.split('/').at(-1)}`,
   takeover: status === 'no-golden' ? null : { callNo: 17, why: 'decides between refunding and escalating', from: 'config' },
+  scope: null,
+  scopes: [null],
   rewards,
   checks: status === 'not-a-task' ? [{ label: 'at most 60000 input tokens', cap: true }] : [{ label: 'issue_refund called 0 times', cap: false }, { label: 'at most 60000 input tokens', cap: true }],
   after: { live: ['queue_status'], stubbed: ['send_email'] },
@@ -159,6 +161,9 @@ describe('the Training read model', () => {
     expect(view.tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating', checks: ['the agent exits 0', 'issue_refund called 0 times'], after: { live: ['queue_status'], stubbed: ['send_email'] } });
     expect(view.tasks.rows[3]).toMatchObject({ checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
     expect(view.tasks.weak).toBe('refund-flow-budget');
+    // A golden with a simulated user: the row says which scope the model plays, and why it can't be scored yet.
+    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
+    expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
 
     // Means count the ready tasks only: qwen's zeros on the blocked task don't.
     expect(view.scores.cards.map((c) => [c.model, c.via, c.mean, c.cost])).toEqual([
