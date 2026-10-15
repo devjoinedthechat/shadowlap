@@ -410,6 +410,13 @@ describe('removeDialog', () => {
     expect(v).toMatchObject({ canRemove: false, why: 'The only project can’t be removed' });
   });
 
+  it('says a folder that is gone holds nothing to keep', () => {
+    const v = removeDialog({ project: entry('old-agent'), stats: { runs: 0, attempts: 0, goldens: 0, missing: true }, projects: 2, home: HOME });
+    expect(v.onDisk).toEqual([{ key: 'code', label: 'Its folder, not on disk any more', path: '~/old-agent' }]);
+    expect(v.keep).toMatchObject({ note: 'Put the folder back and add it again to bring it all back.', crossedOut: 'code' });
+    expect(v.deleteZone).toBeNull();
+  });
+
   it('words one run and one golden in the singular', () => {
     const v = removeDialog({ project: entry('triage-bot'), stats: { runs: 1, attempts: 0, goldens: 1 }, projects: 2, home: HOME });
     expect(v.project.summary).toBe('1 run · 1 golden');

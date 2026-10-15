@@ -226,7 +226,7 @@ describe('the switcher', () => {
     await w.api('projects/old-agent/select', { method: 'POST' });
     const meta = await w.api<{ project: { id: string; problem: string }; counts: { runs: number } }>('meta');
     expect(meta.status).toBe(200);
-    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: expect.stringContaining('doesn’t exist any more') });
+    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.' });
     expect(meta.body.counts.runs).toBe(0);
     expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
     const list = await w.api<{ items: Array<{ id: string; detail: string }> }>('projects');

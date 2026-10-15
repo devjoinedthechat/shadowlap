@@ -171,12 +171,13 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       throw err;
     }
   };
-  /** A project's store, or why it can't be opened, with the status that goes with it. */
+  /** A project's store, or why it can't be opened (its folder named as the switcher names it), with the status that goes with it. */
   const storeOf = (pc: ProjectContext<ProjectConfig>): Store => {
     try {
       return pc.store();
     } catch (err) {
-      throw err instanceof ProjectError ? new HttpError(err.status, err.message) : new HttpError(409, `Shadowlap can’t open ${pc.name}’s store: ${err instanceof Error ? err.message : String(err)}`);
+      const why = err instanceof ProjectError ? err.message : `Shadowlap can’t open ${pc.name}’s store: ${err instanceof Error ? err.message : String(err)}`;
+      throw new HttpError(err instanceof ProjectError ? err.status : 409, why.split(pc.path).join(tildePath(pc.path, projects!.registry.realHome)));
     }
   };
   const projectView = (pc: ProjectContext<ProjectConfig>): ProjectView => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ConfirmDialog } from '../components/Dialog.js';
-import { EmptyState, Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
+import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
@@ -270,14 +270,17 @@ function ProjectProblem({ id, name, problem }: { id: string; name: string; probl
   const [removing, setRemoving] = useState(false);
   return (
     <Page>
-      <PageHeader eyebrow={name} eyebrowTone="err" title={`Can’t open ${name}`} text={problem} />
-      <EmptyState title="Its runs are in that folder" text="Put the folder back and this page shows them again. Removing the project only forgets the folder.">
-        <div className="actions">
+      <PageHeader
+        eyebrow={name}
+        eyebrowTone="err"
+        title={`Can’t open ${name}`}
+        text={problem}
+        actions={
           <button className="btn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => setRemoving(true)}>
             Remove from the dashboard
           </button>
-        </div>
-      </EmptyState>
+        }
+      />
       {removing ? <RemoveProjectDialog id={id} onClose={() => setRemoving(false)} /> : null}
     </Page>
   );

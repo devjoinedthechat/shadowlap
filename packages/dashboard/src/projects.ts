@@ -571,22 +571,25 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
   // Copies of what was recorded that deleting the recordings leaves: said in both places, so nobody deleting for privacy is surprised.
   const made = (stats.madeFiles ?? []).filter((m) => MADE_NAMES[m]);
   const madeText = listed(made.map((m) => MADE_NAMES[m]!));
-  const onDisk: OnDiskRow[] = [
-    { key: 'code', label: 'The folder and its code', path },
-    { key: 'rec', label: stats.runs ? 'Its recordings' : 'Its store, empty so far', path: '.shadowlap/shadowlap.db' },
-    { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
-    ...(stats.goldens ? [{ key: 'gold' as const, label: stats.goldens === 1 ? 'Its golden' : `Its ${stats.goldens} goldens`, path: 'goldens/' }] : []),
-    ...(made.length ? [{ key: 'made' as const, label: `Its ${madeText}`, path: made.map((m) => `${m}/`).join(' · ') }] : []),
-  ];
+  // A folder that is gone holds nothing to keep: the dialog says so rather than listing what was in it.
+  const onDisk: OnDiskRow[] = stats.missing
+    ? [{ key: 'code', label: 'Its folder, not on disk any more', path }]
+    : [
+        { key: 'code', label: 'The folder and its code', path },
+        { key: 'rec', label: stats.runs ? 'Its recordings' : 'Its store, empty so far', path: '.shadowlap/shadowlap.db' },
+        { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
+        ...(stats.goldens ? [{ key: 'gold' as const, label: stats.goldens === 1 ? 'Its golden' : `Its ${stats.goldens} goldens`, path: 'goldens/' }] : []),
+        ...(made.length ? [{ key: 'made' as const, label: `Its ${madeText}`, path: made.map((m) => `${m}/`).join(' · ') }] : []),
+      ];
   return {
     title: `Remove ${project.name} from the dashboard?`,
     project: { id: project.id, name: project.name, path, initial: initial(project.name), summary: stats.runs ? `${runsLabel(stats.runs)}${stats.goldens ? ` · ${plural(stats.goldens, 'golden')}` : ''}` : 'no runs yet' },
     onDisk,
     keep: {
       text: 'The dashboard stops listing it. Nothing on disk changes.',
-      note: 'Adding the folder again brings it all back.',
+      note: stats.missing ? 'Put the folder back and add it again to bring it all back.' : 'Adding the folder again brings it all back.',
       button: { label: 'Remove', style: 'solid' },
-      crossedOut: null,
+      crossedOut: stats.missing ? 'code' : null,
       done: `Removed ${project.name} · its folder and recordings are untouched`,
     },
     deleteZone: stats.runs
