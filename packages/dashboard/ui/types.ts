@@ -67,7 +67,8 @@ export interface CallRowExtras {
   /** A recorded user input (`user_input`), read like a tool. */
   input?: boolean;
 }
-export type CallRow = ServerCallRow & CallRowExtras;
+/** The server's row with the fields above as the views read them: they replace the server's own types for those fields. */
+export type CallRow = Omit<ServerCallRow, keyof CallRowExtras> & CallRowExtras;
 
 export interface Intervention {
   /** The flag as given: `--fail-at 19=529`. */
@@ -161,7 +162,12 @@ export interface FixView {
   /** Where it opens, when the server says. */
   href?: string | null;
 }
-export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions'> & { calls: CallRow[]; actions: ActionItem[] } & RunDetailExtras;
+/**
+ * The server's run with the fields above as the views read them. The run page's read model sends
+ * its own shapes for these (run-page.ts), and normalize.ts reshapes them once, so the view types
+ * replace the server's rather than adding to them.
+ */
+export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions' | keyof RunDetailExtras> & { calls: CallRow[]; actions: ActionItem[] } & RunDetailExtras;
 
 /**
  * An answer a prompt offers in its list. One with `text` needs a few words more: the dialog shows a
