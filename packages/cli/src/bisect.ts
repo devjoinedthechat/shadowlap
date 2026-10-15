@@ -1,12 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
 import { importGolden, testRecording, tokensOf } from './golden-test.js';
-import { goldenName } from './goldens.js';
+import { goldenName, scratchDir } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { shortId } from './ui.js';
@@ -140,20 +140,6 @@ export function physicalPath(path: string): string {
       head = up;
     }
   }
-}
-
-/** Creates `.shadowlap/` with a .gitignore of its own, so worktrees inside it never show in `git status`. */
-function scratchDir(projectDir: string): string {
-  const dir = join(projectDir, '.shadowlap');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  try {
-    writeFileSync(join(dir, '.gitignore'), '*\n', { mode: 0o600, flag: 'wx' });
-  } catch {
-    // already there
-  }
-  const bisect = join(dir, 'bisect');
-  mkdirSync(bisect, { recursive: true, mode: 0o700 });
-  return mkdtempSync(join(bisect, 'run-'));
 }
 
 /**
@@ -310,7 +296,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   input.log(`▸ ${target.name} · good ${good.short} · bad ${bad.short} · ${commits.length} commit${commits.length === 1 ? '' : 's'} apart`);
   if (input.bad === 'HEAD' && git(root, ['status', '--porcelain', '--untracked-files=no']).trim()) input.log('  uncommitted changes are not part of it: each replay runs a commit as committed');
 
-  const base = scratchDir(projectDir);
+  const base = scratchDir(projectDir, 'bisect');
   let stopped = false;
   const onSignal = () => {
     stopped = true;

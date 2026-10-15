@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +75,16 @@ describe('the GitHub Action', () => {
     expect(budget.out).toContain('input fix-budget must be an amount in dollars');
     const repairer = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'gpt' });
     expect(repairer.out).toContain('input repairer must be claude-code, anthropic');
+  });
+
+  it('never takes a hidden folder for a recording, as shadowlap test doesn\'t', () => {
+    // What an interrupted update or another tool might leave beside the goldens.
+    const project = mkdtempSync(join(tmpdir(), 'fp-hidden-'));
+    dirs.push(project);
+    cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(project, 'goldens', '.reference-agent.new-1'), { recursive: true });
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('no recordings found for goldens/*');
   });
 
   it('opens no fix for a divergence, even with fix-on-failure on', () => {

@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +59,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<Result>
 }
 
 const store = () => Store.open(join(work, '.shadowlap', 'shadowlap.db'));
+const git = (args: string[]) => execFileSync('git', args, { cwd: work, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 const goldenRunId = () => (JSON.parse(readFileSync(join(work, 'goldens', 'reference-agent', 'run.json'), 'utf8')) as { runs: Array<{ runId: string }> }).runs.at(-1)!.runId;
 
 describe('shadowlap test history', () => {
@@ -197,24 +198,43 @@ describe('shadowlap test --update', () => {
   it('re-records a diverged golden live with writes stubbed, replaces it, and the next replay is clean', async () => {
     const outbox = join(work, 'outbox.jsonl');
     const before = goldenRunId();
+    // The golden's folder holds more than the pack: a committed note, and a file nobody committed.
+    const folder = join(work, 'goldens', 'reference-agent');
+    writeFileSync(join(folder, 'NOTES.md'), 'Why this run is the golden.\n');
+    git(['init', '-q']);
+    git(['add', 'goldens']);
+    git(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'Add the golden']);
+    writeFileSync(join(folder, 'expect.json'), '{"tools":{"send_email":1}}\n');
     const env = { AGENT_SYSTEM_SUFFIX: 'Be brief.', REFERENCE_AGENT_OUTBOX: outbox };
     const r = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT, '--update', '--json', 'report.json'], env);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('✗ reference-agent: diverged at call 3');
     expect(r.out).toContain('↻ updating goldens/reference-agent: re-recording live, writes stubbed');
     expect(r.out).toMatch(/re-recorded as run \w{10}: 30 calls, as before · \$\S+ live · 11 upstream requests/);
+    // As many calls as before, but not the same requests: it says which.
+    expect(r.out).toContain('what changed: system prompt changed · call 3 (api POST /v1/messages): ~ $.system\n');
     expect(r.out).toContain('replaced goldens/reference-agent in the working tree; review the change in your pull request');
     expect(r.out).toMatch(/✓ reference-agent: 30\/30 replayed, .* \(updated\)/);
     // The write was stubbed: nothing reached the outbox.
     expect(existsSync(outbox) ? readFileSync(outbox, 'utf8') : '').toBe('');
+    // Only the pack's own files changed; the note and the uncommitted file are where they were.
+    expect(readFileSync(join(folder, 'NOTES.md'), 'utf8')).toBe('Why this run is the golden.\n');
+    expect(readFileSync(join(folder, 'expect.json'), 'utf8')).toBe('{"tools":{"send_email":1}}\n');
+    const status = git(['status', '--porcelain', '--untracked-files=all', 'goldens']).split('\n').filter(Boolean);
+    expect(status).toContain(' M goldens/reference-agent/run.json');
+    expect(status).toContain('?? goldens/reference-agent/expect.json');
+    expect(status.filter((l) => !/^( M| D|\?\?) goldens\/reference-agent\/(run\.json|calls\.jsonl|blobs\/[0-9a-f]{64}|expect\.json)$/.test(l))).toEqual([]);
+    // Nothing is left behind where a pattern such as goldens/* would find it, or in .shadowlap/.
+    expect(readdirSync(join(work, 'goldens'))).toEqual(['reference-agent']);
+    expect(readdirSync(join(work, '.shadowlap', 'update'))).toEqual([]);
 
     const after = goldenRunId();
     expect(after).not.toBe(before);
     const s = store();
     expect(s.getCalls(after).find((c) => c.name === 'send_email')!.origin).toBe('stubbed');
     const [result] = s.listTestResults({ golden: 'goldens/reference-agent' });
-    expect(result).toMatchObject({ ok: true, goldenRunId: after, data: { updated: { from: before, to: after, calls: 30 } } });
-    expect(s.listEvents({ kinds: ['golden.updated'] })[0]).toMatchObject({ runId: after, ref: 'goldens/reference-agent', data: { previous: before, calls: 30 } });
+    expect(result).toMatchObject({ ok: true, goldenRunId: after, data: { updated: { from: before, to: after, calls: 30, changes: ['system prompt changed', 'call 3 (api POST /v1/messages): ~ $.system'] } } });
+    expect(s.listEvents({ kinds: ['golden.updated'] })[0]).toMatchObject({ runId: after, ref: 'goldens/reference-agent', data: { previous: before, calls: 30, changes: ['system prompt changed', 'call 3 (api POST /v1/messages): ~ $.system'] } });
     s.close();
     expect(r.events.filter((e) => e.type === 'run').map((e) => e.role)).toEqual(['new', 'passing']);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> };

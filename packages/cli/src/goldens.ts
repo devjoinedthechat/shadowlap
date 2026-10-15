@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { PACK_FORMAT, PACK_LIMITS, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
@@ -13,6 +13,25 @@ import { configPath, loadTests } from './config.js';
 
 /** The folder a project keeps its goldens in, relative to it. */
 export const GOLDENS_FOLDER = 'goldens';
+
+/**
+ * A new scratch folder for `bisect`'s worktrees or a golden `test --update` is writing, under the
+ * project's `.shadowlap/`, which gets a .gitignore of its own: `git status` never shows what is
+ * there, a pattern such as `goldens/*` never matches it, and one left by an interrupted command
+ * harms nothing.
+ */
+export function scratchDir(projectDir: string, purpose: 'bisect' | 'update'): string {
+  const dir = join(projectDir, '.shadowlap');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    writeFileSync(join(dir, '.gitignore'), '*\n', { mode: 0o600, flag: 'wx' });
+  } catch {
+    // already there
+  }
+  const base = join(dir, purpose);
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  return mkdtempSync(join(base, 'run-'));
+}
 
 /** A golden's name in the test history: its pack folder relative to the project, with forward slashes. */
 export function goldenName(dir: string, projectDir: string): string {

@@ -38,8 +38,8 @@ export interface PackResult {
   attempts: { total: number; passed: number; required: number } | null;
   /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
   expect: Record<string, unknown> | null;
-  /** `--update` re-recorded it: the run it replaced, the new one, and its calls. */
-  updated: { from: string | null; to: string; calls: number } | null;
+  /** `--update` re-recorded it: the run it replaced, the new one, its calls, and what the agent sends differently. */
+  updated: { from: string | null; to: string; calls: number; changes?: string[] } | null;
 }
 
 export interface TestReport {

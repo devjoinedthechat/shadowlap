@@ -198,8 +198,8 @@ export interface TestResultData {
   };
   /** The failure as the CLI printed it under the golden's line. */
   details?: string;
-  /** `test --update` re-recorded the golden: the run it replaced, the new one, and its calls. */
-  updated?: { from: string | null; to: string; calls: number };
+  /** `test --update` re-recorded the golden: the run it replaced, the new one, its calls, and what the agent sends differently. */
+  updated?: { from: string | null; to: string; calls: number; changes?: string[] };
 }
 
 /** How one golden did in one session. */

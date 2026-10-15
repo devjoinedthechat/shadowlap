@@ -127,7 +127,7 @@ A prompt you changed on purpose makes its goldens diverge, which is the test doi
 shadowlap test goldens/refund-flow --update
 ```
 
-Each golden that diverged is re-recorded live from its first call, with every write tool stubbed: the agent is told each write succeeded, and nothing is sent. Its checks run on the new recording, and only when the agent exits 0 and they pass does the new pack replace the old one, in your working tree. Then it is replayed offline like any other golden, and you review the change in your pull request. It prints the checks, what changed, and what the re-recording cost:
+Each golden that diverged is re-recorded live from its first call, with every write tool stubbed: the agent is told each write succeeded, and nothing is sent. Its checks run on the new recording, and only when the agent exits 0 and they pass does the new pack replace the old one, in your working tree. Only the pack's own files are replaced (`run.json`, `calls.jsonl` and `blobs/`); anything else you keep in the golden's folder, such as a README, stays as it is. The new pack is written under `.shadowlap/` first, so an update that is interrupted leaves the old golden. Then it is replayed offline like any other golden, and you review the change in your pull request. It prints the checks, the calls and what the re-recording cost, then what the agent sends differently: the system prompt, the tools and the models, and the change in the request that made the golden diverge:
 
 ```
 ✗ refund-flow: diverged at call 3 (api POST /v1/messages)
@@ -135,6 +135,7 @@ Each golden that diverged is re-recorded live from its first call, with every wr
     ↻ updating goldens/refund-flow: re-recording live, writes stubbed
       ✓ issue_refund called 0 times
       re-recorded as run 01K5CQ9T2W: 31 calls, was 30 · model calls 11 → 12 · escalate 0 → 1, issue_refund 1 → 0 · $0.072 live · 12 upstream requests
+      what changed: system prompt changed · call 3 (api POST /v1/messages): ~ $.system
       replaced goldens/refund-flow in the working tree; review the change in your pull request
 ✓ refund-flow: 31/31 replayed, 12k input tokens not re-spent (updated)
 ```
@@ -145,6 +146,8 @@ Only goldens that diverged are updated. One that fails a check, or exits with an
     ! $.metadata.user_id looks like a UUID, a value that changes every run: updating re-records it, and the next run diverges again. A normalizer fixes it for good:
         shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
 ```
+
+When the request carries a field the recording never had, holding such a value, the golden needs both: the update records the field, and the normalizer keeps the next run from diverging on its new value. Add the normalizer first, then update.
 
 Updating calls the providers, so it needs their credentials, like `shadowlap run`. The session records an updated golden as passed and updated.
 

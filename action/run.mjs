@@ -35,7 +35,10 @@ if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`
 // The test history, and the runs a fix starts from: the project's store unless one is named.
 const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
 
-/** A pattern with `*` or `?` in its last path segment, matched against that directory; anything else as given. */
+/**
+ * A pattern with `*` or `?` in its last path segment, matched against that directory; anything else
+ * as given. Hidden folders never match, as in `shadowlap test` itself.
+ */
 function expand(pattern) {
   if (/[*?]/.test(dirname(pattern))) fail(`only the last part of a recordings path may contain a wildcard: ${pattern}`);
   if (!/[*?]/.test(basename(pattern))) return [pattern];
@@ -43,7 +46,7 @@ function expand(pattern) {
   if (!existsSync(dir)) return [];
   const re = new RegExp(`^${basename(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
   return readdirSync(dir)
-    .filter((name) => re.test(name) && statSync(join(dir, name)).isDirectory())
+    .filter((name) => re.test(name) && !name.startsWith('.') && statSync(join(dir, name)).isDirectory())
     .sort()
     .map((name) => join(dirname(pattern), name));
 }

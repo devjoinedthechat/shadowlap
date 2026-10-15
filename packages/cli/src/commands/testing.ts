@@ -9,7 +9,7 @@ import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
-import { describeChange, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
+import { describeChange, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
@@ -177,12 +177,15 @@ export function register(program: Command): void {
               process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
-              for (const w of volatileWarning(outcome.result.shown.ended.summary.divergence, outcome.normalizers)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
+              const divergence = outcome.result.shown.ended.summary.divergence;
+              const normalizers = outcome.normalizers;
+              for (const w of volatileWarning(divergence, normalizers)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
               process.stdout.write(`    ${p.cyan('↻')} updating ${golden}: re-recording live, writes stubbed\n`);
               const u = await rerecordGolden(packDir, before, spec, {
                 store,
                 config,
                 cwd,
+                projectDir,
                 // Live, as `run` records: the guard warns, unless --guard was given.
                 guard: guardGiven ? flags.guard : 'warn',
                 onRun: (runId) => {
@@ -198,10 +201,12 @@ export function register(program: Command): void {
                 if (tail) process.stdout.write(p.dim(tail.split('\n').map((l) => `      │ ${l}`).join('\n') + '\n'));
               } else {
                 updates++;
+                const changes = requestChanges(store, before, u.run, divergence, normalizers);
                 process.stdout.write(`      re-recorded as run ${shortId(u.run.runId)}: ${describeChange(u.before, u.after!)} · ${updateReceipt(u.summary)}\n`);
+                if (changes.length) process.stdout.write(`      what changed: ${safe(changes.join(' · '))}\n`);
                 process.stdout.write(`      replaced ${golden} in the working tree; review the change in your pull request\n`);
-                recordEvent(store, { kind: 'golden.updated', actor, runId: u.run.runId, ref: golden, data: { session: session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0 } });
-                updated = { from: before.runId, to: u.run.runId, calls: u.after!.total };
+                recordEvent(store, { kind: 'golden.updated', actor, runId: u.run.runId, ref: golden, data: { session: session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0, changes } });
+                updated = { from: before.runId, to: u.run.runId, calls: u.after!.total, changes };
                 // The new golden, replayed as the next test will replay it.
                 outcome = replayed(await testGolden(packDir, golden, spec, ctx));
                 printGolden(outcome, ' (updated)');
