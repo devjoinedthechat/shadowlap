@@ -77,7 +77,8 @@ jobs:
       - name: Release notes from CHANGELOG.md
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          awk -v tag="$TAG" '/^## /{p = ($2 == tag)} p' CHANGELOG.md > notes.md
+          # The version's section, "## [0.1.0] - <date>" up to the next "## ", without the link references.
+          awk -v tag="$TAG" '/^## /{v = $2; gsub(/[][]/, "", v); p = (v == tag)} p && !/^\[[^]]+\]: /' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "Release $TAG" > notes.md
       - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
         env:

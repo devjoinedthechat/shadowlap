@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Renders site/brand/dashboard-dark.png, and the same picture as dashboard-light.png (the dashboard is
+// Renders scripts/out/dashboard-dark.png, and the same picture as dashboard-light.png (the dashboard is
 // dark only; the README's <picture> names both): the dashboard on a real fork of the reference agent
 // (recorded against the scripted mock API, so no key), captured with headless Chrome.
 // Usage: node scripts/readme-shots.mjs   (after `npm run build`; CHROME=/path/to/chrome to choose a browser)
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -68,9 +68,10 @@ const shot = (out) =>
       ok();
     });
   });
-const dark = join(root, 'site', 'brand', 'dashboard-dark.png');
+mkdirSync(join(root, 'scripts', 'out'), { recursive: true });
+const dark = join(root, 'scripts', 'out', 'dashboard-dark.png');
 await shot(dark);
-copyFileSync(dark, join(root, 'site', 'brand', 'dashboard-light.png'));
+copyFileSync(dark, join(root, 'scripts', 'out', 'dashboard-light.png'));
 
 await dash.close();
 store.close();

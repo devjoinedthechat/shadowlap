@@ -69,7 +69,7 @@ Recorded strings are shown with control characters escaped, in the CLI, `diff`, 
 
 ### Telemetry
 
-The CLI sends nothing unless `SHADOWLAP_TELEMETRY_URL` names a collector; it has no default endpoint until the project runs one on a domain it controls. What it would send is listed field by field in [docs/telemetry.md](docs/telemetry.md). They never include prompts, tool names, arguments or results, file paths, hostnames, run ids or model names. The collector rejects any event with a field outside its allowlist or a value outside its closed sets. Turn it off with `SHADOWLAP_TELEMETRY=0` or `DO_NOT_TRACK=1`.
+The CLI sends nothing unless `SHADOWLAP_TELEMETRY_URL` names a collector, and it has no default endpoint. What it would send is listed field by field in [docs/telemetry.md](docs/telemetry.md). They never include prompts, tool names, arguments or results, file paths, hostnames, run ids or model names. The collector rejects any event with a field outside its allowlist or a value outside its closed sets. Turn it off with `SHADOWLAP_TELEMETRY=0` or `DO_NOT_TRACK=1`.
 
 ## What you should know
 

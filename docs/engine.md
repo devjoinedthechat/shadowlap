@@ -102,7 +102,7 @@ replay under the same list can reuse them instead of recomputing.
 
 ## Normalizers
 
-A `Normalizer` masks values before fingerprinting (so today's date does not fork the run) and
+A `Normalizer` masks values before fingerprinting (so a request id made on every run does not fork it) and
 doubles as a redaction rule on export — the same shape, because a redacted recording still has to
 match a live request.
 

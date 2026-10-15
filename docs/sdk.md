@@ -4,6 +4,19 @@ API calls need no SDK: the sidecar records them through the provider base URL. T
 
 Without `SHADOWLAP_URL` in the environment (that is, outside `shadowlap run`), every function is a direct passthrough. Wrapped tools ship to production unchanged.
 
+## Install
+
+The packages are not on npm or PyPI yet. Until they are, build a clone of the repository as the [quickstart](./quickstart.md) does, and install them from it into your agent's project:
+
+```sh
+npm install path/to/shadowlap/packages/sdk          # tools, clock and randomness
+npm install path/to/shadowlap/packages/adapters     # framework adapters, next to the SDK
+npm install -D path/to/shadowlap/packages/test      # recorded tests: Vitest, node:test
+pip install -e path/to/shadowlap/sdks/python        # Python SDK, adapters, pytest plugin
+```
+
+npm links each package to the clone, so a rebuild there updates them, and `@shadowlap/test` runs the clone's CLI. `shadowlap init` prints the published names: skip its install step until they exist. The CLI you linked is already on your PATH, and `npx shadowlap` finds it too.
+
 ## TypeScript
 
 ```ts
@@ -63,8 +76,6 @@ request_id = uuid()
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - Python ≥ 3.9. Zero dependencies (`urllib`).
-
-Install from source for now: `pip install -e sdks/python`.
 
 ## What a person types
 

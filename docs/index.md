@@ -28,6 +28,8 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [Quickstart](./quickstart.md): record and replay the bundled reference agent in two minutes, then your own.
 - [How it works](./how-it-works.md): the sidecar, fingerprints, matching, effects, thinking blocks, storage.
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
+- Fixes: [blame](./blame.md) finds the model call that lost a run, [repair](./repair.md) rewrites the prompt, and [verify](./verify.md) proves the fix on failing, held-out and good runs.
+- [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
 - [The wire protocol](./protocol.md), [the recordings protocol](./recordings-protocol.md) and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, or integrating another test runner.

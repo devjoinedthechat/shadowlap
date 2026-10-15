@@ -58,8 +58,8 @@
     "llm",
     "record-replay",
     "debugging",
-    "anthropic",
-    "openai",
-    "deterministic-replay"
+    "terminal-ui",
+    "tui",
+    "ink"
   ]
 }

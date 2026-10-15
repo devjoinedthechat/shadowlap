@@ -4,7 +4,7 @@
 // context, timeline and family views, and the comparison, and encodes the frames with ffmpeg.
 //
 //   npm run build && node scripts/dashboard-video.mjs [--dark]
-//   writes site/brand/dashboard-tour.mp4 and site/brand/dashboard-tour.jpg (the poster); the
+//   writes scripts/out/dashboard-tour.mp4 and scripts/out/dashboard-tour.jpg (the poster); the
 //   dashboard is dark only, so --dark only names the files dashboard-tour-dark.*
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -218,7 +218,8 @@ await wait(300);
 if (frames.length < 20) throw new Error(`only ${frames.length} frames were captured`);
 const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? f.t + 2) - f.t).toFixed(4)}`).join('\n') + `\nfile '${frames.at(-1).file}'\n`;
 writeFileSync(join(work, 'frames.txt'), list);
-const out = join(root, 'site', 'brand', `dashboard-tour${dark ? '-dark' : ''}.mp4`);
+mkdirSync(join(root, 'scripts', 'out'), { recursive: true });
+const out = join(root, 'scripts', 'out', `dashboard-tour${dark ? '-dark' : ''}.mp4`);
 const enc = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', join(work, 'frames.txt'), '-vf', 'fps=30,format=yuv420p', '-c:v', 'libx264', '-preset', 'slow', '-crf', '24', '-movflags', '+faststart', out], { encoding: 'utf8' });
 if (enc.status !== 0) throw new Error(enc.stderr);
 const poster = out.replace(/\.mp4$/, '.jpg');

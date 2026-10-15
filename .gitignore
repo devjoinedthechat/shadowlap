@@ -35,9 +35,8 @@ Thumbs.db
 vitest-junit.xml
 shadowlap-junit.xml
 
-# Built site (site/index.html is generated from site/template.html and docs/)
-site/dist/
-site/index.html
+# What scripts/ renders (the demo animation, screenshots, the dashboard tour)
+scripts/out/
 
 # Scratch projects the framework tests create
 testing/frameworks/.tmp-*/

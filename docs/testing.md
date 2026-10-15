@@ -6,7 +6,7 @@ It works like vcrpy or Polly.js, with Shadowlap's matching (calls are matched by
 
 ## pytest
 
-Install the Python package; the plugin loads itself and does nothing for tests without the marker.
+Install the Python package ([from a clone](./sdk.md#install) until it is published); the plugin loads itself and does nothing for tests without the marker.
 
 ```python
 import pytest
@@ -29,6 +29,8 @@ with recording("tests/__recordings__/triage"):
 ```
 
 ## Vitest
+
+Install `@shadowlap/test` as a dev dependency ([from a clone](./sdk.md#install) until it is published), and add its setup:
 
 ```js
 // vitest.config.ts
@@ -131,7 +133,7 @@ If the change is intended, record the test again with SHADOWLAP_RECORD=all. To i
 ```
 
 - **Intended change:** record again with `SHADOWLAP_RECORD=all`, and review the new recording in the pull request. (A golden that `shadowlap test` replays is updated with [`shadowlap test --update`](./ci.md#update-a-golden-after-an-intended-change) instead.)
-- **A date or an id** in a prompt: add the [normalizer](./normalizers-and-redaction.md) the report suggests. It applies to every recording, old ones included.
+- **An id or another value made on every run**: add the [normalizer](./normalizers-and-redaction.md) the report suggests. It applies to every recording, old ones included. Today's date needs none: dates near a run's start already match.
 - **To look closer:** the diverged replay stays in the local store, so `shadowlap dashboard <run>` opens it next to its recording. Clean replays are not kept.
 
 ## How it works
@@ -142,7 +144,7 @@ The plugin starts `shadowlap serve --recordings` once per test process (per Vite
 - `shadowlap.config.json` applies: normalizers when matching, and redaction rules when a recording is saved.
 - Recordings are packs, the same format as `shadowlap pack`, so `shadowlap test` and `shadowlap unpack` read them. They still belong to their test runner, which replays them with the test's own assertions: the [test history](./ci.md#test-history) that `shadowlap test` keeps covers the project's goldens, the packs in `goldens/` and those named under `tests` in the config.
 - Running the whole test suite under `shadowlap run` or `shadowlap replay` turns the plugin off; that run records everything.
-- The plugin needs the `shadowlap` CLI: from `npm install shadowlap` (a dependency of `@shadowlap/test`), on your `PATH`, or named by `SHADOWLAP_CLI`.
+- The plugins need the `shadowlap` CLI. The Vitest and node:test plugin runs the one `@shadowlap/test` depends on (installed from a clone, the clone's own); pytest runs `shadowlap` from your `PATH`, or through `npx`. `SHADOWLAP_CLI` names another for either.
 - Tests that run concurrently inside one worker (`test.concurrent`, `pytest-asyncio` tasks sharing a loop) share its slot, so their calls can't be told apart. Run recorded tests one at a time per worker.
 
 ## Another test runner

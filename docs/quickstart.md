@@ -1,14 +1,16 @@
 # Quickstart
 
-Shadowlap is not on npm yet; it runs from source. You need Node ≥ 22.13 (and Python ≥ 3.9 only for the Python SDK).
+Shadowlap runs from source until it is published. You need Node ≥ 22.13 (and Python ≥ 3.9 only for the Python SDK).
 
 ```sh
 git clone https://github.com/devjoinedthechat/shadowlap
 cd shadowlap
-npm install
+npm ci
 npm run build
-alias shadowlap="node $PWD/packages/cli/bin/shadowlap.js"
+npm link --workspace packages/cli     # puts shadowlap on your PATH
 ```
+
+Once published, `npm install -g shadowlap` installs the CLI, and the SDKs come from npm and PyPI.
 
 ## 1. Record and replay the reference agent
 
@@ -90,7 +92,21 @@ Found
   Agent command: pnpm agent (package.json scripts.agent: tsx src/agent.ts)
   Tools: 3 found, 1 with an effect
 
-! src/llm.ts:2 sets the model base URL to https://llm-proxy.internal/anthropic. Calls through that client bypass Shadowlap and are not recorded.
+! src/llm.ts:2 sets the model base URL to https://llm-proxy.internal/anthropic. Shadowlap doesn't know that host, so calls through that client would not be recorded.
+  Run with SHADOWLAP_UPSTREAM_ANTHROPIC=https://llm-proxy.internal/anthropic, or read the base URL from ANTHROPIC_BASE_URL.
+
+1. Install
+     pnpm add -D shadowlap
+     pnpm add @shadowlap/sdk @shadowlap/adapters   tool effects, through your framework
+```
+
+Until the packages are published, skip that install step: the CLI you linked is already on your PATH, and `npx shadowlap` finds it too. Install the SDKs from the clone instead:
+
+```sh
+npm install path/to/shadowlap/packages/sdk          # tools, clock and randomness
+npm install path/to/shadowlap/packages/adapters     # framework adapters, next to the SDK
+npm install -D path/to/shadowlap/packages/test      # recorded tests: Vitest, node:test
+pip install -e path/to/shadowlap/sdks/python        # Python SDK, adapters, pytest plugin
 ```
 
 Run the agent the way you always do, prefixed with `shadowlap run --`. API calls are captured with no code changes: `shadowlap run` sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` for the child process, and the official SDKs read them.
@@ -107,7 +123,7 @@ import { tool } from '@shadowlap/sdk';
 export const sendEmail = tool('send_email', { effect: 'write' }, async (args) => mailer.send(args));
 ```
 
-Replay with `shadowlap replay <run>`. If it diverges when you changed nothing, read [Why did my replay diverge?](./troubleshooting.md): the usual cause is a date or an id in a prompt, and the report proposes the normalizer that fixes it.
+Replay with `shadowlap replay <run>`. If it diverges when you changed nothing, read [Why did my replay diverge?](./troubleshooting.md): the usual cause is a value the agent makes anew on every run, such as a request id. The report proposes the normalizer that fixes it, and `shadowlap calibrate` finds them all at once.
 
 ## 3. A real model, no key
 

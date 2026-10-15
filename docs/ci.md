@@ -22,17 +22,21 @@ shadowlap test goldens/* --junit shadowlap-junit.xml
 
 For each pack, `shadowlap test` imports it into the project's store, re-runs the recorded command under a replay sidecar with **every provider set to offline**, and passes only if the replay is clean and the process exits 0. A divergence prints the report; a live call is refused with a 503 that names the call; both fail the pack. `--online` allows live calls after a divergence if you really want them; `--cwd` sets the working directory for the recorded commands; `--writes` sets the write policy. A `*` in the last part of a path is expanded by `shadowlap test` itself, so `'goldens/*'` works without a shell.
 
-Output:
+Output, when one agent puts a new UUID in every request's metadata:
 
 ```
-✓ triage-inbox: 30/30 replayed, 12k input tokens not re-spent
 ✗ summarize-thread: diverged at call 1 (api POST /v1/messages)
     ✗ Diverged at call 1 (api POST /v1/messages): 0 calls replayed before divergence
+      compared with run 01M4ZHJR8K…, call 1
       ~ $.metadata.user_id
-          - "3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f"
-          + "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+          - "ca35b35e-b35d-4874-b430-d905bb4d9402"
+          + "599d00cd-757e-4daf-9e49-ad91069b7a1a"
       hint: this looks like a UUID; to ignore it in matching, add a normalizer
-        shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
+            shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
+    ⑂ Forked at call 1: 0 calls replayed, then 1 live; 0 upstream requests
+      the agent process exited with an error
+    │ summarize-thread: 503 {"type":"error","error":{"type":"shadowlap_offline","message":"shadowlap is offline: call #1 (POST /v1/messages) was not served from the recording and would need the network"}}
+✓ triage-inbox: 30/30 replayed, 12k input tokens not re-spent
 
 1 passed, 1 failed · 0 upstream requests
 ```
@@ -200,13 +204,13 @@ It replays each recording offline and fails the check when one diverges, makes a
 
 A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.13 or later.
 
-Pin the action to a release tag once there is one. Until shadowlap is on npm, the action builds the CLI from its own source, which adds about a minute; after the release, set `version:` to install it from npm instead.
+Pin the action to a release tag once there is one. Until `shadowlap` is on npm, the action builds the CLI from its own source, which adds about a minute; after the release, set `version:` to install it from npm instead.
 
 | Input | Default | Effect |
 |---|---|---|
 | `recordings` | `goldens/*` | Recording directories, separated by spaces or new lines; `*` is allowed in the last part of a path |
 | `working-directory` | `.` | Where the recorded commands run |
-| `version` | empty | A shadowlap version from npm; empty builds it from the action's source |
+| `version` | empty | A `shadowlap` version from npm; empty builds it from the action's source |
 | `writes` | `block` | What write tools do after a divergence: `block`, `stub` or `allow` |
 | `guard` | `block` | The network guard: `block`, `warn` or `off` |
 | `online` | `false` | Allow live model calls after a divergence |
@@ -223,11 +227,24 @@ Outputs: `passed`, `failed` (every failure), `diverged`, `checks-failed`, `sessi
 
 The action reads `tests` from `shadowlap.config.json` in the working directory. A recording marked `fork` calls the providers after the fork, so pass their keys to the step as environment variables (`env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`).
 
-When a recording fails and the logs aren't enough, keep the replay as a file to open:
+When a recording fails and the logs aren't enough, keep the failed replay as a file to open. The action replays into a store it throws away, so these steps install the `shadowlap` CLI, replay again into a store they keep (`--db`), take the first recording that failed from the JSON report, and export its replay together with the recording. Of several attempts they take one that failed. A recording marked `fork` runs live again here. When nothing fails on the second run, the step says so and the upload finds no file.
 
 ```yaml
 - if: failure()
-  run: shadowlap export html "$(shadowlap ls --json | jq -r '.[0].runId')" failed-run.html
+  run: |
+    # Until shadowlap is on npm; after that: npm install -g shadowlap@<version>
+    git clone --depth 1 https://github.com/devjoinedthechat/shadowlap "$RUNNER_TEMP/shadowlap"
+    cd "$RUNNER_TEMP/shadowlap" && npm ci && npm run build && npm link --workspace packages/cli
+- if: failure()
+  run: |
+    shadowlap --db replays.db test goldens/* --json report.json || true
+    pack=$(jq -r '[.results[] | select(.ok | not)][0].dir // empty' report.json)
+    [ -n "$pack" ] || { echo 'No recording failed on the second run'; exit 0; }
+    golden=$(jq -r '.runs[-1].runId' "$pack/run.json")
+    # The replays of that recording made here, the attempts that failed first
+    pick='[.[] | select(.parentRunId == $g and .imported == null)] | map(select(.status != "completed" or .checks.passed < .checks.total)) + . | .[0].runId'
+    run=$(shadowlap --db replays.db ls --json -n 100000 | jq -r --arg g "$golden" "$pick")
+    shadowlap --db replays.db export html "$run" failed-run.html --lineage
 - if: failure()
   uses: actions/upload-artifact@v4
   with: { name: shadowlap-run, path: failed-run.html }
@@ -300,10 +317,10 @@ They need an incoming webhook from your Slack workspace, its URL as a repository
 
 ## Keeping goldens honest
 
-- **Ambient values** (request ids, UUIDs, dates far from the run) diverge on the first CI run. Add the [normalizer](./normalizers-and-redaction.md) the report suggests; normalizers apply at match time, so old goldens keep working. Dates near each run's start already match.
+- **Values an agent makes anew on every run** (a request id, a per-run UUID, a temp path) diverge on the first CI run. Run [`shadowlap calibrate`](./normalizers-and-redaction.md#calibrate) on a recording before you pack it, or add the [normalizer](./normalizers-and-redaction.md) the report suggests; normalizers apply at match time, so old goldens keep working. Today's date in a prompt needs neither: [dates near a run's start](./normalizers-and-redaction.md#dates-and-times) already match.
 - **Intended changes** to a prompt fail the test, which is the point. [Update the golden](#update-a-golden-after-an-intended-change) with `shadowlap test --update`, and review the new recording in the pull request like any other snapshot. `shadowlap show --json` of the two runs diffs well. When what matters is the outcome rather than the exact requests, mark the recording [`fork`](#recordings-that-fork-on-purpose) and give it checks instead.
 - **Tool fixes** don't change requests, so they don't fail the test; the recorded result is still served. If the fix should change behavior, re-record.
-- Keep goldens small and specific. A 30-call run packs to about 340 KB.
+- Keep goldens small and specific. The repository's 30-call reference run packs to 79 files and 64 KB.
 - **Review goldens like code.** `shadowlap test` runs the command recorded in each pack, without asking. That's safe for goldens committed to your repository, because a pull request that edits a golden could edit your CI scripts just as easily. Don't point it at packs from anywhere else before reading their `run.json`.
 
 ## Strict replays outside `test`

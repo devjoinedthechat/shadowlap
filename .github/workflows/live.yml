@@ -1,6 +1,6 @@
 name: Live providers
 
-# Shadowlap against the real model APIs, nightly: a tool call and a streamed call per provider,
+# Shadowlap against the real model APIs: a tool call and a streamed call per provider,
 # recorded, parsed and replayed offline (testing/frameworks/live). Only providers whose secrets are
 # set run; the rest are skipped. Each run costs a few cents per provider.
 #
@@ -8,8 +8,8 @@ name: Live providers
 # AZURE_OPENAI_ENDPOINT and LIVE_AZURE_DEPLOYMENT; AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with
 # the variables AWS_REGION and LIVE_BEDROCK_MODEL; GCP_SERVICE_ACCOUNT_JSON with the variable
 # LIVE_VERTEX_PROJECT. Variables LIVE_<PROVIDER>_MODEL choose other models.
-# Run it by hand. It was nightly; a cron against paid APIs bills the maintainer every day and shows
-# as permanently skipped on forks, so it is opt-in. To restore the schedule, uncomment the cron.
+# Run it by hand: on a schedule it would bill the paid APIs every day, and show as skipped on forks,
+# which have no secrets. To run it nightly, uncomment the cron.
 on:
   # schedule:
   #   - cron: '41 4 * * *'

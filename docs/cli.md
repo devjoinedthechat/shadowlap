@@ -27,7 +27,7 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 shadowlap run -- <command> [args...]
 ```
 
-Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture), the network guard and [recorded user input](./sdk.md#what-a-person-types) into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted). What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded.
+Records a run. `--summary-json <file>` also writes its summary as JSON, and `--guard warn|off` sets the [network guard](./how-it-works.md#the-network-guard) (default `warn`). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture), the network guard and [recorded user input](./sdk.md#what-a-person-types) into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted). What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded.
 
 ## replay
 
@@ -292,11 +292,11 @@ Runs, newest first, with their labels; `--tree` nests forks under their parents.
 ```sh
 shadowlap label <run> bug refund-flow      # add labels
 shadowlap label <run> bug --remove         # remove one
-shadowlap label <run>                      # print them
+shadowlap label <run> [--json]             # print them
 shadowlap note <run> "The model skipped the refund check." [--call <n>]
 ```
 
-What people know about a run that the recording can't. A label says what the run is, so it can be found (`ls --label`, the dashboard's search) and exported as part of a dataset (`export dataset --label good`). A label is up to 40 letters, digits, spaces and `_ . : / -`. A note says why, on the run or on one call; `show` prints them and the dashboard shows a call's notes in its details. Both travel in packs.
+What people know about a run that the recording can't. A label says what the run is, so it can be found (`ls --label`, the dashboard's search) and exported as part of a dataset (`export dataset --label good`). A label is up to 40 letters, digits, spaces and `_ . : / -`. A note says why, on the run or on one call; `show` prints them and the dashboard shows a call's notes in its details. Both travel in packs. `label --json` prints `{ runId, labels }` with the labels as they are after the change.
 
 ## search
 
@@ -318,7 +318,7 @@ The [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` nam
 ## test
 
 ```sh
-shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations] [--update] [--online] [--writes <policy>] [--cwd <dir>]
+shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations] [--update] [--online] [--writes <policy>] [--cwd <dir>] [--guard <mode>]
 ```
 
 [CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none. A `*` in the last part of a path (`goldens/*`) is expanded by the command itself.
@@ -332,6 +332,10 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 | `--markdown <file>` | Append a Markdown report: a results table, and the diff and agent output for each failure. Point it at `$GITHUB_STEP_SUMMARY` for a GitHub job summary |
 | `--annotations` | Print a GitHub Actions error annotation for each failed pack, attached to its `run.json` |
 | `--update` | [Re-record each golden that diverged](./ci.md#update-a-golden-after-an-intended-change), live with writes stubbed, and replace its pack (`run.json`, `calls.jsonl`, `blobs/`; other files in its folder stay) in the working tree when the agent exits 0 and its checks pass. Prints what the agent sends differently. Warns, with the normalizer to add, when the divergence is a value that changes every run |
+| `--online` | Allow live calls after a divergence. By default every provider is offline and a live call fails the pack |
+| `--writes block\|stub\|allow` | What `write` tools do after a divergence. Default `block` |
+| `--cwd <dir>` | Where the recorded commands run. Default: the current directory |
+| `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
 
 ## bisect
 
@@ -500,10 +504,10 @@ dashboard, the command also reports each run to the job that started it.
 ## calibrate
 
 ```sh
-shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json]
+shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json] [--guard <mode>] [-y]
 ```
 
-Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `newest` when it picked one), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made for this project, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--max-rounds` is how many replays to try first (default 8); `--guard` and `-y` are as for `replay`. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 
@@ -525,7 +529,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 
 | Key | What it does |
 |---|---|
-| `normalize` | Masks values before fingerprinting, so a generated id or today's date does not fork a replay ([details](./normalizers-and-redaction.md)) |
+| `normalize` | Masks values before fingerprinting, so an id the agent makes on every run does not fork a replay ([details](./normalizers-and-redaction.md)) |
 | `redact` | Masks stored content in the copy of a run that leaves the machine (`pack` and every export; [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
@@ -712,6 +716,7 @@ shadowlap export otel <run>                                   # OTLP JSON to std
 shadowlap export otel <run> --out trace.json
 shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER_OTLP_ENDPOINT
 shadowlap export otel <run> --no-redact                       # skip the config's redaction rules
+shadowlap export otel <run> --service refund-agent            # service.name, default shadowlap-agent
 ```
 
 A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved.
@@ -725,7 +730,7 @@ A trace carries no prompt text, tool arguments or results. The redaction rules w
 | `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream (a mock, or an OpenAI-compatible server such as Ollama). Without one, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` are used when they are set |
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
-| `SHADOWLAP_TELEMETRY_URL` | Send telemetry to another collector |
+| `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run. Without it nothing is sent |
 | `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them. Otherwise `ci` in CI, else git's `user.email`, else the OS user |
 | `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects), as an absolute path (default `~/.shadowlap`; a relative path is ignored) |
 | `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` |

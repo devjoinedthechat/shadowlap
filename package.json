@@ -4,6 +4,14 @@
   "version": "0.0.0",
   "description": "Record, replay and fork AI agent runs.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.13"
@@ -22,7 +30,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "golden": "node testing/reference-agent/dist/make-golden.js testing/golden/reference-agent",
-    "site:build": "node site/build.mjs",
     "set-version": "node scripts/set-version.mjs",
     "pack:check": "npm pack --dry-run --workspace packages/cli --workspace packages/sdk --workspace packages/adapters 2>&1 | grep -E \"npm notice (name|version|package size|total files|filename)|Tarball Contents\" ",
     "demo": "node scripts/demo-svg.mjs",

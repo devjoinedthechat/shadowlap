@@ -9,7 +9,7 @@ shadowlap ui <run> --call 17   # opened at call 17
 The terminal UI is the quick look: where a run forked, what a call sent and got back, and a fork from the call in front of you, without leaving the terminal. The [dashboard](./dashboard.md) is the full inspector, with turns, context and cache charts, the timeline of what ran in parallel, a run's family of forks, search across runs, comparison, and label and note editing. `o` opens the run, at the selected call, in the dashboard. `shadowlap search` ends each match with the `shadowlap ui <run> --call <n>` that opens it.
 
 ```
- 01K5CQ4N7G fork @17 of 01K5CQ4N7G · 30 calls · 16 replayed · 13 live · 1 blocked · 12k tok saved · 2s ago
+ 01K5CQ4P2R fork @17 of 01K5CQ4N7G · 30 calls · 16 replayed · 13 live · 1 blocked · 12k tok saved · 2s ago
 ┌─────────────────────────────────────────────────┐┌───────────────────────────────────────────────┐
 │  #15  tool  fetch_page        replayed ok  {"url"││ conversation  request  response  meta         │
 │  #16  tool  read_file         replayed ok  {"path││ ■ 14 events over 1.3s · stop tool_use · space │

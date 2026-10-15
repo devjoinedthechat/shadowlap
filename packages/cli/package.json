@@ -51,10 +51,14 @@
     "ai-agents",
     "llm",
     "record-replay",
+    "deterministic-replay",
+    "agent-testing",
     "debugging",
+    "ci",
     "anthropic",
     "openai",
-    "deterministic-replay"
+    "gemini",
+    "mcp"
   ],
   "devDependencies": {
     "@shadowlap/collector": "^0.1.0",

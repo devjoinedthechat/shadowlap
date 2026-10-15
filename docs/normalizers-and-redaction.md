@@ -7,7 +7,7 @@ Rules live in `shadowlap.config.json` in the working directory, and the commands
 ```json
 {
   "normalize": [
-    { "kind": "api", "path": "$.system[*].text", "pattern": "iso-datetime", "replace": "<DATETIME>" },
+    { "kind": "api", "path": "$.metadata.user_id", "pattern": "uuid", "replace": "<UUID>" },
     { "kind": "tool", "name": "create_ticket", "path": "$.args.idempotency_key", "replace": "<ID>" }
   ],
   "redact": [
@@ -19,11 +19,10 @@ Rules live in `shadowlap.config.json` in the working directory, and the commands
 
 ## Normalizers
 
-A replay diverges when a request differs from the recording. Some differences are deliberate; some are ambient: today's date in a prompt, a request id, a UUID in tool arguments. Normalizers tell Shadowlap which parts of a request are not part of its identity.
+A replay diverges when a request differs from the recording. Some differences are deliberate; some are ambient: a request id, a UUID in tool arguments, a temp path the agent names anew on every run. Normalizers tell Shadowlap which parts of a request are not part of its identity. Today's date needs none: [dates and times](#dates-and-times) near a run's start already match.
 
 ```sh
-shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date
-shadowlap normalize add --pattern '/req_[a-z0-9]+/' --replace '<REQ>'
+shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
 shadowlap normalize add --kind tool --name create_ticket --path '$.args.idempotency_key' --replace '<ID>'
 shadowlap normalize ls
 shadowlap normalize rm 2
@@ -53,8 +52,8 @@ Normalizers apply at match time: adding one makes older recordings match too, be
 When a divergence is only a date, time, UUID or ULID, the report proposes the rule:
 
 ```
-  hint: this looks like a date; to ignore it in matching, add a normalizer
-        shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date --replace '<DATE>'
+  hint: this looks like a UUID; to ignore it in matching, add a normalizer
+        shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
 ```
 
 The TUI's actions palette adds it with one key.
@@ -67,7 +66,7 @@ It recognizes ISO dates and timestamps (`2026-09-16`, `2026-09-16T10:31:22Z`, wi
 
 - Only values near each run's own start are masked. A date a week earlier stays as it is, so changing "since 2026-09-09" to "since 2026-09-02" still forks, and the diff shows that change without the dates that were "today".
 - It affects matching only. Stored requests keep their values, and the agent's clock is never changed, so a live call after a fork carries the real time. Request signing depends on it.
-- A fixed date that happens to fall within a day of when a run was recorded is masked in that recording and not in a later replay, so it forks. The report says so. Set `"clock": "exact"` in `shadowlap.config.json` to match dates exactly, and add normalizers where you need them.
+- A fixed date that happens to fall within a day of when a run was recorded is masked in that recording and not in a later replay, so it forks. The report says so. Set `"clock": "exact"` in `shadowlap.config.json` to match dates exactly, and add normalizers where you need them, such as `shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date` for the date in a system prompt.
 
 ## Calibrate
 

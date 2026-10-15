@@ -30,6 +30,12 @@ jobs:
       # their own strict pass. Without it a type error in a test only ever shows up at runtime.
       - run: npm run typecheck:tests
       - run: npm test
+      - name: Python SDK tests
+        working-directory: sdks/python
+        shell: bash
+        run: |
+          python -m pip install --quiet pytest -e .
+          python -m pytest -q
       - name: SDK conformance (typescript and python clients)
         run: node --test --test-reporter=spec testing/conformance/conformance.test.mjs
       - name: shadowlap test (offline golden replay)

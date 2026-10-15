@@ -3,14 +3,16 @@
 Start from the report. It names the call, the type of divergence, the closest recorded counterpart and the exact paths that differ:
 
 ```
-✗ Diverged at call 7 (api POST /v1/messages): 6 calls replayed before divergence
-  compared with run 01J8Z…, call 7
-  ~ $.system[0].text
-      - "…Today is 2026-09-15. You are a research agent…"
-      + "…Today is 2026-09-16. You are a research agent…"
-  hint: this looks like a date; to ignore it in matching, add a normalizer
-        shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date --replace '<DATE>'
+✗ Diverged at call 1 (api POST /v1/messages): 0 calls replayed before divergence
+  compared with run 01M4ZHJR8K…, call 1
+  ~ $.metadata.user_id
+      - "ca35b35e-b35d-4874-b430-d905bb4d9402"
+      + "599d00cd-757e-4daf-9e49-ad91069b7a1a"
+  hint: this looks like a UUID; to ignore it in matching, add a normalizer
+        shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
 ```
+
+Here the agent puts a new UUID in every request's metadata, so its first request never matches. Today's date in a prompt doesn't do this: [dates near a run's start](./normalizers-and-redaction.md#dates-and-times) already match.
 
 `shadowlap show <replay-run>` prints it again; `shadowlap ui <replay-run>` opens at the divergence with `d` for the diff.
 

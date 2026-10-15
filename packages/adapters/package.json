@@ -63,9 +63,12 @@
     "ai-agents",
     "llm",
     "record-replay",
-    "debugging",
-    "anthropic",
-    "openai",
-    "deterministic-replay"
+    "deterministic-replay",
+    "vercel-ai-sdk",
+    "openai-agents",
+    "mastra",
+    "langchain",
+    "langgraph",
+    "anthropic"
   ]
 }

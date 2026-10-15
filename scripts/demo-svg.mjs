@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Renders site/demo.svg, an animated terminal session (record → clean replay → fork with a diff), and
-// site/demo-static.svg, the same session fully drawn (for the README and anywhere animation is unwanted),
+// Renders scripts/out/demo.svg, an animated terminal session (record → clean replay → fork with a diff), and
+// scripts/out/demo-static.svg, the same session fully drawn (for the README and anywhere animation is unwanted),
 // captured from the real CLI against the scripted mock API, so the picture is never out of date.
 // Usage: node scripts/demo-svg.mjs   (after `npm run build`)
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,9 +162,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="${W / 2}" y="19" text-anchor="middle" fill="${palette.dim}" font-size="11">shadowlap · record once, replay for free, fork what changed</text>
 ${svgLines}</svg>
 `;
-const out = join(root, 'site', 'demo.svg');
+mkdirSync(join(root, 'scripts', 'out'), { recursive: true });
+const out = join(root, 'scripts', 'out', 'demo.svg');
 writeFileSync(out, svg);
 // The static version: every line visible, no animation.
 const staticSvg = svg.replace(/<animate [^>]*\/>/g, '').replace(/ opacity="0"/g, '');
-writeFileSync(join(root, 'site', 'demo-static.svg'), staticSvg);
+writeFileSync(join(root, 'scripts', 'out', 'demo-static.svg'), staticSvg);
 console.log(`wrote ${out} and demo-static.svg: ${scenes.length} scenes, ${items.length} lines, ${TOTAL.toFixed(1)} s loop, ${(svg.length / 1024).toFixed(0)} KB`);

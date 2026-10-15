@@ -2,10 +2,11 @@
 
 **Tests**
 
-- [ ] New behavior has a test, or a bug fix has the test that would have caught it
-- [ ] `npm test` passes locally
+- [ ] New behaviour has a test, or a bug fix has the test that would have caught it
+- [ ] `npm run build`, `npx vitest run` and `npm run typecheck:tests` pass locally
 
 **Docs**
 
-- [ ] `README.md` Status table updated if user-visible
+- [ ] New commands and flags are in `docs/cli.md`
+- [ ] `README.md` Status table and `CHANGELOG.md` (under Unreleased) updated if a user would notice
 - [ ] `README.md` "How it works" updated if a guarantee, matching rule or policy changed

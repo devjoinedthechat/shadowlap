@@ -2,7 +2,7 @@
 
 If your tools are defined through a framework, declare the effect once with an adapter. Execution is routed through `tool()` from `@shadowlap/sdk`; only the framework's *input* is recorded, never its context objects (run contexts, abort signals, tracing handles). API calls need no adapter at all, whatever the framework: the sidecar records them through the provider base URL.
 
-The TypeScript adapters live in `@shadowlap/adapters` (npm) and the Python ones in `shadowlap.adapters` (part of the `shadowlap` package). Both type the shapes they touch structurally and carry no framework dependencies.
+The TypeScript adapters live in `@shadowlap/adapters` and the Python ones in `shadowlap.adapters` (part of the `shadowlap` package); until they are published, [install them from a clone](./sdk.md#install). Both type the shapes they touch structurally and carry no framework dependencies.
 
 ## Vercel AI SDK
 
