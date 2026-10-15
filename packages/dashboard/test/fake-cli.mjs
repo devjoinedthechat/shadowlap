@@ -58,6 +58,9 @@ switch (args[0]) {
     });
     break;
   }
+  case 'pwd':
+    console.log(`cwd ${process.cwd()}`);
+    break;
   case 'lines':
     for (let i = 1; i <= Number(args[1] ?? 10); i++) console.log(`line ${i}`);
     break;

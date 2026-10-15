@@ -55,6 +55,8 @@ const fakeKind: RouteModule = {
             return { args: [] };
           case 'outside-cwd':
             return { args: ['x'], cwd: outside };
+          case 'cwd':
+            return { args: ['pwd'], cwd: String(req.cwd) };
           default:
             return { error: `unknown mode ${String(req.mode)}` };
         }
@@ -173,6 +175,8 @@ describe('job kinds', () => {
     await refused({ kind: 'fake', mode: 'throw' }, 400, /the builder broke/);
     await refused({ kind: 'fake', mode: 'empty' }, 500, /built no command/);
     await refused({ kind: 'fake', mode: 'outside-cwd' }, 400, /inside the project folder/);
+    await refused({ kind: 'fake', mode: 'cwd', cwd: '../elsewhere' }, 400, /inside the project folder/);
+    await refused({ kind: 'fake', mode: 'cwd', cwd: 'not-made-yet' }, 400, /inside the project folder/);
     await refused({ kind: 'fake', mode: 'cat', uploadId: '../../etc/passwd' }, 404, /upload not found/);
     expect((await api(dash, 'jobs', { method: 'POST', body: '[1,2]' })).status).toBe(400);
     expect(spawned.length, 'nothing ran').toBe(before);
@@ -203,6 +207,13 @@ describe('a job hears what the command made on fd 3', () => {
     expect(job.result).toEqual({ clean: true, calls: 30 });
   });
 
+  it('runs in a folder of the project when its builder names one', async () => {
+    mkdirSync(join(project, 'agents', 'triage'), { recursive: true });
+    const view = await waitJob(dash, (await startJob(dash, { kind: 'fake', mode: 'cwd', cwd: 'agents/triage' })).id);
+    expect(spawned.at(-1)!.options).toEqual({ events: true, cwd: join(project, 'agents', 'triage') });
+    expect(view.lines).toEqual([`cwd ${join(project, 'agents', 'triage')}`]);
+  });
+
   it('still finds the run in the output of a command that sends no events', async () => {
     const view = await waitJob(dash, (await startJob(dash, { kind: 'fake', mode: 'text-only' })).id);
     expect(view).toMatchObject({ code: 0, newRunId: '01K5CQ4P2V0000000000000000', runs: ['01K5CQ4P2V0000000000000000'], links: [], files: [], result: null });
@@ -217,6 +228,13 @@ describe('a job hears what the command made on fd 3', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await res.text()).toBe('{"messages":[]}\n');
+    // HEAD: the same headers, and no body.
+    const head = await api(dash, `files/${file.fileId}`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(head.headers.get('content-disposition')).toBe('attachment; filename="dataset.jsonl"');
+    expect(head.headers.get('content-length')).toBe('16');
+    expect(await head.text()).toBe('');
+    expect((await fetch(`${dash.url}/api/files/${file.fileId}`, { method: 'HEAD' })).status, 'HEAD needs the token too').toBe(401);
     expect((await fetch(`${dash.url}/api/files/${file.fileId}`)).status).toBe(401);
     expect((await api(dash, `files/${'0'.repeat(24)}`)).status).toBe(404);
     expect((await api(dash, 'files/..%2F..%2Fetc%2Fpasswd')).status).toBe(404);
@@ -346,6 +364,16 @@ describe('uploads', () => {
     expect(existsSync(path), 'deleted when its job ended').toBe(false);
     const again = await post(dash, 'jobs', { kind: 'fake', mode: 'cat', uploadId: up.uploadId });
     expect(again.status).toBe(404);
+  });
+
+  it('are named "upload" when the browser sends no name, or only one that sanitizes to nothing', async () => {
+    for (const headers of [{}, { 'x-filename': encodeURIComponent('../../..') }]) {
+      const res = await api(dash, 'uploads', { method: 'POST', body: 'nameless', headers: { 'content-type': 'application/octet-stream', ...headers } });
+      expect(res.status).toBe(201);
+      const up = (await res.json()) as { uploadId: string; name: string; bytes: number };
+      expect(up).toMatchObject({ name: 'upload', bytes: 8 });
+      expect(readFileSync(join(uploadsDir(), `${up.uploadId}-upload`), 'utf8')).toBe('nameless');
+    }
   });
 
   it('have their own size limit, apart from the JSON limit, and leave nothing behind when refused', async () => {
