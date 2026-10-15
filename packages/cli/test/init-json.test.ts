@@ -233,6 +233,12 @@ describe('shadowlap init in a dashboard project', () => {
     const printed = JSON.parse(stdout) as InitJson;
     expect(printed.modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
     expect(printed.hardcodedBaseUrls.map((w) => w.url)).toEqual(['https://gateway.internal/v1']);
+    // Nor in a terminal, whose output gets pasted into issues.
+    const text = spawnSync(process.execPath, [CLI, 'init'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
+    expect(text.status).toBe(0);
+    expect(text.stdout).not.toContain('s3cret-token');
+    expect(text.stdout).toContain('Model server: https://llm.internal/v1 (OPENAI_BASE_URL in .env; its credentials aren’t shown)');
+    expect(text.stdout).toContain('SHADOWLAP_UPSTREAM_OPENAI=<your model server> shadowlap run -- uv run agent.py');
   });
 
   it('tells a dashboard job its findings', async () => {

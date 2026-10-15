@@ -476,7 +476,10 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
   out(`  ${r.languages.map((l) => (l === 'typescript' ? 'TypeScript' : l === 'javascript' ? 'JavaScript' : 'Python')).join(' and ')}${r.packageManager ? ` · ${r.packageManager}` : ''} · ${r.scannedFiles} source file${r.scannedFiles === 1 ? '' : 's'}`);
   out(`  Model SDKs: ${r.providers.length ? r.providers.map((x) => `${PROVIDER_NAMES[x.id][0]} (${x.via})`).join(', ') : p.yellow('none found')}`);
   if (r.frameworks.length) out(`  Framework: ${r.frameworks.map((f) => `${f.name}${f.version ? ` ${f.version}` : ''}`).join(', ')}`);
-  if (r.modelServer) out(`  Model server: ${r.modelServer.url} ${p.dim(`(${r.modelServer.from})`)}`);
+  // Output gets pasted into issues and chats: an address with credentials is shown without them.
+  const shown = r.modelServer ? modelServerFinding(r.modelServer) : null;
+  const secret = !!r.modelServer && !!shown && shown.url !== r.modelServer.url;
+  if (r.modelServer) out(`  Model server: ${shown?.url ?? r.modelServer.url} ${p.dim(`(${r.modelServer.from}${secret ? '; its credentials aren’t shown' : ''})`)}`);
   if (r.command) out(`  Agent command: ${quoteArgv(r.command.argv)} ${p.dim(`(${r.command.from})`)}`);
   const unwrapped = r.tools.filter((t) => !t.effect);
   out(`  Tools: ${r.tools.length ? `${r.tools.length} found, ${r.tools.length - unwrapped.length} with an effect` : 'none found'}`);
@@ -536,10 +539,10 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
 
   // Record and replay.
   head('Record a run');
-  const upstream = r.modelServer ? `SHADOWLAP_UPSTREAM_OPENAI=${r.modelServer.upstream} ` : '';
+  const upstream = r.modelServer ? `SHADOWLAP_UPSTREAM_OPENAI=${secret ? '<your model server>' : r.modelServer.upstream} ` : '';
   const cli = ts ? 'npx shadowlap' : 'shadowlap';
   out(`     ${p.cyan(`${upstream}${cli} run -- ${r.command ? quoteArgv(r.command.argv) : '<the command that starts your agent>'}`)}`);
-  if (r.modelServer) out(`     ${p.dim('SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
+  if (r.modelServer) out(`     ${p.dim(secret ? 'SHADOWLAP_UPSTREAM_OPENAI is the model server’s address without /v1, credentials included; init doesn’t print them.' : 'SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
   out();
   head('Replay it, then change something and replay again');
   out(`     ${p.cyan(`${cli} replay <run>`)}   ${p.dim('0 upstream requests when nothing changed')}`);
