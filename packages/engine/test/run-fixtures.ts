@@ -62,6 +62,8 @@ export interface ToolCallOptions {
   replayedFrom?: number;
   error?: string;
   meta?: CallMeta;
+  /** Calls the tool makes while it runs: recorded after its start and before its end. */
+  during?: () => void;
 }
 
 export class RunBuilder {
@@ -119,6 +121,7 @@ export class RunBuilder {
     const identity = { kind: 'tool' as const, name, fingerprint: `fp-${callNo}`, occurrence: 1 };
     const started = (this.at += 5);
     this.store.appendCallStart({ runId: this.runId, callNo, ...identity, origin: o.origin ?? 'live', effect: o.effect ?? 'read', requestRef: this.store.putJson({ args }), meta: { ...(o.scope ? { scope: o.scope } : {}), ...(o.meta ?? {}) }, at: started });
+    o.during?.();
     const latency = o.latencyMs ?? 100;
     this.at += latency;
     const error = o.error ?? (o.origin === 'blocked' ? 'write tool blocked after divergence' : undefined);
@@ -176,4 +179,26 @@ export function batchRun(store: Store, tickets: number, o: { broken?: { ticket: 
     mark(t, b.model({ model: 'claude-sonnet-5', system: SYSTEM, tools: TOOLS, messages: third }, o.stream ? null : a3, { usage: use(t, 3), ...reply(a3) }));
   }
   return { runId: b.end(), byTicket };
+}
+
+/** A batch whose tickets each end on a tool call (closing the ticket), the next ticket fetched before its first model call. */
+export function closingBatch(store: Store, tickets: number): { runId: string; byTicket: Map<number, { get: number; first: number; close: number; crm: number }> } {
+  const b = RunBuilder.start(store);
+  const byTicket = new Map<number, { get: number; first: number; close: number; crm: number }>();
+  for (let t = 1; t <= tickets; t++) {
+    const get = b.tool('get_ticket', { ticket: `T-${t}` }, { ticket: `T-${t}`, order: `A-${t}` });
+    const q = [user(`Ticket T-${t}: order A-${t} arrived damaged.`)];
+    const a1 = [toolUse('lookup_order', { order_id: `A-${t}` }, `toolu_${t}_1`)];
+    const first = b.model({ messages: q }, a1);
+    b.tool('lookup_order', { order_id: `A-${t}` }, { amount: 40 });
+    const q2 = [...q, assistant(a1), user([toolResult(`toolu_${t}_1`, { amount: 40 })])];
+    const a2 = [text('Refunding and closing.'), toolUse('close_ticket', { ticket: `T-${t}` }, `toolu_${t}_2`)];
+    b.model({ messages: q2 }, a2);
+    // Closing the ticket posts to the CRM over HTTP, a host no tool wraps on its own.
+    let crm = 0;
+    const close = b.tool('close_ticket', { ticket: `T-${t}` }, { closed: true }, { effect: 'write', during: () => (crm = b.tool('POST crm.example.com/tickets', { url: `https://crm.example.com/tickets/T-${t}` }, { status: 200 }, { meta: { http: 'crm.example.com' } })) });
+    byTicket.set(t, { get, first, close, crm });
+  }
+  b.end();
+  return { runId: b.runId, byTicket };
 }

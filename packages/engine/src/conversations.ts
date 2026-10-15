@@ -18,17 +18,21 @@ import type { CallRecord } from './types.js';
  * blocks and Gemini's thought signatures are left out of the comparison, because agents move or drop
  * them from one request to the next. A request that extends no open conversation starts a new one;
  * so does one that repeats another conversation's request word for word, unless that request
- * failed (then it is a retry). Two weaker links keep a conversation together when its history was
- * edited: only the first message changed (a system message with the time in it), or the request
- * carries tool-use ids the conversation issued (an agent that drops its oldest turns). The
- * Responses API's `previous_response_id` and `conversation` name the conversation outright.
+ * failed (then it is a retry). Weaker links keep a conversation together when its history was
+ * edited: only the first message changed (a system message with the time in it); the request
+ * carries tool-use ids the conversation issued (an agent that drops its oldest turns); or it
+ * carries the conversation's last answer right after the history it kept (an agent that strips a
+ * reminder from earlier messages, trims an old tool result or completes a prefill). The Responses
+ * API's `previous_response_id` and `conversation` name the conversation outright. Each scope's
+ * conversations are indexed by what a request can continue them by, so a run of thousands of
+ * conversations is read in time proportional to its requests.
  *
  * Every other call belongs to the conversation of the model call that asked for it: a tool call is
  * matched to the latest tool request of the same name in its scope, with the same arguments when
  * one has them, and keeps the provider's tool-use id when there is one. A call no model asked for
- * (the ticket fetched before the first model call, a person's reply, a clock reading) goes with
- * the latest model call in its scope while that call is still waiting on tools, else with the next
- * model call it feeds.
+ * goes with the tool call that was running when it started (an HTTP request a tool sends), else
+ * with the latest model call in its scope while a tool that call asked for has not run yet, else
+ * with the next model call, which it feeds (the ticket fetched before the first model call).
  */
 
 export interface CallConversation {
@@ -411,12 +415,18 @@ export function responseInfo(store: Store, call: CallRecord): ResponseInfo {
 
 // ---- model calls ----------------------------------------------------------------------------------
 
+/** A conversation as the run is read: its latest request, and where the scope's indexes file it. */
 interface Open {
   n: number;
   scope: string;
   items: string[];
+  /** Keys of `items`, of `items` after the first, and of its length with its first item (the indexes below). */
+  key: string;
+  tailKey: string | null;
+  editKey: string;
+  /** The last item of its latest request when that is an assistant turn (a prefill): what it says. */
+  lastSig: string[] | null;
   lastCall: CallRecord;
-  ids: Set<string>;
   conversationId: string | null;
   first: number;
   last: number;
@@ -427,9 +437,19 @@ interface Open {
 }
 
 /** The conversation among `list` that last took a model call. */
-const recent = (list: Open[]) => list.reduce<Open | undefined>((best, x) => (!best || x.touched > best.touched ? x : best), undefined);
+const recent = (list: Iterable<Open>) => {
+  let best: Open | undefined;
+  for (const x of list) if (!best || x.touched > best.touched) best = x;
+  return best;
+};
 const isPrefix = (a: readonly string[], b: readonly string[]) => a.length <= b.length && a.every((h, i) => h === b[i]);
 const sameItems = (a: readonly string[], b: readonly string[]) => a.length === b.length && isPrefix(a, b);
+/** How many items two requests share from the start. */
+function leading(a: readonly string[], b: readonly string[]): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}
 
 /** Contiguous `part` inside `whole`. */
 function contains(whole: readonly string[], part: readonly string[]): boolean {
@@ -439,6 +459,147 @@ function contains(whole: readonly string[], part: readonly string[]): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Keys of the item sequences of a request from `from` on: `out[k]` keys `hashes[from..k)`. Equal
+ * sequences get equal keys, so a request finds the conversations whose latest request is one of
+ * its prefixes by lookups, not by comparing itself with every conversation; each match found is
+ * still checked item by item.
+ */
+function sequenceKeys(hashes: readonly string[], from: number): string[] {
+  const out: string[] = new Array<string>(hashes.length + 1);
+  out[from] = '0:';
+  let a = 0x811c9dc5;
+  let b = 0x9747b28c;
+  for (let k = from; k < hashes.length; k++) {
+    const h = hashes[k]!;
+    for (let i = 0; i <= h.length; i++) {
+      const c = i < h.length ? h.charCodeAt(i) : 0x2c;
+      a = Math.imul(a ^ c, 0x01000193);
+      b = Math.imul(b ^ c, 0x5bd1e995);
+      b ^= b >>> 13;
+    }
+    out[k + 1] = `${k + 1 - from}:${(a >>> 0).toString(36)}:${(b >>> 0).toString(36)}`;
+  }
+  return out;
+}
+
+/** The edited-history index's key: a conversation's length, with its first item from two items on. */
+const editKey = (length: number, first: string | undefined) => (length < 2 ? `${length}|` : `${length}|${first ?? ''}`);
+
+/** Conversations filed by a key, most recently filed last. An entry goes stale when its conversation is filed elsewhere. */
+class Shelf {
+  private readonly lists = new Map<string, Open[]>();
+  constructor(private readonly keyOf: (x: Open) => string | null) {}
+  file(x: Open): void {
+    const key = this.keyOf(x);
+    if (key === null) return;
+    let list = this.lists.get(key);
+    if (!list) this.lists.set(key, (list = []));
+    list.push(x);
+    // Drop stale entries now and then, so a list stays about as long as what is filed under it now.
+    if (list.length >= 64 && (list.length & (list.length - 1)) === 0) {
+      const live = [...new Set(list.filter((y) => this.keyOf(y) === key))];
+      this.lists.set(key, live);
+    }
+  }
+  /** What is filed under `key` now, the most recently filed first, at most `max` of them. */
+  *under(key: string | null | undefined, max = Infinity): Generator<Open> {
+    const list = key ? this.lists.get(key) : undefined;
+    if (!list) return;
+    const seen = new Set<Open>();
+    for (let i = list.length - 1; i >= 0 && seen.size < max; i--) {
+      const x = list[i]!;
+      if (seen.has(x) || this.keyOf(x) !== key) continue;
+      seen.add(x);
+      yield x;
+    }
+  }
+}
+
+/** One scope's conversations, indexed by what a request can continue them by. */
+class ScopeIndex {
+  readonly all: Open[] = [];
+  /** By their latest request: the requests that extend it, and the same request again. */
+  readonly byKey = new Shelf((x) => x.key);
+  /** By their latest request after its first item: a request whose first message alone changed. */
+  readonly byTail = new Shelf((x) => x.tailKey);
+  /** By their length and first item: a request that edited their history and carries their answer. */
+  readonly byEdit = new Shelf((x) => x.editKey);
+  /** Tool-use ids to the conversation that last carried each. */
+  readonly byId = new Map<string, Open>();
+  readonly byConversationId = new Map<string, Open>();
+  /** Response ids (`resp_…`) to their conversation, read from responses only once a request names one. */
+  private readonly owners = new Map<string, Open>();
+  private readonly modelCalls: Array<[CallRecord, Open]> = [];
+  private scanned = 0;
+
+  took(c: CallRecord, conv: Open): void {
+    this.modelCalls.push([c, conv]);
+  }
+
+  /** The conversation whose model call answered with response `id`. */
+  ownerOf(store: Store, id: string): Open | undefined {
+    if (!this.owners.has(id)) {
+      for (; this.scanned < this.modelCalls.length; this.scanned++) {
+        const [c, conv] = this.modelCalls[this.scanned]!;
+        const rid = responseIdOf(store, c);
+        if (rid) this.owners.set(rid, conv);
+      }
+    }
+    return this.owners.get(id);
+  }
+}
+
+/**
+ * The weakest link: a request that edited the history it continues. An agent strips a reminder from
+ * an earlier message, trims an old tool result, or replaces a prefilled answer with the whole of it,
+ * so the request no longer starts with the conversation's latest one. It still carries that
+ * request's answer, as the assistant turn right after the history it kept (or in place of the
+ * prefill), shares its first item from two items on, and is longer. The candidate sharing the most
+ * leading items wins. An answer counts only when it says something particular (a tool call, or a
+ * text of some length) and the request has no other turn like it, as a few-shot example's label
+ * would be. Only the request's last two assistant turns are looked at, and a bounded number of
+ * conversations for each, so a run of unrelated requests stays linear.
+ */
+function editedLink(s: ScopeIndex, items: readonly ItemInfo[], hashes: readonly string[], answerOf: (x: Open) => string[]): Open | undefined {
+  const turns: number[] = [];
+  for (let j = items.length - 1; j >= 1 && turns.length < 2; j--) if (items[j]!.sig?.length) turns.push(j);
+  let best: { x: Open; lead: number } | undefined;
+  for (const j of turns) {
+    const turn = items[j]!.sig!;
+    if (items.some((other, i) => i !== j && other.sig !== null && sameItems(other.sig, turn))) continue;
+    for (const [length, prefill] of [
+      [j, false],
+      [j + 1, true],
+    ] as const) {
+      if (length >= hashes.length) continue;
+      for (const x of s.byEdit.under(editKey(length, hashes[0]), 16)) {
+        if (x.items.length !== length || (prefill && !x.lastSig)) continue;
+        const lead = leading(x.items, hashes);
+        if (lead >= length || (length >= 2 && lead < 1)) continue;
+        if (!sameAnswer(turn, answerOf(x), prefill ? x.lastSig : null)) continue;
+        if (!best || lead > best.lead || (lead === best.lead && x.touched > best.x.touched)) best = { x, lead };
+      }
+    }
+  }
+  return best?.x;
+}
+
+/** The smallest answer that tells conversations apart: a tool call, or this much text ("OK" and "refund" do not). */
+const PARTICULAR = 16;
+
+/** An assistant turn of a request is the answer a response gave: the same blocks, or the prefill it was given with the text written after it. */
+function sameAnswer(turn: readonly string[], answer: readonly string[], prefill: readonly string[] | null): boolean {
+  if (!turn.length || !answer.length) return false;
+  if (!answer.some((x) => x.startsWith('c:')) && answer.join(' ').length - 2 < PARTICULAR) return false;
+  if (!prefill) return contains(answer, turn) || contains(turn, answer);
+  const text = (sig: readonly string[]) => sig.filter((x) => x.startsWith('t:')).map((x) => x.slice(2)).join(' ');
+  const whole = text(turn);
+  const start = text(prefill);
+  const rest = text(answer);
+  return !!rest && whole.length >= start.length + rest.length && whole.startsWith(start) && whole.endsWith(rest);
 }
 
 /**
@@ -459,36 +620,32 @@ export function runConversations(store: Store, calls: readonly CallRecord[], opt
 function analyse(store: Store, calls: readonly CallRecord[], options: ConversationOptions, cache: StoreCaches): RunConversations {
   const byCall = new Map<number, CallConversation>();
   const open: Open[] = [];
-  const byScope = new Map<string, Open[]>();
+  const scopes = new Map<string, ScopeIndex>();
   const ofCall = new Map<number, Open>();
   let clock = 0;
 
   const response = (c: CallRecord) => responseInfo(store, c);
-  const start = (c: CallRecord, d: Digest, scope: string): Open => {
-    const conv: Open = { n: open.length + 1, scope, items: [], lastCall: c, ids: new Set(), conversationId: d.conversationId, first: c.callNo, last: c.callNo, modelCalls: 0, calls: 0, touched: 0 };
-    open.push(conv);
-    const list = byScope.get(scope) ?? [];
-    list.push(conv);
-    byScope.set(scope, list);
-    return conv;
-  };
 
   for (const c of calls) {
     if (c.kind !== 'api') continue;
     const d = digest(store, c, cache);
     if (!d) continue;
     const scope = scopeOf(c);
-    const candidates = byScope.get(scope) ?? [];
+    let s = scopes.get(scope);
+    if (!s) scopes.set(scope, (s = new ScopeIndex()));
     const items = d.items.filter((i) => !i.skip);
     const hashes = items.map((i) => i.hash);
     const ids = items.flatMap((i) => i.ids);
+    const keys = sequenceKeys(hashes, 0);
+    const tails = hashes.length >= 2 ? sequenceKeys(hashes, 1) : null;
 
     let chosen: Open | undefined;
-    if (d.conversationId) chosen = candidates.find((x) => x.conversationId === d.conversationId);
-    else if (d.previousResponseId) {
-      chosen = [...candidates].sort((a, b) => b.touched - a.touched).find((x) => responseIdOf(store, x.lastCall) === d.previousResponseId) ?? recent(candidates);
-    } else {
-      const ext = candidates.filter((x) => x.items.length > 0 && x.items.length < hashes.length && isPrefix(x.items, hashes));
+    if (d.conversationId) chosen = s.byConversationId.get(d.conversationId);
+    else if (d.previousResponseId) chosen = s.ownerOf(store, d.previousResponseId) ?? recent(s.all);
+    else {
+      // Conversations whose latest request this one extends.
+      const ext: Open[] = [];
+      for (let k = 1; k < hashes.length; k++) for (const x of s.byKey.under(keys[k])) if (x.items.length === k && isPrefix(x.items, hashes)) ext.push(x);
       if (ext.length === 1) chosen = ext[0];
       else if (ext.length > 1) {
         // Two conversations whose latest requests were the same (branches that started alike):
@@ -501,21 +658,43 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
         const longest = Math.max(...pool.map((x) => x.items.length));
         chosen = recent(pool.filter((x) => x.items.length === longest));
       } else {
-        const same = candidates.filter((x) => sameItems(x.items, hashes));
+        const same = [...s.byKey.under(keys[hashes.length])].filter((x) => sameItems(x.items, hashes));
         if (same.length) {
           // The same request again: a retry when the last one failed, otherwise a branch of its own.
           chosen = recent(same.filter((x) => x.lastCall.end?.outcome === 'error'));
         } else {
-          chosen =
-            recent(candidates.filter((x) => x.items.length >= 2 && hashes.length > x.items.length && x.items.every((h, i) => i === 0 || h === hashes[i]))) ??
-            (ids.length ? recent(candidates.filter((x) => ids.some((id) => x.ids.has(id)))) : undefined);
+          // Weaker links, when the history was edited: only the first message changed (a system
+          // message with the time in it); the request carries tool-use ids a conversation issued
+          // (an agent that drops its oldest turns); or it carries a conversation's answer.
+          const firstChanged: Open[] = [];
+          if (tails) for (let k = 2; k < hashes.length; k++) for (const x of s.byTail.under(tails[k])) if (x.items.length === k && x.items.every((h, i) => i === 0 || h === hashes[i])) firstChanged.push(x);
+          const carried = new Set<Open>();
+          for (const id of ids) {
+            const x = s.byId.get(id);
+            if (x) carried.add(x);
+          }
+          chosen = recent(firstChanged) ?? recent(carried) ?? editedLink(s, items, hashes, (x) => response(x.lastCall).sig);
         }
       }
     }
-    const conv = chosen ?? start(c, d, scope);
+    let conv = chosen;
+    if (!conv) {
+      conv = { n: open.length + 1, scope, items: [], key: '', tailKey: null, editKey: '', lastSig: null, lastCall: c, conversationId: d.conversationId, first: c.callNo, last: c.callNo, modelCalls: 0, calls: 0, touched: 0 };
+      open.push(conv);
+      s.all.push(conv);
+      if (d.conversationId && !s.byConversationId.has(d.conversationId)) s.byConversationId.set(d.conversationId, conv);
+    }
     conv.items = hashes;
+    conv.key = keys[hashes.length]!;
+    conv.tailKey = tails ? tails[hashes.length]! : null;
+    conv.editKey = editKey(hashes.length, hashes[0]);
+    conv.lastSig = items.at(-1)?.sig ?? null;
     conv.lastCall = c;
-    for (const id of ids) conv.ids.add(id);
+    s.byKey.file(conv);
+    s.byTail.file(conv);
+    s.byEdit.file(conv);
+    s.took(c, conv);
+    for (const id of ids) s.byId.set(id, conv);
     conv.touched = ++clock;
     conv.modelCalls++;
     conv.calls++;
@@ -538,6 +717,8 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
 
 /** How far back a tool call looks for the model call that asked for it. */
 const LOOK_BACK = 256;
+/** How many of the latest tool calls a call looks through for one that was running when it started. */
+const CONTAIN_LOOK_BACK = 64;
 
 const sameTool = (requested: string, recorded: string) => requested === recorded || requested.endsWith(`__${recorded}`) || recorded.endsWith(`__${requested}`);
 
@@ -621,6 +802,18 @@ function attributeOthers(store: Store, calls: readonly CallRecord[], ofCall: Map
     return null;
   };
 
+  /** Tool calls placed so far, oldest first, with their conversations. */
+  const tools: Array<[CallRecord, Open]> = [];
+  /** The tool call that was running when `c` started, in its scope: `c` is part of what the tool did. */
+  const runningAt = (c: CallRecord): Open | undefined => {
+    for (let i = tools.length - 1, seen = 0; i >= 0 && seen < CONTAIN_LOOK_BACK; i--, seen++) {
+      const [t, conv] = tools[i]!;
+      const end = t.end?.at;
+      if (end !== undefined && scopeOf(t) === scopeOf(c) && t.at <= c.at && c.at < end && (!c.end || c.end.at <= end)) return conv;
+    }
+    return undefined;
+  };
+
   for (const t of calls) {
     if (byCall.has(t.callNo)) continue;
     if (t.kind === 'tool') {
@@ -630,20 +823,27 @@ function attributeOthers(store: Store, calls: readonly CallRecord[], ofCall: Map
         conv.calls++;
         conv.last = Math.max(conv.last, t.callNo);
         byCall.set(t.callNo, { conversation: conv.n, starts: false, requestedBy: asked.model.callNo, toolUseId: asked.tool.id });
+        tools.push([t, conv]);
         continue;
       }
     }
-    // No model asked for it: it goes with the model call still waiting on tools, else with the next one.
-    const list = near(scopeOf(t));
-    const i = before(list, t.callNo);
-    const prev = i >= 0 ? list[i]! : null;
-    const next = list[i + 1] ?? null;
-    const owner = prev && response(prev).tools.length ? prev : (next ?? prev);
-    const conv = owner ? ofCall.get(owner.callNo) : undefined;
+    // No model asked for it. Made while a tool ran (an HTTP request the tool sends, a tool it
+    // calls), it goes with that tool. Otherwise it goes with the model call still waiting on tools
+    // it asked for (none of them has run yet), else with the next model call, which it feeds.
+    let conv = runningAt(t);
+    if (!conv) {
+      const list = near(scopeOf(t));
+      const i = before(list, t.callNo);
+      const prev = i >= 0 ? list[i]! : null;
+      const next = list[i + 1] ?? null;
+      const owner = prev && usedOf(prev).some((u) => !u) ? prev : (next ?? prev);
+      conv = owner ? ofCall.get(owner.callNo) : undefined;
+    }
     if (!conv) continue;
     conv.calls++;
     conv.last = Math.max(conv.last, t.callNo);
     byCall.set(t.callNo, { conversation: conv.n, starts: false, requestedBy: null, toolUseId: null });
+    if (t.kind === 'tool') tools.push([t, conv]);
   }
 }
 

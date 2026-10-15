@@ -6,7 +6,7 @@ import { describeInterventions, packRun, showJson, Store, type BlameRecord, type
 import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
 
 type RunDetailShape = Pick<RunDetail, 'intervention' | 'interventions' | 'notRecorded'>;
-import { assistant, batchRun, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
+import { assistant, batchRun, closingBatch, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
 
 describe('the run page: conversations', () => {
   it('numbers the conversations of a batch and shows a tool call its own ticket', () => {
@@ -27,6 +27,22 @@ describe('the run page: conversations', () => {
     expect(tool.conversation!.turns.find((t) => t.role === 'user')!.blocks[0]).toMatchObject({ type: 'text', text: expect.stringContaining('A-2031') });
     // Fetched before its ticket's first model call: the conversation it feeds.
     expect(callDetail(store, runId, get!)!.conversation).toMatchObject({ fromCallNo: m1, n: 31 });
+    store.close();
+  });
+
+  it('shows a ticket’s fetch its own ticket when the ticket before ended on a tool call', () => {
+    const store = Store.open(':memory:');
+    const { runId, byTicket } = closingBatch(store, 3);
+    const d = runDetail(store, runId)!;
+    for (const [t, x] of byTicket) {
+      const fetch = callDetail(store, runId, x.get)!;
+      expect(fetch.call.conversation).toBe(t);
+      expect(fetch.conversation).toMatchObject({ fromCallNo: x.first, n: t });
+      expect(fetch.conversation!.turns.find((turn) => turn.role === 'user')!.blocks[0]).toMatchObject({ type: 'text', text: expect.stringContaining(`Ticket T-${t}:`) });
+      // The CRM call close_ticket made stays with the ticket it closed.
+      expect(d.calls.find((c) => c.callNo === x.crm)!.conversation).toBe(t);
+    }
+    expect(d.conversations.map((c) => c.calls)).toEqual([6, 6, 6]);
     store.close();
   });
 

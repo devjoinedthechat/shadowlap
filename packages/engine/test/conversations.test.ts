@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { conversationRequestFor, runConversations, Store } from '../src/index.js';
-import { assistant, batchRun, message, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, user } from './run-fixtures.js';
+import { conversationRequestFor, runCache, runConversations, Store } from '../src/index.js';
+import { assistant, batchRun, closingBatch, message, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from './run-fixtures.js';
 
 const conv = (store: Store, runId: string) => {
   const calls = store.getCalls(runId);
@@ -264,6 +264,106 @@ describe('what counts as continuing a conversation', () => {
     expect(grown.conversations).toHaveLength(2);
     store.close();
   });
+});
+
+describe('calls no model asked for', () => {
+  it('puts the next ticket’s fetch with the next ticket once the last tool asked for has run', () => {
+    const store = Store.open(':memory:');
+    const { runId, byTicket } = closingBatch(store, 3);
+    const { calls, r } = conv(store, runId);
+    // get_ticket, model, lookup_order, model, close_ticket and its CRM call: six calls a ticket.
+    expect(r.conversations.map((c) => [c.n, c.calls])).toEqual([
+      [1, 6],
+      [2, 6],
+      [3, 6],
+    ]);
+    for (const [t, x] of byTicket) {
+      expect(r.byCall.get(x.get)).toMatchObject({ conversation: t, requestedBy: null });
+      // The ticket's Conversation tab is its own ticket's, not the one closed before it.
+      expect(conversationRequestFor(calls, r, x.get)!.callNo).toBe(x.first);
+      expect(r.byCall.get(x.close)!.conversation).toBe(t);
+    }
+    expect(r.conversations[0]!.lastCallNo).toBe(byTicket.get(1)!.crm);
+    store.close();
+  });
+
+  it('puts a call made while a tool ran with that tool, whatever comes after it', () => {
+    const store = Store.open(':memory:');
+    const { runId, byTicket } = closingBatch(store, 2);
+    const { r } = conv(store, runId);
+    // The CRM call is made inside close_ticket, after every tool asked for had started: the next
+    // model call is the next ticket's, and the call still belongs to this one.
+    expect(r.byCall.get(byTicket.get(1)!.crm)).toMatchObject({ conversation: 1, requestedBy: null });
+    expect(r.byCall.get(byTicket.get(2)!.crm)).toMatchObject({ conversation: 2, requestedBy: null });
+    store.close();
+  });
+});
+
+describe('a conversation whose history was edited', () => {
+  it('keeps an agent that strips a reminder from its earlier messages', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const reminder = (t: string) => `${t}\n<reminder>Answer in under 50 words.</reminder>`;
+    const day1 = 'Day 1: the Alfama, then the castle at sunset.';
+    const day2 = 'Day 2: Belém, the tower and the monastery.';
+    b.model({ messages: [user(reminder('Plan three days in Lisbon.'))] }, [text(day1)], { usage: usage(9000, 0, 9000) });
+    b.model({ messages: [user('Plan three days in Lisbon.'), assistant([text(day1)]), user(reminder('Now day 2.'))] }, [text(day2)], { usage: usage(9000, 0, 9300) });
+    b.model({ messages: [user('Plan three days in Lisbon.'), assistant([text(day1)]), user('Now day 2.'), assistant([text(day2)]), user(reminder('And day 3.'))] }, [text('Day 3: Sintra.')], { usage: usage(9000, 0, 9600) });
+    b.end();
+    const calls = store.getCalls(b.runId);
+    const { r } = conv(store, b.runId);
+    expect([1, 2, 3].map((n) => r.byCall.get(n)!.conversation)).toEqual([1, 1, 1]);
+    // Every turn wrote its prefix again and read none back: the cache rule now sees it.
+    expect(runCache(store, calls).misses.map((m) => [m.callNo, m.sentAgain])).toEqual([
+      [2, 18_000],
+      [3, 18_300],
+    ]);
+    store.close();
+  });
+
+  it('keeps an agent that replaces a prefilled answer with the whole of it', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const q1 = user('Decide on refund R-17 and answer as JSON.');
+    const q2 = user('Now give the reason, as JSON.');
+    b.model({ messages: [q1, assistant([text('{')])] }, [text('"decision": "refund", "amount": 240}')]);
+    b.model({ messages: [q1, assistant([text('{"decision": "refund", "amount": 240}')]), q2, assistant([text('{')])] }, [text('"reason": "arrived damaged, photo attached"}')]);
+    b.model({ messages: [q1, assistant([text('{"decision": "refund", "amount": 240}')]), q2, assistant([text('{"reason": "arrived damaged, photo attached"}')]), user('Thanks.')] }, [text('Glad to help.')]);
+    b.end();
+    const { r } = conv(store, b.runId);
+    expect([1, 2, 3].map((n) => r.byCall.get(n)!.conversation)).toEqual([1, 1, 1]);
+    store.close();
+  });
+
+  it('does not join tickets that share their examples and a short answer', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    // Each ticket gets the examples most like it, as many as were found, each labelled with one word.
+    const ex = (n: number) => [user(`Example ${n}: the parcel never came.`), assistant([text('refund')])];
+    b.model({ messages: [...ex(1), user('Ticket A: the kettle leaks.')] }, [text('refund')]);
+    b.model({ messages: [...ex(1), ...ex(2), user('Ticket B: the lid is cracked.')] }, [text('refund')]);
+    b.model({ messages: [...ex(1), user('Ticket C: wrong colour, and the box is dented.'), assistant([text('Is the kettle itself damaged?')]), user('No.')] }, [text('repair')]);
+    b.end();
+    const { r } = conv(store, b.runId);
+    expect([1, 2, 3].map((n) => r.byCall.get(n)!.conversation)).toEqual([1, 2, 3]);
+    store.close();
+  });
+});
+
+describe('a large run', () => {
+  it('places 20,000 unrelated requests without comparing each with every conversation', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    for (let i = 0; i < 20_000; i++) b.model({ messages: [user(`Classify ticket ${i}: the blender broke on day ${i % 30}.`)] }, [text(i % 2 ? 'refund' : 'repair')]);
+    b.end();
+    const calls = store.getCalls(b.runId);
+    const started = performance.now();
+    const r = runConversations(store, calls, { attribute: true });
+    // Comparing every request with every earlier conversation took seconds here; the indexes take a fraction of one.
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(r.conversations).toHaveLength(20_000);
+    store.close();
+  }, 60_000);
 });
 
 describe('tool-use ids in streamed responses', () => {
