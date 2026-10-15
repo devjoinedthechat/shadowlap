@@ -118,16 +118,22 @@ describe('the activity endpoint', () => {
     expect(all.items.find((i) => i.id === `r:${liveId}:start`)).toMatchObject({ kind: 'live', live: true, runId: liveId });
     expect(all.items.find((i) => i.id === `r:${recId}:end`)).toMatchObject({ kind: 'rec', text: 'Recorded 2 calls · node agent.js', actor: 'dana@example.com' });
     expect(all.items.find((i) => i.text === 'Normalizer added · $.x')).toBeDefined();
+    expect(all.items.length).toBeGreaterThan(3);
     const first = await api(dash, 'activity?limit=2');
     const page = (await first.json()) as ActivityPage;
-    // Two entries, or more when the next ones happened in the same millisecond: a page never splits those.
-    expect(page.items.length).toBeGreaterThanOrEqual(2);
-    expect(page.items.slice(2).every((i) => i.at === page.items[1]!.at)).toBe(true);
-    expect(page.next).toBe(page.items.at(-1)!.at);
-    const rest = await get<ActivityPage>(dash, `activity?limit=100&before=${page.next}`);
+    // Exactly two, even when the fixture wrote several entries in one millisecond.
+    expect(page.items).toHaveLength(2);
+    expect(page.next).toEqual(expect.any(String));
+    const rest = await get<ActivityPage>(dash, `activity?limit=100&before=${encodeURIComponent(page.next!)}`);
+    expect(rest.next).toBeNull();
     expect([...page.items, ...rest.items].map((i) => i.id)).toEqual(all.items.map((i) => i.id));
     expect((await api(dash, 'activity?limit=2', { headers: { 'if-none-match': first.headers.get('etag')! } })).status).toBe(304);
+    // An empty before is the first page; a time in milliseconds is everything older.
+    expect((await get<ActivityPage>(dash, 'activity?before=&limit=2')).items).toEqual(page.items);
+    expect((await get<ActivityPage>(dash, `activity?before=${Date.now() + 60_000}`)).items).toEqual(all.items);
+    expect((await get<ActivityPage>(dash, 'activity?before=1')).items).toEqual([]);
     expect((await api(dash, 'activity?before=yesterday')).status).toBe(400);
+    expect((await api(dash, 'activity?limit=many')).status).toBe(400);
   });
 });
 

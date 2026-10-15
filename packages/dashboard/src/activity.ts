@@ -337,26 +337,82 @@ function coveredByEvents(store: Store): Set<string> {
   return out;
 }
 
-const newestFirst = (a: { at: number; id: string }, b: { at: number; id: string }) => b.at - a.at || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+// ---- paging ----
 
 /**
- * A page of the feed, newest first: `limit` entries (50 by default, at most 200) from before
- * `before` (exclusive). A page never splits entries that share a time, so `next` (the time of the
- * last entry, or null at the end) is safe to pass back as `before`.
+ * Where a page ends: the time and id of its last entry. With no id it is a time alone, and every
+ * entry at that time comes after it.
  */
-export function activity(store: Store, options: { limit?: number; before?: number } = {}): ActivityPage {
-  const limit = Math.min(ACTIVITY_MAX, Math.max(1, Math.floor(options.limit ?? ACTIVITY_LIMIT)));
-  const before = options.before ?? Number.POSITIVE_INFINITY;
-  const runs = runIndex(store).runs;
-  const stubs = derived(store, runs, coveredByEvents(store)).filter((s) => s.at < before);
-  const fetch = limit * 2 + 50;
-  const stored = store.listEvents({ ...(Number.isFinite(before) ? { before } : {}), limit: fetch });
-  const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(newestFirst);
-  const page = all.slice(0, limit);
-  if (all.length > limit) {
-    const lastAt = page[page.length - 1]!.at;
-    for (let i = limit; i < all.length && all[i]!.at === lastAt; i++) page.push(all[i]!);
+interface Cursor {
+  at: number;
+  id: string | null;
+}
+
+/** Stored events (`e:` ids) come before entries derived from runs in the same millisecond. */
+const lane = (id: string) => (id.startsWith('e:') ? 1 : 0);
+
+/** The feed's one order, for sorting and for cursors alike: newest first, stored events first within a millisecond, then by id descending. */
+function order(a: { at: number; id: string }, b: { at: number; id: string }): number {
+  return b.at - a.at || lane(b.id) - lane(a.id) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+}
+
+/** Whether an entry comes after the cursor, so on the page it starts. */
+function after(cursor: Cursor | null, entry: { at: number; id: string }): boolean {
+  if (!cursor) return true;
+  if (cursor.id === null) return entry.at < cursor.at;
+  return order({ at: cursor.at, id: cursor.id }, entry) < 0;
+}
+
+/** `next`, opaque to the page: base64url of `[at, id]`. */
+function encodeCursor(entry: { at: number; id: string }): string {
+  return Buffer.from(JSON.stringify([entry.at, entry.id])).toString('base64url');
+}
+
+/**
+ * Reads `before`: the `next` of the page before, or a time in milliseconds (everything older than
+ * it). Null for a value that is neither.
+ */
+export function parseActivityCursor(text: string): { at: number; id: string | null } | null {
+  if (/^\d{1,15}$/.test(text)) return { at: Number(text), id: null };
+  if (text.length > 1024 || !/^[\w-]+$/.test(text)) return null;
+  try {
+    const v = JSON.parse(Buffer.from(text, 'base64url').toString('utf8')) as unknown;
+    if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && Number.isFinite(v[0]) && typeof v[1] === 'string' && v[1].length <= 512) return { at: v[0], id: v[1] };
+  } catch {
+    // not a cursor
   }
-  const more = all.length > page.length || stored.length === fetch;
-  return { items: page.map((s) => s.render()), next: more && page.length ? page[page.length - 1]!.at : null };
+  return null;
+}
+
+/** The stored events after a cursor, as `listEvents` takes them. */
+function storedAfter(cursor: Cursor | null): { before?: number; beforeId?: string } {
+  if (!cursor) return {};
+  // After a derived entry, the stored events of its millisecond came already (they sort first).
+  if (cursor.id === null || lane(cursor.id) === 0) return { before: cursor.at };
+  return { before: cursor.at, beforeId: cursor.id.slice(2) };
+}
+
+/**
+ * A page of the feed, newest first: `limit` entries (50 by default, at most 200) after `before`,
+ * which is the `next` of the page before (or a time in milliseconds: everything older). `next` is
+ * null on the last page. Entries that share a millisecond keep one order, so paging never skips or
+ * repeats one, and every page but the last has exactly `limit` entries.
+ */
+export function activity(store: Store, options: { limit?: number; before?: string | number | null } = {}): ActivityPage {
+  const limit = Math.min(ACTIVITY_MAX, Math.max(1, Math.floor(options.limit ?? ACTIVITY_LIMIT)));
+  const given = options.before;
+  const cursor: Cursor | null =
+    given === undefined || given === null || given === ''
+      ? null
+      : typeof given === 'number'
+        ? { at: given, id: null }
+        : parseActivityCursor(given);
+  if (given !== undefined && given !== null && given !== '' && !cursor) throw new Error(`not a page cursor: ${String(given).slice(0, 40)}`);
+  const runs = runIndex(store).runs;
+  const stubs = derived(store, runs, coveredByEvents(store)).filter((s) => after(cursor, s));
+  // A page holds at most `limit` stored events; one more says whether any are left.
+  const stored = store.listEvents({ ...storedAfter(cursor), limit: limit + 1 });
+  const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(order);
+  const page = all.slice(0, limit);
+  return { items: page.map((s) => s.render()), next: all.length > limit ? encodeCursor(page[page.length - 1]!) : null };
 }

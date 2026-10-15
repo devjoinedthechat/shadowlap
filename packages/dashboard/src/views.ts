@@ -135,10 +135,15 @@ export interface ActivityItem {
   live?: boolean;
 }
 
-/** `GET /api/activity?limit=&before=`: newest first. Pass `next` as `before` for the page after; null at the end. */
+/**
+ * `GET /api/activity?limit=&before=`: newest first, `limit` entries a page (50 by default, at most
+ * 200). Pass `next` back as `before` for the page after; `before` also takes a time in milliseconds
+ * (everything older than it).
+ */
 export interface ActivityPage {
   items: ActivityItem[];
-  next: number | null;
+  /** Opaque: where this page ended. Null on the last page. */
+  next: string | null;
 }
 
 /**

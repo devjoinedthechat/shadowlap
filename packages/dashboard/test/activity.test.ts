@@ -136,21 +136,55 @@ describe('the activity feed', () => {
     expect(activity(store).items.find((i) => i.at === 7700)).toMatchObject({ kind: 'train', text: 'Frobbed w-1', href: '#/training' });
   });
 
-  it('pages back in time without gaps or repeats, never splitting entries that share a time', () => {
+  it('pages back in time without gaps or repeats, a full page at a time', () => {
     const seen: string[] = [];
-    let before: number | undefined;
+    let before: string | undefined;
     for (let page = 0; page < 50; page++) {
       const p = activity(store, { limit: 3, ...(before !== undefined ? { before } : {}) });
       seen.push(...p.items.map((i) => i.id));
       if (p.next === null) break;
-      expect(p.items.every((i) => i.at >= p.next!)).toBe(true);
+      expect(p.items).toHaveLength(3);
       before = p.next;
     }
     expect(seen).toEqual(items.map((i) => i.id));
-    // The two test runs ended 1 ms apart; two entries at the same time stay on one page.
-    recordEvent(store, { kind: 'normalizer.added', ref: 'a', at: 7002 });
-    const tied = activity(store, { limit: 1, before: 7003 });
-    expect(tied.items.map((i) => i.at)).toEqual([7002, 7002]);
-    expect(tied.next).toBe(7002);
+    // A time instead of a cursor: everything older than it.
+    const older = activity(store, { limit: 2, before: 7002 });
+    expect(older.items.map((i) => i.id)).toEqual(items.filter((i) => i.at < 7002).slice(0, 2).map((i) => i.id));
+    expect(older.items[0]).toMatchObject({ id: `r:${ids.testPass}:end`, at: 7001 });
+    expect(activity(store, { limit: 2, before: '7002' }).items).toEqual(older.items);
+    expect(() => activity(store, { before: 'not a cursor' })).toThrow(/cursor/);
+  });
+});
+
+describe('paging through entries that share a millisecond', () => {
+  it('splits them across pages without losing or repeating one', () => {
+    const store = Store.open(':memory:');
+    // A burst of 300 events in one millisecond (calibrate --write, a bulk command), three older ones,
+    // and runs that start and end in that same millisecond.
+    for (let i = 0; i < 300; i++) recordEvent(store, { kind: 'normalizer.added', ref: `$.f${i}`, at: 5000 });
+    for (const at of [4000, 3000, 2000]) recordEvent(store, { kind: 'normalizer.added', ref: `older ${at}`, at });
+    for (let i = 0; i < 3; i++) {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 5000 });
+      store.endRun(r.runId, 'completed', 5000);
+    }
+    const all = activity(store, { limit: 200 });
+    expect(all.items).toHaveLength(200);
+    const seen: string[] = [];
+    let before: string | null = null;
+    let pages = 0;
+    do {
+      const p = activity(store, { limit: 10, before });
+      if (p.next !== null) expect(p.items).toHaveLength(10);
+      seen.push(...p.items.map((i) => i.id));
+      before = p.next;
+      pages++;
+    } while (before !== null && pages < 100);
+    expect(seen).toHaveLength(309);
+    expect(new Set(seen).size).toBe(309);
+    expect(seen.slice(0, 200)).toEqual(all.items.map((i) => i.id));
+    expect(seen.slice(-3).map((id) => id.startsWith('e:'))).toEqual([true, true, true]);
+    // limit=1 is one entry, however many share its millisecond.
+    expect(activity(store, { limit: 1 }).items).toHaveLength(1);
+    store.close();
   });
 });

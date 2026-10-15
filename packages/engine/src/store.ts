@@ -331,11 +331,18 @@ export class Store {
     return event;
   }
 
-  /** Activity events, newest first. `before` pages back (exclusive); `kinds` filters. */
-  listEvents(options: { limit?: number; before?: number; kinds?: string[] } = {}): StoredEvent[] {
+  /**
+   * Activity events, newest first (then by id, descending). `before` pages back (exclusive); with
+   * `beforeId`, the events at exactly `before` whose id sorts before it come too, so a cursor made
+   * of the last event's time and id never skips events that share a millisecond. `kinds` filters.
+   */
+  listEvents(options: { limit?: number; before?: number; beforeId?: string; kinds?: string[] } = {}): StoredEvent[] {
     const where: string[] = [];
     const params: unknown[] = [];
-    if (options.before !== undefined) {
+    if (options.before !== undefined && options.beforeId !== undefined) {
+      where.push('at <= ? AND (at < ? OR event_id < ?)');
+      params.push(options.before, options.before, options.beforeId);
+    } else if (options.before !== undefined) {
       where.push('at < ?');
       params.push(options.before);
     }
