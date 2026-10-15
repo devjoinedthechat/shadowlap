@@ -1,23 +1,22 @@
 import { writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Command } from 'commander';
-import { formatTokens, hasRecordedCommand, packRun, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
+import { Command, InvalidArgumentError } from 'commander';
+import { formatTokens, packRun, recordEvent, resolveAuthor, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
-import { specFor, type CheckResult } from '../checks.js';
-import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { specFor } from '../checks.js';
+import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { formatChecks, junitCase, outputTail, packResult, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
+import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
-import { captureConfig, placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from '../run-agent.js';
-import { openStore, parseChoice, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts, type RunSummaryLike } from '../shared.js';
+import { captureConfig, type GuardMode } from '../run-agent.js';
+import { openStore, parseChoice, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe } from '../ui.js';
 
 /** Recordings as tests: `shadowlap test` for packed goldens in CI, packs, and the host that the pytest and Vitest plugins start. */
-
-function formatChecks(checks: CheckResult[]): string {
-  return checks.map((c) => (c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail}`)).join('\n');
-}
 
 /**
  * `shadowlap serve --recordings`: the host a test-runner plugin starts once per worker process.
@@ -53,130 +52,145 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   store.close();
 }
 
+/**
+ * The store a test session keeps its history in: the one `--db` names (`:memory:` keeps nothing),
+ * else the project's, created if needed. A project store that can't be opened (a read-only
+ * checkout) costs the history, not the tests.
+ */
+function openTestStore(opts: GlobalOpts, projectDir: string): Store {
+  if (opts.db) return Store.open(opts.db);
+  const path = defaultDbPath(projectDir);
+  try {
+    return Store.open(path);
+  } catch (err) {
+    process.stderr.write(p.yellow(`[shadowlap] ${path} could not be opened (${(err as Error).message}); this session's history is not kept\n`));
+    return Store.open(':memory:');
+  }
+}
+
+/** The command as it was given, without the global options before it: `['shadowlap', 'test', 'goldens/*']`. */
+export function givenCommand(argv: readonly string[], name: string): string[] {
+  const args = argv.slice(2);
+  let i = 0;
+  while (i < args.length && args[i]!.startsWith('-') && args[i] !== name) i += args[i] === '--db' ? 2 : 1;
+  return ['shadowlap', ...(args[i] === name ? args.slice(i) : [name, ...args.slice(i)])];
+}
+
+/** The one-line result of a golden that passed: `30/30 replayed, 12k input tokens not re-spent, 2 checks passed`. */
+function passedLine(o: GoldenOutcome): string {
+  const r = o.result!;
+  const s = r.shown.ended.summary;
+  return [
+    s.divergence ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed` : `${s.byOrigin.replayed}/${s.total} replayed`,
+    `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
+    ...(r.shown.checks?.length ? [`${r.shown.checks.length} check${r.shown.checks.length === 1 ? '' : 's'} passed`] : []),
+    ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
+  ].join(', ');
+}
+
+function printGolden(o: GoldenOutcome): void {
+  if (!o.failure) {
+    process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}\n`);
+    return;
+  }
+  process.stdout.write(`${p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  if (!o.result) return;
+  const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
+  if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
+  process.stdout.write(indent(o.failure.details));
+  const tail = outputTail(o.result.shown.output);
+  if (tail) process.stdout.write(p.dim(indent(tail, '    │ ')));
+}
+
 export function register(program: Command): void {
   program.commandsGroup('Test:');
 
   program
     .command('test')
-    .description('Replay packed recordings offline and fail on any divergence or failed check (CI). Each pack re-runs its recorded command; checks come from "tests" in shadowlap.config.json.')
-    .argument('<pack...>', 'directories written by shadowlap pack')
+    .description('Replay packed recordings offline and fail on any divergence or failed check (CI). Each pack re-runs its recorded command; checks come from "tests" in shadowlap.config.json. Each session is kept in the project\'s store as test history.')
+    .argument('<pack...>', 'directories written by shadowlap pack; a * in the last part matches several, as in goldens/*')
     .option('--junit <file>', 'write a JUnit XML report')
-    .option('--json <file>', 'write a JSON report (results per pack, for other tools)')
+    .option('--json <file>', 'write a JSON report (results per pack, with each replay\'s run id, for other tools)')
     .option('--markdown <file>', 'append a Markdown report to this file, e.g. $GITHUB_STEP_SUMMARY')
     .option('--annotations', 'print GitHub Actions error annotations for packs that fail')
     .option('--online', 'allow live calls after a divergence (default: offline, a live call fails the test)')
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .action(async (packs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
+    .action(async (packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
       const opts = program.opts<GlobalOpts>();
-      const config = loadConfig(process.cwd());
-      const tests = loadTests(process.cwd());
-      const cwd = resolve(flags.cwd ?? process.cwd());
+      const projectDir = process.cwd();
+      const config = loadConfig(projectDir);
+      const tests = loadTests(projectDir);
+      const cwd = resolve(flags.cwd ?? projectDir);
+      const { dirs: packs, unmatched } = expandRecordings(packArgs, projectDir);
+      if (unmatched.length) {
+        throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
+      }
+
+      const store = openTestStore(opts, projectDir);
+      const actor = resolveAuthor({ cwd: projectDir });
+      const revision = codeVersion(cwd);
+      const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
       let failed = 0;
-      for (const packDir of packs) {
-        const started = Date.now();
-        const name = basename(resolve(packDir));
-        const spec = specFor(tests, packDir, process.cwd());
-        // An ephemeral store per pack: CI never accumulates recordings locally.
-        const store = opts.db ? openStore(opts) : Store.open(':memory:');
-        let output = '';
-        let failure: JunitCase['failure'];
-        let packSummary: RunSummaryLike | null = null;
-        let checks: CheckResult[] | null = null;
-        let attemptCounts: PackResult['attempts'] = null;
-        try {
-          const { imported, skipped } = unpackRun(store, packDir);
-          const parentId = imported[imported.length - 1] ?? skipped[skipped.length - 1];
-          if (!parentId) throw new Error('the pack contains no runs');
-          const parent = store.getRun(parentId)!;
-          // A golden has to be able to start its agent. One packed straight from a capture cannot, and
-          // spawning its placeholder would fail for a reason the report would not name.
-          if (!hasRecordedCommand(parent)) {
-            throw new Error('this recording was imported from a capture and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run: it records everything, and has a command of its own');
+      let upstreamRequests = 0;
+      try {
+        for (const packDir of packs) {
+          const golden = goldenName(packDir, projectDir);
+          const spec = specFor(tests, packDir, projectDir);
+          const expect = rawExpectFor(tests, packDir, projectDir);
+          const ctx: RecordingTestContext = {
+            store,
+            config,
+            cwd,
+            writes: flags.writes,
+            guard: flags.guard,
+            online: !!flags.online,
+            test: { golden, session: session.sessionId },
+            // The line a dashboard job reads a new run from, and a way to open each replay.
+            onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
+          };
+          const outcome = await testGolden(packDir, golden, spec, ctx);
+          for (const a of outcome.result?.attempts ?? []) telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
+          printGolden(outcome);
+
+          if (outcome.failure) failed++;
+          for (const a of outcome.result?.attempts ?? []) {
+            upstreamRequests += a.ended.summary.upstreamRequests;
+            emitJobEvent({ type: 'run', runId: a.ended.summary.runId, role: a.failure ? 'failing' : 'passing' });
           }
-          // A recording marked `fork` may diverge on purpose; from the fork on it needs the real providers.
-          const live = !!flags.online || !!spec?.fork;
-          const upstreams = live ? upstreamOverrides(process.env) : Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
-          const extraEnv = live ? {} : placeholderAwsCredentials(process.env, store.getCalls(parent.runId));
-          const attempts: TestAttempt[] = [];
-          for (let i = 0; i < (spec?.repeat ?? 1); i++) {
-            const attempt = await testAttempt(store, parent, { cwd, upstreams, extraEnv, writes: flags.writes, guard: flags.guard, normalizers: config.normalize, prices: config.prices, clock: config.clock, http: config.http, spec });
-            telemetry().record({ type: 'test', ...usageOf(attempt.ended, attempt.ms, attempt.code) });
-            attempts.push(attempt);
-          }
-          const passed = attempts.filter((a) => !a.failure).length;
-          const required = spec?.passes ?? 1;
-          const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
-          output = shown.output;
-          packSummary = shown.ended.summary;
-          checks = shown.checks;
-          if (attempts.length > 1) attemptCounts = { total: attempts.length, passed, required };
-          if (passed < required) {
-            const f = shown.failure!;
-            failure =
-              attempts.length === 1
-                ? f
-                : {
-                    message: `${passed} of ${attempts.length} attempts passed, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
-                    details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `✗ ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
-                  };
-          }
-          const summary = shown.ended.summary;
-          if (failure) {
-            process.stdout.write(`${p.red('✗')} ${name}: ${failure.message}\n`);
-          } else {
-            const parts = [
-              summary.divergence ? `forked at call ${summary.divergence.callNo}, ${summary.byOrigin.replayed}/${summary.total} replayed` : `${summary.byOrigin.replayed}/${summary.total} replayed`,
-              `${formatTokens(summary.tokensNotRespent.inputTokens)} input tokens not re-spent`,
-              ...(checks?.length ? [`${checks.length} check${checks.length === 1 ? '' : 's'} passed`] : []),
-              ...(attempts.length > 1 ? [`${passed}/${attempts.length} attempts passed`] : []),
-            ];
-            process.stdout.write(`${p.green('✓')} ${name}: ${parts.join(', ')}\n`);
-          }
-          if (failure) {
-            failed++;
-            if (checks?.length) process.stdout.write(formatChecks(checks).split('\n').map((l) => '    ' + l).join('\n') + '\n');
-            process.stdout.write(failure.details.split('\n').map((l) => '    ' + l).join('\n') + '\n');
-            if (output.trim()) process.stdout.write(p.dim(output.trim().split('\n').slice(-20).map((l) => '    │ ' + l).join('\n')) + '\n');
-          }
-        } catch (err) {
-          failed++;
-          const message = err instanceof Error ? err.message : String(err);
-          failure = { message, details: message };
-          process.stdout.write(`${p.red('✗')} ${name}: ${message}\n`);
-        } finally {
-          store.close();
+          store.addTestResult({
+            sessionId: session.sessionId,
+            golden,
+            ok: !outcome.failure,
+            failure: outcome.kind,
+            reason: outcome.failure?.message ?? null,
+            runId: outcome.result?.shown.ended.summary.runId ?? null,
+            goldenRunId: outcome.parent?.runId ?? null,
+            revision,
+            data: resultData(store, outcome),
+          });
+          cases.push(junitCase(outcome));
+          results.push(packResult(outcome, { expect }));
         }
-        const junitFailure = failure && checks?.length ? { ...failure, details: `${formatChecks(checks)}\n\n${failure.details}` } : failure;
-        cases.push({ name, classname: 'shadowlap.replay', timeSeconds: (Date.now() - started) / 1000, ...(junitFailure ? { failure: junitFailure } : {}), ...(output ? { systemOut: output } : {}) });
-        const s = packSummary;
-        results.push({
-          name,
-          dir: packDir,
-          ok: !failure,
-          message: failure?.message ?? null,
-          details: failure?.details ?? null,
-          output: failure && output.trim() ? output.trim().split('\n').slice(-20).join('\n') : null,
-          seconds: (Date.now() - started) / 1000,
-          calls: s ? { total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed } : null,
-          upstreamRequests: s ? s.upstreamRequests : null,
-          tokensNotRespent: s ? s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0) : null,
-          divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name } : null,
-          checks,
-          attempts: attemptCounts,
-        });
+      } finally {
+        const passed = packs.length - failed;
+        store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests });
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: packs.length, revision, upstreamRequests } });
+        store.close();
       }
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
-      const report = testReport(results);
+      const report = testReport(results, { id: session.sessionId, revision });
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
-      process.stdout.write(`\n${cases.length - failed} passed, ${failed} failed\n`);
+      emitJobEvent({ type: 'result', data: report });
+      emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
+      process.stdout.write(`\n${report.passed} passed, ${report.failed} failed · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       await telemetry().flush();
-      process.exitCode = failed ? 1 : 0;
+      process.exitCode = report.failed ? 1 : 0;
     });
 
   program
@@ -193,6 +207,7 @@ export function register(program: Command): void {
       const result = packRun(store, run.runId, dir, { lineage: flags.lineage === true, redact: rules });
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow('  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
+      recordEvent(store, { kind: 'golden.packed', actor: resolveAuthor({ cwd: process.cwd() }), runId: run.runId, ref: goldenName(dir, process.cwd()), data: { calls: result.calls, redacted: result.redacted ? rules.length : 0 } });
       store.close();
       telemetry().record({ type: 'pack', calls: result.calls });
       await telemetry().flush();
@@ -244,5 +259,4 @@ export function register(program: Command): void {
       await sidecar.close();
       store.close();
     });
-
 }

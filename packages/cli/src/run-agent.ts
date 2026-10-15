@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
@@ -97,30 +97,48 @@ export interface TestAttempt {
 export async function testAttempt(
   store: Store,
   parent: RunRecord,
-  o: { cwd: string; upstreams: Record<string, string>; extraEnv: Record<string, string>; writes: WritePolicy; guard: GuardMode; normalizers: ReturnType<typeof loadConfig>['normalize']; prices: ReturnType<typeof loadConfig>['prices']; clock: ReturnType<typeof loadConfig>['clock']; http?: ReturnType<typeof loadConfig>['http']; spec: TestSpec | null },
+  o: {
+    cwd: string; upstreams: Record<string, string>; extraEnv: Record<string, string>; writes: WritePolicy; guard: GuardMode; normalizers: ReturnType<typeof loadConfig>['normalize']; prices: ReturnType<typeof loadConfig>['prices']; clock: ReturnType<typeof loadConfig>['clock']; http?: ReturnType<typeof loadConfig>['http']; spec: TestSpec | null;
+    // `shadowlap test` and `bisect`: the command to run (default: the recorded one), metadata for the
+    // replay (`test: { golden, session }`), a callback once the replay run exists, and a time limit.
+    argv?: string[]; meta?: Partial<RunMeta>; onRun?: (runId: string) => void; timeoutMs?: number | null;
+  },
 ): Promise<TestAttempt> {
   const started = Date.now();
   let output = '';
+  const argv = o.argv ?? parent.command.argv;
   const sidecar = await Sidecar.start({ store, normalizers: o.normalizers, upstreams: o.upstreams, ...(o.prices ? { prices: o.prices } : {}), ...(o.clock ? { clock: o.clock } : {}), ...(o.http ? { http: o.http } : {}) });
   const run = sidecar.startRun({
     mode: 'replay',
     parentRunId: parent.runId,
-    command: { argv: parent.command.argv, cwd: o.cwd },
+    command: { argv, cwd: o.cwd },
     codeVersion: codeVersion(o.cwd),
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
     replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}) },
   });
-  const child = spawn(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (o.meta) store.updateRunMeta(run.runId, o.meta);
+  o.onRun?.(run.runId);
+  const child = spawn(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (d: Buffer) => (output += d.toString()));
   child.stderr.on('data', (d: Buffer) => (output += d.toString()));
+  let timedOut = false;
+  const timer = o.timeoutMs
+    ? setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGTERM');
+        setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
+      }, o.timeoutMs)
+    : null;
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
-      output += `failed to start ${parent.command.argv[0]}: ${err.message}\n`;
+      output += `failed to start ${argv[0]}: ${err.message}\n`;
       res(127);
     });
     child.on('exit', (c, signal) => res(c ?? (signal ? 128 : 1)));
   });
-  const ended = sidecar.endRun(run.runId, code === 0 ? 'completed' : 'failed');
+  if (timer) clearTimeout(timer);
+  if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
+  const ended = sidecar.endRun(run.runId, timedOut ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
   const { summary } = ended;
 
@@ -142,7 +160,7 @@ export async function testAttempt(
   if (summary.divergence && !o.spec?.fork) {
     failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
   } else if (code !== 0) {
-    failure = { message: `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
+    failure = { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
     failure = { message: 'no calls were made', details: formatSummary(summary) };
   } else if (failedChecks.length) {

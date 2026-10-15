@@ -1,4 +1,4 @@
-import { formatTokens, safeText, type DivergenceType } from '@shadowlap/engine';
+import { formatTokens, safeText, type DivergenceType, type TestFailure } from '@shadowlap/engine';
 
 /**
  * `shadowlap test` results for machines and for pull requests: a JSON report other tools read (the
@@ -11,7 +11,11 @@ export interface PackResult {
   name: string;
   /** The pack directory as given on the command line. */
   dir: string;
+  /** The golden as the store's test history names it: the pack directory relative to the project. */
+  golden: string;
   ok: boolean;
+  /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls` or `error`. Null when it passed. */
+  failure: TestFailure | null;
   /** One line: why the pack failed. */
   message: string | null;
   /** The divergence report and run summary, as the terminal shows them. */
@@ -19,6 +23,11 @@ export interface PackResult {
   /** The last lines the agent printed, for a failure. */
   output: string | null;
   seconds: number;
+  /** The replay shown (the passing attempt, or the one that failed), and every attempt's run. */
+  runId: string | null;
+  runs: Array<{ runId: string; ok: boolean }>;
+  /** The recording that was replayed. */
+  goldenRunId: string | null;
   calls: { total: number; replayed: number; live: number; blocked: number; stubbed: number } | null;
   upstreamRequests: number | null;
   tokensNotRespent: number | null;
@@ -27,18 +36,25 @@ export interface PackResult {
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   /** For a recording that repeats: how many attempts ran, passed and had to pass. */
   attempts: { total: number; passed: number; required: number } | null;
+  /** Its checks as written under `tests` in the config (`expect`), for tools that act on a failed check, such as the GitHub Action's fix on failure. */
+  expect: Record<string, unknown> | null;
+  /** `--update` re-recorded it: the run it replaced, the new one, and its calls. */
+  updated: { from: string | null; to: string; calls: number } | null;
 }
 
 export interface TestReport {
   version: 1;
+  /** The test session in the store's history, and the revision it tested. */
+  session: string | null;
+  revision: string | null;
   passed: number;
   failed: number;
   results: PackResult[];
 }
 
-export function testReport(results: PackResult[]): TestReport {
+export function testReport(results: PackResult[], session: { id: string; revision: string | null } | null = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
-  return { version: 1, passed: results.length - failed, failed, results };
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, results };
 }
 
 /** Text safe to put in a Markdown table cell: no control characters, pipes or line breaks. */
@@ -55,7 +71,7 @@ function fence(text: string, lang = 'text'): string {
 
 /** The result cell for a passing recording. */
 function passedLabel(r: PackResult): string {
-  const parts = [r.divergence ? `forked at call ${r.divergence.callNo}` : 'clean'];
+  const parts = [r.updated ? 'updated' : r.divergence ? `forked at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(`${r.checks.length} check${r.checks.length === 1 ? '' : 's'} passed`);
   if (r.attempts) parts.push(`${r.attempts.passed}/${r.attempts.total} attempts`);
   return parts.join(', ');
@@ -93,6 +109,10 @@ export function markdownReport(report: TestReport): string {
   }
   if (failures.some((r) => r.checks?.some((c) => !c.ok))) {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
+  }
+  const updated = report.results.filter((r) => r.updated);
+  if (updated.length) {
+    lines.push('', `Updated: ${updated.map((r) => `\`${cell(r.name)}\``).join(', ')}, re-recorded live with writes stubbed and replaced because ${updated.length === 1 ? 'its checks pass' : 'their checks pass'}. Review the new recording${updated.length === 1 ? '' : 's'} in this pull request.`);
   }
   return lines.join('\n') + '\n';
 }
