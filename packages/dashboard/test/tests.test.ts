@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordEvent, Store, type TestResultData } from '@shadowlap/engine';
+import { NO_COMMAND, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
 import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
@@ -132,7 +132,7 @@ describe('the Tests screen', () => {
     expect(d!.update).toEqual(['test', 'goldens/refund-in-limit', '--update']);
     // Add normalizer and re-run: the rule, then the golden again.
     expect(d!.normalizeAndTest).toEqual([d!.volatile!.args, ['test', 'goldens/refund-in-limit']]);
-    expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
+    expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'], live: false });
     expect(d!.found).toBeNull();
     expect(view.failures).toEqual([]);
     // Once Find the commit has run, its answer shows above the buttons.
@@ -152,7 +152,8 @@ describe('the Tests screen', () => {
     const [d] = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).divergences;
     expect(d!.normalizerFixes).toBe(false);
     expect(d!.volatile).toMatchObject({ looks: 'an id', args: ['normalize', 'add', '--kind', 'api', '--path', '$.messages[0].metadata.request_id', '--replace', '<ID>'] });
-    expect(d!.normalizeAndTest).toEqual([d!.volatile!.args, ['test', 'goldens/x']]);
+    // The rule alone can't make it match (the prompt changed too): the golden is updated after it.
+    expect(d!.normalizeAndTest).toEqual([d!.volatile!.args, ['test', 'goldens/x', '--update']]);
     store.close();
   });
 
@@ -178,7 +179,7 @@ describe('the Tests screen', () => {
       ['test', 'goldens/x'],
     ]);
     // The passing session at bbb2222 had uncommitted changes; aaa1111 passed as committed.
-    expect(d!.bisect).toEqual({ good: 'aaa1111', bad: 'ccc3333', args: ['bisect', 'goldens/x', '--good', 'aaa1111', '--bad', 'ccc3333'] });
+    expect(d!.bisect).toEqual({ good: 'aaa1111', bad: 'ccc3333', args: ['bisect', 'goldens/x', '--good', 'aaa1111', '--bad', 'ccc3333'], live: false });
     store.close();
   });
 
@@ -230,6 +231,36 @@ describe('the Tests screen', () => {
     store.close();
   });
 
+  it('adds the rule and then updates the golden when the request gained a field with a per-run value', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: { divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata', op: 'added', after: { user_id: UUID_B } }], text: '✗ Diverged at call 1' } } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const [d] = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).divergences;
+    // The recording never had the field: masking can't make the replay match, so the golden is re-recorded after the rule.
+    expect(d!.volatile).toMatchObject({ path: '$.metadata.user_id', op: 'added' });
+    expect(d!.normalizerFixes).toBe(false);
+    expect(d!.normalizeAndTest).toEqual([['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/x', '--update']]);
+    store.close();
+  });
+
+  it('bisects from where the recording that fails now passed, and says when the search costs tokens', () => {
+    const store = Store.open(':memory:');
+    const day = (n: number, revision: string, ok: boolean, goldenRunId: string) => {
+      const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision, startedAt: T0 + n * DAY });
+      store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok, ...(ok ? {} : { failure: 'check' as const, reason: 'check failed: escalate called 1 time, but called 0 times' }), revision, goldenRunId, at: T0 + n * DAY + 1 });
+      store.finishTestSession(s.sessionId, { passed: ok ? 1 : 0, failed: ok ? 0 : 1, upstreamRequests: 0, endedAt: T0 + n * DAY + 2 });
+    };
+    day(0, 'aaa1111', true, 'REC_1');
+    // Updated at bbb2222: the new recording passes there, and the old one passed later still, at ccc3333.
+    day(1, 'bbb2222', true, 'REC_2');
+    day(2, 'ccc3333', true, 'REC_1');
+    day(3, 'ddd4444', false, 'REC_2');
+    const fork: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: ['escalate called 1 time'] };
+    const [f] = testsView(store, [fork]).failures;
+    expect(f!.bisect).toEqual({ good: 'bbb2222', bad: 'ddd4444', args: ['bisect', 'goldens/x', '--good', 'bbb2222', '--bad', 'ddd4444'], live: true });
+    store.close();
+  });
 });
 
 describe('tests on the Overview and in Needs a look', () => {
@@ -312,8 +343,8 @@ describe('Find the commit from a run', () => {
   it('offers the newest earlier commit where the command still worked, and forks a run that failed on its own', () => {
     const store = Store.open(':memory:');
     const { failed, passed } = history(store);
-    const c = bisectChoices(store, failed)!;
-    expect(c).toMatchObject({ target: { kind: 'run', runId: failed }, failed: true, good: 'bbb2222', bad: 'eee5555', fork: true, args: ['bisect', failed, '--good', 'bbb2222', '--bad', 'eee5555', '--fork'] });
+    const c = bisectChoices(store, failed, { goldens: [] })!;
+    expect(c).toMatchObject({ target: { kind: 'run', runId: failed }, failed: true, good: 'bbb2222', bad: 'eee5555', fork: true, live: true, unavailable: null, args: ['bisect', failed, '--good', 'bbb2222', '--bad', 'eee5555', '--fork'] });
     // Uncommitted revisions can't be checked out; each revision says how its runs went.
     expect(c.revisions).toEqual([
       { rev: 'ddd4444', at: T0 + 3 * DAY, runs: 1, failed: 1 },
@@ -321,10 +352,35 @@ describe('Find the commit from a run', () => {
       { rev: 'aaa1111', at: T0, runs: 1, failed: 0 },
     ]);
     // The calendar's days: only commits from before the first day picked.
-    expect(bisectChoices(store, failed, { before: T0 + DAY })!.good).toBe('aaa1111');
+    expect(bisectChoices(store, failed, { goldens: [], before: T0 + DAY })!.good).toBe('aaa1111');
     // A run that passed is the good end; bisect looks up to HEAD for what changed it.
-    expect(bisectChoices(store, passed)).toMatchObject({ failed: false, good: 'eee5555', bad: null, fork: false, args: ['bisect', passed, '--good', 'eee5555'] });
-    expect(bisectChoices(store, 'NOPE')).toBeNull();
+    expect(bisectChoices(store, passed, { goldens: [] })).toMatchObject({ failed: false, good: 'eee5555', bad: null, fork: false, live: false, args: ['bisect', passed, '--good', 'eee5555'] });
+    expect(bisectChoices(store, 'NOPE', { goldens: [] })).toBeNull();
+    store.close();
+  });
+
+  it('says why it can\'t start from a run still recording, a capture, or a failed check it doesn\'t know', () => {
+    const store = Store.open(':memory:');
+    history(store);
+    const recording = store.createRun({ mode: 'record', command: { argv: agent, cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY });
+    expect(bisectChoices(store, recording.runId, { goldens: [] })).toMatchObject({ unavailable: 'this run is still recording', args: null });
+    expect(bisectJob(store, [], { runId: recording.runId, good: 'aaa1111' })).toEqual({ error: 'this run is still recording' });
+    // A capture records what was sent, not what sent it.
+    const capture = store.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY });
+    store.endRun(capture.runId, 'failed', T0 + 5 * DAY + 1);
+    expect(bisectChoices(store, capture.runId, { goldens: [] })!.unavailable).toMatch(/^this run was imported from a capture, so there is no command to run at each commit: replay it once with your agent \(shadowlap replay \w+ -- <command>\)/);
+    // A replay that exited 0 but failed a check, of a golden no longer on disk or in the config: no check to judge each commit by.
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/gone'] });
+    const checked = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY, meta: { test: { golden: 'goldens/gone', session: s.sessionId }, checks: [{ ok: false, label: 'escalate called 1 time', detail: 'called 0 times' }] } });
+    store.endRun(checked.runId, 'completed', T0 + 5 * DAY + 1);
+    const unknown = bisectChoices(store, checked.runId, { goldens: [] })!;
+    expect(unknown).toMatchObject({ target: { kind: 'run' }, failed: true, fork: true, args: null });
+    expect(unknown.unavailable).toBe(`this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${checked.runId} --good <commit> --expect '<checks>' --fork`);
+    expect(bisectJob(store, [], { runId: checked.runId, good: 'aaa1111' })).toEqual({ error: unknown.unavailable });
+    // With the config still naming its golden and checks (its pack gone), bisect takes them from there.
+    const named: GoldenSource = { path: 'goldens/gone', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['escalate called 1 time'], error: 'no run.json: not a pack' };
+    expect(bisectChoices(store, checked.runId, { goldens: [named] })).toMatchObject({ target: { kind: 'run', runId: checked.runId }, unavailable: null, args: ['bisect', checked.runId, '--good', 'eee5555', '--bad', 'fff6666', '--fork'] });
+    expect(bisectJob(store, [named], { golden: 'goldens/gone', good: 'aaa1111' })).toEqual({ error: "goldens/gone can't be read: no run.json: not a pack" });
     store.close();
   });
 
@@ -334,9 +390,28 @@ describe('Find the commit from a run', () => {
     const replay = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'd2e8a1f', meta: { test: { golden: 'goldens/refund-in-limit', session: s.sessionId } } });
     store.endRun(replay.runId, 'completed');
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0 });
-    expect(bisectChoices(store, replay.runId, { goldens })).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', fork: false, revisions: [{ rev: 'c91d0f4', runs: 1, failed: 0 }], args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
+    expect(bisectChoices(store, replay.runId, { goldens })).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', fork: false, live: false, revisions: [{ rev: 'c91d0f4', runs: 1, failed: 0 }], args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
     // Once the golden is gone, the replay is bisected as the run it is.
     expect(bisectChoices(store, replay.runId, { goldens: [] })!.target).toEqual({ kind: 'run', runId: replay.runId });
+    store.close();
+  });
+
+  it('offers where the recording that failed last passed, and says a golden that may fork costs tokens', () => {
+    const store = Store.open(':memory:');
+    const at = (n: number, revision: string, ok: boolean, goldenRunId: string, golden = 'goldens/f') => {
+      const s = store.startTestSession({ command: ['shadowlap', 'test', golden], revision, startedAt: T0 + n * DAY });
+      const replay = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: revision, startedAt: T0 + n * DAY, meta: { test: { golden, session: s.sessionId } } });
+      store.endRun(replay.runId, 'completed', T0 + n * DAY + 1);
+      store.addTestResult({ sessionId: s.sessionId, golden, ok, ...(ok ? {} : { failure: 'check' as const }), revision, goldenRunId, runId: replay.runId, at: T0 + n * DAY + 1 });
+      store.finishTestSession(s.sessionId, { passed: ok ? 1 : 0, failed: ok ? 0 : 1, upstreamRequests: 0, endedAt: T0 + n * DAY + 2 });
+      return replay.runId;
+    };
+    at(0, 'aaa1111', true, 'REC_1');
+    at(1, 'bbb2222', true, 'REC_2');
+    at(2, 'ccc3333', true, 'REC_1');
+    const failing = at(3, 'ddd4444', false, 'REC_2');
+    const fork: GoldenSource = { path: 'goldens/f', runId: 'REC_2', packedAt: null, mode: 'fork', repeat: 3, passes: 3, checks: ['escalate called 1 time'] };
+    expect(bisectChoices(store, failing, { goldens: [fork] })).toMatchObject({ target: { kind: 'golden', golden: 'goldens/f' }, good: 'bbb2222', bad: 'ddd4444', fork: false, live: true, args: ['bisect', 'goldens/f', '--good', 'bbb2222', '--bad', 'ddd4444'] });
     store.close();
   });
 });
@@ -375,8 +450,12 @@ describe('jobs for the Tests actions', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', runId: replay.runId });
     expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toEqual({ error: 'goldens/refund-in-limit diverged on more than values that change every run: if the change was intended, update the golden' });
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }] });
-    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: replay.runId });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding a normalizer', steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']], runId: replay.runId });
     expect(normalizeAndTestJob(store, [], { runId: replay.runId })).toEqual({ error: 'goldens/refund-in-limit is no longer a golden on disk' });
+    // Two values that change every run: one rule alone leaves the other diverging, so the golden is updated after it.
+    store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }, { path: '$.metadata.trace_id', op: 'changed', before: UUID_B, after: UUID_A }] });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId })).toMatchObject({ title: 'Adding a normalizer', steps: [expect.arrayContaining(['$.metadata.user_id']), expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit']] });
+    expect(normalizeAndTestJob(store, goldens, { runId: replay.runId, path: '$.metadata.trace_id' })).toMatchObject({ title: 'Adding a normalizer and updating the golden', steps: [expect.arrayContaining(['$.metadata.trace_id']), ['test', 'goldens/refund-in-limit', '--update']] });
     store.close();
   });
 

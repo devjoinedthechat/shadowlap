@@ -1,4 +1,4 @@
-import { normalizeAddArgs, normalizeAddCommand, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { hasRecordedCommand, normalizeAddArgs, normalizeAddCommand, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -124,20 +124,34 @@ export interface DivergenceView {
   text: string;
   /** The value that changes every run, and the normalizer that masks it, when that is what diverged. */
   volatile: { path: string; looks: string; op: 'changed' | 'added'; normalizer: Normalizer; args: string[]; command: string } | null;
-  /** The normalizer alone makes the replay match: add it and re-run, rather than update. */
+  /**
+   * The normalizers alone make the replay match: add them and re-run. When false, the golden needs
+   * updating as well (the request carries a field the recording never had, or more changed).
+   */
   normalizerFixes: boolean;
   /** Arguments for the CLI (after `shadowlap`): re-run this golden, update it. */
   rerun: string[];
   update: string[];
   /**
    * Add normalizer and re-run, as the commands to run in order: a `normalize add` for each value that
-   * changes every run, then `test` on the golden. Null when no such value diverged.
+   * changes every run, then `test` on the golden; when `normalizerFixes` is false, `test --update`
+   * instead, which re-records it live (an update, to confirm as Update golden does). Null when no
+   * such value diverged.
    */
   normalizeAndTest: string[][] | null;
   /** Find the commit: from the last revision where it passed to the one where it failed (null: HEAD). */
-  bisect: { good: string; bad: string | null; args: string[] } | null;
+  bisect: BisectRange | null;
   /** What Find the commit found, once it has run since this failure. */
   found: FoundCommit | null;
+}
+
+/** Find the commit for a golden: the command, and whether its replays cost tokens. */
+export interface BisectRange {
+  good: string;
+  bad: string | null;
+  args: string[];
+  /** The golden may fork, so each replay runs live from where it diverges: the search costs tokens. */
+  live: boolean;
 }
 
 /** A golden that failed for another reason: a check, an exit, no calls. As `test --markdown` prints it. */
@@ -149,7 +163,7 @@ export interface FailureView {
   reason: string;
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   details: string | null;
-  bisect: { good: string; bad: string | null; args: string[] } | null;
+  bisect: BisectRange | null;
   found: FoundCommit | null;
 }
 
@@ -276,23 +290,32 @@ const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun
 /** A committed revision to bisect from: `abc1234+dirty` was tested with changes on top of abc1234. */
 const committed = (rev: string | null) => (rev ? rev.replace(/\+dirty$/, '') : null);
 
-/** `normalize add` for each value that changes every run, then `test` on the golden; null when there is none. */
+/**
+ * `normalize add` for each value that changes every run, then `test` on the golden; null when there
+ * is none. When the rules alone can't make the replay match, the golden is updated after them: a
+ * value the recording never had can't be masked into a match, and neither can a change of another
+ * kind. The rules still matter then, or the run after the update diverges again.
+ */
 function normalizeSteps(volatile: VolatileValues, golden: string): string[][] | null {
-  // A value the recording never had can't be masked into a match: that golden needs updating as well.
-  const changed = volatile.values.filter((v) => v.op === 'changed');
-  const values = changed.length ? changed : volatile.values;
-  return values.length ? [...values.map((v) => normalizeAddArgs(v.normalizer)), ['test', golden]] : null;
+  if (!volatile.values.length) return null;
+  return [...volatile.values.map((v) => normalizeAddArgs(v.normalizer)), volatile.explainsAll ? ['test', golden] : ['test', golden, '--update']];
 }
 
-function bisectFor(golden: string, history: readonly TestResult[], failed: TestResult): { good: string; bad: string | null; args: string[] } | null {
-  // The newest result that passed before this failure, at another revision: one tested as committed
-  // when there is one, since uncommitted changes are not part of what bisect checks out.
+/**
+ * Find the commit for a failing golden, from the newest result that passed before the failure at
+ * another revision. Best is a pass of the recording that fails now, tested as committed: a pass of
+ * an earlier recording of the golden (before an update) may be a commit where this one already
+ * fails, and uncommitted changes are not part of what bisect checks out.
+ */
+function bisectFor(golden: string, history: readonly TestResult[], failed: TestResult, live: boolean): BisectRange | null {
   const passed = history.filter((r) => r.ok && r.at < failed.at && r.revision && committed(r.revision) !== committed(failed.revision));
-  const good = passed.find((r) => !r.revision!.endsWith('+dirty')) ?? passed[0];
+  const rank = (r: TestResult) => (failed.goldenRunId && r.goldenRunId === failed.goldenRunId ? 0 : 2) + (r.revision!.endsWith('+dirty') ? 1 : 0);
+  // Newest first, so the first of the best rank is the newest of it.
+  const good = passed.reduce<TestResult | null>((best, r) => (!best || rank(r) < rank(best) ? r : best), null);
   const goodRev = committed(good?.revision ?? null);
   if (!goodRev) return null;
   const bad = failed.revision && !failed.revision.endsWith('+dirty') ? failed.revision : null;
-  return { good: goodRev, bad, args: ['bisect', golden, '--good', goodRev, ...(bad ? ['--bad', bad] : [])] };
+  return { good: goodRev, bad, args: ['bisect', golden, '--good', goodRev, ...(bad ? ['--bad', bad] : [])], live };
 }
 
 /** The newest first bad commit bisect found for each golden (from the `bisect.found` activity events). */
@@ -368,7 +391,8 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   for (const row of rows) {
     const latest = latestOf.get(row.path);
     if (!latest || latest.ok) continue;
-    const bisect = bisectFor(row.path, store.listTestResults({ golden: row.path, limit: 1000 }), latest);
+    // A pack that can't be read can't be bisected either.
+    const bisect = row.error ? null : bisectFor(row.path, store.listTestResults({ golden: row.path, limit: 1000 }), latest, row.mode === 'fork');
     const seen = commits.get(row.path);
     const found = seen && seen.at >= latest.at ? seen : null;
     const d = latest.failure === 'diverged' ? divergenceOf(latest) : null;
@@ -546,7 +570,10 @@ export interface TestRunBanner {
   /** Arguments for the CLI: re-run the golden (after adding the normalizer), or update it. */
   rerun: string[];
   update: string[];
-  /** Add normalizer and re-run, as the commands to run in order; null when no value that changes every run diverged. */
+  /**
+   * Add normalizer and re-run, as the commands to run in order, ending in `test --update` when
+   * `normalizerFixes` is false (as on the Tests screen); null when no value that changes every run diverged.
+   */
   normalizeAndTest: string[][] | null;
 }
 
@@ -598,34 +625,50 @@ export interface BisectChoices {
    * part costs tokens.
    */
   fork: boolean;
-  /** The command for `good` and `bad` (after `shadowlap`), or null until a good commit is known. */
+  /** Replays run live from where they diverge (`fork`, or a golden that may fork): the search costs tokens. */
+  live: boolean;
+  /** Why Find the commit can't start from this run, for the disabled action's hover; null when it can. */
+  unavailable: string | null;
+  /** The command for `good` and `bad` (after `shadowlap`), or null until a good commit is known or when unavailable. */
   args: string[] | null;
 }
 
 const clean = (rev: string | null): rev is string => !!rev && !rev.endsWith('+dirty');
 
+const exitFailed = (run: RunRecord) => run.status === 'failed' || run.status === 'crashed';
+
 function runFailed(run: RunRecord): boolean {
-  return run.status === 'failed' || run.status === 'crashed' || !!run.meta?.checks?.some((c) => !c.ok);
+  return exitFailed(run) || !!run.meta?.checks?.some((c) => !c.ok);
 }
 
 /**
- * Find the commit that broke a run. A replay made by `shadowlap test` bisects its golden, which
- * replays offline; any other run is bisected as it is. `before` limits the good commits to runs
- * started before it (the calendar passes the first day picked); `goldens`, the packs on disk, makes a
- * replay of a golden that is gone a run like any other.
+ * Find the commit that broke a run. A replay made by `shadowlap test` of a golden on disk bisects the
+ * golden, which replays offline; any other run is bisected as it is. `goldens` are the packs on disk
+ * (`projectGoldens`), with the checks the config gives each; `before` limits the good commits to runs
+ * started before it (the calendar passes the first day picked).
  */
-export function bisectChoices(store: Store, runId: string, options: { before?: number; goldens?: readonly GoldenSource[] } = {}): BisectChoices | null {
+export function bisectChoices(store: Store, runId: string, options: { goldens: readonly GoldenSource[]; before?: number }): BisectChoices | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const golden = run.meta?.test?.golden ?? null;
-  const ofGolden = golden !== null && (!options.goldens || options.goldens.some((g) => g.path === golden));
+  // As listed: a pack in the goldens folder, or one the config names under `tests` (its checks too).
+  const source = golden !== null ? (options.goldens.find((g) => g.path === golden) ?? null) : null;
+  // Only a golden whose pack can be read is bisected as one.
+  const ofGolden = !!source && !source.error;
   const before = options.before ?? run.startedAt;
   const own = committed(run.codeVersion);
+  // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
+  const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
+  const failed = result ? !result.ok : runFailed(run) || (ofGolden && !!run.divergence);
   let revisions: BisectChoices['revisions'];
+  let sameRecording: string | null = null;
   if (ofGolden) {
     const at = new Map<string, { rev: string; at: number; runs: number; failed: number }>();
     for (const r of store.listTestResults({ golden: golden!, limit: 10_000 })) {
       if (r.at >= before || !clean(r.revision) || r.revision === own) continue;
+      // Newest first: the first pass of the recording this replay failed on is the one to offer, as an
+      // earlier recording of the golden (before an update) may already fail where it passed.
+      if (!sameRecording && r.ok && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
       const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0 };
       row.runs++;
       if (!r.ok) row.failed++;
@@ -640,15 +683,28 @@ export function bisectChoices(store: Store, runId: string, options: { before?: n
       .map((r) => ({ rev: r.revision, at: r.lastAt, runs: r.runs, failed: r.failed }));
   }
   const target: BisectChoices['target'] = ofGolden ? { kind: 'golden', golden: golden! } : { kind: 'run', runId: run.runId };
-  // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
-  const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
-  const failed = result ? !result.ok : runFailed(run) || (ofGolden && !!run.divergence);
   const fork = !ofGolden && failed;
   // A run that passed is the good end itself; bisect then looks up to HEAD.
-  const good = failed ? (revisions.find((r) => r.failed < r.runs)?.rev ?? null) : clean(run.codeVersion) ? run.codeVersion : null;
+  const good = failed ? (sameRecording ?? revisions.find((r) => r.failed < r.runs)?.rev ?? null) : clean(run.codeVersion) ? run.codeVersion : null;
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
+  let unavailable: string | null = null;
+  if (run.status === 'running') unavailable = 'this run is still recording';
+  else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run was imported from a capture, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
+  // Replayed with --fork, only the exit status and the checks decide; the CLI takes the checks of the
+  // golden it was a replay of from the config, and has none otherwise.
+  else if (fork && !exitFailed(run) && !source?.checks.length) unavailable = `this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${run.runId} --good <commit> --expect '<checks>' --fork`;
   const ref = target.kind === 'golden' ? target.golden : target.runId;
-  return { target, failed, good, bad, revisions: revisions.slice(0, 30), fork, args: good ? ['bisect', ref, '--good', good, ...(bad ? ['--bad', bad] : []), ...(fork ? ['--fork'] : [])] : null };
+  return {
+    target,
+    failed,
+    good,
+    bad,
+    revisions: revisions.slice(0, 30),
+    fork,
+    live: fork || (ofGolden && source!.mode === 'fork'),
+    unavailable,
+    args: good && !unavailable ? ['bisect', ref, '--good', good, ...(bad ? ['--bad', bad] : []), ...(fork ? ['--fork'] : [])] : null,
+  };
 }
 
 // ---- jobs: what the Tests actions run ----
@@ -700,7 +756,8 @@ export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<s
 /**
  * Add normalizer and re-run: for a golden whose last replay diverged on values that change every run
  * (`golden`), or for a test replay that did (`runId`, the diverged-test banner on its page), a
- * `normalize add` for each, then `test` on the golden. `path` picks one value when several diverged.
+ * `normalize add` for each, then `test` on the golden, or `test --update` when the rules alone can't
+ * make it match (see `normalizeSteps`). `path` picks one value when several diverged.
  */
 export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
   let golden: string | null;
@@ -726,11 +783,12 @@ export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource
   if (req.path !== undefined) {
     const one = volatile.values.find((v) => v.path === req.path);
     if (!one) return { error: 'no value that changes every run diverged at that path' };
-    volatile = { values: [one], explainsAll: false };
+    // Its rule alone makes the replay match only when it was all that diverged.
+    volatile = { values: [one], explainsAll: volatile.explainsAll && volatile.values.length === 1 };
   }
   const steps = normalizeSteps(volatile, golden);
   if (!steps) return { error: `${golden} diverged on more than values that change every run: if the change was intended, update the golden` };
-  return { title: 'Adding a normalizer', steps, ...(runId ? { runId } : {}) };
+  return { title: volatile.explainsAll ? 'Adding a normalizer' : 'Adding a normalizer and updating the golden', steps, ...(runId ? { runId } : {}) };
 }
 
 /**
@@ -749,10 +807,13 @@ export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: R
   if (req.runId === undefined) {
     const golden = knownGolden(goldens, req.golden);
     if (!golden) return { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
+    const error = goldens.find((g) => g.path === golden)?.error;
+    if (error) return { error: `${golden} can't be read: ${error}` };
     return { title: 'Finding the commit', args: ['bisect', golden, '--good', good, ...(bad ? ['--bad', bad] : [])] };
   }
   const choices = typeof req.runId === 'string' && /^[0-9A-Z]{26}$/.test(req.runId) ? bisectChoices(store, req.runId, { goldens }) : null;
   if (!choices) return { error: 'no such run' };
+  if (choices.unavailable) return { error: choices.unavailable };
   const ref = choices.target.kind === 'golden' ? choices.target.golden : choices.target.runId;
   const upTo = bad ?? choices.bad;
   if (upTo === good) return { error: `${good} is where it fails: choose an earlier commit where it still worked` };
