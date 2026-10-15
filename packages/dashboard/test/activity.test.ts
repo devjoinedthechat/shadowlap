@@ -123,7 +123,7 @@ describe('the activity feed', () => {
     expect(byId(items, `r:${ids.packRoot}:import`)).toMatchObject({ kind: 'cap', at: 6500, text: 'Unpacked refund · 2 runs' });
     expect(items.some((i) => i.runId === ids.packChild)).toBe(false);
     expect(items.filter((i) => i.runId === ids.logged).map((i) => [i.text, i.actor])).toEqual([['Imported traffic.har · 12 model calls', 'jonas']]);
-    expect(items.filter((i) => i.at === 6700).map((i) => i.text)).toEqual(['Imported proxy.jsonl · 4 model calls']);
+    expect(items.filter((i) => i.at === 6700).map((i) => i.text)).toEqual(['Imported proxy.jsonl · 2 runs · 4 model calls']);
   });
 
   it('tells test runs by their golden and checks', () => {
@@ -327,6 +327,126 @@ describe('runs from a pack someone else made', () => {
     // Paging still works through them.
     const first = activity(store, { limit: 1 });
     expect(activity(store, { limit: 50, before: first.next }).items.length).toBe(items.length - 1);
+    store.close();
+  });
+});
+
+describe('events as each feature records them', () => {
+  /** A capture run of `models` model calls, as an import makes one. */
+  const capture = (store: Store, from: string, at: number, models: number, author?: string) => {
+    const r = store.createRun({ mode: 'record', command: { argv: ['<external>'], cwd: '.' }, startedAt: at - 50, meta: { imported: { at, from }, covers: ['api'], ...(author ? { author } : {}) } });
+    for (let callNo = 1; callNo <= models; callNo++) {
+      const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: createHash('sha256').update(`${r.runId}:${callNo}`).digest('hex'), occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo, ...id, origin: 'live', effect: null, requestRef: null, meta: {}, at });
+      store.appendCallEnd(id, { runId: r.runId, callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at });
+    }
+    store.endRun(r.runId, 'completed', at - 10);
+    return r.runId;
+  };
+
+  it('reads the fields the commands write, in the mock\'s words', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 10 }).runId;
+    store.endRun(run, 'failed', 20);
+    // The team slice: push, pull, share links.
+    recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 2, updated: 1, queued: 0, refused: 0, blobs: 10, bytes: 1234 }, at: 2000 });
+    recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, queued: 2, refused: 1, blobs: 1, bytes: 10 }, at: 2010 });
+    recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, refused: 0, queued: true }, at: 2020 });
+    recordEvent(store, { kind: 'store.pulled', actor: 'maya@example.com', ref: 's3://northwind/agent', data: { pulled: 3, merged: 1, failed: 0, byAuthor: { 'dana@example.com': 3 } }, at: 2100 });
+    recordEvent(store, { kind: 'org.noted', ref: 'org-2026-1', data: { group: 'team', size: 5, end: '2027-10-01', organisation: 'Northwind GmbH' }, at: 2200 });
+    recordEvent(store, { kind: 'org.noted', ref: 'org-2026-2', data: { group: 'team', size: 5, end: '2027-11-01', refreshed: true }, at: 2210 });
+    recordEvent(store, { kind: 'run.shared', runId: run, ref: 'reports/01k5cq.html', data: { expiresAt: 9_999_999, redacted: true, runs: 2 }, at: 2300 });
+    // The fixes slice: blame, repair, verify, apply.
+    recordEvent(store, { kind: 'blame.done', runId: run, ref: 'fx-double-email', data: { outcome: 'blamed', callNo: 9, confidence: 'high', title: 'confirmation email sent twice', opened: true }, at: 3000 });
+    recordEvent(store, { kind: 'blame.done', ref: 'fx-refund-limit', data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: null, opened: false }, at: 3010 });
+    recordEvent(store, { kind: 'blame.done', ref: 'fx-budget', data: { outcome: 'stopped', callNo: null, confidence: 'low', title: 'refund over the limit', opened: false }, at: 3020 });
+    recordEvent(store, { kind: 'blame.done', ref: 'fx-lost', data: { outcome: 'unrescuable', callNo: null, confidence: 'low', title: 'wrong ticket closed', opened: true }, at: 3030 });
+    recordEvent(store, { kind: 'repair.accepted', ref: 'fx-refund-limit', data: { repairId: 'r-munzln2i', outcome: 'accepted', fixes: ['fx-refund-limit'], title: 'Escalate refunds above the policy limit', verifyId: 'v-1', counts: ['fx-refund-limit'], candidates: 2 }, at: 3100 });
+    recordEvent(store, { kind: 'repair.empty', ref: 'fx-budget', data: { repairId: 'r-2', outcome: 'empty', fixes: ['fx-budget'], why: 'no candidate passed its replays', candidates: 3 }, at: 3110 });
+    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-refund-limit', data: { verifyId: 'v-370712a', fixes: ['fx-refund-limit'], counts: [], code: 'c91d0f4', reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed (refund issued twice)'] }, at: 3200 });
+    recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-2', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 1 of 5 passed'] }, at: 3210 });
+    recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
+    // The tests slice: a session, one cut short, a golden updated.
+    recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-1', data: { passed: 3, failed: 1, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0 }, at: 4000 });
+    recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-2', data: { passed: 1, failed: 0, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0, interrupted: true, notRun: 3 }, at: 4010 });
+    recordEvent(store, { kind: 'golden.updated', runId: run, ref: 'goldens/refund-flow', data: { session: 'sess-3', previous: run, calls: 31, checks: 2, changes: [] }, at: 4100 });
+    // The training slice.
+    recordEvent(store, { kind: 'pairs.exported', ref: 'pairs.jsonl', data: { count: 4, format: 'dpo', minConfidence: 'high', leftOut: 0, redaction: 1, sources: [] }, at: 5000 });
+    recordEvent(store, { kind: 'model.scored', ref: 'qwen3-8b', data: { model: 'qwen3-8b', baseUrl: 'http://gpu:8000/v1', via: 'tasks score', tasks: 12, attempts: 36, mean: 0.8333, spent: 0, session: 's' }, at: 5100 });
+    // The projects slice, and init.
+    recordEvent(store, { kind: 'project.added', ref: 'p-1', data: { path: '~/code/support-agent', name: 'support-agent', again: true }, at: 6000 });
+    recordEvent(store, { kind: 'project.setup', ref: 'p-1', data: { stage: 'done', name: 'support-agent', skipped: true, golden: null }, at: 6010 });
+    recordEvent(store, { kind: 'project.setup', ref: 'support-agent', data: { name: 'support-agent', config: 'created', languages: ['python'] }, at: 6020 });
+    recordEvent(store, { kind: 'project.removed', ref: 'p-2', data: { path: '~/code/old-agent', name: 'old-agent' }, at: 6030 });
+    // The settings slice.
+    recordEvent(store, { kind: 'runs.cleaned', data: { runs: 12, blobs: 40, bytes: 1000, interrupted: 0, olderThanDays: 30, keep: null }, at: 7000 });
+    recordEvent(store, { kind: 'clock.set', ref: 'exact', data: { clock: 'exact', was: 'auto' }, at: 7010 });
+
+    const items = activity(store, { limit: 200 }).items;
+    const at = (t: number) => items.find((i) => i.at === t);
+    expect([2000, 2010, 2020, 2100].map((t) => at(t)?.text)).toEqual(['Pushed 3 runs to the store', 'Pushed 1 run to the store · 2 waiting · 1 refused', 'Pushed 1 run to the store', 'Pulled 3 runs from the store']);
+    expect(at(2200)).toMatchObject({ kind: 'setting', text: 'Organisation noted · Northwind GmbH · Team', href: '#/settings/store' });
+    expect(at(2210)?.text).toBe('Organisation renewed · Team');
+    expect(at(2300)).toMatchObject({ kind: 'project', text: `Shared ${run.slice(0, 10)} as a link · with 1 more run · redacted`, href: `#/run/${run}` });
+    expect(at(3000)).toMatchObject({ kind: 'blame', text: 'Blamed · confirmation email sent twice, lost at model call #9', href: '#/fixes/fx-double-email/blame', runId: run });
+    expect(at(3010)?.text).toBe('Blamed model call #5 · confidence high');
+    expect(at(3020)?.text).toBe('Blame stopped · refund over the limit');
+    expect(at(3030)?.text).toBe('Blamed · wrong ticket closed, no single call rescued the run');
+    expect(at(3100)).toMatchObject({ kind: 'fixok', text: 'Repair accepted · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit/repair' });
+    expect(at(3110)).toMatchObject({ kind: 'fixbad', text: 'Repair found no fix · no candidate passed its replays' });
+    expect(at(3200)).toMatchObject({ kind: 'fixbad', text: 'Verify rejected · breaks a good run', href: '#/fixes/fx-refund-limit/verify/v-370712a' });
+    expect(at(3210)?.text).toBe('Verify rejected · failing run 01K5CQ2E8M not fixed: 1 of 5 passed');
+    expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
+    expect(at(4000)).toMatchObject({ kind: 'fail', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
+    expect(at(4010)).toMatchObject({ kind: 'fail', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });
+    expect(at(4100)).toMatchObject({ kind: 'test', text: 'Golden updated · goldens/refund-flow re-recorded · 31 calls' });
+    expect(at(5000)?.text).toBe('Exported 4 preference pairs');
+    expect(at(5100)).toMatchObject({ kind: 'train', text: 'Scored qwen3-8b on 12 tasks · mean 0.83' });
+    expect([6000, 6010, 6020, 6030].map((t) => at(t)?.text)).toEqual(['Project added back · ~/code/support-agent', 'Set up support-agent · skipped the rest', 'Inspected support-agent · wrote shadowlap.config.json', 'Removed from the dashboard · ~/code/old-agent']);
+    expect(at(7000)).toMatchObject({ kind: 'setting', text: 'Cleaned up 12 old runs' });
+    expect(at(7010)?.text).toBe('Clock set to exact');
+    // A blame recorded with its fix stands in for the one the run tells by itself.
+    store.updateRunMeta(run, { blame: { at: 3000, outcome: 'blamed', callNo: 9, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
+    expect(activity(store, { limit: 200 }).items.filter((i) => i.kind === 'blame' && i.runId === run).map((i) => i.text)).toEqual(['Blamed · confirmation email sent twice, lost at model call #9']);
+    store.close();
+  });
+
+  it('tells an import once, however many runs it made and events it recorded', () => {
+    const store = Store.open(':memory:');
+    // cli-imports: a LiteLLM log of three conversations, an event per run kept, moments apart.
+    const conversations = [0, 1, 2].map((i) => capture(store, 'proxy.jsonl', 1000 + i * 40, 2 + i, 'jonas@example.com'));
+    conversations.forEach((runId, i) => recordEvent(store, { kind: 'capture.imported', actor: 'jonas@example.com', runId, ref: 'proxy.jsonl', data: { format: 'litellm', from: 'proxy.jsonl', key: `conv-${i}`, modelCalls: 2 + i, toolCalls: 1 }, at: 1100 + i }));
+    // The same file imported again a minute later, and another person's import at the same moment.
+    const again = capture(store, 'proxy.jsonl', 61_000, 1, 'jonas@example.com');
+    recordEvent(store, { kind: 'capture.imported', actor: 'jonas@example.com', runId: again, ref: 'proxy.jsonl', data: { format: 'litellm', from: 'proxy.jsonl', key: 'conv-0', modelCalls: 1, toolCalls: 0 }, at: 61_100 });
+    const theirs = capture(store, 'proxy.jsonl', 1050, 1, 'maya@example.com');
+    recordEvent(store, { kind: 'capture.imported', actor: 'maya@example.com', runId: theirs, ref: 'proxy.jsonl', data: { format: 'litellm', from: 'proxy.jsonl', key: 'conv-9', modelCalls: 1, toolCalls: 0 }, at: 1101 });
+    // Without events (imported by a build that recorded none): two runs of one trace import, grouped the same way.
+    const trace = [capture(store, '/home/dana/traces/trace.json', 30_000, 3, 'dana@example.com'), capture(store, '/home/dana/traces/trace.json', 30_020, 4, 'dana@example.com')];
+    // Something else in between, so paging has to step over the import.
+    recordEvent(store, { kind: 'normalizer.added', ref: '$.id', at: 1101 });
+
+    const all = activity(store).items;
+    expect(all.map((i) => [i.at, i.kind, i.text, i.actor])).toEqual([
+      [61_100, 'cap', 'Imported proxy.jsonl · 1 model call', 'jonas@example.com'],
+      [30_020, 'cap', 'Imported trace.json · 2 runs · 7 model calls', 'dana@example.com'],
+      [1102, 'cap', 'Imported proxy.jsonl · 3 runs · 9 model calls', 'jonas@example.com'],
+      // Two events in one millisecond: the one recorded last first.
+      [1101, 'setting', 'Normalizer added · $.id', undefined],
+      [1101, 'cap', 'Imported proxy.jsonl · 1 model call', 'maya@example.com'],
+    ]);
+    const grouped = all.find((i) => i.at === 1102)!;
+    expect(grouped).toMatchObject({ runId: conversations[0], href: `#/run/${conversations[0]}` });
+    expect(all.find((i) => i.at === 30_020)).toMatchObject({ runId: trace[0], href: `#/run/${trace[0]}` });
+    // Page by page, the import is still one entry, and nothing is lost or repeated.
+    const seen: string[] = [];
+    let before: string | null = null;
+    do {
+      const p = activity(store, { limit: 1, before });
+      seen.push(...p.items.map((i) => i.id));
+      before = p.next;
+    } while (before !== null && seen.length < 20);
+    expect(seen).toEqual(all.map((i) => i.id));
     store.close();
   });
 });

@@ -334,9 +334,10 @@ export class Store {
   /**
    * Activity events, newest first (then by id, descending). `before` pages back (exclusive); with
    * `beforeId`, the events at exactly `before` whose id sorts before it come too, so a cursor made
-   * of the last event's time and id never skips events that share a millisecond. `kinds` filters.
+   * of the last event's time and id never skips events that share a millisecond. `kinds` keeps only
+   * those kinds, `exceptKinds` leaves those out.
    */
-  listEvents(options: { limit?: number; before?: number; beforeId?: string; kinds?: string[] } = {}): StoredEvent[] {
+  listEvents(options: { limit?: number; before?: number; beforeId?: string; kinds?: string[]; exceptKinds?: string[] } = {}): StoredEvent[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.before !== undefined && options.beforeId !== undefined) {
@@ -349,6 +350,10 @@ export class Store {
     if (options.kinds?.length) {
       where.push(`kind IN (${options.kinds.map(() => '?').join(', ')})`);
       params.push(...options.kinds);
+    }
+    if (options.exceptKinds?.length) {
+      where.push(`kind NOT IN (${options.exceptKinds.map(() => '?').join(', ')})`);
+      params.push(...options.exceptKinds);
     }
     params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
     const rows = this.db.prepare(`SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, event_id DESC LIMIT ?`).all(...params);

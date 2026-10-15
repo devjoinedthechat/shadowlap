@@ -30,11 +30,31 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const time = (v: unknown, fallback: number): number => num(v) ?? fallback;
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const short = (runId: string) => runId.slice(0, 10);
-const fixHref = (ref: string | null, step?: string) => (ref && /^fx-[\w-]+$/.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
+const FIX_ID = /^fx-[\w-]+$/;
+const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : []);
+const capital = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+/** Words joined by the feed's separator, the empty ones left out. */
+const parts = (...words: Array<string | null | false | undefined>) => words.filter(Boolean).join(' · ');
+
+/** What a capture import is called in the feed: the source's name (`trace.json`, `langfuse:7f3a9c2e`), never its folder. */
+function importName(e: StoredEvent, d: Record<string, unknown>): string {
+  const from = str(d.source) ?? str(d.file) ?? e.ref ?? str(d.from);
+  if (!from) return 'a capture';
+  return /^(langfuse|langsmith):/.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || from;
+}
+
+/** Why a verify rejected a fix: the mock's words when it broke a good run, else its first reason. */
+function rejection(d: Record<string, unknown>): string | null {
+  const reasons = strings(d.reasons);
+  if (reasons.some((r) => /^good run \S+ broken/.test(r))) return 'breaks a good run';
+  return reasons[0] ?? str(d.why);
+}
 
 /**
- * The wording of every stored event kind (see packages/engine/src/events.ts). A feature that records
- * a new kind adds its wording with `describeEvent`; an unknown kind reads as its name and its ref.
+ * The wording of every stored event kind, read from the fields each command records (documented in
+ * packages/engine/src/events.ts). A feature that records a new kind adds its wording with
+ * `describeEvent`; an unknown kind reads as its name and its ref.
  */
 const EVENT_TEXT = new Map<string, Describe>([
   ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: '#/settings/matching' })],
@@ -44,34 +64,87 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
   ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: '#/settings/redaction' })],
   ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: '#/settings/matching' })],
+  ['runs.cleaned', (_e, d) => ({ kind: 'setting', text: `Cleaned up ${plural(num(d.runs) ?? 0, 'old run')}`, href: '#/settings/project' })],
   ['golden.packed', (e) => ({ kind: 'test', text: `Golden packed · ${e.ref ?? 'a golden'}`, href: '#/tests' })],
   ['run.packed', (e, d) => ({ kind: 'project', text: `Packed · ${e.ref ?? plural(num(d.runs) ?? 1, 'run')}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'call')}` : ''}` })],
-  ['golden.updated', (e, d) => ({ kind: 'test', text: `Golden updated · ${e.ref ?? str(d.golden) ?? ''} re-recorded, checks passed`, href: '#/tests' })],
-  ['capture.imported', (e, d) => ({ kind: 'cap', text: `Imported ${str(d.source) ?? str(d.file) ?? e.ref ?? 'a capture'}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'model call')}` : ''}` })],
+  ['golden.updated', (e, d) => ({ kind: 'test', text: parts(`Golden updated · ${e.ref ?? str(d.golden) ?? 'a golden'} re-recorded`, num(d.calls) !== null && plural(num(d.calls)!, 'call')), href: '#/tests' })],
+  // One import can make several runs (a LiteLLM log, one per conversation), each with its event:
+  // the feed groups them (importStubs below), and this is the wording of one.
+  ['capture.imported', (e, d) => ({ kind: 'cap', text: importText(importName(e, d), new Set([...(e.runId ? [e.runId] : []), ...strings(d.runIds)]).size, num(d.modelCalls) ?? num(d.calls)) })],
   [
     'test.session',
     (_e, d) => {
       const failed = num(d.failed) ?? 0;
+      const notRun = num(d.notRun);
+      if (d.interrupted === true) return { kind: 'fail', text: `Tests stopped · ${num(d.passed) ?? 0} passed, ${failed} failed${notRun ? `, ${notRun} not run` : ''}`, href: '#/tests' };
       return { kind: failed ? 'fail' : 'test', text: `Tests ran · ${num(d.passed) ?? 0} passed, ${failed} failed`, href: '#/tests' };
     },
   ],
   ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: '#/tests' })],
-  ['blame.done', (e, d) => ({ kind: 'blame', text: num(d.callNo) !== null ? `Blamed model call #${num(d.callNo)}${str(d.confidence) ? ` · confidence ${str(d.confidence)}` : ''}` : 'Blamed · no single call rescued the run', href: fixHref(e.ref, 'blame') })],
+  [
+    'blame.done',
+    (e, d) => {
+      const href = fixHref(e.ref, 'blame');
+      const title = str(d.title);
+      const callNo = num(d.callNo);
+      if (d.outcome === 'stopped') return { kind: 'blame', text: parts('Blame stopped', title), href };
+      if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}no single call rescued the run`, href };
+      // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
+      if (title) return { kind: 'blame', text: `Blamed · ${title}, lost at model call #${callNo}`, href };
+      return { kind: 'blame', text: parts(`Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)}`), href };
+    },
+  ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
-  ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
-  ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'verify') })],
-  ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'verify') })],
+  ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
+  ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `Patch applied · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: '#/training' })],
-  ['model.scored', (e, d) => ({ kind: 'train', text: `Scored on ${plural(num(d.tasks) ?? 0, 'task')}${num(d.mean) !== null ? ` · mean ${num(d.mean)!.toFixed(2)}` : ''}`, href: '#/training/tasks' })],
-  ['project.added', (e, d) => ({ kind: 'project', text: `Project added · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
-  ['project.setup', (e, d) => ({ kind: 'project', text: `Set up ${str(d.name) ?? e.ref ?? 'the project'}${d.config === 'created' ? ' · wrote shadowlap.config.json' : ''}`, href: '#/' })],
-  ['project.removed', (e, d) => ({ kind: 'project', text: `Project removed · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
-  ['org.noted', (e, d) => ({ kind: 'setting', text: `Organisation noted · ${str(d.org) ?? e.ref ?? ''}`, href: '#/settings/project' })],
-  ['store.pushed', (_e, d) => ({ kind: 'project', text: `Pushed ${plural(num(d.runs) ?? 0, 'run')} to the store` })],
-  ['store.pulled', (_e, d) => ({ kind: 'project', text: `Pulled ${plural(num(d.runs) ?? 0, 'run')} from the store` })],
+  ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: '#/training/tasks' })],
+  // The projects slice's words (projectEventText), so the feed reads the same whichever describes them.
+  ['project.added', (e, d) => ({ kind: 'project', text: `${d.again === true ? 'Project added back' : 'Project added'} · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
+  [
+    'project.setup',
+    (e, d) => {
+      const name = str(d.name) ?? e.ref ?? 'the project';
+      if (d.stage !== 'done' && d.config === 'created') return { kind: 'project', text: `Inspected ${name} · wrote shadowlap.config.json`, href: '#/' };
+      return { kind: 'project', text: `Set up ${name}${d.skipped === true ? ' · skipped the rest' : ''}`, href: '#/' };
+    },
+  ],
+  ['project.removed', (e, d) => ({ kind: 'project', text: `Removed from the dashboard · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
+  [
+    'org.noted',
+    (e, d) => {
+      const group = str(d.group);
+      const href = '#/settings/store';
+      if (d.refreshed === true) return { kind: 'setting', text: parts('Organisation renewed', group && capital(group)), href };
+      return { kind: 'setting', text: `Organisation noted · ${parts(str(d.organisation) ?? str(d.org), group && capital(group)) || (e.ref ?? '')}`, href };
+    },
+  ],
+  [
+    'store.pushed',
+    (_e, d) => {
+      // `queued` is a count of runs left for later, or `true` for a push that was queued while they recorded.
+      const queued = num(d.queued);
+      const refused = num(d.refused);
+      return { kind: 'project', text: parts(`Pushed ${plural((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), 'run')} to the store`, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null) };
+    },
+  ],
+  ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.failed) ? `${num(d.failed)} failed` : null) })],
+  ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
   ['release.tagged', (e) => ({ kind: 'release', text: `Release ${e.ref ?? ''} tagged`, href: e.ref ? `#/releases/${e.ref}` : '#/releases' })],
 ]);
+
+/** A verify's page: under its fix, at the verdict when the event names it. */
+function verifyHref(ref: string | null, d: Record<string, unknown>): string {
+  const verifyId = str(d.verifyId);
+  return ref && FIX_ID.test(ref) && verifyId && /^[\w-]+$/.test(verifyId) ? `${fixHref(ref, 'verify')}/${verifyId}` : fixHref(ref, 'verify');
+}
+
+/** "Imported trace.json · 12 model calls", or for several runs "Imported litellm.jsonl · 3 runs · 40 model calls". */
+function importText(name: string, runs: number, modelCalls: number | null): string {
+  return parts(`Imported ${name}`, runs > 1 && plural(runs, 'run'), modelCalls !== null && plural(modelCalls, 'model call'));
+}
 
 /** Sets how a stored event kind reads in the feed: a feature that records a new kind calls this from its route module. */
 export function describeEvent(kind: string, describe: Describe): void {
@@ -254,15 +327,77 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
 
 function imported(store: Store, runs: RunRecord[], at: number): ActivityItem {
   const first = runs[0]!;
-  const from = first.meta?.imported?.from ?? '';
-  const name = basename(from.replace(/[\\/]+$/, '')) || 'a capture';
+  const from = typeof first.meta?.imported?.from === 'string' ? first.meta.imported.from : '';
+  const name = /^(langfuse|langsmith):/.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || 'a capture';
   const item = base(first, `r:${first.runId}:import`, at);
   if (first.meta?.covers?.length) {
-    const models = facts(store, first).summary.byKind.api;
-    return { ...item, kind: 'cap', text: `Imported ${name} · ${plural(models, 'model call')}` };
+    const models = runs.reduce((n, run) => n + facts(store, run).summary.byKind.api, 0);
+    return { ...item, kind: 'cap', text: importText(name, runs.length, models) };
   }
   const detail = runs.length > 1 ? plural(runs.length, 'run') : plural(facts(store, first).summary.total, 'call');
   return { ...item, kind: 'cap', text: `Unpacked ${name} · ${detail}` };
+}
+
+/**
+ * Items one command made one after another, grouped: the same key, each within a few seconds of the
+ * one before it (an import of a hundred conversations makes a hundred runs in a row). Oldest first,
+ * in each group and across them.
+ */
+function inBursts<T>(items: T[], key: (item: T) => string, at: (item: T) => number, tie: (item: T) => string): T[][] {
+  const sorted = [...items].sort((a, b) => at(a) - at(b) || (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0));
+  const open = new Map<string, { last: number; items: T[] }>();
+  const groups: T[][] = [];
+  for (const item of sorted) {
+    const k = key(item);
+    const t = at(item);
+    const group = open.get(k);
+    if (group && t - group.last <= BURST_MS) {
+      group.items.push(item);
+      group.last = t;
+      continue;
+    }
+    const fresh = { last: t, items: [item] };
+    open.set(k, fresh);
+    groups.push(fresh.items);
+  }
+  return groups;
+}
+
+/**
+ * The `capture.imported` events, one entry per import. cli-imports records one event per run it
+ * keeps, so the events of one import (same person, same source, moments apart) are told together:
+ * "Imported litellm.jsonl · 3 runs · 40 model calls". An event that lists its runs (`runIds`) is an
+ * import of its own.
+ */
+function importStubs(events: StoredEvent[]): Stub[] {
+  const key = (e: StoredEvent) => (Array.isArray(e.data?.runIds) ? `event:${e.eventId}` : `${e.actor ?? ''}\n${str(e.data?.from) ?? e.ref ?? ''}\n${str(e.data?.format) ?? ''}`);
+  return inBursts(events, key, (e) => e.at, (e) => e.eventId).map((group) => {
+    // The entry takes the newest event's place in the feed: when the import ended.
+    const newest = group[group.length - 1]!;
+    return { id: `e:${newest.eventId}`, at: newest.at, render: () => (group.length === 1 ? storedItem(newest) : importedEvents(group)) };
+  });
+}
+
+function importedEvents(group: StoredEvent[]): ActivityItem {
+  const first = group[0]!;
+  const newest = group[group.length - 1]!;
+  const runIds = new Set<string>();
+  let calls: number | null = null;
+  for (const e of group) {
+    if (e.runId) runIds.add(e.runId);
+    for (const id of strings(e.data?.runIds)) runIds.add(id);
+    const n = num(e.data?.modelCalls) ?? num(e.data?.calls);
+    if (n !== null) calls = (calls ?? 0) + n;
+  }
+  const runId = [...runIds][0];
+  return {
+    id: `e:${newest.eventId}`,
+    at: newest.at,
+    kind: 'cap',
+    text: importText(importName(first, first.data ?? {}), Math.max(runIds.size, group.length), calls),
+    ...(runId ? { runId, href: `#/run/${runId}`, ref: short(runId) } : first.ref ? { ref: first.ref } : {}),
+    ...(first.actor ? { actor: first.actor } : {}),
+  };
 }
 
 function blamed(run: RunRecord): ActivityItem {
@@ -321,6 +456,8 @@ interface Stub {
 
 /** How far apart the runs of one unpack can have been stamped, in stores from before unpack stamped one time for all. */
 const UNPACK_SPREAD_MS = 5000;
+/** How far apart, at most, two runs or events one import made one after another are. */
+const BURST_MS = 5000;
 
 /**
  * What each unpack brought in. The runs of one pack share its folder's name and the time unpack
@@ -355,6 +492,7 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
   const byId = cachedRuns(store).byId;
   const groups = new Map<string, RunRecord[]>();
   const unpacked: RunRecord[] = [];
+  const captured: RunRecord[] = [];
   for (const run of runs) {
     const m = run.meta;
     if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: time(m.blame.at, run.endedAt ?? run.startedAt), render: () => blamed(run) });
@@ -368,8 +506,8 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
     }
     if (m?.imported) {
       if (m.covers?.length) {
-        const at = time(m.imported.at, run.startedAt);
-        if (!covered.has(`import:${run.runId}`)) stubs.push({ id: `r:${run.runId}:import`, at, render: () => imported(store, [run], at) });
+        // A capture: told by its import's event when there is one, else grouped with the runs the same import made.
+        if (!covered.has(`import:${run.runId}`)) captured.push(run);
       } else {
         // A pack can hold a run and its ancestors: one entry for everything one unpack brought in.
         unpacked.push(run);
@@ -400,6 +538,13 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
     if (covered.has(`import:${first.runId}`)) continue;
     stubs.push({ id: `r:${first.runId}:import`, at, render: () => imported(store, list, at) });
   }
+  const importedAt = (run: RunRecord) => time(run.meta?.imported?.at, run.startedAt);
+  const source = (run: RunRecord) => `${typeof run.meta?.author === 'string' ? run.meta.author : ''}\n${typeof run.meta?.imported?.from === 'string' ? run.meta.imported.from : ''}`;
+  for (const list of inBursts(captured, source, importedAt, (run) => run.runId)) {
+    const first = list[0]!;
+    const at = importedAt(list[list.length - 1]!);
+    stubs.push({ id: `r:${first.runId}:import`, at, render: () => imported(store, list, at) });
+  }
   return stubs;
 }
 
@@ -415,20 +560,28 @@ function derivedStubs(store: Store): Stub[] {
   const key = `${counts.runs ?? 0}:${counts.events ?? 0}`;
   const hit = stubCache.get(store);
   if (hit && hit.key === key) return hit.stubs;
-  const stubs = derived(store, cachedRuns(store).runs, coveredByEvents(store)).sort(order);
+  // The newest 10,000 of the events that stand in for what runs tell; older ones are left out of the feed.
+  const telling = store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 });
+  const imports = telling.filter((e) => GROUPED_KINDS.includes(e.kind));
+  const stubs = [...derived(store, cachedRuns(store).runs, coveredBy(telling)), ...importStubs(imports)].sort(order);
   stubCache.set(store, { key, stubs });
   return stubs;
 }
 
+/**
+ * Stored kinds the feed tells with the runs rather than page by page from the events table: one
+ * import records an event per run, and those are told together (importStubs).
+ */
+const GROUPED_KINDS = ['capture.imported'];
+
 /** Runs whose derived entry a stored event already tells (an import, a blame recorded with its fix). */
-function coveredByEvents(store: Store): Set<string> {
+function coveredBy(events: StoredEvent[]): Set<string> {
   const out = new Set<string>();
-  for (const e of store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 })) {
+  for (const e of events) {
     const what = e.kind === 'blame.done' ? 'blame' : 'import';
     if (e.runId) out.add(`${what}:${e.runId}`);
-    // One import can make several runs (a LiteLLM log, one per conversation): its event lists them.
-    const listed = e.data?.runIds;
-    if (Array.isArray(listed)) for (const id of listed) if (typeof id === 'string') out.add(`${what}:${id}`);
+    // An event can list the runs it tells of (an import of several conversations, recorded once).
+    for (const id of strings(e.data?.runIds)) out.add(`${what}:${id}`);
   }
   return out;
 }
@@ -514,8 +667,9 @@ export function activity(store: Store, options: { limit?: number; before?: strin
         : parseActivityCursor(given);
   if (given !== undefined && given !== null && given !== '' && !cursor) throw new Error(`not a page cursor: ${String(given).slice(0, 40)}`);
   const stubs = derivedStubs(store).filter((s) => after(cursor, s));
-  // A page holds at most `limit` stored events; one more says whether any are left.
-  const stored = store.listEvents({ ...storedAfter(cursor), limit: limit + 1 });
+  // A page holds at most `limit` stored events; one more says whether any are left. Imports are
+  // among the stubs already, one entry per import.
+  const stored = store.listEvents({ ...storedAfter(cursor), limit: limit + 1, exceptKinds: GROUPED_KINDS });
   const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(order);
   const page = all.slice(0, limit);
   return { items: page.map(render), next: all.length > limit ? encodeCursor(page[page.length - 1]!) : null };

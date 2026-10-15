@@ -33,6 +33,17 @@ describe('activity events paged by time and id', () => {
     expect(store.listEvents({ before: 2000 }).map((e) => e.ref)).toEqual(['older']);
     store.close();
   });
+
+  it('keeps or leaves out kinds', () => {
+    const store = Store.open(':memory:');
+    recordEvent(store, { kind: 'capture.imported', ref: 'a.har', at: 3 });
+    recordEvent(store, { kind: 'normalizer.added', ref: '$.id', at: 2 });
+    recordEvent(store, { kind: 'blame.done', ref: 'fx-1', at: 1 });
+    expect(store.listEvents({ kinds: ['capture.imported', 'blame.done'] }).map((e) => e.ref)).toEqual(['a.har', 'fx-1']);
+    expect(store.listEvents({ exceptKinds: ['capture.imported'] }).map((e) => e.ref)).toEqual(['$.id', 'fx-1']);
+    expect(store.listEvents({ exceptKinds: ['capture.imported'], limit: 1, before: 2 }).map((e) => e.ref)).toEqual(['fx-1']);
+    store.close();
+  });
 });
 
 describe('write counters', () => {
