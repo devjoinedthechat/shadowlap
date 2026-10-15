@@ -384,21 +384,32 @@ export interface CalibrationOutcome {
   stopped: string | null;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const text = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+
 /**
- * Reads calibrate's result (the object `calibrate --json` prints, and a dashboard job hears as its
- * `result` event) for the setup: a recording that replays clean as it is completes the step on its
- * own; one made clean by normalizers completes it once they are written to the config, and until
- * then offers them. Null for anything else.
+ * Reads calibrate's result for the setup: the object `calibrate --json` prints, which a dashboard
+ * job hears as its `result` event. A recording that replays clean as it is completes the step on its
+ * own; one made clean by normalizers completes it once they are in the config, and until then offers
+ * them. `write`: the job ran calibrate with `--write`, so what it proposed is in the config now, even
+ * when calibrate found a rule there already and says it wrote nothing. Why each value varies is read
+ * from `proposals` (`[{ normalizer, why }]`, beside `normalizers`) or from a normalizer's own `why`,
+ * when calibrate gives it. Null for anything else.
  */
-export function calibrationOutcome(result: unknown): CalibrationOutcome | null {
-  if (typeof result !== 'object' || result === null) return null;
-  const r = result as Record<string, unknown>;
+export function calibrationOutcome(result: unknown, options: { write?: boolean } = {}): CalibrationOutcome | null {
+  if (!isRecord(result)) return null;
+  const r = result;
   if (typeof r.clean !== 'boolean' || !Array.isArray(r.normalizers)) return null;
-  const rules = r.normalizers
-    .filter((n): n is Record<string, unknown> => typeof n === 'object' && n !== null)
-    .map((n) => ({ path: typeof n.path === 'string' && n.path ? n.path : '(every string)', why: typeof n.why === 'string' && n.why ? n.why : null }));
-  const written = r.written === true;
-  const stopped = typeof r.stopped === 'object' && r.stopped !== null && typeof (r.stopped as Record<string, unknown>).why === 'string' ? ((r.stopped as Record<string, unknown>).why as string) : null;
+  const reasons: unknown[] = Array.isArray(r.proposals) ? r.proposals : [];
+  const rules = r.normalizers.flatMap((n, i) => {
+    if (!isRecord(n)) return [];
+    const beside = reasons[i];
+    // A reason beside the normalizers counts only for the normalizer at its place.
+    const why = text(n.why) ?? (isRecord(beside) && (!isRecord(beside.normalizer) || beside.normalizer.path === n.path) ? text(beside.why) : null);
+    return [{ path: text(n.path) ?? '(every string)', why }];
+  });
+  const written = r.written === true || options.write === true;
+  const stopped = isRecord(r.stopped) ? text(r.stopped.why) : null;
   if (!r.clean) return { done: false, added: written ? rules : [], proposed: written ? [] : rules, stopped: stopped ?? 'the replay isn’t clean yet' };
   if (written || !rules.length) return { done: true, added: written ? rules : [], proposed: [], stopped: null };
   return { done: false, added: [], proposed: rules, stopped: null };

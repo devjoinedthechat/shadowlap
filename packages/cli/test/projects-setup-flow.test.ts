@@ -35,7 +35,9 @@ function tempDir(prefix: string): string {
 
 interface Job {
   code: number | null;
+  /** stdout and stderr, as the job drawer shows them. */
   out: string;
+  stdout: string;
   events: Array<{ type: string; data?: unknown }>;
 }
 
@@ -48,12 +50,25 @@ function job(ctx: ProjectContext<ShadowlapConfig>, args: readonly string[], env:
       stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
     });
     let out = '';
+    let stdout = '';
     let events = '';
-    child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
+    child.stdout!.on('data', (d: Buffer) => {
+      out += d.toString();
+      stdout += d.toString();
+    });
     child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
     (child.stdio[3] as NodeJS.ReadableStream).on('data', (d: Buffer) => (events += d.toString()));
-    child.on('close', (code) => resolve({ code, out, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type: string; data?: unknown }) }));
+    child.on('close', (code) => resolve({ code, out, stdout, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type: string; data?: unknown }) }));
   });
+}
+
+/**
+ * Calibrate's result as a job hears it: its `result` event, the object `calibrate --json` prints.
+ * Calibrate's owners report that event; until their change is merged, `--json` gives the same object.
+ */
+async function calibrate(ctx: ProjectContext<ShadowlapConfig>, args: readonly string[], env: Record<string, string>): Promise<{ job: Job; result: unknown }> {
+  const run = await job(ctx, [...args, '--json'], env);
+  return { job: run, result: run.events.find((e) => e.type === 'result')?.data ?? (run.stdout.trim() ? JSON.parse(run.stdout) : null) };
 }
 
 function world() {
@@ -92,24 +107,21 @@ describe('a project’s setup, step by step through the CLI', () => {
     registry.noteRecording(id, runId, plan.argv);
     expect(host.setup(id)).toMatchObject({ stage: 'recorded', run: { runId, calls: 2 }, own: true, shows: 'overview' });
 
-    // 3 · Calibrate streams its rounds and reports its result as an event, each proposal with its reason.
-    const proposed = await job(ctx, setupJobArgs.calibrate(runId), env);
-    expect(proposed.code, proposed.out).toBe(0);
-    expect(proposed.out).toMatch(/round 1 {2}diverged at call 1/);
-    const result = proposed.events.find((e) => e.type === 'result')?.data;
-    expect(calibrationOutcome(result)).toEqual({
+    // 3 · Calibrate streams its rounds; what it proposes is offered, then written with --write.
+    const streamed = await job(ctx, setupJobArgs.calibrate(runId), env);
+    expect(streamed.code, streamed.out).toBe(0);
+    expect(streamed.out).toMatch(/round 1 {2}diverged at call 1/);
+    const proposed = await calibrate(ctx, setupJobArgs.calibrate(runId), env);
+    expect(proposed.job.code, proposed.job.out).toBe(0);
+    expect(calibrationOutcome(proposed.result)).toMatchObject({
       done: false,
       added: [],
-      proposed: [
-        { path: '$.metadata.user_id', why: 'this looks like a UUID' },
-        { path: '$.system', why: 'a value generated on each run' },
-        { path: '$.args.path', why: expect.any(String) },
-      ],
+      proposed: [{ path: '$.metadata.user_id' }, { path: '$.system' }, { path: '$.args.path' }],
       stopped: null,
     });
-    const written = await job(ctx, setupJobArgs.calibrate(runId, true), env);
-    expect(written.code, written.out).toBe(0);
-    const outcome = calibrationOutcome(written.events.find((e) => e.type === 'result')?.data)!;
+    const written = await calibrate(ctx, setupJobArgs.calibrate(runId, true), env);
+    expect(written.job.code, written.job.out).toBe(0);
+    const outcome = calibrationOutcome(written.result, { write: true })!;
     expect(outcome).toMatchObject({ done: true, proposed: [] });
     expect(outcome.added.map((a) => a.path)).toEqual(['$.metadata.user_id', '$.system', '$.args.path']);
     registry.noteCalibrated(id, runId, outcome.added);

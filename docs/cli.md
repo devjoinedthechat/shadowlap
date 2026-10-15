@@ -306,7 +306,7 @@ it into a golden for `shadowlap test`.
 shadowlap calibrate [run] [--write] [--max-rounds <n>]
 ```
 
-Replays a recording (default: the latest) offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. `--write` adds the proposals to `shadowlap.config.json`. No model calls; writes are blocked. `--json` prints the result when calibration ends: whether the replay is clean, each round, the normalizers proposed with why each value varies, whether they were written, and why it stopped if it did. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording (default: the latest) offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. `--write` adds the proposals to `shadowlap.config.json`. No model calls; writes are blocked. See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 

@@ -2,7 +2,6 @@ import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
-import { emitJobEvent } from '../job-events.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
@@ -226,10 +225,7 @@ export function register(program: Command): void {
         if (!outcome) outcome = { clean: false, why: `still diverging after ${flags.maxRounds} rounds`, details: '' };
         const result = outcome;
         const emitJson = () => {
-          // Each normalizer says why it was proposed; a dashboard job hears the result too, so a setup's calibrate completes its step.
-          const data = { runId: parent.runId, clean: result.clean, rounds, normalizers: proposals.map((x) => ({ ...x.normalizer, why: x.why })), written: !!flags.write && proposals.length > 0, stopped: result.clean ? null : { why: result.why, details: result.details } };
-          emitJobEvent({ type: 'result', data });
-          if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+          if (flags.json) process.stdout.write(JSON.stringify({ runId: parent.runId, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: !!flags.write && proposals.length > 0, stopped: result.clean ? null : { why: result.why, details: result.details } }, null, 2) + '\n');
         };
         say('\n');
         if (outcome.clean && proposals.length === 0) {

@@ -301,6 +301,34 @@ describe('calibrationOutcome', () => {
   it('says why it stopped short, and reads nothing else as a result', () => {
     expect(calibrationOutcome(result({ clean: false, stopped: { why: 'still diverging after 8 rounds', details: '' } }))).toEqual({ done: false, added: [], proposed: [], stopped: 'still diverging after 8 rounds' });
     expect(calibrationOutcome(result({ clean: false, normalizers: [uuid], stopped: null }))).toMatchObject({ done: false, proposed: [{ path: '$.metadata.user_id' }], stopped: 'the replay isn’t clean yet' });
-    for (const bad of [null, 'clean', { clean: 'yes', normalizers: [] }, { clean: true }]) expect(calibrationOutcome(bad)).toBeNull();
+    for (const bad of [null, 'clean', { clean: 'yes', normalizers: [] }, { clean: true }, []]) expect(calibrationOutcome(bad)).toBeNull();
+  });
+
+  it('reads why each value varies from the proposals beside the normalizers, which stay as the config takes them', () => {
+    const system = { kind: 'api', path: '$.system', replace: '<VALUE>' };
+    const proposals = [
+      { normalizer: uuid, why: 'this looks like a UUID' },
+      { normalizer: system, why: 'a value generated on each run' },
+    ];
+    expect(calibrationOutcome(result({ normalizers: [uuid, system], proposals }))).toEqual({
+      done: false,
+      added: [],
+      proposed: [
+        { path: '$.metadata.user_id', why: 'this looks like a UUID' },
+        { path: '$.system', why: 'a value generated on each run' },
+      ],
+      stopped: null,
+    });
+    // A reason for another normalizer than the one at its place isn't taken.
+    expect(calibrationOutcome(result({ normalizers: [system], proposals: [proposals[0]] }))?.proposed).toEqual([{ path: '$.system', why: null }]);
+  });
+
+  it('counts what a calibrate run with --write proposed as in the config, even when it found it there already', () => {
+    // Calibrate may say it wrote nothing new (`written: false`, `added: []`) when the rule was in the config already.
+    const already = result({ normalizers: [uuid], written: false, added: [] });
+    expect(calibrationOutcome(already)).toMatchObject({ done: false, proposed: [{ path: '$.metadata.user_id' }] });
+    expect(calibrationOutcome(already, { write: true })).toEqual({ done: true, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: null });
+    // Stopped short with --write: what it found is in the config, and the step isn't done.
+    expect(calibrationOutcome(result({ clean: false, normalizers: [uuid], stopped: { why: 'a change Shadowlap cannot tell apart from a real one' } }), { write: true })).toEqual({ done: false, added: [{ path: '$.metadata.user_id', why: null }], proposed: [], stopped: 'a change Shadowlap cannot tell apart from a real one' });
   });
 });
