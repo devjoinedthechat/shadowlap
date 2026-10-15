@@ -651,6 +651,20 @@ describe('an OpenAI recording taken over by an Anthropic model', () => {
         const call = s.getCalls(rows[0]!.runId!).find((c) => c.callNo === 5)!;
         expect(call.end!.meta).toMatchObject({ model: 'claude-good', provider: 'openai', stopReason: 'tool_calls' });
       });
+
+      // Another model of OpenAI's: the request names it, and its chunks stream back to the agent as OpenAI sent them.
+      const sent = openai.requests.length;
+      const weak = await shadowlap(work, ['tasks', 'score', '--model', 'weak-model', '--attempts', '1', '--json']);
+      expect(weak.code, weak.out).toBe(0);
+      expect(JSON.parse(weak.stdout)).toMatchObject({ mean: 0.5, via: 'OpenAI API', tasks: [{ attempts: [{ checks: [{ pass: true }, { check: 'issue_refund called 0 times', pass: false }] }] }] });
+      expect(openai.requests.slice(sent).map((r) => [r.body.model, r.body.stream])).toEqual([
+        ['weak-model', true],
+        ['weak-model', true],
+      ]);
+      withStore(db, (s) => {
+        const row = s.listTaskScores().find((x) => x.model === 'weak-model')!;
+        expect(s.getCalls(row.runId!).find((c) => c.callNo === 5)!.end!.meta).toMatchObject({ model: 'weak-model', provider: 'openai', stopReason: 'tool_calls', headers: expect.objectContaining({ 'content-type': expect.stringContaining('text/event-stream') }) });
+      });
     } finally {
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
