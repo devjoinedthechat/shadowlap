@@ -183,7 +183,7 @@ OpenAI API: OPENAI_API_KEY is not set
 Your own endpoint: shadowlap tasks score --model <name> --base-url <url>
 ```
 
-The models the ready tasks' recordings used, every model each configured provider lists (Anthropic's and OpenAI's `/v1/models`, with the keys already in the environment, and the models Ollama has installed on this machine, or at `OLLAMA_HOST`), and the models and endpoints scored before, each with its last mean score. An attempt's price is the model's price times the tokens the recordings used after their takeovers, averaged over the tasks; a model on this machine costs $0. Each list is asked once, all at the same time, and a provider that has no key, isn't running or doesn't answer within `--timeout` (1500 ms) becomes a note instead. Nothing is sent to a provider without its key. `--json` prints the choices, each with the flags `tasks score` takes to ask it.
+The models the ready tasks' recordings used, every model each configured provider lists (Anthropic's and OpenAI's `/v1/models`, with the keys already in the environment, and the models Ollama has installed on this machine, or at `OLLAMA_HOST`), and the models and endpoints scored before, each with its last mean score. An attempt's price is the model's price times the tokens the recordings used after their takeovers, averaged over the tasks; a model on this machine costs $0. Each list is asked once, all at the same time, and a provider that has no key, isn't running or doesn't answer within `--timeout` (1500 ms) becomes a note instead. Nothing is sent to Anthropic's or OpenAI's API without its key. `--json` prints the choices, each with the flags `tasks score` takes to ask it.
 
 ## From a training loop
 
