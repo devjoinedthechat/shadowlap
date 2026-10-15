@@ -101,11 +101,19 @@ export function ollamaBase(env: NodeJS.ProcessEnv): string {
   }
 }
 
-/** Where a model at an endpoint runs, in words. */
-export function endpointVia(baseUrl: string): string {
+/**
+ * Where a model at an endpoint runs, in words. Ollama is named at its default port on this machine,
+ * and wherever OLLAMA_HOST puts it, as the model list names its group: a model listed there keeps
+ * the name once it is scored.
+ */
+export function endpointVia(baseUrl: string, env: NodeJS.ProcessEnv = process.env): string {
   try {
     const u = new URL(baseUrl);
-    if (isLoopback(baseUrl)) return u.port === '11434' ? 'Ollama, on this machine' : 'on this machine';
+    const local = isLoopback(baseUrl);
+    const ollama = new URL(ollamaBase(env));
+    const atOllama = (local && u.port === '11434') || (u.port === ollama.port && (u.hostname === ollama.hostname || (local && isLoopback(ollama.href))));
+    if (atOllama) return local ? 'Ollama, on this machine' : `Ollama, ${u.host}`;
+    if (local) return 'on this machine';
     if (`${u.protocol}//${u.host}` === new URL(OFFICIAL.openai).origin) return 'OpenAI API';
     return u.host;
   } catch {
@@ -194,7 +202,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     return ids.map((id) =>
       official
         ? { group: 'OpenAI API', id, via: 'OpenAI API', where: 'OpenAI API', baseUrl: null, flags: ['--model', own === 'openai' ? id : `openai:${id}`], perAttempt: price(id, false), local: false }
-        : { group: `OpenAI-compatible, ${endpointVia(base)}`, id, via: endpointVia(base), where: endpointVia(base), baseUrl: base, flags: ['--model', id, '--base-url', base], perAttempt: price(id, local), local },
+        : { group: `OpenAI-compatible, ${endpointVia(base, env)}`, id, via: endpointVia(base, env), where: endpointVia(base, env), baseUrl: base, flags: ['--model', id, '--base-url', base], perAttempt: price(id, local), local },
     );
   };
   const ollama = async (): Promise<ModelChoice[]> => {
@@ -210,7 +218,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
   const listed = await Promise.allSettled([anthropic(), openai(), ollama()]);
   const openaiAt = openAIBase(env);
   const ollamaAt = ollamaBase(env);
-  const names = ['Anthropic API', openaiAt === OFFICIAL.openai ? 'OpenAI API' : `OpenAI-compatible, ${endpointVia(openaiAt)}`, isLoopback(ollamaAt) ? 'Ollama, on this machine' : `Ollama, ${new URL(ollamaAt).host}`];
+  const names = ['Anthropic API', openaiAt === OFFICIAL.openai ? 'OpenAI API' : `OpenAI-compatible, ${endpointVia(openaiAt, env)}`, isLoopback(ollamaAt) ? 'Ollama, on this machine' : `Ollama, ${new URL(ollamaAt).host}`];
   listed.forEach((r, i) => {
     if (r.status === 'fulfilled') {
       for (const c of r.value) add(c);
@@ -224,7 +232,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     if (has(s.model, s.baseUrl)) continue;
     const local = s.baseUrl ? isLoopback(s.baseUrl) : false;
     const flags = s.baseUrl ? ['--model', s.model, '--base-url', s.baseUrl] : ['--model', s.via === 'OpenAI API' ? `openai:${s.model}` : s.via === 'Anthropic API' ? `anthropic:${s.model}` : s.model];
-    const via = s.via ?? (s.baseUrl ? endpointVia(s.baseUrl) : 'the recorded provider');
+    const via = s.via ?? (s.baseUrl ? endpointVia(s.baseUrl, env) : 'the recorded provider');
     add({ group: 'Endpoints scored before', id: s.model, via, where: via, baseUrl: s.baseUrl, flags, perAttempt: price(s.model, local), local });
   }
   return { choices, notes, tokens: input.tokens };

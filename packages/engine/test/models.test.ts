@@ -107,10 +107,16 @@ describe('models to score', () => {
     expect(isLoopback('http://localhost:8000/v1')).toBe(true);
     expect(isLoopback('http://[::1]:8000/v1')).toBe(true);
     expect(isLoopback('https://api.openai.com/v1')).toBe(false);
-    expect(endpointVia('http://127.0.0.1:11434/v1')).toBe('Ollama, on this machine');
-    expect(endpointVia('http://127.0.0.1:8000/v1')).toBe('on this machine');
-    expect(endpointVia('https://api.openai.com/v1')).toBe('OpenAI API');
-    expect(endpointVia('https://gpu.example.com/v1')).toBe('gpu.example.com');
+    expect(endpointVia('http://127.0.0.1:11434/v1', {})).toBe('Ollama, on this machine');
+    expect(endpointVia('http://127.0.0.1:8000/v1', {})).toBe('on this machine');
+    expect(endpointVia('https://api.openai.com/v1', {})).toBe('OpenAI API');
+    expect(endpointVia('https://gpu.example.com/v1', {})).toBe('gpu.example.com');
+    // Ollama where OLLAMA_HOST puts it is named as its model list is, so a model listed there keeps the name once scored.
+    expect(endpointVia('http://127.0.0.1:11500/v1', { OLLAMA_HOST: '0.0.0.0:11500' })).toBe('Ollama, on this machine');
+    expect(endpointVia('http://localhost:11500/v1', { OLLAMA_HOST: '127.0.0.1:11500' })).toBe('Ollama, on this machine');
+    expect(endpointVia('http://gpu-box:11434/v1', { OLLAMA_HOST: 'gpu-box' })).toBe('Ollama, gpu-box:11434');
+    expect(endpointVia('http://gpu-box:11434/v1', {})).toBe('gpu-box:11434');
+    expect(endpointVia('http://127.0.0.1:11434/v1', { OLLAMA_HOST: '127.0.0.1:11500' })).toBe('Ollama, on this machine');
     expect(openAIBase({ OPENAI_BASE_URL: 'http://localhost:11434/v1/' })).toBe('http://localhost:11434/v1');
     expect(openAIBase({})).toBe('https://api.openai.com/v1');
     expect(anthropicBase({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:5555/t/0123456789abcdef0123456789abcdef/anthropic' })).toBe('https://api.anthropic.com');
