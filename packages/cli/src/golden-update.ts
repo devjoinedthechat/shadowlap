@@ -1,11 +1,9 @@
-import { spawn } from 'node:child_process';
 import { existsSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { estimateCost, finalAnswer, formatUsd, normalizeAddCommand, packRun, volatileValues, type CallRecord, type DivergenceReport, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
-import { Sidecar } from '@shadowlap/sidecar';
-import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
-import { codeVersion, upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { agentEnv, type GuardMode } from './run-agent.js';
+import { formatUsd, normalizeAddCommand, packRun, volatileValues, type CallRecord, type DivergenceReport, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { type CheckResult, type TestSpec } from './checks.js';
+import { upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { testAttempt, type GuardMode } from './run-agent.js';
 import { telemetry, usageOf } from './shared.js';
 
 /**
@@ -83,54 +81,34 @@ export function volatileWarning(d: DivergenceReport | null): Array<{ text: strin
 export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestSpec | null, ctx: UpdateContext): Promise<UpdateResult> {
   const { store } = ctx;
   const before = callCounts(store.getCalls(parent.runId));
-  const upstreams = upstreamOverrides(process.env);
-  const sidecar = await Sidecar.start({ store, normalizers: ctx.config.normalize, upstreams, ...(ctx.config.prices ? { prices: ctx.config.prices } : {}), ...(ctx.config.clock ? { clock: ctx.config.clock } : {}), ...(ctx.config.http ? { http: ctx.config.http } : {}) });
-  const argv = parent.command.argv;
   // Live from the first call: a fork at call 1 that replays nothing. Writes are stubbed, so the
-  // agent carries on as if each one succeeded and nothing acts on the world.
-  const run = sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: ctx.cwd }, codeVersion: codeVersion(ctx.cwd), replay: { writes: 'stub', reads: 'live', liveTools: new Set(), divergeAt: 1 } });
-  ctx.onRun?.(run.runId);
-  let output = '';
-  const started = Date.now();
-  const child = spawn(argv[0]!, argv.slice(1), { cwd: ctx.cwd, env: agentEnv(sidecar, run.runId, ctx.guard, upstreams), stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout.on('data', (d: Buffer) => (output += d.toString()));
-  child.stderr.on('data', (d: Buffer) => (output += d.toString()));
-  const code = await new Promise<number>((res) => {
-    child.on('error', (err) => {
-      output += `failed to start ${argv[0]}: ${err.message}\n`;
-      res(127);
-    });
-    child.on('exit', (c, signal) => res(c ?? (signal ? 128 : 1)));
+  // agent carries on as if each one succeeded and nothing acts on the world. As a fork, it may
+  // diverge; the exit status and the golden's checks decide.
+  const attempt = await testAttempt(store, parent, {
+    cwd: ctx.cwd,
+    upstreams: upstreamOverrides(process.env),
+    extraEnv: {},
+    writes: 'stub',
+    guard: ctx.guard,
+    normalizers: ctx.config.normalize,
+    prices: ctx.config.prices,
+    clock: ctx.config.clock,
+    ...(ctx.config.http ? { http: ctx.config.http } : {}),
+    spec: { ...(spec ?? { repeat: 1, passes: 1, tools: [] }), fork: true },
+    divergeAt: 1,
+    ...(ctx.onRun ? { onRun: ctx.onRun } : {}),
   });
-  const ended = sidecar.endRun(run.runId, code === 0 ? 'completed' : 'failed');
-  await sidecar.close();
-  telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - started, code) });
-
-  const calls = store.getCalls(run.runId);
-  const after = callCounts(calls);
-  let checks: CheckResult[] | null = null;
-  if (spec) {
-    checks = evaluateChecks(spec, {
-      calls,
-      output,
-      answer: finalAnswer(store, calls),
-      argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
-      costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, ctx.config.prices),
-    });
-    store.updateRunMeta(run.runId, { checks });
-  }
-  const failed = checks?.filter((c) => !c.ok) ?? [];
-  const reason =
-    code !== 0
-      ? `the agent exited with code ${code}`
-      : calls.length === 0
-        ? 'no calls were made through Shadowlap'
-        : before.model > 0 && after.model === 0
-          ? 'the agent made no model calls through Shadowlap, so the new recording would hold none'
-          : failed.length
-            ? `check failed: ${failed[0]!.label}, but ${failed[0]!.detail}${failed.length > 1 ? `; ${failed.length - 1} more failed` : ''}`
-            : null;
-  const result: UpdateResult = { replaced: false, reason, run: store.getRun(run.runId), summary: ended.summary, checks, code, output, before, after };
+  telemetry().record({ type: 'replay', ...usageOf(attempt.ended, attempt.ms, attempt.code) });
+  const runId = attempt.ended.summary.runId;
+  // A golden without checks keeps none on its new recording either (an undefined key is dropped when stored).
+  if (!spec) store.updateRunMeta(runId, { checks: undefined } as unknown as Partial<RunMeta>);
+  const after = callCounts(store.getCalls(runId));
+  const reason = attempt.failure
+    ? attempt.failure.message
+    : before.model > 0 && after.model === 0
+      ? 'the agent made no model calls through Shadowlap, so the new recording would hold none'
+      : null;
+  const result: UpdateResult = { replaced: false, reason, run: store.getRun(runId), summary: attempt.ended.summary, checks: spec ? attempt.checks : null, code: attempt.code, output: attempt.output, before, after };
   if (reason) return result;
 
   // The new pack is written beside the old one, then swapped in, so a failure leaves the old one.
@@ -139,7 +117,7 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
   const fresh = join(dirname(target), `.${basename(target)}.new-${stamp}`);
   const old = join(dirname(target), `.${basename(target)}.old-${stamp}`);
   try {
-    packRun(store, run.runId, fresh, { redact: ctx.config.redact });
+    packRun(store, runId, fresh, { redact: ctx.config.redact });
     renameSync(target, old);
     try {
       renameSync(fresh, target);

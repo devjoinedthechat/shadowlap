@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
@@ -91,6 +91,8 @@ export interface TestAttempt {
   /** Null when the recording has no checks. */
   checks: CheckResult[] | null;
   failure: JunitCase['failure'];
+  /** What kind of failure it was, or null when it passed. */
+  kind: Exclude<TestFailure, 'error'> | null;
 }
 
 /** One replay of a packed recording under `shadowlap test`, judged by its checks. */
@@ -100,8 +102,9 @@ export async function testAttempt(
   o: {
     cwd: string; upstreams: Record<string, string>; extraEnv: Record<string, string>; writes: WritePolicy; guard: GuardMode; normalizers: ReturnType<typeof loadConfig>['normalize']; prices: ReturnType<typeof loadConfig>['prices']; clock: ReturnType<typeof loadConfig>['clock']; http?: ReturnType<typeof loadConfig>['http']; spec: TestSpec | null;
     // `shadowlap test` and `bisect`: the command to run (default: the recorded one), metadata for the
-    // replay (`test: { golden, session }`), a callback once the replay run exists, and a time limit.
-    argv?: string[]; meta?: Partial<RunMeta>; onRun?: (runId: string) => void; timeoutMs?: number | null;
+    // replay (`test: { golden, session }`), a callback once the replay run exists, a time limit, and a
+    // call forced live (`test --update` re-records from call 1).
+    argv?: string[]; meta?: Partial<RunMeta>; onRun?: (runId: string) => void; timeoutMs?: number | null; divergeAt?: number;
   },
 ): Promise<TestAttempt> {
   const started = Date.now();
@@ -114,19 +117,35 @@ export async function testAttempt(
     command: { argv, cwd: o.cwd },
     codeVersion: codeVersion(o.cwd),
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
-    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}) },
+    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}) },
   });
   if (o.meta) store.updateRunMeta(run.runId, o.meta);
   o.onRun?.(run.runId);
-  const child = spawn(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // With a time limit, the agent gets a process group of its own, so stopping it also stops what it
+  // started (`npm run`, `sh -c`); signals that would have reached the group from the terminal are passed on.
+  const group = !!o.timeoutMs && process.platform !== 'win32';
+  const child = spawn(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group });
   child.stdout.on('data', (d: Buffer) => (output += d.toString()));
   child.stderr.on('data', (d: Buffer) => (output += d.toString()));
+  const kill = (sig: NodeJS.Signals) => {
+    try {
+      if (group && child.pid) process.kill(-child.pid, sig);
+      else child.kill(sig);
+    } catch {
+      // already gone
+    }
+  };
+  const forward = (sig: NodeJS.Signals) => kill(sig);
+  if (group) {
+    process.on('SIGINT', forward);
+    process.on('SIGTERM', forward);
+  }
   let timedOut = false;
   const timer = o.timeoutMs
     ? setTimeout(() => {
         timedOut = true;
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
+        kill('SIGTERM');
+        setTimeout(() => kill('SIGKILL'), 5_000).unref();
       }, o.timeoutMs)
     : null;
   const code = await new Promise<number>((res) => {
@@ -137,6 +156,12 @@ export async function testAttempt(
     child.on('exit', (c, signal) => res(c ?? (signal ? 128 : 1)));
   });
   if (timer) clearTimeout(timer);
+  if (group) {
+    process.off('SIGINT', forward);
+    process.off('SIGTERM', forward);
+    // Whatever the agent left running in its group goes with it.
+    kill('SIGKILL');
+  }
   if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
   const ended = sidecar.endRun(run.runId, timedOut ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
@@ -157,18 +182,23 @@ export async function testAttempt(
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
   const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
   let failure: JunitCase['failure'];
+  let kind: TestAttempt['kind'] = null;
   if (summary.divergence && !o.spec?.fork) {
+    kind = 'diverged';
     failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
   } else if (code !== 0) {
+    kind = 'exit';
     failure = { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
+    kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
   } else if (failedChecks.length) {
+    kind = 'check';
     const first = failedChecks[0]!;
     const more = failedChecks.length > 1 ? `; ${failedChecks.length - 1} more check${failedChecks.length > 2 ? 's' : ''} failed` : '';
     failure = { message: `check failed: ${first.label}, but ${first.detail}${more}`, details: divergence + formatSummary(summary) };
   }
-  return { ended, code, ms: Date.now() - started, output, checks, failure };
+  return { ended, code, ms: Date.now() - started, output, checks, failure, kind };
 }
 
 export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<number, unknown> {

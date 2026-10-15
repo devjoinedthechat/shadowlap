@@ -43,17 +43,6 @@ export interface RecordingOutcome {
   kind: TestFailure | null;
 }
 
-/** What kind of failure an attempt is, in the order `testAttempt` judges them. */
-export function failureKind(attempt: TestAttempt, spec: TestSpec | null): TestFailure | null {
-  if (!attempt.failure) return null;
-  const s = attempt.ended.summary;
-  if (s.divergence && !spec?.fork) return 'diverged';
-  if (attempt.code !== 0) return 'exit';
-  if (s.total === 0) return 'no-calls';
-  if (attempt.checks?.some((c) => !c.ok)) return 'check';
-  return 'error';
-}
-
 /** Replays a recording that is already in the store, as a test does, and judges it. */
 export async function testRecording(parent: RunRecord, spec: TestSpec | null, ctx: RecordingTestContext): Promise<RecordingOutcome> {
   // A golden has to be able to start its agent. One packed straight from a capture cannot, and
@@ -101,7 +90,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
             details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `✗ ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
           };
   }
-  return { spec, attempts, shown, passed, required, failure, kind: failure ? failureKind(shown, spec) : null };
+  return { spec, attempts, shown, passed, required, failure, kind: failure ? (shown.kind ?? 'error') : null };
 }
 
 /** A golden as `shadowlap test` ran it: its pack, its recording, and how it came out. */
