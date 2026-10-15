@@ -142,8 +142,9 @@ export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
  * - `running`: in progress.
  * - `diverged`: a test replay that left its golden at call `callNo`.
  * - `lost`: `shadowlap blame` replayed the run, saw it fail, and found the model call that lost it.
- * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, or the
- *   agent exited with an error (the first check of every oracle is that it exits 0).
+ * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, the
+ *   agent exited with an error (the first check of every oracle is that it exits 0), or a test
+ *   replay made no calls.
  * - `passed`: every outcome check passed.
  * - `clean`: a clean replay, or a test that replayed clean without checks.
  * - `none`: nothing to report.
@@ -186,6 +187,9 @@ function divergenceDecides(run: ClassifiableRun, hasChecks: boolean, offline: bo
   return !hasChecks || offline;
 }
 
+/** What a test that made no calls failed on, in `shadowlap test`'s words. */
+const NO_CALLS = 'no calls were made';
+
 /** How a run came out. Reads `status`, `divergence`, `meta.blame` and `meta.checks`, as `ls --json` and lineage report them. */
 export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunOutcome {
   if (run.status === 'running') return { kind: 'running' };
@@ -197,6 +201,8 @@ export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunO
     return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstFailedCheck(run) };
   }
   if (kind === 'test' && run.divergence && divergenceDecides(run, checks !== null, ctx.offline === true)) return { kind: 'diverged', callNo: run.divergence.callNo };
+  // `shadowlap test` fails a golden whose replay made no calls at all: nothing was tested.
+  if (kind === 'test' && ctx.calls === 0 && run.status === 'completed') return { kind: 'check-failed', check: NO_CALLS };
   if (checks && checks.passed < checks.total) return { kind: 'check-failed', check: firstFailedCheck(run) };
   if (run.status === 'failed' && !ctx.injected) return { kind: 'check-failed', check: null };
   if (checks) return { kind: 'passed', checks: checks.total };

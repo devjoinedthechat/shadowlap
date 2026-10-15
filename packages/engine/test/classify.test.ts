@@ -169,6 +169,16 @@ describe('runOutcome: what the status column says', () => {
     expect(runOutcome(run({ ...t, status: 'completed', meta: { test: { golden: 'g', session: 's' }, checks: passing } }))).toEqual({ kind: 'passed', checks: 2 });
   });
 
+  it('fails a test whose replay made no calls, as shadowlap test does', () => {
+    const t = run({ mode: 'replay', parentRunId: 'G', meta: { test: { golden: 'goldens/refund', session: 's' } } });
+    const none = runOutcome(t, { calls: 0 });
+    expect(none).toEqual({ kind: 'check-failed', check: 'no calls were made' });
+    expect(isFailedOutcome(none)).toBe(true);
+    expect(runOutcome(t, { calls: 3 })).toEqual({ kind: 'clean' });
+    // A recording that made no calls is not judged by it.
+    expect(runOutcome(run(), { calls: 0 })).toEqual({ kind: 'none' });
+  });
+
   it('counts an agent that exited with an error as a failed check, unless a fork injected the failure', () => {
     expect(runOutcome(run({ status: 'failed' }))).toEqual({ kind: 'check-failed', check: null });
     const failAt = run({ mode: 'replay', parentRunId: 'P', status: 'failed', divergence: { callNo: 19 } });
