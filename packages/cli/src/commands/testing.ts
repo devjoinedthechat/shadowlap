@@ -138,7 +138,6 @@ export function register(program: Command): void {
       const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
-      let failed = 0;
       let upstreamRequests = 0;
       let updates = 0;
       try {
@@ -205,7 +204,6 @@ export function register(program: Command): void {
             }
           }
 
-          if (outcome.failure) failed++;
           for (const a of outcome.result?.attempts ?? []) emitJobEvent({ type: 'run', runId: a.ended.summary.runId, role: a.failure ? 'failing' : 'passing' });
           store.addTestResult({
             sessionId: session.sessionId,
@@ -222,9 +220,11 @@ export function register(program: Command): void {
           results.push(packResult(outcome, { expect, updated }));
         }
       } finally {
-        const passed = packs.length - failed;
+        // Counted from the results recorded, so a session cut short by an error counts what ran.
+        const passed = results.filter((r) => r.ok).length;
+        const failed = results.length - passed;
         store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests });
-        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: packs.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}) } });
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}) } });
         store.close();
       }
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
