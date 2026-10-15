@@ -186,6 +186,8 @@ being tested: for `timeout`, the language's timeout error (`TimeoutError` in Pyt
 the way the language's HTTP clients do (`status_code`, `status`); for `error`, an error with
 `error.message`. It SHOULD carry `injected = true`, the tool's name and its arguments, so a test can
 tell it from a real failure. The client MUST NOT run the implementation and MUST NOT call `complete`.
+A proxy for another protocol answers in that protocol's shape for a failing tool: `shadowlap mcp`
+sends the MCP client a tool result with `isError: true` whose text is the message.
 
 A client that does not know `injected` raises its replayed-error type with the same name and
 message. That still never runs the tool, which is why the failure travels in this shape: an older
