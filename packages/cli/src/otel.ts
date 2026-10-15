@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { CallRecord, RunRecord } from '@shadowlap/engine';
-import { estimateCost, type Price } from '@shadowlap/engine';
+import type { CallRecord, Normalizer, RunRecord } from '@shadowlap/engine';
+import { estimateCost, rewriteText, type Price } from '@shadowlap/engine';
 
 /**
  * A run as an OpenTelemetry trace in OTLP/HTTP JSON: one span for the run, one child span per
@@ -43,6 +43,55 @@ export interface OtelOptions {
   prices?: Record<string, Price>;
   serviceName?: string;
   version?: string;
+  /**
+   * Redaction rules. A trace carries no prompt text, tool arguments or results, so path rules have
+   * nothing to reach; the rules without a path apply to what it does carry from the run: span
+   * names, the command line, model and tool names, and error messages.
+   */
+  redact?: Normalizer[];
+}
+
+/** Attributes Shadowlap writes itself (ids, hashes, fixed vocabularies), which no rule should rewrite. */
+const OWN_ATTRIBUTES = new Set([
+  'shadowlap.run.id',
+  'shadowlap.run.parent_id',
+  'shadowlap.run.mode',
+  'shadowlap.run.status',
+  'shadowlap.run.code_version',
+  'shadowlap.run.divergence.type',
+  'shadowlap.kind',
+  'shadowlap.origin',
+  'shadowlap.effect',
+  'shadowlap.fingerprint',
+  'shadowlap.replayed_from',
+  'gen_ai.operation.name',
+  'http.request.method',
+  'service.name',
+  'telemetry.sdk.name',
+  'telemetry.sdk.language',
+]);
+
+function redactAttrs(list: Attr[], text: (s: string) => string): Attr[] {
+  const value = (v: AttrValue): AttrValue => ('stringValue' in v ? { stringValue: text(v.stringValue) } : 'arrayValue' in v ? { arrayValue: { values: v.arrayValue.values.map(value) } } : v);
+  return list.map((a) => (OWN_ATTRIBUTES.has(a.key) ? a : { key: a.key, value: value(a.value) }));
+}
+
+/** What redaction reads and rewrites in a span; the rest (ids, times, kind) is Shadowlap's own. */
+interface Span {
+  name: string;
+  attributes: Attr[];
+  status: { code: number; message?: string };
+  [field: string]: unknown;
+}
+
+/** The trace with the rules without a path applied to everything it carries from the run. */
+function redactTrace(spans: Span[], rules: Normalizer[]): void {
+  const text = (s: string) => rewriteText(s, rules);
+  for (const span of spans) {
+    span.name = text(span.name);
+    span.attributes = redactAttrs(span.attributes, text);
+    if (span.status.message !== undefined) span.status.message = text(span.status.message);
+  }
 }
 
 export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOptions = {}): unknown {
@@ -50,7 +99,7 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
   const runSpanId = hex(`span:${run.runId}`, 16);
   const endedAt = run.endedAt ?? (calls.length ? Math.max(run.startedAt, ...calls.map((c) => c.end?.at ?? c.at)) : run.startedAt);
   let spent = 0;
-  const spans: unknown[] = [];
+  const spans: Span[] = [];
   for (const c of calls) {
     const end = c.end;
     const model = end?.meta.model ?? c.meta.model ?? null;
@@ -94,7 +143,7 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
       status,
     });
   }
-  const runSpan = {
+  const runSpan: Span = {
     traceId,
     spanId: runSpanId,
     name: `shadowlap.${run.mode} ${run.command.argv.join(' ')}`.slice(0, 200),
@@ -115,6 +164,7 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
     ]),
     status: run.status === 'failed' || run.status === 'crashed' ? { code: 2, message: run.status } : { code: 1 },
   };
+  if (options.redact?.length) redactTrace([runSpan, ...spans], options.redact);
   return {
     resourceSpans: [
       {

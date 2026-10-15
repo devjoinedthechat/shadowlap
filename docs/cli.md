@@ -329,7 +329,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | Key | What it does |
 |---|---|
 | `normalize` | Masks values before fingerprinting, so a generated id or today's date does not fork a replay ([details](./normalizers-and-redaction.md)) |
-| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack`, `export html` and the other exports, [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
+| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack`, `export html`, `export dataset`, `export otel`; [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
@@ -463,7 +463,7 @@ Recordings as an eval or fine-tuning dataset, one JSON line per example. Select 
 | `--format openai-chat` | `{ messages }`, the recorded answer as the last assistant message |
 | `--no-redact` | Skip the redaction rules |
 
-Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. Redaction rules without a path apply to every string; rules with a path apply to stored requests only, so they are skipped here.
+Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. The redaction rules apply to each model call's request and response as `pack` applies them, path rules included, before its conversation and answer are read; then the rules without a path apply to every string of the row, its command line, labels and notes too. A rule that can't be read stops the export.
 
 ## export har
 
@@ -476,7 +476,8 @@ A run's model API calls as a HAR, for any tool that reads one, and the reverse o
 [`import`](#import): exporting a run and importing it again produces the same
 fingerprints. Tool, clock and randomness calls are left out, because a HAR describes HTTP. Azure,
 Vertex and Bedrock hosts depend on the account, so a representative host for the provider stands in.
-Credentials are never written, and redaction is already applied to what was stored.
+Credentials are never written. The redaction rules don't apply yet: a HAR carries whole requests
+and responses as they were recorded, so share a run with `pack` or `export html` instead.
 
 ## export otel
 
@@ -484,9 +485,12 @@ Credentials are never written, and redaction is already applied to what was stor
 shadowlap export otel <run>                                   # OTLP JSON to stdout
 shadowlap export otel <run> --out trace.json
 shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER_OTLP_ENDPOINT
+shadowlap export otel <run> --no-redact                       # skip the config's redaction rules
 ```
 
 A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved.
+
+A trace carries no prompt text, tool arguments or results. The redaction rules without a path apply to what it does carry from the run: span names, the command line (`process.command_args`), model and tool names, and error messages; Shadowlap's own ids and fixed values stay as they are. A rule that can't be read stops the export.
 
 ## Environment
 

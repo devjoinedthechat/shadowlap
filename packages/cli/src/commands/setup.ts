@@ -54,7 +54,7 @@ const HOW: Record<RuleList, { what: string; add: string; listed: string }> = {
     listed: 'no normalizers',
   },
   redact: {
-    what: 'Manage redaction rules in shadowlap.config.json: what is masked in the copy of a run that leaves this machine (pack, export html and the other exports)',
+    what: 'Manage redaction rules in shadowlap.config.json: what is masked in the copy of a run that leaves this machine (pack, export html, dataset and otel; not export har yet)',
     add: 'Add a redaction rule. A pattern masks what it matches in every stored request and response (only at --path in requests, with one); --path alone replaces the whole value there',
     listed: 'no redaction rules',
   },

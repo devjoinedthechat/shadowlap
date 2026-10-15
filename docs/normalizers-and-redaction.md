@@ -108,7 +108,9 @@ shadowlap pack <run> ./share/run
 
 Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool`; the replacement is `<REDACTED>` when it is left out. `redact ls` and `redact rm` work as they do for normalizers.
 
-`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request and the raw text of responses and tool results. The local store is never modified. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean. `--no-redact` skips the rules.
+`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request, the raw text of responses and tool results, and an attempt's error message. The local store is never modified. The run's command line, labels and notes are copied as they are, because a replay of the pack runs that command. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean; a rule that lists the values it hides (an alternation of customer names) travels with every copy that way. `--no-redact` skips the rules.
+
+A path rule masks only at its path. A tool argument the model wrote also appears in the conversation sent back to the model (`$.messages[…].content[…].input`), so mask a value that can appear there with a pattern, or a path for each place it appears.
 
 Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`). It also refuses a replacement that copies matched text back into the copy (`$&`, `$1`, `$<name>`, `` $` `` or `$'`); `$$` is a literal dollar sign. To keep the text around a secret, match only the secret, with a lookbehind for what comes before it: `--pattern '/(?<=key=)\w+/'`. Redaction is pattern-based: it masks what your rules describe and nothing else. A value a streamed response splits across two events is not matched, so check the preview, and review a pack before sharing it.
 
@@ -116,20 +118,21 @@ Credentials never need redacting: API keys and authorization headers are forward
 
 ### Where the rules apply
 
-Every way a run's content leaves the machine applies the project's rules to its copy:
+The Settings page and `REDACTION_EXPORTS` list the same thing, and a test holds each export to it:
 
 | Export | Applies |
 |---|---|
-| `shadowlap pack` | every rule |
-| `shadowlap export html` | every rule |
-| `shadowlap export har` | every rule |
-| `shadowlap export dataset` | rules without a path, and path rules on the message fields it keeps |
-| `shadowlap export pairs` | rules without a path, and path rules on the message fields it keeps |
-| `shadowlap export otel` | no prompt text leaves; every rule applies to the attributes it keeps |
+| `shadowlap pack` | every rule, on every request and response it copies and the errors with them |
+| `shadowlap export html` | every rule, as `pack` applies them |
+| `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `pack` applies them, then rules without a path on the rest of each row (command line, labels, notes) |
+| `shadowlap export otel` | a trace carries no prompt text; rules without a path apply to its span names, command line, model and tool names, and error messages |
+| `shadowlap export har` | no rules yet: a HAR carries whole requests and responses, so share a run with `pack` or `export html` |
+
+Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read.
 
 ### Preview
 
-`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests and responses, retries included, go through the same functions pack applies, and nothing is written. Without a run named it takes the newest run that has ended; a run still recording is refused.
+`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests, responses and errors, retries included, go through the same functions pack applies, and nothing is written. Without a run named it takes the newest run that has ended; a run still recording is refused. A conversation sends its earlier messages again with every request; the preview reads each of them once, so it takes time in proportion to the run's length (a run of 1,200 model calls takes about a second). In the dashboard it runs as a job, so a long run never holds up the page.
 
 ```
 01M2R1HDVD (node agent.js): 5 values would be masked
@@ -144,7 +147,7 @@ Every way a run's content leaves the machine applies the project's rules to its 
   #3  every call  any string  /\b(?:\d[ -]?){13,16}\b/ → <CARD>  0  no matches in this run
 ```
 
-Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value that a conversation sends again with every later request counts once. A rule that masks nothing says why: no matches in the run, no call of its kind or name, no request with its path, or a path whose values don't match its pattern. `--json` prints the same object.
+Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value that a conversation sends again with every later request counts once. A rule that masks nothing says why: no matches in the run, no call of its kind or name, no request with its path, or a path whose values don't match its pattern. `--json` prints the same object, and a dashboard job that runs the preview gets it as its result.
 
 ## Editing the file
 

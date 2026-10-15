@@ -110,13 +110,15 @@ export function register(program: Command): void {
     .option('--endpoint <url>', 'OTLP/HTTP endpoint, e.g. http://localhost:4318 (default: $OTEL_EXPORTER_OTLP_ENDPOINT; headers from $OTEL_EXPORTER_OTLP_HEADERS)')
     .option('--out <file>', 'write the JSON here instead of stdout')
     .option('--service <name>', 'service.name resource attribute', 'shadowlap-agent')
-    .action(async (runArg: string, flags: { endpoint?: string; out?: string; service: string }) => {
+    .option('--no-redact', 'skip the redaction rules in shadowlap.config.json (a trace carries no prompt text; the rules without a path apply to its names, command line and errors)')
+    .action(async (runArg: string, flags: { endpoint?: string; out?: string; service: string; redact: boolean }) => {
+      const config = loadConfig(process.cwd());
+      const redact = flags.redact ? config.redact : [];
       const store = openStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
       const calls = store.getCalls(run.runId);
       store.close();
-      const config = loadConfig(process.cwd());
-      const payload = runToOtlp(run, calls, { serviceName: flags.service, version: VERSION, ...(config.prices ? { prices: config.prices } : {}) });
+      const payload = runToOtlp(run, calls, { serviceName: flags.service, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), redact });
       const endpoint = flags.endpoint ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
       const spans = calls.length + 1;
       if (flags.out) {

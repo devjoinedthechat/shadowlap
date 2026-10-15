@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, rewriteText, type RewriteObserver } from '../src/normalize.js';
-import { REDACTION_EXPORTS, clipChange, previewRedaction, redactRun } from '../src/redact.js';
+import { clipChange, previewRedaction, redactRun } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -92,6 +92,81 @@ describe('previewRedaction', () => {
     store.close();
   });
 
+  it('counts what pack masks in an error, and stops early when asked to, saying how far it got', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const tool = { kind: 'tool' as const, name: 'send_email', fingerprint: 'e'.repeat(64), occurrence: 1 };
+    const error = { name: 'Error', message: 'mailbox of dana@example.com is full' };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...tool, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { to: 'x' } }), meta: {}, at: 1 });
+    store.appendCallEnd(tool, { runId: run.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'error', meta: { error }, at: 2 });
+    for (let i = 2; i <= 5; i++) {
+      const t = { ...tool, fingerprint: String(i).padStart(64, 'e') };
+      store.appendCallStart({ runId: run.runId, callNo: i, ...t, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { to: `user${i}@example.com` } }), meta: {}, at: i });
+    }
+    store.endRun(run.runId, 'completed');
+    const full = previewRedaction(store, run.runId, [EMAIL]);
+    expect(full).toMatchObject({ calls: 5, partial: null, total: 5 });
+    expect(full.rules[0]!.samples[0]).toEqual({ before: 'mailbox of dana@example.com is full', after: 'mailbox of <EMAIL> is full' });
+    // The copy pack writes carries the error masked too.
+    const dst = Store.open(':memory:');
+    redactRun(store, run.runId, [EMAIL], dst);
+    expect(dst.getCalls(run.runId)[0]!.end!.meta.error).toEqual({ name: 'Error', message: 'mailbox of <EMAIL> is full' });
+    dst.close();
+    expect(previewRedaction(store, run.runId, [EMAIL], { maxCalls: 2 })).toMatchObject({ calls: 2, partial: { read: 2, of: 5 }, total: 2 });
+    store.close();
+  });
+
+  it('reads a long conversation once, and counts exactly what reading every request whole counts', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const system = [{ type: 'text', text: `Support policy for acme. Escalate to lead@example.com. ${'Be kind. '.repeat(400)}` }];
+    const messages: unknown[] = [];
+    for (let i = 1; i <= 150; i++) {
+      messages.push({ role: 'user', content: `Order ${4400 + i} for customer${i}@example.com, card 4111 1111 1111 ${String(1000 + i)}` });
+      const id = { ...API, fingerprint: String(i).padStart(64, 'c'), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo: i, ...id, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'm', system, messages: [...messages], metadata: { user_id: `9b1deb4d-3b7d-4bad-9bdd-${String(i).padStart(12, '0')}` } }), meta: {}, at: i });
+      store.appendCallEnd(id, { runId: run.runId, callNo: i, attempt: 0, responseRef: store.putBlob(Buffer.from(`{"content":[{"type":"text","text":"Done for customer${i}@example.com"}]}`)), outcome: 'ok', meta: {}, at: i });
+      messages.push({ role: 'assistant', content: `Done for customer${i}@example.com` });
+    }
+    store.endRun(run.runId, 'completed');
+    const rules: Normalizer[] = [EMAIL, CARD, USER, { kind: 'api', path: '$.messages[*].content', pattern: '/Order \\d+/', replace: 'Order <N>' }, { kind: 'api', path: '$.system[0].text', pattern: '/acme/', replace: '<CO>' }];
+    const fast = previewRedaction(store, run.runId, rules);
+    // A rule that sees one whole message makes the preview read every request whole; it applies to no call here.
+    const whole = previewRedaction(store, run.runId, [...rules, { kind: 'tool', name: 'nothing', path: '$.messages[0]', replace: 'x' }]);
+    expect(fast.rules).toEqual(whole.rules.slice(0, rules.length));
+    expect(fast.total).toBe(whole.total);
+    // The policy, each user turn, each answer sent back, and each response; then the cards, ids, orders and the company.
+    expect(fast.rules.map((r) => r.count)).toEqual([1 + 150 + 149 + 150, 150, 150, 150, 1]);
+    store.close();
+  });
+
+  it('previews a run of 1,200 model calls in about the time it takes to read it', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    // Stored as storeApiRequest stores a conversation: each message once, and a manifest per request listing them.
+    const system = store.putJson(`You help customers. The account owner is alice@example.com. ${'Policy text. '.repeat(200)}`);
+    const messages: string[] = [];
+    store.transaction(() => {
+      for (let i = 0; i < 1200; i++) {
+        messages.push(store.putJson({ role: 'user', content: `Turn ${i}: refund order ${4400 + i} for user${i}@example.com. ${'More words here. '.repeat(20)}` }));
+        const id = { ...API, fingerprint: String(i).padStart(64, 'd'), occurrence: 1 };
+        const manifest = store.putJson({ v: 1, kind: 'chunked', fields: { model: 'm' }, system, tools: null, messages: [...messages] });
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...id, origin: 'live', effect: null, requestRef: manifest, meta: {}, at: i });
+        store.appendCallEnd(id, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putBlob(Buffer.from(`data: {"delta":{"text":"Emailing user${i}@example.com"}}\n\n`)), outcome: 'ok', meta: {}, at: i });
+        messages.push(store.putJson({ role: 'assistant', content: `Emailing user${i}@example.com` }));
+      }
+    });
+    store.endRun(run.runId, 'completed');
+    const started = performance.now();
+    const p = previewRedaction(store, run.runId, [EMAIL, CARD, USER]);
+    // Reading every request whole took over 8 seconds here; the work now grows with the run, not its square.
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(p).toMatchObject({ calls: 1200, partial: null });
+    // The system prompt, each user turn, each answer as the conversation sends it back, and each response.
+    expect(p.rules[0]!.count).toBe(1 + 1200 + 1199 + 1200);
+    store.close();
+  }, 30_000);
+
   it('counts a call it cannot read apart instead of failing the preview', () => {
     const store = Store.open(':memory:');
     const run = seed(store);
@@ -134,18 +209,5 @@ describe('clipChange', () => {
     expect(clipChange('id 123456 and more words', 'id <N> and more words', 4)).toEqual({ before: 'id 123456 and…', after: 'id <N> and…' });
     expect(clipChange('id 123456 and more words', 'id <N> and more words', 3)).toEqual({ before: 'id 123456…', after: 'id <N>…' });
     expect(clipChange('short', 'shirt')).toEqual({ before: 'short', after: 'shirt' });
-  });
-});
-
-describe('REDACTION_EXPORTS', () => {
-  it('names every way a run leaves the machine, as decision 6 settles it', () => {
-    expect(REDACTION_EXPORTS.map((e) => [e.id, e.applies])).toEqual([
-      ['pack', 'all'],
-      ['html', 'all'],
-      ['har', 'all'],
-      ['dataset', 'messages'],
-      ['pairs', 'messages'],
-      ['otel', 'attributes'],
-    ]);
   });
 });

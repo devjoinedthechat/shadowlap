@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
-import { loadApiRequest, storeApiRequest } from './manifest.js';
-import { applyNormalizers, compilePattern, normalizerApplies, parsePath, rewriteText, type RewriteObserver } from './normalize.js';
+import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
+import { applyNormalizers, compilePattern, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, type RewriteObserver } from './normalize.js';
 import type { Store } from './store.js';
-import type { CallEndRow, CallRecord, Normalizer, RunRecord } from './types.js';
+import type { CallEndRow, CallRecord, Normalizer, RunRecord, SerializedError } from './types.js';
 
 /**
  * Redaction: a copy of a run whose stored requests and responses have the rules applied.
  * Path-scoped rules apply to requests (they are JSON); pathless pattern rules apply to every
- * string of a request and to the raw text of a response. The copy records the rules in its run
- * metadata so a replay applies them as normalizers and still matches (a rule must therefore be
- * idempotent: its replacement must not match its own pattern).
+ * string of a request, to the raw text of a response, and to an attempt's error. The copy records
+ * the rules in its run metadata so a replay applies them as normalizers and still matches (a rule
+ * must therefore be idempotent: its replacement must not match its own pattern). The run's command
+ * line, labels and notes are copied as they are: a replay of the copy runs that command.
  */
 
 /** A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON. */
@@ -34,16 +35,27 @@ function readingOnce(store: Store): Store {
   }) as Store;
 }
 
-/** What `pack` writes for a call's request: the rules applied to a copy of it. */
-function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver): unknown {
+/** What `pack` writes for a call's request: the rules applied to a copy of it. `export dataset` reads requests through this too. */
+export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver): unknown {
   return applyNormalizers(storedRequest(src, call), rules, call.kind, call.name, observer);
 }
 
 /** What `pack` writes for a response: the pathless rules applied to its text. Binary stays as it is. */
-function redactedResponse(bytes: Buffer, rules: Normalizer[], observer?: RewriteObserver): Buffer {
+export function redactedResponse(bytes: Buffer, rules: Normalizer[], observer?: RewriteObserver): Buffer {
   const text = bytes.toString('utf8');
   // Only rewrite what round-trips as text; binary responses stay as they are.
   return Buffer.from(text, 'utf8').equals(bytes) ? Buffer.from(rewriteText(text, rules, observer), 'utf8') : bytes;
+}
+
+/** An attempt's error as `pack` keeps it: the pathless rules applied to every string in it, as to the response it came with. */
+function redactedError(error: SerializedError, rules: Normalizer[], observer?: RewriteObserver): SerializedError {
+  let out: unknown = error;
+  rules.forEach((n, i) => {
+    if (n.path !== undefined || n.pattern === undefined) return;
+    const changed = observer?.changed ? (before: string, after: string, count: number) => observer.changed!(i, before, after, count) : undefined;
+    out = rewriteStringsDeep(out, compilePattern(n.pattern), n.replace, changed);
+  });
+  return out as SerializedError;
 }
 
 function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: Store): string | null {
@@ -71,7 +83,11 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
       const { end, attempts, ...start } = call;
       dst.appendCallStart({ ...start, requestRef: redactRequest(src, call, rules, dst) });
       const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
-      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, responseRef: redactResponse(src, e.responseRef, rules, dst) });
+      const redactEnd = (e: CallEndRow): CallEndRow => ({
+        ...e,
+        responseRef: redactResponse(src, e.responseRef, rules, dst),
+        ...(e.meta.error ? { meta: { ...e.meta, error: redactedError(e.meta.error, rules) } } : {}),
+      });
       for (const a of attempts) dst.appendCallEnd(identity, redactEnd(a));
       if (end) dst.appendCallEnd(identity, redactEnd(end));
     }
@@ -102,6 +118,8 @@ export interface RedactionPreview {
   calls: number;
   /** Calls left out because a stored request or response could not be read. */
   unreadable: number;
+  /** Set when `maxCalls` stopped the preview early: how many of the run's calls it read. */
+  partial: { read: number; of: number } | null;
   /** Everything the rules would mask, summed over the rules. */
   total: number;
   rules: RedactionRulePreview[];
@@ -141,13 +159,54 @@ const asText = (v: unknown): string => (typeof v === 'string' ? v : v instanceof
 const digest = (v: unknown): string => createHash('sha1').update(asText(v)).digest('base64');
 
 /**
+ * Whether a rule sees a request's system prompt, its tools, its list of messages or one whole
+ * message as a single value, or counts messages from the end. Such a rule needs every request
+ * whole; any other rule sees the same values in a part that is repeated from an earlier request.
+ */
+function seesWholeParts(rule: Normalizer): boolean {
+  if (rule.path === undefined) return false;
+  const segs = parsePath(rule.path);
+  if (segs.length === 0 || segs.some((g) => g.type === 'index' && g.index < 0)) return true;
+  const first = segs[0]!;
+  const at = (key: string) => first.type === 'wild' || (first.type === 'key' && first.key === key);
+  return (segs.length === 1 && (at('system') || at('tools') || at('messages'))) || (segs.length === 2 && at('messages'));
+}
+
+/**
+ * A model request with the parts already read for an earlier request of the same call name left
+ * out (as null): the system prompt, the tools, and each message at its place in the conversation.
+ */
+function unseenParts(store: Store, call: CallRecord, seen: Set<string>): unknown {
+  const manifest = store.getJson<RequestManifest>(call.requestRef!);
+  if (!manifest || manifest.kind !== 'chunked') return storedRequest(store, call);
+  const part = (where: string, hash: string): unknown => {
+    const key = `${call.name}\u0000${where}\u0000${hash}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return store.getJson(hash);
+  };
+  const body: Record<string, unknown> = { ...manifest.fields };
+  if (manifest.system !== null) body.system = part('system', manifest.system);
+  if (manifest.tools !== null) body.tools = part('tools', manifest.tools);
+  body.messages = manifest.messages.map((hash, j) => part(`messages.${j}`, hash));
+  return body;
+}
+
+/**
  * What `shadowlap pack` would mask in one run, without writing anything: each rule applied to the
  * run's stored requests and responses exactly as pack applies it (path rules on requests, pathless
- * rules on every string of a request and on the text of every response, retries included), with a
- * count per rule and two samples. The local store is never modified. A run still recording is
- * refused: its calls are still arriving, so the count would be out of date before it was read.
+ * rules on every string of a request, on the text of every response and on an attempt's error,
+ * retries included), with a count per rule and two samples. The local store is never modified. A
+ * run still recording is refused: its calls are still arriving, so the count would be out of date
+ * before it was read.
+ *
+ * Every request of a conversation sends the earlier messages again, and a value repeated that way
+ * counts once; so a message already read at the same place in an earlier request is not read
+ * again, and the preview takes time in proportion to the run, not to the square of its length.
+ * `maxCalls` stops it after that many calls, for a caller that must answer quickly; `partial` then
+ * says how far it got.
  */
-export function previewRedaction(store: Store, runId: string, rules: Normalizer[]): RedactionPreview {
+export function previewRedaction(store: Store, runId: string, rules: Normalizer[], options: { maxCalls?: number } = {}): RedactionPreview {
   const run = store.getRun(runId);
   if (!run) throw new Error(`unknown run ${runId}`);
   if (run.status === 'running') throw new Error(`${runId.slice(0, 10)} is still recording; preview it once it has ended`);
@@ -179,18 +238,25 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (r.samples.length < SAMPLES) r.samples.push(clipChange(asText(before), asText(after)));
     },
   };
-  const calls = store.getCalls(runId);
+  const all = store.getCalls(runId);
+  const calls = options.maxCalls !== undefined && all.length > options.maxCalls ? all.slice(0, Math.max(0, options.maxCalls)) : all;
   const reader = readingOnce(store);
+  const skipSeen = !rules.some(seesWholeParts);
+  const seen = new Set<string>();
   let unreadable = 0;
   for (const call of calls) {
     rules.forEach((rule, i) => {
       if (normalizerApplies(rule, call.kind, call.name)) per[i]!.scoped++;
     });
     try {
-      if (call.requestRef) redactedRequest(reader, call, rules, observer);
+      if (call.requestRef) {
+        const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
+        applyNormalizers(request, rules, call.kind, call.name, observer);
+      }
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const bytes = end.responseRef ? store.getBlob(end.responseRef) : null;
         if (bytes) redactedResponse(bytes, rules, observer);
+        if (end.meta.error) redactedError(end.meta.error, rules, observer);
       }
     } catch {
       unreadable++;
@@ -200,7 +266,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     const r = per[i]!;
     return { n: i + 1, rule, count: r.count, samples: r.samples, reached: rule.path === undefined ? null : r.reached, note: r.count ? null : zeroNote(rule, r.scoped, r.reached) };
   });
-  return { runId, calls: calls.length - unreadable, unreadable, total: previews.reduce((s, p) => s + p.count, 0), rules: previews };
+  return { runId, calls: calls.length - unreadable, unreadable, partial: calls.length < all.length ? { read: calls.length, of: all.length } : null, total: previews.reduce((s, p) => s + p.count, 0), rules: previews };
 }
 
 function zeroNote(rule: Normalizer, scoped: number, reached: number): string {
@@ -215,25 +281,31 @@ function zeroNote(rule: Normalizer, scoped: number, reached: number): string {
 
 // ---- where the rules apply ----
 
-/** An export a run can leave the machine by, and which redaction rules it applies. */
+/** An export a run can leave the machine by, and which redaction rules it applies today. */
 export interface RedactionExport {
-  id: 'pack' | 'html' | 'har' | 'dataset' | 'pairs' | 'otel';
+  id: 'pack' | 'html' | 'dataset' | 'otel' | 'har';
   command: string;
-  /** `all`: every rule; `messages`: rules without a path, and path rules on the message fields it keeps; `attributes`: every rule, on the attributes it keeps. */
-  applies: 'all' | 'messages' | 'attributes';
+  /**
+   * `all`: every rule, on every request and response it copies and the errors with them, as
+   * `pack` applies them. `messages`: the same rewrite of each model call it keeps, then rules
+   * without a path on every string it writes. `attributes`: rules without a path, on the names,
+   * command line and errors it carries; it carries no prompt text. `none`: no rule yet.
+   */
+  applies: 'all' | 'messages' | 'attributes' | 'none';
   /** The same, in words for the Settings page. */
   note: string;
 }
 
 /**
- * Where the project's redaction rules apply: every way a run's content leaves this machine. The
- * local store is never modified, and API keys and authorization headers are never stored at all.
+ * Where the project's redaction rules apply: every way a run's content leaves this machine, and
+ * what each does today (packages/cli/test/redaction-exports.test.ts holds each export to its
+ * entry). The local store is never modified, and API keys and authorization headers are never
+ * stored at all.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
-  { id: 'pack', command: 'shadowlap pack', applies: 'all', note: 'every rule' },
-  { id: 'html', command: 'shadowlap export html', applies: 'all', note: 'every rule' },
-  { id: 'har', command: 'shadowlap export har', applies: 'all', note: 'every rule' },
-  { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', note: 'rules without a path, and path rules on the message fields it keeps' },
-  { id: 'pairs', command: 'shadowlap export pairs', applies: 'messages', note: 'rules without a path, and path rules on the message fields it keeps' },
-  { id: 'otel', command: 'shadowlap export otel', applies: 'attributes', note: 'no prompt text; every rule on the attributes it keeps' },
+  { id: 'pack', command: 'shadowlap pack', applies: 'all', note: 'every rule, on every request and response it copies and the errors with them' },
+  { id: 'html', command: 'shadowlap export html', applies: 'all', note: 'every rule, as pack applies them' },
+  { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', note: 'every rule on the conversations and answers it keeps, as pack applies them, and rules without a path on the rest of each row' },
+  { id: 'otel', command: 'shadowlap export otel', applies: 'attributes', note: 'no prompt text leaves; rules without a path on the names, command line and errors it keeps' },
+  { id: 'har', command: 'shadowlap export har', applies: 'none', note: 'no rules yet: it writes whole requests and responses, so share a run with pack or export html' },
 ];
