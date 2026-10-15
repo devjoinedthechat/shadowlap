@@ -502,13 +502,21 @@ export class Sidecar {
     if (rest === 'v1/health' && method === 'GET') return json(res, 200, { ok: true, activeRun: this.activeRunId });
 
     if (rest === 'v1/runs' && method === 'POST') {
-      const body = (await readJson(req)) as Partial<StartRunInput> & { replay?: Partial<ReplayOptions> & { liveTools?: string[]; overrides?: Record<string, unknown> }; interventions?: Interventions };
+      const body = (await readJson(req)) as Partial<StartRunInput> & {
+        replay?: Partial<ReplayOptions> & { liveTools?: string[]; overrides?: Record<string, unknown>; failAt?: Record<string, number>; toolFailures?: Record<string, ToolFailure>; plants?: Record<string, string> };
+        interventions?: Interventions;
+      };
       if (body.mode !== 'record' && body.mode !== 'replay') throw new HttpError(400, 'mode must be record or replay');
+      // Maps keyed by call number arrive as JSON objects.
+      const byCall = <T>(o: Record<string, T> | undefined) => (o && typeof o === 'object' ? new Map(Object.entries(o).map(([k, v]) => [Number(k), v] as const)) : undefined);
       const replay = body.replay
         ? {
             ...body.replay,
             ...(body.replay.liveTools ? { liveTools: new Set(body.replay.liveTools) } : {}),
-            ...(body.replay.overrides ? { overrides: new Map(Object.entries(body.replay.overrides).map(([k, v]) => [Number(k), v])) } : {}),
+            ...(body.replay.overrides ? { overrides: byCall(body.replay.overrides)! } : {}),
+            ...(body.replay.failAt ? { failAt: byCall(body.replay.failAt)! } : {}),
+            ...(body.replay.toolFailures ? { toolFailures: byCall(body.replay.toolFailures)! } : {}),
+            ...(body.replay.plants ? { plants: byCall(body.replay.plants)! } : {}),
           }
         : undefined;
       const run = this.startRun({

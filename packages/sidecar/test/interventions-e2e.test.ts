@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loadApiRequest, Store } from '@shadowlap/engine';
+import { loadApiRequest, Store, type ReplayOptions } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer as AnthropicMock } from '@shadowlap-testing/mock-anthropic';
 import { functionCall, startMockGemini, turn as geminiTurn, type MockServer as GeminiMock } from '@shadowlap-testing/mock-gemini';
 import { startMockOpenAI, toolCall, turn as openaiTurn, type MockServer as OpenAIMock } from '@shadowlap-testing/mock-openai';
@@ -16,8 +16,8 @@ import { Sidecar, type Interventions } from '../src/index.js';
 const command = { argv: ['agent'], cwd: '/' };
 type Run = { runId: string };
 
-async function replay(sidecar: Sidecar, parent: string, interventions: Interventions, drive: (run: Run) => Promise<unknown>) {
-  const run = sidecar.startRun({ mode: 'replay', parentRunId: parent, command, interventions });
+async function replay(sidecar: Sidecar, parent: string, interventions: Interventions, drive: (run: Run) => Promise<unknown>, options: Partial<ReplayOptions> = {}) {
+  const run = sidecar.startRun({ mode: 'replay', parentRunId: parent, command, interventions, replay: options });
   let error: unknown;
   try {
     await drive(run);
@@ -247,6 +247,14 @@ describe('Gemini', () => {
     expect(mock.requests.length).toBe(before);
     expect(summary.warnings.join('\n')).toContain('Not applied: --inject 2 --inject-as system');
     expect(store.getCalls(run.runId).find((c) => c.callNo === 2)!.end).toMatchObject({ outcome: 'error', meta: { status: 400, refused: true } });
+  });
+
+  it('resamples for blame: the probed call forced live with the setting where Gemini keeps it', async () => {
+    const before = mock.requests.length;
+    // What a blame probe at call 2 with --set temperature=1 starts.
+    const { summary } = await replay(sidecar, parent, { set: { fromCall: 2, fields: { temperature: 1 } } }, (run) => agent(sidecar, run), { divergeAt: 2, writes: 'stub' });
+    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 2, kind: 'api' });
+    expect(mock.requests.slice(before).map((r) => r.body.generationConfig)).toEqual([{ temperature: 1 }]);
   });
 
   it('counts a retry as the call it retries, so the next call is still the one named', async () => {

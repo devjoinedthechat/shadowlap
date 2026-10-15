@@ -82,5 +82,5 @@ process.exitCode = report(client.name, await runConformance(client)) ? 0 : 1;
 Add it to [scenarios.mjs](./scenarios.mjs): a `record` step, an optional `replay` step, optional
 `env` for the client,
 optional `replayOptions` merged into the replay run (`divergeAt`, `writes`, `liveTools`,
-`overrides`), and a `check` that throws. Then implement the step in both reference clients, or the
+`overrides`, `toolFailures`), and a `check` that throws. Then implement the step in both reference clients, or the
 suite will fail for the one you skipped — which is the point.
