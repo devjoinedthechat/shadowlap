@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar } from '../src/ci-yaml.js';
+import { ACTION, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -79,6 +79,17 @@ describe('the Alerts steps', () => {
     expect(['goldens/*', 'openai:gpt-5', 'claude-code', './goldens/*'].map(scalar)).toEqual(['goldens/*', 'openai:gpt-5', 'claude-code', './goldens/*']);
     expect(['*', '*/flow', '@g', '-x', 'a: b', "it's", 'key:', '#x'].map(scalar)).toEqual(["'*'", "'*/flow'", "'@g'", "'-x'", "'a: b'", "'it''s'", "'key:'", "'#x'"]);
     expect(alertsYaml({ onlyMain: false, secret: 'X', recordings: '*' })).toContain("    recordings: '*'\n");
+  });
+
+  it('previews the message the step posts, as Slack shows it', () => {
+    const preview = alertsMessage({ failed: 1, branch: 'main', runUrl: 'https://github.com/acme/agent/actions/runs/42' });
+    expect(preview).toEqual({ text: 'Shadowlap: 1 golden(s) failed on main.', link: 'https://github.com/acme/agent/actions/runs/42' });
+    // The same words the workflow posts, with GitHub's values filled in.
+    const posted = /text: "(.*)"/.exec(alertsYaml({ onlyMain: true, secret: 'X' }))![1]!
+      .replace('${{ steps.goldens.outputs.failed }}', '1')
+      .replace('${{ github.ref_name }}', 'main')
+      .replace('${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}', 'https://github.com/acme/agent/actions/runs/42');
+    expect(posted).toBe(`${preview.text} ${preview.link}`);
   });
 
   it('keeps a secret name to what GitHub allows, and says what it needs', () => {

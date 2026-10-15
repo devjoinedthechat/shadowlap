@@ -103,6 +103,17 @@ export function alertsSecret(raw: string): string {
   return raw.trim().replace(/[^A-Za-z0-9_]/g, '') || 'SLACK_WEBHOOK_URL';
 }
 
+/** The message the Alerts step posts, with GitHub's expressions in it; alertsMessage fills them in. */
+const ALERT_TEXT = 'Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+
+/**
+ * The message as Slack shows it, for the panel's preview: the text the workflow posts, for a number
+ * of failed goldens on a branch, and the link to the workflow run.
+ */
+export function alertsMessage(o: { failed: number; branch: string; runUrl: string }): { text: string; link: string } {
+  return { text: `Shadowlap: ${o.failed} golden(s) failed on ${o.branch}.`, link: o.runUrl };
+}
+
 /**
  * The Alerts steps: the action counts the failed goldens without failing the step, Slack is told
  * when any failed, then the job fails.
@@ -125,7 +136,7 @@ export function alertsYaml(s: AlertsSettings): string {
     `    webhook: \${{ secrets.${secret} }}`,
     '    webhook-type: incoming-webhook',
     '    payload: |',
-    '      text: "Shadowlap: ${{ steps.goldens.outputs.failed }} golden(s) failed on ${{ github.ref_name }}. ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"',
+    `      text: "${ALERT_TEXT}"`,
     '',
     '- name: Fail the job',
     `  if: ${failed}`,
