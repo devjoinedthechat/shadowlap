@@ -85,7 +85,11 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
           { key: 'langsmith', label: 'LangSmith' },
         ]}
         value={source}
-        onChange={(s) => setSource(s)}
+        onChange={(s) => {
+          // Each trace store has its own host and ids: what was typed for one isn't the other's.
+          if (s !== source) setTrace({ host: null, id: '' });
+          setSource(s);
+        }}
       />
       {source === 'file' ? (
         <div className="impbody">
