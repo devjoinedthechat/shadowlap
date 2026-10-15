@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
@@ -113,10 +113,32 @@ function commitInfo(root: string, rev: string): BisectCommit {
 }
 
 function resolveRev(root: string, rev: string, flag: string): string {
+  // A revision that starts with "-" would reach git as an option.
+  if (!rev || rev.startsWith('-')) throw new BisectError(`${flag} ${rev} is not a commit in this repository`);
   try {
     return git(root, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`]).trim();
   } catch {
     throw new BisectError(`${flag} ${rev} is not a commit in this repository`);
+  }
+}
+
+/**
+ * A path with its symbolic links resolved, as git reports the repository's own: the longest part of
+ * it that exists is resolved, and the rest kept as it is. A project reached through a link (`/tmp`
+ * on macOS, a linked home folder) then still maps into each worktree.
+ */
+export function physicalPath(path: string): string {
+  const rest: string[] = [];
+  let head = resolve(path);
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...rest.reverse());
+    } catch {
+      const up = dirname(head);
+      if (up === head) return resolve(path);
+      rest.push(basename(head));
+      head = up;
+    }
   }
 }
 
@@ -137,14 +159,17 @@ function scratchDir(projectDir: string): string {
 /**
  * The recorded command, pointed into a worktree. An absolute path inside the repository becomes the
  * worktree's copy, except an executable the worktree doesn't have (a virtualenv's python, which is
- * installed rather than committed). A relative executable only the working tree has
- * (`.venv/bin/python`, `node_modules/.bin/tsx`) runs from there.
+ * installed rather than committed); a path that reaches the repository through a symbolic link
+ * counts as inside it. A relative executable only the working tree has (`.venv/bin/python`,
+ * `node_modules/.bin/tsx`) runs from there.
  */
 export function mapArgv(argv: readonly string[], m: { root: string; worktree: string; cwd: string; worktreeCwd: string }): string[] {
+  const root = physicalPath(m.root);
   return argv.map((a, i) => {
     if (isAbsolute(a)) {
-      const rel = relative(m.root, a);
-      if (!rel || rel.startsWith('..') || isAbsolute(rel)) return a;
+      // The folders it is in, resolved; a link that is the file itself stays as it is.
+      const rel = relative(root, join(physicalPath(dirname(a)), basename(a)));
+      if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return a;
       const mapped = join(m.worktree, rel);
       return i === 0 && !existsSync(mapped) ? a : mapped;
     }
@@ -229,14 +254,16 @@ function describeResult(o: Awaited<ReturnType<typeof testRecording>>): string {
 export async function runBisect(input: BisectInput): Promise<BisectReport> {
   const started = Date.now();
   const projectDir = input.projectDir ?? process.cwd();
+  // Compared as git sees them, with symbolic links resolved.
+  const cwd = physicalPath(input.cwd);
   let root: string;
   try {
-    root = git(input.cwd, ['rev-parse', '--show-toplevel']).trim();
+    root = physicalPath(git(cwd, ['rev-parse', '--show-toplevel']).trim());
   } catch {
     throw new BisectError('shadowlap bisect checks out commits, so it has to run inside the git repository that holds the agent');
   }
-  const inRepo = relative(root, input.cwd);
-  if (inRepo.startsWith('..') || isAbsolute(inRepo)) throw new BisectError(`the working directory ${input.cwd} is not inside the repository at ${root}`);
+  const inRepo = relative(root, cwd);
+  if (inRepo === '..' || inRepo.startsWith(`..${sep}`) || isAbsolute(inRepo)) throw new BisectError(`the working directory ${input.cwd} is not inside the repository at ${root}`);
   let goodRev = resolveRev(root, input.good, '--good');
   const badRev = resolveRev(root, input.bad, '--bad');
   if (goodRev === badRev) throw new BisectError('--good and --bad are the same commit: there is nothing between them to search');
@@ -317,7 +344,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       // Without a build step, the working tree's packages serve every commit, this repository's own
       // from the commit itself. A build step installs what it needs, so nothing is linked for it.
       if (!input.build) {
-        const linked = linkDependencies(root, root, worktree, worktree) + (inRepo ? linkDependencies(root, input.cwd, worktreeCwd, worktree) : 0);
+        const linked = linkDependencies(root, root, worktree, worktree) + (inRepo ? linkDependencies(root, cwd, worktreeCwd, worktree) : 0);
         if (linked && !announced) {
           announced = true;
           input.log('  node_modules is linked from your working tree, with this repository\'s own packages as they were at each commit; give --build to install them per commit instead');
@@ -327,7 +354,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
         const b = spawnSync(input.build, { cwd: worktreeCwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (b.status !== 0) return done(false, true, `could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${input.build} exited ${b.status ?? b.signal}`}`);
       }
-      const argv = mapArgv(target.run.command.argv, { root, worktree, cwd: input.cwd, worktreeCwd });
+      const argv = mapArgv(target.run.command.argv, { root, worktree, cwd, worktreeCwd });
       let outcome: Awaited<ReturnType<typeof testRecording>>;
       try {
         outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs });

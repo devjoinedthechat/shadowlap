@@ -1,11 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { mapArgv } from '../src/bisect.js';
+import { mapArgv, physicalPath } from '../src/bisect.js';
 
 /**
  * `shadowlap bisect` through the CLI, on a scratch git repository with a tiny agent: one model call,
@@ -261,6 +261,48 @@ describe('the command at each commit', () => {
     expect(mapArgv(['node', join(root, 'dist', 'agent.js')], m)).toEqual(['node', join(m.worktree, 'dist', 'agent.js')]);
     expect(mapArgv([join(root, '.venv', 'bin', 'python'), 'agent.py'], m)).toEqual([join(root, '.venv', 'bin', 'python'), 'agent.py']);
     expect(mapArgv(['node', '/elsewhere/agent.js'], m)).toEqual(['node', '/elsewhere/agent.js']);
+    expect(mapArgv(['node', join(`${root}-sibling`, 'agent.js')], m)).toEqual(['node', join(`${root}-sibling`, 'agent.js')]);
     expect(existsSync(m.worktree)).toBe(false);
+  });
+
+  it('maps a path that reaches the repository through a symbolic link', () => {
+    const link = `${project}-link`;
+    symlinkSync(project, link);
+    try {
+      const worktree = join(project, '.shadowlap', 'bisect', 'run-x', 'abc1234');
+      const m = { root: project, worktree, cwd: project, worktreeCwd: worktree };
+      expect(mapArgv(['node', join(link, 'agent.mjs')], m)).toEqual(['node', join(worktree, 'agent.mjs')]);
+      expect(mapArgv(['node', join(project, 'agent.mjs')], { ...m, root: link })).toEqual(['node', join(worktree, 'agent.mjs')]);
+      expect(physicalPath(join(link, 'not-yet', 'there.js'))).toBe(join(realpathSync(project), 'not-yet', 'there.js'));
+    } finally {
+      rmSync(link, { force: true });
+    }
+  });
+});
+
+describe('a repository reached through a symbolic link', () => {
+  it('replays each commit\'s own copy of a command recorded through the link, and takes --cwd through it', async () => {
+    const link = `${project}-via`;
+    symlinkSync(project, link);
+    try {
+      // Recorded at the last commit, through the link: its answer is "Short." and its output is marked as a draft.
+      const recorded = await shadowlap(['run', '--', process.execPath, join(link, 'agent.mjs')]);
+      expect(recorded.code, recorded.out).toBe(0);
+      const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+      const r = await shadowlap(['bisect', runId, '--good', rev['Mention the prompt']!, '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', link]);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain(`replay at ${rev['Mention the prompt']}  replayed clean · 1 check passed`);
+      expect(r.stdout).toContain(`first bad commit ${rev['Mark summaries as drafts']} · Mark summaries as drafts`);
+      expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
+    } finally {
+      rmSync(link, { force: true });
+    }
+  });
+
+  it('refuses a revision that would reach git as an option', async () => {
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good=--output=x']);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('--good --output=x is not a commit in this repository');
+    expect(existsSync(join(project, 'x'))).toBe(false);
   });
 });
