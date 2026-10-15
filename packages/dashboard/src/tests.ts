@@ -1,4 +1,4 @@
-import { normalizeAddArgs, normalizeAddCommand, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type Store, type TestFailure, type TestResult, type TestSession } from '@shadowlap/engine';
+import { normalizeAddArgs, normalizeAddCommand, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -177,6 +177,11 @@ function sessionView(s: TestSession): TestsSessionView {
   return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed: s.passed, failed: s.failed, upstreamRequests: s.upstreamRequests, actor: s.actor };
 }
 
+/** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
+function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
+  return r.data?.divergence?.volatile ?? volatileValues(d);
+}
+
 function divergenceOf(r: TestResult): DivergenceReport | null {
   const d = r.data?.divergence;
   if (!d) return null;
@@ -207,7 +212,7 @@ export function resultLine(r: TestResult, checks: readonly string[]): string {
     if (r.failure === 'diverged') {
       const d = divergenceOf(r);
       if (!d) return r.reason ?? 'diverged';
-      const v = volatileValues(d).values[0];
+      const v = volatileOf(r, d).values[0];
       if (v) return `diverged at call ${d.callNo} · ${v.path} looks like ${v.looks}`;
       const path = d.diff?.[0]?.path;
       return path ? `diverged at call ${d.callNo} · ${path}` : `diverged at call ${d.callNo} (${d.type === 'new_call' ? `new call ${d.name}` : d.type === 'beyond_recording' ? 'more calls than recorded' : `${d.kind} ${d.name}`})`;
@@ -325,7 +330,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     const found = seen && seen.at >= latest.at ? seen : null;
     const d = latest.failure === 'diverged' ? divergenceOf(latest) : null;
     if (d) {
-      const volatile = volatileValues(d);
+      const volatile = volatileOf(latest, d);
       const v = volatile.values[0];
       divergences.push({
         golden: row.path,

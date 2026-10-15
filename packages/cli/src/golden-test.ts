@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, unpackRun, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, unpackRun, volatileValues, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -188,9 +188,11 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
       kind: d.kind,
       name: d.name,
       replayedBefore: d.replayedBefore,
-      // The changed values themselves, cut short: the printed report has what a reader needs.
-      ...(d.diff ? { diff: d.diff.slice(0, 12).map((e) => ({ ...e, ...('before' in e ? { before: clipValue(e.before) } : {}), ...('after' in e ? { after: clipValue(e.after) } : {}) })) } : {}),
+      // The changed values themselves, cut short: the printed report has what a reader needs, and
+      // whether they are values made anew on every run is judged here, on all of them.
+      ...(d.diff ? { diff: d.diff.slice(0, 12).map((e) => ({ ...e, ...('before' in e ? { before: clipValue(e.before) } : {}), ...('after' in e ? { after: clipValue(e.after) } : {}) })), entries: d.diff.length } : {}),
       ...(d.hints ? { hints: d.hints } : {}),
+      volatile: volatileValues(d),
       text: formatDivergence(d),
     };
   }

@@ -119,6 +119,19 @@ describe('the Tests screen', () => {
     store.close();
   });
 
+  it('trusts what was judged on the whole divergence over the cut-down diff it kept', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    // 13 changes: 12 request ids kept, the 13th (a prompt change) cut off.
+    const ids = Array.from({ length: 12 }, (_, i) => ({ path: `$.messages[${i}].metadata.request_id`, op: 'changed', before: `req_${i}a1b2`, after: `req_${i}c3d4` }));
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: { divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: ids, entries: 13, volatile: { values: [{ path: ids[0]!.path, looks: 'an id', op: 'changed', normalizer: { kind: 'api', path: ids[0]!.path, replace: '<ID>' } }], explainsAll: false }, text: '✗ Diverged at call 1' } } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const [d] = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).divergences;
+    expect(d!.normalizerFixes).toBe(false);
+    expect(d!.volatile).toMatchObject({ looks: 'an id', args: ['normalize', 'add', '--kind', 'api', '--path', '$.messages[0].metadata.request_id', '--replace', '<ID>'] });
+    store.close();
+  });
+
   it('shows a failed check as test --markdown prints it, without the normalizer', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234+dirty' });

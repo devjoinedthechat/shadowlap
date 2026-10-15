@@ -179,8 +179,23 @@ export interface TestResultData {
   checks?: Array<{ ok: boolean; label: string; detail: string | null }>;
   /** A recording that repeats: attempts run, passed and needed, and each attempt's run. */
   attempts?: { total: number; passed: number; required: number; runs: string[] };
-  /** Where the replay diverged; `text` is the report as the CLI prints it. */
-  divergence?: { type: string; callNo: number; kind: string; name: string; replayedBefore: number; diff?: Array<{ path: string; op: string; before?: unknown; after?: unknown }>; hints?: Array<{ message: string; normalizer?: Normalizer }>; text: string };
+  /**
+   * Where the replay diverged; `text` is the report as the CLI prints it. `diff` keeps the first
+   * changes, cut short; `entries` is how many there were, and `volatile` what volatileValues() made
+   * of all of them, so a reader never judges from the cut-down diff.
+   */
+  divergence?: {
+    type: string;
+    callNo: number;
+    kind: string;
+    name: string;
+    replayedBefore: number;
+    diff?: Array<{ path: string; op: string; before?: unknown; after?: unknown }>;
+    entries?: number;
+    hints?: Array<{ message: string; normalizer?: Normalizer }>;
+    volatile?: { values: Array<{ path: string; looks: string; op: 'changed' | 'added'; normalizer: Normalizer }>; explainsAll: boolean };
+    text: string;
+  };
   /** The failure as the CLI printed it under the golden's line. */
   details?: string;
   /** `test --update` re-recorded the golden: the run it replaced, the new one, and its calls. */

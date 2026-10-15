@@ -96,6 +96,8 @@ describe('shadowlap test history', () => {
     const [failed] = s.listTestResults({ golden: 'goldens/reference-agent' });
     expect(failed).toMatchObject({ ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', data: { divergence: { callNo: 3, kind: 'api', name: 'POST /v1/messages' } } });
     expect(failed!.data!.divergence!.text).toContain('✗ Diverged at call 3 (api POST /v1/messages)');
+    // A prompt change: no value that changes every run, judged on the whole diff.
+    expect(failed!.data!.divergence).toMatchObject({ entries: 1, volatile: { values: [], explainsAll: false } });
     expect(failed!.data!.divergence!.text).toContain('Be brief.');
     expect(r.events.filter((e) => e.type === 'run')).toEqual([{ type: 'run', runId: failed!.runId, role: 'failing' }]);
     s.close();
