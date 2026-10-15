@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { JOB_KINDS } from '../../api.js';
 import { ConfirmDialog } from '../../components/Dialog.js';
 import { addJobFooter } from '../../job-actions.js';
@@ -53,7 +54,8 @@ function CleanupFooter({ job }: { job: JobView }) {
       <button className="btn" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? undefined} onClick={() => app.guard(() => setAsking(true))}>
         Delete {runs}
       </button>
-      {asking ? (
+      {/* Over the page, not inside the drawer, whose header and footer styles would reach it. */}
+      {asking ? createPortal(
         <ConfirmDialog
           title={`Delete ${runs}?`}
           text={`${since} Blobs no other run uses go with them${dry.bytes ? `, freeing ${bytesText(dry.bytes)}` : ''}. Runs still recording are never touched. This can’t be undone; if other runs match by now, nothing is deleted.`}
@@ -66,7 +68,8 @@ function CleanupFooter({ job }: { job: JobView }) {
             setStarted(true);
             app.watchJob(app.client.startJob(JOB_KINDS.gc, { confirm: job.id }));
           }}
-        />
+        />,
+        document.body,
       ) : null}
     </>
   );

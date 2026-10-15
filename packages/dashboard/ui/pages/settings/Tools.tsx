@@ -220,6 +220,8 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
   const shown = asked === target.trim() ? line.data : null;
   const serverName = name.trim() || (transport === 'http' ? 'server' : 'server');
   const entry = shown ? mcpEntryText(serverName, shown.entry) : '';
+  // Copied as typed: the person typed any credential in it. What shows hides it, as the table does.
+  const copied = shown ? mcpEntryText(serverName, shown.copy ?? shown.entry) : '';
   const placeholder = transport === 'http' ? 'shadowlap mcp --url <server URL>' : 'shadowlap mcp -- <command>';
   return (
     <Dialog
@@ -229,7 +231,7 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
       okDisabled={!shown}
       onClose={onClose}
       onOk={() =>
-        void copyText(entry).then((ok) => {
+        void copyText(copied).then((ok) => {
           toast(ok ? `Copied the entry for ${serverName} · paste it under mcpServers in your client’s config; its tool calls are recorded from the next run` : 'Copying was refused by the browser');
           if (ok) onClose();
         })
@@ -264,7 +266,7 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
       </p>
       {entry ? <pre className="codebox">{entry}</pre> : null}
       {line.error && asked === target.trim() ? <p className="fieldnote err">{line.error.message}</p> : null}
-      {shown?.hidden ? <p className="fieldnote warn">Something that looked like a credential shows as •••: put the real value back in your own entry.</p> : null}
+      {shown?.hidden ? <p className="fieldnote warn">Something that looks like a credential shows as •••. The copied entry has it as you typed it: keep it out of a file you commit, or pass it in an environment variable.</p> : null}
     </Dialog>
   );
 }

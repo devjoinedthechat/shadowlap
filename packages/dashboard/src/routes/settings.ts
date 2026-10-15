@@ -25,6 +25,7 @@ import {
   cleanupArgv,
   codingAgentsSettings,
   matchingSettings,
+  mcpEntryAsTyped,
   mcpServerFor,
   projectSettings,
   proposedRules,
@@ -45,7 +46,7 @@ import { readTeamStoreInput } from '../team-store.js';
  *   GET    /api/settings/redaction/preview?run=    what the rules would mask in that run (path rules too)
  *   GET    /api/settings/agents                    the coding agents' files, and the section to paste
  *   GET    /api/settings/tools                     every tool across runs, hosts, MCP servers
- *   GET    /api/settings/tools/mcp?command=|url=   the `shadowlap mcp` line and client entry for a server
+ *   GET    /api/settings/tools/mcp?command=|url=   the `shadowlap mcp` line and client entry for a server (and `copy`, as typed)
  *   GET    /api/settings/project                   name, store, runs and attempts, size, address
  *   GET    /api/settings/store                     the team store: bucket, last sync, the CI step
  *   GET    /api/settings/ci                        the repository and branch the CI tab's YAML names
@@ -146,7 +147,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const url = r.query.get('url');
     if ((command ?? '').length > 4000 || (url ?? '').length > 2000) throw new HttpError(400, 'that is longer than a server command or URL can be');
     try {
-      r.json(mcpServerFor({ command, url }));
+      // `copy` is the entry as typed, for Copy the entry; the rest hides credentials, as the table does.
+      r.json({ ...mcpServerFor({ command, url }), copy: mcpEntryAsTyped({ command, url }) });
     } catch (err) {
       throw new HttpError(400, err instanceof Error ? err.message : String(err));
     }

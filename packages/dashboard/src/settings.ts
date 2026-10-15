@@ -926,6 +926,20 @@ export function mcpServerFor(input: { command?: string | null; url?: string | nu
   return commandServer(argv[0]!, argv.slice(1));
 }
 
+/**
+ * The client entry for what "Add a server…" has, as the person typed it: what Copy the entry
+ * copies. The line and entry the dialog shows hide credentials (mcpServerFor); the copy keeps them,
+ * since the person typed them, and the dialog says so.
+ */
+export function mcpEntryAsTyped(input: { command?: string | null; url?: string | null }): { command: string; args: string[] } {
+  const url = input.url?.trim();
+  if (url) return { command: 'shadowlap', args: ['mcp', '--url', url] };
+  const argv = splitCommandLine(input.command ?? '');
+  if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
+  if (shadowlapMcpArgs(argv[0]!, argv.slice(1))) return { command: argv[0]!, args: argv.slice(1) };
+  return { command: 'shadowlap', args: ['mcp', '--', ...argv] };
+}
+
 /** The MCP servers a project's client configs list, with how each would be recorded. */
 export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 'recorded'>>; files: Array<{ path: string; found: boolean; error: string | null }> } {
   const servers: Array<Omit<McpServerRow, 'recorded'>> = [];

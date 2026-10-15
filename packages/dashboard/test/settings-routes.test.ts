@@ -111,9 +111,13 @@ describe('reading the tabs', () => {
     const byUrl = await get<{ line: string; entry: { command: string; args: string[] } }>(`settings/tools/mcp?url=${encodeURIComponent('https://mcp.linear.app/mcp')}`);
     expect(byUrl.line).toBe('shadowlap mcp --url https://mcp.linear.app/mcp');
     expect(byUrl.entry).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] });
-    const byCommand = await get<{ line: string; hidden: boolean }>(`settings/tools/mcp?command=${encodeURIComponent('npx -y @modelcontextprotocol/server-github --token ghp_abcdef1234567890')}`);
+    const byCommand = await get<{ line: string; hidden: boolean; copy: { command: string; args: string[] } }>(`settings/tools/mcp?command=${encodeURIComponent('npx -y @modelcontextprotocol/server-github --token ghp_abcdef1234567890')}`);
     expect(byCommand.line).toBe('shadowlap mcp -- npx -y @modelcontextprotocol/server-github --token •••');
     expect(byCommand.hidden).toBe(true);
+    // What Copy the entry copies is what was typed: the person typed the token in it.
+    expect(byCommand.copy).toEqual({ command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-github', '--token', 'ghp_abcdef1234567890'] });
+    const proxied = await get<{ copy: { command: string; args: string[] } }>(`settings/tools/mcp?command=${encodeURIComponent('shadowlap mcp --url https://mcp.stripe.com')}`);
+    expect(proxied.copy).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com'] });
     const bad = await api(`settings/tools/mcp?url=${encodeURIComponent('mcp.example.com')}`);
     expect(bad.status).toBe(400);
     expect(await error(bad)).toMatch(/starts with http/);

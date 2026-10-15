@@ -37,6 +37,8 @@ export interface McpLine {
   line: string;
   entry: { command: string; args: string[] };
   hidden: boolean;
+  /** The entry as typed, credentials included: what Copy the entry copies. */
+  copy?: { command: string; args: string[] };
 }
 
 export interface SettingsApi {
