@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { manifestRefs } from './manifest.js';
 import { sha256, ulid } from './ids.js';
+import { currentOwner, recorderGone, type RunOwner } from './liveness.js';
 import type {
   CallEndRow,
   CallKind,
@@ -107,6 +108,14 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: settings. The process recording each run still running, so a clean-up can tell a recording
+-- from a run whose process was killed. The row goes when its run ends or is deleted.
+CREATE TABLE IF NOT EXISTS run_owners (
+  run_id  TEXT    PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+  pid     INTEGER NOT NULL,
+  host    TEXT    NOT NULL
+);
 `;
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
@@ -368,6 +377,9 @@ export class Store {
     };
     this.stmts.insertRun.run(run.runId, run.parentRunId, run.mode, JSON.stringify(run.command), run.codeVersion, run.startedAt);
     if (input.meta) this.db.prepare(`UPDATE runs SET meta = ? WHERE run_id = ?`).run(JSON.stringify(input.meta), run.runId);
+    // settings: who records it, until it ends (recordingRuns).
+    const owner = currentOwner();
+    this.db.prepare(`INSERT OR REPLACE INTO run_owners (run_id, pid, host) VALUES (?, ?, ?)`).run(run.runId, owner.pid, owner.host);
     return run;
   }
 
@@ -395,6 +407,7 @@ export class Store {
 
   endRun(runId: string, status: Exclude<RunStatus, 'running'>, endedAt: number = Date.now()): void {
     this.stmts.endRun.run(status, endedAt, runId);
+    this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);
   }
 
   setDivergence(runId: string, report: DivergenceReport): void {
@@ -473,14 +486,15 @@ export class Store {
    * Never while a run is recording, in this process or another: a recording stores a blob a moment
    * before the call row that references it, and a call whose content is already stored references
    * the existing blob without writing it again, so a blob that looks unreferenced may be one a
-   * recording is about to use. With a run still `running`, nothing is deleted and `recording` names
-   * the runs. The check and the deletes share one write transaction, so no run can start between
-   * them; the slow part, reading every request manifest, happens before it, and only what changed
-   * meanwhile is read again under the lock. `among` limits the collection to those blobs (calibrate
-   * collects only what its own attempts wrote).
+   * recording is about to use. With a run still recording, nothing is deleted and `recording` names
+   * the runs. A run its process left `running` (killed, out of memory) is not recording and holds
+   * nothing up (recordingRuns). The check and the deletes share one write transaction, so no run
+   * can start between them; the slow part, reading every request manifest, happens before it, and
+   * only what changed meanwhile is read again under the lock. `among` limits the collection to
+   * those blobs (calibrate collects only what its own attempts wrote).
    */
   gcBlobs(options: { among?: Iterable<string> } = {}): { removed: number; bytes: number; stored: number; recording: string[] } {
-    const recordingNow = () => this.db.prepare(`SELECT run_id FROM runs WHERE status = 'running' ORDER BY started_at, run_id`).all().map((r) => String(r.run_id));
+    const recordingNow = () => this.recordingRuns().live.map((r) => r.run.runId);
     const early = recordingNow();
     if (early.length) return { removed: 0, bytes: 0, stored: 0, recording: early };
     const manifests = new Map<string, string[]>();
@@ -636,6 +650,72 @@ export class Store {
       .prepare(`SELECT * FROM runs WHERE mode = 'record' AND status IN ('completed', 'failed') ORDER BY started_at DESC, run_id DESC LIMIT ?`)
       .all(limit)
       .map(rowToRun);
+  }
+
+  /**
+   * The runs still `running`, oldest first: `live` ones a process is recording, and `abandoned` ones
+   * whose process stopped without ending them (see liveness.ts). `lastAt` is the run's start or its
+   * latest call, whichever is later.
+   */
+  recordingRuns(now = Date.now()): { live: Array<{ run: RunRecord; lastAt: number }>; abandoned: Array<{ run: RunRecord; lastAt: number }> } {
+    const rows = this.db
+      .prepare(
+        `SELECT r.*, o.pid AS owner_pid, o.host AS owner_host, (SELECT MAX(c.at) FROM call_events c WHERE c.run_id = r.run_id) AS last_call
+         FROM runs r LEFT JOIN run_owners o ON o.run_id = r.run_id
+         WHERE r.status = 'running' ORDER BY r.started_at, r.run_id`,
+      )
+      .all();
+    const live: Array<{ run: RunRecord; lastAt: number }> = [];
+    const abandoned: Array<{ run: RunRecord; lastAt: number }> = [];
+    for (const row of rows) {
+      const run = rowToRun(row);
+      const lastAt = Math.max(run.startedAt, Number(row.last_call ?? 0));
+      const owner: RunOwner | null = row.owner_pid === null || row.owner_pid === undefined ? null : { pid: Number(row.owner_pid), host: String(row.owner_host) };
+      (recorderGone(owner, lastAt, now) ? abandoned : live).push({ run, lastAt });
+    }
+    return { live, abandoned };
+  }
+
+  /**
+   * The MCP servers recorded tool calls came through (`shadowlap mcp` names each in the call's
+   * `meta.mcp`): per server, its calls, the latest, and the tools it offered when last listed,
+   * with their effects, or null when no call carried the list. One query over all runs.
+   */
+  mcpServerUsage(): Array<{ transport: string; server: string; calls: number; lastAt: number; tools: Array<{ name: string; effect: Effect }> | null; called: Array<{ name: string; effect: Effect | null }> }> {
+    // CASE, so a meta that isn't JSON is never handed to json_type, whatever order SQLite tries the terms in.
+    const where = `phase = 'start' AND kind = 'tool' AND (CASE WHEN json_valid(meta) THEN json_type(meta, '$.mcp.server') END) = 'text'`;
+    const servers = new Map<string, { transport: string; server: string; calls: number; lastAt: number; tools: Array<{ name: string; effect: Effect }> | null; called: Array<{ name: string; effect: Effect | null }> }>();
+    const key = (transport: unknown, server: unknown) => `${String(transport)}\u0000${String(server)}`;
+    for (const r of this.db
+      .prepare(`SELECT json_extract(meta, '$.mcp.transport') AS transport, json_extract(meta, '$.mcp.server') AS server, name, effect, COUNT(*) AS calls, MAX(at) AS last_at FROM call_events WHERE ${where} GROUP BY transport, server, name, effect ORDER BY name`)
+      .all()) {
+      const k = key(r.transport, r.server);
+      const s = servers.get(k) ?? { transport: String(r.transport), server: String(r.server), calls: 0, lastAt: 0, tools: null, called: [] };
+      s.calls += Number(r.calls);
+      s.lastAt = Math.max(s.lastAt, Number(r.last_at));
+      s.called.push({ name: String(r.name), effect: (r.effect as Effect | null) ?? null });
+      servers.set(k, s);
+    }
+    // The tools each server offered, from the latest call that listed them.
+    for (const r of this.db
+      .prepare(
+        `SELECT transport, server, tools FROM (
+           SELECT json_extract(meta, '$.mcp.transport') AS transport, json_extract(meta, '$.mcp.server') AS server, json_extract(meta, '$.mcp.tools') AS tools,
+                  ROW_NUMBER() OVER (PARTITION BY json_extract(meta, '$.mcp.transport'), json_extract(meta, '$.mcp.server') ORDER BY at DESC, run_id DESC, call_no DESC) AS latest
+           FROM call_events WHERE ${where} AND (CASE WHEN json_valid(meta) THEN json_type(meta, '$.mcp.tools') END) = 'array'
+         ) WHERE latest = 1`,
+      )
+      .all()) {
+      const s = servers.get(key(r.transport, r.server));
+      if (!s) continue;
+      try {
+        const listed = JSON.parse(String(r.tools)) as unknown[];
+        s.tools = listed.flatMap((t) => (typeof t === 'object' && t !== null && typeof (t as { name?: unknown }).name === 'string' && ['pure', 'read', 'write'].includes(String((t as { effect?: unknown }).effect)) ? [{ name: (t as { name: string }).name, effect: (t as { effect: Effect }).effect }] : []));
+      } catch {
+        s.tools = null;
+      }
+    }
+    return [...servers.values()].sort((a, b) => a.server.localeCompare(b.server));
   }
 
   // ---- blobs ----

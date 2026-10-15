@@ -1,14 +1,15 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Store, storeApiRequest } from '@shadowlap/engine';
+import { NO_COMMAND, Store, storeApiRequest } from '@shadowlap/engine';
 
 /** normalize, redact, gc and calibrate through the CLI, as a person or a dashboard job runs them. */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+const ENGINE = fileURLToPath(new URL('../../engine/dist/index.js', import.meta.url));
 
 let cwd: string;
 beforeEach(() => {
@@ -47,7 +48,7 @@ const dbPath = () => join(cwd, '.shadowlap', 'shadowlap.db');
 const activity = () => {
   const store = Store.open(dbPath());
   try {
-    return store.listEvents().reverse().map((e) => [e.kind, e.actor, e.data?.n ?? null]);
+    return store.listEvents().reverse().map((e) => [e.kind, e.actor, e.ref]);
   } finally {
     store.close();
   }
@@ -102,12 +103,13 @@ describe('shadowlap normalize', () => {
 
     expect(config()).toEqual({ $schema: 'x', tests: { 'goldens/*': { expect: { tools: { send_email: 0 } } } }, normalize: [{ pattern: '/req_[a-z0-9]+/i', replace: '<REQ>' }] });
     expect(Object.keys(config())).toEqual(['$schema', 'tests', 'normalize']);
+    // Each edit is in the activity log, a normalizer named by its path.
     expect(activity()).toEqual([
-      ['normalizer.added', 'dana', 1],
-      ['normalizer.added', 'dana', 2],
-      ['normalizer.added', 'dana', 3],
-      ['normalizer.removed', 'dana', 3],
-      ['normalizer.removed', 'dana', 1],
+      ['normalizer.added', 'dana', '$.metadata.user_id'],
+      ['normalizer.added', 'dana', null],
+      ['normalizer.added', 'dana', '$.args.idempotency_key'],
+      ['normalizer.removed', 'dana', '$.args.idempotency_key'],
+      ['normalizer.removed', 'dana', '$.metadata.user_id'],
     ]);
   });
 
@@ -192,6 +194,32 @@ describe('a broken or long rule in the file', () => {
 });
 
 /** A finished run with an email in its prompt and a key in a tool's arguments, and one still recording. */
+/** The dry run's JSON, as these tests read it. */
+interface GcPlan {
+  dryRun: boolean;
+  cutoff: number;
+  total: number;
+  count: number;
+  runs: Array<{ runId: string; command: string }>;
+  expect: string;
+  blobs: number;
+  bytes: number;
+  recording: Array<{ runId: string }>;
+  abandoned: Array<{ runId: string }>;
+  store: { before: number; after: null };
+}
+
+/** A recording made by a process of its own that is killed before it ends the run, as `kill -9` or a crash leaves one. */
+function abandonedRun(startedAt: number, orphanBlob?: string): string {
+  const script = `const { Store } = await import(${JSON.stringify(`file://${ENGINE}`)});
+const s = Store.open(${JSON.stringify(dbPath())});
+const r = s.createRun({ mode: 'record', command: { argv: ['node', 'crashed.js'], cwd: '.' }, startedAt: ${startedAt} });
+${orphanBlob ? `s.putBlob(Buffer.from(${JSON.stringify(orphanBlob)}));` : ''}
+process.stdout.write(r.runId);
+process.exit(0);`;
+  return execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+}
+
 function seedRuns(): { done: string; live: string } {
   const store = Store.open(dbPath());
   const done = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd } });
@@ -237,65 +265,142 @@ describe('shadowlap redact', () => {
 
     expect((await shadowlap(['redact', 'rm', 'email'])).out).toContain('removed redaction rule #1 (every call  any string  email → <EMAIL>)');
     expect(config().redact).toEqual([{ kind: 'tool', path: '$.args.api_key', replace: '<KEY>' }]);
-    expect(activity().map(([kind]) => kind)).toEqual(['redaction.added', 'redaction.added', 'redaction.removed']);
+    // A redaction rule is named by what it puts in place: its pattern can hold what it hides, so the log never has it.
+    expect(activity()).toEqual([
+      ['redaction.added', 'dana', '<EMAIL>'],
+      ['redaction.added', 'dana', '<KEY>'],
+      ['redaction.removed', 'dana', '<EMAIL>'],
+    ]);
+    const log = Store.open(dbPath());
+    expect(log.listEvents().map((e) => e.data)).toEqual([{ replace: '<EMAIL>' }, { kind: 'tool', path: '$.args.api_key', replace: '<KEY>' }, { replace: '<EMAIL>' }]);
+
+    // An imported run is named by the file it came from, not by a command it never had.
+    const imported = log.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd }, meta: { imported: { at: 1, from: 'captures/session.har' } } });
+    log.endRun(imported.runId, 'completed');
+    log.close();
+    r = await shadowlap(['redact', 'preview', imported.runId]);
+    expect(r.out).toContain(`${imported.runId.slice(0, 10)} (imported from captures/session.har): 0 values would be masked`);
+  });
+
+  it("previews the run's command line, labels and notes apart, which export html masks and pack keeps", async () => {
+    const store = Store.open(dbPath());
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '--customer', 'erin@example.com'], cwd } });
+    store.updateRunMeta(run.runId, { labels: ['vip'], notes: [{ callNo: null, text: 'called back hank@example.com', at: 1 }] });
+    store.endRun(run.runId, 'completed');
+    store.close();
+    expect((await shadowlap(['redact', 'add', '--pattern', 'email', '--replace', '<EMAIL>'])).code).toBe(0);
+    let r = await shadowlap(['redact', 'preview', run.runId]);
+    expect(r.out).toContain(`${run.runId.slice(0, 10)} (node agent.js --customer erin@example.com): 0 values would be masked`);
+    expect(r.out).toContain("the run's command line, labels and notes: 2 (#1)  masked by export html, dataset and otel; pack copies them as recorded, since a replay runs the command");
+    expect(r.out).toContain('+ called back <EMAIL>');
+    r = await shadowlap(['redact', 'preview', run.runId, '--json']);
+    expect(JSON.parse(r.out)).toMatchObject({ total: 0, details: { count: 2, rules: [1] } });
+
+    // export html carries neither; pack keeps the command line a replay runs.
+    expect((await shadowlap(['export', 'html', run.runId, join(cwd, 'run.html')])).code).toBe(0);
+    const html = readFileSync(join(cwd, 'run.html'), 'utf8');
+    expect(html).not.toContain('erin@example.com');
+    expect(html).not.toContain('hank@example.com');
+    expect(html).toContain('--customer <EMAIL>');
+    expect((await shadowlap(['pack', run.runId, join(cwd, 'packed')])).code).toBe(0);
+    expect(readFileSync(join(cwd, 'packed', 'run.json'), 'utf8')).toContain('erin@example.com');
   });
 });
 
 describe('shadowlap gc', () => {
-  it('says what it would free before deleting anything, then deletes and logs it', async () => {
+  it('says what it would free before deleting anything, then deletes exactly that and logs it', async () => {
     const { live } = seedRuns();
     const store = Store.open(dbPath());
     const old = store.createRun({ mode: 'record', command: { argv: ['node', 'old.js'], cwd }, startedAt: Date.now() - 40 * 86_400_000 });
     store.appendCallStart({ runId: old.runId, callNo: 1, kind: 'tool', name: 't', fingerprint: 'c'.repeat(64), occurrence: 1, origin: 'live', effect: 'read', requestRef: store.putBlob(Buffer.from(`only the old run has this ${'z'.repeat(5000)}`)), meta: {}, at: 1 });
     store.endRun(old.runId, 'completed');
-    const ancient = store.createRun({ mode: 'record', command: { argv: ['node', 'old.js'], cwd }, startedAt: Date.now() - 90 * 86_400_000 }); // never ended: still "recording"
     store.close();
+    // Recordings whose process was killed: one months ago, which also stored a blob before the call that would have used it, and one yesterday.
+    const ancient = abandonedRun(Date.now() - 90 * 86_400_000, 'stored just before the process was killed');
+    const yesterday = abandonedRun(Date.now() - 86_400_000);
 
     let r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
     expect(r.code, r.err).toBe(0);
-    const plan = JSON.parse(r.out) as { dryRun: boolean; cutoff: number; total: number; runs: Array<{ runId: string }>; blobs: number; bytes: number; recording: Array<{ runId: string }>; store: { before: number; after: null } };
-    expect(plan).toMatchObject({ dryRun: true, olderThanDays: 30, keep: null, total: 4, blobs: 1, deferred: true, store: { after: null } });
-    expect(plan.runs.map((x) => x.runId)).toEqual([old.runId]);
-    expect(plan.recording.map((x) => x.runId).sort()).toEqual([live, ancient.runId].sort());
+    const plan = JSON.parse(r.out) as GcPlan;
+    expect(plan).toMatchObject({ dryRun: true, olderThanDays: 30, keep: null, total: 5, count: 2, blobs: 2, deferred: true, recordingCount: 1, abandonedCount: 2, store: { after: null } });
+    // A run its process abandoned is deleted like any other when it is old enough.
+    expect(plan.runs.map((x) => x.runId)).toEqual([old.runId, ancient]);
+    expect(plan.recording.map((x) => x.runId)).toEqual([live]);
+    expect(plan.abandoned.map((x) => x.runId)).toEqual([ancient, yesterday]);
+    expect(plan.expect).toMatch(/^2-[0-9a-f]{16}$/);
     expect(plan.cutoff).toBeGreaterThan(Date.now() - 31 * 86_400_000);
     expect(plan.bytes).toBeGreaterThan(0);
     expect(plan.store.before).toBeGreaterThan(0);
     expect(r.events).toEqual([{ type: 'result', data: plan }]);
 
     r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
-    expect(r.out).toContain('▸ runs older than 30 days: 1 of 4 · runs still recording are never touched');
-    expect(r.out).toMatch(/blobs nothing would reference: 1 · \d.* · collected once no run is recording: 2 runs are still recording/);
-    expect(r.out).toMatch(/✓ dry run: would delete 1 run and free .+\. Run it without --dry-run to delete\./);
+    expect(r.out).toContain(`! 2 runs were left recording by a process that stopped (${ancient.slice(0, 10)}, ${yesterday.slice(0, 10)}): gc would mark them interrupted; they hold nothing up`);
+    expect(r.out).toContain('▸ runs older than 30 days: 2 of 5 · runs still recording are never touched');
+    expect(r.out).toMatch(/blobs nothing would reference: 2 · \d.* · collected once no run is recording: 1 run is still recording/);
+    expect(r.out).toMatch(/✓ dry run: would delete 2 runs and free .+\. To delete exactly these runs: shadowlap gc --before \d+ --expect 2-[0-9a-f]{16}/);
     const check = Store.open(dbPath());
     expect(check.getRun(old.runId)).not.toBeNull();
+    expect(check.getRun(yesterday)!.status).toBe('running');
     check.close();
 
-    // The dialog says "Delete 1 run": the run that confirms it deletes exactly the runs the dry run listed.
+    // The dialog says "Delete 2 runs": the run that confirms it deletes exactly those, or nothing.
+    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '3-0123456789abcdef']);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('the runs gc would delete changed since the dry run (2 runs, not the 3 it listed). Nothing was deleted') });
+    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2-0123456789abcdef']);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('(the same number of runs, but not the same ones)') });
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2']);
-    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('gc would delete 1 run, not 2: the runs changed since the dry run. Nothing was deleted') });
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('must be the "expect" value a dry run printed') });
     r = await shadowlap(['gc', '--older-than', '30', '--before', String(plan.cutoff)]);
     expect(r).toMatchObject({ code: 1, err: expect.stringContaining('give --older-than or --before, not both') });
 
-    // Runs are still recording: the old run goes, its blobs wait for a gc when nothing records.
-    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '1']);
+    // A run is still recording: the old runs go, the abandoned ones are marked interrupted, and blobs wait for a gc when nothing records.
+    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', plan.expect]);
     expect(r.code, r.err).toBe(0);
-    expect(r.out).toContain('no blobs collected: 2 runs are still recording');
-    expect(r.out).toMatch(/✓ deleted 1 run · store .+ → .+/);
-    expect(r.events[0]).toMatchObject({ type: 'result', data: { dryRun: false, blobs: 0, deferred: true, store: { after: expect.any(Number) } } });
+    expect(r.out).toContain('marked interrupted');
+    expect(r.out).toContain('no blobs collected: 1 run is still recording');
+    expect(r.out).toMatch(/✓ deleted 2 runs · store .+ → .+/);
+    expect(r.events[0]).toMatchObject({ type: 'result', data: { dryRun: false, count: 2, blobs: 0, deferred: true, abandonedCount: 2, store: { after: expect.any(Number) } } });
     const after = Store.open(dbPath());
     expect(after.getRun(old.runId)).toBeNull();
-    expect(after.getRun(ancient.runId)).not.toBeNull();
-    expect(after.listEvents()[0]).toMatchObject({ kind: 'runs.cleaned', actor: 'dana', data: { runs: 1, blobs: 0, olderThanDays: null, keep: null } });
+    expect(after.getRun(ancient)).toBeNull();
+    // Interrupted as of its start, the last thing it recorded.
+    expect(after.getRun(yesterday)).toMatchObject({ status: 'crashed', endedAt: after.getRun(yesterday)!.startedAt });
+    expect(after.listEvents()[0]).toMatchObject({ kind: 'runs.cleaned', actor: 'dana', data: { runs: 2, blobs: 0, interrupted: 2, olderThanDays: null, keep: null } });
     after.endRun(live, 'completed');
-    after.endRun(ancient.runId, 'crashed');
     after.close();
 
     r = await shadowlap(['gc', '--json']);
-    expect(JSON.parse(r.out)).toMatchObject({ runs: [], blobs: 1, deferred: false, recording: [] });
+    expect(JSON.parse(r.out)).toMatchObject({ count: 0, runs: [], blobs: 2, deferred: false, recording: [], abandonedCount: 0 });
     r = await shadowlap(['gc', '--dry-run']);
     expect(r.out).toContain('▸ no runs to delete (--older-than <days> or --keep <n> picks them)');
     expect(r.out).toContain('✓ dry run: would free 0 B.');
   });
+
+  it('keeps its report small however many runs a clean-up deletes', async () => {
+    const store = Store.open(dbPath());
+    const long = Array.from({ length: 40 }, (_, i) => `--option-${i}=${'v'.repeat(30)}`);
+    store.transaction(() => {
+      for (let i = 0; i < 5000; i++) {
+        const run = store.createRun({ mode: 'record', command: { argv: ['uv', 'run', 'python', '-m', 'agent', ...long], cwd }, startedAt: Date.now() - 40 * 86_400_000 - i * 1000 });
+        store.endRun(run.runId, 'completed');
+      }
+    });
+    store.close();
+    let r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
+    expect(r.code, r.err).toBe(0);
+    const plan = JSON.parse(r.out) as GcPlan;
+    expect(plan).toMatchObject({ count: 5000, total: 5000 });
+    expect(plan.runs).toHaveLength(100);
+    expect(plan.runs[0]!.command.length).toBeLessThanOrEqual(200);
+    // What a dashboard job hears: well under its 1 MB limit for one event.
+    expect(JSON.stringify(r.events[0]).length).toBeLessThan(64 * 1024);
+    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', plan.expect, '--json']);
+    expect(r.code, r.err).toBe(0);
+    expect(JSON.parse(r.out)).toMatchObject({ count: 5000, total: 5000 });
+    const check = Store.open(dbPath());
+    expect(check.allRuns()).toEqual([]);
+    check.close();
+  }, 60_000);
 
   it('reports the store as it will be, even while a dashboard holds it open', async () => {
     const store = Store.open(dbPath());

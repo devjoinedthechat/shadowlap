@@ -306,7 +306,7 @@ it into a golden for `shadowlap test`.
 shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json]
 ```
 
-Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `newest` when it picked one), `clean`, `rounds`, the proposed `normalizers`, `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `newest` when it picked one), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 
@@ -329,7 +329,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | Key | What it does |
 |---|---|
 | `normalize` | Masks values before fingerprinting, so a generated id or today's date does not fork a replay ([details](./normalizers-and-redaction.md)) |
-| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack`, `export html`, `export dataset`, `export otel`; [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
+| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack` and every export; [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
@@ -363,7 +363,7 @@ Both edit `shadowlap.config.json` in the working directory. [Normalizers](./norm
 - `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.
 - `ls --json` prints `{ file, exists, version, rules }`, each rule with its number `n`; one the config can't load has `error` instead.
 - `--expect <version>` refuses the edit when the file is no longer the version `ls --json` printed.
-- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, as `pack` applies them. Nothing is written. [Preview](./normalizers-and-redaction.md#preview).
+- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, as `pack` applies them, and on a line of its own what they match in the run's command line, labels and notes (`details`), which `export html`, `dataset` and `otel` mask and `pack` keeps. Nothing is written. [Preview](./normalizers-and-redaction.md#preview).
 
 Each add and rm is recorded in the project's activity, in a store that exists.
 
@@ -405,18 +405,20 @@ A local web UI over the store: runs and forks, a timeline of calls by origin, th
 shadowlap doctor [--json]
 ```
 
-Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH, the store (runs, size, schema, runs still marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking.
+Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH, the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking.
 
 ## rm, gc
 
 ```sh
 shadowlap rm <run...> [--forks]
-shadowlap gc [--older-than <days> | --before <time>] [--keep <n>] [--expect <runs>] [--dry-run] [--json]
+shadowlap gc [--older-than <days> | --before <time>] [--keep <n>] [--expect <count>-<digest>] [--dry-run] [--json]
 ```
 
 `rm` deletes runs; their forks keep their data but lose the link. `gc` deletes old runs (`--older-than 30`, `--keep 200`; runs still recording are never touched), removes blobs nothing references any more, and vacuums the store. The TUI's `x` does the same as `rm` for one run.
 
-While any run is still recording, in this project's store and from any process, no blob is collected and the store isn't vacuumed: a recording stores a blob just before the call that references it, and reuses a blob already stored, so a blob that looks unreferenced may be one it is about to use. `gc` still deletes the old runs, says which runs are recording, and frees their blobs on a later run. A run whose process was killed stays marked as recording; `shadowlap rm <run>` removes it. `rm` collects blobs under the same rule.
+While any run is still recording, in this project's store and from any process, no blob is collected and the store isn't vacuumed: a recording stores a blob just before the call that references it, and reuses a blob already stored, so a blob that looks unreferenced may be one it is about to use. `gc` still deletes the old runs, says which runs are recording, and frees their blobs on a later run. `rm` collects blobs under the same rule.
+
+A run whose recording process was killed (`kill -9`, out of memory, a machine that went away) stays marked running, but it isn't recording, and it holds nothing up. The store names the process that records each run until the run ends: a run whose process is gone from this machine is abandoned at once; one whose process can't be asked (it ran on another machine) is abandoned after a day without a call, and one whose process is still there after a week without one. `gc` lists abandoned runs, marks them interrupted as of the last thing they recorded, and deletes them like any other run when they match `--older-than` or `--keep`.
 
 `--dry-run` changes nothing and says what a real run would free:
 
@@ -425,12 +427,12 @@ While any run is still recording, in this project's store and from any process, 
     01M2R1HDVD  record  completed  41d ago  node agent.js
     …
   blobs nothing would reference: 14 · 2.1 MB
-✓ dry run: would delete 3 runs and free 2.1 MB. Run it without --dry-run to delete.
+✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
 ```
 
-The size is what those blobs take in the store. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, the `runs` deleted (or that would be), `blobs` and `bytes` freed, the runs still `recording` and whether blobs were `deferred` because of them, and the store's size `before` and, after a real run, `after`. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
+The size is what those blobs take in the store. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the store's size `before` and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
 
-To delete exactly what a dry run listed, pass its cutoff and count back: `shadowlap gc --before <cutoff> --expect <runs>` refuses, deleting nothing, when a different number of runs matches. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
+To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids), and refuses, deleting nothing, when the runs that match now are different, even the same number of others. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
 
 ## export html
 
@@ -476,8 +478,7 @@ A run's model API calls as a HAR, for any tool that reads one, and the reverse o
 [`import`](#import): exporting a run and importing it again produces the same
 fingerprints. Tool, clock and randomness calls are left out, because a HAR describes HTTP. Azure,
 Vertex and Bedrock hosts depend on the account, so a representative host for the provider stands in.
-Credentials are never written. The redaction rules don't apply yet: a HAR carries whole requests
-and responses as they were recorded, so share a run with `pack` or `export html` instead.
+Credentials are never written, and redaction is already applied to what was stored.
 
 ## export otel
 

@@ -1,13 +1,21 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { calibrationTarget } from '../src/calibrate.js';
+import { SILENT_UNKNOWN_MS } from '../src/liveness.js';
 import { storeApiRequest } from '../src/manifest.js';
 import { NO_COMMAND } from '../src/pack.js';
 import { Store } from '../src/store.js';
-import type { Effect, RunMeta, RunStatus } from '../src/types.js';
+import type { CallMeta, Effect, RunMeta, RunStatus } from '../src/types.js';
+
+/** The built engine, for a process of its own that records and goes away. */
+const ENGINE = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: new (path: string) => { prepare(sql: string): { run(...a: unknown[]): unknown }; close(): void } };
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 
@@ -108,6 +116,83 @@ describe('unreferencedBlobs', () => {
     store.deleteRun(old.runId);
     expect(store.gcBlobs()).toEqual({ removed: 4, bytes: plan.size, stored: plan.bytes, recording: [] });
     expect(store.getJson(shared)).toEqual({ args: { shared: true } });
+    store.close();
+  });
+});
+
+describe('recordingRuns', () => {
+  it('tells a recording from a run its process left running, and stops waiting for the latter', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-owners-'));
+    const path = join(dir, 'store.db');
+    try {
+      const store = Store.open(path);
+      const mine = store.createRun({ mode: 'record', command: cmd });
+      // A recording in a process of its own that is killed before it ends the run.
+      const left = execFileSync(process.execPath, ['--input-type=module', '-e', `const { Store } = await import(${JSON.stringify(`file://${ENGINE}`)}); const s = Store.open(${JSON.stringify(path)}); const r = s.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } }); s.putBlob(Buffer.from('stored just before the call that would have used it')); process.stdout.write(r.runId); process.exit(0);`], { encoding: 'utf8' });
+      const ended = store.createRun({ mode: 'record', command: cmd });
+      store.endRun(ended.runId, 'completed');
+      // Runs whose process can't be asked: another machine's, and an import of a run that was still recording.
+      const elsewhere = store.createRun({ mode: 'record', command: cmd });
+      const quiet = store.createRun({ mode: 'record', command: cmd, startedAt: Date.now() - SILENT_UNKNOWN_MS - 60_000 });
+      const db = new DatabaseSync(path);
+      db.prepare(`UPDATE run_owners SET host = 'another-machine' WHERE run_id IN (?, ?)`).run(elsewhere.runId, quiet.runId);
+      db.close();
+      const imported = { ...store.getRun(ended.runId)!, runId: 'IMPORTED0000000000000000AA', status: 'running' as const, startedAt: Date.now() - 3 * SILENT_UNKNOWN_MS };
+      store.importRun(imported);
+
+      const now = store.recordingRuns();
+      expect(now.live.map((r) => r.run.runId).sort()).toEqual([mine.runId, elsewhere.runId].sort());
+      expect(now.abandoned.map((r) => r.run.runId).sort()).toEqual([left, quiet.runId, imported.runId].sort());
+      // A call is a sign of life: one an hour ago keeps the other machine's quiet run recording.
+      tool(store, quiet.runId, 1, 't', 'read', Date.now() - 3_600_000);
+      expect(store.recordingRuns().live.map((r) => r.run.runId)).toContain(quiet.runId);
+      // Only a recording holds up blob collection: the blob the killed process stored goes.
+      store.endRun(mine.runId, 'completed');
+      store.endRun(elsewhere.runId, 'completed');
+      store.endRun(quiet.runId, 'completed');
+      expect(store.gcBlobs()).toMatchObject({ removed: 1, recording: [] });
+      // Ending a run forgets its process; deleting one does too.
+      expect(store.recordingRuns().abandoned.map((r) => r.run.runId).sort()).toEqual([left, imported.runId].sort());
+      store.deleteRun(left);
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('mcpServerUsage', () => {
+  it('counts the calls through each MCP server and the tools it last listed', () => {
+    const store = Store.open(':memory:');
+    const a = run(store, { status: 'completed', at: 1 });
+    const b = run(store, { status: 'completed', at: 2 });
+    const via = (runId: string, callNo: number, name: string, effect: Effect, at: number, mcp: CallMeta['mcp']) =>
+      store.appendCallStart({ runId, callNo, kind: 'tool', name, fingerprint: `${name}${callNo}`, occurrence: 1, origin: 'live', effect, requestRef: null, meta: { mcp }, at });
+    const fs = { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' };
+    via(a.runId, 1, 'read_file', 'read', 10, { ...fs, tools: [{ name: 'read_file', effect: 'read' }, { name: 'write_file', effect: 'write' }] });
+    via(a.runId, 2, 'write_file', 'write', 20, fs);
+    // A later listing wins: the server added a tool.
+    via(b.runId, 1, 'read_file', 'read', 30, { ...fs, tools: [{ name: 'read_file', effect: 'read' }, { name: 'write_file', effect: 'write' }, { name: 'move_file', effect: 'write' }] });
+    via(b.runId, 2, 'create_issue', 'write', 40, { transport: 'http', server: 'mcp.example.com' });
+    tool(store, b.runId, 3, 'lookup_order', 'read', 50);
+    expect(store.mcpServerUsage()).toEqual([
+      { transport: 'http', server: 'mcp.example.com', calls: 1, lastAt: 40, tools: null, called: [{ name: 'create_issue', effect: 'write' }] },
+      {
+        transport: 'stdio',
+        server: 'npx @modelcontextprotocol/server-filesystem',
+        calls: 3,
+        lastAt: 30,
+        tools: [
+          { name: 'read_file', effect: 'read' },
+          { name: 'write_file', effect: 'write' },
+          { name: 'move_file', effect: 'write' },
+        ],
+        called: [
+          { name: 'read_file', effect: 'read' },
+          { name: 'write_file', effect: 'write' },
+        ],
+      },
+    ]);
     store.close();
   });
 });

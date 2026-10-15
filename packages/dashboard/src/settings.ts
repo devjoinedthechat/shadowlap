@@ -97,9 +97,10 @@ export interface MatchingSettings {
   /**
    * The button: "Calibrate <run>" with the job's argv, or "Record a run first" with none. The job
    * streams each round and ends with a result event (the object `calibrate --json` prints). When it
-   * proposed normalizers, "Add it" adds exactly those, the ones the person just read, without
-   * replaying again: addRules(cwd, 'normalize', result.normalizers, { expect: config.version }),
-   * which checks each as `normalize add` does, then each returned event recorded with the run id.
+   * proposed normalizers, "Add it (--write)" adds exactly those, the ones the person just read,
+   * without replaying again: addRules(cwd, 'normalize', proposedRules(result), { expect:
+   * config.version }), which checks each as `normalize add` does; record each returned event with
+   * the run id and `via: 'calibrate'`.
    */
   calibrate: { runId: string | null; source: 'setup' | 'newest' | null; label: string; command: string | null; argv: string[] | null };
 }
@@ -182,6 +183,27 @@ export interface McpServerRow {
   entry: { command: string; args: string[] };
   /** Something that looked like a credential is shown as ••• in `target`, `line` and `entry`: copy it from the entry as it is. */
   hidden: boolean;
+  /** How `shadowlap mcp` names the server in what it records: its transport, and its host or its command (with the package a runner such as npx starts). */
+  recordedAs: { transport: 'stdio' | 'http'; server: string };
+  /** What the recordings hold from it (McpRecordedServer), or null when nothing was recorded through it. */
+  recorded: McpRecordedServer | null;
+}
+
+/** An MCP server recorded tool calls came through, by the name `shadowlap mcp` gave it (call meta `mcp`). */
+export interface McpRecordedServer {
+  transport: 'stdio' | 'http';
+  server: string;
+  /**
+   * The tools it offers and how many of those are writes, from the latest call that listed them
+   * (`listed`); without such a call, the tools called through it.
+   */
+  tools: number;
+  writes: number;
+  listed: boolean;
+  calls: number;
+  lastAt: number;
+  /** A server in one of the project's client configs has this name. */
+  inConfig: boolean;
 }
 
 export interface ToolsSettings {
@@ -195,6 +217,8 @@ export interface ToolsSettings {
     /** `mcp.effects` in the config: effects by tool name, over the servers' annotations. */
     effects: Array<{ tool: string; effect: Effect | null; seen: boolean; error: string | null }>;
     servers: McpServerRow[];
+    /** Every server the recordings came through, those no project client config lists included (a config outside the project). */
+    recorded: McpRecordedServer[];
     /** The client config files looked at, and why one couldn't be read. */
     files: Array<{ path: string; found: boolean; error: string | null }>;
     /** The client configuration example from docs/mcp.md. */
@@ -214,13 +238,15 @@ export interface ProjectSettings {
   /** Runs, not counting the attempts blame, verify and `replay --repeat` make. */
   runs: number;
   attempts: number;
-  /** Runs still running: a recording, or a replay in progress. While one is, a clean-up deletes runs but leaves their blobs for a later one. */
+  /** Runs a process is recording now (a recording, or a replay in progress). While one is, a clean-up deletes runs but leaves their blobs for a later one. */
   running: number;
+  /** Runs left `running` by a process that stopped without ending them: a clean-up marks them interrupted. */
+  abandoned: number;
   address: string | null;
   /**
-   * Clean up old runs: the dry run first, whose result (the GcReport `gc --json` prints) lists the
-   * runs and what they free; then "Delete N runs" runs cleanupArgv(result), which deletes exactly
-   * those or nothing.
+   * Clean up old runs: the dry run first, whose result (the GcReport `gc --json` prints) counts the
+   * runs (`count`), lists the first 100 and what they free; then "Delete N runs" (N is `count`) runs
+   * cleanupArgv(result), which deletes exactly those runs or, if others match by then, nothing.
    */
   cleanup: { olderThanDays: number; dryRun: string[] };
 }
@@ -292,6 +318,16 @@ export function matchingSettings(ctx: SettingsContext): MatchingSettings {
   };
 }
 
+/**
+ * The rules a calibrate result proposed (its `normalizers`), as `addRules` takes them: each one's
+ * kind, name, path, pattern and replace, without what else the result says about it (why it was
+ * proposed). Anything that is not a rule is left out; addRules checks the rest.
+ */
+export function proposedRules(result: unknown): Array<Partial<Record<'kind' | 'name' | 'path' | 'pattern' | 'replace', unknown>>> {
+  const list = isObject(result) && Array.isArray(result.normalizers) ? result.normalizers : [];
+  return list.filter(isObject).map((n) => Object.fromEntries((['kind', 'name', 'path', 'pattern', 'replace'] as const).filter((k) => n[k] !== undefined).map((k) => [k, n[k]])));
+}
+
 // ---- Redaction ----
 
 /** How many runs the preview's run picker lists. */
@@ -308,7 +344,9 @@ export const previewArgv = (runId: string): string[] => ['redact', 'preview', ru
 export function redactionSettings(ctx: SettingsContext, options: { runId?: string | null } = {}): RedactionSettings {
   const { info, file } = loadConfigFile(ctx.cwd, 'redact');
   const rows = ruleRows(file, 'redact');
-  const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => r.status !== 'running');
+  // Every run but those a process is still recording: one its process abandoned can be previewed.
+  const recording = new Set(ctx.store.recordingRuns().live.map((r) => r.run.runId));
+  const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => !recording.has(r.runId));
   const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: `${shortRun(r.runId)} · ${commandOf(r)}`, preview: previewArgv(r.runId) }));
   let previewRunId: string | null = ended[0]?.runId ?? null;
   let previewError: string | null = null;
@@ -320,7 +358,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
       previewError = err instanceof Error ? err.message : String(err);
     }
     if (!run) previewError ??= `no run matches ${options.runId}`;
-    else if (run.status === 'running') previewError = `${shortRun(run.runId)} is still recording; preview it once it has ended`;
+    else if (recording.has(run.runId)) previewError = `${shortRun(run.runId)} is still recording; preview it once it has ended`;
     previewRunId = run && !previewError ? run.runId : null;
   }
   const broken = rows.find((r) => r.error);
@@ -535,15 +573,64 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
   for (const [host, s] of hostCalls) http.push({ host, effect: s.effect, declared: false, calls: s.calls, lastAt: s.lastAt, error: null });
 
   const effects = Object.entries(mcpEffects).map(([tool, effect]) => ({ tool, effect: effectOf(effect), seen: tools.has(tool), error: effectOf(effect) ? null : `mcp.effects["${tool}"] must be pure, read or write` }));
-  const servers = mcpServers(ctx.cwd);
+  const found = mcpServers(ctx.cwd);
+  const recorded = recordedMcpServers(ctx.store);
+  const recordedKey = (r: { transport: string; server: string }) => `${r.transport} ${r.server}`;
+  const byName = new Map(recorded.map((r) => [recordedKey(r), r]));
+  const servers = found.servers.map((row) => {
+    const match = byName.get(recordedKey(row.recordedAs)) ?? null;
+    if (match) match.inConfig = true;
+    return { ...row, recorded: match };
+  });
   const doc = options.mcpDoc !== undefined ? options.mcpDoc : readShippedDoc('mcp.md');
   return {
     config: info,
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
     http,
-    mcp: { effects, servers: servers.servers, files: servers.files, clientConfig: doc === null ? null : mcpClientConfig(doc) },
+    mcp: { effects, servers, recorded, files: found.files, clientConfig: doc === null ? null : mcpClientConfig(doc) },
   };
+}
+
+/** The MCP servers recorded calls came through, with their tools and writes (Store.mcpServerUsage). */
+function recordedMcpServers(store: Store): McpRecordedServer[] {
+  return store.mcpServerUsage().flatMap((u): McpRecordedServer[] => {
+    if (u.transport !== 'stdio' && u.transport !== 'http') return [];
+    const called = new Map<string, boolean>();
+    for (const c of u.called) called.set(c.name, (called.get(c.name) ?? false) || c.effect === 'write');
+    const tools = u.tools ? u.tools.length : called.size;
+    const writes = u.tools ? u.tools.filter((t) => t.effect === 'write').length : [...called.values()].filter(Boolean).length;
+    return [{ transport: u.transport, server: u.server, tools, writes, listed: u.tools !== null, calls: u.calls, lastAt: u.lastAt, inConfig: false }];
+  });
+}
+
+/** Package runners whose first argument names the server, when only flags without values come before it. */
+const RUNNERS = new Set(['npx', 'pnpx', 'bunx', 'uvx']);
+const RUNNER_FLAGS = new Set(['-y', '--yes', '-q', '--quiet']);
+const PACKAGE = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:@[\w.^~-]+)?$/i;
+
+/**
+ * A local server's name as `shadowlap mcp` records it (call meta `mcp.server`): its command, and the
+ * package a runner like npx starts; never its other arguments, which can hold secrets. Kept in step
+ * with stdioServerName in the CLI's mcp.ts.
+ */
+export function stdioServerName(command: string, args: readonly string[]): string {
+  const name = (command.split(/[\\/]/).pop() ?? command).replace(/\.(?:cmd|exe|bat)$/i, '');
+  let out = name;
+  if (RUNNERS.has(name)) {
+    const first = args.find((a) => !RUNNER_FLAGS.has(a));
+    if (first !== undefined && PACKAGE.test(first)) out = `${name} ${first}`;
+  }
+  return out.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
+}
+
+/** A remote server's name as `shadowlap mcp --url` records it: the URL's host (with a port it names). */
+function httpServerName(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
 }
 
 // ---- MCP client configs ----
@@ -623,7 +710,16 @@ function secretName(name: string): boolean {
   return SECRET_WORDS.test(bare) || bare.split(/[^A-Za-z0-9]+|(?<=[a-z])(?=[A-Z])/).some((part) => SECRET_PARTS.has(part.toLowerCase()));
 }
 
-/** A URL path segment that is a key rather than a name: a token's shape, or a long run of letters and digits. */
+/**
+ * A value that mixes letters and digits the way keys do: 8 characters or more, at least two of
+ * each, and no path or spaces in it (`a1b2c3d4`, `xyzzy-plain-key-42`). A name with a version in it
+ * (`server-v2`) has one digit; a port or a date has no letters.
+ */
+function mixedKey(text: string): boolean {
+  return text.length >= 8 && /^[\w.~%+=-]+$/.test(text) && !/^[.~-]/.test(text) && (text.match(/\d/g)?.length ?? 0) >= 2 && (text.match(/[A-Za-z]/g)?.length ?? 0) >= 2;
+}
+
+/** A URL path segment that is a key rather than a name: a token's shape, letters and digits mixed as in a key, or a long run of them. */
 function keyLike(segment: string): boolean {
   let text = segment;
   try {
@@ -631,7 +727,7 @@ function keyLike(segment: string): boolean {
   } catch {
     // keep it as written
   }
-  return SECRET_VALUE.test(text) || (text.length >= 16 && /\d/.test(text) && /[A-Za-z]/.test(text) && /^[\w.~%+=-]+$/.test(text)) || (text.length >= 32 && /^[\w+/=-]+$/.test(text));
+  return SECRET_VALUE.test(text) || mixedKey(text) || (text.length >= 16 && /\d/.test(text) && /[A-Za-z]/.test(text) && /^[\w.~%+=-]+$/.test(text)) || (text.length >= 32 && /^[\w+/=-]+$/.test(text));
 }
 
 /** One argument, or a value inside one, with a credential in it hidden. */
@@ -647,15 +743,18 @@ function hideValue(text: string, depth = 0): string {
 
 /**
  * Arguments with anything that looks like a credential hidden: the value after a flag whose name
- * says it is one, a `NAME=value` (also inside a `--flag=value`, as in `--env=TOKEN=…`), a
- * `Header: value`, a password in a connection string, a URL's user, password, query values and
- * key-like path segments, and a token recognisable by its shape.
+ * says it is one, a key-like value after a one-letter flag (`-k a1b2c3d4e5`), a `NAME=value` (also
+ * inside a `--flag=value`, as in `--env=TOKEN=…`), a `Header: value`, a password in a connection
+ * string, a URL's user, password, query values and key-like path segments, and a token
+ * recognisable by its shape.
  */
 export function hideSecrets(argv: readonly string[]): string[] {
   return argv.map((a, i) => {
     const prev = argv[i - 1];
     // The value of a secret flag, unless it is the next flag. A key may start with one dash.
     if (prev && /^--?[\w.-]+$/.test(prev) && secretName(prev) && !a.startsWith('--')) return HIDDEN;
+    // A one-letter flag says nothing about its value (`-k`, `-t`): hide one shaped like a key.
+    if (prev && /^-[A-Za-z]$/.test(prev) && mixedKey(a)) return HIDDEN;
     return hideValue(a);
   });
 }
@@ -755,8 +854,8 @@ function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'
   return { transport: 'stdio', target: [] };
 }
 
-/** How a server entry is recorded, from its command and arguments: the row without its name and file. */
-type ServerRecording = Omit<McpServerRow, 'name' | 'file'>;
+/** How a server entry is recorded, from its command and arguments: the row without its name, file and what was recorded. */
+type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'recorded'>;
 
 function commandServer(command: string, args: string[]): ServerRecording {
   const shownArgs = hideSecrets(args);
@@ -764,15 +863,16 @@ function commandServer(command: string, args: string[]): ServerRecording {
   if (via) {
     const target = via.transport === 'http' ? hideUrlSecrets(via.target[0] ?? '') : commandLine(hideSecrets(via.target));
     const hidden = shownArgs.some((a, i) => a !== args[i]) || (via.transport === 'http' && target !== via.target[0]);
-    return { transport: via.transport, target, viaShadowlap: true, line: commandLine([command, ...shownArgs]), entry: { command, args: shownArgs }, hidden };
+    const recordedAs = via.transport === 'http' ? { transport: 'http' as const, server: httpServerName(via.target[0] ?? '') } : { transport: 'stdio' as const, server: via.target.length ? stdioServerName(via.target[0]!, via.target.slice(1)) : '' };
+    return { transport: via.transport, target, viaShadowlap: true, line: commandLine([command, ...shownArgs]), entry: { command, args: shownArgs }, hidden, recordedAs };
   }
   const shown = hideSecrets([command, ...args]);
-  return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]) };
+  return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]), recordedAs: { transport: 'stdio', server: stdioServerName(command, args) } };
 }
 
 function urlServer(url: string): ServerRecording {
   const shown = hideUrlSecrets(url);
-  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--url', shown]), entry: { command: 'shadowlap', args: ['mcp', '--url', shown] }, hidden: shown !== url };
+  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--url', shown]), entry: { command: 'shadowlap', args: ['mcp', '--url', shown] }, hidden: shown !== url, recordedAs: { transport: 'http', server: httpServerName(url) } };
 }
 
 /**
@@ -792,8 +892,8 @@ export function mcpServerFor(input: { command?: string | null; url?: string | nu
 }
 
 /** The MCP servers a project's client configs list, with how each would be recorded. */
-export function mcpServers(cwd: string): { servers: McpServerRow[]; files: Array<{ path: string; found: boolean; error: string | null }> } {
-  const servers: McpServerRow[] = [];
+export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 'recorded'>>; files: Array<{ path: string; found: boolean; error: string | null }> } {
+  const servers: Array<Omit<McpServerRow, 'recorded'>> = [];
   const files = MCP_FILES.map(({ path, key }) => {
     const full = join(cwd, path);
     let st: Stats;
@@ -831,6 +931,7 @@ export const CLEANUP_DAYS = 30;
 
 export function projectSettings(ctx: SettingsContext): ProjectSettings {
   const counts = ctx.store.runCounts();
+  const recording = ctx.store.recordingRuns();
   const dbPath = ctx.dbPath && ctx.dbPath !== ':memory:' ? ctx.dbPath : null;
   const size = ctx.store.size();
   return {
@@ -839,18 +940,20 @@ export function projectSettings(ctx: SettingsContext): ProjectSettings {
     store: { path: dbPath, bytes: size.bytes, free: size.free },
     runs: counts.runs,
     attempts: counts.attempts,
-    running: counts.running,
+    running: recording.live.length,
+    abandoned: recording.abandoned.length,
     address: ctx.address ?? null,
     cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', String(CLEANUP_DAYS), '--dry-run', '--json'] },
   };
 }
 
 /**
- * The job behind "Delete N runs", from the dry run's result: the same cutoff (and --keep), and the
- * number of runs the dialog promised, so gc deletes exactly the runs the dry run listed, or refuses
- * and deletes nothing when they changed (a run crossed the line meanwhile, or another was deleted).
+ * The job behind "Delete N runs", from the dry run's result: the same cutoff (and --keep), and its
+ * `expect`, which names the runs the dialog promised, so gc deletes exactly those or refuses and
+ * deletes nothing when they changed (a run crossed the line meanwhile, or another was deleted).
  */
-export function cleanupArgv(dryRun: { cutoff: number | null; keep: number | null; runs: readonly unknown[] }): string[] {
+export function cleanupArgv(dryRun: { cutoff: number | null; keep: number | null; expect: string }): string[] {
   if (dryRun.cutoff === null && dryRun.keep === null) throw new Error('the dry run picked no runs: give it --older-than or --keep');
-  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', String(dryRun.runs.length), '--json'];
+  if (!/^\d+-[0-9a-f]{16}$/.test(dryRun.expect)) throw new Error('the dry run says no "expect": run it again with this version of Shadowlap');
+  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', dryRun.expect, '--json'];
 }

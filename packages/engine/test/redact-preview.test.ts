@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, rewriteText, type RewriteObserver } from '../src/normalize.js';
-import { clipChange, previewRedaction, redactRun } from '../src/redact.js';
+import { REDACTION_EXPORTS, clipChange, previewRedaction, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -85,6 +85,9 @@ describe('previewRedaction', () => {
     const store = Store.open(':memory:');
     const live = store.createRun({ mode: 'record', command: cmd });
     expect(() => previewRedaction(store, live.runId, [EMAIL])).toThrow(/is still recording; preview it once it has ended/);
+    // One its process left running two days ago is not recording: nothing will add to it.
+    store.importRun({ ...live, runId: '01ABANDONED000000000000000', startedAt: Date.now() - 2 * 86_400_000 });
+    expect(previewRedaction(store, '01ABANDONED000000000000000', [EMAIL])).toMatchObject({ calls: 0, total: 0 });
     const run = seed(store);
     expect(() => previewRedaction(store, run.runId, [EMAIL, { pattern: 'nope', replace: 'x' }])).toThrow(/redaction rule #2: unknown pattern "nope"/);
     expect(() => previewRedaction(store, 'NOPE', [EMAIL])).toThrow(/unknown run/);
@@ -174,6 +177,58 @@ describe('previewRedaction', () => {
     store.close();
   }, 30_000);
 
+  it("counts the run's command line, labels and notes apart: what export html masks and pack keeps", () => {
+    const store = Store.open(':memory:');
+    const run = seed(store);
+    store.updateRunMeta(run.runId, { labels: ['erin@example.com'], notes: [{ callNo: null, text: 'called back hank@example.com', at: 1 }] });
+    const noted = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '--customer', 'erin@example.com'], cwd: '/home/erin@example.com/agent' } });
+    store.updateRunMeta(noted.runId, { labels: ['vip'], notes: [{ callNo: 1, text: 'called back hank@example.com', at: 1 }] });
+    store.endRun(noted.runId, 'completed');
+
+    const p = previewRedaction(store, noted.runId, [KEY, EMAIL, USER]);
+    // The command line and the note, by the rule without a path; the folder is masked too but not counted, as only html carries it.
+    expect(p.details).toEqual({ count: 2, rules: [2], samples: [{ before: 'node agent.js --customer erin@example.com', after: 'node agent.js --customer <EMAIL>' }, { before: 'called back hank@example.com', after: 'called back <EMAIL>' }] });
+    expect(p.total).toBe(0);
+    expect(previewRedaction(store, run.runId, [EMAIL]).details).toMatchObject({ count: 2, rules: [1] });
+    expect(previewRedaction(store, noted.runId, [KEY, USER]).details).toEqual({ count: 0, rules: [], samples: [] });
+    store.close();
+  });
+
+  it('masks the run\'s own record in a copy that is only read, and keeps it in a pack', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js', '--notify', 'dave@example.com'], cwd: '/srv/dave@example.com' } });
+    store.updateRunMeta(run.runId, {
+      labels: ['dave@example.com'],
+      notes: [{ callNo: null, text: 'see erin@example.com', at: 1 }],
+      checks: [{ ok: false, label: 'mails frank@example.com', detail: 'sent to gina@example.com' }],
+      imported: { at: 1, from: 'goldens/hank@example.com' },
+      author: 'ivy@example.com',
+    });
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.messages[0].content', op: 'changed', before: 'for jo@example.com', after: { to: 'kim@example.com' } }], hints: [{ message: 'lee@example.com changes' }], reason: 'mo@example.com' });
+    store.endRun(run.runId, 'failed');
+    const original = store.getRun(run.runId)!;
+    const masked = redactRunDetails(original, [EMAIL]);
+    expect(JSON.stringify(masked)).not.toMatch(/[a-z]+@example\.com/);
+    expect(masked.command).toEqual({ argv: ['node', 'agent.js', '--notify', '<EMAIL>'], cwd: '/srv/<EMAIL>' });
+    expect(masked.meta).toMatchObject({ labels: ['<EMAIL>'], author: '<EMAIL>', imported: { from: 'goldens/<EMAIL>' } });
+    expect(masked.divergence!.diff![0]).toEqual({ path: '$.messages[0].content', op: 'changed', before: 'for <EMAIL>', after: { to: '<EMAIL>' } });
+    // Ids, times and the rules a replay applies stay as they are; without a rule that has no path nothing changes.
+    expect({ ...masked, command: original.command, meta: original.meta, divergence: original.divergence }).toEqual(original);
+    expect(redactRunDetails(original, [KEY, USER])).toBe(original);
+
+    // The copy export html makes masks it; the copy pack makes keeps it, since a replay runs the command.
+    const html = Store.open(':memory:');
+    redactRunWithDetails(store, run.runId, [EMAIL], html);
+    expect(JSON.stringify(html.getRun(run.runId))).not.toMatch(/[a-z]+@example\.com/);
+    expect(html.getRun(run.runId)!.meta!.redactions).toEqual([EMAIL]);
+    const pack = Store.open(':memory:');
+    redactRun(store, run.runId, [EMAIL], pack);
+    expect(pack.getRun(run.runId)!.command.argv).toEqual(original.command.argv);
+    html.close();
+    pack.close();
+    store.close();
+  });
+
   it('counts a call it cannot read apart instead of failing the preview', () => {
     const store = Store.open(':memory:');
     const run = seed(store);
@@ -204,6 +259,20 @@ describe('the rewrite observer', () => {
     const text: unknown[] = [];
     expect(rewriteText('to a@x.io', [rules[1]!, rules[0]!], { changed: (i, b, a, n) => text.push([i, b, a, n]) })).toBe('to <E>');
     expect(text).toEqual([[1, 'to a@x.io', 'to <E>', 1]]);
+  });
+});
+
+describe('REDACTION_EXPORTS', () => {
+  it('names every export decision 6 covers, and what each does with the run\'s details', () => {
+    expect(REDACTION_EXPORTS.map((e) => [e.id, e.applies, e.details])).toEqual([
+      ['pack', 'all', 'kept'],
+      ['html', 'all', 'masked'],
+      ['har', 'all', 'absent'],
+      ['dataset', 'messages', 'masked'],
+      ['pairs', 'messages', 'absent'],
+      ['otel', 'attributes', 'masked'],
+    ]);
+    for (const e of REDACTION_EXPORTS) expect(e.command).toBe(e.id === 'pack' ? 'shadowlap pack' : `shadowlap export ${e.id}`);
   });
 });
 

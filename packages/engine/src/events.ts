@@ -6,9 +6,13 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * command records an event only when the runs table can't tell the story by itself.
  *
  * Kinds are dotted, noun first. The ones in use:
- * - `normalizer.added`, `normalizer.removed`, `redaction.added`, `redaction.removed` (data: rule, n),
- *   `clock.set` (data: clock, was): edits to shadowlap.config.json, from the CLI or Settings
- * - `runs.cleaned` (data: runs, blobs, bytes, olderThanDays, keep): `shadowlap gc` deleted old runs
+ * - `normalizer.added`, `normalizer.removed` (ref: its path; data: the rule's kind, name, path,
+ *   pattern and replace, and `via: 'calibrate'` when calibrate added it), `redaction.added`,
+ *   `redaction.removed` (ref: its replacement; data: the same without the pattern, which can hold
+ *   what the rule hides), `clock.set` (ref and data.clock: auto or exact; data.was): edits to
+ *   shadowlap.config.json, from the CLI or Settings
+ * - `runs.cleaned` (data: runs, blobs, bytes, interrupted, olderThanDays, keep): `shadowlap gc`
+ *   deleted old runs or marked abandoned recordings interrupted
  * - `golden.packed`, `golden.updated`, `capture.imported`
  * - `test.session` (data: passed, failed), `bisect.found`
  * - `blame.done`, `repair.accepted`, `repair.empty`, `verify.rejected`, `verify.accepted`, `fix.applied`

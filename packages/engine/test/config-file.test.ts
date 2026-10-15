@@ -73,6 +73,9 @@ describe('validateRule', () => {
     // Empty form fields mean "not given", and the replacement has a default per list.
     expect(validateRule('normalize', { kind: '', name: '', path: '$.metadata.user_id', pattern: '' })).toEqual({ path: '$.metadata.user_id', replace: '<MASKED>' });
     expect(validateRule('redact', { pattern: 'email' })).toEqual({ pattern: 'email', replace: '<REDACTED>' });
+    // A cleared "Replace with" field is no replacement given, never an empty one that would delete what it matches.
+    expect(validateRule('redact', { pattern: 'email', replace: '' })).toEqual({ pattern: 'email', replace: '<REDACTED>' });
+    expect(validateRule('normalize', { path: '$.a', replace: null })).toEqual({ path: '$.a', replace: '<MASKED>' });
   });
 
   it('refuses what the CLI refuses, in its words', () => {
@@ -143,7 +146,8 @@ describe('addRules and removeRule', () => {
     write('{\n    "$schema": "https://example/schema.json",\n    "normalize": [],\n    "tests": { "goldens/*": { "expect": { "tools": { "send_email": 0 } } } },\n    "future": 1\n}\n');
     const r = addRule(cwd, 'normalize', { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
     expect(r).toMatchObject({ n: 1, added: true, rule: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } });
-    expect(r.event).toEqual({ kind: 'normalizer.added', ref: CONFIG_FILE, data: { rule: r.rule, n: 1 } });
+    // The activity line names a normalizer by its path and carries the rule as stored.
+    expect(r.event).toEqual({ kind: 'normalizer.added', ref: '$.metadata.user_id', data: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } });
     expect(Object.keys(json())).toEqual(['$schema', 'normalize', 'tests', 'future']);
     expect(read()).toMatch(/^\{\n {4}"\$schema"/);
     expect(read().endsWith('}\n')).toBe(true);
@@ -178,7 +182,8 @@ describe('addRules and removeRule', () => {
       { kind: 'tool', name: 'save', path: '$.args.path', pattern: '/\\/tmp\\/x-[A-Za-z0-9_]+/', replace: '<VAR>' },
     ]);
     expect(r.rules.map((x) => [x.n, x.added])).toEqual([[1, false], [2, true], [3, true]]);
-    expect(r.events.map((e) => [e.kind, e.data.n])).toEqual([['normalizer.added', 2], ['normalizer.added', 3]]);
+    expect(r.events.map((e) => [e.kind, e.ref])).toEqual([['normalizer.added', '$.b'], ['normalizer.added', '$.args.path']]);
+    expect(r.events[1]!.data).toEqual({ kind: 'tool', name: 'save', path: '$.args.path', pattern: '/\\/tmp\\/x-[A-Za-z0-9_]+/', replace: '<VAR>' });
     // Nothing is written if one of them is refused.
     expect(() => addRules(cwd, 'normalize', [{ path: '$.c', replace: '<C>' }, { pattern: 'nope' }])).toThrow(RuleError);
     expect((json().normalize as unknown[]).length).toBe(3);
@@ -191,8 +196,11 @@ describe('addRules and removeRule', () => {
       { kind: 'tool', path: '$.args.api_key', pattern: '/.+/', replace: '<KEY>' },
       { pattern: 'uuid', replace: '<UUID>' },
     ]);
-    expect(removeRule(cwd, 'redact', 'email')).toMatchObject({ n: 1, rule: { pattern: 'email' }, event: { kind: 'redaction.removed', data: { n: 1, rule: { pattern: 'email' } } } });
-    expect(removeRule(cwd, 'redact', 'charge')).toMatchObject({ n: 1, rule: { name: 'charge' } });
+    // A redaction rule's event names it by what it puts in place, without its pattern: that can hold what it hides.
+    expect(removeRule(cwd, 'redact', 'email')).toMatchObject({ n: 1, rule: { pattern: 'email' }, event: { kind: 'redaction.removed', ref: '<EMAIL>', data: { replace: '<EMAIL>' } } });
+    const card = removeRule(cwd, 'redact', 'charge');
+    expect(card).toMatchObject({ n: 1, rule: { name: 'charge' } });
+    expect(card.event).toEqual({ kind: 'redaction.removed', ref: '<CARD>', data: { kind: 'tool', name: 'charge', path: '$.args.card', replace: '<CARD>' } });
     expect(removeRule(cwd, 'redact', '$.args.api_key')).toMatchObject({ n: 1 });
     expect(removeRule(cwd, 'redact', '#1')).toMatchObject({ rule: { pattern: 'uuid' } });
     expect(json().redact).toEqual([]);
@@ -328,13 +336,32 @@ describe('versions and concurrent writers', () => {
     expect(statSync(real).mode & 0o777).toBe(0o640);
     expect(readdirSync(cwd).sort()).toEqual([CONFIG_FILE, 'shared.json']);
   });
+
+  it('says so when the folder or the file cannot be written, and leaves both as they were', () => {
+    // Permissions don't bind root, and Windows has none of these.
+    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    write('{ "normalize": [] }\n');
+    chmodSync(cwd, 0o555);
+    try {
+      expect(() => addRule(cwd, 'normalize', { path: '$.a' })).toThrow(ConfigFileError);
+      expect(() => addRule(cwd, 'normalize', { path: '$.a' })).toThrow(/its folder .* is not writable \(EACCES\), and an edit writes a lock file and a temporary file beside it/);
+    } finally {
+      chmodSync(cwd, 0o755);
+    }
+    expect(readdirSync(cwd)).toEqual([CONFIG_FILE]);
+    // A config its owner made read-only stays read-only: a rename would replace it regardless.
+    chmodSync(file(), 0o444);
+    expect(() => setClock(cwd, 'exact')).toThrow(/shadowlap\.config\.json is read-only/);
+    expect(json()).toEqual({ normalize: [] });
+    expect(readdirSync(cwd)).toEqual([CONFIG_FILE]);
+  });
 });
 
 describe('setClock', () => {
   it('writes auto or exact, reports no change when it already says so, and refuses anything else', () => {
     expect(configClock(readConfigFile(cwd))).toEqual({ mode: 'auto', explicit: false });
     const r = setClock(cwd, 'exact');
-    expect(r).toMatchObject({ clock: 'exact', changed: true, event: { kind: 'clock.set', ref: CONFIG_FILE, data: { clock: 'exact', was: null } } });
+    expect(r).toMatchObject({ clock: 'exact', changed: true, event: { kind: 'clock.set', ref: 'exact', data: { clock: 'exact', was: null } } });
     expect(configClock(readConfigFile(cwd))).toEqual({ mode: 'exact', explicit: true });
     expect(setClock(cwd, 'exact')).toMatchObject({ changed: false, event: null });
     expect(setClock(cwd, 'auto').event?.data).toEqual({ clock: 'auto', was: 'exact' });

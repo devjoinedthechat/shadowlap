@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type Effect, type RunMeta } from '@shadowlap/engine';
-import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, redactionSettings, splitCommandLine, toolsSettings } from '../src/settings.js';
+import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -100,12 +100,20 @@ describe('matchingSettings', () => {
     const run = recording({ at: 1 });
     writeConfig({ normalize: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] });
     const tab = matchingSettings({ store, cwd });
-    // The job's result event, as `calibrate --json` prints it.
-    const result = { runId: run.runId, normalizers: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, { kind: 'tool', name: 'save_report', path: '$.args.path', pattern: '/\\/tmp\\/agent-[A-Za-z0-9_]+/', replace: '<VAR>' }] };
-    const added = addRules(cwd, 'normalize', result.normalizers, { expect: tab.config.version! });
+    // The job's result event, as `calibrate --json` prints it: each normalizer says why it was proposed.
+    const result = {
+      runId: run.runId,
+      normalizers: [
+        { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>', why: 'a new id on every run' },
+        { kind: 'tool', name: 'save_report', path: '$.args.path', pattern: '/\\/tmp\\/agent-[A-Za-z0-9_]+/', replace: '<VAR>', why: 'a temporary path' },
+      ],
+    };
+    expect(proposedRules(result)).toEqual(result.normalizers.map(({ why: _why, ...rule }) => rule));
+    expect(proposedRules({ normalizers: 'no' })).toEqual([]);
+    const added = addRules(cwd, 'normalize', proposedRules(result), { expect: tab.config.version! });
     expect(added.rules.map((r) => [r.n, r.added])).toEqual([[1, false], [2, true]]);
-    for (const event of added.events) recordEvent(store, { ...event, runId: result.runId, actor: 'dana' });
-    expect(store.listEvents().map((e) => [e.kind, e.runId, e.data?.n])).toEqual([['normalizer.added', run.runId, 2]]);
+    for (const event of added.events) recordEvent(store, { ...event, runId: result.runId, data: { ...event.data, via: 'calibrate' }, actor: 'dana' });
+    expect(store.listEvents().map((e) => [e.kind, e.runId, e.ref, e.data?.via])).toEqual([['normalizer.added', run.runId, '$.args.path', 'calibrate']]);
     expect(matchingSettings({ store, cwd }).rules.map((r) => r.scope)).toEqual(['api', 'tool · save_report']);
     // A page that read the config before this edit can't add on top of what it didn't see.
     expect(() => addRules(cwd, 'normalize', [{ path: '$.x', replace: '<X>' }], { expect: tab.config.version! })).toThrow(/changed since it was read/);
@@ -129,7 +137,11 @@ describe('redactionSettings', () => {
     const live = recording({ at: 20, status: 'running' });
     const r = redactionSettings({ store, cwd });
     expect(r.where).toBe(REDACTION_EXPORTS);
-    expect(r.where.find((e) => e.id === 'har')).toMatchObject({ applies: 'none' });
+    // Decision 6: html, pack and HAR apply every rule; html masks the command line and notes too, which pack keeps.
+    expect(r.where.find((e) => e.id === 'har')).toMatchObject({ applies: 'all' });
+    expect(r.where.find((e) => e.id === 'html')).toMatchObject({ applies: 'all', details: 'masked' });
+    expect(r.where.find((e) => e.id === 'pack')).toMatchObject({ applies: 'all', details: 'kept' });
+    expect(r.where.map((e) => e.id)).toContain('pairs');
     expect(r.form.kinds).toEqual(['api', 'tool']);
     expect(r.runs.map((x) => x.runId)).toEqual([run.runId, old.runId]);
     expect(r.runs[0]).toEqual({ runId: run.runId, label: `${run.runId.slice(0, 10)} · node agent.js`, preview: ['redact', 'preview', run.runId, '--json'] });
@@ -291,14 +303,16 @@ describe('mcpServers', () => {
       {
         name: 'filesystem', file: '.mcp.json', transport: 'stdio', target: 'npx -y @modelcontextprotocol/server-filesystem /srv/notes', viaShadowlap: false,
         line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] }, hidden: false,
+        recordedAs: { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' },
       },
       {
         name: 'github', file: '.mcp.json', transport: 'stdio', target: 'docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', viaShadowlap: false,
         line: 'shadowlap mcp -- docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', entry: { command: 'shadowlap', args: ['mcp', '--', 'docker', 'run', '-i', '--rm', '-e', 'GITHUB_TOKEN', 'ghcr.io/github/github-mcp-server', '--token', '•••'] }, hidden: true,
+        recordedAs: { transport: 'stdio', server: 'docker' },
       },
-      { name: 'notes', file: '.mcp.json', transport: 'stdio', target: 'node notes-server.js', viaShadowlap: true, line: 'shadowlap mcp --effect search=read -- node notes-server.js', entry: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] }, hidden: false },
-      { name: 'stripe', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.stripe.com/?key=•••', viaShadowlap: false, line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••'] }, hidden: true },
-      { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false },
+      { name: 'notes', file: '.mcp.json', transport: 'stdio', target: 'node notes-server.js', viaShadowlap: true, line: 'shadowlap mcp --effect search=read -- node notes-server.js', entry: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] }, hidden: false, recordedAs: { transport: 'stdio', server: 'node' } },
+      { name: 'stripe', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.stripe.com/?key=•••', viaShadowlap: false, line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••'] }, hidden: true, recordedAs: { transport: 'http', server: 'mcp.stripe.com' } },
+      { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false, recordedAs: { transport: 'http', server: 'mcp.linear.app' } },
     ]);
     // Nothing from an entry's environment or headers reaches the page.
     expect(JSON.stringify(servers)).not.toMatch(/ghp_|never_shown|Bearer|sk_live/);
@@ -361,6 +375,42 @@ describe('mcpServers', () => {
     expect(mcpServers(cwd).files[0]).toEqual({ path: '.mcp.json', found: true, error: 'larger than 1 MB, so it was not read' });
   });
 
+  it('counts the tools and writes of each server the recordings came through, matched to the client configs', () => {
+    put('.mcp.json', JSON.stringify({
+      mcpServers: {
+        filesystem: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] },
+        issues: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp/k3y7abc9', '--header', 'Authorization: Bearer x'] },
+        search: { command: 'node', args: ['search-server.js'] },
+      },
+    }));
+    const run = recording({ at: 1 });
+    const via = (callNo: number, name: string, effect: Effect, mcp: Record<string, unknown>) =>
+      store.appendCallStart({ runId: run.runId, callNo, kind: 'tool', name, fingerprint: `${name}${callNo}`.padEnd(64, '0'), occurrence: 1, origin: 'live', effect, requestRef: null, meta: { mcp }, at: 100 + callNo });
+    const fs = { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' };
+    via(1, 'read_file', 'read', { ...fs, tools: [{ name: 'read_file', effect: 'read' }, { name: 'write_file', effect: 'write' }, { name: 'move_file', effect: 'write' }] });
+    via(2, 'write_file', 'write', fs);
+    via(3, 'create_issue', 'write', { transport: 'http', server: 'mcp.example.com' });
+    via(4, 'list_issues', 'read', { transport: 'http', server: 'mcp.example.com' });
+    // A server the project's configs don't list: the user's own client config elsewhere.
+    via(5, 'query', 'read', { transport: 'stdio', server: 'uvx mcp-server-sqlite' });
+    const t = toolsSettings({ store, cwd }, { mcpDoc: null });
+    expect(t.mcp.servers.map((r) => [r.name, r.recorded && { tools: r.recorded.tools, writes: r.recorded.writes, listed: r.recorded.listed, calls: r.recorded.calls }])).toEqual([
+      ['filesystem', { tools: 3, writes: 2, listed: true, calls: 2 }],
+      // No call listed its tools: the tools called through it.
+      ['issues', { tools: 2, writes: 1, listed: false, calls: 2 }],
+      ['search', null],
+    ]);
+    expect(t.mcp.recorded.map((r) => [r.server, r.inConfig])).toEqual([
+      ['mcp.example.com', true],
+      ['npx @modelcontextprotocol/server-filesystem', true],
+      ['uvx mcp-server-sqlite', false],
+    ]);
+    // The name matches what the CLI records: the command and the package a runner starts, never the rest.
+    expect(stdioServerName('C:\\tools\\npx.cmd', ['--yes', '@acme/mcp-server@1.2.0', '--token', 'x'])).toBe('npx @acme/mcp-server@1.2.0');
+    expect(stdioServerName('npx', ['-y', '/srv/server.js'])).toBe('npx');
+    expect(stdioServerName('/usr/bin/python3', ['server.py'])).toBe('python3');
+  });
+
   it('finds nothing in a project with no MCP config', () => {
     expect(mcpServers(cwd)).toEqual({ servers: [], files: [{ path: '.mcp.json', found: false, error: null }, { path: '.cursor/mcp.json', found: false, error: null }, { path: '.vscode/mcp.json', found: false, error: null }] });
   });
@@ -371,6 +421,7 @@ describe('mcpServerFor', () => {
     expect(mcpServerFor({ command: 'npx -y @modelcontextprotocol/server-filesystem "/srv/my notes"' })).toEqual({
       transport: 'stdio', target: "npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", viaShadowlap: false,
       line: "shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/my notes'] }, hidden: false,
+      recordedAs: { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' },
     });
     expect(mcpServerFor({ url: ' https://mcp.linear.app/mcp ' })).toMatchObject({ transport: 'http', line: 'shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false });
     expect(mcpServerFor({ url: 'https://mcp.example.com/mcp?key=sk_live_1' })).toMatchObject({ target: 'https://mcp.example.com/mcp?key=•••', hidden: true });
@@ -409,6 +460,10 @@ describe('secrets in commands and URLs', () => {
       [['https://mcp.zapier.com/api/mcp/s/NmE5ZDEzNjctYTFhZC00ODk0LWI3ZjMtZDE2MjZjZTY0YjA0/mcp'], ['https://mcp.zapier.com/api/mcp/s/•••/mcp']],
       [['https://mcp.zapier.com/api/mcp/s/SECRETPATH/mcp'], ['https://mcp.zapier.com/api/mcp/s/•••/mcp']],
       [['https://mcp.composio.dev/partner/composio/github/mcp', 'https://mcp.example.com/v1/sse', '--keyboard', 'us'], ['https://mcp.composio.dev/partner/composio/github/mcp', 'https://mcp.example.com/v1/sse', '--keyboard', 'us']],
+      // A key after a one-letter flag, which says nothing of what follows it; a port, a path and a name with a version stay.
+      [['node', 'server.js', '-k', 'xyzzy-plain-key-42', '-p', '8080', '-f', './config-v2.json', '-n', 'server-v2'], ['node', 'server.js', '-k', '•••', '-p', '8080', '-f', './config-v2.json', '-n', 'server-v2']],
+      // A short run of letters and digits in a URL path, as a key in a hosted server's URL.
+      [['https://mcp.example.com/u/a1b2c3d4/mcp', 'https://mcp.example.com/api-v2/mcp'], ['https://mcp.example.com/u/•••/mcp', 'https://mcp.example.com/api-v2/mcp']],
     ];
     for (const [argv, shown] of cases) expect(hideSecrets(argv), argv.join(' ')).toEqual(shown);
   });
@@ -432,7 +487,7 @@ describe('projectSettings', () => {
     disk.endRun(probe.runId, 'failed');
     disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } }); // still recording
     const p = projectSettings({ store: disk, cwd, dbPath, address: '127.0.0.1:4777' });
-    expect(p).toMatchObject({ name: cwd.split(/[\\/]/).pop(), folder: cwd, store: { path: dbPath }, runs: 2, attempts: 1, running: 1, address: '127.0.0.1:4777' });
+    expect(p).toMatchObject({ name: cwd.split(/[\\/]/).pop(), folder: cwd, store: { path: dbPath }, runs: 2, attempts: 1, running: 1, abandoned: 0, address: '127.0.0.1:4777' });
     // The database's own count of its pages, not the files on disk, which a write-ahead log makes jump.
     expect(p.store.bytes).toBe(disk.size().bytes);
     expect(p.store.bytes).toBeGreaterThan(0);
@@ -441,10 +496,21 @@ describe('projectSettings', () => {
     expect(projectSettings({ store, cwd, name: 'support-agent' })).toMatchObject({ name: 'support-agent', store: { path: null }, runs: 0, address: null });
   });
 
-  it('deletes exactly what the dry run listed: its cutoff, and the number of runs the dialog promised', () => {
-    const dryRun = { dryRun: true, olderThanDays: 30, keep: null, cutoff: 1_757_000_000_000, total: 9, runs: [{ runId: 'A' }, { runId: 'B' }], blobs: 3, bytes: 1000 };
-    expect(cleanupArgv(dryRun)).toEqual(['gc', '--before', '1757000000000', '--expect', '2', '--json']);
-    expect(cleanupArgv({ cutoff: null, keep: 200, runs: [] })).toEqual(['gc', '--keep', '200', '--expect', '0', '--json']);
-    expect(() => cleanupArgv({ cutoff: null, keep: null, runs: [] })).toThrow(/picked no runs/);
+  it('deletes exactly what the dry run listed: its cutoff, and the runs the dialog promised', () => {
+    const dryRun = { dryRun: true, olderThanDays: 30, keep: null, cutoff: 1_757_000_000_000, total: 9, count: 2, runs: [{ runId: 'A' }, { runId: 'B' }], expect: '2-0123456789abcdef', blobs: 3, bytes: 1000 };
+    expect(cleanupArgv(dryRun)).toEqual(['gc', '--before', '1757000000000', '--expect', '2-0123456789abcdef', '--json']);
+    expect(cleanupArgv({ cutoff: null, keep: 200, expect: '0-e3b0c44298fc1c14' })).toEqual(['gc', '--keep', '200', '--expect', '0-e3b0c44298fc1c14', '--json']);
+    expect(() => cleanupArgv({ cutoff: null, keep: null, expect: '0-e3b0c44298fc1c14' })).toThrow(/picked no runs/);
+    expect(() => cleanupArgv({ cutoff: 1, keep: null, expect: '2' })).toThrow(/no "expect"/);
+  });
+
+  it('tells a recording from a run its process left running', () => {
+    const dbPath = join(cwd, 'store.db');
+    const disk = Store.open(dbPath);
+    disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } });
+    // A run imported while it was still recording somewhere, a day and more ago: nobody records it here.
+    disk.importRun({ runId: '01ABANDONED000000000000000', parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['x'], cwd }, codeVersion: null, startedAt: Date.now() - 2 * 86_400_000, endedAt: null });
+    expect(projectSettings({ store: disk, cwd, dbPath })).toMatchObject({ running: 1, abandoned: 1 });
+    disk.close();
   });
 });

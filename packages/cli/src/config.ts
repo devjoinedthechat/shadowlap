@@ -17,7 +17,7 @@ export const CONFIG_SCHEMA_URL = 'https://raw.githubusercontent.com/devjoinedthe
 export interface ShadowlapConfig {
   /** Masked before fingerprinting; stored content is untouched. */
   normalize: Normalizer[];
-  /** Applied to the copy of a run that leaves the machine (`pack`, `export html`, `export dataset`, `export otel`; not `export har` yet); a redacted pack replays with these as normalizers. */
+  /** Applied to the copy of a run that leaves the machine (`pack` and every export; see REDACTION_EXPORTS); a redacted pack replays with these as normalizers. */
   redact: Normalizer[];
   /** USD per million tokens by model name prefix, for cost estimates; extends and overrides the built-in table. */
   prices?: Record<string, Price>;
@@ -87,10 +87,21 @@ export function loadConfig(cwd: string): ShadowlapConfig {
   return config;
 }
 
-/** A list of rules as a property that checks it the first time a command reads it. */
+/**
+ * A list of rules as a property that checks it the first time a command reads it. It behaves as a
+ * plain property otherwise: a command may replace the list (to put other rules
+ * in front of the project's), copy the config or spread it.
+ */
 function checkedOnFirstUse(list: 'normalize' | 'redact', raw: unknown): PropertyDescriptor {
   let rules: Normalizer[] | undefined;
-  return { enumerable: true, get: () => (rules ??= parseRules(raw, list)) };
+  return {
+    enumerable: true,
+    configurable: true,
+    get: () => (rules ??= parseRules(raw, list)),
+    set: (value: Normalizer[]) => {
+      rules = value;
+    },
+  };
 }
 
 function parsePrices(raw: unknown, file = CONFIG_FILE): Record<string, Price> | null {

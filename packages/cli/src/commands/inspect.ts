@@ -325,5 +325,5 @@ export function register(program: Command): void {
  * show and remove it.
  */
 function withProjectRedaction(options: DashboardOptions, cwd = process.cwd()): DashboardOptions {
-  return Object.defineProperty(options, 'redact', { enumerable: true, get: () => loadConfig(cwd).redact });
+  return Object.defineProperty(options, 'redact', { enumerable: true, configurable: true, get: () => loadConfig(cwd).redact });
 }

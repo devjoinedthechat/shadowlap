@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, fchmodSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { accessSync, closeSync, constants, fchmodSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { ClockMode } from './clock.js';
+import { processAlive } from './liveness.js';
 import { compilePattern, namedPatterns, parsePath } from './normalize.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -38,7 +39,7 @@ export interface ConfigFile {
   format: { indent: string; eol: string };
 }
 
-/** The file is not a JSON object, so nothing can edit it until it is fixed. */
+/** The file is not a JSON object, so nothing can edit it until it is fixed; or its folder can't be written. */
 export class ConfigFileError extends Error {
   override readonly name = 'ConfigFileError';
 }
@@ -186,7 +187,9 @@ export function validateRule(list: RuleList, input: unknown): Normalizer {
   if (!isObject(input)) throw new RuleError('a rule is an object with a path, a pattern or both, and what to replace them with');
   const unknown = Object.keys(input).filter((k) => !(FIELDS as readonly string[]).includes(k));
   if (unknown.length) throw new RuleError(`a rule has no field ${unknown[0]}: it takes kind, name, path, pattern and replace`);
-  const rule = checkShape({ ...input, replace: input.replace ?? DEFAULT_REPLACE[list] }, RULE_KINDS[list], true);
+  // A cleared "Replace with" field, like a missing --replace, takes the default: an empty replacement would delete what it matches.
+  const replace = input.replace === undefined || input.replace === null || input.replace === '' ? DEFAULT_REPLACE[list] : input.replace;
+  const rule = checkShape({ ...input, replace }, RULE_KINDS[list], true);
   if (rule.path === undefined && rule.pattern === undefined) throw new RuleError('give a path, a pattern or both: a rule with neither would change nothing');
   if (rule.pattern !== undefined) {
     const re = compilePattern(rule.pattern);
@@ -300,10 +303,16 @@ export interface EditOptions {
   wait?: number;
 }
 
-/** An activity event an edit leaves, for recordEvent(store, { ...event, actor }). */
+/**
+ * An activity event an edit leaves, for recordEvent(store, { ...event, actor }). A rule's event
+ * carries the rule's fields as they are stored (kind, name, path, pattern, replace), and names it
+ * by its path (a normalizer) or by what it puts in place (a redaction rule). A redaction rule's
+ * pattern is left out: it can hold the very text the rule hides, and the activity log is not where
+ * that belongs.
+ */
 export interface ConfigEvent {
   kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set';
-  ref: string;
+  ref: string | null;
   data: Record<string, unknown>;
 }
 
@@ -311,6 +320,14 @@ const EVENT_KINDS = {
   normalize: { added: 'normalizer.added', removed: 'normalizer.removed' },
   redact: { added: 'redaction.added', removed: 'redaction.removed' },
 } as const;
+
+/** The event for a rule added to or removed from `list`; `entry` as the file held it. */
+function ruleEvent(list: RuleList, what: 'added' | 'removed', entry: unknown): ConfigEvent {
+  const fields = isObject(entry) ? Object.fromEntries(FIELDS.filter((k) => entry[k] !== undefined && entry[k] !== null).map((k) => [k, entry[k]])) : {};
+  if (list === 'redact') delete fields.pattern;
+  const ref = list === 'redact' ? fields.replace : fields.path;
+  return { kind: EVENT_KINDS[list][what], ref: typeof ref === 'string' ? ref : null, data: fields };
+}
 
 const LOCK_WAIT_MS = 2_000;
 const LOCK_STALE_MS = 10_000;
@@ -325,15 +342,6 @@ function writeTarget(path: string): string {
   }
 }
 
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 /**
  * A lock left by a writer that is gone: its process no longer runs on this machine, or (for a lock
  * from another machine on a shared folder, or one whose owner can't be read) nobody touched it for
@@ -342,7 +350,7 @@ function alive(pid: number): boolean {
 function stale(owner: string, mtimeMs: number): boolean {
   try {
     const o = JSON.parse(owner) as { pid?: unknown; host?: unknown };
-    if (o.host === hostname() && typeof o.pid === 'number' && Number.isInteger(o.pid) && o.pid > 0 && !alive(o.pid)) return true;
+    if (o.host === hostname() && typeof o.pid === 'number' && Number.isInteger(o.pid) && o.pid > 0 && !processAlive(o.pid)) return true;
   } catch {
     // written by something else, or still being written: go by its age
   }
@@ -380,6 +388,16 @@ function breakStale(lock: string, seen: string): void {
 }
 
 /**
+ * A file beside the config could not be created: the folder is read-only (a checkout mounted
+ * read-only, a folder owned by someone else), even when the config file itself is writable.
+ */
+function notWritable(err: unknown, target: string): Error {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code !== 'EACCES' && code !== 'EPERM' && code !== 'EROFS') return err as Error;
+  return new ConfigFileError(`${CONFIG_FILE} can't be edited: its folder ${dirname(target)} is not writable (${code}), and an edit writes a lock file and a temporary file beside it`);
+}
+
+/**
  * Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes. The lock names its owner, so
  * a lock left by a crash is taken over at once on the same machine (after LOCK_STALE_MS otherwise),
  * and a writer only ever removes its own.
@@ -393,7 +411,7 @@ function withLock<T>(target: string, wait: number, fn: () => T): T {
     try {
       fd = openSync(lock, 'wx', 0o644);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw notWritable(err, target);
     }
     if (fd !== null) {
       try {
@@ -448,11 +466,26 @@ function serialize(data: Record<string, unknown>, format: ConfigFile['format']):
   return JSON.stringify(data, null, format.indent).replace(/\n/g, format.eol) + format.eol;
 }
 
-/** Writes `text` beside `target` and renames it over, keeping the file's permissions. */
+/**
+ * Writes `text` beside `target` and renames it over, keeping the file's permissions. A file its
+ * owner made read-only stays as it is: a rename would replace it regardless.
+ */
 function replaceFile(target: string, text: string, existed: boolean): void {
   const tmp = join(dirname(target), `.${basename(target)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+  if (existed) {
+    try {
+      accessSync(target, constants.W_OK);
+    } catch (err) {
+      throw new ConfigFileError(`${CONFIG_FILE} is read-only (${(err as NodeJS.ErrnoException).code ?? 'EACCES'}): make it writable to edit it`);
+    }
+  }
   const mode = existed ? statSync(target).mode & 0o777 : 0o644;
-  const fd = openSync(tmp, 'wx', mode);
+  let fd: number;
+  try {
+    fd = openSync(tmp, 'wx', mode);
+  } catch (err) {
+    throw notWritable(err, target);
+  }
   try {
     if (existed) fchmodSync(fd, mode);
     writeSync(fd, text);
@@ -530,7 +563,7 @@ export function addRules(cwd: string, list: RuleList, inputs: readonly unknown[]
     if (out.some((r) => r.added)) data[list] = rules;
     return out;
   });
-  const events = result.filter((r) => r.added).map((r): ConfigEvent => ({ kind: EVENT_KINDS[list].added, ref: CONFIG_FILE, data: { rule: r.rule, n: r.n } }));
+  const events = result.filter((r) => r.added).map((r) => ruleEvent(list, 'added', r.rule));
   return { file, rules: result, events };
 }
 
@@ -549,7 +582,7 @@ export function removeRule(cwd: string, list: RuleList, which: string | number, 
     data[list] = rules;
     return { rule, n: at + 1 };
   });
-  return { file, rule: result.rule, n: result.n, event: { kind: EVENT_KINDS[list].removed, ref: CONFIG_FILE, data: { rule: result.rule, n: result.n } } };
+  return { file, rule: result.rule, n: result.n, event: ruleEvent(list, 'removed', result.rule) };
 }
 
 /** The clock the file sets: `auto` unless it says `exact`. `explicit` tells whether it says either. */
@@ -566,5 +599,5 @@ export function setClock(cwd: string, mode: unknown, options: EditOptions = {}):
     was = data.clock;
     data.clock = mode;
   });
-  return { file, clock: mode, changed, event: changed ? { kind: 'clock.set', ref: CONFIG_FILE, data: { clock: mode, was: was === 'exact' || was === 'auto' ? was : null } } : null };
+  return { file, clock: mode, changed, event: changed ? { kind: 'clock.set', ref: mode, data: { clock: mode, was: was === 'exact' || was === 'auto' ? was : null } } : null };
 }

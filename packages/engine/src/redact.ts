@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, type RewriteObserver } from './normalize.js';
 import type { Store } from './store.js';
-import type { CallEndRow, CallRecord, Normalizer, RunRecord, SerializedError } from './types.js';
+import type { CallEndRow, CallRecord, Normalizer, RunMeta, RunRecord, SerializedError } from './types.js';
 
 /**
  * Redaction: a copy of a run whose stored requests and responses have the rules applied.
@@ -10,7 +10,8 @@ import type { CallEndRow, CallRecord, Normalizer, RunRecord, SerializedError } f
  * string of a request, to the raw text of a response, and to an attempt's error. The copy records
  * the rules in its run metadata so a replay applies them as normalizers and still matches (a rule
  * must therefore be idempotent: its replacement must not match its own pattern). The run's command
- * line, labels and notes are copied as they are: a replay of the copy runs that command.
+ * line, labels and notes are copied as they are: a replay of the copy runs that command. A copy that
+ * is only ever read (`export html`) masks them too: redactRunWithDetails.
  */
 
 /** A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON. */
@@ -95,6 +96,65 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
   return copy;
 }
 
+// ---- the run's own record ----
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * A run's own record with the rules without a path applied to what a person or a command line
+ * wrote in it, outside its calls: the command line and its folder, labels, notes, outcome checks,
+ * the file or golden it came from, its author, what blame changed, and the divergence report's
+ * values and words. Ids, times and Shadowlap's own words stay as they are.
+ */
+export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord {
+  if (!rules.some((r) => r.path === undefined && r.pattern !== undefined)) return run;
+  const text = (value: string) => rewriteText(value, rules);
+  const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isRecord(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
+  const out: RunRecord = { ...run, command: { ...run.command, argv: run.command.argv.map(text), cwd: text(run.command.cwd) } };
+  const meta = run.meta;
+  if (meta) {
+    const m: RunMeta = { ...meta };
+    if (meta.labels) m.labels = meta.labels.map(text);
+    if (meta.notes) m.notes = meta.notes.map((n) => ({ ...n, text: text(n.text) }));
+    if (meta.checks) m.checks = meta.checks.map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
+    if (meta.imported) m.imported = { ...meta.imported, from: text(meta.imported.from) };
+    if (meta.test) m.test = { ...meta.test, golden: text(meta.test.golden) };
+    if (typeof meta.author === 'string') m.author = text(meta.author);
+    if (meta.blame) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: meta.blame.oracle.map(text) };
+    out.meta = m;
+  }
+  const d = run.divergence;
+  if (d) {
+    out.divergence = {
+      ...d,
+      ...(d.diff ? { diff: d.diff.map((e) => ({ ...e, ...('before' in e ? { before: deep(e.before) } : {}), ...('after' in e ? { after: deep(e.after) } : {}) })) } : {}),
+      ...(d.hints ? { hints: d.hints.map((h) => ({ ...h, message: text(h.message) })) } : {}),
+      ...(typeof d.reason === 'string' ? { reason: text(d.reason) } : {}),
+    };
+  }
+  return out;
+}
+
+/** `src` as a copy that is only read sees it: each run's own record masked (redactRunDetails). */
+function withRunDetailsRedacted(src: Store, rules: Normalizer[]): Store {
+  return Object.create(src, {
+    getRun: {
+      value: (runId: string) => {
+        const run = src.getRun(runId);
+        return run && redactRunDetails(run, rules);
+      },
+    },
+  }) as Store;
+}
+
+/**
+ * The copy `export html` and the dashboard's download make: what `pack` copies (redactRun), and the
+ * run's own record masked as well (redactRunDetails), since this copy is read, never replayed.
+ */
+export function redactRunWithDetails(src: Store, runId: string, rules: Normalizer[], dst: Store): RunRecord {
+  return redactRun(withRunDetailsRedacted(src, rules), runId, rules, dst);
+}
+
 // ---- the preview ----
 
 /** One rule in a redaction preview. */
@@ -120,9 +180,16 @@ export interface RedactionPreview {
   unreadable: number;
   /** Set when `maxCalls` stopped the preview early: how many of the run's calls it read. */
   partial: { read: number; of: number } | null;
-  /** Everything the rules would mask, summed over the rules. */
+  /** Everything the rules would mask in what `pack` copies, summed over the rules. */
   total: number;
   rules: RedactionRulePreview[];
+  /**
+   * The run's details: matches of the rules without a path in its command line, labels and notes,
+   * with up to two samples and the rules (numbered from 1) that match. Exports that only show a run
+   * (export html, dataset, otel) mask them; pack copies them as recorded, since a replay runs the
+   * command. Not part of `total`.
+   */
+  details: { count: number; samples: Array<{ before: string; after: string }>; rules: number[] };
 }
 
 const SAMPLES = 2;
@@ -198,7 +265,7 @@ function unseenParts(store: Store, call: CallRecord, seen: Set<string>): unknown
  * rules on every string of a request, on the text of every response and on an attempt's error,
  * retries included), with a count per rule and two samples. The local store is never modified. A
  * run still recording is refused: its calls are still arriving, so the count would be out of date
- * before it was read.
+ * before it was read (a run its process abandoned is not recording).
  *
  * Every request of a conversation sends the earlier messages again, and a value repeated that way
  * counts once; so a message already read at the same place in an earlier request is not read
@@ -209,7 +276,8 @@ function unseenParts(store: Store, call: CallRecord, seen: Set<string>): unknown
 export function previewRedaction(store: Store, runId: string, rules: Normalizer[], options: { maxCalls?: number } = {}): RedactionPreview {
   const run = store.getRun(runId);
   if (!run) throw new Error(`unknown run ${runId}`);
-  if (run.status === 'running') throw new Error(`${runId.slice(0, 10)} is still recording; preview it once it has ended`);
+  // A run its process abandoned can be previewed: nothing will add to it.
+  if (run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId)) throw new Error(`${runId.slice(0, 10)} is still recording; preview it once it has ended`);
   // A broken rule would fail every call; name it instead.
   rules.forEach((rule, i) => {
     try {
@@ -266,7 +334,18 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     const r = per[i]!;
     return { n: i + 1, rule, count: r.count, samples: r.samples, reached: rule.path === undefined ? null : r.reached, note: r.count ? null : zeroNote(rule, r.scoped, r.reached) };
   });
-  return { runId, calls: calls.length - unreadable, unreadable, partial: calls.length < all.length ? { read: calls.length, of: all.length } : null, total: previews.reduce((s, p) => s + p.count, 0), rules: previews };
+  // The run's details, as the exports that carry them mask them (redactRunDetails): the command line as one text, each label and each note.
+  const details: RedactionPreview['details'] = { count: 0, samples: [], rules: [] };
+  const detailObserver: RewriteObserver = {
+    changed(i, before, after, count) {
+      details.count += count;
+      if (!details.rules.includes(i + 1)) details.rules.push(i + 1);
+      if (details.samples.length < SAMPLES) details.samples.push(clipChange(asText(before), asText(after)));
+    },
+  };
+  for (const text of [run.command.argv.join(' '), ...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
+  details.rules.sort((a, b) => a - b);
+  return { runId, calls: calls.length - unreadable, unreadable, partial: calls.length < all.length ? { read: calls.length, of: all.length } : null, total: previews.reduce((s, p) => s + p.count, 0), rules: previews, details };
 }
 
 function zeroNote(rule: Normalizer, scoped: number, reached: number): string {
@@ -281,31 +360,39 @@ function zeroNote(rule: Normalizer, scoped: number, reached: number): string {
 
 // ---- where the rules apply ----
 
-/** An export a run can leave the machine by, and which redaction rules it applies today. */
+/** An export a run can leave the machine by, and which redaction rules it applies (decision 6). */
 export interface RedactionExport {
-  id: 'pack' | 'html' | 'dataset' | 'otel' | 'har';
+  id: 'pack' | 'html' | 'har' | 'dataset' | 'pairs' | 'otel';
   command: string;
   /**
-   * `all`: every rule, on every request and response it copies and the errors with them, as
-   * `pack` applies them. `messages`: the same rewrite of each model call it keeps, then rules
-   * without a path on every string it writes. `attributes`: rules without a path, on the names,
-   * command line and errors it carries; it carries no prompt text. `none`: no rule yet.
+   * `all`: every rule, on every request and response it copies and the errors with them, as `pack`
+   * applies them. `messages`: the rules on the conversations and answers it keeps (path rules on
+   * the message fields there), then the rules without a path on every string it writes.
+   * `attributes`: it carries no prompt text; the rules without a path apply to the names, command
+   * line and errors it keeps.
    */
-  applies: 'all' | 'messages' | 'attributes' | 'none';
+  applies: 'all' | 'messages' | 'attributes';
+  /**
+   * The run's details (its command line, labels and notes; RedactionPreview.details): `masked` by
+   * the rules without a path, `kept` as recorded (pack: a replay runs the command), or `absent`
+   * from what it writes.
+   */
+  details: 'masked' | 'kept' | 'absent';
   /** The same, in words for the Settings page. */
   note: string;
 }
 
 /**
- * Where the project's redaction rules apply: every way a run's content leaves this machine, and
- * what each does today (packages/cli/test/redaction-exports.test.ts holds each export to its
- * entry). The local store is never modified, and API keys and authorization headers are never
- * stored at all.
+ * Where the project's redaction rules apply: every way a run's content leaves this machine, as
+ * decision 6 has it (packages/cli/test/redaction-exports.test.ts holds each export this build has
+ * to its entry). The local store is never modified, and API keys and authorization headers are
+ * never stored at all.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
-  { id: 'pack', command: 'shadowlap pack', applies: 'all', note: 'every rule, on every request and response it copies and the errors with them' },
-  { id: 'html', command: 'shadowlap export html', applies: 'all', note: 'every rule, as pack applies them' },
-  { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', note: 'every rule on the conversations and answers it keeps, as pack applies them, and rules without a path on the rest of each row' },
-  { id: 'otel', command: 'shadowlap export otel', applies: 'attributes', note: 'no prompt text leaves; rules without a path on the names, command line and errors it keeps' },
-  { id: 'har', command: 'shadowlap export har', applies: 'none', note: 'no rules yet: it writes whole requests and responses, so share a run with pack or export html' },
+  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule, on every request and response it copies and the errors with them; the command line, labels and notes are copied as recorded, since a replay runs the command' },
+  { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, and the rules without a path on the command line, labels and notes too' },
+  { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds: the whole request, and the rules without a path on URLs, headers and responses; it holds no tool calls and no command line' },
+  { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as pack applies them, and the rules without a path on the rest of each row: command line, labels and notes' },
+  { id: 'pairs', command: 'shadowlap export pairs', applies: 'messages', details: 'absent', note: 'the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string' },
+  { id: 'otel', command: 'shadowlap export otel', applies: 'attributes', details: 'masked', note: 'no prompt text leaves; the rules without a path on the names, command line and errors it keeps' },
 ];

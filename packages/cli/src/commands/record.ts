@@ -6,7 +6,7 @@ import { emitJobEvent } from '../job-events.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordActivity, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireRun, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -236,7 +236,8 @@ export function register(program: Command): void {
         const result = outcome;
         let added: number[] = [];
         const emitJson = () => {
-          const data = { runId: parent.runId, source: target.source, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: added.length > 0, added, stopped: result.clean ? null : { why: result.why, details: result.details } };
+          // Each normalizer says why it was proposed; `proposedRules` in the dashboard reads the rules back out of it.
+          const data = { runId: parent.runId, source: target.source, clean: result.clean, rounds, normalizers: proposals.map((x) => ({ ...x.normalizer, why: x.why })), written: added.length > 0, added, stopped: result.clean ? null : { why: result.why, details: result.details } };
           emitJobEvent({ type: 'result', data });
           if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
         };
@@ -254,7 +255,7 @@ export function register(program: Command): void {
             const saved = addRules(cwd, 'normalize', proposals.map((x) => x.normalizer));
             added = saved.rules.filter((r) => r.added).map((r) => r.n);
             const had = saved.rules.filter((r) => !r.added).map((r) => `#${r.n}`);
-            recordActivity(opts, saved.events.map((e) => ({ ...e, runId: parent.runId })));
+            recordEvents(opts, saved.events.map((e) => ({ ...e, runId: parent.runId, data: { ...e.data, via: 'calibrate' } })));
             const where = added.length ? `Added to ${configPath(cwd)} as normalizer${added.length === 1 ? '' : 's'} ${added.map((n) => `#${n}`).join(', ')}.` : `Nothing added to ${configPath(cwd)}.`;
             say(`${lead} ${where}${had.length ? ` Already there: ${had.join(', ')}.` : ''}\n`);
           } else {

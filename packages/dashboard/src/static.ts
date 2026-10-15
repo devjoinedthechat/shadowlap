@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { redactRun, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
+import { redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetail, compare, lineage, listRuns, runDetail } from './api.js';
 
 /**
@@ -10,7 +10,8 @@ import { callDetail, compare, lineage, listRuns, runDetail } from './api.js';
  * comment, on a machine that has neither Shadowlap nor the recording.
  *
  * It is a copy of recorded data, so the redaction rules in shadowlap.config.json apply by default,
- * as they do to `shadowlap pack`. Actions, search and live updates are not in an exported copy.
+ * as they do to `shadowlap pack`, and to the run's command line, labels and notes too. Actions,
+ * search and live updates are not in an exported copy.
  */
 
 export interface ExportHtmlOptions {
@@ -89,14 +90,15 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
   const asked = opts.runIds;
   if (!asked.length) throw new Error('nothing to export: name a run');
 
-  // Redaction copies the runs into a scratch store, the way pack redacts what it writes.
+  // Redaction copies the runs into a scratch store, the way pack redacts what it writes, and masks
+  // each run's command line, labels and notes as well: unlike a pack, this file is never replayed.
   let store = opts.store;
   let scratch: Store | null = null;
   if (rules.length) {
     scratch = Store.open(':memory:');
     // Ancestors first: a copied run keeps its parent only when the parent is already there.
     const ordered = [...asked].sort((a, b) => depth(opts.store, a) - depth(opts.store, b));
-    for (const runId of ordered) redactRun(opts.store, runId, rules, scratch);
+    for (const runId of ordered) redactRunWithDetails(opts.store, runId, rules, scratch);
     store = scratch;
   }
   try {

@@ -1,10 +1,10 @@
 import { Command } from 'commander';
-import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RuleList } from '@shadowlap/engine';
+import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, hasRecordedCommand, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RuleList, type RunRecord } from '@shadowlap/engine';
 import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
 import { formatInit, inspectProject, writeInitialConfig } from '../init.js';
 import { emitJobEvent } from '../job-events.js';
-import { openStoreIfExists, parseChoice, recordActivity, requireRun, VERSION, type GlobalOpts } from '../shared.js';
+import { openStoreIfExists, parseChoice, recordEvents, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId, table } from '../ui.js';
 
 /** Project setup and the rules in shadowlap.config.json. */
@@ -54,7 +54,7 @@ const HOW: Record<RuleList, { what: string; add: string; listed: string }> = {
     listed: 'no normalizers',
   },
   redact: {
-    what: 'Manage redaction rules in shadowlap.config.json: what is masked in the copy of a run that leaves this machine (pack, export html, dataset and otel; not export har yet)',
+    what: 'Manage redaction rules in shadowlap.config.json: what is masked in the copy of a run that leaves this machine (pack and every export)',
     add: 'Add a redaction rule. A pattern masks what it matches in every stored request and response (only at --path in requests, with one); --path alone replaces the whole value there',
     listed: 'no redaction rules',
   },
@@ -81,7 +81,7 @@ function registerRules(program: Command, list: RuleList): void {
         process.stdout.write(`${noun} #${r.n} in ${configPath(cwd)} is already this rule; nothing changed\n`);
         return;
       }
-      recordActivity(program.opts<GlobalOpts>(), r.event ? [r.event] : []);
+      recordEvents(program.opts<GlobalOpts>(), r.event ? [r.event] : []);
       process.stdout.write(`added ${noun} #${r.n} to ${configPath(cwd)}\n`);
     });
 
@@ -93,7 +93,7 @@ function registerRules(program: Command, list: RuleList): void {
     .action((which: string, flags: { expect?: string }) => {
       const cwd = process.cwd();
       const r = removeRule(cwd, list, which, flags.expect ? { expect: flags.expect } : {});
-      recordActivity(program.opts<GlobalOpts>(), [r.event]);
+      recordEvents(program.opts<GlobalOpts>(), [r.event]);
       const rule = typeof r.rule === 'object' && r.rule !== null ? describeRule(r.rule as Normalizer) : JSON.stringify(r.rule);
       process.stdout.write(`removed ${noun} #${r.n} (${safe(rule)}) from ${configPath(cwd)}\n`);
       const left = readRules(r.file, list).length;
@@ -149,7 +149,8 @@ function registerPreview(program: Command, cmd: Command): void {
       const store = openStoreIfExists(program.opts<GlobalOpts>());
       if (!store) throw new Error(noRun);
       try {
-        const run = runArg ? requireRun(store, runArg) : (store.listRuns(200).find((r) => r.status !== 'running') ?? null);
+        const recording = new Set(store.recordingRuns().live.map((r) => r.run.runId));
+        const run = runArg ? requireRun(store, runArg) : (store.listRuns(200).find((r) => !recording.has(r.runId)) ?? null);
         if (!run) throw new Error(noRun);
         const preview = previewRedaction(store, run.runId, rules);
         emitJobEvent({ type: 'result', data: preview });
@@ -157,19 +158,31 @@ function registerPreview(program: Command, cmd: Command): void {
           process.stdout.write(JSON.stringify(preview, null, 2) + '\n');
           return;
         }
-        process.stdout.write(formatPreview(preview, quoteArgv(run.command.argv)));
+        process.stdout.write(formatPreview(preview, describedRun(run)));
       } finally {
         store.close();
       }
     });
 }
 
-function formatPreview(preview: RedactionPreview, command: string): string {
+/** A run as the preview names it: its command line, or for an import the file it came from. */
+function describedRun(run: RunRecord): string {
+  if (hasRecordedCommand(run)) return quoteArgv(run.command.argv);
+  return run.meta?.imported?.from ? `imported from ${run.meta.imported.from}` : 'a capture';
+}
+
+function formatPreview(preview: RedactionPreview, what: string): string {
   const total = `${preview.total} value${preview.total === 1 ? '' : 's'} would be masked`;
-  const lines = [`${shortId(preview.runId)} (${safe(command)}): ${preview.rules.length ? total : 'no redaction rules in shadowlap.config.json, so nothing would be masked'}`];
+  const lines = [`${shortId(preview.runId)} (${safe(what)}): ${preview.rules.length ? total : 'no redaction rules in shadowlap.config.json, so nothing would be masked'}`];
   for (const r of preview.rules) {
     lines.push(`  #${r.n}  ${safe(describeRule(r.rule))}  ${r.count ? p.bold(String(r.count)) : p.dim('0')}${r.note ? p.dim(`  ${safe(r.note)}`) : ''}`);
     for (const s of r.samples) lines.push(`        ${p.red('-')} ${safe(s.before)}`, `        ${p.green('+')} ${safe(s.after)}`);
+  }
+  const d = preview.details;
+  if (d.count) {
+    const rules = d.rules.map((n) => `#${n}`).join(', ');
+    lines.push(`  the run's command line, labels and notes: ${p.bold(String(d.count))} (${rules})${p.dim('  masked by export html, dataset and otel; pack copies them as recorded, since a replay runs the command')}`);
+    for (const s of d.samples) lines.push(`        ${p.red('-')} ${safe(s.before)}`, `        ${p.green('+')} ${safe(s.after)}`);
   }
   if (preview.unreadable) lines.push(p.yellow(`  ${preview.unreadable} call${preview.unreadable === 1 ? '' : 's'} could not be read and ${preview.unreadable === 1 ? 'is' : 'are'} not counted`));
   return lines.join('\n') + '\n';

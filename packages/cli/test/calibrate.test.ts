@@ -57,7 +57,8 @@ describe('shadowlap calibrate', () => {
     expect(written.code, written.out).toBe(0);
     expect(written.out).toMatch(/Added to .*shadowlap\.config\.json as normalizers #1, #2, #3\./);
     const log = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
-    expect(log.listEvents().map((e) => [e.kind, e.runId, e.data?.n])).toEqual([3, 2, 1].map((n) => ['normalizer.added', runId, n]));
+    // Each rule calibrate added is in the activity log, named by its path and marked as calibrate's.
+    expect(log.listEvents().map((e) => [e.kind, e.runId, e.ref, e.data?.via])).toEqual(['$.args.path', '$.system', '$.metadata.user_id'].map((path) => ['normalizer.added', runId, path, 'calibrate']));
     log.close();
     const config = JSON.parse(readFileSync(join(cwd, 'shadowlap.config.json'), 'utf8')) as { normalize: Array<{ kind?: string; name?: string; path: string }> };
     expect(config.normalize.map((n) => [n.kind, n.name, n.path])).toEqual([

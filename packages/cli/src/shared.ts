@@ -62,7 +62,7 @@ export function openStoreIfExists(opts: GlobalOpts): Store | null {
  * cleaned up). Only into a store that exists: editing shadowlap.config.json never creates one. Never
  * fails the command, whose work is already done.
  */
-export function recordActivity(opts: GlobalOpts, events: Array<Omit<RecordEventInput, 'actor'>>): void {
+export function recordEvents(opts: GlobalOpts, events: Array<Omit<RecordEventInput, 'actor'>>): void {
   if (!events.length) return;
   const dbPath = opts.db ?? defaultDbPath(process.cwd());
   if (!existsSync(dbPath)) return;

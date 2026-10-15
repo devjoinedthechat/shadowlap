@@ -88,7 +88,7 @@ It recognizes ISO dates and timestamps (`2026-09-16`, `2026-09-16T10:31:22Z`, wi
     …
 ```
 
-Without a run named, it takes the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture); with none, it says to record a run first. A recording that already replays clean ends with "This recording replays clean with the current rules. Nothing to add." `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--json` prints the run, how it was chosen (`source`: `given` or `newest`), every round, the proposals and the numbers `--write` gave them; a dashboard job that runs calibrate gets the same object as its result.
+Without a run named, it takes the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture); with none, it says to record a run first. A recording that already replays clean ends with "This recording replays clean with the current rules. Nothing to add." `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--json` prints the run, how it was chosen (`source`: `given` or `newest`), every round, the proposals with why each was proposed, and the numbers `--write` gave them; a dashboard job that runs calibrate gets the same object as its result.
 
 It makes no model calls, and writes are blocked while it runs. Run it after your first recording, and again when a replay forks for a reason you didn't cause. For a value in the middle of a longer string, the proposed pattern is anchored on the fixed text before it, so it masks only that value. When a change isn't a value in a request (the agent makes a different call, because it iterates a set or picks something at random), calibration stops and shows the divergence: read that value through the SDK's `uuid()` or `now()`, or make the choice deterministic.
 
@@ -106,9 +106,9 @@ shadowlap redact preview
 shadowlap pack <run> ./share/run
 ```
 
-Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool`; the replacement is `<REDACTED>` when it is left out. `redact ls` and `redact rm` work as they do for normalizers.
+Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool`; the replacement is `<REDACTED>` when it is left out (or left empty: a rule never deletes what it matches). `redact ls` and `redact rm` work as they do for normalizers.
 
-`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request, the raw text of responses and tool results, and an attempt's error message. The local store is never modified. The run's command line, labels and notes are copied as they are, because a replay of the pack runs that command. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean; a rule that lists the values it hides (an alternation of customer names) travels with every copy that way. `--no-redact` skips the rules.
+`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request, the raw text of responses and tool results, and an attempt's error message. The local store is never modified. The run's command line, labels and notes are copied as they are, because a replay of the pack runs that command; `export html`, which is only ever read, masks them too. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean; a rule that lists the values it hides (an alternation of customer names) travels with every copy that way. `--no-redact` skips the rules.
 
 A path rule masks only at its path. A tool argument the model wrote also appears in the conversation sent back to the model (`$.messages[…].content[…].input`), so mask a value that can appear there with a pattern, or a path for each place it appears.
 
@@ -118,15 +118,16 @@ Credentials never need redacting: API keys and authorization headers are forward
 
 ### Where the rules apply
 
-Shadowlap's tests hold each export to this list:
+Every way a run's content leaves the machine applies the rules; Shadowlap's tests hold each export to this list. "The run's details" are its command line, labels and notes.
 
-| Export | Applies |
-|---|---|
-| `shadowlap pack` | every rule, on every request and response it copies and the errors with them |
-| `shadowlap export html` | every rule, as `pack` applies them |
-| `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `pack` applies them, then rules without a path on the rest of each row (command line, labels, notes) |
-| `shadowlap export otel` | a trace carries no prompt text; rules without a path apply to its span names, command line, model and tool names, and error messages |
-| `shadowlap export har` | no rules yet: a HAR carries whole requests and responses, so share a run with `pack` or `export html` |
+| Export | Applies | The run's details |
+|---|---|---|
+| `shadowlap pack` | every rule, on every request and response it copies and the errors with them | copied as recorded: a replay runs the command |
+| `shadowlap export html` | every rule, as `pack` applies them | masked by the rules without a path, with the run's folder, checks, author and divergence |
+| `shadowlap export har` | every rule on the model calls it holds: the whole request, and the rules without a path on URLs, headers and responses | not in a HAR, nor are tool calls |
+| `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `pack` applies them, then the rules without a path on the rest of each row | masked |
+| `shadowlap export pairs` | the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string | not in a pair |
+| `shadowlap export otel` | a trace carries no prompt text; the rules without a path apply to its span names, model and tool names, and error messages | the command line, masked |
 
 Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read.
 
@@ -147,15 +148,26 @@ Each export that applies rules takes `--no-redact`, and stops, naming the rule, 
   #3  every call  any string  /\b(?:\d[ -]?){13,16}\b/ → <CARD>  0  no matches in this run
 ```
 
-Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value that a conversation sends again with every later request counts once. A rule that masks nothing says why: no matches in the run, no call of its kind or name, no request with its path, or a path whose values don't match its pattern. `--json` prints the same object, and a dashboard job that runs the preview gets it as its result.
+Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value that a conversation sends again with every later request counts once. A rule that masks nothing says why: no matches in the run, no call of its kind or name, no request with its path, or a path whose values don't match its pattern.
+
+The run's details come on a line of their own, since the exports differ on them: what the rules without a path match in the run's command line, labels and notes, which `export html`, `dataset` and `otel` mask and `pack` copies as recorded.
+
+```
+  the run's command line, labels and notes: 2 (#1)  masked by export html, dataset and otel; pack copies them as recorded, since a replay runs the command
+        - node agent.js --customer erin@example.com
+        + node agent.js --customer <REDACTED>
+```
+
+`--json` prints the same object (`details` holds that line: its count, samples and the rules that match), and a dashboard job that runs the preview gets it as its result. An imported run is named by the file it came from.
 
 ## Editing the file
 
 `normalize add` and `rm`, `redact add` and `rm`, and `calibrate --write` edit `shadowlap.config.json` through one editor, with the same checks:
 
 - One edit at a time: an edit takes `shadowlap.config.json.lock` beside the file, and waits up to two seconds for another to finish. The lock names the process holding it: a lock whose process is gone is taken over at once, any other after ten seconds untouched, and a writer only ever removes its own.
-- An edit replaces the file with one rename, so the file is never half written.
+- An edit writes `.shadowlap.config.json.<pid>.<random>.tmp` beside the file and renames it over the file, so the file is never half written. Both files are gone when the edit ends; a crash in the middle can leave one, which the next edit ignores and you can delete.
+- So editing needs the project folder to be writable, not only the file: in a read-only folder an edit says so and changes nothing. A config file you made read-only stays as it is: an edit refuses it.
 - Every key the edit doesn't touch keeps its place and its value, keys this version doesn't know included, and the file keeps its indentation and line endings.
 - `--expect <version>` on `add` and `rm` refuses the edit when the file is no longer the version `ls --json` printed, so a script that read rule #2 never removes a rule someone added in the meantime.
 
-Adding and removing a rule is recorded in the project's activity (`normalizer.added`, `redaction.removed`, …) with who did it, in a store that exists: editing the config never creates one.
+Adding and removing a rule is recorded in the project's activity with who did it, in a store that exists: editing the config never creates one. A normalizer is named by its path (`normalizer.added`, `normalizer.removed`, with the rule; calibrate's are marked `via: calibrate`), and a redaction rule by its replacement (`redaction.added`, `redaction.removed`): its pattern can hold the very text it hides, so the activity log never carries it.
