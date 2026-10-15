@@ -514,6 +514,8 @@ export interface TestRunBanner {
   volatile: DivergenceView['volatile'];
   /** The normalizer alone makes the replay match: Add normalizer, then re-run the golden. */
   normalizerFixes: boolean;
+  /** Every value that changes every run in the divergence, with the normalizer for each. */
+  values: VolatileValues;
   /** Arguments for the CLI: re-run the golden (after adding the normalizer), or update it. */
   rerun: string[];
   update: string[];
@@ -532,13 +534,15 @@ export function testRunBanner(store: Store, runId: string): TestRunBanner | null
   if (!run || !test || !run.divergence) return null;
   const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
   if (result?.failure !== 'diverged') return null;
-  const found = volatileValues(run.divergence);
+  // As judged when it ran, under the normalizers in force then; judged again for older history.
+  const found = (result.runId === run.runId ? result.data?.divergence?.volatile : undefined) ?? volatileValues(run.divergence);
   const v = found.values[0];
   return {
     golden: test.golden,
     session: test.session,
     volatile: v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null,
     normalizerFixes: found.explainsAll,
+    values: found,
     rerun: ['test', test.golden],
     update: ['test', test.golden, '--update'],
     normalizeAndTest: normalizeSteps(found, test.golden),
@@ -681,7 +685,7 @@ export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource
     if (!run || !banner) return { error: 'that run is not a replay of a golden that diverged' };
     golden = knownGolden(goldens, banner.golden);
     if (!golden) return { error: `${banner.golden} is no longer a golden on disk` };
-    volatile = volatileValues(run.divergence!);
+    volatile = banner.values;
     runId = run.runId;
   } else {
     golden = knownGolden(goldens, req.golden);

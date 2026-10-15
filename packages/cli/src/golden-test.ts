@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, unpackRun, volatileValues, type CallRecord, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, unpackRun, volatileValues, type CallRecord, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -108,6 +108,8 @@ export interface GoldenOutcome {
   failure: JunitCase['failure'];
   kind: TestFailure | null;
   seconds: number;
+  /** The normalizers its replays matched under: the config's, and the pack's redaction rules. */
+  normalizers: Normalizer[];
 }
 
 /**
@@ -128,6 +130,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
   const started = Date.now();
   const base = { golden, dir, name: basename(resolve(dir)), spec };
   let parent: RunRecord | null = null;
+  let normalizers: Normalizer[] = [...ctx.config.normalize];
   try {
     parent = importGolden(ctx.store, dir);
     // The store may hold the run as it was recorded, before the pack redacted it. Replaying the pack
@@ -136,11 +139,13 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // That copy may also carry an earlier pack's rules, when the run was packed again with more.
     const head = readPackHead(dir);
     const packed = 'error' in head || JSON.stringify(parent.meta?.redactions ?? []) === JSON.stringify(head.redactions) ? [] : head.redactions;
+    // A replay of a redacted run applies the rules it carries as well.
+    normalizers = [...ctx.config.normalize, ...packed, ...(parent.meta?.redactions ?? [])];
     const result = await testRecording(parent, spec, packed.length ? { ...ctx, config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : ctx);
-    return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000 };
+    return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { ...base, parent, result: null, failure: { message, details: message }, kind: 'error', seconds: (Date.now() - started) / 1000 };
+    return { ...base, parent, result: null, failure: { message, details: message }, kind: 'error', seconds: (Date.now() - started) / 1000, normalizers };
   }
 }
 
@@ -207,7 +212,7 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
       // whether they are values made anew on every run is judged here, on all of them.
       ...(d.diff ? { diff: d.diff.slice(0, 12).map((e) => ({ ...e, ...('before' in e ? { before: clipValue(e.before) } : {}), ...('after' in e ? { after: clipValue(e.after) } : {}) })), entries: d.diff.length } : {}),
       ...(d.hints ? { hints: d.hints } : {}),
-      volatile: volatileValues(d),
+      volatile: volatileValues(d, o.normalizers),
       text: formatDivergence(d),
     };
   }

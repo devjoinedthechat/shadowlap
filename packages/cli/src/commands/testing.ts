@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { formatTokens, packRun, recordEvent, resolveAuthor, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
+import { formatTokens, packRun, recordEvent, resolveAuthor, Store, unpackRun, volatileValues, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
@@ -142,6 +142,8 @@ export function register(program: Command): void {
       let upstreamRequests = 0;
       let updates = 0;
       const tested = new Map<string, { ok: boolean; fork: boolean }>();
+      // Goldens that diverged in a way an update would fix: not only on values that change every run.
+      const updatable: string[] = [];
       try {
         for (const packDir of packs) {
           const golden = goldenName(packDir, projectDir);
@@ -175,7 +177,7 @@ export function register(program: Command): void {
               process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
-              for (const w of volatileWarning(outcome.result.shown.ended.summary.divergence)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
+              for (const w of volatileWarning(outcome.result.shown.ended.summary.divergence, outcome.normalizers)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
               process.stdout.write(`    ${p.cyan('↻')} updating ${golden}: re-recording live, writes stubbed\n`);
               const u = await rerecordGolden(packDir, before, spec, {
                 store,
@@ -222,6 +224,8 @@ export function register(program: Command): void {
           cases.push(junitCase(outcome));
           results.push(packResult(outcome, { expect, updated }));
           tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
+          const divergence = outcome.result?.shown.ended.summary.divergence;
+          if (!flags.update && outcome.kind === 'diverged' && !(divergence && volatileValues(divergence, outcome.normalizers).explainsAll)) updatable.push(packDir);
         }
         pruneReplays(store, session, tested);
       } finally {
@@ -240,6 +244,8 @@ export function register(program: Command): void {
       emitJobEvent({ type: 'result', data: report });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
+      if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));
       await telemetry().flush();
       process.exitCode = report.failed ? 1 : 0;
     });

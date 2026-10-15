@@ -1,5 +1,6 @@
 import { hintsFor } from './diff.js';
-import { compilePattern } from './normalize.js';
+import { BUILTIN_STRIPPED_KEYS } from './fingerprint.js';
+import { applyNormalizers, compilePattern, parsePath } from './normalize.js';
 import type { DiffEntry, DivergenceReport, Normalizer } from './types.js';
 
 /**
@@ -117,9 +118,44 @@ function addedLeaves(entry: DiffEntry): DiffEntry[] {
   return out;
 }
 
-/** The changes in a divergence that look like values made anew on every run. */
-export function volatileValues(d: DivergenceReport): VolatileValues {
-  const entries = d.type === 'request_changed' ? (d.diff ?? []) : [];
+/**
+ * A change that matching already ignores: the normalizers in force read both sides the same, or it
+ * is in a key fingerprints leave out. A divergence report lists every change in the request as sent,
+ * these too, so they say nothing about why it diverged.
+ */
+export function maskedChange(entry: DiffEntry, normalizers: readonly Normalizer[], d: Pick<DivergenceReport, 'kind' | 'name'>): boolean {
+  let segs: ReturnType<typeof parsePath>;
+  try {
+    segs = parsePath(entry.path);
+  } catch {
+    return false;
+  }
+  if (segs.some((s) => s.type === 'key' && BUILTIN_STRIPPED_KEYS.includes(s.key))) return true;
+  if (entry.op !== 'changed' || !normalizers.length || segs.some((s) => s.type === 'wild' || (s.type === 'index' && (s.index < 0 || s.index > 10_000)))) return false;
+  // Each side alone at its path, so a rule's path and pattern apply as they do to the whole request.
+  const place = (leaf: unknown): unknown =>
+    segs.reduceRight<unknown>((inner, seg) => {
+      if (seg.type === 'key') return { [seg.key]: inner };
+      const arr: unknown[] = [];
+      arr[(seg as { index: number }).index] = inner;
+      return arr;
+    }, leaf);
+  try {
+    const before = applyNormalizers(place(entry.before), [...normalizers], d.kind, d.name);
+    const after = applyNormalizers(place(entry.after), [...normalizers], d.kind, d.name);
+    return JSON.stringify(before) === JSON.stringify(after);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The changes in a divergence that look like values made anew on every run. `normalizers`, the ones
+ * in force when it diverged, leave out what they already mask: such a change is listed in the report
+ * but did not make the replay diverge.
+ */
+export function volatileValues(d: DivergenceReport, normalizers: readonly Normalizer[] = []): VolatileValues {
+  const entries = (d.type === 'request_changed' ? (d.diff ?? []) : []).filter((e) => !maskedChange(e, normalizers, d));
   const values: VolatileValue[] = [];
   for (const entry of entries) {
     for (const one of addedLeaves(entry)) {

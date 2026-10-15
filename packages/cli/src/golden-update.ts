@@ -1,6 +1,6 @@
 import { existsSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { formatUsd, normalizeAddCommand, packRun, volatileValues, type CallRecord, type DivergenceReport, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { formatUsd, normalizeAddCommand, packRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { testAttempt, type GuardMode } from './run-agent.js';
@@ -65,9 +65,9 @@ export function describeChange(before: CallCounts, after: CallCounts): string {
  * Warnings that a divergence is a value the agent makes anew on every run, each naming its path and
  * the command that adds the normalizer that fixes it for good. Empty when it isn't.
  */
-export function volatileWarning(d: DivergenceReport | null): Array<{ text: string; command: string }> {
+export function volatileWarning(d: DivergenceReport | null, normalizers: readonly Normalizer[] = []): Array<{ text: string; command: string }> {
   if (!d) return [];
-  const { values, explainsAll } = volatileValues(d);
+  const { values, explainsAll } = volatileValues(d, normalizers);
   return values.map((v) => ({
     text:
       v.op === 'changed'

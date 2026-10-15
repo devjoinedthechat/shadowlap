@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeAddArgs, normalizeAddCommand, Store, volatileValues, type DivergenceReport } from '../src/index.js';
+import { maskedChange, normalizeAddArgs, normalizeAddCommand, Store, volatileValues, type DivergenceReport } from '../src/index.js';
 
 describe('test history in the store', () => {
   it('keeps sessions and per-golden results, newest first, with what the Tests screen needs', () => {
@@ -120,6 +120,23 @@ describe('values that change every run', () => {
     // A message appended to the conversation carries ids that were recorded, not made anew.
     const appended = volatileValues(divergence([{ path: '$.messages[3]', op: 'added', after: { role: 'assistant', id: 'msg_01XYZ9', content: [{ type: 'tool_use', id: 'toolu_01ABC' }] } }]));
     expect(appended.values).toEqual([]);
+  });
+
+  it('leaves out what the normalizers in force already mask, as matching did', () => {
+    const uuid = { path: '$.metadata.user_id', op: 'changed' as const, before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' };
+    const scratch = { path: '$.system', op: 'changed' as const, before: 'Scratch: /tmp/agent-IibHnC/', after: 'Scratch: /tmp/agent-Ye8IFi/' };
+    const masks = [{ kind: 'api' as const, path: '$.system', pattern: '/agent-[A-Za-z0-9]+/', replace: 'agent-X' }];
+    // The scratch directory is masked for matching, so only the UUID made the replay diverge.
+    expect(volatileValues(divergence([uuid, scratch])).explainsAll).toBe(false);
+    expect(volatileValues(divergence([uuid, scratch]), masks)).toMatchObject({ values: [{ path: '$.metadata.user_id' }], explainsAll: true });
+    // A UUID already masked is not offered again; what is left is a prompt change.
+    const both = [...masks, { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }];
+    expect(volatileValues(divergence([uuid, scratch, { path: '$.messages[0].content', op: 'changed', before: 'triage', after: 'triage it' }]), both)).toEqual({ values: [], explainsAll: false });
+    // Rules for another kind or tool, or a path elsewhere, mask nothing here.
+    expect(maskedChange(scratch, [{ kind: 'tool', path: '$.system', pattern: '/agent-[A-Za-z0-9]+/', replace: 'X' }], { kind: 'api', name: 'POST /v1/messages' })).toBe(false);
+    expect(maskedChange(scratch, [{ path: '$.other', replace: 'X' }], { kind: 'api', name: 'POST /v1/messages' })).toBe(false);
+    expect(maskedChange({ path: '$.messages[2].content[0].text', op: 'changed', before: 'at agent-ab12', after: 'at agent-cd34' }, [{ pattern: '/agent-[a-z0-9]+/', replace: 'agent-X' }], { kind: 'api', name: 'POST /v1/messages' })).toBe(true);
+    expect(maskedChange({ path: '$.messages[0].cache_control', op: 'added', after: { type: 'ephemeral' } }, [], { kind: 'api', name: 'POST /v1/messages' })).toBe(true);
   });
 
   it('tells a value the request newly carries from a prompt change', () => {

@@ -91,6 +91,7 @@ describe('shadowlap test history', () => {
     await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT]);
     const r = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT], { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
     expect(r.code).toBe(1);
+    expect(r.out).toContain('If the change was intended, update it: shadowlap test goldens/reference-agent --update');
     const s = store();
     expect(s.listTestSessions().map((x) => [x.passed, x.failed])).toEqual([[0, 1], [1, 0]]);
     const [failed] = s.listTestResults({ golden: 'goldens/reference-agent' });
@@ -249,8 +250,17 @@ console.log(JSON.stringify((await res.json()).content));
     expect(recorded.code, recorded.out).toBe(0);
     const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
     expect((await shadowlap(['pack', runId, 'goldens/volatile'])).code).toBe(0);
+    // Its scratch directory changes every run too, and isn't a value of a known shape: an update is offered.
+    const both = await shadowlap(['test', 'goldens/volatile']);
+    expect(both.out).toContain('If the change was intended, update it: shadowlap test goldens/volatile --update');
+    // With the directory masked, only the UUID diverges, and the normalizer hint is the whole advice.
+    const scratch = { path: '$.system', pattern: '/agent-[A-Za-z0-9]+/', replace: 'agent-X' };
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ kind: 'api', ...scratch }, { kind: 'tool', name: 'save_report', ...scratch, path: '$.args.path' }] }));
+    const uuid = await shadowlap(['test', 'goldens/volatile']);
+    expect(uuid.out).toContain('hint: this looks like a UUID');
+    expect(uuid.out).not.toContain('If the change was intended');
     const r = await shadowlap(['test', 'goldens/volatile', '--update']);
-    expect(r.out).toContain('! $.metadata.user_id looks like a UUID, a value that changes every run: updating re-records it, and the next run diverges again.');
+    expect(r.out).toContain('! $.metadata.user_id looks like a UUID, a value that changes every run: updating re-records it, and the next run diverges again. A normalizer fixes it for good:');
     expect(r.out).toContain("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
     expect(r.out).toContain('replaced goldens/volatile in the working tree');
     // It was replaced, and it diverges again on its next run, as the warning said.

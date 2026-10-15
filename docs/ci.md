@@ -121,7 +121,7 @@ Checks work the same on recordings that don't fork: they then describe the recor
 
 ## Update a golden after an intended change
 
-A prompt you changed on purpose makes its goldens diverge, which is the test doing its job. Once you mean the change, update them:
+A prompt you changed on purpose makes its goldens diverge, which is the test doing its job. Once you mean the change, update them (`shadowlap test` prints this command after its totals when a golden diverged on more than a value that changes every run):
 
 ```sh
 shadowlap test goldens/refund-flow --update
