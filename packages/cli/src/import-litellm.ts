@@ -1,5 +1,5 @@
 import type { Store } from '@shadowlap/engine';
-import { headerMap, importCaptured, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
+import { headerMap, importCaptured, type Captured, type ImportResult, type Skip } from './import-capture.js';
 
 /**
  * Captures written by `shadowlap.litellm_callback` on a LiteLLM proxy: one JSON object per line.

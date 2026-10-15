@@ -11,7 +11,7 @@ import { traceStoreHost } from '../import-fetch.js';
 import { fetchLangfuseTrace, LANGFUSE_HOST, readLangfuse } from '../import-langfuse.js';
 import { fetchLangsmithRuns, LANGSMITH_HOST, readLangsmith } from '../import-langsmith.js';
 import { parseOtlpFile, readOtel } from '../import-otel.js';
-import { settleImport, sourceName, type ImportFormat, type ImportJson, type TraceKept } from '../import-report.js';
+import { settleImport, sourceName, type ImportJson, type TraceKept } from '../import-report.js';
 import { importTrace, type Trace, type TraceImport } from '../import-trace.js';
 import { openStore, type GlobalOpts } from '../shared.js';
 import { palette as p, shortId } from '../ui.js';

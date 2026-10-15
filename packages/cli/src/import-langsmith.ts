@@ -133,7 +133,8 @@ function toolArgs(inputs: unknown): unknown {
   if (!isObject(inputs)) return undefined;
   const keys = Object.keys(inputs);
   if (keys.length === 1 && keys[0] === 'input') return maybeJson(inputs.input);
-  return keys.length ? inputs : undefined;
+  // A tool that takes no arguments logs {}.
+  return inputs;
 }
 
 /** A tool run's output: `{ output: … }`, or LangChain's ToolMessage, whose content is what the model saw. */
