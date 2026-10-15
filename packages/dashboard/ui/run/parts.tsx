@@ -11,6 +11,7 @@ import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
+import { RunBlameButton } from '../fixes/RunBlame.js';
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
 export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
@@ -181,9 +182,7 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
             <span className="end">{fixLink()}</span>
           ) : !b.blamed && app.hasKind(JOB_KINDS.blame) && !app.actionsOff ? (
             <span className="end">
-              <button className="linkbtn" type="button" onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.blame, { runId: r.runId, ...(run.blameExpect !== undefined ? { expect: run.blameExpect } : {}) })))}>
-                Run blame
-              </button>
+              <RunBlameButton runId={r.runId} {...(run.blameExpect !== undefined ? { expect: run.blameExpect } : {})} />
             </span>
           ) : null}
         </section>

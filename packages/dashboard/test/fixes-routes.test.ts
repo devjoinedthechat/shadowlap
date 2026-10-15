@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
+import { markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixBundles } from '../src/fixes.js';
+import { fixBundles, goldenExpect } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
 
 /**
@@ -262,6 +262,28 @@ describe('the blame job', () => {
     expect((await json(res)).error).toMatch(/say what a passing run must do/);
   });
 
+  it('takes a test run’s check from the config’s tests for its golden', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-over-limit': { expect: { tools: { issue_refund: 0 } } }, 'goldens/email-*': { repeat: 2, expect: { tools: { send_email: 1 } } } } }));
+    const tested = makeRun(store, { status: 'completed', meta: { test: { golden: 'goldens/refund-over-limit', session: 's1' } } });
+    const matched = makeRun(store, { status: 'completed', meta: { test: { golden: './goldens/email-twice/', session: 's1' } } });
+    await start();
+    await started({ kind: 'blame', runId: tested });
+    await started({ kind: 'blame', runId: matched });
+    expect(spawned).toEqual([
+      ['blame', tested, '--expect', '{"tools":{"issue_refund":0}}'],
+      ['blame', matched, '--expect', '{"tools":{"send_email":1}}'],
+    ]);
+  });
+
+  it('reads a golden’s check by its folder, or a pattern on its last part', () => {
+    const tests = { 'goldens/a': { expect: { tools: { x: 0 } } }, 'goldens/b-*': { expect: { tools: { y: 1 } } }, 'goldens/c': { repeat: 3 } };
+    expect(goldenExpect(tests, 'goldens/a/')).toEqual({ tools: { x: 0 } });
+    expect(goldenExpect(tests, 'goldens/b-twice')).toEqual({ tools: { y: 1 } });
+    expect(goldenExpect(tests, 'goldens/c')).toBeUndefined();
+    expect(goldenExpect(tests, 'other/b-twice')).toBeUndefined();
+    expect(goldenExpect(undefined, 'goldens/a')).toBeUndefined();
+  });
+
   it('runs a command from an imported pack only once it is confirmed, and never a capture’s', async () => {
     const imported = makeRun(store, { meta: { imported: { from: 'pack' } } });
     await start();
@@ -270,6 +292,12 @@ describe('the blame job', () => {
     expect((await json(res)).error).toMatch(/imported pack/);
     await started({ kind: 'blame', runId: imported, expect: null, yes: true });
     expect(spawned.at(-1)).toEqual(['blame', imported, '--yes']);
+    // A run built from a capture has no command at all: blame it in a terminal, with one.
+    const capture = store.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: '.' }, startedAt: 3_000, meta: { covers: ['api'] } }).runId;
+    store.endRun(capture, 'failed');
+    const refused = await job({ kind: 'blame', runId: capture, expect: null, yes: true });
+    expect(refused.status).toBe(409);
+    expect((await json(refused)).error).toMatch(/no command to re-run/);
   });
 });
 

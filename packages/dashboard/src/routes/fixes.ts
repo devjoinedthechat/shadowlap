@@ -1,4 +1,4 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
+import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { blameCheckFor, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
@@ -13,6 +13,9 @@ import type { Router } from '../router.js';
  * failed run, with the check it failed), `repair` (an open fix, from its failing and good runs) and
  * `apply` (a verified fix's patch, into the working tree). Each builder checks what it is asked and
  * builds the command line; the CLI records what it did, so the pages read it back from the store.
+ * A blame needs the check the run failed: the one the request names, else the one its replay was
+ * judged by, the config's for a test's golden, the fix it fails in or its labels point to, or the
+ * agent's exit; with none of those it answers 422, and the page asks.
  */
 
 const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
@@ -44,6 +47,16 @@ function configuredRepairer(ctx: RouteContext): string | null {
   }
 }
 
+/** The config's `tests`, as written: where a test run's golden gets its checks. A config that can't be read gives none. */
+function configTests(ctx: RouteContext): unknown {
+  if (!ctx.project) return undefined;
+  try {
+    return readConfigFile(ctx.project.path).data.tests;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The check a blame asks for, from the request: JSON (or its text), null for the exit code alone. */
 function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
   let value = raw;
@@ -68,7 +81,7 @@ function importedCommand(runs: RunRecord[], yes: unknown): JobBuildResult | null
   return { error: `${imported.runId.slice(0, 10)} came from an imported pack: this runs the command it was recorded with (${imported.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
 }
 
-function blameJob(req: JobRequest, store: Store): JobBuildResult {
+function blameJob(req: JobRequest, store: Store, tests: () => unknown): JobBuildResult {
   if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
   const run = lookupRun(store, req.runId);
   if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
@@ -80,7 +93,7 @@ function blameJob(req: JobRequest, store: Store): JobBuildResult {
     if ('error' in asked) return { error: asked.error };
     expect = asked.expect;
   } else {
-    const found = blameCheckFor(store, run);
+    const found = blameCheckFor(store, run, { tests: run.meta?.test ? tests() : undefined });
     if (!found) return { error: `say what a passing run must do: blame needs the check ${run.runId.slice(0, 10)} failed, as expect JSON such as {"tools":{"send_email":1}}`, status: 422 };
     expect = found.expect;
   }
@@ -146,7 +159,7 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx) }));
   });
 
-  jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store) });
+  jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store, () => configTests(ctx)) });
   jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => busy() ?? repairJob(req, b.store, configuredRepairer(ctx)) });
   jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => busy() ?? applyJob(req, b.store) });
 }
