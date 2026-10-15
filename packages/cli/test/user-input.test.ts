@@ -95,6 +95,16 @@ function latestRecording(): string {
   }
 }
 
+/** Every run's id, whether it is marked as made with input recorded, and the run it replayed. */
+function runsMarked(): Array<{ runId: string; inputs: boolean; parent: string | null }> {
+  const store = Store.open(db);
+  try {
+    return store.allRuns().map((r) => ({ runId: r.runId, inputs: r.meta?.inputs === true, parent: r.parentRunId }));
+  } finally {
+    store.close();
+  }
+}
+
 function inputsOf(runId: string) {
   const store = Store.open(db);
   try {
@@ -195,6 +205,10 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     expect(replay.code).toBe(0);
     expect(replay.out).toContain('Replay clean: 11/11 calls replayed (5 api, 6 tool), 0 upstream requests');
     expect(replay.out).toContain('Glad I could help. Have a good day.');
+    // Both runs say they were made with input recorded, so a replay of either treats a new read as a change.
+    const marked = runsMarked();
+    expect(marked.find((r) => r.runId === runId)?.inputs).toBe(true);
+    expect(marked.find((r) => r.parent === runId)?.inputs).toBe(true);
   });
 
   it('answers differently as the user: the run forks there, and the later answers come in order', async () => {
@@ -233,6 +247,32 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
       expect(probes.length).toBeGreaterThan(1);
       for (const probe of probes) {
         const inputs = store.getCalls(probe.runId).filter((c) => c.meta.input === true);
+        expect(inputs.map((c) => c.origin)).toEqual(['replayed', 'replayed', 'replayed', 'replayed']);
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  it('is verified with no one at the keyboard: the fix must stop the refund and keep the replacement chat good', async () => {
+    await piped(['run', '--', PYTHON!, CHAT], 'My blender arrived broken. Order A-1042.\nA refund, please.\nNo, thanks!\n');
+    const refund = latestRecording();
+    await piped(['run', '--', PYTHON!, CHAT], 'My blender arrived broken. Order A-1042.\nA replacement, please.\nNo, thanks!\n');
+    const replacement = latestRecording();
+    expect(replacement).not.toBe(refund);
+    const verify = await shadowlap(['verify', '--fixes', refund, '--keeps', replacement, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--attempts', '1', '--json']);
+    expect(verify.code, verify.out).toBe(0);
+    const report = JSON.parse(verify.out.slice(verify.out.indexOf('{'))) as { verdict: string; runs: Array<{ runId: string; outcome: string; runs: Array<{ runId: string }> }> };
+    expect(report.verdict).toBe('accepted');
+    expect(report.runs.map((r) => [r.runId, r.outcome])).toEqual([
+      [refund, 'fixed'],
+      [replacement, 'kept'],
+    ]);
+    // Each attempt had the whole conversation: the answers after the fork came from its recording, in order.
+    const store = Store.open(db);
+    try {
+      for (const attempt of report.runs.flatMap((r) => r.runs)) {
+        const inputs = store.getCalls(attempt.runId).filter((c) => c.meta.input === true);
         expect(inputs.map((c) => c.origin)).toEqual(['replayed', 'replayed', 'replayed', 'replayed']);
       }
     } finally {

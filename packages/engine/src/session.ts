@@ -78,6 +78,12 @@ export interface SessionOptions {
   loadRequest?: (record: CallRecord) => unknown;
   /** Start times of the parent run and this one, when dates near them are masked for matching (clock.ts). */
   clock?: { parent: number; run: number };
+  /**
+   * The parent run was made with what a person types recorded (`RunMeta.inputs`). One that wasn't
+   * and holds no input call either predates recorded input: it never saw the agent's reads, so they
+   * run live, as calls a partial recording doesn't cover do, instead of forking at the first one.
+   */
+  parentRecordsInput?: boolean;
 }
 
 const key = (kind: CallKind, fingerprint: string, occurrence: number, scope = '') => `${kind}\n${scope}\n${fingerprint}\n${occurrence}`;
@@ -99,6 +105,8 @@ export class Session {
   private readonly clock: SessionOptions['clock'];
   /** Whether the recording used scopes. If it didn't, scopes are ignored, so adding them later still replays. */
   private readonly scoped: boolean;
+  /** Whether the recording holds what a person typed (see `SessionOptions.parentRecordsInput`). */
+  private readonly holdsInput: boolean;
   private replayedCount = 0;
 
   constructor(opts: SessionOptions) {
@@ -110,6 +118,7 @@ export class Session {
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
     this.scoped = this.mode === 'record' || this.parentCalls.some((c) => typeof c.meta.scope === 'string');
+    this.holdsInput = opts.parentRecordsInput === true || this.parentCalls.some((c) => c.meta.input === true);
     for (const c of this.parentCalls) {
       if (c.end) this.index.set(key(c.kind, c.fingerprint, c.occurrence, this.scopeOf(c.meta.scope)), c);
     }
@@ -143,6 +152,8 @@ export class Session {
       }
       return { origin: 'live', occurrence };
     }
+    // A recording made before what a person types was recorded never saw the agent's reads.
+    if (input.input && !this.holdsInput) return { origin: 'live', occurrence };
 
     const forced = this.isForced(input);
     if (this.state === 'replaying') {

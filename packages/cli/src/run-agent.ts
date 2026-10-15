@@ -87,6 +87,15 @@ export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upst
   return env;
 }
 
+/**
+ * Marks a run whose agent starts with the preloads, which record what a person types: a replay of
+ * it treats an input it doesn't hold as a change, where one of a run recorded before input was
+ * recorded runs the agent's reads live (`RunMeta.inputs`).
+ */
+export function recordsInput(store: Store, runId: string): void {
+  store.updateRunMeta(runId, { inputs: true });
+}
+
 const AWS_CREDENTIAL_SOURCES = ['AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'];
 
 /**
@@ -129,6 +138,7 @@ export async function testAttempt(
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
     replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}) },
   });
+  recordsInput(store, run.runId);
   const child = spawnAgent(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] }, { url: sidecar.url, runId: run.runId });
   child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
   child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
@@ -270,6 +280,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
   const run = start(sidecar);
+  recordsInput(store, run.runId);
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
   const activeFile = resolve(process.cwd(), '.shadowlap', 'active.json');
@@ -350,6 +361,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const i = next++;
       const run = start(sidecar);
       store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count } });
+      recordsInput(store, run.runId);
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);

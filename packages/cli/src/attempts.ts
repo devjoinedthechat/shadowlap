@@ -4,7 +4,7 @@ import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
-import { agentEnv, type GuardMode } from './run-agent.js';
+import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { palette as p } from './ui.js';
 
@@ -159,6 +159,7 @@ export class AttemptRunner {
       ...(extra.interventions ? { interventions: extra.interventions } : {}),
       ...(target.commandFromImport ? { commandFromImport: true } : {}),
     });
+    recordsInput(this.store, run.runId);
     const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'] }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
     let output = '';

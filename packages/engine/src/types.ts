@@ -147,6 +147,12 @@ export interface RunMeta {
    * the recording covers everything, which is what a `shadowlap run` produces.
    */
   covers?: Coverage[];
+  /**
+   * The run was made with what a person types recorded (`user_input` calls, `CallMeta.input`), as
+   * every agent the CLI starts is. A recording without the mark and without an input call predates
+   * that, so a replay of it runs the agent's reads live instead of forking at the first one.
+   */
+  inputs?: boolean;
   /** The run replayed a command that came from an imported pack. */
   commandFromImport?: boolean;
   /** One attempt of `shadowlap replay --repeat`: attempts of one invocation share the group. */

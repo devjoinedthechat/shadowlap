@@ -99,4 +99,22 @@ describe('recorded user input', () => {
     s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'other' });
     expect(s.resolve({ callNo: 2, kind: 'tool', name: 'user_input', fingerprint: 'prompt', effect: 'read' }).origin).toBe('live');
   });
+
+  it('runs the reads live in a recording made before input was recorded, which never saw them', () => {
+    // The chat recorded before user_input existed: its model calls, and nothing of what was typed.
+    no = 0;
+    const before = [rec('api', 'POST /v1/messages', 'A1'), rec('api', 'POST /v1/messages', 'A2')];
+    const old = new Session({ mode: 'replay', parentRunId: 'OLD', parentCalls: before, loadRequest: (r) => JSON.parse(r.requestRef!) });
+    expect(ask(old, 1, 'how-can-i-help').origin).toBe('live');
+    expect(old.resolve({ callNo: 2, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1' }).origin).toBe('replayed');
+    expect(ask(old, 3, 'prompt').origin).toBe('live');
+    expect(old.resolve({ callNo: 4, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A2' }).origin).toBe('replayed');
+    expect(old.divergence).toBeNull();
+
+    // The same calls from a run recorded with input on (RunMeta.inputs): the agent didn't read
+    // anything then, so a read now is a change, and the run forks there.
+    const marked = new Session({ mode: 'replay', parentRunId: 'NEW', parentCalls: before, parentRecordsInput: true, loadRequest: (r) => JSON.parse(r.requestRef!) });
+    expect(ask(marked, 1, 'how-can-i-help').origin).toBe('live');
+    expect(marked.divergence).toMatchObject({ callNo: 1, type: 'new_call', name: 'user_input' });
+  });
 });

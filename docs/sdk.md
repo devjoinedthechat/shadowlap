@@ -105,7 +105,9 @@ On replay the answers come from the recording; `read` isn't called. After a fork
 one to type, so the recorded answers are served in the order they were given, whatever the prompt
 now says, and `replay --live-input` asks for them instead. To try a different answer, override the
 call: `shadowlap replay <run> --override 5='{"text": "A refund, please."}'`. When the input ended
-(Ctrl-D, an empty pipe), that is recorded too, and a replay ends the input at the same place. See
+(Ctrl-D, an empty pipe), that is recorded too, and a replay ends the input at the same place. A
+recording made before Shadowlap recorded input holds none of it: replaying it, the agent reads its
+input live, as it did then, and the rest still replays. See
 [examples/support-chat](https://github.com/devjoinedthechat/shadowlap/tree/main/examples/support-chat).
 
 ## Scopes

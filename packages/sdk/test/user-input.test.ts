@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
-import { userInput } from '../src/index.js';
+import { tool, userInput } from '../src/index.js';
 
 /**
  * userInput() records an answer that arrives some other way than the terminal (a chat window, a
@@ -75,5 +75,29 @@ describe('userInput', () => {
     use(fork.runId);
     expect(await userInput('Order? ', () => 'unused')).toBe('B-7');
     sidecar.endRun(fork.runId, 'completed');
+  });
+
+  it('asks live in a replay of a run recorded before input was, and forks only when the run says input was recorded', async () => {
+    const lookup = tool('lookup_order', { effect: 'read' }, async ({ id }: { id: string }) => ({ id, status: 'shipped' }));
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+    use(rec.runId);
+    await lookup({ id: 'A-1042' });
+    sidecar.endRun(rec.runId, 'completed');
+
+    // No mark and no input call: the recording never saw what was typed, so the answer is read live.
+    const old = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' } });
+    use(old.runId);
+    expect(await userInput('Order? ', () => 'A-1042')).toBe('A-1042');
+    expect(await lookup({ id: 'A-1042' })).toEqual({ id: 'A-1042', status: 'shipped' });
+    const oldEnd = sidecar.endRun(old.runId, 'completed').summary;
+    expect(oldEnd.divergence).toBeNull();
+    expect(oldEnd.byOrigin).toMatchObject({ replayed: 1, live: 1 });
+
+    // Marked as made with input recorded, as the CLI marks every run it starts: the read is a change.
+    store.updateRunMeta(rec.runId, { inputs: true });
+    const marked = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' } });
+    use(marked.runId);
+    await userInput('Order? ', () => 'A-1042');
+    expect(sidecar.endRun(marked.runId, 'completed').summary.divergence).toMatchObject({ callNo: 1, type: 'new_call', name: 'user_input' });
   });
 });

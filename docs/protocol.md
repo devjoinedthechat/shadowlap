@@ -155,6 +155,11 @@ prompt now says, until they run out; then it answers `live`. A replay started wi
 answers `live` after the fork instead. A `replayed` result is `{ "text": … }`, or a bare string when
 the run overrides the answer (`--override n='"…"'`); a client accepts both.
 
+Every run the CLI starts an agent for is marked `meta.inputs = true`: what a person typed is part of
+what it holds, so an input call a replay of it doesn't find is a change, and the run forks there. A
+recording without the mark and without any input call was made before input was recorded; a replay
+of it answers its input calls `live` and goes on replaying, rather than forking at the first one.
+
 The shipped clients record this without code changes: Shadowlap's preloads record `input()` and reads
 of `sys.stdin` in Python, and readline's `question` and `for await` in Node, on the input `shadowlap`
 gave the agent only (a terminal, the null device, or the pipe or file named by `SHADOWLAP_STDIN` as

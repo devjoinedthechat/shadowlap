@@ -382,6 +382,8 @@ export class Sidecar {
     if (input.slot !== undefined) this.envForSlot(input.slot);
     let parentCalls: CallRecord[] | undefined;
     let parentStartedAt: number | undefined;
+    // Whether the parent was recorded with what a person types (RunMeta.inputs); see the Session.
+    let parentRecordsInput = false;
     let normalizers = this.normalizers;
     if (input.mode === 'replay') {
       if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
@@ -392,6 +394,7 @@ export class Sidecar {
       const stored = this.store.getCalls(input.parentRunId);
       // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
       parentStartedAt = parent.startedAt;
+      parentRecordsInput = parent.meta?.inputs === true;
       if (input.replay?.promptFrom !== undefined) {
         const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
         if (!target || target.kind !== 'api') throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}`);
@@ -419,6 +422,7 @@ export class Sidecar {
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: clockRef } } : {}),
+      ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
     const active: ActiveInterventions = {};
     if (input.interventions && parentCalls) {
