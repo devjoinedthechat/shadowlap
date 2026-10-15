@@ -83,8 +83,12 @@ export function sourceFixes(store: Store): (source: PairSource) => SourceFix | n
  * can't read goldens as tasks itself, since their checks are the CLI's, so the CLI hands it its loader.
  */
 export interface TrainingOptions {
-  /** The project's goldens as tasks (`loadTasks` in the CLI's tasks.ts). Without it, Training lists none and Score a model can't run. */
-  loadTasks?: (store: Store) => Task[];
+  /**
+   * The project's goldens as tasks (`loadTasks` in the CLI's tasks.ts), from the project folder the
+   * dashboard's jobs run in (`root`, null without one). Without it, Training lists none and Score a
+   * model can't run.
+   */
+  loadTasks?: (store: Store, root: string | null) => Task[];
   /** Where the model listing reads keys and provider addresses (default `process.env`). */
   env?: NodeJS.ProcessEnv;
   /** How the listing asks providers for their models (default `fetch`); tests pass a fake. */

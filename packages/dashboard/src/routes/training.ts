@@ -31,15 +31,17 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 export function register(router: Router, ctx: RouteContext): void {
   const o = ctx.options.training ?? {};
 
-  let cached: { at: number; value: { tasks: Task[]; error: string | null } } | null = null;
+  let cached: { at: number; store: unknown; root: string | null; value: { tasks: Task[]; error: string | null } } | null = null;
   /** The project's goldens as tasks, or why they can't be read (a mistake in the config's `tests`). */
   const tasks = (fresh = false): { tasks: Task[]; error: string | null } => {
     if (!o.loadTasks) return { tasks: [], error: NO_LOADER };
     const now = Date.now();
-    if (!fresh && cached && now - cached.at < TASKS_TTL_MS) return cached.value;
+    // The project folder the dashboard's jobs run in holds the goldens and the config's `tests`.
+    const root = ctx.project?.path ?? null;
+    if (!fresh && cached && cached.store === ctx.store && cached.root === root && now - cached.at < TASKS_TTL_MS) return cached.value;
     try {
-      const value = { tasks: o.loadTasks(ctx.store), error: null };
-      cached = { at: now, value };
+      const value = { tasks: o.loadTasks(ctx.store, root), error: null };
+      cached = { at: now, store: ctx.store, root, value };
       return value;
     } catch (err) {
       // Not kept: a mistake in the config is read again, so fixing it shows at once.

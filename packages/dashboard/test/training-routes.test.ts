@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordBlame, recordVerdict, Store, type Task, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -55,6 +55,7 @@ let verifyId = '';
 let goldenRun = '';
 let tasks: Task[] = [];
 let loads = 0;
+const roots: Array<string | null> = [];
 let dash: Dashboard;
 let readOnly: Dashboard;
 let bare: Dashboard;
@@ -98,8 +99,9 @@ beforeAll(async () => {
   }
 
   const training = {
-    loadTasks: () => {
+    loadTasks: (_store: Store, root: string | null) => {
       loads++;
+      roots.push(root);
       return tasks;
     },
     env: { ANTHROPIC_API_KEY: 'test-key', OLLAMA_HOST: '127.0.0.1:11434' },
@@ -180,6 +182,8 @@ describe('GET /api/training', () => {
     const before = loads;
     await Promise.all([api(dash, 'training'), api(dash, 'training'), api(dash, 'training')]);
     expect(loads - before).toBeLessThanOrEqual(1);
+    // From the project folder the dashboard's jobs run in.
+    expect(new Set(roots)).toEqual(new Set([resolve(project)]));
     const view = (await (await api(broken, 'training')).json()) as TrainingView;
     expect(view.tasks).toMatchObject({ rows: [], empty: null, error: 'shadowlap.config.json: tests["goldens/x"].task.takeover must be a call number' });
     expect(view.strip.tasks).toMatchObject({ value: '0 / 0', sub: 'the tasks can’t be read' });

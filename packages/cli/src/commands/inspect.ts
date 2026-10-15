@@ -45,7 +45,7 @@ export function register(program: Command): void {
         project: { path: cwd },
         loadConfig: () => loadConfig(cwd),
         // Training reads the goldens as tasks the way `shadowlap tasks` does.
-        training: { loadTasks: (s) => dashboardTasks(cwd, s) },
+        training: { loadTasks: (s, root) => dashboardTasks(root ?? cwd, s) },
         version: VERSION,
         ...(config.prices ? { prices: config.prices } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}),
@@ -95,7 +95,7 @@ export function register(program: Command): void {
       const dashboard = embeddedDashboard(async () => {
         const { cliSpawner, startDashboard } = await import('@shadowlap/dashboard');
         // The dashboard's jobs get the events pipe; the terminal UI reads its actions' output as it always did.
-        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), training: { loadTasks: (s) => dashboardTasks(cwd, s) }, version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
+        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), training: { loadTasks: (s, root) => dashboardTasks(root ?? cwd, s) }, version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
       });
       const openDashboard = async (id: string, callNo?: number) => {
         const { openInBrowser } = await import('@shadowlap/dashboard');
