@@ -10,6 +10,21 @@ export interface JobLike {
   title?: string;
 }
 
+/** What following a job does after a poll for it failed. */
+export type AfterPollError = 'retry' | 'wait' | 'stop' | 'lost';
+
+/**
+ * After a failed poll: wait while the server is unreachable and pick the job up again once it is
+ * back; stop when the link expired (the page says so); call the job lost when the server no longer
+ * has it (it was restarted) or keeps refusing to say.
+ */
+export function afterPollError(e: { status: number | null; unreachable: boolean; failures: number }): AfterPollError {
+  if (e.status === 401) return 'stop';
+  if (e.status === 404) return 'lost';
+  if (e.unreachable) return 'wait';
+  return e.failures >= 5 ? 'lost' : 'retry';
+}
+
 const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result'];
 
 /** What the drawer calls a job: "Replaying", "Forking", "Packing". */
@@ -72,7 +87,8 @@ export function lineTone(line: string): LineTone {
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
-export function jobStatus(job: JobLike, lines: readonly string[]): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
+export function jobStatus(job: JobLike, lines: readonly string[], lost = false): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
+  if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
   if (!job.done) return { text: 'running', tone: '' };
   const all = lines.join('\n');
   const code = job.code;

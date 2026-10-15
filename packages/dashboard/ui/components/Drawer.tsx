@@ -19,7 +19,7 @@ export function JobDrawer() {
 
 function Drawer({ watched }: { watched: WatchedJob }) {
   const { closeJob, client, toast } = useApp();
-  const { job, lines } = watched;
+  const { job, lines, lost = false } = watched;
   const close = () => closeJob(job.id);
   useLayer('panel', true, close);
   const out = useRef<HTMLPreElement>(null);
@@ -28,13 +28,15 @@ function Drawer({ watched }: { watched: WatchedJob }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [lines.length]);
   const title = jobTitle(job);
-  const status = jobStatus(job, lines);
+  const status = jobStatus(job, lines, lost);
+  const files = job.files ?? [];
+  const folders = files.filter((f) => f.directory);
   const links = job.links ?? [];
   const opens = job.done && job.newRunId && (job.opensRun || links.length === 0) && !links.some((l) => l.href.includes(job.newRunId!));
   return (
     <div className="drawer" role="dialog" aria-label={title} aria-live="polite">
       <header>
-        {job.done ? null : <Spin />}
+        {job.done || lost ? null : <Spin />}
         <b>{title}</b>
         <span className={`st2${status.tone ? ` ${status.tone}` : ''}`}>{status.text}</span>
         <span className="sp" />
@@ -54,10 +56,21 @@ function Drawer({ watched }: { watched: WatchedJob }) {
             </span>
           );
         })}
-        {!job.done && lines.length === 0 ? <span>starting…</span> : null}
+        {!job.done && !lost && lines.length === 0 ? <span>starting…</span> : null}
       </pre>
+      {folders.length ? (
+        <div className="jfiles">
+          {folders.map((f) => (
+            <span key={f.fileId} title="A folder in the project: open it from your editor or a terminal">
+              <Icon name="folder" />
+              {f.label ? `${f.label} · ` : ''}
+              <code>{f.path ?? f.name}</code>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <footer>
-        {(job.files ?? []).map((f) => (
+        {files.filter((f) => !f.directory).map((f) => (
           <button
             key={f.fileId}
             className="btn"

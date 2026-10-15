@@ -6,6 +6,7 @@ import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
 import { callName, shortId } from '../format.js';
 import { useLatest, useLoad } from '../hooks.js';
+import { followNewest, recordingEnded } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { CYCLE_VIEWS, href, nextView, type View } from '../route.js';
@@ -123,15 +124,18 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
     if (runId !== id || (call === null && selected !== null)) navigate(href.run(runId, call ?? selected, view), true);
   }, [runId, id, call, selected, view]);
 
-  // Recording: the selection follows the newest call if it was on the newest; a toast when it ends.
+  // Recording: the selection follows the newest call if it was on the newest (also when the last calls
+  // and the end of the recording arrive together); a toast when it ends.
   const prevLast = useRef(last);
   const prevStatus = useRef(run.run.status);
   useEffect(() => {
-    if (live && last !== null && prevLast.current !== null && last !== prevLast.current && selected === prevLast.current) navigate(href.run(runId, last, view), true);
+    const step = { wasStatus: prevStatus.current, status: run.run.status, prevLast: prevLast.current, last, selected };
+    const next = followNewest(step);
+    if (next !== null) navigate(href.run(runId, next, view), true);
+    if (recordingEnded(step)) toast(`Recording finished · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
     prevLast.current = last;
-    if (prevStatus.current === 'running' && run.run.status !== 'running') toast(`Recording finished · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
     prevStatus.current = run.run.status;
-  }, [last, live, selected, runId, view, run.run.status, calls.length, toast]);
+  }, [last, selected, runId, view, run.run.status, calls.length, toast]);
 
   const [scope, setScope] = useState('all');
   const scopes = useMemo(() => scopesOf(calls), [calls]);

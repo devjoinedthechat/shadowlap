@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
-import { backoffSeconds, isUnreachable } from './backoff.js';
+import { isUnreachable } from './backoff.js';
+import { connStart, connStep, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
-import { jobTitle, lastLine } from './jobs.js';
+import { afterPollError, jobTitle, lastLine } from './jobs.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
 
@@ -11,7 +12,7 @@ import { previewState } from './router.js';
  * layers on top of the page (menus, dialogs, panels), toasts and the jobs the dashboard started.
  */
 
-export type Conn = 'ok' | 'offline' | 'expired';
+export type { Conn } from './connection.js';
 
 /** An entry a screen adds to the palette (This run, and later Fixes, Tests, Projects). */
 export interface PaletteCommand {
@@ -26,6 +27,8 @@ export interface WatchedJob {
   job: JobView;
   lines: string[];
   open: boolean;
+  /** The server no longer has it (it was restarted): its end is unknown. */
+  lost?: boolean;
 }
 
 /** A menu hangs from a button; a dialog dims the page (dialogs, the palette, the shortcuts); a panel sits beside it (the job drawer). */
@@ -106,11 +109,10 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
-  const [conn, setConn] = useState<Conn>(preview === 'expired' ? 'expired' : 'ok');
-  // Offline: when the next try is due, and how many tries have failed (5, 10, 20, then 30 s apart).
-  const [retryAt, setRetryAt] = useState<number | null>(null);
+  // The connection: ok, offline (with when the next try is due), or expired. See connection.ts.
+  const [cs, dispatch] = useReducer(connStep, preview, connStart);
+  const conn = cs.conn;
   const [now, setNow] = useState(() => Date.now());
-  const attempt = useRef(0);
   const [retrying, setRetrying] = useState(false);
   const [tick, setTick] = useState(0);
   const [live, setLive] = useState<LiveRun[]>([]);
@@ -126,17 +128,11 @@ export function AppProvider({ client, children }: { client: Client; children: Re
 
   const toast = useCallback((text: string) => setToastText({ id: Date.now() + Math.random(), text }), []);
 
-  const goOffline = useCallback(() => {
-    if (connRef.current !== 'offline') {
-      attempt.current = 0;
-      setRetryAt(Date.now() + backoffSeconds(0) * 1000);
-    }
-    setConn((c) => (c === 'expired' ? c : 'offline'));
-  }, [connRef]);
+  const goOffline = useCallback(() => dispatch({ type: 'unreachable', now: Date.now() }), []);
 
   const fail = useCallback(
     (err: unknown) => {
-      if (err instanceof ApiError && err.status === 401) setConn('expired');
+      if (err instanceof ApiError && err.status === 401) dispatch({ type: 'expired' });
       else if (isUnreachable(err)) goOffline();
     },
     [goOffline],
@@ -191,9 +187,9 @@ export function AppProvider({ client, children }: { client: Client; children: Re
           cursor.current = ch.cursor ?? (ch.version !== undefined ? String(ch.version) : null);
           if (ch.live) setLive(ch.live);
           setSyncedAt(Date.now());
-          if (first || ch.changed !== false) {
-            if (first || ch.runs || ch.calls || ch.changed) await loadRuns();
-          }
+          if (reloadFor(ch, first)) await loadRuns();
+          // The counts in the status bar and the nav are the server's: they move with the runs.
+          if (!first && ch.runs) void client.meta().then((m) => alive && setMeta(m), () => undefined);
         }
       } catch (err) {
         if (alive) fail(err);
@@ -215,23 +211,19 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       setMeta(m);
       await loadRuns();
       cursor.current = null;
-      attempt.current = 0;
-      setRetryAt(null);
-      setConn('ok');
+      dispatch({ type: 'reconnected' });
       if (/[?&]state=offline/.test(location.search)) history.replaceState(history.state, '', `${location.pathname}${location.hash}`);
       toast(`Reconnected to ${m.address ?? location.host}`);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setConn('expired');
-      else {
-        attempt.current += 1;
-        setRetryAt(Date.now() + backoffSeconds(attempt.current) * 1000);
-      }
+      if (err instanceof ApiError && err.status === 401) dispatch({ type: 'expired' });
+      else dispatch({ type: 'retry-failed', now: Date.now() });
     } finally {
       setRetrying(false);
     }
   }, [client, loadRuns, toast]);
 
-  // Offline: a clock for the countdown, and the next try when it is due.
+  // Offline: a clock for the countdown, and the next try when it is due. The ?state=offline preview
+  // moves through the same waits without reconnecting: only Retry now does.
   useEffect(() => {
     if (conn !== 'offline') return;
     setNow(Date.now());
@@ -239,9 +231,11 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     return () => clearInterval(t);
   }, [conn]);
   useEffect(() => {
-    if (conn === 'offline' && !retrying && retryAt !== null && now >= retryAt) void reconnect();
-  }, [conn, retrying, retryAt, now, reconnect]);
-  const retryIn = retryAt === null ? backoffSeconds(attempt.current) : Math.max(0, Math.ceil((retryAt - now) / 1000));
+    const next = onTick(cs, now, retrying);
+    if (next === 'try') void reconnect();
+    else if (next === 'advance') dispatch({ type: 'due', now });
+  }, [cs, now, retrying, reconnect]);
+  const retryIn = secondsLeft(cs, now);
 
   const retryNow = useCallback(() => void reconnect(), [reconnect]);
 
@@ -268,7 +262,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     [connRef, toast],
   );
 
-  // ---- jobs: each is followed to its end, whether or not its drawer is open.
+  // ---- jobs: each is followed to its end, whether or not its drawer is open. While the server is
+  // unreachable the polls wait, and pick up once it is back; a job the server no longer has is lost.
   const jobsNow = useLatest(jobs);
   const following = useRef(new Map<string, string[]>());
   const follow = useCallback(
@@ -276,12 +271,28 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       if (following.current.has(first.id)) return;
       following.current.set(first.id, first.lines);
       let count = first.total;
+      let failures = 0;
+      const lose = () => {
+        following.current.delete(first.id);
+        setJobs((list) => list.map((w) => (w.job.id === first.id ? { ...w, lost: true } : w)));
+        const shown = jobsNow.current.find((w) => w.job.id === first.id);
+        if (!shown?.open) toast(`${jobTitle(first)}: the dashboard server no longer has this job`);
+      };
       const step = async () => {
+        if (!following.current.has(first.id)) return;
+        if (connRef.current === 'expired') return void following.current.delete(first.id);
+        if (connRef.current !== 'ok') return void setTimeout(step, 1000);
         let next: JobView;
         try {
           next = await client.job(first.id, count);
-        } catch {
-          if (following.current.has(first.id)) setTimeout(step, 1000);
+          failures = 0;
+        } catch (err) {
+          failures += 1;
+          fail(err);
+          const what = afterPollError({ status: err instanceof ApiError ? err.status : null, unreachable: isUnreachable(err), failures });
+          if (what === 'stop') following.current.delete(first.id);
+          else if (what === 'lost') lose();
+          else setTimeout(step, what === 'wait' ? 1000 : Math.min(8000, 500 * 2 ** failures));
           return;
         }
         count = next.total;
@@ -295,21 +306,21 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         following.current.delete(first.id);
         refresh();
         // A HAR export downloads as well as being written, as an HTML copy does.
-        if (next.code === 0 && next.kind === JOB_KINDS.har) for (const f of next.files ?? []) void client.downloadFile(f).catch(() => undefined);
+        if (next.code === 0 && next.kind === JOB_KINDS.har) for (const f of next.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
         if (!shown?.open) toast(`${jobTitle(next)} finished${lastLine(all) ? ` · ${lastLine(all)}` : ''}`);
       };
       setTimeout(step, 200);
     },
-    [client, refresh, toast, jobsNow],
+    [client, refresh, toast, jobsNow, connRef, fail],
   );
 
   const watchJob = useCallback(
     (p: Promise<JobView>) => {
       p.then(
         (job) => {
-          setJobs((list) => [...list.filter((w) => w.job.id !== job.id && !(w.job.done && !w.open)).map((w) => ({ ...w, open: false })), { job, lines: job.lines, open: true }].slice(-8));
+          setJobs((list) => [...list.filter((w) => w.job.id !== job.id && !((w.job.done || w.lost) && !w.open)).map((w) => ({ ...w, open: false })), { job, lines: job.lines, open: true }].slice(-8));
           follow(job);
         },
         (err: unknown) => {
@@ -321,8 +332,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     [follow, fail, toast],
   );
 
-  const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || !w.job.done)), []);
-  const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done).map((w) => ({ ...w, open: false })) : list)), []);
+  const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || (!w.job.done && !w.lost))), []);
+  const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done && !w.lost).map((w) => ({ ...w, open: false })) : list)), []);
 
   // ---- layers: menus over dialogs over panels; Esc closes the topmost.
   const layers = useRef<Array<{ id: number; kind: LayerKind; close: () => void }>>([]);
