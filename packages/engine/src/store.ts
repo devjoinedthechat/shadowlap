@@ -110,6 +110,16 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: read models. What the dashboard worked out about a finished run's calls (where each answer
+-- came from, tokens per model, time not waited, prompt-cache misses), kept so the Overview and the
+-- run list read one row per run instead of every call, in this process and the next. \`key\` names
+-- what the numbers were worked out from; prices are applied when they are read.
+CREATE TABLE IF NOT EXISTS run_stats (
+  run_id  TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  stats   TEXT NOT NULL
+);
 `;
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
@@ -498,20 +508,43 @@ export class Store {
   private readonly readStatements = new Map<string, SqliteStatement>();
 
   /**
-   * Runs one SELECT and returns its rows, for read models that aggregate in SQL instead of loading
-   * every call of every run. Callers pass fixed SQL and bind every value; statements are prepared
-   * once per store.
+   * Runs one read-only statement and returns its rows, for read models that aggregate in SQL instead
+   * of loading every call of every run. Callers pass fixed SQL and bind every value. SQLite itself
+   * refuses a write here (`query_only`), whatever the SQL says; only the first statement runs.
    */
   query(sql: string, ...params: SqlValue[]): Record<string, unknown>[] {
-    if (!/^\s*(SELECT|WITH)\b/i.test(sql) || /\b(INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE|ATTACH|PRAGMA)\b/i.test(sql.replace(/'[^']*'/g, "''"))) {
-      throw new Error('Store.query runs read-only SELECT statements');
-    }
+    if (!/^\s*(SELECT|WITH)\b/i.test(sql)) throw new Error('Store.query runs read-only SELECT statements');
     let statement = this.readStatements.get(sql);
     if (!statement) {
+      // Read models use a handful of fixed statements: past that, nothing is worth keeping.
+      if (this.readStatements.size >= 64) this.readStatements.clear();
       statement = this.db.prepare(sql);
       this.readStatements.set(sql, statement);
     }
-    return statement.all(...params);
+    this.db.exec('PRAGMA query_only = ON');
+    try {
+      return statement.all(...params);
+    } finally {
+      this.db.exec('PRAGMA query_only = OFF');
+    }
+  }
+
+  /**
+   * Keeps what a read model worked out about finished runs (`run_stats`), so no later read, in this
+   * process or the next, reads their calls again. A run deleted meanwhile is skipped. Best effort:
+   * false when the store can't be written just now, and the caller keeps its numbers in memory.
+   */
+  saveRunStats(rows: ReadonlyArray<{ runId: string; key: string; stats: string }>): boolean {
+    if (!rows.length) return true;
+    try {
+      this.transaction(() => {
+        const put = this.db.prepare(`INSERT OR REPLACE INTO run_stats (run_id, key, stats) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM runs WHERE run_id = ?)`);
+        for (const r of rows) put.run(r.runId, r.key, r.stats, r.runId);
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ---- blobs ----
