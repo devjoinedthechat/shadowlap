@@ -103,7 +103,7 @@ describe('shadowlap dashboard', () => {
     const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
     try {
       const meta = (await (await api('meta')).json()) as { actions: boolean; readOnly: boolean; project: { name: string; path: string }; jobKinds: string[] };
-      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: ['action'] });
+      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: expect.arrayContaining(['action', 'export-dataset', 'export-har', 'export-html', 'export-otel', 'pack']) });
       let job = (await (await api(`runs/${runId}/actions`, { method: 'POST', body: JSON.stringify({ key: 'r' }) })).json()) as { id: string; done: boolean; code: number | null; newRunId: string | null; links: Array<{ href: string }>; result: { exitCode?: number } | null; title: string };
       expect(job.title).toBe('Replaying');
       for (let i = 0; i < 400 && !job.done; i++) {
