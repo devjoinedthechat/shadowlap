@@ -3,6 +3,7 @@ import { CmdLine, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import type { AddProjectView } from '../projects-api.js';
+import { codeParts } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
@@ -15,6 +16,9 @@ import { useApp } from '../state.js';
  * stays disabled until one with project files is picked. Nothing runs here: after adding, the
  * dashboard switches to the project and its setup opens.
  */
+/** The project files a refusal names, shown as code as the mock writes them. */
+const PROJECT_FILES = ['pyproject.toml', 'package.json'];
+
 export function NewProjectPage() {
   const app = useApp();
   const { client, guard, toast, actionsOff, meta } = app;
@@ -141,7 +145,11 @@ export function NewProjectPage() {
                 <div className="empty">{view.empty}</div>
               )}
             </div>
-            {fieldError ? <p className="fieldnote err">{fieldError}</p> : null}
+            {fieldError ? (
+              <p className="fieldnote err">
+                {codeParts(fieldError, PROJECT_FILES).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : <span key={i}>{p.text}</span>))}
+              </p>
+            ) : null}
           </div>
           <footer className="pfoot">
             <a className="btn quiet" href={view?.cancel.href ?? href.overview()}>

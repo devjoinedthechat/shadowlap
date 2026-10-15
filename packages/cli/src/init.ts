@@ -311,6 +311,27 @@ function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[stri
   return null;
 }
 
+/** The first script `pyproject.toml` declares (`[project.scripts]`, or Poetry's `[tool.poetry.scripts]`), by name. */
+function pythonScript(cwd: string): { name: string; table: string } | null {
+  let text: string;
+  try {
+    text = readFileSync(join(cwd, 'pyproject.toml'), 'utf8');
+  } catch {
+    return null;
+  }
+  for (const table of ['[project.scripts]', '[tool.poetry.scripts]']) {
+    const at = text.split('\n').findIndex((line) => line.trim() === table);
+    if (at < 0) continue;
+    for (const line of text.split('\n').slice(at + 1)) {
+      const t = line.trim();
+      if (t.startsWith('[')) break;
+      const m = /^["']?([A-Za-z0-9][\w.-]*)["']?\s*=\s*["'][^"']+["']/.exec(t);
+      if (m) return { name: m[1]!, table };
+    }
+  }
+  return null;
+}
+
 function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[]): InitReport['command'] {
   const scripts = (pkg?.scripts ?? {}) as Record<string, string>;
   const runner = manager === 'pnpm' ? ['pnpm'] : manager === 'yarn' ? ['yarn'] : manager === 'bun' ? ['bun', 'run'] : ['npm', 'run'];
@@ -321,6 +342,9 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
   }
   if (languages.includes('python')) {
     const uv = existsSync(join(cwd, 'uv.lock'));
+    // A script the project declares is how it is meant to start: `uv run research-agent`.
+    const script = pythonScript(cwd);
+    if (script) return { argv: uv ? ['uv', 'run', script.name] : manager === 'poetry' ? ['poetry', 'run', script.name] : [script.name], from: `${script.table} in pyproject.toml` };
     for (const f of ['agent.py', 'main.py', 'app.py', 'run.py', 'src/agent.py', 'src/main.py']) {
       if (existsSync(join(cwd, f))) return { argv: uv ? ['uv', 'run', f] : ['python', f], from: f };
     }

@@ -1,3 +1,4 @@
+import { tildePath } from './format.js';
 import type { Route } from './route.js';
 import { isAttempt, type RunLike } from './runs.js';
 import type { LiveRun, Meta } from './types.js';
@@ -88,4 +89,16 @@ export function aroundWord(text: string, word: string): { before: string; word: 
   const i = text.indexOf(word);
   if (i < 0) return null;
   return { before: text.slice(0, i), word, after: text.slice(i + word.length) };
+}
+
+/**
+ * The store's path as the status bar shows it: under the project's folder as the server names it
+ * (`~/support-agent/.shadowlap/shadowlap.db`, from the real home folder), else with ~ for a home
+ * folder the path itself shows.
+ */
+export function storePath(meta: Pick<Meta, 'dbPath' | 'project'>): string {
+  const dbPath = meta.dbPath ?? '';
+  const p = meta.project;
+  const rest = p?.display && dbPath.startsWith(p.path) ? dbPath.slice(p.path.length) : null;
+  return rest !== null && /^[\\/]/.test(rest) ? p!.display + rest : tildePath(dbPath);
 }

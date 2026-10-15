@@ -130,6 +130,16 @@ def send_page(to: str) -> dict:
     expect(text).toContain('SHADOWLAP_UPSTREAM_OPENAI=http://localhost:11434 shadowlap run -- uv run agent.py');
   });
 
+  it('starts a Python project by the script its pyproject.toml declares', () => {
+    const scripted = (manifest: string, lock: Record<string, string>) => inspectProject(project({ 'pyproject.toml': manifest, ...lock, 'main.py': 'print(1)\n' }), {}).command;
+    const declared = '[project]\nname = "research-agent"\n\n[project.scripts]\nresearch-agent = "research_agent.main:run"\n';
+    expect(scripted(declared, { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'research-agent'], from: '[project.scripts] in pyproject.toml' });
+    expect(scripted(declared, {})).toEqual({ argv: ['research-agent'], from: '[project.scripts] in pyproject.toml' });
+    expect(scripted('[tool.poetry]\nname = "x"\n\n[tool.poetry.scripts]\nagent = "x.cli:main"\n', { 'poetry.lock': '' })).toEqual({ argv: ['poetry', 'run', 'agent'], from: '[tool.poetry.scripts] in pyproject.toml' });
+    // Without one, the entry file.
+    expect(scripted('[project]\nname = "x"\n', { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'main.py'], from: 'main.py' });
+  });
+
   it('counts Python tools wrapped with the framework adapters as declared', () => {
     const py = project({
       'requirements.txt': 'openai-agents==0.20.0\nlanggraph\ncrewai\n',
