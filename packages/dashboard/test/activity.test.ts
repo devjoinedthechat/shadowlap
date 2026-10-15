@@ -1,5 +1,9 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { recordEvent, Store, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
+import { packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
 
 /** The activity feed: what runs tell by themselves, merged with what commands recorded, newest first. */
@@ -185,6 +189,51 @@ describe('paging through entries that share a millisecond', () => {
     expect(seen.slice(-3).map((id) => id.startsWith('e:'))).toEqual([true, true, true]);
     // limit=1 is one entry, however many share its millisecond.
     expect(activity(store, { limit: 1 }).items).toHaveLength(1);
+    store.close();
+  });
+});
+
+describe('a pack unpacked', () => {
+  const recording = (store: Store, startedAt: number, parentRunId?: string) => {
+    const r = store.createRun({ mode: parentRunId ? 'replay' : 'record', ...(parentRunId ? { parentRunId } : {}), command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt });
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: createHash('sha256').update(r.runId).digest('hex'), occurrence: 1 };
+    store.appendCallStart({ runId: r.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: null, meta: {}, at: startedAt });
+    store.appendCallEnd(id, { runId: r.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at: startedAt + 1 });
+    store.endRun(r.runId, 'completed', startedAt + 10);
+    return r.runId;
+  };
+
+  it('is one entry, through the real pack and unpack', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-activity-pack-'));
+    const source = Store.open(':memory:');
+    const target = Store.open(':memory:');
+    try {
+      const fork = recording(source, 2000, recording(source, 1000));
+      packRun(source, fork, join(dir, 'lineage'), { lineage: true });
+      expect(unpackRun(target, join(dir, 'lineage')).imported).toHaveLength(2);
+      const entries = activity(target).items;
+      expect(entries.map((i) => [i.kind, i.text])).toEqual([['cap', 'Unpacked lineage · 2 runs']]);
+    } finally {
+      source.close();
+      target.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is one entry even when its runs were stamped moments apart, and a pack of the same name later is another', () => {
+    const store = Store.open(':memory:');
+    const imported = (runId: string, parentRunId: string | null, at: number) =>
+      store.importRun({ runId, parentRunId, mode: parentRunId ? 'replay' : 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.js'], cwd: '.' }, codeVersion: null, startedAt: 100, endedAt: 200, meta: { imported: { at, from: 'lineage' } } });
+    // Unpacked by an older build: one time per run.
+    imported('01K5CQ4P2R0000000000000001', null, 9001);
+    imported('01K5CQ4P2R0000000000000002', '01K5CQ4P2R0000000000000001', 9002);
+    imported('01K5CQ4P2R0000000000000003', '01K5CQ4P2R0000000000000002', 9004);
+    // Another pack with the same folder name: unrelated runs, unpacked a second later.
+    imported('01K5CQ4P2R0000000000000004', null, 10_004);
+    expect(activity(store).items.map((i) => [i.at, i.text])).toEqual([
+      [10_004, 'Unpacked lineage · 0 calls'],
+      [9004, 'Unpacked lineage · 3 runs'],
+    ]);
     store.close();
   });
 });

@@ -202,11 +202,11 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
   return { ...item, kind: run.status === 'crashed' ? 'clean' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
 }
 
-function imported(store: Store, runs: RunRecord[]): ActivityItem {
+function imported(store: Store, runs: RunRecord[], at: number): ActivityItem {
   const first = runs[0]!;
   const from = first.meta?.imported?.from ?? '';
   const name = basename(from.replace(/[\\/]+$/, '')) || 'a capture';
-  const item = base(first, `r:${first.runId}:import`, first.meta?.imported?.at ?? first.startedAt);
+  const item = base(first, `r:${first.runId}:import`, at);
   if (first.meta?.covers?.length) {
     const models = facts(store, first).summary.byKind.api;
     return { ...item, kind: 'cap', text: `Imported ${name} · ${plural(models, 'model call')}` };
@@ -269,12 +269,42 @@ interface Stub {
   render: () => ActivityItem;
 }
 
+/** How far apart the runs of one unpack can have been stamped, in stores from before unpack stamped one time for all. */
+const UNPACK_SPREAD_MS = 5000;
+
+/**
+ * What each unpack brought in. The runs of one pack share its folder's name and the time unpack
+ * stamped; and since a pack holds a run and its ancestors, a run whose parent came in moments
+ * before from a folder of the same name belongs with it too.
+ */
+function unpackGroups(runs: RunRecord[]): Array<{ at: number; runs: RunRecord[] }> {
+  const stamp = (run: RunRecord) => ({ at: run.meta?.imported?.at ?? run.startedAt, from: run.meta?.imported?.from ?? '' });
+  const sorted = [...runs].sort((a, b) => stamp(a).at - stamp(b).at || a.startedAt - b.startedAt);
+  const groups: Array<{ from: string; at: number; runs: RunRecord[] }> = [];
+  const byStamp = new Map<string, (typeof groups)[number]>();
+  const byRun = new Map<string, (typeof groups)[number]>();
+  for (const run of sorted) {
+    const { at, from } = stamp(run);
+    const parent = run.parentRunId ? byRun.get(run.parentRunId) : undefined;
+    let group = byStamp.get(`${at}\n${from}`) ?? (parent && parent.from === from && at - parent.at <= UNPACK_SPREAD_MS ? parent : undefined);
+    if (!group) {
+      group = { from, at, runs: [] };
+      groups.push(group);
+    }
+    group.runs.push(run);
+    group.at = Math.max(group.at, at);
+    byStamp.set(`${at}\n${from}`, group);
+    byRun.set(run.runId, group);
+  }
+  return groups;
+}
+
 /** Every item the runs tell, as stubs: cheap to sort, rendered only for the page asked for. */
 function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] {
   const stubs: Stub[] = [];
   const byId = runIndex(store).byId;
   const groups = new Map<string, RunRecord[]>();
-  const unpacked = new Map<string, RunRecord[]>();
+  const unpacked: RunRecord[] = [];
   for (const run of runs) {
     const m = run.meta;
     if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: m.blame.at, render: () => blamed(run) });
@@ -287,13 +317,11 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
     }
     if (m?.imported) {
       if (m.covers?.length) {
-        if (!covered.has(`import:${run.runId}`)) stubs.push({ id: `r:${run.runId}:import`, at: m.imported.at ?? run.startedAt, render: () => imported(store, [run]) });
+        const at = m.imported.at ?? run.startedAt;
+        if (!covered.has(`import:${run.runId}`)) stubs.push({ id: `r:${run.runId}:import`, at, render: () => imported(store, [run], at) });
       } else {
         // A pack can hold a run and its ancestors: one entry for everything one unpack brought in.
-        const key = `${m.imported.at}\n${m.imported.from}`;
-        const list = unpacked.get(key) ?? [];
-        list.push(run);
-        unpacked.set(key, list);
+        unpacked.push(run);
       }
       continue;
     }
@@ -314,12 +342,12 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
     const at = Math.max(...attempts.map((a) => a.endedAt ?? a.startedAt));
     stubs.push({ id: `g:${first.meta!.repeat!.group}`, at, render: () => repeated(store, attempts, first.parentRunId ? byId.get(first.parentRunId) : undefined) });
   }
-  for (const list of unpacked.values()) {
+  for (const { at, runs: list } of unpackGroups(unpacked)) {
     // Oldest first, so the entry names the root of what was unpacked.
     list.sort((a, b) => a.startedAt - b.startedAt);
     const first = list[0]!;
     if (covered.has(`import:${first.runId}`)) continue;
-    stubs.push({ id: `r:${first.runId}:import`, at: first.meta!.imported!.at ?? first.startedAt, render: () => imported(store, list) });
+    stubs.push({ id: `r:${first.runId}:import`, at, render: () => imported(store, list, at) });
   }
   return stubs;
 }

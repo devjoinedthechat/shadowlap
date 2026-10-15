@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { recordEvent, Store } from '../src/index.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { packRun, recordEvent, Store, unpackRun } from '../src/index.js';
 
-/** What the dashboard's feeds need from the store: events paged by time and id, and write counters. */
+/**
+ * What the dashboard's feeds need from the store: events paged by time and id, write counters, and
+ * packs that read as one import.
+ */
 
 describe('activity events paged by time and id', () => {
   it('never skips events that share a millisecond', () => {
@@ -30,7 +36,7 @@ describe('activity events paged by time and id', () => {
 });
 
 describe('write counters', () => {
-  it('go up with every write to runs and events, from any connection, and calls by their newest row', () => {
+  it('go up with every write to runs and events, and calls by their newest row', () => {
     const store = Store.open(':memory:');
     const start = store.changeCounts();
     expect(start).toMatchObject({ runs: 0, events: 0, calls: 0 });
@@ -45,5 +51,42 @@ describe('write counters', () => {
     recordEvent(store, { kind: 'normalizer.added' });
     expect(store.changeCounts().events).toBe(1);
     store.close();
+  });
+});
+
+describe('packs', () => {
+  function family(store: Store): { root: string; fork: string } {
+    const root = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { author: 'dana@example.com' } });
+    store.endRun(root.runId, 'completed');
+    const fork = store.createRun({ mode: 'replay', parentRunId: root.runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { author: 'dana@example.com', labels: ['bug'] } });
+    store.endRun(fork.runId, 'completed');
+    return { root: root.runId, fork: fork.runId };
+  }
+
+  it('unpack with one time for every run they bring in', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-pack-time-'));
+    const source = Store.open(':memory:');
+    const target = Store.open(':memory:');
+    try {
+      const { fork } = family(source);
+      packRun(source, fork, join(dir, 'lineage'), { lineage: true });
+      // A large pack takes a while to unpack: the clock moves on between its runs, and they still share one time.
+      let now = 1_000_000;
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => now++);
+      let imported: string[];
+      try {
+        imported = unpackRun(target, join(dir, 'lineage')).imported;
+      } finally {
+        clock.mockRestore();
+      }
+      expect(imported).toHaveLength(2);
+      const stamps = imported.map((id) => target.getRun(id)!.meta?.imported);
+      expect(stamps[0]).toEqual({ at: expect.any(Number), from: 'lineage' });
+      expect(stamps[1]).toEqual(stamps[0]);
+    } finally {
+      source.close();
+      target.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

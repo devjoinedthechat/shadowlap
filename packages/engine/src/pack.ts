@@ -187,6 +187,8 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   const skipped: string[] = [];
   const commands: UnpackResult['commands'] = [];
   const from = basename(root);
+  // One time for everything one unpack brings in, so the runs of a pack read as one import.
+  const at = Date.now();
   store.transaction(() => {
     for (const b of blobs) store.putBlob(b.bytes);
     // Every blob a call needs must now exist, including the parts of a chunked request.
@@ -208,7 +210,7 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
       }
       // Whatever the pack claims, the run is marked as imported here.
       const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
-      store.importRun({ ...run, meta: { ...rest, imported: { at: Date.now(), from } } });
+      store.importRun({ ...run, meta: { ...rest, imported: { at, from } } });
       for (const call of calls.filter((c) => c.runId === run.runId)) {
         const { end, attempts, ...start } = call;
         store.appendCallStart(start);
