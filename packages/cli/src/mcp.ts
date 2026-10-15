@@ -217,6 +217,10 @@ class ToolCalls {
       case 'live':
         return { forward: true, live: { callNo: r.callNo, name, started: Date.now() } };
     }
+    // An answer this proxy doesn't know is an error, as the protocol says, never a guess: guessing
+    // could send a write to the server during a replay.
+    const origin = (r as { origin?: unknown }).origin;
+    return { answer: { jsonrpc: '2.0', id: m.id, error: { code: -32000, message: `shadowlap: unexpected answer "${String(origin)}" from the sidecar for ${name}; the call was not sent` } } };
   }
 
   /** Records the server's answer to a call sent on. */
