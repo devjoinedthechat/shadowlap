@@ -20,6 +20,9 @@ export type { ActivityIcon, ActivityItem, ActivityPage, ChangesView, JobFile, Jo
 export { provenance, showRunJson } from './api.js';
 export { countMasked } from './run-page.js';
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './api.js';
+// Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
+export { fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, repairArgv } from './fixes.js';
+export type { BlameStep, CandidateVerdict, FixActions, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, RepairStep, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';

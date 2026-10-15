@@ -314,6 +314,11 @@ process.stdin.on('end', () => {
     expect((await shadowlap(['repair', '--fixes', failed[0]!, '--pr'])).out).toContain('--pr opens a pull request from the branch --branch <name> makes');
     expect((await shadowlap(['repair', '--fixes', failed[0]!, '--repairer', 'openai'])).out).toContain('an openai repairer needs a model');
     expect((await shadowlap(['repair', '--fixes', failed[0]!, '--goldens', 'g'])).out).toContain('--goldens puts recordings into the project');
+    // Recordings committed to a branch must be inside the repository: refused before any blame runs.
+    const outside = await shadowlap(['repair', '--fixes', failed[0]!, '--branch', 'fix-refunds', '--goldens', '../elsewhere', '--json']);
+    expect(outside.code).toBe(1);
+    expect(JSON.parse(outside.stdout)).toEqual({ outcome: 'error', error: { message: "--goldens ../elsewhere is outside the repository, so its recordings can't be committed to a branch: give a folder inside it" } });
+    expect(outside.out).not.toContain('blaming');
   });
 });
 

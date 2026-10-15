@@ -29,6 +29,8 @@ export interface AttemptSettings {
   liveTools: string[];
   /** Checks a passing run must meet, besides exiting 0. */
   spec: TestSpec | null;
+  /** The `--expect` those checks came from, as given: what Fixes groups failures by and shows in commands. */
+  expect?: unknown;
   /** Start no attempt once this many USD are spent. */
   budget: number | null;
   /** Stop an attempt after this long, and count it as a failure. */

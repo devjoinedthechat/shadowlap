@@ -80,6 +80,27 @@ Writes are stubbed after a fork, as in [blame](./blame.md#side-effects) (`--writ
 
 A replay re-runs a run's recorded command, but in the environment verify runs in, not the one the run was recorded in. If what makes a run *that* run comes from an environment variable (which customer, which ticket), every run replays with today's value. Pass it as an argument instead, where the recorded command keeps it. A command after `--` replaces every run's recorded command.
 
+## Verdicts are kept
+
+Every verdict is kept in the store with its whole report, whether or not `--json` was given, and linked to the [fix](./cli.md#fix) of the failing runs: the fix they fail in, or, for runs never blamed, a fix not yet applied that their labels point to. A verdict on runs no fix holds is kept on its own.
+
+A verdict counts for a fix only when it checked what the fix checks, on a run that failed it:
+
+- Its oracle has every condition of the fix's check: the same `--expect`, or one that asks for more. A verify without `--expect` checks the exit code alone, so it says nothing about a fix blamed with `--expect '{"tools":{"issue_refund":0}}'`, however many runs it accepts.
+- At least one of the fix's failing runs among its targets and held-out runs failed that oracle as recorded, or can't be judged from its recording (a check on the agent's output, which is not recorded). Fixing runs that already passed proves nothing.
+
+A verdict that counts brings its runs to the fix: the target and held-out runs that didn't pass as recorded become its failing runs, and the good runs its good runs. An accepted one turns the fix verified. A rejected one counts as a change rejected before it shipped; given after the fix was applied, it means the fix no longer holds, and the fix says so until a later verdict accepts it again. A fix stays verified whatever a later verdict says. A verdict that doesn't count is kept and shown on the fix's Verify step with why, and changes nothing.
+
+The report ends with each fix it was kept with and what the verdict did to it:
+
+```
+  fix fx-01M3RZ4XKN · Refunds above the limit issued without approval · verified · shadowlap fix show fx-01M3RZ4XKN
+```
+
+A verdict that doesn't count says why in the same place: *accepted verdict kept, not counted (checked under another check); still open*.
+
+The verdict is logged as a `verify.accepted` or `verify.rejected` event in the store's activity, naming the fixes it counts for. Run by a dashboard job, it reports a link to that verdict on the fix's Verify step.
+
 ## JSON
 
 `--json` prints the report on stdout, for scripts, CI and [coding agents](./agents.md):
@@ -92,6 +113,7 @@ A replay re-runs a run's recorded command, but in the environment verify runs in
 | `runs` | Per run: `runId`, `role` (`target`, `holdout`, `good`), `outcome` (`fixed`, `not-fixed`, `kept`, `broken`, `unsettled`), `passes`, `attempts`, `deterministic`, `recorded` (`{ passed, failures, footprint }`), and `runs`, each attempt with `runId`, `passed`, `exitCode`, `failures`, `forkedAt`, `spent`, `upstreamRequests` and `footprint` |
 | `oracle`, `attemptsPerRun`, `passesNeeded`, `change`, `codeVersion` | What was checked, against what |
 | `cost`, `stopReason` | What verifying cost, and why it stopped early |
+| `verifyId`, `fixes` | The verdict as it was kept (`vf-…`), and each fix it was kept with: `fixId`, `title`, `status` after it, `counts`, and `why` it doesn't count (`another-check`, `already-passing`, `no-runs`) |
 
 A footprint is `{ inputTokens, outputTokens, cost }`, with `cost` null when a model has no price.
 

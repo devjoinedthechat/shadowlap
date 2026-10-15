@@ -128,6 +128,8 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 
 Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run), 1 when it stops early or refuses: the run passes its oracle, or does not replay as recorded.
 
+Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
+
 ## verify
 
 ```sh
@@ -153,7 +155,7 @@ Checks a change before it ships. Replays failing runs, which the change must now
 | `--json` | The report as JSON on stdout ([fields](./verify.md#json)) |
 | `--guard`, `-y` | As for `replay` |
 
-Exit status 0 when the change is accepted, 1 when it is rejected or the verification did not finish.
+Exit status 0 when the change is accepted, 1 when it is rejected or the verification did not finish. The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
 
 ## repair
 
@@ -177,11 +179,57 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--apply` | Leave the accepted fix in the working tree |
 | `--branch <name>` | Commit it to a new branch without checking anything out |
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
-| `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too |
+| `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for `verify` |
 
-Exit status 0 when a fix is accepted, 1 otherwise.
+Exit status 0 when a candidate is accepted and handed over as asked, 1 otherwise. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
+
+## fix
+
+```sh
+shadowlap fix ls [--status open|verified|applied] [--json]
+shadowlap fix show <fix> [--json]
+shadowlap fix title <fix> <title...>
+shadowlap fix apply <fix> [--goldens <dir>] [--no-test] [--build <command>] [--json]
+```
+
+A fix is one failure, from the blame that reproduced it to a change that held. A [blame](./blame.md#fixes) opens one or joins one, by the run's labels, else its check; [verify](./verify.md#verdicts-are-kept) and [repair](./repair.md#the-fix-it-reports-to) report to the fix of the runs they were given, and their verdict counts for it only when it checked the fix's check on a run that failed it. Fix ids look like `fx-01M3RZ4XKN…`; any unique prefix works, with or without `fx-`, and the list shows the first ten characters.
+
+- **`fix ls`** lists fixes, the most recently opened first: status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step got (*lost at #5 · prompt fix · 3 of 3 held*). A second line gives the check, where the fix came from (*from CI · PR #138*) and when it was opened, and a third says so when an applied fix doesn't hold.
+- **`fix show`** prints a fix and its three steps: where the run was lost and the probes that found it; the change, the candidates tried and why each was dropped; and every verdict, with each run's role and outcome, and why one doesn't count. It ends with what to do next.
+- **`fix title`** replaces the title derived from the check with one of your own; blames that join the fix later keep it.
+- **`fix apply`** hands a verified fix over. It runs `git apply` on the accepted repair's `fix.patch`, copies the recordings the fixed code made into the goldens folder, runs [`shadowlap test`](#test) on them, and marks the fix applied. A patch already in the tree, applied by hand, committed, or left there by `repair --apply`, is recognised with `git apply --reverse --check` and only marked. When the working tree has changes the patch conflicts with, nothing is changed, and the message says whether to commit or stash them or to apply the patch by hand. A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only marked applied.
+
+Run again on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied: it copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and runs the test when it hasn't passed, on goldens copied before where they are. With nothing left, it does nothing; with `--no-test` it says when a test is still to pass. A test that fails leaves the fix applied, marked as not holding, until a run of `fix apply` passes it.
+
+It trusts nothing it reads from the store: the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`, and `fix.patch` the patch the repair verified, or it changes nothing and says why.
+
+| Option | Effect |
+|---|---|
+| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes |
+| `--goldens <dir>` | `fix apply`: where the recordings go. Default `goldens` |
+| `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them |
+| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test |
+| `--json` | The list, the fix, or what `fix apply` did, as JSON: the dashboard's read model of Fixes. An id that matches no fix, or several, prints `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }` |
+
+`fix apply` exits 1 when the fix is still open, when the patch does not apply, or when the test fails; a patch that applied stays applied. Run it in the folder the repair ran in, where its directory under `.shadowlap/repairs/` is.
+
+`fix show --json` has the three steps in full:
+
+| Field | |
+|---|---|
+| `status`, `title`, `label`, `labels`, `check`, `oracle`, `expect`, `source` | The fix: `label` is the one most of its failing runs carry, `labels` all it groups runs by; `check` is in words, `oracle` the conditions a verdict must check to count, `expect` the `--expect` JSON (null for the exit code alone); `source` says where it came from, such as `from CI · PR #138` |
+| `broken` | For an applied fix that doesn't hold, why: its test failed, or a verify rejected it after it was applied |
+| `failingRuns`, `goodRuns` | The runs, each with `runId`, `exists` (false once deleted from the store), `status` and `labels` |
+| `steps` | Blame, repair and verify, each with `state` (`done`, `todo`, or `no` for a verify that only rejected), a `title`, a `meta` line and a `short` form. Only verdicts that count move the verify step |
+| `blame` | The call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the `boundary` sentence, both `answers`, `probes` with their verdicts, the attempts per probe (`bundles`), every call of the run with whether it is in the blame's scope (`callRow`), `cost` and `command` |
+| `repair` | The `change` with the text it `added`, the result per role (`roles`), whether its verification `counts`, where each run was `lost`, the `diagnosis`, every candidate with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`, `build failed`, `unsettled`) and `why`, the `files` handed over, the pull request body (`prBody`) and `command` |
+| `verify` | One entry per change verified, newest first: its `verdict`, whether it `counts` and a `note` saying why not (or that it was rejected after the fix was applied), `headline`, `oracle`, each run's `role`, `attempts`, `outcome` and where it went (`note`), the token and cost changes per run, and what it took to find out |
+| `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
+| `actions` | What can be done next: `repair` for an open fix; `apply` for a verified or applied one (`kind` is `patch`, or `mark` when there is no patch, with the `gitApply` command, and `pending` saying what applying left undone); `applied` once it is applied |
+
+Blame, repair, verify and apply each log an activity event in the store (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`, `fix.applied`).
 
 ## show
 
