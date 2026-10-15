@@ -2,7 +2,7 @@
 
 Both are rewrite rules with the same shape: an optional scope (`kind`, `name`), an optional JSONPath, a pattern, and a replacement. **Normalizers** mask values before fingerprinting and never touch what is stored. **Redaction rules** mask stored content when a run is exported, and are then applied as normalizers when that export is replayed, so a redacted recording still matches.
 
-Rules live in `shadowlap.config.json` in the working directory:
+Rules live in `shadowlap.config.json` in the working directory, and the commands below edit it one change at a time (see [Editing the file](#editing-the-file)):
 
 ```json
 {
@@ -23,13 +23,28 @@ A replay diverges when a request differs from the recording. Some differences ar
 
 ```sh
 shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date
+shadowlap normalize add --pattern '/req_[a-z0-9]+/' --replace '<REQ>'
 shadowlap normalize add --kind tool --name create_ticket --path '$.args.idempotency_key' --replace '<ID>'
 shadowlap normalize ls
+shadowlap normalize rm 2
 ```
 
-- `--path` is a JSONPath subset: `$.a.b[0].c`, `[*]` and `.*` wildcards, `["quoted key"]`. For tool calls the arguments are under `$.args`. Omit the path to apply the pattern to every string in the request.
-- `--pattern` is a named pattern (`iso-date`, `iso-datetime`, `uuid`, `ulid`, `number`, `email`) or a `/regex/flags` literal. With a path and no pattern, the whole value is replaced.
-- Scope with `--kind` (`api`, `tool`) and `--name` (a tool name, or `POST /v1/messages`).
+A rule is a pattern, a path, or both:
+
+| Rule | Masks |
+|---|---|
+| `--pattern` alone | what the pattern matches, in every string of the request |
+| `--path` and `--pattern` | what the pattern matches, in the value at the path |
+| `--path` alone | the whole value at the path, whatever it is |
+
+- `--path` is a JSONPath subset: `$.a.b[0].c`, `[*]` and `.*` wildcards, `["quoted key"]`. For tool calls the arguments are under `$.args`.
+- `--pattern` is a named pattern (`iso-date`, `iso-datetime`, `uuid`, `ulid`, `number`, `email`) or a `/regex/flags` literal.
+- Scope with `--kind` (`api`, `tool`, `clock`, `random`) and `--name` (a tool name, or `POST /v1/messages`).
+- `--replace` is what a match becomes; `<MASKED>` when it is left out.
+
+`add` refuses a rule with neither a path nor a pattern, which would change nothing, a pattern that matches an empty string, and a pattern or path it can't read, with the reason. Adding a rule that is already there changes nothing.
+
+`ls` numbers the rules, and `rm` takes that number (`2` or `#2`), or the tool name, path or pattern of exactly one rule: `shadowlap normalize rm create_ticket`. The rules after a removed one move up a number. `ls --json` prints the file, its version and every rule with its number; a rule the config can no longer load is listed with the reason, so `rm` can take it out.
 
 Normalizers apply at match time: adding one makes older recordings match too, because the parent's fingerprints are recomputed from its stored requests under the current rules when a replay starts.
 
@@ -71,6 +86,8 @@ It recognizes ISO dates and timestamps (`2026-09-16`, `2026-09-16T10:31:22Z`, wi
     …
 ```
 
+Without a run named, it takes the project's setup run, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture); with none, it says to record a run first. A recording that already replays clean ends with "This recording replays clean with the current rules. Nothing to add." `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--json` prints the run, which run it took (`source`: `given`, `setup` or `newest`), every round, the proposals and the numbers `--write` gave them; a dashboard job that runs calibrate gets the same object as its result.
+
 It makes no model calls, and writes are blocked while it runs. Run it after your first recording, and again when a replay forks for a reason you didn't cause. For a value in the middle of a longer string, the proposed pattern is anchored on the fixed text before it, so it masks only that value. When a change isn't a value in a request (the agent makes a different call, because it iterates a set or picks something at random), calibration stops and shows the divergence: read that value through the SDK's `uuid()` or `now()`, or make the choice deterministic.
 
 **The design rule behind this:** nothing is excluded from matching implicitly, with two exceptions. `cache_control` markers are stripped, because the provider documents them as behavior-neutral and agents move them routinely. Dates and times near a run's start are masked, because by construction they mean "now" in both runs. Stripping keys by name everywhere would silently merge genuinely different requests, and a false replay hit returns the wrong response with no signal; a false divergence is visible and fixable.
@@ -82,12 +99,58 @@ Recordings contain everything the agent saw: prompts, tool inputs and outputs, a
 ```sh
 shadowlap redact add --pattern email
 shadowlap redact add --pattern uuid --replace '<UUID>'
-shadowlap redact add --kind tool --path '$.args.api_key' --pattern '/.+/' --replace '<KEY>'
+shadowlap redact add --kind tool --path '$.args.api_key' --replace '<KEY>'
+shadowlap redact preview
 shadowlap pack <run> ./share/run
 ```
 
+Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool`; the replacement is `<REDACTED>` when it is left out. `redact ls` and `redact rm` work as they do for normalizers.
+
 `pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request and the raw text of responses and tool results. The local store is never modified. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean. `--no-redact` skips the rules.
 
-Two rules for rules: a replacement must not itself match the pattern (rules are applied again at match time and must be idempotent), and redaction is pattern-based: it masks what your rules describe and nothing else. Review a pack before sharing it.
+Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`), and one that puts the match back (`$&`). Redaction is pattern-based: it masks what your rules describe and nothing else. A value a streamed response splits across two events is not matched, so check the preview, and review a pack before sharing it.
 
 Credentials never need redacting: API keys and authorization headers are forwarded upstream and never stored in the first place.
+
+### Where the rules apply
+
+Every way a run's content leaves the machine applies the project's rules to its copy:
+
+| Export | Applies |
+|---|---|
+| `shadowlap pack` | every rule |
+| `shadowlap export html` | every rule |
+| `shadowlap export har` | every rule |
+| `shadowlap export dataset` | rules without a path, and path rules on the message fields it keeps |
+| `shadowlap export pairs` | rules without a path, and path rules on the message fields it keeps |
+| `shadowlap export otel` | no prompt text leaves; every rule applies to the attributes it keeps |
+
+### Preview
+
+`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests and responses, retries included, go through the same functions pack applies, and nothing is written. Without a run named it takes the newest run that has ended; a run still recording is refused.
+
+```
+01M2R1HDVD (node agent.js): 5 values would be masked
+  #1  every call  any string  email → <REDACTED>  4
+        - …The account owner is alice@example.com.
+        + …The account owner is <REDACTED>.
+        - Refund order 4417 for bob@example.com
+        + Refund order 4417 for <REDACTED>
+  #2  tool  $.args.api_key  whole value → <KEY>  1
+        - sk-live-123
+        + <KEY>
+  #3  every call  any string  /\b(?:\d[ -]?){13,16}\b/ → <CARD>  0  no matches in this run
+```
+
+Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value that a conversation sends again with every later request counts once. A rule that masks nothing says why: no matches in the run, no call of its kind or name, no request with its path, or a path whose values don't match its pattern. `--json` prints the same object.
+
+## Editing the file
+
+`normalize add` and `rm`, `redact add` and `rm`, and `calibrate --write` edit `shadowlap.config.json` through one editor, with the same checks:
+
+- One edit at a time: an edit takes `shadowlap.config.json.lock` beside the file, and waits for another to finish. A lock left behind by a crash expires after ten seconds.
+- An edit replaces the file with one rename, so the file is never half written.
+- Every key the edit doesn't touch keeps its place and its value, keys this version doesn't know included, and the file keeps its indentation and line endings.
+- `--expect <version>` on `add` and `rm` refuses the edit when the file is no longer the version `ls --json` printed, so a script that read rule #2 never removes a rule someone added in the meantime.
+
+Adding and removing a rule is recorded in the project's activity (`normalizer.added`, `redaction.removed`, …) with who did it, in a store that exists: editing the config never creates one.

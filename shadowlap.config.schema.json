@@ -17,7 +17,7 @@
       }
     },
     "redact": {
-      "description": "Rules applied to stored content on `shadowlap pack`. A redacted pack still replays, because these are applied as normalizers when it does.",
+      "description": "Rules applied to stored content in the copy of a run that leaves the machine: `shadowlap pack`, `export html` and the other exports. A redacted pack still replays, because these are applied as normalizers when it does.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/rule"
@@ -194,6 +194,7 @@
       ]
     },
     "rule": {
+      "description": "A normalizer or redaction rule: a scope (kind, name), a path, a pattern, and what a match becomes. Every form `shadowlap normalize add` writes: a pattern anywhere, a pattern at a path, or a path alone, which replaces the whole value there.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -220,7 +221,8 @@
         },
         "pattern": {
           "description": "A named pattern (iso-date, iso-datetime, uuid, ulid, number, email) or a /regex/flags literal. With a path, omit it to replace the whole value.",
-          "type": "string"
+          "type": "string",
+          "pattern": "^(iso-datetime|iso-date|uuid|ulid|number|email|/[\\s\\S]*/[dgimsuvy]*)$"
         },
         "replace": {
           "description": "What the match becomes while matching, e.g. <uuid>.",

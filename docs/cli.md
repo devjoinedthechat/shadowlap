@@ -303,10 +303,10 @@ it into a golden for `shadowlap test`.
 ## calibrate
 
 ```sh
-shadowlap calibrate [run] [--write] [--max-rounds <n>]
+shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json]
 ```
 
-Replays a recording (default: the latest) offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. `--write` adds the proposals to `shadowlap.config.json`. No model calls; writes are blocked. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the project's setup run, else the newest finished recording made here, and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers. `--json` prints the result when calibration ends: `runId`, `source` (`given`, `setup` or `newest`), `clean`, `rounds`, the proposed `normalizers`, `written` and the numbers `added`, and `stopped` with why when it isn't clean. No model calls; writes are blocked. See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 
@@ -329,7 +329,7 @@ Replays a recording (default: the latest) offline, repeatedly, and proposes a no
 | Key | What it does |
 |---|---|
 | `normalize` | Masks values before fingerprinting, so a generated id or today's date does not fork a replay ([details](./normalizers-and-redaction.md)) |
-| `redact` | Masks stored content on `shadowlap pack`; a redacted pack still replays |
+| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack`, `export html` and the other exports, [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
@@ -348,13 +348,24 @@ written for a newer version still works, while the schema rejects it — which i
 ## normalize, redact
 
 ```sh
-shadowlap normalize add --path '$.system[0].text' --pattern iso-date [--kind api] [--name <tool>] [--replace <text>]
-shadowlap normalize ls
-shadowlap redact add --pattern email [--path <jsonpath>] [--kind api|tool] [--name <tool>] [--replace <text>]
-shadowlap redact ls
+shadowlap normalize add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool|clock|random] [--name <name>] [--replace <text>] [--expect <version>]
+shadowlap normalize rm <n|name> [--expect <version>]
+shadowlap normalize ls [--json]
+shadowlap redact add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool] [--name <name>] [--replace <text>] [--expect <version>]
+shadowlap redact rm <n|name> [--expect <version>]
+shadowlap redact ls [--json]
+shadowlap redact preview [run] [--json]
 ```
 
-Both write to `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content on export.
+Both edit `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content when a run leaves the machine.
+
+- `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string; a path alone replaces the whole value there; `--name` scopes the rule to one tool or call. It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
+- `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.
+- `ls --json` prints `{ file, exists, version, rules }`, each rule with its number `n`; one the config can't load has `error` instead.
+- `--expect <version>` refuses the edit when the file is no longer the version `ls --json` printed.
+- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, as `pack` applies them. Nothing is written. [Preview](./normalizers-and-redaction.md#preview).
+
+Each add and rm is recorded in the project's activity, in a store that exists.
 
 ## serve
 
@@ -400,10 +411,22 @@ Checks what support would check: Node and the built-in SQLite, the guard preload
 
 ```sh
 shadowlap rm <run...> [--forks]
-shadowlap gc [--older-than <days>] [--keep <n>] [--dry-run]
+shadowlap gc [--older-than <days>] [--keep <n>] [--dry-run] [--json]
 ```
 
 `rm` deletes runs; their forks keep their data but lose the link. `gc` deletes old runs (`--older-than 30`, `--keep 200`; runs still recording are never touched), removes blobs nothing references any more, and vacuums the store. The TUI's `x` does the same as `rm` for one run.
+
+`--dry-run` changes nothing and says what a real run would free:
+
+```
+▸ runs older than 30 days: 3 of 120 · runs still recording are never touched
+    01M2R1HDVD  record  completed  41d ago  node agent.js
+    …
+  blobs nothing would reference: 14 · 2.1 MB
+✓ dry run: would delete 3 runs and free 2.1 MB. Run it without --dry-run to delete.
+```
+
+The size is what those blobs take in the store. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, `total` runs, the `runs` deleted (or that would be), `blobs`, `bytes`, and the store's size `before` and, after a real run, `after`. A real run is recorded in the project's activity as `runs.cleaned`.
 
 ## export html
 

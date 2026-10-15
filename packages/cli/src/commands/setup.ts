@@ -42,7 +42,10 @@ interface RuleFlags {
   replace: string;
   kind?: string;
   name?: string;
+  expect?: string;
 }
+
+const EXPECT_HELP = 'edit only if shadowlap.config.json is still this version (ls --json prints it)';
 
 const HOW: Record<RuleList, { what: string; add: string; listed: string }> = {
   normalize: {
@@ -70,9 +73,10 @@ function registerRules(program: Command, list: RuleList): void {
     .option('--replace <text>', list === 'redact' ? 'replacement text; the pattern must leave it as it is' : 'replacement text', list === 'redact' ? '<REDACTED>' : '<MASKED>')
     .option('--kind <kind>', `only calls of this kind: ${RULE_KINDS[list].join(' | ')}`, parseChoice(RULE_KINDS[list]))
     .option('--name <name>', 'only calls with this name: a tool name, or e.g. "POST /v1/messages"')
+    .option('--expect <version>', EXPECT_HELP)
     .action((flags: RuleFlags) => {
       const cwd = process.cwd();
-      const r = addRule(cwd, list, { kind: flags.kind, name: flags.name, path: flags.path, pattern: flags.pattern, replace: flags.replace });
+      const r = addRule(cwd, list, { kind: flags.kind, name: flags.name, path: flags.path, pattern: flags.pattern, replace: flags.replace }, flags.expect ? { expect: flags.expect } : {});
       if (!r.added) {
         process.stdout.write(`${noun} #${r.n} in ${configPath(cwd)} is already this rule; nothing changed\n`);
         return;
@@ -85,9 +89,10 @@ function registerRules(program: Command, list: RuleList): void {
     .command('rm')
     .description(`Remove a ${noun}, by its number in \`${list} ls\` or by its name, path or pattern`)
     .argument('<rule>', `its number (2 or #2), or the tool name, path or pattern of exactly one ${noun}`)
-    .action((which: string) => {
+    .option('--expect <version>', EXPECT_HELP)
+    .action((which: string, flags: { expect?: string }) => {
       const cwd = process.cwd();
-      const r = removeRule(cwd, list, which);
+      const r = removeRule(cwd, list, which, flags.expect ? { expect: flags.expect } : {});
       recordActivity(program.opts<GlobalOpts>(), [r.event]);
       const rule = typeof r.rule === 'object' && r.rule !== null ? describeRule(r.rule as Normalizer) : JSON.stringify(r.rule);
       process.stdout.write(`removed ${noun} #${r.n} (${safe(rule)}) from ${configPath(cwd)}\n`);

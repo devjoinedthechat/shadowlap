@@ -88,7 +88,10 @@ describe('shadowlap normalize', () => {
     expect(table).toMatch(/#2 +\* +\* +\(all strings\) +\/req_\[a-z0-9\]\+\/i +→ <REQ>/);
     expect(table).toMatch(/#3 +tool +create_ticket +\$\.args\.idempotency_key +\(whole value\) +→ <ID>/);
 
-    r = await shadowlap(['normalize', 'rm', 'create_ticket']);
+    // A script that read the list can make sure it removes what it read.
+    r = await shadowlap(['normalize', 'rm', '1', '--expect', 'absent']);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('changed since it was read') });
+    r = await shadowlap(['normalize', 'rm', 'create_ticket', '--expect', listed.version]);
     expect(r.out).toContain('removed normalizer #3 (tool · create_ticket  $.args.idempotency_key  whole value → <ID>)');
     r = await shadowlap(['normalize', 'rm', '#1']);
     expect(r.out).toContain('removed normalizer #1');
