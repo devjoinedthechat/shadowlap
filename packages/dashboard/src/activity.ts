@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
-import { runIndex } from './run-index.js';
+import { cachedRuns } from './run-cache.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 
 /**
@@ -343,7 +343,7 @@ function unpackGroups(runs: RunRecord[]): Array<{ at: number; runs: RunRecord[] 
 /** Every item the runs tell, as stubs: cheap to sort, rendered only for the page asked for. */
 function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] {
   const stubs: Stub[] = [];
-  const byId = runIndex(store).byId;
+  const byId = cachedRuns(store).byId;
   const groups = new Map<string, RunRecord[]>();
   const unpacked: RunRecord[] = [];
   for (const run of runs) {
@@ -406,7 +406,7 @@ function derivedStubs(store: Store): Stub[] {
   const key = `${counts.runs ?? 0}:${counts.events ?? 0}`;
   const hit = stubCache.get(store);
   if (hit && hit.key === key) return hit.stubs;
-  const stubs = derived(store, runIndex(store).runs, coveredByEvents(store)).sort(order);
+  const stubs = derived(store, cachedRuns(store).runs, coveredByEvents(store)).sort(order);
   stubCache.set(store, { key, stubs });
   return stubs;
 }

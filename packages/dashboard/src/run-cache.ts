@@ -5,7 +5,7 @@ import type { RunRecord, Store } from '@shadowlap/engine';
  * the activity feed all scan it, and between changes they share one reading. A recording that only
  * grows (new calls) does not change the runs table, so polling during one reads nothing again.
  */
-export interface RunIndex {
+export interface CachedRuns {
   /** The runs table's write counter when this was read. */
   version: number;
   /** Newest first. */
@@ -17,25 +17,25 @@ export interface RunIndex {
   attempts: number;
 }
 
-const cache = new WeakMap<Store, RunIndex>();
+const cache = new WeakMap<Store, CachedRuns>();
 
 /** An attempt of another run, bundled under it rather than counted as a run of its own. */
 export function isAttempt(run: RunRecord): boolean {
   return !!(run.meta?.repeat || run.meta?.probe || run.meta?.verify);
 }
 
-export function runIndex(store: Store): RunIndex {
+export function cachedRuns(store: Store): CachedRuns {
   const version = store.changeCounts().runs ?? 0;
   const cached = cache.get(store);
   if (cached && cached.version === version) return cached;
   const runs = store.allRuns();
-  const index: RunIndex = {
+  const read: CachedRuns = {
     version,
     runs,
     byId: new Map(runs.map((r) => [r.runId, r])),
     live: runs.filter((r) => r.status === 'running'),
     attempts: runs.filter(isAttempt).length,
   };
-  cache.set(store, index);
-  return index;
+  cache.set(store, read);
+  return read;
 }

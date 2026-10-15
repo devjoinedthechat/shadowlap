@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactRun, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetail, compare, lineage, listRuns, runDetail } from './api.js';
-import { isAttempt } from './run-index.js';
+import { isAttempt } from './run-cache.js';
 import type { MetaView } from './views.js';
 
 /**
