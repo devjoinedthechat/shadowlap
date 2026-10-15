@@ -47,7 +47,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--live-tool <name>` | Force this tool's first call live (repeatable); use after fixing a tool |
 | `--diverge-at <call>` | Force call *n* live |
 | `--fail-at <call>=<failure>` | Fail call *n* instead of serving it, so the agent's own error path runs: a model call with an HTTP status (`--fail-at 12=429`, [details](./interventions.md#inject-a-failure)), a tool call with `timeout`, `error`, `error:<message>` or a status (`--fail-at 19=timeout`); the tool does not run ([details](./interventions.md#fail-a-tool)). Repeatable |
-| `--inject-result <call>=<text\|@file>` | Plant an instruction in what read tool call *n* returned, as an attacker would leave it; the rest of the result stays. Repeatable ([details](./interventions.md#plant-an-instruction-in-a-tool-result)) |
+| `--inject-result <call>=<text\|@file>` | Plant an instruction in what read tool call *n* returned, as an attacker would leave it; the rest of the result stays. Text that starts with `@` is written `@@…`. Repeatable ([details](./interventions.md#plant-an-instruction-in-a-tool-result)) |
 | `--expect <json\|@file>` | Checks the replay (each attempt, with `--repeat`) must pass besides exiting 0, as for `blame`: `'{"tools":{"send_email":0}}'`. Default: the checks `shadowlap.config.json` gives the recording ([below](#checks-on-a-replay)) |
 | `--watch` | Replay again whenever a file in the project changes. Ctrl-C to stop |
 | `--summary-json <file>` | Also write the summary (with `--repeat`, every attempt and the report) as JSON to a file |
@@ -66,14 +66,14 @@ See [Interventions](./interventions.md) for what each one does to the conversati
 
 ### Checks on a replay
 
-A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks); the replay exits 1 when one fails, and they are kept on the run. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed:
+A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks); the replay exits 1 when one fails, and they are kept on the run, with the `--expect` they came from, so making the fork again from the fork menu judges it the same way. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed:
 
 ```
   Checks (--expect)
     ✗ send_email called 0 times: failed in 2 of 3 attempts (#1, #3)
 ```
 
-The agent's output is captured, while still shown, only when a check reads it (`output`).
+The agent's output is captured, while still shown, only when a check reads it (`output`). A replay that plants text with `--inject-result` and has no checks says that nothing judged whether the agent obeyed it.
 
 ### Repeating a fork
 

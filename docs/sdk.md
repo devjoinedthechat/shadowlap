@@ -124,6 +124,7 @@ In Node and Python agents, requests to those hosts are [captured in the process]
 - Request headers are never stored, so API keys and tokens stay out of recordings. Response bodies are, like any tool result: add [redaction rules](./normalizers-and-redaction.md#redaction) before sharing a pack.
 - Responses are buffered, so streamed responses from these services arrive whole.
 - `--live-tool 'POST idx-1.svc.pinecone.io/query'` and `--override` work with the tool name.
+- [`--fail-at <call>=timeout` or `error`](./interventions.md#fail-a-tool) raises what the client library raises for the real failure: a `TimeoutError` or `TypeError: fetch failed` from `fetch`, the request's own `timeout` event and then `ETIMEDOUT` or `ECONNRESET` from `http(s).request`, `ReadTimeout` or `ReadError` from httpx, and urllib3's `ReadTimeoutError` or `ProtocolError`, which requests and botocore turn into their own. A status comes back as that response.
 
 ## The wire protocol
 
