@@ -103,6 +103,29 @@ describe('the Tests screen', () => {
     store.close();
   });
 
+  it('counts a session that has not ended by the results it has, everywhere alike', () => {
+    const store = sampleStore();
+    // A session still running (or whose process was killed): one golden has finished, at a new revision.
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'f00ba47', startedAt: T0 + DAY });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: true, runId: 'R_F_LIMIT', revision: 'f00ba47', at: T0 + DAY + 10 });
+    const view = testsView(store, goldens);
+    // Its result counts in the verdict, the table and its history, and its own line counts what it has.
+    expect(view.verdict).toMatchObject({ state: 'passing', passing: 3, session: { id: s.sessionId, revision: 'f00ba47', endedAt: null, passed: 1, failed: 0, interrupted: false } });
+    expect(view.revisions.at(-1)).toBe('f00ba47');
+    expect(view.rows[1]!.history.at(-1)).toMatchObject({ revision: 'f00ba47', result: 'pass' });
+    expect(view.rows[1]!.last.result).toBe('pass');
+    expect(testsSummary(store, { goldens, now: T0 + DAY + 20 })).toMatchObject({ passing: 3, failing: 0, lastRunAt: T0 + DAY + 10 });
+    expect(failingTests(store, { goldens })).toEqual([]);
+    // Stopped by a signal, it ends with what finished, and says so.
+    store.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + DAY + 30, interrupted: true });
+    expect(testsView(store, goldens).verdict!.session).toMatchObject({ endedAt: T0 + DAY + 30, passed: 1, interrupted: true });
+    expect(testsSummary(store, { goldens }).lastRunAt).toBe(T0 + DAY + 30);
+    // One that started and has no result yet changes nothing.
+    store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'aaa0000', startedAt: T0 + 2 * DAY });
+    expect(testsView(store, goldens).verdict!.session.id).toBe(s.sessionId);
+    store.close();
+  });
+
   it('lists each golden with where it came from, its mode, its checks and its result at each revision', () => {
     const store = sampleStore();
     const view = testsView(store, goldens);

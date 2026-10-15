@@ -49,12 +49,14 @@ export interface TestReport {
   revision: string | null;
   passed: number;
   failed: number;
+  /** A signal stopped the session: `results` has the goldens that finished before it. */
+  interrupted: boolean;
   results: PackResult[];
 }
 
-export function testReport(results: PackResult[], session: { id: string; revision: string | null } | null = null): TestReport {
+export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
-  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, results };
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, interrupted: !!session?.interrupted, results };
 }
 
 /** Text safe to put in a Markdown table cell: no control characters, pipes or line breaks. */
@@ -110,6 +112,7 @@ export function markdownReport(report: TestReport): string {
   if (failures.some((r) => r.checks?.some((c) => !c.ok))) {
     lines.push('', 'A failed check means the agent did something its recording\'s checks in `shadowlap.config.json` rule out.');
   }
+  if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
   if (updated.length) {
     lines.push('', `Updated: ${updated.map((r) => `\`${cell(r.name)}\``).join(', ')}, re-recorded live with writes stubbed and replaced because ${updated.length === 1 ? 'its checks pass' : 'their checks pass'}. Review the new recording${updated.length === 1 ? '' : 's'} in this pull request.`);

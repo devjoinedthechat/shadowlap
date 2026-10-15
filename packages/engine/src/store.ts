@@ -112,7 +112,8 @@ CREATE INDEX IF NOT EXISTS events_at ON events (at);
 -- v4: tests. Each shadowlap test session and how each golden did in it, so a golden's history
 -- across revisions outlives the runs that gc deletes: no foreign key on run ids. A golden is its
 -- pack folder relative to the project (goldens/refund-flow); the runs a session made carry
--- meta.test = { golden, session }.
+-- meta.test = { golden, session }. A session stopped by a signal ends with interrupted = 1 and the
+-- results of the goldens that finished before it.
 CREATE TABLE IF NOT EXISTS test_sessions (
   session_id         TEXT    PRIMARY KEY,
   started_at         INTEGER NOT NULL,
@@ -122,7 +123,8 @@ CREATE TABLE IF NOT EXISTS test_sessions (
   passed             INTEGER NOT NULL DEFAULT 0,
   failed             INTEGER NOT NULL DEFAULT 0,
   upstream_requests  INTEGER NOT NULL DEFAULT 0,
-  actor              TEXT
+  actor              TEXT,
+  interrupted        INTEGER NOT NULL DEFAULT 0 CHECK (interrupted IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS test_sessions_started ON test_sessions (started_at);
 
@@ -148,18 +150,21 @@ CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
 export interface TestSession {
   sessionId: string;
   startedAt: number;
-  /** Null while the session runs, or when it never finished. */
+  /** Null while the session runs, or when its process was killed before it could end it. */
   endedAt: number | null;
   /** The command as given, without global options: `['shadowlap', 'test', 'goldens/*']`. */
   command: string[];
   /** The code version it tested (`codeVersion`): a short sha, with `+dirty` for uncommitted changes. */
   revision: string | null;
+  /** Set when it ends: the goldens that finished, by how they came out. */
   passed: number;
   failed: number;
   /** Requests that reached a provider: 0 for goldens that replay offline. */
   upstreamRequests: number;
   /** Who ran it (resolveAuthor). */
   actor: string | null;
+  /** A signal stopped it (Ctrl-C, a job stopped): the golden it was replaying has no result, and the ones after it didn't run. */
+  interrupted: boolean;
 }
 
 export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> & Pick<TestSession, 'command'>;
@@ -467,18 +472,19 @@ export class Store {
       failed: 0,
       upstreamRequests: 0,
       actor: input.actor ?? null,
+      interrupted: false,
     };
     this.db
-      .prepare(`INSERT INTO test_sessions (session_id, started_at, ended_at, command, revision, passed, failed, upstream_requests, actor) VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?)`)
+      .prepare(`INSERT INTO test_sessions (session_id, started_at, ended_at, command, revision, passed, failed, upstream_requests, actor, interrupted) VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?, 0)`)
       .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor);
     return session;
   }
 
-  /** Records a session's totals once its goldens have run. */
-  finishTestSession(sessionId: string, totals: { passed: number; failed: number; upstreamRequests: number; endedAt?: number }): void {
+  /** Records a session's totals once its goldens have run, or once a signal stopped it (`interrupted`). */
+  finishTestSession(sessionId: string, totals: { passed: number; failed: number; upstreamRequests: number; endedAt?: number; interrupted?: boolean }): void {
     this.db
-      .prepare(`UPDATE test_sessions SET ended_at = ?, passed = ?, failed = ?, upstream_requests = ? WHERE session_id = ?`)
-      .run(totals.endedAt ?? Date.now(), totals.passed, totals.failed, totals.upstreamRequests, sessionId);
+      .prepare(`UPDATE test_sessions SET ended_at = ?, passed = ?, failed = ?, upstream_requests = ?, interrupted = ? WHERE session_id = ?`)
+      .run(totals.endedAt ?? Date.now(), totals.passed, totals.failed, totals.upstreamRequests, totals.interrupted ? 1 : 0, sessionId);
   }
 
   getTestSession(sessionId: string): TestSession | null {
@@ -486,8 +492,12 @@ export class Store {
     return row ? rowToTestSession(row) : null;
   }
 
-  /** Sessions, newest first; `before` pages back (exclusive), `finished` leaves out sessions that never ended. */
-  listTestSessions(options: { limit?: number; before?: number; finished?: boolean } = {}): TestSession[] {
+  /**
+   * Sessions, newest first; `before` pages back (exclusive), `finished` leaves out sessions that
+   * haven't ended, and `withResults` the ones with no golden's result yet (one that just started, or
+   * was stopped during its first golden).
+   */
+  listTestSessions(options: { limit?: number; before?: number; finished?: boolean; withResults?: boolean } = {}): TestSession[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.before !== undefined) {
@@ -495,6 +505,7 @@ export class Store {
       params.push(options.before);
     }
     if (options.finished) where.push('ended_at IS NOT NULL');
+    if (options.withResults) where.push('EXISTS (SELECT 1 FROM test_results r WHERE r.session_id = test_sessions.session_id)');
     params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
     return this.db
       .prepare(`SELECT * FROM test_sessions ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY started_at DESC, session_id DESC LIMIT ?`)
@@ -913,6 +924,7 @@ function rowToTestSession(row: Record<string, unknown>): TestSession {
     failed: Number(row.failed),
     upstreamRequests: Number(row.upstream_requests),
     actor: row.actor === null || row.actor === undefined ? null : String(row.actor),
+    interrupted: Number(row.interrupted ?? 0) === 1,
   };
 }
 

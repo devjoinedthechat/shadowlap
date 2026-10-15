@@ -93,6 +93,8 @@ export interface TestAttempt {
   failure: JunitCase['failure'];
   /** What kind of failure it was, or null when it passed. */
   kind: Exclude<TestFailure, 'error'> | null;
+  /** The signal (Ctrl-C, a dashboard job stopped) that cut it short: its run ended as crashed, and its result says nothing about the recording. */
+  interrupted: NodeJS.Signals | null;
 }
 
 /** One replay of a packed recording under `shadowlap test`, judged by its checks. */
@@ -105,6 +107,13 @@ export async function testAttempt(
     // replay (`test: { golden, session }`), a callback once the replay run exists, a time limit, and a
     // call forced live (`test --update` re-records from call 1).
     argv?: string[]; meta?: Partial<RunMeta>; onRun?: (runId: string) => void; timeoutMs?: number | null; divergeAt?: number;
+    /**
+     * A signal always reaches the agent's whole process group, and the run ends as crashed. Then, with
+     * `return`, the attempt returns (`interrupted`) to a caller that winds down by itself (`test`,
+     * `bisect`); by default the signal is raised again, which ends this process as it would have ended
+     * without Shadowlap in between.
+     */
+    onSignal?: 'return' | 'exit';
   },
 ): Promise<TestAttempt> {
   const started = Date.now();
@@ -121,9 +130,10 @@ export async function testAttempt(
   });
   if (o.meta) store.updateRunMeta(run.runId, o.meta);
   o.onRun?.(run.runId);
-  // With a time limit, the agent gets a process group of its own, so stopping it also stops what it
-  // started (`npm run`, `sh -c`); signals that would have reached the group from the terminal are passed on.
-  const group = !!o.timeoutMs && process.platform !== 'win32';
+  // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
+  // `sh -c`): at the time limit, on a signal, and once it exits. It no longer hears the terminal's
+  // Ctrl-C itself, so a signal that reaches this process is passed on to the group.
+  const group = process.platform !== 'win32';
   const child = spawn(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group });
   child.stdout.on('data', (d: Buffer) => (output += d.toString()));
   child.stderr.on('data', (d: Buffer) => (output += d.toString()));
@@ -135,11 +145,14 @@ export async function testAttempt(
       // already gone
     }
   };
-  const forward = (sig: NodeJS.Signals) => kill(sig);
-  if (group) {
-    process.on('SIGINT', forward);
-    process.on('SIGTERM', forward);
-  }
+  let interrupted = null as NodeJS.Signals | null;
+  const forward = (sig: NodeJS.Signals) => {
+    // A second signal doesn't wait for the agent to wind down.
+    kill(interrupted ? 'SIGKILL' : sig);
+    interrupted ??= sig;
+  };
+  process.on('SIGINT', forward);
+  process.on('SIGTERM', forward);
   let timedOut = false;
   const timer = o.timeoutMs
     ? setTimeout(() => {
@@ -156,15 +169,16 @@ export async function testAttempt(
     child.on('exit', (c, signal) => res(c ?? (signal ? 128 : 1)));
   });
   if (timer) clearTimeout(timer);
-  if (group) {
-    process.off('SIGINT', forward);
-    process.off('SIGTERM', forward);
-    // Whatever the agent left running in its group goes with it.
-    kill('SIGKILL');
-  }
+  process.off('SIGINT', forward);
+  process.off('SIGTERM', forward);
+  // Whatever the agent left running in its group goes with it.
+  if (group) kill('SIGKILL');
   if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
-  const ended = sidecar.endRun(run.runId, timedOut ? 'crashed' : code === 0 ? 'completed' : 'failed');
+  if (interrupted) output += `\n[shadowlap] interrupted (${interrupted})\n`;
+  const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
+  // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
+  if (interrupted && o.onSignal !== 'return') process.kill(process.pid, interrupted);
   const { summary } = ended;
 
   let checks: CheckResult[] | null = null;
@@ -183,7 +197,11 @@ export async function testAttempt(
   const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
   let failure: JunitCase['failure'];
   let kind: TestAttempt['kind'] = null;
-  if (summary.divergence && !o.spec?.fork) {
+  if (interrupted) {
+    // Never a pass, whatever the agent did with the signal: an update must not keep it.
+    kind = 'exit';
+    failure = { message: `the replay was interrupted (${interrupted})`, details: divergence + formatSummary(summary) };
+  } else if (summary.divergence && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
   } else if (code !== 0 || timedOut) {
@@ -199,7 +217,7 @@ export async function testAttempt(
     const more = failedChecks.length > 1 ? `; ${failedChecks.length - 1} more check${failedChecks.length > 2 ? 's' : ''} failed` : '';
     failure = { message: `check failed: ${first.label}, but ${first.detail}${more}`, details: divergence + formatSummary(summary) };
   }
-  return { ended, code, ms: Date.now() - started, output, checks, failure, kind };
+  return { ended, code, ms: Date.now() - started, output, checks, failure, kind, interrupted };
 }
 
 export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<number, unknown> {

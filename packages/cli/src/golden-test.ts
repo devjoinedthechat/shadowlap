@@ -29,6 +29,20 @@ export interface RecordingTestContext {
   /** The command to run instead of the recorded one (bisect runs it in a worktree). */
   argv?: string[];
   timeoutMs?: number | null;
+  /**
+   * For a caller that winds down on a signal by itself (`test`, `bisect`): true once one arrived. The
+   * attempt it cuts short then returns, and no other attempt starts. Without it, a signal ends the
+   * process once the replay it cut short has ended.
+   */
+  stopped?: () => boolean;
+}
+
+/** A signal stopped the replays of a recording before the first one could start. */
+export class ReplayInterrupted extends Error {
+  constructor() {
+    super('interrupted before its replay started');
+    this.name = 'ReplayInterrupted';
+  }
 }
 
 export interface RecordingOutcome {
@@ -41,6 +55,8 @@ export interface RecordingOutcome {
   /** Why it failed, or undefined when it passed. */
   failure: JunitCase['failure'];
   kind: TestFailure | null;
+  /** A signal cut an attempt short, or kept the rest from starting: the outcome says nothing about the recording. */
+  interrupted: boolean;
 }
 
 /** Replays a recording that is already in the store, as a test does, and judges it. */
@@ -57,25 +73,29 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const attempts: TestAttempt[] = [];
   const repeat = spec?.repeat ?? 1;
   for (let i = 0; i < repeat; i++) {
-    attempts.push(
-      await testAttempt(ctx.store, parent, {
-        cwd: ctx.cwd,
-        upstreams,
-        extraEnv,
-        writes: ctx.writes,
-        guard: ctx.guard,
-        normalizers: ctx.config.normalize,
-        prices: ctx.config.prices,
-        clock: ctx.config.clock,
-        http: ctx.config.http,
-        spec,
-        ...(ctx.argv ? { argv: ctx.argv } : {}),
-        ...(ctx.test ? { meta: { test: ctx.test } } : {}),
-        ...(ctx.onRun ? { onRun: (runId: string) => ctx.onRun!(runId, i + 1, repeat) } : {}),
-        ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
-      }),
-    );
+    if (ctx.stopped?.()) break;
+    const attempt = await testAttempt(ctx.store, parent, {
+      cwd: ctx.cwd,
+      upstreams,
+      extraEnv,
+      writes: ctx.writes,
+      guard: ctx.guard,
+      normalizers: ctx.config.normalize,
+      prices: ctx.config.prices,
+      clock: ctx.config.clock,
+      http: ctx.config.http,
+      spec,
+      ...(ctx.argv ? { argv: ctx.argv } : {}),
+      ...(ctx.test ? { meta: { test: ctx.test } } : {}),
+      ...(ctx.onRun ? { onRun: (runId: string) => ctx.onRun!(runId, i + 1, repeat) } : {}),
+      ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
+      ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
+    });
+    attempts.push(attempt);
+    if (attempt.interrupted) break;
   }
+  if (!attempts.length) throw new ReplayInterrupted();
+  const interrupted = attempts.length < repeat || attempts.some((a) => a.interrupted !== null);
   const passed = attempts.filter((a) => !a.failure).length;
   const required = spec?.passes ?? 1;
   const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
@@ -90,7 +110,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
             details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `✗ ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
           };
   }
-  return { spec, attempts, shown, passed, required, failure, kind: failure ? (shown.kind ?? 'error') : null };
+  return { spec, attempts, shown, passed, required, failure, kind: failure ? (shown.kind ?? 'error') : null, interrupted };
 }
 
 /** A golden as `shadowlap test` ran it: its pack, its recording, and how it came out. */
@@ -110,6 +130,8 @@ export interface GoldenOutcome {
   seconds: number;
   /** The normalizers its replays matched under: the config's, and the pack's redaction rules. */
   normalizers: Normalizer[];
+  /** A signal stopped it before its replays were done: it has no result. */
+  interrupted: boolean;
 }
 
 /**
@@ -142,10 +164,10 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // A replay of a redacted run applies the rules it carries as well.
     normalizers = [...ctx.config.normalize, ...packed, ...(parent.meta?.redactions ?? [])];
     const result = await testRecording(parent, spec, packed.length ? { ...ctx, config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : ctx);
-    return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers };
+    return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers, interrupted: result.interrupted };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { ...base, parent, result: null, failure: { message, details: message }, kind: 'error', seconds: (Date.now() - started) / 1000, normalizers };
+    return { ...base, parent, result: null, failure: { message, details: message }, kind: 'error', seconds: (Date.now() - started) / 1000, normalizers, interrupted: err instanceof ReplayInterrupted };
   }
 }
 
@@ -261,12 +283,17 @@ export function junitCase(o: GoldenOutcome): JunitCase {
   return { name: o.name, classname: 'shadowlap.replay', timeSeconds: o.seconds, ...(failure ? { failure } : {}), ...(output ? { systemOut: output } : {}) };
 }
 
+/** A session that never ended this long before another started had its process killed: it is over. */
+const STALE_SESSION_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Replays of earlier sessions that passed are not kept once a newer one exists: the test history
- * keeps how each did, and the store doesn't fill with clean replays. Kept: every failing replay (a
- * fix starts from one), the newest passing one when this session's replay of that golden failed (to
- * compare against), anything with labels, notes or runs made from it, and anything from a session
- * still running or that ended after this one started. Returns how many runs it deleted.
+ * keeps how each did, and the store doesn't fill with clean replays. Nor are replays a signal cut
+ * short (crashed), which say nothing either way. Kept: every failing replay (a fix starts from one),
+ * the newest passing one when this session's replay of that golden failed (to compare against),
+ * anything with labels, notes or runs made from it, and anything from a session still running or
+ * that ended after this one started. A session that never ended and started over a day before this
+ * one counts as ended: its process was killed. Returns how many runs it deleted.
  *
  * Only the runs go. Blobs are shared by content, and another process may be recording into the same
  * store right now, writing each blob a moment before the call that references it: collecting
@@ -283,14 +310,19 @@ export function pruneReplays(store: Store, session: { sessionId: string; started
   }
   const ended = new Map<string, number | null>();
   const endedAt = (id: string) => {
-    if (!ended.has(id)) ended.set(id, store.getTestSession(id)?.endedAt ?? null);
+    if (!ended.has(id)) {
+      const s = store.getTestSession(id);
+      ended.set(id, s ? (s.endedAt ?? (s.startedAt < session.startedAt - STALE_SESSION_MS ? s.startedAt : null)) : null);
+    }
     return ended.get(id)!;
   };
   let deleted = 0;
   for (const [golden, runs] of byGolden) {
     const now = tested.get(golden)!;
     const passing = runs.filter((r) => r.status === 'completed' && !r.meta?.checks?.some((c) => !c.ok) && (!r.divergence || now.fork));
-    for (const run of passing.slice(now.ok ? 0 : 1)) {
+    // Cut short by a signal, or left running by a session whose process was killed (which only counts once it is stale).
+    const cut = runs.filter((r) => r.status === 'crashed' || r.status === 'running');
+    for (const run of [...passing.slice(now.ok ? 0 : 1), ...cut]) {
       const at = endedAt(run.meta!.test!.session);
       if (at === null || at > session.startedAt) continue;
       if (run.meta?.labels?.length || run.meta?.notes?.length || store.childRuns(run.runId).length) continue;

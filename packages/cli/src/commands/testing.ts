@@ -144,9 +144,25 @@ export function register(program: Command): void {
       const tested = new Map<string, { ok: boolean; fork: boolean }>();
       // Goldens that diverged in a way an update would fix: not only on values that change every run.
       const updatable: string[] = [];
+      // Ctrl-C, or a dashboard job being stopped: the replay running now is cut short (its agent, and
+      // whatever the agent started, get the signal), the goldens after it don't run, and the session
+      // ends with the results of the ones that finished.
+      let signal = null as NodeJS.Signals | null;
+      let current = null as string | null;
+      const onSignal = (sig: NodeJS.Signals) => {
+        if (signal) return;
+        signal = sig;
+        process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${current ? `stopping ${current}, ` : ''}no golden after it runs, and the session keeps what finished\n`));
+      };
+      process.on('SIGINT', onSignal);
+      process.on('SIGTERM', onSignal);
+      const stopped = () => signal !== null;
+      let cut = null as string | null;
       try {
         for (const packDir of packs) {
+          if (signal) break;
           const golden = goldenName(packDir, projectDir);
+          current = golden;
           const spec = specFor(tests, packDir, projectDir);
           const expect = rawExpectFor(tests, packDir, projectDir);
           const ctx: RecordingTestContext = {
@@ -159,6 +175,7 @@ export function register(program: Command): void {
             test: { golden, session: session.sessionId },
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
+            stopped,
           };
           // Every replay counts towards the session's upstream requests, an updated golden's first one too.
           const replayed = (o: GoldenOutcome) => {
@@ -169,10 +186,15 @@ export function register(program: Command): void {
             return o;
           };
           let outcome = replayed(await testGolden(packDir, golden, spec, ctx));
+          // Cut short, it says nothing about the golden: no result, and nothing after it.
+          if (outcome.interrupted) {
+            cut = golden;
+            break;
+          }
           printGolden(outcome);
 
           let updated: PackResult['updated'] = null;
-          if (flags.update && outcome.failure) {
+          if (flags.update && outcome.failure && !signal) {
             if (outcome.kind !== 'diverged' || !outcome.parent || !outcome.result) {
               process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
             } else {
@@ -192,12 +214,13 @@ export function register(program: Command): void {
                   process.stderr.write(p.dim(`[shadowlap] recording run ${runId}: ${golden} again, live, writes stubbed\n`));
                   emitJobEvent({ type: 'run', runId, role: 'new' });
                 },
+                stopped,
               });
               upstreamRequests += u.summary?.upstreamRequests ?? 0;
-              if (u.checks?.length) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
+              if (u.checks?.length && !u.interrupted) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
               if (!u.replaced || !u.run) {
                 process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason}\n`);
-                const tail = outputTail(u.output, 10);
+                const tail = u.interrupted ? null : outputTail(u.output, 10);
                 if (tail) process.stdout.write(p.dim(tail.split('\n').map((l) => `      │ ${l}`).join('\n') + '\n'));
               } else {
                 updates++;
@@ -207,9 +230,14 @@ export function register(program: Command): void {
                 process.stdout.write(`      replaced ${golden} in the working tree; review the change in your pull request\n`);
                 recordEvent(store, { kind: 'golden.updated', actor, runId: u.run.runId, ref: golden, data: { session: session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0, changes } });
                 updated = { from: before.runId, to: u.run.runId, calls: u.after!.total, changes };
-                // The new golden, replayed as the next test will replay it.
-                outcome = replayed(await testGolden(packDir, golden, spec, ctx));
-                printGolden(outcome, ' (updated)');
+                // The new golden, replayed as the next test will replay it. Cut short, the result is the
+                // replay that diverged, with the update it led to.
+                const again = replayed(await testGolden(packDir, golden, spec, ctx));
+                if (again.interrupted) process.stdout.write(p.dim(`    the replay of the updated golden was interrupted; it runs with the next test\n`));
+                else {
+                  outcome = again;
+                  printGolden(outcome, ' (updated)');
+                }
               }
             }
           }
@@ -233,36 +261,43 @@ export function register(program: Command): void {
           if (!flags.update && outcome.kind === 'diverged' && !(divergence && volatileValues(divergence, outcome.normalizers).explainsAll)) updatable.push(packDir);
         }
         // Housekeeping never fails a session whose goldens all ran: the reports below still get written.
-        const unpruned = pruneQuietly(store, session, tested);
-        if (unpruned) process.stderr.write(p.yellow(`[shadowlap] ${unpruned}\n`));
+        if (!signal) {
+          const unpruned = pruneQuietly(store, session, tested);
+          if (unpruned) process.stderr.write(p.yellow(`[shadowlap] ${unpruned}\n`));
+        }
       } finally {
-        // Counted from the results recorded, so a session cut short by an error counts what ran.
+        process.off('SIGINT', onSignal);
+        process.off('SIGTERM', onSignal);
+        // Counted from the results recorded, so a session cut short by an error or a signal counts what ran.
         const passed = results.filter((r) => r.ok).length;
         const failed = results.length - passed;
         try {
-          store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests });
+          store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests, interrupted: signal !== null });
         } catch (err) {
           process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${(err as Error).message}\n`));
         }
-        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}) } });
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
         try {
           store.close();
         } catch {
           // every write above has either landed or been reported
         }
       }
+      const notRun = packs.length - results.length;
+      if (cut) process.stdout.write(`${p.yellow('⏹')} ${safe(cut)}: interrupted, so it has no result this time\n`);
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
-      const report = testReport(results, { id: session.sessionId, revision });
+      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null });
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
       emitJobEvent({ type: 'result', data: report });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
-      process.stdout.write(`\n${report.passed} passed, ${report.failed} failed · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));
       await telemetry().flush();
-      process.exitCode = report.failed ? 1 : 0;
+      // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM.
+      process.exitCode = signal ? (signal === 'SIGINT' ? 130 : 143) : report.failed ? 1 : 0;
     });
 
   program

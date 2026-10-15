@@ -45,6 +45,8 @@ Each `shadowlap test` is a session, kept in the project's store (`.shadowlap/sha
 
 The replays a session makes are runs like any other, marked as made by `shadowlap test` for that golden, so you can open one: each prints `replaying run <id>` as it starts, and the JSON report (`--json`) names the session, each golden's replays and the recording it replayed. So the store doesn't fill with clean replays, only the newest one of each golden is kept; every replay that failed stays, with the last clean one before it, as does any replay you labelled, noted or forked. What a removed replay alone held, such as the live answers of a recording that may fork, goes with the next `shadowlap gc`, which is safe to run when nothing is recording. Global `--db :memory:` (given before `test`) keeps nothing.
 
+Ctrl-C, or a dashboard job being stopped, cuts short the replay running at that moment: its agent gets the signal, with everything the agent started. The goldens after it don't run, and the session ends with the results of the ones that finished, marked as interrupted; the golden that was cut short gets no result, since a replay stopped halfway says nothing about it. `shadowlap test` then exits 130 (143 for SIGTERM), and the next session prunes the replay that was cut short.
+
 ## Outcome checks
 
 A clean replay proves the agent still sends the same requests. Sometimes you want to prove something about what it does instead: that a write never happens, that a tool is called with the right arguments, that the answer mentions the refund. Checks say that, per recording, under `tests` in `shadowlap.config.json`:

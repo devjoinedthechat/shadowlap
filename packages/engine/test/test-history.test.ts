@@ -10,17 +10,24 @@ describe('test history in the store', () => {
     store.finishTestSession(s1.sessionId, { passed: 1, failed: 1, upstreamRequests: 0, endedAt: 1300 });
     const s2 = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund-flow'], revision: 'd2e8a1f+dirty', startedAt: 2000 });
 
-    expect(store.getTestSession(s1.sessionId)).toEqual({ sessionId: s1.sessionId, startedAt: 1000, endedAt: 1300, command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', passed: 1, failed: 1, upstreamRequests: 0, actor: 'ci' });
+    expect(store.getTestSession(s1.sessionId)).toEqual({ sessionId: s1.sessionId, startedAt: 1000, endedAt: 1300, command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', passed: 1, failed: 1, upstreamRequests: 0, actor: 'ci', interrupted: false });
     expect(store.listTestSessions().map((s) => s.sessionId)).toEqual([s2.sessionId, s1.sessionId]);
     expect(store.listTestSessions({ finished: true }).map((s) => s.sessionId)).toEqual([s1.sessionId]);
     expect(store.listTestSessions({ before: 2000 }).map((s) => s.sessionId)).toEqual([s1.sessionId]);
+    // A session that has no result yet is left out of what the Tests screen counts.
+    expect(store.listTestSessions({ withResults: true }).map((s) => s.sessionId)).toEqual([s1.sessionId]);
+    store.addTestResult({ sessionId: s2.sessionId, golden: 'goldens/refund-flow', ok: true, at: 2100 });
+    expect(store.listTestSessions({ withResults: true }).map((s) => s.sessionId)).toEqual([s2.sessionId, s1.sessionId]);
+    // Stopped by a signal: it ends, with what finished, and says so.
+    store.finishTestSession(s2.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: 2200, interrupted: true });
+    expect(store.getTestSession(s2.sessionId)).toMatchObject({ endedAt: 2200, passed: 1, interrupted: true });
 
     const results = store.listTestResults({ sessionId: s1.sessionId });
     expect(results.map((r) => r.golden)).toEqual(['goldens/refund-in-limit', 'goldens/refund-flow']);
     expect(results[0]).toMatchObject({ ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R2', goldenRunId: null, data: null });
     expect(results[1]).toMatchObject({ ok: true, failure: null, data: { mode: 'replay', calls: { total: 8 } } });
-    expect(store.listTestResults({ golden: 'goldens/refund-flow' })).toHaveLength(1);
-    expect(store.listTestResults({ since: 1150 })).toHaveLength(1);
+    expect(store.listTestResults({ golden: 'goldens/refund-flow' })).toHaveLength(2);
+    expect(store.listTestResults({ since: 1150 })).toHaveLength(2);
     store.close();
   });
 

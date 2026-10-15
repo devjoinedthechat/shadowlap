@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
-import { importGolden, testRecording, tokensOf } from './golden-test.js';
+import { importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
 import { goldenName, scratchDir } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -216,6 +216,8 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
   try {
     const found = project.findRun(input.target);
     if (!found) throw new BisectError(`${input.target} is neither a golden (a directory with a run.json) nor a run in ${input.opts.db ?? defaultDbPath(projectDir)}`);
+    // Its recording isn't whole yet: replaying the part that is would answer for a run that never was.
+    if (found.status === 'running') throw new BisectError(`${shortId(found.runId)} is still recording: find the commit once it has ended`);
     packRun(project, found.runId, scratch);
     unpackRun(store, scratch);
     return { run: store.getRun(found.runId)!, kind: 'run', name: shortId(found.runId), golden: found.meta?.test?.golden ?? null };
@@ -343,8 +345,9 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       const argv = mapArgv(target.run.command.argv, { root, worktree, cwd, worktreeCwd });
       let outcome: Awaited<ReturnType<typeof testRecording>>;
       try {
-        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs });
+        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped: () => stopped });
       } catch (err) {
+        if (err instanceof ReplayInterrupted) return done(false, true, 'interrupted');
         throw new BisectError(`the replay at ${info.short} could not run: ${(err as Error).message}`);
       }
       report.replays += outcome.attempts.length;
@@ -354,6 +357,8 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
         report.spent += s.cost.spent;
         report.tokens += tokensOf(store.getCalls(s.runId), { live: true, output: true });
       }
+      // A replay a signal cut short says nothing about the commit.
+      if (outcome.interrupted) return done(false, true, 'interrupted');
       return done(!outcome.failure, false, describeResult(outcome));
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {

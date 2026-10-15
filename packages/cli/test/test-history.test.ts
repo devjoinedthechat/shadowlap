@@ -157,6 +157,110 @@ describe('shadowlap test history', () => {
   });
 });
 
+// Signals to a process group, and an agent that must be gone afterwards: POSIX only.
+describe.skipIf(process.platform === 'win32')('a test session a signal stops', () => {
+  // One model call, then, replaying as "slow" with SLOW_MS set, a long wait. It writes its pid first.
+  const AGENT = `import { writeFileSync } from 'node:fs';
+const tag = process.argv[2];
+writeFileSync(tag + '.pid', String(process.pid));
+const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 32, metadata: { user_id: 'u-1' }, messages: [{ role: 'user', content: 'triage ' + tag }] }) });
+if (!res.ok) process.exit(1);
+console.log(JSON.stringify((await res.json()).content));
+if (tag === 'slow' && process.env.SLOW_MS) await new Promise((r) => setTimeout(r, Number(process.env.SLOW_MS)));
+`;
+
+  async function goldens(): Promise<void> {
+    rmSync(join(work, 'goldens'), { recursive: true, force: true });
+    writeFileSync(join(work, 'agent.mjs'), AGENT);
+    for (const [name, tag] of [['a-first', 'fast'], ['b-slow', 'slow'], ['c-last', 'fast']] as const) {
+      const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs', tag]);
+      expect(recorded.code, recorded.out).toBe(0);
+      expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, `goldens/${name}`])).code).toBe(0);
+    }
+    rmSync(join(work, 'slow.pid'), { force: true });
+  }
+
+  /** `test goldens/*` with the slow golden waiting, stopped by `signal` once its agent is waiting: to the CLI's whole process group as a terminal's Ctrl-C is, or to the CLI alone as a job runner stops it. */
+  function interrupted(signal: NodeJS.Signals, to: 'group' | 'process'): Promise<Result & { agentPid: number }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [CLI, 'test', 'goldens/*', '--json', 'report.json'], {
+        cwd: work,
+        env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_GUARD: 'off', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_EVENTS_FD: '3', SLOW_MS: '20000' },
+        stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+        detached: to === 'group',
+      });
+      let out = '';
+      let events = '';
+      let agentPid = 0;
+      child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
+      child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+      (child.stdio[3] as NodeJS.ReadableStream).on('data', (d: Buffer) => (events += d.toString()));
+      const started = Date.now();
+      const poll = setInterval(() => {
+        // The slow golden's agent has started; a moment later its call is replayed and it waits.
+        if (out.includes('for goldens/b-slow') && existsSync(join(work, 'slow.pid'))) {
+          agentPid = Number(readFileSync(join(work, 'slow.pid'), 'utf8'));
+          if (!agentPid) return;
+          clearInterval(poll);
+          setTimeout(() => (to === 'group' ? process.kill(-child.pid!, signal) : child.kill(signal)), 1000);
+        } else if (Date.now() - started > 20_000) {
+          clearInterval(poll);
+          child.kill('SIGKILL');
+          reject(new Error(`the slow golden never started:\n${out}`));
+        }
+      }, 50);
+      child.on('close', (code, sig) => resolve({ code: code ?? (sig ? 128 : 1), out, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>), agentPid }));
+    });
+  }
+
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  for (const [signal, to, code] of [['SIGINT', 'group', 130], ['SIGTERM', 'process', 143]] as const) {
+    it(`ends the session with the goldens that finished when ${signal} reaches the ${to === 'group' ? 'terminal\'s process group' : 'CLI alone'}, and leaves nothing running`, async () => {
+      await goldens();
+      const r = await interrupted(signal, to);
+      expect(r.code, r.out).toBe(code);
+      expect(r.out).toContain('✓ a-first:');
+      expect(r.out).toContain('[shadowlap] interrupted: stopping goldens/b-slow, no golden after it runs');
+      expect(r.out).toContain('⏹ goldens/b-slow: interrupted, so it has no result this time');
+      expect(r.out).toContain('1 passed, 0 failed, 2 not run: interrupted');
+      expect(r.out).not.toContain('c-last:');
+      // The agent the signal cut short is gone, and so is nothing else it started.
+      expect(alive(r.agentPid), 'the slow golden\'s agent').toBe(false);
+
+      const s = store();
+      const [session] = s.listTestSessions();
+      expect(session).toMatchObject({ passed: 1, failed: 0, interrupted: true });
+      expect(session!.endedAt).not.toBeNull();
+      // Only the golden that finished has a result; no run is left recording.
+      expect(s.listTestResults({ sessionId: session!.sessionId }).map((x) => [x.golden, x.ok])).toEqual([['goldens/a-first', true]]);
+      expect(s.allRuns().filter((x) => x.status === 'running')).toEqual([]);
+      const cut = s.allRuns().find((x) => x.meta?.test?.golden === 'goldens/b-slow')!;
+      expect(cut).toMatchObject({ status: 'crashed', meta: { test: { golden: 'goldens/b-slow', session: session!.sessionId } } });
+      expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ ref: session!.sessionId, data: { passed: 1, failed: 0, goldens: 1, interrupted: true, notRun: 2 } });
+      s.close();
+      expect(JSON.parse(readFileSync(join(work, 'report.json'), 'utf8'))).toMatchObject({ session: session!.sessionId, passed: 1, failed: 0, interrupted: true });
+      // The job saw the replay that finished, never one for the golden that was cut short.
+      expect(r.events.filter((e) => e.type === 'run').map((e) => e.role)).toEqual(['passing']);
+
+      // The next session runs every golden, and the replay that was cut short goes.
+      const next = await shadowlap(['test', 'goldens/*']);
+      expect(next.code, next.out).toBe(0);
+      const after = store();
+      expect(after.getRun(cut.runId)).toBeNull();
+      expect(after.listTestSessions()[0]).toMatchObject({ passed: 3, failed: 0, interrupted: false });
+      after.close();
+    });
+  }
+});
+
 describe('a redacted golden', () => {
   it('replays from the store\'s own copy of its run as it replays from the pack in CI', async () => {
     // The scratch directory is masked for matching; the per-run user id is redacted in the pack, and a

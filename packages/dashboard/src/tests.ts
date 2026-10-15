@@ -38,11 +38,14 @@ export interface TestsSessionView {
   command: string;
   revision: string | null;
   startedAt: number;
+  /** Null while it runs, or when its process was killed before it could end it: then the counts are of the results it has. */
   endedAt: number | null;
   passed: number;
   failed: number;
   upstreamRequests: number;
   actor: string | null;
+  /** A signal stopped it: the goldens after the one it was replaying didn't run. */
+  interrupted: boolean;
 }
 
 /**
@@ -61,7 +64,7 @@ export interface TestsVerdict {
   /** `refund-in-limit diverged at call 1` (the first failing golden, in the table's order), `All 4 goldens pass`, or `3 of 4 goldens pass, 1 not run yet`. */
   title: string;
   first: { golden: string; name: string; reason: string; runId: string | null } | null;
-  /** The newest finished session. */
+  /** The newest session with a result. */
   session: TestsSessionView;
 }
 
@@ -217,8 +220,23 @@ function nameOf(path: string, folder: string): string {
   return path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path;
 }
 
-function sessionView(s: TestSession): TestsSessionView {
-  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed: s.passed, failed: s.failed, upstreamRequests: s.upstreamRequests, actor: s.actor };
+/**
+ * A session as the screen shows it. Its totals are written when it ends; one that hasn't (it is
+ * running, or its process was killed) counts the results it has, as every other count here does.
+ */
+function sessionView(store: Store, s: TestSession): TestsSessionView {
+  let { passed, failed } = s;
+  if (s.endedAt === null) {
+    const results = store.listTestResults({ sessionId: s.sessionId, limit: 100_000 });
+    passed = results.filter((r) => r.ok).length;
+    failed = results.length - passed;
+  }
+  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, upstreamRequests: s.upstreamRequests, actor: s.actor, interrupted: s.interrupted };
+}
+
+/** When a session last did something: its end, or its newest result while it has none. */
+function lastActive(store: Store, s: TestSession): number {
+  return s.endedAt ?? store.listTestResults({ sessionId: s.sessionId, limit: 1 })[0]?.at ?? s.startedAt;
 }
 
 /** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
@@ -341,10 +359,14 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
   return out;
 }
 
-/** Everything the Tests screen shows. */
+/**
+ * Everything the Tests screen shows. A result is recorded once a golden's replays finish, so every
+ * count here takes the results of every session, one still running (or whose process was killed)
+ * included; only a session's own totals wait for its end.
+ */
 export function testsView(store: Store, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
-  const sessions = store.listTestSessions({ limit: 500, finished: true });
+  const sessions = store.listTestSessions({ limit: 500, withResults: true });
   const last = sessions[0] ?? null;
 
   // Columns: the revisions of the most recent sessions, oldest first.
@@ -438,7 +460,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       // One golden: "All 1 goldens pass" isn't English.
       title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass, ${untested} not run yet` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
-      session: sessionView(last),
+      session: sessionView(store, last),
     };
   }
 
@@ -490,7 +512,7 @@ export interface TestsSummary {
   untested: number;
   /** `2 regressions caught`, `no regressions`, or `no goldens yet`. */
   line: string;
-  /** When the tests last ran (the last session's end), or null. */
+  /** When the tests last ran (the end of the newest session with a result, or its newest result while it runs), or null. */
   lastRunAt: number | null;
   /** The same a week earlier, for the change against last week; null without history that old. */
   lastWeek: { passing: number; total: number } | null;
@@ -506,7 +528,7 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
   const total = new Set(options.goldens.map(pathOf)).size;
   const passing = [...latest.values()].filter((r) => r.ok).length;
   const failing = latest.size - passing;
-  const session = store.listTestSessions({ limit: 1, finished: true })[0] ?? null;
+  const session = store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
   const weekAgo = latestResults(store, options.goldens, options.weekStart ?? now - 7 * 24 * 60 * 60 * 1000);
   return {
     empty: total === 0,
@@ -515,7 +537,7 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
     failing,
     untested: Math.max(0, total - latest.size),
     line: total === 0 ? 'no goldens yet' : failing ? `${plural(failing, 'regression')} caught` : 'no regressions',
-    lastRunAt: session ? (session.endedAt ?? session.startedAt) : null,
+    lastRunAt: session ? lastActive(store, session) : null,
     lastWeek: weekAgo.size ? { passing: [...weekAgo.values()].filter((r) => r.ok).length, total: weekAgo.size } : null,
   };
 }

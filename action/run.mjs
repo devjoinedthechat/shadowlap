@@ -70,7 +70,9 @@ if (!existsSync(json)) fail(`shadowlap test did not finish (exit ${r.status ?? r
 const report = JSON.parse(readFileSync(json, 'utf8'));
 const count = (kind) => report.results.filter((x) => !x.ok && x.failure === kind).length;
 let fixes = [];
-if (fixOnFailure && report.failed) {
+// A session a signal stopped (the job is being cancelled) starts nothing that spends money.
+if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
+if (fixOnFailure && report.failed && !report.interrupted) {
   fixes = runFixes({ cli, db: store, workdir, report, budget, repairer, env: cliEnv, log: (line) => process.stdout.write(`${line}\n`) });
   for (const f of fixes) {
     if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${f.pr}\n`);
@@ -93,4 +95,5 @@ const outputs = {
 if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));
 if (bool('SUMMARY', true) && env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, readFileSync(markdown, 'utf8') + (fixes.length ? `\n${fixSummary(fixes, budget)}` : ''));
 
-if (report.failed && bool('FAIL_ON_DIVERGENCE', true)) process.exit(1);
+// Part of the recordings ran when a signal stopped the session: that is never a pass.
+if ((report.failed && bool('FAIL_ON_DIVERGENCE', true)) || report.interrupted) process.exit(1);

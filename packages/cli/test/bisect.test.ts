@@ -168,6 +168,16 @@ describe('shadowlap bisect', () => {
     expect(unknown.out).toContain('goldens/nothing is neither a golden');
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
   });
+
+  it('refuses a run that is still recording, whose recording is not whole yet', async () => {
+    const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+    const recording = store.createRun({ mode: 'record', command: { argv: [process.execPath, 'agent.mjs'], cwd: project } });
+    store.close();
+    const r = await shadowlap(['bisect', recording.runId, '--good', rev['Start the ticket agent']!, '--json']);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: `${recording.runId.slice(0, 10)} is still recording: find the commit once it has ended` } });
+    expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
+  });
 });
 
 describe('commits bisect cannot test', () => {

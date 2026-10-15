@@ -25,6 +25,8 @@ export interface UpdateContext {
   guard: GuardMode;
   /** Called once the re-recording's run exists. */
   onRun?: (runId: string) => void;
+  /** For a caller that winds down on a signal by itself: a re-recording a signal cuts short returns, and replaces nothing. */
+  stopped?: () => boolean;
 }
 
 export interface UpdateResult {
@@ -40,6 +42,8 @@ export interface UpdateResult {
   output: string;
   before: CallCounts;
   after: CallCounts | null;
+  /** A signal cut the re-recording short. */
+  interrupted: boolean;
 }
 
 export interface CallCounts {
@@ -182,6 +186,7 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
     spec: { ...(spec ?? { repeat: 1, passes: 1, tools: [] }), fork: true },
     divergeAt: 1,
     ...(ctx.onRun ? { onRun: ctx.onRun } : {}),
+    ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
   });
   telemetry().record({ type: 'replay', ...usageOf(attempt.ended, attempt.ms, attempt.code) });
   const runId = attempt.ended.summary.runId;
@@ -193,7 +198,7 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
     : before.model > 0 && after.model === 0
       ? 'the agent made no model calls through Shadowlap, so the new recording would hold none'
       : null;
-  const result: UpdateResult = { replaced: false, reason, run: store.getRun(runId), summary: attempt.ended.summary, checks: spec ? attempt.checks : null, code: attempt.code, output: attempt.output, before, after };
+  const result: UpdateResult = { replaced: false, reason, run: store.getRun(runId), summary: attempt.ended.summary, checks: spec ? attempt.checks : null, code: attempt.code, output: attempt.output, before, after, interrupted: attempt.interrupted !== null };
   if (reason) return result;
 
   // The new pack is written under .shadowlap/ (git never sees it, and neither does a pattern such as

@@ -42,6 +42,35 @@ describe('pruning older replays', () => {
     store.close();
   });
 
+  it('deletes replays a signal cut short, and those of a session whose process was killed once it is a day old', () => {
+    const store = Store.open(':memory:');
+    const DAY = 24 * 60 * 60 * 1000;
+    const replay = (session: string, at: number, status: 'crashed' | 'running' | 'completed') => {
+      const run = store.createRun({ mode: 'replay', command: agent, startedAt: at, meta: { test: { golden: 'goldens/refund', session } } });
+      if (status !== 'running') store.endRun(run.runId, status, at + 1);
+      return run.runId;
+    };
+    // Interrupted: it ended, and its replay was cut short.
+    const stopped = store.startTestSession({ command: ['shadowlap', 'test'], startedAt: 1_000 });
+    const cut = replay(stopped.sessionId, 1_100, 'crashed');
+    store.finishTestSession(stopped.sessionId, { passed: 0, failed: 0, upstreamRequests: 0, endedAt: 1_200, interrupted: true });
+    // Killed outright long ago: never ended, its replay still marked as recording.
+    const killed = store.startTestSession({ command: ['shadowlap', 'test'], startedAt: 2_000 });
+    const orphan = replay(killed.sessionId, 2_100, 'running');
+    // Still running right now, in another process: nothing of it goes.
+    const now = 2_000 + 2 * DAY;
+    const running = store.startTestSession({ command: ['shadowlap', 'test'], startedAt: now - 60_000 });
+    const live = replay(running.sessionId, now - 50_000, 'running');
+
+    const session = store.startTestSession({ command: ['shadowlap', 'test'], startedAt: now });
+    replay(session.sessionId, now + 100, 'completed');
+    expect(pruneReplays(store, session, new Map([['goldens/refund', { ok: true, fork: false }]]))).toBe(2);
+    expect(store.getRun(cut)).toBeNull();
+    expect(store.getRun(orphan)).toBeNull();
+    expect(store.getRun(live)).not.toBeNull();
+    store.close();
+  });
+
   it('never fails the session: pruning that can\'t happen says why and waits for the next one', () => {
     const store = Store.open(':memory:');
     const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund'] });
