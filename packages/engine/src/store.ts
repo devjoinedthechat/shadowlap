@@ -248,7 +248,17 @@ export class Store {
     // The CLI, the TUI, the dashboard and test workers may open one store at once; wait for a lock
     // rather than fail. First, because switching a new database to WAL already needs one.
     db.exec('PRAGMA busy_timeout = 10000');
-    db.exec('PRAGMA journal_mode = WAL');
+    // SQLite answers "database is locked" at once, without the busy handler, when several processes
+    // switch a new database to WAL in the same instant. Wait a little and ask again.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        db.exec('PRAGMA journal_mode = WAL');
+        break;
+      } catch (err) {
+        if (attempt >= 100 || (err as { errcode?: number }).errcode !== 5) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + Math.floor(Math.random() * 40));
+      }
+    }
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA synchronous = NORMAL');
     // Schema and migrations under one write lock: two processes opening the same old store must not
