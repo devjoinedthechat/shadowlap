@@ -7,6 +7,8 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+// The docs pages Settings reads at runtime ship in dist/docs.
+import './copy-docs.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, 'ui');

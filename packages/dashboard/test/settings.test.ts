@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { REDACTION_EXPORTS, Store, addRule, readConfigFile, removeRule, storeApiRequest, type Effect, type RunMeta } from '@shadowlap/engine';
-import { agentsSection, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServers, parseJsonc, projectSettings, redactionSettings, toolsSettings } from '../src/settings.js';
+import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type Effect, type RunMeta } from '@shadowlap/engine';
+import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, redactionSettings, splitCommandLine, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -43,7 +43,7 @@ describe('matchingSettings', () => {
     expect(m.config).toMatchObject({ file: 'shadowlap.config.json', exists: false, version: 'absent', error: null });
     expect(m.rules).toEqual([]);
     expect(m.clock).toEqual({ mode: 'auto', explicit: false, error: null });
-    expect(m.calibrate).toEqual({ runId: null, source: null, label: 'Record a run first', command: null, argv: null, writeArgv: null });
+    expect(m.calibrate).toEqual({ runId: null, source: null, label: 'Record a run first', command: null, argv: null });
     expect(m.form).toEqual({ kinds: ['api', 'tool', 'clock', 'random'], patterns: ['iso-datetime', 'iso-date', 'uuid', 'ulid', 'number', 'email'], defaultReplace: '<MASKED>' });
   });
 
@@ -71,9 +71,10 @@ describe('matchingSettings', () => {
       [5, 'every call', null, 'uuidd', 'named', '<U>', expect.stringContaining('unknown pattern "uuidd"')],
     ]);
     expect(m.rules[4]!.rule).toBeNull();
-    expect(m.rules[2]!.remove).toEqual(['normalize', 'rm', '3']);
+    // Removing names the version the row was read from, so a stale page can't remove the wrong rule.
+    expect(m.rules[2]!.remove).toEqual(['normalize', 'rm', '3', '--expect', m.config.version]);
     expect(m.clock).toEqual({ mode: 'exact', explicit: true, error: null });
-    expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', label: `Calibrate ${newest.runId.slice(0, 10)}`, command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId], writeArgv: ['calibrate', newest.runId, '--write'] });
+    expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', label: `Calibrate ${newest.runId.slice(0, 10)}`, command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId] });
     expect(matchingSettings({ store, cwd, setupRunId: setup.runId }).calibrate).toMatchObject({ runId: setup.runId, source: 'setup' });
   });
 
@@ -94,6 +95,21 @@ describe('matchingSettings', () => {
     expect(() => removeRule(cwd, 'normalize', 1, { expect: seen })).toThrow(/changed since it was read/);
     expect(matchingSettings({ store, cwd }).rules).toHaveLength(1);
   });
+
+  it('adds what a calibrate job proposed, exactly those, without replaying again', () => {
+    const run = recording({ at: 1 });
+    writeConfig({ normalize: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] });
+    const tab = matchingSettings({ store, cwd });
+    // The job's result event, as `calibrate --json` prints it.
+    const result = { runId: run.runId, normalizers: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, { kind: 'tool', name: 'save_report', path: '$.args.path', pattern: '/\\/tmp\\/agent-[A-Za-z0-9_]+/', replace: '<VAR>' }] };
+    const added = addRules(cwd, 'normalize', result.normalizers, { expect: tab.config.version! });
+    expect(added.rules.map((r) => [r.n, r.added])).toEqual([[1, false], [2, true]]);
+    for (const event of added.events) recordEvent(store, { ...event, runId: result.runId, actor: 'dana' });
+    expect(store.listEvents().map((e) => [e.kind, e.runId, e.data?.n])).toEqual([['normalizer.added', run.runId, 2]]);
+    expect(matchingSettings({ store, cwd }).rules.map((r) => r.scope)).toEqual(['api', 'tool · save_report']);
+    // A page that read the config before this edit can't add on top of what it didn't see.
+    expect(() => addRules(cwd, 'normalize', [{ path: '$.x', replace: '<X>' }], { expect: tab.config.version! })).toThrow(/changed since it was read/);
+  });
 });
 
 describe('redactionSettings', () => {
@@ -106,31 +122,44 @@ describe('redactionSettings', () => {
     return run;
   }
 
-  it('previews the newest finished run, path rules included, and says where the rules apply', () => {
+  it('lists the runs a preview can be made for, each with its job, and says where the rules apply', () => {
     writeConfig({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { kind: 'tool', path: '$.args.api_key', pattern: '/.+/', replace: '<KEY>' }] });
     const old = recording({ at: 1 });
     const run = seeded();
     const live = recording({ at: 20, status: 'running' });
     const r = redactionSettings({ store, cwd });
     expect(r.where).toBe(REDACTION_EXPORTS);
+    expect(r.where.find((e) => e.id === 'har')).toMatchObject({ applies: 'none' });
     expect(r.form.kinds).toEqual(['api', 'tool']);
     expect(r.runs.map((x) => x.runId)).toEqual([run.runId, old.runId]);
-    expect(r.runs[0]!.label).toBe(`${run.runId.slice(0, 10)} · node agent.js`);
-    expect(r.previewError).toBeNull();
-    expect(r.preview).toMatchObject({ runId: run.runId, total: 3, rules: [{ n: 1, count: 2 }, { n: 2, count: 1, reached: 1 }] });
+    expect(r.runs[0]).toEqual({ runId: run.runId, label: `${run.runId.slice(0, 10)} · node agent.js`, preview: ['redact', 'preview', run.runId, '--json'] });
+    expect(r).toMatchObject({ previewRunId: run.runId, previewError: null });
+    expect(r.rules.map((x) => x.remove)).toEqual([1, 2].map((n) => ['redact', 'rm', String(n), '--expect', r.config.version]));
 
-    expect(redactionSettings({ store, cwd }, { runId: old.runId }).preview).toMatchObject({ total: 0, rules: [{ note: 'no matches in this run' }, { note: 'no tool call in this run' }] });
-    expect(redactionSettings({ store, cwd }, { runId: live.runId })).toMatchObject({ preview: null, previewError: expect.stringContaining('is still recording') });
-    expect(redactionSettings({ store, cwd }, { runId: 'NOPE' }).previewError).toBe('no run matches NOPE');
+    expect(redactionSettings({ store, cwd }, { runId: old.runId.slice(0, 12) })).toMatchObject({ previewRunId: old.runId, previewError: null });
+    expect(redactionSettings({ store, cwd }, { runId: live.runId })).toMatchObject({ previewRunId: null, previewError: `${live.runId.slice(0, 10)} is still recording; preview it once it has ended` });
+    expect(redactionSettings({ store, cwd }, { runId: 'NOPE' })).toMatchObject({ previewRunId: null, previewError: 'no run matches NOPE' });
   });
 
-  it('explains why there is no preview', () => {
-    expect(redactionSettings({ store, cwd })).toMatchObject({ preview: null, previewError: 'Record a run first: the preview needs one to read.', rules: [], runs: [] });
+  it('reads no run\'s calls, however long the run: the preview is a job', () => {
+    seeded();
+    const guarded = new Proxy(store, {
+      get(target, key) {
+        if (key === 'getCalls' || key === 'getBlob' || key === 'getJson') throw new Error(`the Redaction tab read ${String(key)}`);
+        const value = Reflect.get(target, key) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    expect(redactionSettings({ store: guarded, cwd }).previewRunId).not.toBeNull();
+  });
+
+  it('explains why there is no preview to run', () => {
+    expect(redactionSettings({ store, cwd })).toMatchObject({ previewRunId: null, previewError: 'Record a run first: the preview needs one to read.', rules: [], runs: [] });
     seeded();
     writeConfig({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: 'nope', replace: 'x' }] });
     expect(redactionSettings({ store, cwd }).previewError).toMatch(/^redaction rule #2: unknown pattern "nope"/);
     writeConfig({});
-    expect(redactionSettings({ store, cwd }).preview).toMatchObject({ total: 0, rules: [] });
+    expect(redactionSettings({ store, cwd })).toMatchObject({ previewError: null, rules: [] });
   });
 });
 
@@ -153,6 +182,31 @@ describe('codingAgentsSettings', () => {
     expect(s.section).toMatch(/shadowlap/i);
     expect(s.section).not.toContain('```');
     expect(codingAgentsSettings({ cwd }, { agentsDoc: null }).section).toBeNull();
+  });
+
+  it('does not look through a rules folder that links outside the project, and stops early in a huge one', () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'sl-elsewhere-'));
+    try {
+      writeFileSync(join(elsewhere, 'notes.mdc'), 'Record runs with Shadowlap.');
+      mkdirSync(join(cwd, '.cursor'), { recursive: true });
+      symlinkSync(elsewhere, join(cwd, '.cursor', 'rules'));
+      expect(codingAgentsSettings({ cwd }).files[2]).toEqual({ path: '.cursor/rules', agents: 'Cursor', found: true, type: 'folder', mentions: false });
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+    rmSync(join(cwd, '.cursor', 'rules'));
+    // Deeper than any rules folder goes: not looked at. A folder of hundreds of folders is looked through only in part.
+    put('.cursor/rules/a/b/c/d/e/f/mention.mdc', 'shadowlap');
+    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'folder', mentions: false });
+    for (let i = 0; i < 300; i++) put(`.cursor/rules/many/d${String(i).padStart(3, '0')}/x.mdc`, 'nothing here');
+    const started = Date.now();
+    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'folder', mentions: false });
+    expect(Date.now() - started).toBeLessThan(2000);
+    // A link inside the project is followed.
+    rmSync(join(cwd, '.cursor', 'rules'), { recursive: true });
+    put('shared-rules/a.mdc', 'Use shadowlap replay.');
+    symlinkSync(join(cwd, 'shared-rules'), join(cwd, '.cursor', 'rules'));
+    expect(codingAgentsSettings({ cwd }).files[2]).toMatchObject({ found: true, type: 'folder', mentions: true });
   });
 
   it('reads .cursor/rules as one file too', () => {
@@ -285,6 +339,23 @@ describe('mcpServers', () => {
     ]);
   });
 
+  it('hides every credential the reviewer found, in the target, the line and the entry', () => {
+    put('.mcp.json', JSON.stringify({
+      mcpServers: {
+        zapier: { url: 'https://actions.zapier.com/mcp/sk-ak-SECRET1/sse' },
+        zapier2: { command: 'shadowlap', args: ['mcp', '--url=https://mcp.zapier.com/api/mcp/s/SECRET2abcdef0123456789/mcp'] },
+        envflag: { command: 'docker', args: ['run', '--env=GITHUB_TOKEN=ghp_SECRET3', 'img'] },
+        via: { command: 'shadowlap', args: ['mcp', '--', 'docker', 'run', '--env=GITHUB_TOKEN=SECRET4', 'img'] },
+        header: { command: 'npx', args: ['-y', 'mcp-remote', 'https://mcp.example.com/sse', '--header=Authorization: Bearer SECRET5'] },
+        db: { command: 'node', args: ['server.js', '--connection-string', 'Server=x;Password=SECRET6;'] },
+      },
+    }));
+    const { servers } = mcpServers(cwd);
+    expect(JSON.stringify(servers)).not.toMatch(/SECRET/);
+    expect(servers.every((s) => s.hidden)).toBe(true);
+    expect(servers.find((s) => s.name === 'via')).toMatchObject({ viaShadowlap: true, target: 'docker run --env=GITHUB_TOKEN=••• img' });
+  });
+
   it('does not read a client config that is too large to be one', () => {
     put('.mcp.json', `{"mcpServers": {}, "pad": "${'x'.repeat(1024 * 1024)}"}`);
     expect(mcpServers(cwd).files[0]).toEqual({ path: '.mcp.json', found: true, error: 'larger than 1 MB, so it was not read' });
@@ -295,12 +366,50 @@ describe('mcpServers', () => {
   });
 });
 
+describe('mcpServerFor', () => {
+  it('gives the shadowlap mcp line and entry for a command or URL typed into Add a server', () => {
+    expect(mcpServerFor({ command: 'npx -y @modelcontextprotocol/server-filesystem "/srv/my notes"' })).toEqual({
+      transport: 'stdio', target: "npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", viaShadowlap: false,
+      line: "shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/my notes'] }, hidden: false,
+    });
+    expect(mcpServerFor({ url: ' https://mcp.linear.app/mcp ' })).toMatchObject({ transport: 'http', line: 'shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false });
+    expect(mcpServerFor({ url: 'https://mcp.example.com/mcp?key=sk_live_1' })).toMatchObject({ target: 'https://mcp.example.com/mcp?key=•••', hidden: true });
+    expect(mcpServerFor({ command: 'docker run -e GITHUB_TOKEN=ghp_x img' })).toMatchObject({ target: 'docker run -e GITHUB_TOKEN=••• img', hidden: true });
+    // Already behind shadowlap mcp: said so, not wrapped twice.
+    expect(mcpServerFor({ command: 'shadowlap mcp -- node notes.js' })).toMatchObject({ viaShadowlap: true, target: 'node notes.js', line: 'shadowlap mcp -- node notes.js' });
+    expect(() => mcpServerFor({ command: '   ' })).toThrow(/type the command that starts the server/);
+    expect(() => mcpServerFor({ url: 'mcp.example.com' })).toThrow(/starts with http:\/\/ or https:\/\//);
+    expect(() => mcpServerFor({ command: 'node "server.js' })).toThrow(/a quote is not closed/);
+  });
+
+  it('splits a command line as a shell does', () => {
+    expect(splitCommandLine(`node 'a b' "c \\"d\\" $e" f\\ g  ''`)).toEqual(['node', 'a b', 'c "d" $e', 'f g', '']);
+    expect(splitCommandLine('')).toEqual([]);
+  });
+});
+
 describe('secrets in commands and URLs', () => {
   it('hides a flag value, a --flag=value and a token by its shape', () => {
     expect(hideSecrets(['server', '--api-key', 'abc', '--name', 'x', '--token=t0k', 'sk-ant-123', 'xoxb-1-2', 'plain'])).toEqual(['server', '--api-key', '•••', '--name', 'x', '--token=•••', '•••', '•••', 'plain']);
     expect(hideSecrets(['docker', 'run', '-e', 'GITHUB_TOKEN=abc', '-e', 'LOG_LEVEL=debug', '--header', 'Authorization: Basic eHl6', 'C:\\notes', 'https://x.io/a'])).toEqual(['docker', 'run', '-e', 'GITHUB_TOKEN=•••', '-e', 'LOG_LEVEL=debug', '--header', 'Authorization: •••', 'C:\\notes', 'https://x.io/a']);
     expect(hideUrlSecrets('https://user:pw@mcp.example.com/mcp?token=abc&x=1')).toBe('https://mcp.example.com/mcp?token=•••&x=•••');
     expect(hideUrlSecrets('https://mcp.example.com')).toBe('https://mcp.example.com');
+  });
+
+  it('hides a credential inside a --flag=value, a connection string, a short flag name, and a URL path', () => {
+    const cases: Array<[string[], string[]]> = [
+      [['docker', 'run', '--env=GITHUB_TOKEN=ghp_SECRET', 'img'], ['docker', 'run', '--env=GITHUB_TOKEN=•••', 'img']],
+      [['--header=Authorization: Bearer abc'], ['--header=Authorization: •••']],
+      [['--connection-string', 'Server=x;Password=SECRETPW;Database=app'], ['--connection-string', 'Server=x;Password=•••;Database=app']],
+      [['--pat', 'SECRETPAT', '--path', '/srv/notes', '--author', 'dana'], ['--pat', '•••', '--path', '/srv/notes', '--author', 'dana']],
+      [['--api-key', '-starts-with-a-dash'], ['--api-key', '•••']],
+      [['--dsn', 'mysql://root:SECRETPW@db/app'], ['--dsn', '•••']],
+      [['DefaultEndpointsProtocol=https;AccountName=x;AccountKey=SECRETKEY'], ['DefaultEndpointsProtocol=https;AccountName=x;AccountKey=•••']],
+      [['https://actions.zapier.com/mcp/sk-ak-SECRETPATH/sse'], ['https://actions.zapier.com/mcp/•••/sse']],
+      [['https://mcp.zapier.com/api/mcp/s/NmE5ZDEzNjctYTFhZC00ODk0LWI3ZjMtZDE2MjZjZTY0YjA0/mcp'], ['https://mcp.zapier.com/api/mcp/s/•••/mcp']],
+      [['https://mcp.example.com/v1/sse', '--keyboard', 'us'], ['https://mcp.example.com/v1/sse', '--keyboard', 'us']],
+    ];
+    for (const [argv, shown] of cases) expect(hideSecrets(argv), argv.join(' ')).toEqual(shown);
   });
 
   it('reads VS Code config files: comments and trailing commas, strings left alone', () => {
@@ -313,7 +422,7 @@ describe('secrets in commands and URLs', () => {
 });
 
 describe('projectSettings', () => {
-  it('names the project and its store, counts runs and attempts, and gives the clean-up commands', () => {
+  it('names the project and its store, counts runs and attempts, and gives the clean-up job', () => {
     const dbPath = join(cwd, '.shadowlap', 'shadowlap.db');
     const disk = Store.open(dbPath);
     disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } });
@@ -322,10 +431,19 @@ describe('projectSettings', () => {
     disk.endRun(probe.runId, 'failed');
     disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } }); // still recording
     const p = projectSettings({ store: disk, cwd, dbPath, address: '127.0.0.1:4777' });
-    disk.close();
     expect(p).toMatchObject({ name: cwd.split(/[\\/]/).pop(), folder: cwd, store: { path: dbPath }, runs: 2, attempts: 1, running: 1, address: '127.0.0.1:4777' });
+    // The database's own count of its pages, not the files on disk, which a write-ahead log makes jump.
+    expect(p.store.bytes).toBe(disk.size().bytes);
     expect(p.store.bytes).toBeGreaterThan(0);
-    expect(p.cleanup).toEqual({ olderThanDays: 30, dryRun: ['gc', '--older-than', '30', '--dry-run'], run: ['gc', '--older-than', '30'] });
-    expect(projectSettings({ store, cwd, name: 'support-agent' })).toMatchObject({ name: 'support-agent', store: { path: null, bytes: null }, runs: 0, address: null });
+    disk.close();
+    expect(p.cleanup).toEqual({ olderThanDays: 30, dryRun: ['gc', '--older-than', '30', '--dry-run', '--json'] });
+    expect(projectSettings({ store, cwd, name: 'support-agent' })).toMatchObject({ name: 'support-agent', store: { path: null }, runs: 0, address: null });
+  });
+
+  it('deletes exactly what the dry run listed: its cutoff, and the number of runs the dialog promised', () => {
+    const dryRun = { dryRun: true, olderThanDays: 30, keep: null, cutoff: 1_757_000_000_000, total: 9, runs: [{ runId: 'A' }, { runId: 'B' }], blobs: 3, bytes: 1000 };
+    expect(cleanupArgv(dryRun)).toEqual(['gc', '--before', '1757000000000', '--expect', '2', '--json']);
+    expect(cleanupArgv({ cutoff: null, keep: 200, runs: [] })).toEqual(['gc', '--keep', '200', '--expect', '0', '--json']);
+    expect(() => cleanupArgv({ cutoff: null, keep: null, runs: [] })).toThrow(/picked no runs/);
   });
 });

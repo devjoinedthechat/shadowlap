@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync, type Dirent, type Stats } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent, type Stats } from 'node:fs';
+import { basename, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CONFIG_FILE,
@@ -10,7 +10,6 @@ import {
   calibrationTarget,
   configClock,
   namedPatterns,
-  previewRedaction,
   readConfigFile,
   readRules,
   type CallKind,
@@ -19,7 +18,6 @@ import {
   type Effect,
   type Normalizer,
   type RedactionExport,
-  type RedactionPreview,
   type RuleList,
   type RunRecord,
   type Store,
@@ -75,7 +73,11 @@ export interface RuleRow {
   replace: string | null;
   /** Why the entry can't be used, in the words loading the config would fail with. */
   error: string | null;
-  /** The command that removes it, as argv for a job: ['normalize', 'rm', '2']. */
+  /**
+   * The command that removes it, as argv for a job: ['normalize', 'rm', '2', '--expect', <version>].
+   * It names the file's version this row was read from, so a page showing an old list can't remove
+   * the wrong rule. A server can call removeRule(cwd, list, n, { expect }) instead.
+   */
   remove: string[];
 }
 
@@ -94,22 +96,29 @@ export interface MatchingSettings {
   clock: { mode: ClockMode; explicit: boolean; error: string | null };
   /**
    * The button: "Calibrate <run>" with the job's argv, or "Record a run first" with none. The job
-   * streams each round and ends with a result event (the object `calibrate --json` prints); when it
-   * proposed normalizers, "Add it (--write)" runs `writeArgv`, which replays again and adds them.
+   * streams each round and ends with a result event (the object `calibrate --json` prints). When it
+   * proposed normalizers, "Add it" adds exactly those, the ones the person just read, without
+   * replaying again: addRules(cwd, 'normalize', result.normalizers, { expect: config.version }),
+   * which checks each as `normalize add` does, then each returned event recorded with the run id.
    */
-  calibrate: { runId: string | null; source: 'setup' | 'newest' | null; label: string; command: string | null; argv: string[] | null; writeArgv: string[] | null };
+  calibrate: { runId: string | null; source: 'setup' | 'newest' | null; label: string; command: string | null; argv: string[] | null };
 }
 
 export interface RedactionSettings {
   config: ConfigInfo;
   rules: RuleRow[];
   form: RuleForm;
-  /** Every way a run's content leaves the machine, and which rules each applies (decision 6). */
+  /** Every way a run's content leaves the machine, and which rules each applies today. */
   where: readonly RedactionExport[];
-  /** Runs a preview can be made for: every run that has ended, newest first. */
-  runs: Array<{ runId: string; label: string }>;
-  preview: RedactionPreview | null;
-  /** Why there is no preview: no run yet, a run still recording, or rules that can't be read. */
+  /**
+   * Runs a preview can be made for: every run that has ended, newest first, each with the job that
+   * previews it. The job runs `redact preview <run> --json`, whose result event is the preview (a
+   * RedactionPreview), so reading a long run never holds up the server.
+   */
+  runs: Array<{ runId: string; label: string; preview: string[] }>;
+  /** The run the tab previews first: the newest that has ended, or the one asked for. */
+  previewRunId: string | null;
+  /** Why there is no preview to run: no run yet, the run asked for is unknown or still recording, or rules that can't be read. */
   previewError: string | null;
 }
 
@@ -196,15 +205,24 @@ export interface ToolsSettings {
 export interface ProjectSettings {
   name: string;
   folder: string;
-  store: { path: string | null; bytes: number | null };
+  /**
+   * The store's file, and its size as the database counts it (its pages, whatever the write-ahead
+   * log holds), so it doesn't jump while the log waits for a checkpoint. `free` is what a vacuum
+   * gives back.
+   */
+  store: { path: string | null; bytes: number; free: number };
   /** Runs, not counting the attempts blame, verify and `replay --repeat` make. */
   runs: number;
   attempts: number;
-  /** Runs still running: a recording, or a replay in progress. */
+  /** Runs still running: a recording, or a replay in progress. While one is, a clean-up deletes runs but leaves their blobs for a later one. */
   running: number;
   address: string | null;
-  /** Clean up old runs: the dry run first, then the run that deletes. */
-  cleanup: { olderThanDays: number; dryRun: string[]; run: string[] };
+  /**
+   * Clean up old runs: the dry run first, whose result (the GcReport `gc --json` prints) lists the
+   * runs and what they free; then "Delete N runs" runs cleanupArgv(result), which deletes exactly
+   * those or nothing.
+   */
+  cleanup: { olderThanDays: number; dryRun: string[] };
 }
 
 // ---- the config ----
@@ -241,7 +259,7 @@ function ruleRows(file: ConfigFile | null, list: RuleList): RuleRow[] {
       patternType: pattern === null ? 'whole' : pattern.startsWith('/') ? 'regex' : 'named',
       replace: str(raw.replace),
       error: entry.error,
-      remove: [list, 'rm', String(i + 1)],
+      remove: [list, 'rm', String(i + 1), '--expect', file.version],
     };
   });
 }
@@ -269,8 +287,8 @@ export function matchingSettings(ctx: SettingsContext): MatchingSettings {
     form: form('normalize'),
     clock: { ...clock, error: written === undefined || clock.explicit ? null : `${CONFIG_FILE}: clock must be "auto" or "exact"` },
     calibrate: target
-      ? { runId: target.run.runId, source: target.source, label: `Calibrate ${shortRun(target.run.runId)}`, command: `shadowlap calibrate ${shortRun(target.run.runId)}`, argv: ['calibrate', target.run.runId], writeArgv: ['calibrate', target.run.runId, '--write'] }
-      : { runId: null, source: null, label: 'Record a run first', command: null, argv: null, writeArgv: null },
+      ? { runId: target.run.runId, source: target.source, label: `Calibrate ${shortRun(target.run.runId)}`, command: `shadowlap calibrate ${shortRun(target.run.runId)}`, argv: ['calibrate', target.run.runId] }
+      : { runId: null, source: null, label: 'Record a run first', command: null, argv: null },
   };
 }
 
@@ -279,32 +297,39 @@ export function matchingSettings(ctx: SettingsContext): MatchingSettings {
 /** How many runs the preview's run picker lists. */
 const PREVIEW_RUNS = 100;
 
+/** The job that previews what the rules mask in one run: its result event is the preview. */
+export const previewArgv = (runId: string): string[] => ['redact', 'preview', runId, '--json'];
+
 /**
- * The Redaction tab. `runId` picks the run to preview; without one, the newest run that has ended.
- * The preview reads every stored request and response of that run, so a long run takes a while.
+ * The Redaction tab: the rules, where they apply, and the runs a preview can be made for, each with
+ * its job. `runId` picks the run to preview first; without one, the newest run that has ended.
+ * Nothing here reads a run's calls: the preview runs as a job.
  */
 export function redactionSettings(ctx: SettingsContext, options: { runId?: string | null } = {}): RedactionSettings {
   const { info, file } = loadConfigFile(ctx.cwd, 'redact');
   const rows = ruleRows(file, 'redact');
   const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => r.status !== 'running');
-  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: `${shortRun(r.runId)} · ${commandOf(r)}` }));
-  let preview: RedactionPreview | null = null;
+  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: `${shortRun(r.runId)} · ${commandOf(r)}`, preview: previewArgv(r.runId) }));
+  let previewRunId: string | null = ended[0]?.runId ?? null;
   let previewError: string | null = null;
-  const runId = options.runId ?? ended[0]?.runId ?? null;
-  const broken = rows.find((r) => r.error);
-  if (!runId) previewError = 'Record a run first: the preview needs one to read.';
-  else if (info.error) previewError = info.error;
-  else if (broken) previewError = `redaction rule #${broken.n}: ${broken.error}`;
-  else {
+  if (options.runId) {
+    let run: RunRecord | null = null;
     try {
-      const run = ctx.store.findRun(runId);
-      if (!run) throw new Error(`no run matches ${runId}`);
-      preview = previewRedaction(ctx.store, run.runId, rows.map((r) => r.rule!));
+      run = ctx.store.findRun(options.runId);
     } catch (err) {
       previewError = err instanceof Error ? err.message : String(err);
     }
+    if (!run) previewError ??= `no run matches ${options.runId}`;
+    else if (run.status === 'running') previewError = `${shortRun(run.runId)} is still recording; preview it once it has ended`;
+    previewRunId = run && !previewError ? run.runId : null;
   }
-  return { config: info, rules: rows, form: form('redact'), where: REDACTION_EXPORTS, runs, preview, previewError };
+  const broken = rows.find((r) => r.error);
+  if (!previewError) {
+    if (!previewRunId) previewError = 'Record a run first: the preview needs one to read.';
+    else if (info.error) previewError = info.error;
+    else if (broken) previewError = `redaction rule #${broken.n}: ${broken.error}`;
+  }
+  return { config: info, rules: rows, form: form('redact'), where: REDACTION_EXPORTS, runs, previewRunId, previewError };
 }
 
 // ---- Coding agents ----
@@ -320,7 +345,11 @@ const AGENT_FILES: Array<{ path: string; agents: string }> = [
 const MENTION = /shadowlap/i;
 /** Enough to find a mention in any real instructions file without reading something huge. */
 const READ_LIMIT = 1024 * 1024;
+/** How much of a rules folder is looked through: real ones hold a handful of files. */
 const FOLDER_FILES = 200;
+const FOLDER_DIRS = 50;
+const FOLDER_DEPTH = 4;
+const FOLDER_MS = 250;
 
 function mentionsIn(file: string): boolean {
   try {
@@ -331,11 +360,15 @@ function mentionsIn(file: string): boolean {
   }
 }
 
+/** Whether any file in a rules folder mentions Shadowlap. Links inside it aren't followed, and the walk stops early on a folder far bigger than a rules folder. */
 function folderMentions(dir: string): boolean {
-  const stack = [dir];
-  let seen = 0;
-  while (stack.length && seen < FOLDER_FILES) {
-    const at = stack.pop()!;
+  const stack: Array<[string, number]> = [[dir, 0]];
+  const deadline = Date.now() + FOLDER_MS;
+  let files = 0;
+  let dirs = 0;
+  while (stack.length && files < FOLDER_FILES && dirs < FOLDER_DIRS && Date.now() < deadline) {
+    const [at, depth] = stack.pop()!;
+    dirs++;
     let entries: Dirent[];
     try {
       entries = readdirSync(at, { withFileTypes: true });
@@ -344,16 +377,23 @@ function folderMentions(dir: string): boolean {
     }
     for (const e of entries) {
       const full = join(at, e.name);
-      if (e.isDirectory()) stack.push(full);
-      else if (e.isFile() && ++seen <= FOLDER_FILES && mentionsIn(full)) return true;
+      if (e.isDirectory()) {
+        if (depth < FOLDER_DEPTH) stack.push([full, depth + 1]);
+      } else if (e.isFile() && ++files <= FOLDER_FILES && mentionsIn(full)) return true;
     }
   }
   return false;
 }
 
+const inside = (path: string, root: string) => {
+  const rel = relative(root, path);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+};
+
 /**
  * The Coding agents tab: which instruction files the project has and whether each mentions
- * Shadowlap yet, and the section to paste. Only a yes or no leaves each file, never its text.
+ * Shadowlap yet, and the section to paste. Only a yes or no leaves each file, never its text. A
+ * `.cursor/rules` folder that is a link to somewhere outside the project is not looked through.
  */
 export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options: { agentsDoc?: string | null } = {}): CodingAgentsSettings {
   const files = AGENT_FILES.map(({ path, agents }): AgentFile => {
@@ -364,7 +404,15 @@ export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options:
     } catch {
       return { path, agents, found: false, type: null, mentions: false };
     }
-    if (st.isDirectory()) return { path, agents, found: true, type: 'folder', mentions: folderMentions(full) };
+    if (st.isDirectory()) {
+      let walk = true;
+      try {
+        walk = !lstatSync(full).isSymbolicLink() || inside(realpathSync(full), realpathSync(ctx.cwd));
+      } catch {
+        walk = false;
+      }
+      return { path, agents, found: true, type: 'folder', mentions: walk && folderMentions(full) };
+    }
     return { path, agents, found: st.isFile(), type: st.isFile() ? 'file' : null, mentions: st.isFile() && mentionsIn(full) };
   });
   const doc = options.agentsDoc !== undefined ? options.agentsDoc : readShippedDoc('agents.md');
@@ -559,38 +607,70 @@ export function parseJsonc(text: string): unknown {
   return JSON.parse(out);
 }
 
-const SECRET_FLAG = /(token|key|secret|password|passwd|auth|credential|bearer)/i;
-const SECRET_VALUE = /^(sk-|sk_|rk_|pk_live|ghp_|gho_|ghs_|github_pat_|glpat-|xox[abpr]-|AKIA|ASIA|AIza|ya29\.|eyJ)/;
+/** Names that say a value is a credential, anywhere in the name: `GITHUB_TOKEN`, `--client-secret`, `x-api-key`. */
+const SECRET_WORDS = /(token|secret|passw(?:or)?d|credential|bearer|api[-_]?key|private[-_]?key|access[-_]?key|account[-_]?key|cookie|signature)/i;
+/** ...or as one whole part of the name, where a substring would also catch `--path` or `--author`: `--pat`, `DB_PWD`, `--auth`, `--dsn`. */
+const SECRET_PARTS = new Set(['key', 'pat', 'pwd', 'pass', 'auth', 'oauth', 'authorization', 'dsn', 'sig', 'sas', 'jwt']);
+/** Tokens recognisable by their shape. */
+const SECRET_VALUE = /^(sk-|sk_|rk_|pk_live|ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|glpat-|xox[abeprs]-|AKIA|ASIA|AIza|ya29\.|eyJ|hf_|npm_|pypi-|shpat_|SG\.|sq0atp-|dop_v1_|lin_api_)/;
+/** A secret inside a connection string: `Server=db;Password=…;`, `AccountKey=…`. */
+const CONNECTION_SECRET = /\b(password|pwd|passwd|secret|token|api[-_]?key|account[-_]?key|shared[-_]?access[-_]?key)=([^;&\s]+)/gi;
 const URL_LIKE = /^[a-z][a-z0-9+.-]*:\/\//i;
 const HIDDEN = '•••';
 
+function secretName(name: string): boolean {
+  const bare = name.replace(/^-+/, '');
+  return SECRET_WORDS.test(bare) || bare.split(/[^A-Za-z0-9]+|(?<=[a-z])(?=[A-Z])/).some((part) => SECRET_PARTS.has(part.toLowerCase()));
+}
+
+/** A URL path segment that is a key rather than a name: a token's shape, or a long run of letters and digits. */
+function keyLike(segment: string): boolean {
+  let text = segment;
+  try {
+    text = decodeURIComponent(segment);
+  } catch {
+    // keep it as written
+  }
+  return SECRET_VALUE.test(text) || (text.length >= 16 && /\d/.test(text) && /[A-Za-z]/.test(text) && /^[\w.~%+=-]+$/.test(text)) || (text.length >= 32 && /^[\w+/=-]+$/.test(text));
+}
+
+/** One argument, or a value inside one, with a credential in it hidden. */
+function hideValue(text: string, depth = 0): string {
+  const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=([\s\S]+)$/.exec(text);
+  if (assigned && depth < 3) return secretName(assigned[1]!) ? `${assigned[1]}=${HIDDEN}` : `${assigned[1]}=${hideValue(assigned[2]!, depth + 1)}`;
+  if (URL_LIKE.test(text)) return hideUrlSecrets(text);
+  const header = /^([\w-]+)\s*:\s*\S/.exec(text);
+  if (header && secretName(header[1]!)) return `${header[1]}: ${HIDDEN}`;
+  if (SECRET_VALUE.test(text) || /^Bearer\s/i.test(text)) return HIDDEN;
+  return text.replace(CONNECTION_SECRET, (_m, key: string) => `${key}=${HIDDEN}`);
+}
+
 /**
- * Arguments with anything that looks like a credential hidden: the value of a flag, a `NAME=value`
- * or a `Header: value` whose name says it is one, a URL's user, password and query values (as an
- * argument or a flag's value), and a token recognisable by its shape.
+ * Arguments with anything that looks like a credential hidden: the value after a flag whose name
+ * says it is one, a `NAME=value` (also inside a `--flag=value`, as in `--env=TOKEN=…`), a
+ * `Header: value`, a password in a connection string, a URL's user, password, query values and
+ * key-like path segments, and a token recognisable by its shape.
  */
 export function hideSecrets(argv: readonly string[]): string[] {
   return argv.map((a, i) => {
     const prev = argv[i - 1];
-    if (prev && /^--?[\w.-]+$/.test(prev) && SECRET_FLAG.test(prev) && !a.startsWith('-')) return HIDDEN;
-    const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=(.+)$/.exec(a);
-    if (assigned && SECRET_FLAG.test(assigned[1]!)) return `${assigned[1]}=${HIDDEN}`;
-    if (assigned && URL_LIKE.test(assigned[2]!)) return `${assigned[1]}=${hideUrlSecrets(assigned[2]!)}`;
-    if (URL_LIKE.test(a)) return hideUrlSecrets(a);
-    const header = /^([\w-]+)\s*:\s*\S/.exec(a);
-    if (header && SECRET_FLAG.test(header[1]!)) return `${header[1]}: ${HIDDEN}`;
-    if (SECRET_VALUE.test(a) || /^Bearer\s/i.test(a)) return HIDDEN;
-    return a;
+    // The value of a secret flag, unless it is the next flag. A key may start with one dash.
+    if (prev && /^--?[\w.-]+$/.test(prev) && secretName(prev) && !a.startsWith('--')) return HIDDEN;
+    return hideValue(a);
   });
 }
 
-/** A URL without its user, password, query values or fragment. */
+/** A URL without its user, password, query values or fragment, and with path segments that look like keys hidden. */
 export function hideUrlSecrets(url: string): string {
   try {
     const u = new URL(url);
-    if (!u.username && !u.password && !u.search && !u.hash) return url;
+    const path = u.pathname
+      .split('/')
+      .map((segment) => (keyLike(segment) ? HIDDEN : segment))
+      .join('/');
+    if (!u.username && !u.password && !u.search && !u.hash && path === u.pathname) return url;
     const query = [...new Set(u.searchParams.keys())].map((k) => `${encodeURIComponent(k)}=${HIDDEN}`).join('&');
-    return `${u.protocol}//${u.host}${u.pathname}${query ? `?${query}` : ''}${u.hash ? `#${HIDDEN}` : ''}`;
+    return `${u.protocol}//${u.host}${path}${query ? `?${query}` : ''}${u.hash ? `#${HIDDEN}` : ''}`;
   } catch {
     return url;
   }
@@ -598,6 +678,47 @@ export function hideUrlSecrets(url: string): string {
 
 const quote = (a: string) => (/^[\w@%+=:,./•-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 const commandLine = (argv: readonly string[]) => argv.map(quote).join(' ');
+
+/**
+ * A command line as a shell splits it into arguments: spaces separate them, '…' keeps everything,
+ * "…" keeps all but \", \\, \$ and \`, and a backslash outside quotes keeps the next character.
+ */
+export function splitCommandLine(text: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let started = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (/\s/.test(c)) {
+      if (started) out.push(current);
+      current = '';
+      started = false;
+    } else if (c === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end < 0) throw new Error('a quote is not closed');
+      current += text.slice(i + 1, end);
+      started = true;
+      i = end;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < text.length && text[j] !== '"'; j++) {
+        if (text[j] === '\\' && j + 1 < text.length && '"\\$`'.includes(text[j + 1]!)) j++;
+        current += text[j];
+      }
+      if (j >= text.length) throw new Error('a quote is not closed');
+      started = true;
+      i = j;
+    } else if (c === '\\' && i + 1 < text.length) {
+      current += text[++i];
+      started = true;
+    } else {
+      current += c;
+      started = true;
+    }
+  }
+  if (started) out.push(current);
+  return out;
+}
 
 /** The arguments after `mcp` when an entry starts `shadowlap mcp`, directly or through a package runner. */
 function shadowlapMcpArgs(command: string, args: string[]): string[] | null {
@@ -627,6 +748,42 @@ function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'
   return { transport: 'stdio', target: [] };
 }
 
+/** How a server entry is recorded, from its command and arguments: the row without its name and file. */
+type ServerRecording = Omit<McpServerRow, 'name' | 'file'>;
+
+function commandServer(command: string, args: string[]): ServerRecording {
+  const shownArgs = hideSecrets(args);
+  const via = proxied(command, args);
+  if (via) {
+    const target = via.transport === 'http' ? hideUrlSecrets(via.target[0] ?? '') : commandLine(hideSecrets(via.target));
+    const hidden = shownArgs.some((a, i) => a !== args[i]) || (via.transport === 'http' && target !== via.target[0]);
+    return { transport: via.transport, target, viaShadowlap: true, line: commandLine([command, ...shownArgs]), entry: { command, args: shownArgs }, hidden };
+  }
+  const shown = hideSecrets([command, ...args]);
+  return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]) };
+}
+
+function urlServer(url: string): ServerRecording {
+  const shown = hideUrlSecrets(url);
+  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--url', shown]), entry: { command: 'shadowlap', args: ['mcp', '--url', shown] }, hidden: shown !== url };
+}
+
+/**
+ * "Add a server…": the `shadowlap mcp` line and client entry for a command or a URL typed into the
+ * dialog, with credentials hidden as the table hides them (`hidden` then asks the person to put
+ * the real value back in their own entry). Nothing is written. Throws with what to type instead.
+ */
+export function mcpServerFor(input: { command?: string | null; url?: string | null }): ServerRecording {
+  const url = input.url?.trim();
+  if (url) {
+    if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('an MCP server URL starts with http:// or https://, such as https://mcp.example.com/mcp');
+    return urlServer(url);
+  }
+  const argv = splitCommandLine(input.command ?? '');
+  if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
+  return commandServer(argv[0]!, argv.slice(1));
+}
+
 /** The MCP servers a project's client configs list, with how each would be recorded. */
 export function mcpServers(cwd: string): { servers: McpServerRow[]; files: Array<{ path: string; found: boolean; error: string | null }> } {
   const servers: McpServerRow[] = [];
@@ -652,21 +809,8 @@ export function mcpServers(cwd: string): { servers: McpServerRow[]; files: Array
       const url = str(entry.url) ?? str(entry.serverUrl) ?? str(entry.httpUrl);
       const command = str(entry.command);
       const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === 'string') : [];
-      if (command) {
-        const shownArgs = hideSecrets(args);
-        const via = proxied(command, args);
-        if (via) {
-          const target = via.transport === 'http' ? hideUrlSecrets(via.target[0] ?? '') : commandLine(hideSecrets(via.target));
-          const hidden = shownArgs.some((a, i) => a !== args[i]) || (via.transport === 'http' && target !== via.target[0]);
-          servers.push({ name, file: path, transport: via.transport, target, viaShadowlap: true, line: commandLine([command, ...shownArgs]), entry: { command, args: shownArgs }, hidden });
-          continue;
-        }
-        const shown = hideSecrets([command, ...args]);
-        servers.push({ name, file: path, transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]) });
-      } else if (url) {
-        const shown = hideUrlSecrets(url);
-        servers.push({ name, file: path, transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--url', shown]), entry: { command: 'shadowlap', args: ['mcp', '--url', shown] }, hidden: shown !== url });
-      }
+      if (command) servers.push({ name, file: path, ...commandServer(command, args) });
+      else if (url) servers.push({ name, file: path, ...urlServer(url) });
     }
     return { path, found: true, error: null };
   });
@@ -675,29 +819,31 @@ export function mcpServers(cwd: string): { servers: McpServerRow[]; files: Array
 
 // ---- Project ----
 
-function fileBytes(path: string): number {
-  try {
-    return statSync(path).size;
-  } catch {
-    return 0;
-  }
-}
-
 /** Clean up old runs looks this far back unless the page says otherwise. */
 export const CLEANUP_DAYS = 30;
 
 export function projectSettings(ctx: SettingsContext): ProjectSettings {
   const counts = ctx.store.runCounts();
   const dbPath = ctx.dbPath && ctx.dbPath !== ':memory:' ? ctx.dbPath : null;
-  const days = String(CLEANUP_DAYS);
+  const size = ctx.store.size();
   return {
     name: ctx.name ?? basename(ctx.cwd),
     folder: ctx.cwd,
-    store: { path: dbPath, bytes: dbPath ? fileBytes(dbPath) + fileBytes(`${dbPath}-wal`) : null },
+    store: { path: dbPath, bytes: size.bytes, free: size.free },
     runs: counts.runs,
     attempts: counts.attempts,
     running: counts.running,
     address: ctx.address ?? null,
-    cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', days, '--dry-run'], run: ['gc', '--older-than', days] },
+    cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', String(CLEANUP_DAYS), '--dry-run', '--json'] },
   };
+}
+
+/**
+ * The job behind "Delete N runs", from the dry run's result: the same cutoff (and --keep), and the
+ * number of runs the dialog promised, so gc deletes exactly the runs the dry run listed, or refuses
+ * and deletes nothing when they changed (a run crossed the line meanwhile, or another was deleted).
+ */
+export function cleanupArgv(dryRun: { cutoff: number | null; keep: number | null; runs: readonly unknown[] }): string[] {
+  if (dryRun.cutoff === null && dryRun.keep === null) throw new Error('the dry run picked no runs: give it --older-than or --keep');
+  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', String(dryRun.runs.length), '--json'];
 }

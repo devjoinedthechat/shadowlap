@@ -5,7 +5,7 @@ export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
 // Settings: one read model per tab; edits go through the engine's config-file module.
-export { CLEANUP_DAYS, agentsSection, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServers, parseJsonc, projectSettings, readShippedDoc, redactionSettings, toolsSettings } from './settings.js';
+export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, previewArgv, projectSettings, readShippedDoc, redactionSettings, splitCommandLine, toolsSettings } from './settings.js';
 export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, MatchingSettings, McpServerRow, ProjectSettings, RedactionSettings, RuleForm, RuleRow, SettingsContext, ToolRow, ToolsSettings } from './settings.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
