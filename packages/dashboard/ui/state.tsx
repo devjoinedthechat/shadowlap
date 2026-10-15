@@ -254,9 +254,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const actionsOff = client.exported
     ? 'This is an exported copy: nothing runs from here.'
     : readOnly
-      ? meta?.readOnly
-        ? 'This dashboard is read-only: it was started with --read-only.'
-        : 'Actions run the CLI: start the dashboard with shadowlap dashboard.'
+      ? (meta?.readOnlyReason ??
+        (meta?.readOnly ? 'This dashboard is read-only: it was started with --read-only.' : 'Actions run the CLI: start the dashboard with shadowlap dashboard.'))
       : conn === 'expired'
         ? 'This link has expired.'
         : null;

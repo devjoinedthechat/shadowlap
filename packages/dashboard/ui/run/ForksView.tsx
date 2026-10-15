@@ -1,11 +1,10 @@
 import { Fragment, useMemo, type ReactNode } from 'react';
 import type { LineageNode, RunListItem } from '../api.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
-import { approx, num, plural, shortId, stamp } from '../format.js';
+import { approx, plural, shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
-import { runType, type RunLike } from '../runs.js';
+import { familyLine, type RunLike } from '../runs.js';
 import { useApp } from '../state.js';
 
 /**
@@ -36,23 +35,6 @@ function asRun(n: LineageNode, listed: RunListItem | undefined): RunLike {
     test: listed?.test ?? null,
     checks: n.checks,
   };
-}
-
-/** What happened in a run, in one line. */
-export function familyLine(r: RunLike): string {
-  const o = parseOrigins(r.origins);
-  const n = o ? countOrigins(o) : null;
-  const t = runType(r);
-  if (r.status === 'running') return `recording · ${plural(r.calls, 'call')} so far`;
-  if (t === 'fork') {
-    const went = n ? `${num(n.rep)} replayed · ${num(n.live + n.fail)} live${n.block ? ` · ${num(n.block)} blocked` : ''}${n.stub ? ` · ${num(n.stub)} stubbed` : ''}` : plural(r.calls, 'call');
-    return `fork @${r.divergence!.callNo} · ${went} · ${approx(r.spent)}`;
-  }
-  if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
-  if (t === 'test') return `test · replayed offline · ${plural(r.calls, 'call')}`;
-  if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${approx(r.captured)} as captured`;
-  if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
-  return `recording · ${plural(r.calls, 'call')} · ${approx(r.spent)}`;
 }
 
 export function ForksView({ runId }: { runId: string }) {

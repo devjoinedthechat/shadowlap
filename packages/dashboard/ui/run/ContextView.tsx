@@ -22,8 +22,9 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   };
   const ms = calls.filter((c) => c.kind === 'api' && c.usage && c.outcome !== 'error');
   if (!ms.length) return <div className="empty">{calls.some((c) => c.kind === 'api') ? 'No model call reported token usage, so there is no context to show.' : 'No model calls yet.'}</div>;
-  // The server's misses when it judged them for the whole run; the same rule here otherwise.
-  const misses = new Map((run.cache?.misses ?? cacheMisses(ms)).map((m) => [m.callNo, m.tokens]));
+  // The server's misses when it judged them (for the whole run, or on each call); the same rule here otherwise.
+  const judged = run.cache?.misses ?? (ms.some((c) => c.cacheMiss !== undefined) ? ms.flatMap((c) => (c.cacheMiss ? [{ callNo: c.callNo, tokens: c.cacheMiss.sentAgain }] : [])) : null);
+  const misses = new Map((judged ?? cacheMisses(ms)).map((m) => [m.callNo, m.tokens]));
   const max = Math.max(1, ...ms.map((c) => wholeInput(c.usage!)));
   const outMax = Math.max(1, ...ms.map((c) => c.usage!.output));
   const big = ms.reduce((a, b) => (wholeInput(b.usage!) > wholeInput(a.usage!) ? b : a));

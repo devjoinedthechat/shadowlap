@@ -8,12 +8,13 @@ export interface ActionLike {
   key: string;
   label: string;
   opensRun: boolean;
-  prompt: { label: string; placeholder?: string; initial?: string } | null;
+  prompt: { label: string; placeholder?: string; initial?: string; choices?: ReadonlyArray<{ value: string; label: string }> } | null;
   disabled: string | null;
   /** The CLI flag it adds, shown on the right ("--fail-at 19=529"). */
   flag?: string;
-  /** Whether it acts on the selected call or the whole run. */
-  group?: 'call' | 'run';
+  /** Whether it acts on the selected call or the whole run; null when it has a place of its own (Replay, Pack, a normalizer). */
+  group?: 'call' | 'run' | null;
+  /** One line on what it does and why, from the server. */
   hint?: string;
 }
 

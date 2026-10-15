@@ -1,4 +1,4 @@
-import type { BlameView, CheckView, RunDetail } from '../api.js';
+import type { BlameView, CheckView, RunDetail } from '../types.js';
 import type { RunLike } from '../runs.js';
 import { modelCallOf } from './calls.js';
 
@@ -38,18 +38,32 @@ export function forkAtOf(d: RunDetail): number | null {
   return d.forkAt ?? d.run.divergence?.callNo ?? null;
 }
 
-/** Where blame says the run was lost: the call, model call k of m in its scope, the confidence and the fork it rescued. */
-export function blameOf(d: RunDetail): BlameView | null {
+/**
+ * What blame found: the call the run was lost at, model call k of m in its scope, the confidence and
+ * the fork it rescued; or, when it placed the failure on no call (`unrescuable`, `stopped`), that it
+ * ran. Null when the run was never blamed.
+ */
+export function blameOf(d: Pick<RunDetail, 'blame' | 'calls'> & { run: { meta?: RunDetail['run']['meta'] } }): BlameView | null {
   const stored = d.run.meta?.blame;
-  const b: BlameView | null = d.blame ?? (stored && stored.outcome === 'blamed' && stored.callNo ? { callNo: stored.callNo, confidence: stored.confidence, rescuedRunId: stored.rescuedRunId, scope: stored.scope ?? null } : null);
-  if (!b || !b.callNo) return null;
-  if (b.modelCall) return b;
+  const b: BlameView | null =
+    d.blame ??
+    (stored && typeof stored === 'object'
+      ? {
+          callNo: stored.outcome === 'blamed' && typeof stored.callNo === 'number' ? stored.callNo : null,
+          confidence: stored.confidence ?? null,
+          rescuedRunId: stored.rescuedRunId ?? null,
+          scope: stored.scope ?? null,
+          outcome: stored.outcome === 'blamed' || stored.outcome === 'unrescuable' || stored.outcome === 'stopped' ? stored.outcome : null,
+        }
+      : null);
+  if (!b) return null;
+  if (b.callNo === null || b.modelCall) return b;
   const modelCall = modelCallOf(d.calls, b.callNo, b.scope);
   return modelCall ? { ...b, modelCall } : b;
 }
 
 /** The run's outcome checks, with how many attempts each held in when the server counts them. */
-export function checksOf(d: RunDetail): CheckView[] {
+export function checksOf(d: Pick<RunDetail, 'checks'> & { run: { meta?: RunDetail['run']['meta'] } }): CheckView[] {
   if (d.checks?.length) return d.checks;
   return (d.run.meta?.checks ?? []).map((c) => ({ label: c.label, ok: c.ok }));
 }

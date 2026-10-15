@@ -162,7 +162,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
   const parent = chain[0] ?? null;
-  const rescued = run.rescuedBy ? { callNo: run.rescuedBy.callNo } : parent?.run.meta?.blame?.rescuedRunId === runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
+  const rescued: { callNo: number | null } | null = run.rescuedBy ? { callNo: run.rescuedBy.callNo ?? forkAt } : parent?.run.meta?.blame?.rescuedRunId === runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
 
   const select = useCallback((n: number) => navigate(href.run(runId, n, v), true), [runId, v]);
   const setView = (next: View) => navigate(href.run(runId, selected, next), true);

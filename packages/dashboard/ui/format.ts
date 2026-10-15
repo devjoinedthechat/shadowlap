@@ -42,6 +42,14 @@ export function durLong(ms: number): string {
   return `${Math.round(ms / 1000)}s`;
 }
 
+/**
+ * A receipt's time, such as the time a replay did not wait: a short one as a call's duration (340
+ * ms, 2.9 s), so a replay of quick calls does not read "0s"; a long one rounded (28m, 1h 5m).
+ */
+export function receiptDuration(ms: number): string {
+  return ms < 60_000 ? dur(ms) : durLong(ms);
+}
+
 export function num(n: number): string {
   return n >= 1000 ? n.toLocaleString('en-US') : String(n);
 }

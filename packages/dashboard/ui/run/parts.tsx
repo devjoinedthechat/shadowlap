@@ -1,42 +1,31 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail } from '../api.js';
 import { CmdLine } from '../components/bits.js';
-import { approx, callName, clip, durLong, jsonText, ktok, money, num, shortId } from '../format.js';
-import { countOrigins, type OriginCounts } from '../origins.js';
+import { callName, clip, jsonText, num, shortId } from '../format.js';
+import { countOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
 import { scopeDepth, scopeLeaf, scopeCount } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
+import { bannerFor, DIVERGED } from './banner.js';
+import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
-
-type Item = [string | number, string, string?];
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
 export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
   const s = run.summary;
-  const live = run.run.status === 'running';
-  const n: OriginCounts = countOrigins(run.calls.map(originOf));
-  const capture = runType(runLikeOf(run)) === 'capture';
-  const unpriced = s.cost.spent === 0 && s.cost.unknownModels.length > 0;
-  const spent: Item = capture ? [money(s.cost.captured), 'as captured'] : unpriced ? ['—', `spent · no price for ${s.cost.unknownModels[0]}`] : [approx(s.cost.spent), 'spent'];
-  const plain = !n.rep && !n.block && !n.stub && !n.inject && !n.over;
-  let items: Item[];
-  if (plain) {
-    items = [[s.total, live ? (s.total === 1 ? 'call so far' : 'calls so far') : s.total === 1 ? 'call' : 'calls'], [s.byKind.api, s.byKind.api === 1 ? 'model call' : 'model calls'], [s.byKind.tool, s.byKind.tool === 1 ? 'tool call' : 'tool calls']];
-    if (n.fail) items.push([n.fail, 'failed', 'err']);
-    items.push([s.upstreamRequests, s.upstreamRequests === 1 ? 'upstream request' : 'upstream requests'], spent);
-  } else {
-    items = [[s.total, s.total === 1 ? 'call' : 'calls'], [n.rep, 'replayed', n.rep ? 'lime' : ''], [n.live, 'live']];
-    if (n.over) items.push([n.over, 'overridden']);
-    if (n.inject) items.push([n.inject, 'injected']);
-    if (n.fail) items.push([n.fail, 'failed', 'err']);
-    if (n.block + n.stub) items.push([n.block + n.stub, n.block && n.stub ? 'fenced' : n.stub ? 'stubbed' : 'blocked']);
-    items.push([s.upstreamRequests, s.upstreamRequests === 1 ? 'upstream request' : 'upstream requests'], spent);
-    const tokens = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
-    if (s.cost.saved || tokens) items.push([money(s.cost.saved), `not re-spent${tokens ? ` · ${ktok(tokens)} tokens` : ''}`, 'q']);
-    if (notWaitedMs) items.push([durLong(notWaitedMs), 'not waited', 'q']);
-  }
+  const items = metricItems({
+    total: s.total,
+    byKind: s.byKind,
+    upstreamRequests: s.upstreamRequests,
+    cost: s.cost,
+    tokensNotRespent: s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0),
+    counts: countOrigins(run.calls.map(originOf)),
+    capture: runType(runLikeOf(run)) === 'capture',
+    live: run.run.status === 'running',
+    notWaitedMs,
+  });
   return (
     <section className="metrics" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
       {items.map(([v, label, cls], i) => (
@@ -63,17 +52,10 @@ function Why({ children }: { children: ReactNode }) {
   );
 }
 
-const DIVERGED: Record<string, string> = {
-  request_changed: 'a request changed',
-  new_call: 'a call the recording never made',
-  forced: 'forced live',
-  beyond_recording: 'past the end of the recording',
-};
-
 export interface BannerProps {
   run: RunDetail;
   blame: BlameView | null;
-  rescued: { callNo: number } | null;
+  rescued: { callNo: number | null } | null;
   checks: CheckView[];
   showDiff: boolean;
   onToggleDiff: () => void;
@@ -85,19 +67,29 @@ export interface BannerProps {
 export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
   const app = useApp();
   const r = run.run;
-  const d = r.divergence;
-  const like = runLikeOf(run);
-  const type = runType(like);
+  const b = bannerFor({
+    status: r.status,
+    type: runType(runLikeOf(run)),
+    divergence: r.divergence,
+    intervention: run.intervention ?? null,
+    rescued,
+    blame,
+    notRecorded: run.notRecorded ?? null,
+    checks,
+    fix: run.fix ?? null,
+    upstreamRequests: run.summary.upstreamRequests,
+  });
+  if (!b) return null;
   const call = (n: number) => (
     <button className="bn" type="button" onClick={() => onSelect(n)}>
       #{n}
     </button>
   );
-  const diffToggle = d?.diff?.length ? (
+  const diffToggle = (
     <button className="linkbtn" type="button" onClick={onToggleDiff}>
       {showDiff ? 'Hide diff' : 'Show diff'}
     </button>
-  ) : null;
+  );
   const normalizer = run.actions.find((a) => a.key === 'n');
   const addNormalizer =
     normalizer && !app.actionsOff ? (
@@ -105,143 +97,98 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
         Add normalizer
       </button>
     ) : null;
-  const fixLink = run.fix ? (
-    <a className="more" href={href.fixes(run.fix.id, 'blame')}>
-      Fix →
-    </a>
-  ) : null;
-
-  if (r.status === 'running')
-    return (
-      <section className="banner live">
-        <span className="dotlive" />
-        <span className="bk">recording</span>
-        <Why>calls arrive as they happen · replay and fork once it finishes</Why>
-      </section>
-    );
-  if (rescued && d)
-    return (
-      <section className="banner fork">
-        <span className="bk">forked at</span>
-        {call(rescued.callNo)}
-        <Why>a blame attempt that passed: the model was asked #{rescued.callNo} again · writes stubbed</Why>
-        <span className="end">{fixLink}</span>
-      </section>
-    );
-  if (d && type === 'test')
-    return (
-      <section className="banner blame">
-        <span className="bk">diverged at</span>
-        {call(d.callNo)}
-        <code>{d.name}</code>
-        <Why>
-          {num(d.replayedBefore)} calls replayed before it{d.hints?.[0] ? ` · ${d.hints[0].message}` : ''}
-        </Why>
-        {d.diff?.[0] ? <span className="path">~ {d.diff[0].path}</span> : null}
-        <span className="end">
-          {addNormalizer}
-          {diffToggle}
-        </span>
-      </section>
-    );
-  if (d) {
-    const flag = run.intervention?.flag ?? (d.type === 'forced' && d.reason ? d.reason.replace(/^forced live by /, '').split(':')[0] : null);
-    const reason = d.type === 'forced' && d.reason ? d.reason.replace(/^forced live by /, '') : null;
-    return (
-      <section className="banner fork">
-        <span className="bk">forked at</span>
-        {call(d.callNo)}
-        <code>{d.name}</code>
-        <Why>
-          {reason ?? (flag ? `${flag} · ` : '') + (DIVERGED[d.type] ?? d.type)}
-          {' · '}
-          {num(d.replayedBefore)} {d.replayedBefore === 1 ? 'call' : 'calls'} replayed before it
-        </Why>
-        {d.diff?.[0] ? <span className="path">~ {d.diff[0].path}</span> : null}
-        <span className="end">
-          {d.hints?.some((h) => h.normalizer) ? addNormalizer : null}
-          {diffToggle}
-        </span>
-      </section>
-    );
-  }
-  if (blame && blame.callNo)
-    return (
-      <section className="banner blame">
-        <span className="bk">lost at</span>
-        {call(blame.callNo)}
-        <Why>
-          {blame.modelCall ? `model call ${blame.modelCall.k} of ${blame.modelCall.m}` : `call #${blame.callNo}`}
-          {blame.confidence ? ` · confidence ${blame.confidence}` : ''}
-          {blame.scope ? ` · scope ${blame.scope}` : ''}
-        </Why>
-        <span className="end">
-          {blame.rescuedRunId ? (
-            <a className="more" href={href.run(blame.rescuedRunId)}>
-              Rescued fork
-            </a>
-          ) : null}
-          {fixLink}
-        </span>
-      </section>
-    );
-  const nr = run.notRecorded;
-  if (nr && (nr.tools.length || nr.hosts.length)) {
-    const what = [...nr.tools, ...nr.hosts];
-    return (
-      <section className="banner blame">
-        <span className="bk">not recorded</span>
-        <Why>
-          {nr.tools.length ? `${nr.tools.length === 1 ? '1 tool wasn’t' : `${nr.tools.length} tools weren’t`} wrapped` : `${nr.hosts.length === 1 ? '1 host wasn’t' : `${nr.hosts.length} hosts weren’t`} recorded`}, so their calls aren’t in this recording: {what.join(', ')}. A replay would run them for real.
-        </Why>
-      </section>
-    );
-  }
-  const failedChecks = checks.filter((c) => !c.ok);
-  if (checks.length && !failedChecks.length && r.status === 'completed')
-    return (
-      <section className="banner live">
-        <span className="bk">checks</span>
-        {checks.map((c) => (
-          <span className="st ok" key={c.label}>
-            <i />
-            {c.label}
-            {c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}
-          </span>
-        ))}
-        {type === 'test' || run.summary.upstreamRequests === 0 ? <Why>replayed offline · 0 upstream</Why> : null}
-      </section>
-    );
-  const failure = failedChecks[0] ? `check failed: ${failedChecks[0].label}` : r.status === 'failed' ? 'the agent exited with an error' : r.status === 'crashed' ? 'the run was interrupted' : null;
-  if (failure && run.fix)
-    return (
-      <section className="banner blame">
-        <span className="bk">failed</span>
-        <Why>
-          {failure} · {run.fix.status === 'open' ? `no fix yet for “${run.fix.title}”` : `fixed: “${run.fix.title}”, ${run.fix.status}`}
-        </Why>
-        <span className="end">
-          <a className="more" href={href.fixes(run.fix.id)}>
-            Fix →
-          </a>
-        </span>
-      </section>
-    );
-  if (failure)
-    return (
-      <section className="banner blame">
-        <span className="bk">failed</span>
-        <Why>{failure} · not blamed yet</Why>
-        {app.hasKind(JOB_KINDS.blame) && !app.actionsOff ? (
+  const fixLink = (step?: string) =>
+    run.fix ? (
+      <a className="more" href={href.fixes(run.fix.id, step ?? null)}>
+        Fix →
+      </a>
+    ) : null;
+  switch (b.kind) {
+    case 'recording':
+      return (
+        <section className="banner live">
+          <span className="dotlive" />
+          <span className="bk">recording</span>
+          <Why>calls arrive as they happen · replay and fork once it finishes</Why>
+        </section>
+      );
+    case 'rescued':
+      return (
+        <section className="banner fork">
+          <span className="bk">forked at</span>
+          {b.callNo !== null ? call(b.callNo) : null}
+          <Why>{b.why}</Why>
+          <span className="end">{fixLink('blame')}</span>
+        </section>
+      );
+    case 'diverged':
+    case 'fork':
+      return (
+        <section className={`banner ${b.kind === 'diverged' ? 'blame' : 'fork'}`}>
+          <span className="bk">{b.kind === 'diverged' ? 'diverged at' : 'forked at'}</span>
+          {call(b.callNo)}
+          <code>{b.name}</code>
+          <Why>{b.why}</Why>
+          {b.path ? <span className="path">~ {b.path}</span> : null}
           <span className="end">
-            <button className="linkbtn" type="button" onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.blame, { runId: r.runId })))}>
-              Run blame
-            </button>
+            {b.normalizer ? addNormalizer : null}
+            {b.diff ? diffToggle : null}
           </span>
-        ) : null}
-      </section>
-    );
-  return null;
+        </section>
+      );
+    case 'lost':
+      return (
+        <section className="banner blame">
+          <span className="bk">lost at</span>
+          {call(b.callNo)}
+          <Why>{b.why}</Why>
+          <span className="end">
+            {b.rescuedRunId ? (
+              <a className="more" href={href.run(b.rescuedRunId)}>
+                Rescued fork
+              </a>
+            ) : null}
+            {fixLink('blame')}
+          </span>
+        </section>
+      );
+    case 'not-recorded':
+      return (
+        <section className="banner blame">
+          <span className="bk">not recorded</span>
+          <Why>{b.why}</Why>
+        </section>
+      );
+    case 'checks':
+      return (
+        <section className="banner live">
+          <span className="bk">checks</span>
+          {b.checks.map((c) => (
+            <span className="st ok" key={c.label}>
+              <i />
+              {c.text}
+            </span>
+          ))}
+          {b.why ? <Why>{b.why}</Why> : null}
+        </section>
+      );
+    case 'failed':
+      return (
+        <section className="banner blame">
+          <span className="bk">failed</span>
+          <Why>{b.why}</Why>
+          {b.fix ? (
+            <span className="end">{fixLink()}</span>
+          ) : !b.blamed && app.hasKind(JOB_KINDS.blame) && !app.actionsOff ? (
+            <span className="end">
+              <button className="linkbtn" type="button" onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.blame, { runId: r.runId })))}>
+                Run blame
+              </button>
+            </span>
+          ) : null}
+        </section>
+      );
+  }
 }
 
 /** The request that changed at the fork: what the recording sent, and what this run sent. */

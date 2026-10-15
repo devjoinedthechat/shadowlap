@@ -38,6 +38,10 @@ export interface RunLike {
   /** Outcome checks, as they came out for this run. */
   checks?: { passed: number; total: number } | null;
   author?: string | null;
+  /** What kind of run it is and how it came out, when the server classifies runs itself. */
+  kind?: string | null;
+  outcome?: { kind: string; callNo?: number; checks?: number; check?: string | null } | null;
+  failed?: boolean | null;
 }
 
 export type RunType = 'recording' | 'capture' | 'fork' | 'clean' | 'replay' | 'test';
@@ -48,7 +52,12 @@ export function isAttempt(r: RunLike): boolean {
   return !!(r.attempt || r.repeat || r.probe || r.verify);
 }
 
+/** The server's kinds, in the words of the chips: a recording from a pack is a recording. */
+const SERVER_KINDS: Readonly<Record<string, RunType>> = { recording: 'recording', pack: 'recording', capture: 'capture', fork: 'fork', clean: 'clean', replay: 'replay', test: 'test' };
+
 export function runType(r: RunLike): RunType {
+  const known = r.kind ? SERVER_KINDS[r.kind] : undefined;
+  if (known) return known;
   if (r.test) return 'test';
   if (r.mode !== 'replay') return r.covers?.length || r.source ? 'capture' : 'recording';
   if (r.divergence) return 'fork';
@@ -57,6 +66,7 @@ export function runType(r: RunLike): RunType {
 
 /** A run that did not do what it should: the agent failed, a check failed, a test diverged, or blame found where it was lost. */
 export function isFailed(r: RunLike): boolean {
+  if (typeof r.failed === 'boolean') return r.failed;
   if (r.status === 'failed' || r.status === 'crashed') return true;
   if (r.checks && r.checks.passed < r.checks.total) return true;
   if (r.blame && r.blame.callNo) return true;
@@ -137,6 +147,16 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
 /** The Runs table's status: the outcome only, in a dot and a few words. */
 export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; text: string } {
   if (isLive(r)) return { tone: 'live', text: 'in progress' };
+  const o = r.outcome;
+  if (o) {
+    if (o.kind === 'running') return { tone: 'live', text: 'in progress' };
+    if (o.kind === 'diverged' && typeof o.callNo === 'number') return { tone: 'err', text: `diverged at #${o.callNo}` };
+    if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: `lost at #${o.callNo}` };
+    if (o.kind === 'check-failed') return { tone: 'err', text: 'check failed' };
+    if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: `${plural(o.checks, 'check')} passed` };
+    if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
+    if (o.kind === 'none') return { tone: 'n', text: '—' };
+  }
   if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
   if (r.blame && r.blame.callNo) return { tone: 'err', text: `lost at #${r.blame.callNo}` };
   if (r.checks && r.checks.total) {
@@ -237,4 +257,33 @@ export function compareTarget(run: { runId: string; parentRunId: string | null }
   if (run.parentRunId) return [run.parentRunId, run.runId];
   const first = [...children].sort((a, b) => a.startedAt - b.startedAt)[0];
   return first ? [run.runId, first.runId] : null;
+}
+
+/** What happened in a run, in one line, for the Forks view: "fork @17 · 16 replayed · 13 live · 1 blocked · ≈$0.04". */
+export function familyLine(r: RunLike): string {
+  const o = parseOrigins(r.origins);
+  const n = o ? countOrigins(o) : null;
+  const t = runType(r);
+  if (r.status === 'running') return `recording · ${plural(r.calls, 'call')} so far`;
+  if (t === 'fork' && r.divergence) {
+    const went = n ? `${num(n.rep)} replayed · ${num(n.live + n.fail)} live${n.block ? ` · ${num(n.block)} blocked` : ''}${n.stub ? ` · ${num(n.stub)} stubbed` : ''}` : plural(r.calls, 'call');
+    return `fork @${r.divergence.callNo} · ${went} · ${approx(r.spent)}`;
+  }
+  if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
+  if (t === 'test') return `test · replayed offline · ${plural(r.calls, 'call')}`;
+  if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${money(r.captured)} as captured`;
+  if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
+  return `recording · ${plural(r.calls, 'call')} · ${approx(r.spent)}`;
+}
+
+/**
+ * The run an exported copy opens on: the one the others lead to. A copy holds a run with the runs it
+ * came from, in whatever order the exporter listed them; the run that no other included run names as
+ * its parent is the one that was shared. With several such runs (unrelated runs exported together),
+ * the first listed.
+ */
+export function exportStartRun(runIds: readonly string[], runs: ReadonlyArray<{ runId: string; parentRunId: string | null }>): string | null {
+  const included = new Set(runIds);
+  const parents = new Set(runs.filter((r) => included.has(r.runId) && r.parentRunId && included.has(r.parentRunId)).map((r) => r.parentRunId!));
+  return runIds.find((id) => !parents.has(id)) ?? runIds[0] ?? null;
 }

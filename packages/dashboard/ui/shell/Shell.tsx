@@ -17,6 +17,7 @@ import { TestsPage } from '../pages/Tests.js';
 import { TrainingPage } from '../pages/Training.js';
 import { href, type Route } from '../route.js';
 import { navigate, useRoute } from '../router.js';
+import { exportStartRun } from '../runs.js';
 import { useApp } from '../state.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
@@ -29,7 +30,7 @@ import { TopBar } from './TopBar.js';
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell() {
   const route = useRoute();
-  const { setSideOpen, exported, meta, closeJobs } = useApp();
+  const { setSideOpen, exported, meta, runs, closeJobs } = useApp();
 
   // The phone sidebar closes on navigation; a job's drawer closes when the page changes (not when a
   // call or a view is picked), and a toast says when the job finishes.
@@ -37,13 +38,14 @@ export function Shell() {
   const pageKey = route.page === 'run' ? `run:${route.id}` : route.page;
   useEffect(() => closeJobs(), [pageKey, closeJobs]);
 
-  // An exported copy holds runs and Compare between them: it opens on its first run.
+  // An exported copy holds runs and Compare between them: it opens on the run that was shared, the
+  // one the runs it came from lead to, whichever order the copy lists them in.
   useEffect(() => {
-    if (!exported || !meta) return;
-    const first = meta.runIds?.[0];
-    if (route.page === 'overview' && first) navigate(href.run(first), true);
+    if (!exported || !meta || !runs) return;
+    const start = exportStartRun(meta.runIds ?? [], runs);
+    if (route.page === 'overview' && start) navigate(href.run(start), true);
     else if (route.page !== 'run' && route.page !== 'runs' && route.page !== 'compare' && route.page !== 'overview') navigate(href.runs(), true);
-  }, [exported, meta, route]);
+  }, [exported, meta, runs, route]);
 
   return (
     <>

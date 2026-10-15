@@ -1,184 +1,21 @@
-import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
 import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
+import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
+import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
 /**
- * The dashboard's API client, the one module that talks to the server. The types are the server's
- * (`src/api.ts`), widened with the fields other parts of the API add: each is optional, and every
- * view renders it when it is there and falls back to what it can show without it.
+ * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
+ * the server's, widened with the fields other parts of the API add. Every answer is put in the shape
+ * the views read (`normalize.ts`) as it arrives.
  */
 
 export type { Block, Delta } from '../../engine/src/deltas.js';
 export type { Turn, TurnBlock } from '../../engine/src/conversation.js';
 export type { RunChanges } from '../../engine/src/changes.js';
 export type { RunComparison, SearchHit, RunNote };
-
-// ---------------------------------------------------------------------------------------------- types
-
-/** What `/api/runs` may add to a run: its origins, whether it is a test or an attempt, its blame and checks. */
-export interface RunListExtras {
-  /** One character per call, in order (r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed), or origin names. */
-  origins?: string | string[] | null;
-  /** A replay made by `shadowlap test`: the golden and the test session. */
-  test?: { golden: string; session?: string } | null;
-  /** Set on runs made by `--repeat`, blame and verify: bundled under the run they came from, not listed. */
-  attempt?: string | boolean | null;
-  repeat?: unknown;
-  probe?: unknown;
-  verify?: unknown;
-  blame?: { callNo: number | null } | null;
-  checks?: { passed: number; total: number } | null;
-  author?: string | null;
-}
-export type RunListItem = ServerRunListItem & RunListExtras;
-
-export interface CallRowExtras {
-  /** For a replayed call: how long it took where it was recorded (the parent's call, or further back). */
-  recordedMs?: number | null;
-  /** What a tool returned, short enough for a table cell. */
-  resultShort?: string | null;
-  /** Which conversation of the run the call belongs to (a batch run holds many). */
-  conversation?: number | null;
-  requestRef?: string | null;
-  responseRef?: string | null;
-  fingerprint?: string | null;
-  /** A recorded user input (`user_input`), read like a tool. */
-  input?: boolean;
-}
-export type CallRow = ServerCallRow & CallRowExtras;
-
-export interface Intervention {
-  /** The flag as given: `--fail-at 19=529`. */
-  flag: string;
-  value?: string | null;
-  callNo: number;
-}
-
-export interface BlameView {
-  callNo: number | null;
-  /** The blamed call counted among the model calls in the blame's scope: k of m. */
-  modelCall?: { k: number; m: number } | null;
-  confidence?: string | null;
-  rescuedRunId?: string | null;
-  scope?: string | null;
-}
-
-export interface CheckView {
-  label: string;
-  ok: boolean;
-  count?: number;
-  of?: number;
-}
-
-/** What `/api/runs/:id` may add for the run page. */
-export interface RunDetailExtras {
-  /** The recorded duration of every replayed call, summed up the parent chain. */
-  notWaitedMs?: number | null;
-  forkAt?: number | null;
-  intervention?: Intervention | null;
-  /** A fork that blame made: the run it rescued, and the call it asked again. */
-  rescuedBy?: { runId: string; callNo: number } | null;
-  blame?: BlameView | null;
-  checks?: CheckView[] | null;
-  notRecorded?: { hosts: string[]; tools: string[] } | null;
-  cache?: { readShare: number; misses: Array<{ callNo: number; tokens: number }> } | null;
-  provenance?: Record<string, unknown> | null;
-  /** The fix this failure belongs to. */
-  fix?: { id: string; status: string; title: string } | null;
-}
-export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions'> & { calls: CallRow[]; actions: ActionItem[] } & RunDetailExtras;
-
-/** An action as the fork menu lists it; `flag`, `group` and `hint` come with the newer action list. */
-export type ActionItem = ServerAction & { flag?: string; group?: 'call' | 'run'; hint?: string };
-
-export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & { call: ServerCallDetail['call'] & CallRowExtras; actions: ActionItem[] };
-
-export type LineageNode = ServerLineageNode & { probe?: unknown; verify?: unknown; origins?: string | string[] | null };
-
-export interface LiveRun {
-  runId: string;
-  calls: number;
-}
-
-export interface Meta {
-  version: string | null;
-  dbPath: string | null;
-  /** Actions can run: started by `shadowlap dashboard`, and not read-only. */
-  actions: boolean;
-  /** An exported HTML copy: recorded data only, no server behind it. */
-  static?: boolean;
-  exportedAt?: number;
-  redacted?: boolean;
-  runIds?: string[];
-  readOnly?: boolean;
-  /** Where the server listens: 127.0.0.1:4777. */
-  address?: string | null;
-  storeBytes?: number | null;
-  /** Runs (attempts left out) and attempts. */
-  counts?: { runs: number; attempts: number } | null;
-  live?: LiveRun[];
-  /** The job kinds `POST /api/jobs` accepts. An action whose kind is missing is not shown. */
-  jobKinds?: string[];
-  project?: { name: string; path: string } | null;
-  /** How many redaction rules a copy made now applies. */
-  redactRules?: number | null;
-}
-
-export interface JobLink {
-  label: string;
-  href: string;
-}
-
-export interface JobFile {
-  fileId: string;
-  name: string;
-  label?: string | null;
-  path?: string;
-  bytes?: number;
-}
-
-export interface JobView {
-  id: string;
-  args: string[];
-  runId: string | null;
-  opensRun: boolean;
-  startedAt: number;
-  done: boolean;
-  code: number | null;
-  newRunId: string | null;
-  lines: string[];
-  total: number;
-  kind?: string;
-  title?: string;
-  endedAt?: number | null;
-  runs?: string[];
-  links?: JobLink[];
-  files?: JobFile[];
-  result?: unknown;
-}
-
-/** `/api/changes`: whether anything shown changed since the cursor. */
-export interface Changes {
-  cursor?: string;
-  version?: string | number;
-  changed?: boolean;
-  runs?: boolean;
-  calls?: boolean;
-  events?: boolean;
-  jobs?: boolean;
-  live?: LiveRun[];
-}
-
-/** What `shadowlap export html` embeds: the answers this page would otherwise have asked a server for. */
-export interface StaticPayload {
-  shadowlap: string | null;
-  exportedAt: number;
-  runIds: string[];
-  redacted: boolean;
-  responses: Record<string, unknown>;
-}
+export type * from './types.js';
 
 /**
  * The job kinds the UI starts through `POST /api/jobs`, by what they do. A button or palette entry
@@ -242,6 +79,8 @@ export interface Client {
   run(id: string): Promise<RunDetail>;
   call(id: string, n: number): Promise<CallDetail>;
   lineage(id: string): Promise<LineageNode[]>;
+  /** The run's record for Provenance, or null when the server does not work it out. */
+  provenance(id: string): Promise<ProvenanceView | null>;
   compare(a: string, b: string): Promise<RunComparison>;
   search(q: string): Promise<SearchHit[]>;
   labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
@@ -262,6 +101,18 @@ export interface Client {
 
 const etags = new Map<string, { etag: string; body: unknown }>();
 
+/**
+ * Each answer in the shape the views read (`normalize.ts`), worked out once per answer: an unchanged
+ * answer (a 304 hands back the same object) comes back as the same object, so nothing redraws.
+ */
+const shaped = new WeakMap<object, unknown>();
+function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
+  if (shaped.has(raw)) return shaped.get(raw) as U;
+  const out = fn(raw);
+  shaped.set(raw, out);
+  return out;
+}
+
 function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = Object.assign(document.createElement('a'), { href: url, download: filename });
@@ -273,6 +124,7 @@ function saveBlob(blob: Blob, filename: string): void {
 
 export function createClient(token: string): Client {
   let hasChanges: boolean | null = null;
+  let hasProvenance: boolean | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -311,11 +163,26 @@ export function createClient(token: string): Client {
   }
   return {
     exported: false,
-    meta: () => request<Meta>('meta'),
-    runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => r.runs),
-    run: (runId) => request<RunDetail>(`runs/${id(runId)}`),
-    call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`),
+    meta: () => request<Meta>('meta').then((m) => shape(m, normalizeMeta)),
+    runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
+    run: (runId) => request<RunDetail>(`runs/${id(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => request<{ nodes: LineageNode[] }>(`runs/${id(runId)}/lineage`).then((r) => r.nodes),
+    provenance: async (runId) => {
+      if (hasProvenance === false) return null;
+      try {
+        const out = await request<ProvenanceView>(`runs/${id(runId)}/provenance`);
+        hasProvenance = true;
+        return out;
+      } catch (err) {
+        // A server without the endpoint: Provenance shows what the run itself says.
+        if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasProvenance === null) {
+          hasProvenance = false;
+          return null;
+        }
+        throw err;
+      }
+    },
     compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
     search: (q) => request<{ hits: SearchHit[] }>(`search?q=${id(q)}&limit=40`).then((r) => r.hits),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
@@ -376,11 +243,12 @@ export function createExportedClient(data: StaticPayload): Client {
   const readOnly = () => Promise.reject(new ApiError(405, 'this is an exported copy: it cannot be changed from here'));
   return {
     exported: true,
-    meta: () => get<Meta>('meta'),
-    runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => r.runs),
-    run: (runId) => get<RunDetail>(`runs/${encodeURIComponent(runId)}`),
-    call: (runId, n) => get<CallDetail>(`runs/${encodeURIComponent(runId)}/calls/${n}`),
+    meta: () => get<Meta>('meta').then((m) => shape(m, normalizeMeta)),
+    runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
+    run: (runId) => get<RunDetail>(`runs/${encodeURIComponent(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    call: (runId, n) => get<CallDetail>(`runs/${encodeURIComponent(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${encodeURIComponent(runId)}/lineage`).then((r) => r.nodes),
+    provenance: (runId) => Promise.resolve((data.responses[`runs/${encodeURIComponent(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
     compare: (a, b) => get<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
     search: () => Promise.resolve([]),
     labels: readOnly,
