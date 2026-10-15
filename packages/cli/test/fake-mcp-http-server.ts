@@ -16,6 +16,8 @@ export interface FakeMcpHttpServer {
   calls: Array<{ name: string; arguments: unknown }>;
   /** Ends every session, as a server that restarted would. */
   forgetSessions(): void;
+  /** Leaves the event stream of a tools/list open after its answer, as a careless server might. */
+  keepStreamsOpen(): void;
   close(): Promise<void>;
 }
 
@@ -39,6 +41,7 @@ export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
   const sessions = new Set<string>();
   let nextSession = 1;
   let n = 0;
+  let keepOpen = false;
   const server: Server = createServer((req, res) => {
     void (async () => {
       const header = (name: string) => {
@@ -72,7 +75,8 @@ export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         res.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'listing tools' } })}\n\n`);
         res.write(`event: message\nid: 1\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { tools } })}\n\n`);
-        return void res.end();
+        if (!keepOpen) res.end();
+        return;
       }
       if (message.method === 'tools/call') {
         n++;
@@ -89,6 +93,9 @@ export async function startFakeMcpHttpServer(): Promise<FakeMcpHttpServer> {
     seen,
     calls,
     forgetSessions: () => sessions.clear(),
+    keepStreamsOpen: () => {
+      keepOpen = true;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

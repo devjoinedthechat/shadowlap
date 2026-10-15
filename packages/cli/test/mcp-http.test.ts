@@ -190,6 +190,16 @@ describe('shadowlap mcp --url', () => {
     server = await startFakeMcpHttpServer();
   });
 
+  it('is not held up by a server that keeps a stream open after answering', async () => {
+    server.keepStreamsOpen();
+    const c = client(null);
+    await c.handshake();
+    expect(((await c.request('tools/list')).result as { tools: unknown[] }).tools).toHaveLength(3);
+    expect(text(await c.call('read_note', { id: 1 }))).toBe('read_note:{"id":1}:1');
+    const exited = await Promise.race([c.close(), new Promise((resolve) => setTimeout(() => resolve('still running'), 3000))]);
+    expect(exited).toBe(0);
+  });
+
   it('checks the headers and the URL it is given', () => {
     expect(parseHeaderFlags(['Authorization: Bearer ${TOKEN}', 'X-Team:  support '], { TOKEN: 'abc' })).toEqual({ authorization: 'Bearer abc', 'x-team': 'support' });
     expect(() => parseHeaderFlags(['Authorization: Bearer ${MISSING}'], {})).toThrow(/\$\{MISSING\} is not set/);

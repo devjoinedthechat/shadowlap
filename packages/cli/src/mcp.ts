@@ -484,7 +484,9 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
     if (/text\/event-stream/i.test(type)) {
       res.setEncoding('utf8');
       let chain: Promise<void> = Promise.resolve();
-      const events = new EventStream((data) => (chain = chain.then(() => fromServer(data))));
+      // The answer ends the request's stream; a server that keeps it open after answering holds nothing up.
+      const answered = () => id !== null && !pending.has(idKey(id));
+      const events = new EventStream((data) => (chain = chain.then(() => fromServer(data)).then(() => void (answered() && res.destroy()))));
       await new Promise<void>((done) => {
         res.on('data', (chunk: string) => events.push(chunk));
         res.on('end', done);
