@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateCost, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import { keepingIndex, loadRunIndex } from '../src/run-index.js';
-import { cacheMisses, callTotals, originStrings, runsRead, runStats, spentOf, sumStats, warmRunStats } from '../src/run-stats.js';
+import { callTotals, originStrings, runsRead, runStats, spentOf, sumStats, warmRunStats } from '../src/run-stats.js';
 import { addRun, capture, DAY, MODEL, usageAt } from './read-model-store.js';
 
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -68,15 +68,11 @@ describe('run statistics', () => {
     expect(statsOf(replay).get(replay)!.notWaitedMs).toBe(2000 + 2000 + 750);
   });
 
-  it('counts calls per origin and the prompt cache of live model calls', () => {
+  it('counts calls per origin', () => {
     const rec = addRun(store, { startedAt: NOW, calls: 'llbsfi' });
     const s = statsOf(rec).get(rec)!;
     expect(s.origins).toEqual({ r: 0, l: 2, o: 0, i: 1, f: 1, b: 1, s: 1 });
     expect(s.calls).toBe(6);
-    const u1 = usageAt(1);
-    const u2 = usageAt(2);
-    expect(s.liveCacheRead).toBe(u1.cacheReadInputTokens! + u2.cacheReadInputTokens!);
-    expect(s.liveInput).toBe([u1, u2].reduce((t, u) => t + u.inputTokens + u.cacheReadInputTokens! + u.cacheCreationInputTokens!, 0));
     const index = loadRunIndex(store);
     expect(originStrings(store, index, [index.byId.get(rec)!]).get(rec)).toBe('llbsfi');
     expect(sumStats([s, s]).origins.l).toBe(4);
@@ -194,15 +190,6 @@ describe('run statistics', () => {
     const s = statsOf(rec).get(rec)!;
     expect(s.unknownModels).toEqual(['house-model-7b']);
     expect(s.spent).toBeGreaterThan(0);
-  });
-
-  it('finds prompt-cache misses on live calls only, and names the kind of run they were in', () => {
-    const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llll', at: { 3: { code: 'l', usage: { inputTokens: 1800, outputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } } });
-    const index = loadRunIndex(store);
-    const misses = cacheMisses(store, index, [index.byId.get(rec)!]);
-    // Call 2's whole input was 40 + 1200 + 100; call 3 read nothing from the cache.
-    expect(misses).toEqual([{ runId: rec, kind: 'recording', callNo: 3, scope: null, tokens: 1340 }]);
-    expect(callTotals(store, index, [index.byId.get(rec)!]).get(rec)!.misses).toEqual([[3, null, 1340]]);
   });
 });
 

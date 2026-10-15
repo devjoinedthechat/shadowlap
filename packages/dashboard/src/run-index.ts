@@ -58,6 +58,8 @@ export interface IndexedMeta {
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null } | null;
   author: string | null;
+  /** For a run made in CI (`author` is `ci`): the provider, such as `github`. */
+  ci: string | null;
 }
 
 export interface RunIndex {
@@ -77,7 +79,7 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.meta -> '$.labels' AS labels, r.meta -> '$.imported' AS imported, r.meta -> '$.covers' AS covers,
        r.meta -> '$.repeat' AS rep, r.meta -> '$.probe' AS probe, r.meta -> '$.verify' AS verify,
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame,
-       r.meta ->> '$.author' AS author,
+       r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
        (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
        CASE WHEN r.status = 'failed' THEN EXISTS (
          SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1
@@ -128,6 +130,7 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail) })) : null,
     blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId) } : null,
     author: str(row.author),
+    ci: str(row.ci),
   };
 }
 

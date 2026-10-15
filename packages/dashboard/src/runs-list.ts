@@ -70,6 +70,8 @@ export interface RunRow extends RunListItem {
   checks: { passed: number; total: number } | null;
   /** Who made it (`meta.author`): an email, a user name, or `ci`. */
   author: string | null;
+  /** For a run made in CI: the provider (`meta.ci`), such as `github`. */
+  ci: string | null;
 }
 
 export interface ChipCounts {
@@ -114,6 +116,11 @@ function matcher(filter: RunFilter): Matcher {
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
   const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && text(r);
   return { scope, base, matches: (r) => base(r) && (!failedOnly || r.failed) };
+}
+
+/** Every run the filter matches, newest first, as the table lists them. */
+export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
+  return loadRunIndex(store).runs.filter(matcher(filter).matches);
 }
 
 export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean): ChipCounts {
@@ -227,6 +234,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       lostAt: lostAt(c),
       checks: checksOf(c),
       author: r.meta.author,
+      ci: r.meta.ci,
     };
   });
 }

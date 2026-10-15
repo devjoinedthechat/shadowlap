@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { countOrigins, emptyOriginCounts, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
+import { cacheUse, countOrigins, emptyOriginCounts, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
+import { fixesSummary } from '../src/fixes.js';
+import type { GoldenSource } from '../src/tests.js';
 import { overviewOptions, overviewSummary, type OverviewSummary } from '../src/overview.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
 
@@ -110,7 +114,8 @@ describe('the Overview: today', () => {
   it('counts blame probes by the call they probed, and the rescued fork once, as a fork', () => {
     const sep29 = overviewSummary(store, { tz: TZ, now: at(9, 29, 18) });
     // Two runs probed call #3: the one that rescued the run is a fork row; the other is an attempt.
-    expect(sep29.today.blame).toEqual({ probes: 1, attempts: 1, runs: [{ runId: id.failed1, lostAt: 3 }] });
+    // Blamed before Fixes kept blames: in no fix, so no title.
+    expect(sep29.today.blame).toEqual({ probes: 1, attempts: 1, runs: [{ runId: id.failed1, lostAt: 3, title: null, fixId: null }] });
     expect(sep29.today.forks).toMatchObject({ count: 1 });
   });
 });
@@ -193,131 +198,123 @@ describe('the Overview: this week’s runs as rows of calls', () => {
   });
 });
 
-describe('the Overview: outcomes, the prompt cache and fixes', () => {
-  it('leads with failures reproduced, tests passing and what was spent, each against last week', () => {
-    expect(o.outcomes.reproduced).toEqual({ value: 1, lastWeek: 1, open: 2 });
-    expect(o.outcomes.fixesVerified).toBeNull();
-    expect(o.outcomes.testsPassing).toEqual({
-      goldens: 2,
-      passing: 1,
-      lastWeek: 0,
-      regressions: 1,
-      lastRunAt: at(10, 1, 7, 1),
-      failing: [{ golden: 'g2', runId: id.test2, outcome: { kind: 'diverged', callNo: 1 }, at: at(10, 1, 7, 1) }],
-    });
-    expect(o.outcomes.spent).toEqual({ value: o.sums.week.spent, lastWeek: o.sums.lastWeek.spent, notRespent: o.sums.week.notRespent, notWaitedMs: o.sums.week.notWaitedMs });
-  });
+describe('the Overview: outcomes, the prompt cache, fixes and what needs a look', () => {
+  // The refund story as the Fixes tests tell it: a failure blamed this week, verified by a repair,
+  // with a rejected verify before it; an older failure blamed last week; a failed run never blamed.
+  const story = (local: Store) => {
+    const blame = (runId: string, at: number, title: string) =>
+      recordBlame(local, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, title, checkText: 'issue_refund never called with {"amount":240}', at });
+    const failing = makeRun(local, { labels: ['refund-bug'], startedAt: NOW - 3 * DAY, calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
+    const held = makeRun(local, { labels: ['refund-bug'], startedAt: NOW - 3 * DAY });
+    const good = makeRun(local, { labels: ['good'], status: 'completed', startedAt: NOW - 3 * DAY });
+    const { fix } = blame(failing, NOW - 2 * DAY, 'issue_refund called with amount 240');
+    recordVerdict(local, { report: verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: held, role: 'holdout', pass: true }, { runId: good, role: 'good', pass: false }]), expect: EXPECT, command: 'v', at: NOW - 2 * DAY + 1 });
+    recordRepair(local, { repairId: 'repair-ov', dir: '.shadowlap/repairs/repair-ov', report: repairReport({ targets: [failing], holdout: [held], good: [good] }), expect: EXPECT, command: 'r', at: NOW - DAY });
+    const old = makeRun(local, { labels: ['double-email'], startedAt: NOW - 11 * DAY });
+    const { fix: oldFix } = blame(old, NOW - 10 * DAY, 'send_email called twice, not once');
+    const never = makeRun(local, { status: 'failed', startedAt: NOW - HOUR });
+    return { fixId: fix.fixId, oldFix: oldFix.fixId, never };
+  };
 
-  it('finds where the prompt cache stopped hitting, and not where a conversation started over', () => {
-    const c = o.cache;
-    expect(c.misses).toEqual([{ runId: id.fork1, kind: 'fork', callNo: 6, scope: null, tokens: 40 + 1500 + 100 }]);
-    expect(c).toMatchObject({ sentAgain: 1640, missCount: 1 });
-    expect(c.cacheRead).toBeLessThan(c.input);
-    expect(c.input).toBeGreaterThan(0);
-  });
-
-  it('counts every failure on its way to a fix in one unit, and the attempts behind them', () => {
-    // A fix starts from a blame: until fixes group runs into failures, each blamed run is one.
-    expect(o.fixes).toMatchObject({ failures: 2, blamed: 2, verified: null, applied: null, open: 2, notBlamed: 0, attempts: 2 });
-    expect(o.fixes.spent).toBeCloseTo(sumOf(['probeA', 'probeB'], (s) => s.cost.spent), 10);
-  });
-
-  it('takes what the fixes, tests and run-page slices know when they hook in', () => {
-    const hooked = overviewSummary(store, {
-      tz: TZ,
-      now: NOW,
-      hooks: {
-        fixes: () => ({ failures: 3, blamed: 3, verified: 2, applied: 1, open: 1, accepted: 3, acceptedLastWeek: 1, rejected: 1 }),
-        tests: () => ({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: 5, failing: [] }),
-        cache: (ids) => ({ input: ids.length, cacheRead: 0, misses: [], sentAgain: 0, missCount: 0 }),
-      },
-    });
-    expect(hooked.outcomes.fixesVerified).toEqual({ value: 3, lastWeek: 1, rejected: 1 });
-    expect(hooked.outcomes.reproduced.open).toBe(1);
-    expect(hooked.fixes).toMatchObject({ failures: 3, blamed: 3, verified: 2, applied: 1, open: 1 });
-    expect(hooked.outcomes.testsPassing).toEqual({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: 5, failing: [] });
-    expect(hooked.cache.input).toBe(WEEK_ROWS.length);
-  });
-
-  it('lists failed runs no blame has looked at for Needs a look, tests and reproductions aside', () => {
+  it('takes failures reproduced, fixes verified and the funnel from Fixes, each against last week', () => {
     const local = Store.open(':memory:');
     try {
-      const failed = addRun(local, { startedAt: NOW - 3 * HOUR, status: 'failed', argv: ['node', 'agent.mjs'], calls: 'll' });
-      addRun(local, { startedAt: NOW - 2 * HOUR, status: 'failed', calls: 'll', meta: { blame: blameOf(1, null, NOW - HOUR) } });
-      // Replaying the failure exactly reproduces it: the recording is the run to blame.
-      addRun(local, { parent: failed, startedAt: NOW - 2 * HOUR, status: 'failed', calls: 'rr' });
-      // A fork whose check failed is a failure of its own.
-      const fork = addRun(local, { parent: failed, startedAt: NOW - HOUR, divergence: 2, calls: 'rl', meta: { checks: [{ ok: false, label: 'send_email called once', detail: 'it was called 0 times' }] } });
-      const pack = addRun(local, { startedAt: NOW - 9 * DAY, calls: 'l', meta: { imported: { at: NOW - 9 * DAY, from: 'goldens/g' } } });
-      addRun(local, { parent: pack, startedAt: NOW - HOUR, status: 'failed', divergence: 1, calls: 'f', meta: { test: { golden: 'goldens/g', session: 's' } } });
+      const { fixId, oldFix } = story(local);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW });
-      expect(s.fixes).toMatchObject({ failures: 1, blamed: 1, open: 1, notBlamed: 2 });
-      expect(s.needsLook).toEqual({
-        notBlamed: [
-          { runId: fork, kind: 'fork', label: 'fork @2', command: 'python refund_agent.py', source: null, outcome: { kind: 'check-failed', check: 'send_email called once' }, startedAt: NOW - HOUR },
-          { runId: failed, kind: 'recording', label: 'recording', command: 'node agent.mjs', source: null, outcome: { kind: 'check-failed', check: null }, startedAt: NOW - 3 * HOUR },
-        ],
-        more: 0,
-      });
+      const f = fixesSummary(local, NOW);
+      expect(s.outcomes.reproduced).toEqual({ value: 1, lastWeek: 1, open: 1 });
+      expect(s.outcomes.fixesVerified).toEqual({ value: 1, lastWeek: 0, rejected: 1 });
+      expect(s.fixes).toEqual({ ...f.funnel, open: f.open, readyToApply: f.readyToApply, broken: f.broken, attempts: f.attempts, spent: f.spent });
+      expect(s.fixes).toMatchObject({ failures: 3, blamed: 2, verified: 1, applied: 0, open: 1, readyToApply: 1, broken: 0 });
+      // Needs a look: the open fix and the run never blamed are failures with no fix yet; the verified fix waits to be applied.
+      expect(s.needsLook.items.map((i) => [i.kind, i.action, i.fixId ?? i.runId])).toEqual([
+        ['open', 'Fix it', oldFix],
+        ['unblamed', 'Run blame', expect.any(String)],
+        ['ready', 'Apply', fixId],
+      ]);
+      expect(s.needsLook.total).toBe(3);
     } finally {
       local.close();
     }
   });
 
-  it('lists the newest 20 runs that need a blame, and counts the rest', () => {
+  it('says Tests passing and lists failing tests from the goldens on disk, and nothing without goldens', () => {
     const local = Store.open(':memory:');
     try {
-      const made = Array.from({ length: 23 }, (_, i) => addRun(local, { startedAt: NOW - (i + 1) * HOUR, status: 'failed', calls: 'l' }));
-      const look = overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook;
-      expect(look.notBlamed.map((r) => r.runId)).toEqual(made.slice(0, 20));
-      expect(look.more).toBe(3);
+      const goldens: GoldenSource[] = [
+        { path: 'goldens/refund-flow', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] },
+        { path: 'goldens/refund-in-limit', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] },
+      ];
+      const failed = addRun(local, { startedAt: NOW - HOUR, status: 'failed', divergence: 1, calls: 'f', meta: { test: { golden: 'goldens/refund-in-limit', session: 's' } } });
+      const session = (at: number, limitOk: boolean) => {
+        const t = local.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'c91d0f4', actor: 'ci', startedAt: at });
+        local.addTestResult({ sessionId: t.sessionId, golden: 'goldens/refund-flow', ok: true, reason: null, runId: null, revision: 'c91d0f4', at: at + 1, data: { mode: 'replay' } });
+        local.addTestResult({ sessionId: t.sessionId, golden: 'goldens/refund-in-limit', ok: limitOk, ...(limitOk ? {} : { failure: 'diverged' as const }), reason: limitOk ? null : 'diverged at call 1 (api POST /v1/messages)', runId: limitOk ? null : failed, revision: 'c91d0f4', at: at + 2, data: { mode: 'replay' } });
+        local.finishTestSession(t.sessionId, { passed: limitOk ? 2 : 1, failed: limitOk ? 0 : 1, upstreamRequests: 0, endedAt: at + 10 });
+      };
+      session(NOW - 9 * DAY, true);
+      session(NOW - HOUR, false);
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
+      expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
+      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Fix', runId: failed, href: `#/run/${failed}` });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
     } finally {
       local.close();
     }
   });
 
-  it('says a golden passes only when enough attempts of its latest session passed, and an interrupted one did not', () => {
+  it('puts runs only on this machine last, when a team store is set', () => {
     const local = Store.open(':memory:');
     try {
-      const pack = addRun(local, { startedAt: NOW - 30 * DAY, calls: 'll', meta: { imported: { at: NOW - 30 * DAY, from: 'goldens/g' } } });
-      const test = (golden: string, session: string, startedAt: number, status: 'completed' | 'failed' | 'crashed', passes?: number) =>
-        addRun(local, { parent: pack, startedAt, status, calls: 'rr', meta: { test: { golden, session, ...(passes ? { passes } : {}) } as never } });
-      // Last week: g1 passed, g2 timed out (interrupted). This week: g1 passed 2 of 3 with 2 needed;
-      // g2 passed 2 of 3 with all needed; g3's only attempt was interrupted.
-      test('g1', 'a', NOW - 9 * DAY, 'completed');
-      test('g2', 'a', NOW - 9 * DAY, 'crashed');
-      for (const [i, st] of (['completed', 'failed', 'completed'] as const).entries()) test('g1', 'b', NOW - HOUR + i, st, 2);
-      const g2 = (['completed', 'completed', 'failed'] as const).map((st, i) => test('g2', 'b', NOW - HOUR + i, st));
-      const g3 = test('g3', 'b', NOW - HOUR + 9, 'crashed');
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toEqual({
-        goldens: 3,
-        passing: 1,
-        lastWeek: 1,
-        regressions: 2,
-        lastRunAt: NOW - HOUR + 9,
-        // Newest first, each with the attempt that failed: an interrupted run says nothing more.
-        failing: [
-          { golden: 'g3', runId: g3, outcome: { kind: 'none' }, at: NOW - HOUR + 9 },
-          { golden: 'g2', runId: g2[2], outcome: { kind: 'check-failed', check: null }, at: NOW - HOUR + 2 },
-        ],
-      });
+      story(local);
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
+      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/settings/store', runId: null, fixId: null, at: 0 });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
     } finally {
       local.close();
     }
   });
 
-  it('says there are no goldens yet rather than zero passing', () => {
-    const empty = Store.open(':memory:');
-    const none = Store.open(':memory:');
+  it('finds where the prompt cache stopped hitting by the run page’s rule, and names each run’s kind', () => {
+    const local = Store.open(':memory:');
     try {
-      addRun(empty, { startedAt: NOW - HOUR, calls: 'll' });
-      const s = overviewSummary(empty, { tz: 'UTC', now: NOW });
-      expect(s.outcomes.testsPassing).toBeNull();
-      expect(s.cache).toEqual({ input: s.cache.input, cacheRead: s.cache.cacheRead, misses: [], sentAgain: 0, missCount: 0 });
-      expect(overviewSummary(none, { now: NOW }).grid).toMatchObject({ runs: 0, families: [], shown: 0, more: 0 });
+      const turn = (b: RunBuilder, m: number, broken = false) => {
+        const q: unknown[] = [user('Begin.')];
+        for (let i = 1; i < m; i++) q.push(assistant([toolUse('step', { i }, `toolu_${i}`)]), user([toolResult(`toolu_${i}`, 'ok')]));
+        const u = broken ? usage(10, 0, cachedUsage(m).cacheReadInputTokens! + cachedUsage(m).cacheCreationInputTokens!) : cachedUsage(m);
+        b.model({ messages: q }, [toolUse('step', { i: m }, `toolu_${m}`)], { usage: u });
+      };
+      const b = RunBuilder.start(local, { startedAt: NOW - HOUR });
+      for (let m = 1; m <= 4; m++) turn(b, m, m === 3);
+      const runId = b.end();
+      // Last week's runs are not this week's cache.
+      const old = RunBuilder.start(local, { startedAt: NOW - 9 * DAY });
+      for (let m = 1; m <= 4; m++) turn(old, m, m === 2);
+      old.end();
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW });
+      const engine = cacheUse(local, s.windows.week.from, { limit: 4 });
+      expect(s.cache).toEqual({ input: engine.liveInput, cacheRead: engine.liveRead, readShare: engine.readShare, misses: [{ runId, kind: 'recording', callNo: 3, scope: null, tokens: engine.largest[0]!.sentAgain }], sentAgain: engine.sentAgain, missCount: 1 });
+      expect(s.cache.readShare).toBeGreaterThan(0);
+      const empty = overviewSummary(Store.open(':memory:'), { tz: 'UTC', now: NOW });
+      expect(empty.cache).toEqual({ input: 0, cacheRead: 0, readShare: null, misses: [], sentAgain: 0, missCount: 0 });
+      expect(empty.grid).toMatchObject({ runs: 0, families: [], shown: 0, more: 0 });
+      expect(empty.needsLook).toEqual({ items: [], total: 0 });
     } finally {
-      empty.close();
-      none.close();
+      local.close();
+    }
+  });
+
+  it('names the fix a run blame probed today belongs to', () => {
+    const local = Store.open(':memory:');
+    try {
+      const failed = addRun(local, { startedAt: NOW - 2 * HOUR, status: 'failed', calls: 'llllll' });
+      addRun(local, { parent: failed, startedAt: NOW - HOUR, divergence: 3, calls: 'rrllll', meta: { probe: { of: failed, callNo: 3, passed: false }, repeat: { group: 'p', attempt: 1, of: 1 } } });
+      const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW - HOUR });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame).toEqual({ probes: 1, attempts: 1, runs: [{ runId: failed, lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }] });
+    } finally {
+      local.close();
     }
   });
 

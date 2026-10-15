@@ -1,14 +1,15 @@
-import { countOrigins, displayOrigin, estimateCost, ORIGIN_CODE, type CallRecord, type Origin, type OriginCounts, type Outcome, type Price, type RunKind, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
+import { countOrigins, displayOrigin, estimateCost, ORIGIN_CODE, runCache, type CallRecord, type Origin, type OriginCounts, type Outcome, type Price, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/tui/data';
 import { keepingIndex, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
 /**
  * What a run's calls add up to: where each answer came from, the tokens each model used live,
- * replayed and captured, how long the replayed calls would have taken, and where the prompt cache
- * stopped hitting. Worked out in one pass over the run's calls. A finished run's totals never
- * change, so they are kept in the store (`run_stats`) and read back as one row per run, in this
- * process and the next: every run's calls are read once in the store's life. Prices are applied
- * on reading, so changing them needs no rework.
+ * replayed and captured, how long the replayed calls would have taken, and its live model calls'
+ * use of the prompt cache under the run page's rule (the engine's `runCache`). Worked out in one
+ * pass over the run's calls, and for a run with live model calls, once over its conversations. A
+ * finished run's totals never change, so they are kept in the store (`run_stats`) and read back as
+ * one row per run, in this process and the next: every run's calls are read once in the store's
+ * life. Prices are applied on reading, so changing them needs no rework.
  */
 
 /** A run's totals before prices: what `run_stats` keeps, as JSON. */
@@ -23,10 +24,17 @@ export interface CallTotals {
    * or further back for a replay of a replay.
    */
   notWaitedMs: number;
-  /** Live model calls with usage (an imported recording's left out): their whole input, and the part read from the prompt cache. */
-  liveInput: number;
-  liveCacheRead: number;
-  /** Live model calls where the prompt cache stopped hitting: the call, its scope, and the tokens sent again. */
+  /**
+   * Live model calls' use of the prompt cache (an imported recording's left out: it was live
+   * elsewhere): their whole input, the part read from the cache, and the live calls where it
+   * stopped hitting, with the tokens each sent again. Null without live model calls reporting usage.
+   */
+  cache: CacheTotals | null;
+}
+
+export interface CacheTotals {
+  input: number;
+  read: number;
   misses: Array<[callNo: number, scope: string | null, tokens: number]>;
 }
 
@@ -41,30 +49,14 @@ export interface RunStats {
   /** Models with usage but no price: their calls are not in the sums. */
   unknownModels: string[];
   notWaitedMs: number;
-  liveInput: number;
-  liveCacheRead: number;
 }
 
 export interface StatsOptions {
   prices?: Record<string, Price>;
 }
 
-/** A live model call where the prompt cache stopped hitting. */
-export interface CacheMiss {
-  runId: string;
-  /** The run's kind, for the icon beside it. */
-  kind: RunKind;
-  callNo: number;
-  scope: string | null;
-  /** Input tokens sent again: the previous call's whole input, less what this call read from the cache. */
-  tokens: number;
-}
-
-/** A miss must send at least this many tokens again: smaller drops are noise. */
-export const CACHE_MISS_MIN_TOKENS = 1024;
-
 /** Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked out again. */
-const FORMAT = 't1';
+const FORMAT = 't2';
 
 /** What a run's totals were worked out from: a finished run's never change. */
 const keyOf = (r: IndexedRun) => `${FORMAT}|${r.status}|${r.endedAt}|${r.calls}`;
@@ -77,7 +69,7 @@ const FINAL_END = `LEFT JOIN call_events e ON e.run_id = s.run_id AND e.call_no 
 const CALLS_SQL = `
 SELECT s.run_id AS run, s.call_no AS call, s.kind AS kind, s.origin AS origin, s.name AS name,
        CASE WHEN s.kind = 'api' THEN s.request_ref END AS req,
-       s.meta ->> '$.scope' AS scope, s.meta ->> '$.model' AS smodel, e.outcome AS outcome,
+       s.meta ->> '$.model' AS smodel, e.outcome AS outcome,
        json_extract(e.meta, '$.model', '$.usage', '$.recordedMs', '$.replayedFrom', '$.injected', '$.latencyMs') AS j
 FROM call_events s
 ${FINAL_END}
@@ -132,17 +124,21 @@ export function runsRead(store: Store): number {
   return keptFor(store).runsRead;
 }
 
-const EMPTY: CallTotals = { codes: '', models: [], notWaitedMs: 0, liveInput: 0, liveCacheRead: 0, misses: [] };
+const EMPTY: CallTotals = { codes: '', models: [], notWaitedMs: 0, cache: null };
 
 /** A run's totals as `run_stats` keeps them, or null for anything else. */
 function readTotals(json: unknown): CallTotals | null {
   if (typeof json !== 'string') return null;
   try {
     const t = JSON.parse(json) as Partial<CallTotals>;
-    if (typeof t.codes !== 'string' || !Array.isArray(t.models) || !Array.isArray(t.misses)) return null;
+    if (typeof t.codes !== 'string' || !Array.isArray(t.models) || t.cache === undefined) return null;
     const models = t.models.filter((m) => Array.isArray(m) && m.length === 6 && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'));
-    const misses = t.misses.filter((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[2] === 'number');
-    return { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs), liveInput: n(t.liveInput), liveCacheRead: n(t.liveCacheRead), misses };
+    const c = t.cache;
+    const cache: CacheTotals | null =
+      c && typeof c === 'object' && Array.isArray(c.misses)
+        ? { input: n(c.input), read: n(c.read), misses: c.misses.filter((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[2] === 'number').map((m) => [m[0], typeof m[1] === 'string' ? m[1] : null, m[2]]) }
+        : null;
+    return { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs), cache };
   } catch {
     return null;
   }
@@ -239,13 +235,10 @@ interface Building {
   codes: string[];
   models: Map<string, [bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number]>;
   notWaitedMs: number;
-  liveInput: number;
-  liveCacheRead: number;
-  misses: Array<[number, string | null, number]>;
-  /** Per scope, the previous model call with usage: its whole input and the part cached. */
-  previous: Map<string, { whole: number; cached: number }>;
   /** Replayed calls that don't carry their recorded duration: the parent's calls they came from. */
   sources: number[];
+  /** A live model call reported usage: the run's cache use is worked out from its conversations. */
+  liveUsage: boolean;
 }
 
 /** One pass over the calls of `runs`, in call order. */
@@ -264,7 +257,7 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
       if (!run) continue;
       let b = building.get(runId);
       if (!b) {
-        b = { codes: [], models: new Map(), notWaitedMs: 0, liveInput: 0, liveCacheRead: 0, misses: [], previous: new Map(), sources: [] };
+        b = { codes: [], models: new Map(), notWaitedMs: 0, sources: [], liveUsage: false };
         building.set(runId, b);
       }
       const origin = row.origin as Origin;
@@ -291,20 +284,7 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
       const cacheRead = n(usage.cacheReadInputTokens);
       const cacheWrite = n(usage.cacheCreationInputTokens);
       const imported = !!run.meta.imported && run.mode === 'record';
-      if (origin === 'live' && !imported) {
-        b.liveInput += input + cacheRead + cacheWrite;
-        b.liveCacheRead += cacheRead;
-      }
-      // The prompt cache: a live call that read less from it than the previous model call's whole
-      // input in the same scope, by at least 1,024 tokens. Two guards stand in for conversation
-      // boundaries until calls carry them: the previous call used the cache (so it was hitting), and
-      // this call's input is no smaller than the previous one's (a smaller one starts over).
-      const scope = typeof row.scope === 'string' ? row.scope : null;
-      const whole = input + cacheRead + cacheWrite;
-      const prev = b.previous.get(scope ?? '');
-      if (origin === 'live' && prev && prev.cached > 0 && whole >= prev.whole && prev.whole - cacheRead >= CACHE_MISS_MIN_TOKENS) b.misses.push([Number(row.call), scope, prev.whole - cacheRead]);
-      b.previous.set(scope ?? '', { whole, cached: cacheRead + cacheWrite });
-
+      if (origin === 'live' && !imported) b.liveUsage = true;
       const bucket = origin === 'replayed' ? 'r' : origin === 'live' ? (imported ? 'c' : 'l') : null;
       if (!bucket) continue;
       // Recorded before the model was kept per call: the request says which.
@@ -330,9 +310,24 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
     if (!b) continue;
     let notWaitedMs = b.notWaitedMs;
     for (const callNo of b.sources) notWaitedMs += of(r.parentRunId, callNo);
-    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], notWaitedMs, liveInput: b.liveInput, liveCacheRead: b.liveCacheRead, misses: b.misses });
+    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], notWaitedMs, cache: b.liveUsage ? cacheTotals(store, r.runId) : null });
   }
   return out;
+}
+
+/**
+ * A run's live model calls under the prompt cache's rule, the run page's Context view's (the
+ * engine's `runCache`, conversation by conversation): what they sent, what they read from the
+ * cache, and the live calls where it stopped hitting. As the engine's `cacheUse` counts them for the
+ * Overview: a call Shadowlap answered with an injected failure is not a live call.
+ */
+function cacheTotals(store: Store, runId: string): CacheTotals | null {
+  const calls = store.getCalls(runId);
+  const r = runCache(store, calls);
+  if (!r.liveInput) return null;
+  const byNo = new Map(calls.map((c) => [c.callNo, c]));
+  const live = (c: CallRecord | undefined) => !!c && c.origin === 'live' && !c.end?.meta.injected;
+  return { input: r.liveInput, read: r.liveRead, misses: r.misses.filter((m) => live(byNo.get(m.callNo))).map((m) => [m.callNo, m.scope, m.sentAgain]) };
 }
 
 /**
@@ -376,7 +371,7 @@ function addParent(index: RunIndex, runId: string, tables: Map<string, unknown>,
 
 /** A run's statistics under the prices given. */
 export function priced(t: CallTotals, prices?: Record<string, Price>): RunStats {
-  const s: RunStats = { calls: t.codes.length, origins: countOrigins(t.codes), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: t.notWaitedMs, liveInput: t.liveInput, liveCacheRead: t.liveCacheRead };
+  const s: RunStats = { calls: t.codes.length, origins: countOrigins(t.codes), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: t.notWaitedMs };
   for (const [bucket, model, input, output, cacheRead, cacheWrite] of t.models) {
     const usd = estimateCost(model, { inputTokens: input, outputTokens: output, cacheReadInputTokens: cacheRead, cacheCreationInputTokens: cacheWrite }, prices);
     if (usd === null) {
@@ -411,7 +406,7 @@ export function originStrings(store: Store, index: RunIndex, runs: readonly Inde
 
 /** Sums of several runs' statistics. */
 export function sumStats(list: Iterable<RunStats>): RunStats {
-  const total: RunStats = { calls: 0, origins: countOrigins(''), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: 0, liveInput: 0, liveCacheRead: 0 };
+  const total: RunStats = { calls: 0, origins: countOrigins(''), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: 0 };
   for (const s of list) {
     total.calls += s.calls;
     for (const k of Object.keys(total.origins) as Array<keyof OriginCounts>) total.origins[k] += s.origins[k];
@@ -419,23 +414,7 @@ export function sumStats(list: Iterable<RunStats>): RunStats {
     total.saved += s.saved;
     total.captured += s.captured;
     total.notWaitedMs += s.notWaitedMs;
-    total.liveInput += s.liveInput;
-    total.liveCacheRead += s.liveCacheRead;
     for (const m of s.unknownModels) if (!total.unknownModels.includes(m)) total.unknownModels.push(m);
   }
   return total;
-}
-
-/**
- * Live model calls where the prompt cache stopped hitting, largest first: a call misses when it read
- * less from the cache than the previous model call's whole input in the same scope, by at least
- * 1,024 tokens (see `sumCalls` for the two guards that stand in for conversation boundaries).
- */
-export function cacheMisses(store: Store, index: RunIndex, runs: readonly IndexedRun[]): CacheMiss[] {
-  const out: CacheMiss[] = [];
-  const kinds = new Map(runs.map((r) => [r.runId, r.kind]));
-  for (const [runId, t] of callTotals(store, index, runs)) {
-    for (const [callNo, scope, tokens] of t.misses) out.push({ runId, kind: kinds.get(runId) ?? 'recording', callNo, scope, tokens });
-  }
-  return out.sort((a, b) => b.tokens - a.tokens || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : a.callNo - b.callNo));
 }

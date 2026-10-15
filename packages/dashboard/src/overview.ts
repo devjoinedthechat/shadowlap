@@ -1,17 +1,25 @@
-import { countOrigins, emptyOriginCounts, lostAt, originCells, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { countOrigins, emptyOriginCounts, fixOfRun, lostAt, originCells, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { fixesSummary, needsLookFixes } from './fixes.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { cacheMisses, callTotals, runStats, sumStats, type CacheMiss, type RunStats, type StatsOptions } from './run-stats.js';
+import { callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
+import { failingTests, overviewTests, type GoldenList } from './tests.js';
 
 /**
  * The Overview, worked out on the server: this week against last week, the last seven days, what
- * ran today, every run of the week as a row of calls, and the outcomes that lead the page. A week
- * is the last seven of the viewer's days, today included; last week is the seven before.
+ * ran today, every run of the week as a row of calls, the outcomes that lead the page, and what
+ * needs a look. A week is the last seven of the viewer's days, today included; last week is the
+ * seven before.
  *
  * Runs and calls are counted without attempts (`--repeat`, blame probes, verify), which are bundled
  * under the run they came from: the grid, the week's calls, Calls by origin and Today count runs.
  * The week's money and time are not: what an attempt spent live was spent, and what it replayed
  * was not re-spent.
+ *
+ * The numbers other screens own come from their read models: Fixes (`fixesSummary`,
+ * `needsLookFixes`) and Tests (`overviewTests`, `failingTests`, over the goldens on disk). The
+ * prompt cache follows the run page's Context view's rule (the engine's `runCache`), kept per run
+ * with the run's other totals: the engine's `cacheUse`, from a row per run.
  */
 
 export interface TimeWindow {
@@ -58,8 +66,11 @@ export interface TodayPanel {
   forks: { count: number; live: number; blocked: number };
   /** Test runs today, the failures among them, and the newest failure. */
   tests: { count: number; failed: number; latestFailure: { runId: string; outcome: RunOutcome } | null };
-  /** Blame today: the model calls it probed, its attempts (bundled under the run they probed), and the runs it probed with where each was lost. */
-  blame: { probes: number; attempts: number; runs: Array<{ runId: string; lostAt: number | null }> };
+  /**
+   * Blame today: the model calls it probed, its attempts (bundled under the run they probed), and
+   * the runs it probed, each with where it was lost and the fix it belongs to.
+   */
+  blame: { probes: number; attempts: number; runs: Array<{ runId: string; lostAt: number | null; title: string | null; fixId: string | null }> };
 }
 
 export interface GridRow {
@@ -107,79 +118,95 @@ export interface RunGrid {
   more: number;
 }
 
+/** Tests passing: the goldens on disk with a result, those passing now and when this week started, the regressions caught, the last run. */
+export interface TestsTile {
+  goldens: number;
+  passing: number;
+  /** Passing as the tests stood when this week started; null without results that old. */
+  lastWeek: number | null;
+  regressions: number;
+  lastRunAt: number | null;
+}
+
 export interface OutcomeStrip {
-  /** Failures blame replayed exactly before probing, this week and last, and the failures still open. */
+  /** Failures blame replayed exactly before probing (by a run's first blame), this week and last, and the fixes still open. */
   reproduced: { value: number; lastWeek: number; open: number };
-  /** Accepted verify verdicts this week and last, and those rejected before they shipped. Null until fixes report them. */
-  fixesVerified: { value: number; lastWeek: number; rejected: number } | null;
-  /** Goldens passing now and a week ago, the failures caught and the last test run. Null with no goldens. */
-  testsPassing: TestsSummary | null;
+  /** Accepted verify verdicts that count for a fix, this week and last, and those rejected this week before they shipped. */
+  fixesVerified: { value: number; lastWeek: number; rejected: number };
+  /** Null with no goldens on disk: "—, no goldens yet". */
+  testsPassing: TestsTile | null;
   /** Spent live this week and last, with what replaying saved this week. */
   spent: { value: number; lastWeek: number; notRespent: number; notWaitedMs: number };
 }
 
-export interface TestsSummary {
-  goldens: number;
-  passing: number;
-  /** Passing as the tests stood when this week started; null when there were none yet. */
-  lastWeek: number | null;
-  /** Goldens failing now: the regressions the tests caught. */
-  regressions: number;
-  lastRunAt: number | null;
-  /** The goldens failing now, newest first, each with the run that failed: what Needs a look lists. */
-  failing: Array<{ golden: string; runId: string; outcome: RunOutcome; at: number }>;
+/** A live model call where the prompt cache stopped hitting, as the Overview lists it. */
+export interface CacheMissRow {
+  runId: string;
+  /** The run's kind, for the icon beside it. */
+  kind: RunKind;
+  callNo: number;
+  scope: string | null;
+  /** Input tokens sent again: the previous call's whole input, less what this call read from the cache. */
+  tokens: number;
 }
 
 export interface CacheUse {
-  /** Live model calls this week (attempts left out): their whole input, and the part read from the cache. */
+  /** Live model calls of runs started this week: their whole input, the part read from the cache, and that share (null without any). */
   input: number;
   cacheRead: number;
+  readShare: number | null;
   /** The four largest misses, the tokens all misses sent again, and how many there were. */
-  misses: CacheMiss[];
+  misses: CacheMissRow[];
   sentAgain: number;
   missCount: number;
 }
 
-/** How far each failure got towards a fix. Every step counts failures, the unit fixes are made of. */
+/** How far each failure got towards a fix, as the fixes read model counts them. */
 export interface FixesFunnel {
-  /**
-   * Failures on their way to a fix, and those blame has reproduced. A fix starts from a blame, so
-   * until the fixes slice groups runs into failures each blamed run is one failure.
-   */
-  failures: number;
-  blamed: number;
-  /** Failures with a verified fix, and those applied. Null until fixes report them. */
-  verified: number | null;
-  applied: number | null;
-  open: number;
-  /** Failed runs no blame has looked at yet (`needsLook.notBlamed`): not fixes yet. */
-  notBlamed: number;
-  /** The blame probes and verify attempts behind them, and what they spent live. */
-  attempts: number;
-  spent: number;
-}
-
-/** What the fixes slice knows: each count in failures (fixes), plus verify verdicts for the strip. */
-export interface FixesHookResult {
+  /** Every failure (fixes, and failed recordings never blamed), those blamed, those with a verified fix, those applied. */
   failures: number;
   blamed: number;
   verified: number;
   applied: number;
+  /** Fixes still open, verified fixes not applied yet, and applied fixes that don't hold. */
   open: number;
-  /** Verify verdicts accepted this week and last, and rejected. */
-  accepted: number;
-  acceptedLastWeek: number;
-  rejected: number;
+  readyToApply: number;
+  broken: number;
+  /** The attempts behind every fix, and what they and the repairers spent live. */
+  attempts: number;
+  spent: number;
 }
 
-/** What other slices know better. Until they hook in, the narrow local versions here stand in. */
-export interface OverviewHooks {
-  /** Fixes (stored verdicts, runs grouped into failures): replaces the funnel, the open count and Fixes verified. */
-  fixes?: (windows: { week: TimeWindow; lastWeek: TimeWindow }) => FixesHookResult | null;
-  /** Tests (sessions and golden results): replaces the summary read from test runs' metadata. */
-  tests?: (asOf: { now: number; weekStart: number }) => TestsSummary | null;
-  /** The run page's cache rule, once conversations are marked per call: replaces the local miss search. */
-  cache?: (runIds: string[]) => CacheUse | null;
+/**
+ * One line of Needs a look, most urgent first: an applied fix that doesn't hold, a failing test, a
+ * failure with no fix yet (an open fix, then a failed run never blamed), a verified fix waiting to be
+ * applied, and runs only on this machine when a team store is set.
+ */
+export interface NeedsLookRow {
+  kind: 'broken' | 'test' | 'open' | 'unblamed' | 'ready' | 'local';
+  /** The icon: a failure, a blame, a fix that holds, or a recording. */
+  icon: 'fail' | 'blame' | 'fixok' | 'rec';
+  title: string;
+  detail: string;
+  /** The word before the arrow: Open, Fix, Fix it, Run blame, Apply, Push. */
+  action: string;
+  href: string;
+  runId: string | null;
+  fixId: string | null;
+  at: number;
+}
+
+export interface NeedsLook {
+  /** At most 50, most urgent first. */
+  items: NeedsLookRow[];
+  /** Every line there is, listed or not. */
+  total: number;
+}
+
+/** The team store as Needs a look reads it: how many finished runs are only on this machine. */
+export interface StoreNote {
+  name: string;
+  onlyLocal: number;
 }
 
 export interface OverviewOptions extends StatsOptions {
@@ -188,22 +215,10 @@ export interface OverviewOptions extends StatsOptions {
   now?: number;
   /** Rows of the run grid: families are added whole, newest first, while they fit (40 unless asked). */
   gridRows?: number;
-  hooks?: OverviewHooks;
-}
-
-/**
- * What Needs a look can say from runs alone. Failing tests are in `outcomes.testsPassing.failing`;
- * open fixes and verified fixes waiting to be applied come from the fixes slice.
- */
-export interface NeedsLook {
-  /**
-   * Failed runs no blame has looked at, newest first (at most 20): not fixes yet, each offers Run
-   * blame. Tests are left out (a divergence is not blamed), as is a replay that reproduced its
-   * recording's failure (the recording is the run to blame).
-   */
-  notBlamed: Array<{ runId: string; kind: RunKind; label: string; command: string; source: string | null; outcome: RunOutcome; startedAt: number }>;
-  /** Such runs past the 20 listed. */
-  more: number;
+  /** The goldens on disk (the CLI's `projectGoldens`): Tests passing and failing tests. Without any, there are no goldens yet. */
+  goldens?: GoldenList;
+  /** The team store, when the config names one: its runs only on this machine join Needs a look. */
+  teamStore?: StoreNote | null;
 }
 
 export interface OverviewSummary {
@@ -225,10 +240,7 @@ export interface OverviewSummary {
 
 const GRID_CELLS = 60;
 const GRID_MIN_CALLS = 30;
-const NEEDS_LOOK_LISTED = 20;
-
-/** A failure no blame has looked at: a run that failed, not a test and not a reproduction of its recording's failure. */
-const needsBlame = (r: IndexedRun) => r.failed && !r.bundled && r.kind !== 'test' && r.kind !== 'clean' && !r.meta.blame;
+const NEEDS_LOOK_LISTED = 50;
 
 function emptyWeek(): WeekSums {
   return { runs: 0, calls: 0, origins: emptyOriginCounts(), spent: 0, notRespent: 0, notWaitedMs: 0, attempts: 0, attemptsSpent: 0 };
@@ -275,13 +287,9 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   }
 
   const thisWeek = inWindow.filter((r) => r.startedAt >= week.from && !r.bundled);
-  const hooks = options.hooks ?? {};
-  const fixHook = hooks.fixes?.({ week, lastWeek }) ?? null;
-  const blamed = index.runs.filter((r) => r.meta.blame && !r.bundled);
-  const open = fixHook?.open ?? blamed.length;
-  const blamedIn = (w: TimeWindow) => blamed.filter((r) => r.meta.blame!.at >= w.from && r.meta.blame!.at < w.to).length;
-  // Newest first, as the index lists runs.
-  const notBlamed = index.runs.filter(needsBlame);
+  const fixes = fixesSummary(store, now);
+  const goldens = options.goldens ?? [];
+  const tests = goldens.length ? overviewTests(store, { now, weekStart: week.from }, { goldens }) : null;
 
   return {
     tz,
@@ -290,24 +298,21 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     sums,
     daily,
     counts: index.counts,
-    today: todayPanel(index, inWindow, stats, today),
+    today: todayPanel(store, index, inWindow, stats, today),
     grid: runGrid(store, index, thisWeek, stats, Math.max(1, Math.min(500, Math.floor(options.gridRows ?? 40) || 40))),
     outcomes: {
-      reproduced: { value: blamedIn(week), lastWeek: blamedIn(lastWeek), open },
-      fixesVerified: fixHook ? { value: fixHook.accepted, lastWeek: fixHook.acceptedLastWeek, rejected: fixHook.rejected } : null,
-      testsPassing: hooks.tests ? hooks.tests({ now, weekStart: week.from }) : testsSummary(index, now, week.from),
+      reproduced: { value: fixes.reproduced.thisWeek, lastWeek: fixes.reproduced.lastWeek, open: fixes.open },
+      fixesVerified: { value: fixes.verified.thisWeek, lastWeek: fixes.verified.lastWeek, rejected: fixes.rejected.thisWeek },
+      testsPassing: tests,
       spent: { value: sums.week.spent, lastWeek: sums.lastWeek.spent, notRespent: sums.week.notRespent, notWaitedMs: sums.week.notWaitedMs },
     },
-    cache: hooks.cache?.(thisWeek.map((r) => r.runId)) ?? cacheUse(store, index, thisWeek, stats),
-    fixes: fixesFunnel(store, index, options, blamed.length, notBlamed.length, fixHook),
-    needsLook: {
-      notBlamed: notBlamed.slice(0, NEEDS_LOOK_LISTED).map((r) => ({ runId: r.runId, kind: r.kind, label: r.label, command: r.argv.join(' '), source: r.source, outcome: r.outcome, startedAt: r.startedAt })),
-      more: Math.max(0, notBlamed.length - NEEDS_LOOK_LISTED),
-    },
+    cache: cacheUse(store, index, week.from),
+    fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
+    needsLook: needsLook(store, goldens, options.teamStore ?? null),
   };
 }
 
-function todayPanel(index: RunIndex, inWindow: IndexedRun[], stats: Map<string, RunStats>, today: LocalDay): TodayPanel {
+function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats: Map<string, RunStats>, today: LocalDay): TodayPanel {
   const runs = inWindow.filter((r) => r.startedAt >= today.start && r.startedAt < today.end);
   const shown = runs.filter((r) => !r.bundled);
   const of = (kind: RunKind) => shown.filter((r) => r.kind === kind);
@@ -331,7 +336,8 @@ function todayPanel(index: RunIndex, inWindow: IndexedRun[], stats: Map<string, 
       attempts: probes.filter((r) => r.bundled).length,
       runs: [...new Set(probes.map(probedRun))].map((runId) => {
         const run = index.byId.get(runId);
-        return { runId, lostAt: run ? lostAt(classifiable(run)) : null };
+        const fix = fixOfRun(store, runId);
+        return { runId, lostAt: run ? lostAt(classifiable(run)) : null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
       }),
     },
   };
@@ -438,74 +444,66 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
 }
 
 /**
- * Goldens passing, from the runs `shadowlap test` made (`meta.test`): each golden's latest session
- * passes when enough of its attempts passed (`meta.test.passes` when the run says, otherwise all of
- * them). An attempt passes when it exited 0 and came out clean or with its checks passed; one that
- * was interrupted or timed out did not pass. A week ago is the same question asked of the runs
- * before this week.
+ * Live model calls' cache use in runs started since the week started, as the engine's `cacheUse`
+ * counts it (attempts included, imported recordings left out: they were live somewhere else), from
+ * each run's kept totals, with each miss's run kind for its icon. Largest misses first.
  */
-function testsSummary(index: RunIndex, now: number, weekStart: number): TestsSummary | null {
-  const tests = index.runs.filter((r) => r.meta.test?.golden && r.status !== 'running' && r.startedAt <= now);
-  if (!tests.length) return null;
-  const verdicts = (before: number) => {
-    const latest = new Map<string, { session: string; runs: IndexedRun[] }>();
-    // Newest first: a golden's first run seen names its latest session.
-    for (const r of tests) {
-      if (r.startedAt >= before) continue;
-      const { golden, session } = r.meta.test!;
-      const found = latest.get(golden);
-      if (!found) latest.set(golden, { session, runs: [r] });
-      else if (found.session === session) found.runs.push(r);
-    }
-    const out = new Map<string, { passed: boolean; failedRun: IndexedRun | null }>();
-    for (const [golden, { runs }] of latest) {
-      const passes = (r: IndexedRun) => r.status === 'completed' && !r.failed;
-      const passed = runs.filter(passes).length;
-      const required = runs.find((r) => r.meta.test!.passes !== null)?.meta.test!.passes ?? runs.length;
-      // The newest attempt that failed; the newest of all when too few attempts ran.
-      out.set(golden, passed >= required ? { passed: true, failedRun: null } : { passed: false, failedRun: runs.find((r) => !passes(r)) ?? runs[0]! });
-    }
-    return out;
-  };
-  const count = (m: Map<string, { passed: boolean }>) => [...m.values()].filter((v) => v.passed).length;
-  const current = verdicts(Number.POSITIVE_INFINITY);
-  const before = verdicts(weekStart);
-  const passing = count(current);
-  const failing = [...current]
-    .filter(([, v]) => v.failedRun)
-    .map(([golden, v]) => ({ golden, runId: v.failedRun!.runId, outcome: v.failedRun!.outcome, at: v.failedRun!.startedAt }))
-    .sort((a, b) => b.at - a.at || (a.golden < b.golden ? -1 : 1));
-  return { goldens: current.size, passing, lastWeek: before.size ? count(before) : null, regressions: current.size - passing, lastRunAt: tests[0]!.startedAt, failing };
-}
-
-function cacheUse(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>): CacheUse {
+function cacheUse(store: Store, index: RunIndex, since: number): CacheUse {
+  const runs = index.runs.filter((r) => r.startedAt >= since && !(r.meta.imported && r.mode === 'record'));
+  const totals = callTotals(store, index, runs);
   let input = 0;
   let cacheRead = 0;
-  const cached: IndexedRun[] = [];
+  const all: Array<CacheMissRow & { startedAt: number }> = [];
   for (const r of runs) {
-    const s = stats.get(r.runId);
-    if (!s || !s.liveInput) continue;
-    input += s.liveInput;
-    cacheRead += s.liveCacheRead;
-    cached.push(r);
+    const c = totals.get(r.runId)?.cache;
+    if (!c) continue;
+    input += c.input;
+    cacheRead += c.read;
+    for (const [callNo, scope, tokens] of c.misses) all.push({ runId: r.runId, kind: r.kind, callNo, scope, tokens, startedAt: r.startedAt });
   }
-  const misses = cached.length ? cacheMisses(store, index, cached) : [];
-  return { input, cacheRead, misses: misses.slice(0, 4), sentAgain: misses.reduce((t, m) => t + m.tokens, 0), missCount: misses.length };
+  all.sort((a, b) => b.tokens - a.tokens || b.startedAt - a.startedAt || a.callNo - b.callNo);
+  return {
+    input,
+    cacheRead,
+    readShare: input ? cacheRead / input : null,
+    misses: all.slice(0, 4).map(({ startedAt: _startedAt, ...m }) => m),
+    sentAgain: all.reduce((t, m) => t + m.tokens, 0),
+    missCount: all.length,
+  };
 }
 
-function fixesFunnel(store: Store, index: RunIndex, options: StatsOptions, blamed: number, notBlamed: number, hook: FixesHookResult | null): FixesFunnel {
-  const attempts = index.runs.filter((r) => r.meta.probe || r.meta.verify);
-  const stats = runStats(store, index, attempts, options);
-  return {
-    failures: hook?.failures ?? blamed,
-    blamed: hook?.blamed ?? blamed,
-    verified: hook?.verified ?? null,
-    applied: hook?.applied ?? null,
-    open: hook?.open ?? blamed,
-    notBlamed,
-    attempts: attempts.length,
-    spent: attempts.reduce((t, r) => t + (stats.get(r.runId)?.spent ?? 0), 0),
-  };
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+
+/**
+ * Needs a look, most urgent first: applied fixes that don't hold, failing tests, failures with no
+ * fix yet (open fixes, then failed runs never blamed), verified fixes not yet applied, then runs
+ * only on this machine. A recording in progress shows under Today instead.
+ */
+function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null): NeedsLook {
+  const fixes = needsLookFixes(store);
+  const of = (kind: string) => fixes.filter((f) => f.kind === kind);
+  const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
+  const tests: NeedsLookRow[] = goldens.length
+    ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: 'fail', title: t.title, detail: t.line, action: 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
+    : [];
+  const local: NeedsLookRow[] =
+    teamStore && teamStore.onlyLocal > 0
+      ? [
+          {
+            kind: 'local',
+            icon: 'rec',
+            title: `${plural(teamStore.onlyLocal, 'run is', 'runs are')} only on this machine`,
+            detail: `push ${teamStore.onlyLocal === 1 ? 'it' : 'them'} so the team can open ${teamStore.onlyLocal === 1 ? 'it' : 'them'}`,
+            action: 'Push',
+            href: '#/settings/store',
+            runId: null,
+            fixId: null,
+            at: 0,
+          },
+        ]
+      : [];
+  const all = [...of('broken').map(fixRow), ...tests, ...of('open').map(fixRow), ...of('unblamed').map(fixRow), ...of('ready').map(fixRow), ...local];
+  return { items: all.slice(0, NEEDS_LOOK_LISTED), total: all.length };
 }
 
 /** Options for `overviewSummary` from a request's query string: tz. */
