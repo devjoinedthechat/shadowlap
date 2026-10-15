@@ -246,6 +246,13 @@ describe('removeDialog', () => {
     expect(v).toMatchObject({ canRemove: false, why: 'The only project can’t be removed' });
   });
 
+  it('words one run and one golden in the singular', () => {
+    const v = removeDialog({ project: entry('triage-bot'), stats: { runs: 1, attempts: 0, goldens: 1 }, projects: 2, home: HOME });
+    expect(v.project.summary).toBe('1 run · 1 golden');
+    expect(v.onDisk.at(-1)).toEqual({ key: 'gold', label: 'Its golden', path: 'goldens/' });
+    expect(v.deleteZone!.detail).toBe('1 run and its attempts. The golden is in your repository and stays.');
+  });
+
   it('confirms by the exact name', () => {
     expect(nameMatches(' support-agent ', 'support-agent')).toBe(true);
     expect(nameMatches('support-agen', 'support-agent')).toBe(false);

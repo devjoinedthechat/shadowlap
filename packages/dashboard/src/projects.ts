@@ -503,7 +503,7 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
     deleteZone: stats.runs
       ? {
           label: 'Also delete its recordings',
-          detail: `${runsLabel(stats.runs)} and their attempts.${stats.goldens ? ' The goldens are in your repository and stay.' : ''}`,
+          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}`,
           confirm: `Type ${project.name} to confirm. This can’t be undone.`,
           placeholder: project.name,
           name: project.name,
