@@ -132,7 +132,8 @@ describe('a fix', () => {
       [7, 'lost', '0 of 4'],
     ]);
     expect(b.bundles[1]).toMatchObject({ title: 'blame · probe #5', blamed: true, passes: 2 });
-    expect(b.bundles[1]!.attempts.map((a) => a.note)).toEqual(['passed', 'issue_refund called', 'passed', 'issue_refund called']);
+    // The rescued fork says what asking again did.
+    expect(b.bundles[1]!.attempts.map((a) => a.note)).toEqual(['passed · called escalate', 'issue_refund called', 'passed', 'issue_refund called']);
     expect(b.callRow.map((c) => [c.callNo, c.kind, c.verdict, c.inScope])).toEqual([
       [1, 'api', 'rescued', true],
       [2, 'tool', null, true],

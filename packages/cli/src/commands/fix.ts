@@ -544,8 +544,9 @@ function registerFixes(program: Command): void {
     .action((arg: string, flags: { json?: boolean }) => {
       const store = openStore(program.opts<GlobalOpts>());
       try {
-        const detail = fixDetail(store, requireFix(store, arg).fixId)!;
-        process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer: configuredRepairer() })) + '\n');
+        const repairer = configuredRepairer();
+        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer })!;
+        process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);
       } finally {

@@ -4,6 +4,7 @@ import * as activity from './activity.js';
 import * as changes from './changes.js';
 import * as compare from './compare.js';
 import * as files from './files.js';
+import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
 import * as meta from './meta.js';
 import * as runs from './runs.js';
@@ -29,6 +30,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   files,
   uploads,
   activity,
+  fixes,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {
