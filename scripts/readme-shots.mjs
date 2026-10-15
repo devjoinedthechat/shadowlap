@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Renders site/brand/dashboard-light.png and dashboard-dark.png: the dashboard on a real fork of the
-// reference agent (recorded against the scripted mock API, so no key), captured with headless Chrome.
+// Renders site/brand/dashboard-dark.png, and the same picture as dashboard-light.png (the dashboard is
+// dark only; the README's <picture> names both): the dashboard on a real fork of the reference agent
+// (recorded against the scripted mock API, so no key), captured with headless Chrome.
 // Usage: node scripts/readme-shots.mjs   (after `npm run build`; CHROME=/path/to/chrome to choose a browser)
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -55,9 +56,9 @@ const spawnCli = (args) => spawn(process.execPath, [cli, '--db', dbPath, ...args
 const dash = await startDashboard({ store, dbPath, version, spawnCli });
 
 // Chrome must run asynchronously: the dashboard serving it lives on this event loop.
-const shot = (scheme, out) =>
+const shot = (out) =>
   new Promise((ok, fail) => {
-    const args = ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--blink-settings=preferredColorScheme=${scheme === 'dark' ? 0 : 1}`, '--force-device-scale-factor=2', '--window-size=1440,900', '--virtual-time-budget=8000', `--screenshot=${out}`, dash.runUrl(fork.runId, 17)];
+    const args = ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=2', '--window-size=1440,900', '--virtual-time-budget=8000', `--screenshot=${out}`, dash.runUrl(fork.runId, 17)];
     const child = spawn(chrome, args, { stdio: 'ignore' });
     const timer = setTimeout(() => child.kill(), 60_000);
     child.on('exit', () => {
@@ -67,8 +68,9 @@ const shot = (scheme, out) =>
       ok();
     });
   });
-await shot('light', join(root, 'site', 'brand', 'dashboard-light.png'));
-await shot('dark', join(root, 'site', 'brand', 'dashboard-dark.png'));
+const dark = join(root, 'site', 'brand', 'dashboard-dark.png');
+await shot(dark);
+copyFileSync(dark, join(root, 'site', 'brand', 'dashboard-light.png'));
 
 await dash.close();
 store.close();
