@@ -186,6 +186,9 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
       selected: picked?.path === f.path,
     }),
   );
+  // As the design lists them: folders that can be added first, then those already added, then those without project files.
+  const rank = (f: AddFolderItem) => (f.added ? 1 : f.kind ? 0 : 2);
+  folders.sort((a, b) => rank(a) - rank(b));
   const pickedDisplay = picked ? tildePath(picked.path, input.home) : null;
   const addable = !!picked && !!picked.folder.kind && !picked.added;
   const error = !picked ? null : picked.added ? `${pickedDisplay} is already in the dashboard.` : picked.folder.kind ? null : (picked.folder.why ?? `${pickedDisplay} has no project files.`);

@@ -93,6 +93,7 @@ describe('addProjectPage', () => {
       { path: `${HOME}/research-agent`, display: '~/research-agent', name: 'research-agent', folder: kind('Python · uv', 'Python · uv · pyproject.toml'), added: false, projectId: null },
       { path: `${HOME}/triage-bot`, display: '~/triage-bot', name: 'triage-bot', folder: kind('Node · npm', 'Node · npm · package.json'), added: true, projectId: 'triage-bot' },
       { path: `${HOME}/Downloads`, display: '~/Downloads', name: 'Downloads', folder: kind(null), added: false, projectId: null },
+      { path: `${HOME}/web-agent`, display: '~/web-agent', name: 'web-agent', folder: kind('Node · pnpm', 'Node · pnpm · package.json · pnpm-lock.yaml'), added: false, projectId: null },
     ],
   };
 
@@ -100,8 +101,10 @@ describe('addProjectPage', () => {
     const v = addProjectPage({ query: '', suggestions, home: HOME });
     expect(v.title).toBe('Add a project');
     expect(v.intro).toBe('Pick the folder your agent’s code is in. Nothing runs until you click.');
+    // Those that can be added first, then those already added, then those without project files.
     expect(v.folders.map((f) => [f.display, f.note, f.disabled])).toEqual([
       ['~/research-agent', 'Python · uv · pyproject.toml', false],
+      ['~/web-agent', 'Node · pnpm · package.json · pnpm-lock.yaml', false],
       ['~/triage-bot', 'already added', true],
       ['~/Downloads', 'no project files found', false],
     ]);
