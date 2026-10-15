@@ -1,4 +1,5 @@
 import {
+  clean,
   epochMs,
   isObject,
   maybeJson,
@@ -109,7 +110,7 @@ function modelCall(run: Record<string, unknown>): TraceModelCall {
   const responseMeta = rawResponse(outputs);
   return {
     kind: 'model',
-    what: `run ${String(run.name ?? run.id ?? '')}`,
+    what: `run ${clean(run.name ?? run.id)}`,
     provider: str(metadata.ls_provider) ?? (str(params._type)?.replace(/-chat$/, '') ?? null),
     model: str(params.model) ?? str(params.model_name) ?? str(metadata.ls_model_name) ?? str(inputs.model) ?? str(llmOutput.model_name) ?? null,
     messages: messagesOf(inputs) ?? [],
@@ -118,7 +119,7 @@ function modelCall(run: Record<string, unknown>): TraceModelCall {
     stream: params.stream === true || inputs.stream === true,
     output: outputOf(outputs),
     usage: usage(run, outputs),
-    error: str(run.error),
+    error: str(run.error) === null ? null : clean(run.error, 500),
     ...(raw ? { rawRequest: raw } : {}),
     ...(responseMeta ? { rawResponse: responseMeta } : {}),
     responseId: responseMeta ? str(responseMeta.id) : null,
@@ -146,12 +147,12 @@ function toolOutput(outputs: unknown): unknown {
 function toolCall(run: Record<string, unknown>): TraceToolCall {
   return {
     kind: 'tool',
-    what: `run ${String(run.name ?? run.id ?? '')}`,
-    name: String(run.name ?? ''),
+    what: `run ${clean(run.name ?? run.id)}`,
+    name: clean(run.name, 200),
     callId: null,
     args: toolArgs(run.inputs),
     output: toolOutput(run.outputs),
-    error: str(run.error),
+    error: str(run.error) === null ? null : clean(run.error, 500),
     startedAt: epochMs(run.start_time),
     endedAt: epochMs(run.end_time),
   };

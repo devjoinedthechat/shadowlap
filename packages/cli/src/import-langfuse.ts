@@ -1,5 +1,6 @@
 import {
   calledToolNames,
+  clean,
   epochMs,
   isObject,
   maybeJson,
@@ -83,7 +84,7 @@ function modelCall(o: Record<string, unknown>): TraceModelCall {
   const failed = o.level === 'ERROR';
   return {
     kind: 'model',
-    what: `generation ${String(o.name ?? o.id ?? '')}`,
+    what: `generation ${clean(o.name ?? o.id)}`,
     provider: str(metadata.ls_provider) ?? str(metadata.provider) ?? null,
     model: str(o.model) ?? str(params.model) ?? (isObject(input) ? str(input.model) : null),
     messages: messagesOf(input) ?? [],
@@ -92,7 +93,7 @@ function modelCall(o: Record<string, unknown>): TraceModelCall {
     stream: params.stream === true || params.stream === 'true',
     output: outputOf(o.output),
     usage: usage(o),
-    error: failed ? (str(o.statusMessage) ?? 'error') : null,
+    error: failed ? clean(str(o.statusMessage) ?? 'error', 500) : null,
     responseId: null,
     startedAt: epochMs(o.startTime),
     endedAt: epochMs(o.endTime),
@@ -103,12 +104,12 @@ function toolCall(o: Record<string, unknown>): TraceToolCall {
   const failed = o.level === 'ERROR';
   return {
     kind: 'tool',
-    what: `${String(o.type ?? 'span').toLowerCase()} ${String(o.name ?? o.id ?? '')}`,
-    name: String(o.name ?? ''),
+    what: `${clean(o.type ?? 'span', 20).toLowerCase()} ${clean(o.name ?? o.id)}`,
+    name: clean(o.name, 200),
     callId: null,
     args: o.input === null || o.input === undefined ? undefined : maybeJson(o.input),
     output: o.output === null || o.output === undefined ? undefined : maybeJson(o.output),
-    error: failed ? (str(o.statusMessage) ?? 'error') : null,
+    error: failed ? clean(str(o.statusMessage) ?? 'error', 500) : null,
     startedAt: epochMs(o.startTime),
     endedAt: epochMs(o.endTime),
   };

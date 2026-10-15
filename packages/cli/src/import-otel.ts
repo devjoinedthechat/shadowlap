@@ -1,6 +1,7 @@
 import type { Skip } from './import-capture.js';
 import {
   calledToolNames,
+  clean,
   isObject,
   maybeJson,
   messageOf,
@@ -213,7 +214,7 @@ function entityValue(raw: unknown, key: 'inputs' | 'outputs'): unknown {
 
 function toolCall(s: Span): TraceToolCall {
   const a = s.attrs;
-  const name = str(a['gen_ai.tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, '');
+  const name = clean(str(a['gen_ai.tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
   const args = a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : undefined);
   const out = a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : undefined);
   return { kind: 'tool', what: `span ${s.name}`, name, callId: str(a['gen_ai.tool.call.id']), args: maybeJson(args), output: maybeJson(out), error: s.error, startedAt: s.start, endedAt: s.end };
@@ -264,15 +265,15 @@ function spansOf(payload: unknown): Span[] {
           const attrs = attributes(raw.attributes);
           const failed = status.code === 2 || status.code === 'STATUS_CODE_ERROR';
           out.push({
-            traceId: String(raw.traceId ?? ''),
+            traceId: clean(raw.traceId, 64),
             spanId: String(raw.spanId ?? ''),
             parentSpanId: String(raw.parentSpanId ?? ''),
-            name: String(raw.name ?? '').slice(0, 300),
+            name: clean(raw.name),
             start: nanosToMs(raw.startTimeUnixNano),
             end: nanosToMs(raw.endTimeUnixNano),
             attrs,
             events: (Array.isArray(raw.events) ? raw.events : []).filter(isObject).map((e) => ({ name: String(e.name ?? ''), attrs: attributes(e.attributes) })),
-            error: failed ? (str(status.message) ?? str(attrs['error.type']) ?? 'error') : null,
+            error: failed ? clean(str(status.message) ?? str(attrs['error.type']) ?? 'error', 500) : null,
           });
         }
       }

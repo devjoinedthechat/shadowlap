@@ -154,6 +154,35 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
   });
 });
 
+describe('a trace is a file from anywhere', () => {
+  it('escapes what it names before a terminal shows it', () => {
+    const attr = (key: string, value: string) => ({ key, value: { stringValue: value } });
+    const read = readOtel([
+      {
+        resourceSpans: [
+          {
+            scopeSpans: [
+              {
+                spans: [
+                  { traceId: 'abc\u001b]0;pwned\u0007', spanId: '1', name: 'chat \u001b[2J', status: { code: 2, message: 'failed\n\u001b[31mred' }, attributes: [attr('gen_ai.operation.name', 'chat'), attr('gen_ai.input.messages', '[{"role":"user","content":"hi"}]')] },
+                  { traceId: 'abc\u001b]0;pwned\u0007', spanId: '2', name: 'execute_tool x', attributes: [attr('gen_ai.operation.name', 'execute_tool'), attr('gen_ai.tool.name', 'look\u001b[0mup')] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const [trace] = read.traces;
+    expect(trace!.id).toBe('abc\\x1b]0;pwned\\x07');
+    const store = open();
+    const { result } = importTrace(store, trace!, { source: 's' });
+    expect(result.skipped).toEqual([{ url: 'span chat \\x1b[2J', reason: 'the model call failed at its source (failed\\n\\x1b[31mred)' }]);
+    expect(trace!.calls.find((c) => c.kind === 'tool')).toMatchObject({ name: 'look\\x1b[0mup' });
+    store.close();
+  });
+});
+
 describe('import langfuse', () => {
   const trace = JSON.parse(fixture('langfuse-trace.json')) as Record<string, unknown>;
 

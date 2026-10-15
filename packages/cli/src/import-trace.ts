@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import { safeLine, type Store } from '@shadowlap/engine';
 import { ImportWriter, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -134,6 +134,14 @@ export function num(v: unknown): number | undefined {
 
 export function str(v: unknown): string | null {
   return typeof v === 'string' && v ? v : null;
+}
+
+/**
+ * A name, id or message out of a trace, fit to print: a trace is a file from anywhere, and what it
+ * names ends up in a terminal and the dashboard. Control characters are escaped and the length bounded.
+ */
+export function clean(v: unknown, max = 300): string {
+  return safeLine(typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v)).slice(0, max);
 }
 
 /** An ISO timestamp (LangSmith's have no zone: they are UTC) or epoch milliseconds. */
@@ -495,7 +503,7 @@ export function rebuildRequest(c: TraceModelCall, dialect: Dialect): Rebuilt {
     for (const [k, v] of Object.entries(c.rawRequest)) if (!CLIENT_ONLY.includes(k) && v !== undefined) body[k] = v;
     if (dialect === 'gemini') {
       const { model: m, ...rest } = body;
-      return { path: `/v1beta/models/${String(m ?? model)}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`, search: c.stream ? '?alt=sse' : '', headers: {}, body: rest };
+      return { path: `/v1beta/models/${encodeURIComponent(String(m ?? model))}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`, search: c.stream ? '?alt=sse' : '', headers: {}, body: rest };
     }
     return { path: dialect === 'anthropic' ? '/v1/messages' : '/v1/chat/completions', search: '', headers: dialect === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {}, body };
   }
@@ -531,7 +539,7 @@ export function rebuildRequest(c: TraceModelCall, dialect: Dialect): Rebuilt {
       ...(s.seed !== undefined ? { seed: s.seed } : {}),
     };
     return {
-      path: `/v1beta/models/${model}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`,
+      path: `/v1beta/models/${encodeURIComponent(model)}:${c.stream ? 'streamGenerateContent' : 'generateContent'}`,
       search: c.stream ? '?alt=sse' : '',
       headers: {},
       body: {
