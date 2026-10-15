@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "@shadowlap/engine": "^0.1.0",
-    "@shadowlap/tui": "^0.1.0"
+    "@shadowlap/tui": "^0.1.0",
+    "@shadowlap/remote": "^0.1.0"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

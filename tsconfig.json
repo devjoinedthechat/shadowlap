@@ -5,6 +5,9 @@
       "path": "packages/engine"
     },
     {
+      "path": "packages/remote"
+    },
+    {
       "path": "packages/sidecar"
     },
     {

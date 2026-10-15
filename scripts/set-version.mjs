@@ -9,9 +9,9 @@ if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version ?? '')) {
   process.exit(2);
 }
 
-const PACKAGES = ['packages/engine', 'packages/sidecar', 'packages/sdk', 'packages/adapters', 'packages/tui', 'packages/dashboard', 'packages/cli', 'packages/test', 'packages/collector'];
+const PACKAGES = ['packages/engine', 'packages/sidecar', 'packages/sdk', 'packages/adapters', 'packages/tui', 'packages/remote', 'packages/dashboard', 'packages/cli', 'packages/test', 'packages/collector'];
 const PRIVATE = ['testing/mock-anthropic', 'testing/mock-openai', 'testing/mock-gemini', 'testing/reference-agent'];
-const INTERNAL = new Set(['@shadowlap/engine', '@shadowlap/sidecar', '@shadowlap/sdk', '@shadowlap/adapters', '@shadowlap/tui', '@shadowlap/dashboard', '@shadowlap/collector', '@shadowlap/test', 'shadowlap', '@shadowlap-testing/mock-anthropic', '@shadowlap-testing/mock-openai', '@shadowlap-testing/mock-gemini', '@shadowlap-testing/reference-agent']);
+const INTERNAL = new Set(['@shadowlap/engine', '@shadowlap/sidecar', '@shadowlap/sdk', '@shadowlap/adapters', '@shadowlap/tui', '@shadowlap/remote', '@shadowlap/dashboard', '@shadowlap/collector', '@shadowlap/test', 'shadowlap', '@shadowlap-testing/mock-anthropic', '@shadowlap-testing/mock-openai', '@shadowlap-testing/mock-gemini', '@shadowlap-testing/reference-agent']);
 
 for (const dir of [...PACKAGES, ...PRIVATE]) {
   const file = join(dir, 'package.json');

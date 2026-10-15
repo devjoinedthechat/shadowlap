@@ -10,6 +10,7 @@ import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from '../run-agent.js';
 import { openStore, parseChoice, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts, type RunSummaryLike } from '../shared.js';
+import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe } from '../ui.js';
 
@@ -24,7 +25,7 @@ function formatChecks(checks: CheckResult[]): string {
  * It prints how to reach it (base URLs per slot, with `__SLOT__` for the plugin to fill in, and the
  * in-process capture module) and runs until its stdin closes, which is when the test runner exits.
  */
-async function serveRecordings(store: Store, config: ReturnType<typeof loadConfig>): Promise<void> {
+async function serveRecordings(store: Store, config: ReturnType<typeof loadConfig>, db: string | undefined): Promise<void> {
   const root = process.cwd();
   const upstreams = upstreamOverrides(process.env);
   const host = new RecordingHost(store, root, { codeVersion: codeVersion(root), redact: config.redact });
@@ -51,6 +52,8 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   host.close();
   await sidecar.close();
   store.close();
+  // Team store: recordings someone pushed while they were running go to the store now that they have ended.
+  await pushIfQueued(teamEnv(db));
 }
 
 export function register(program: Command): void {
@@ -68,10 +71,13 @@ export function register(program: Command): void {
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .action(async (packs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
+    .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
+    .action(async (packs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const config = loadConfig(process.cwd());
       const tests = loadTests(process.cwd());
+      // Team store: no store or no credentials is a warning; the tests still decide the exit code.
+      const pusher = flags.push ? await prepareTestPush(teamEnv(opts.db), { ...(flags.annotations ? { annotations: true } : {}) }) : null;
       const cwd = resolve(flags.cwd ?? process.cwd());
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
@@ -107,6 +113,7 @@ export function register(program: Command): void {
             telemetry().record({ type: 'test', ...usageOf(attempt.ended, attempt.ms, attempt.code) });
             attempts.push(attempt);
           }
+          if (pusher) await pusher.pushRuns(store, attempts.map((a) => a.ended.summary.runId));
           const passed = attempts.filter((a) => !a.failure).length;
           const required = spec?.passes ?? 1;
           const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
@@ -174,6 +181,7 @@ export function register(program: Command): void {
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
+      if (pusher) await pusher.finish(report);
       process.stdout.write(`\n${cases.length - failed} passed, ${failed} failed\n`);
       await telemetry().flush();
       process.exitCode = failed ? 1 : 0;
@@ -226,7 +234,7 @@ export function register(program: Command): void {
       const store = openStore(opts);
       const config = loadConfig(process.cwd());
       if (flags.recordings) {
-        await serveRecordings(store, config);
+        await serveRecordings(store, config, opts.db);
         return;
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
@@ -243,6 +251,7 @@ export function register(program: Command): void {
       printOutcome(summary);
       await sidecar.close();
       store.close();
+      await pushIfQueued(teamEnv(opts.db));
     });
 
 }

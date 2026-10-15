@@ -103,6 +103,15 @@
         }
       }
     },
+    "store": {
+      "description": "The team store: the project's runs in a bucket you own, written by `shadowlap store set`. s3://bucket/folder, gs://bucket/folder, az://account/container/folder or r2://account/bucket/folder; a query adds what the name can't say (region, endpoint, path-style, auth=hmac, profile). Credentials never go here: each machine uses its own.",
+      "type": "string",
+      "pattern": "^(s3|gs|az|r2)://[^\\s]+$"
+    },
+    "ciPush": {
+      "description": "Whether `shadowlap test --push` pushes test runs and their report to the team store from CI (true unless set to false). `shadowlap store push-from-ci on|off` writes it; outside CI, --push always pushes.",
+      "type": "boolean"
+    },
     "tests": {
       "description": "Outcome checks for `shadowlap test`, by recording directory relative to this file. `*` is allowed in the last path segment.",
       "type": "object",

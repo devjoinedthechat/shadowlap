@@ -224,7 +224,7 @@ The [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` nam
 ## test
 
 ```sh
-shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations] [--online] [--writes <policy>] [--cwd <dir>]
+shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations] [--online] [--writes <policy>] [--cwd <dir>] [--push]
 ```
 
 [CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none.
@@ -235,6 +235,7 @@ shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [-
 | `--json <file>` | Write a JSON report: counts and, per pack, the result, calls by origin, tokens not re-spent, the divergence, each check and, for a repeated recording, how many attempts passed |
 | `--markdown <file>` | Append a Markdown report: a results table, and the diff and agent output for each failure. Point it at `$GITHUB_STEP_SUMMARY` for a GitHub job summary |
 | `--annotations` | Print a GitHub Actions error annotation for each failed pack, attached to its `run.json` |
+| `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
 
 ## pack, unpack
 
@@ -336,6 +337,8 @@ Replays a recording (default: the latest) offline, repeatedly, and proposes a no
 | `prices` | USD per million tokens by model prefix, for cost estimates |
 | `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
+| `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
+| `ciPush` | `false` keeps `test --push` from pushing to the team store in CI (`shadowlap store push-from-ci on\|off`) |
 
 The schema is [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json) in the repository. It gives completion in any
 editor that reads `$schema`, and it lets CI check a config without running Shadowlap. It is
@@ -461,6 +464,65 @@ shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER
 
 A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved.
 
+## push, pull
+
+```sh
+shadowlap push <run...>          # these runs, with their ancestors
+shadowlap push --all             # every run on this machine that isn't in the store as it is
+shadowlap pull [<run...>]        # teammates' runs, or only these (ids or unique prefixes, as in the store)
+shadowlap pull --include-pr      # and the runs pull requests' CI jobs pushed to their own folders
+```
+
+Copy runs between this machine and the [team store](./team.md) named by `store` in
+`shadowlap.config.json`, with this machine's own credentials. Blobs shared between runs go up once;
+a run still recording goes when it ends; labels and notes merge both ways, and a run's results come
+from the machine that made it; a run deleted here isn't pulled again unless named. A push names the
+pusher as the author of a run made here without one, and leaves here, saying why, a run a pull
+would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store that
+fails is skipped with its forks and tried again next time. A run named to `push` that the store has
+already is checked part by part, and what the bucket lost of it (its calls, a blob) is sent again.
+Either exits 1 when a run it was named can't go or come. `--json` prints the result.
+
+In a [pull request's CI job](./team.md#pull-requests) (GitHub Actions `pull_request` events, GitLab
+merge request pipelines, or `SHADOWLAP_PR` set), `push` writes only to the pull request's own
+folder, `pr/<number>/` in the store. `pull` leaves those folders out unless given `--include-pr`;
+runs it brings from one stay on this machine: `push --all` leaves them out, and `push` refuses one
+by name.
+
+## share
+
+```sh
+shadowlap share <run> [--lineage] [--json]
+```
+
+Writes the run's [HTML report](#export-html), with every redaction rule applied, to the
+[team store](./team.md#share-links) and prints a presigned link that expires after 7 days. Anyone
+with the link can open it, without an account. `--lineage` includes the run's ancestors.
+
+## store
+
+```sh
+shadowlap store set <url> [--provider s3|gcs|azure|r2]   # write "store" to shadowlap.config.json
+shadowlap store check                                    # list, write, read and delete; encryption, versioning, object lock
+shadowlap store show                                     # last push and pull, runs in the store and only here, last check (offline)
+shadowlap store policy [--provider s3|gcs|azure|r2]      # the access to ask your cloud admin for: two policies
+shadowlap store ci --provider github|gitlab|other [--packs <glob>]   # a CI step that runs test --push
+shadowlap store push-from-ci on|off                      # whether test --push pushes from CI
+```
+
+Set up the [team store](./team.md#the-store). `set` checks the URL against the provider's scheme
+(with `--provider`, against that one only) and writes it to the config, keeping everything else.
+`check` proves this machine's credentials can list, write, read and delete a test object, and
+reports encryption, versioning and object lock, with a warning when versioning or object lock is
+off; it exits 1 when access fails. `policy` prints two policies scoped to the store's folder, each
+an IAM policy, role bindings, a role assignment or R2 token scopes: one for people and CI on
+protected branches, and one for pull requests' CI jobs, which may write only under `pr/`. `ci`
+prints a step for GitHub Actions, GitLab CI or any other CI, with short-lived credentials (OIDC)
+where the CI and the cloud allow it, and the pull-request credentials beside the protected
+branches'. `push-from-ci off` writes `"ciPush": false` to the config: `test --push` in CI then runs
+the tests and keeps their runs in the job (outside CI, `--push` still pushes); `on` turns it back
+on. Each takes `--json`.
+
 ## Environment
 
 | Variable | Meaning |
@@ -469,4 +531,7 @@ A run as one OpenTelemetry trace: a span for the run and a child span per call, 
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
 | `SHADOWLAP_TELEMETRY_URL` | Send telemetry to another collector |
+| `SHADOWLAP_AUTHOR` | Who made a run, recorded when it is pushed and on activity; default `ci` in CI, else git `user.email`, else the OS user |
+| `SHADOWLAP_PR` | A pull request's number, set in its CI build where Shadowlap doesn't recognise pull requests by itself (it does on GitHub Actions and GitLab CI): the build writes only to that pull request's folder in the [team store](./team.md#pull-requests) |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Reach the team store and the clouds' sign-in services through a proxy ([details](./team.md#the-store)) |
 | `NO_COLOR` | Plain output |

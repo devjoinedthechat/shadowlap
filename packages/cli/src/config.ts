@@ -29,6 +29,11 @@ export interface ShadowlapConfig {
   http?: HttpRule[];
   /** `shadowlap repair`: the model that proposes fixes (`provider:model`) and its base URL. */
   repair?: { repairer?: string; baseUrl?: string };
+  // ---- Team store ----
+  /** The team store, a bucket URL (`shadowlap store set`). Parsed in full by the commands that use it. */
+  store?: string;
+  /** False stops `test --push` from pushing in CI (Settings → Store, Push from CI). */
+  ciPush?: boolean;
 }
 
 /** The project's config file. */
@@ -62,6 +67,16 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     if (repairer !== undefined && typeof repairer !== 'string') throw new Error(`${file}: repair.repairer must be a string such as "anthropic:claude-opus-5-5"`);
     if (baseUrl !== undefined && typeof baseUrl !== 'string') throw new Error(`${file}: repair.baseUrl must be a URL`);
     config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}) };
+  }
+  // Team store: taken as written. A typo in the URL can't stop a recording: push, pull and the store
+  // commands parse it and say what is wrong.
+  if (parsed.store !== undefined) {
+    if (typeof parsed.store !== 'string') throw new Error(`${file}: store must be a bucket URL such as s3://bucket/folder (set it with shadowlap store set)`);
+    config.store = parsed.store;
+  }
+  if (parsed.ciPush !== undefined) {
+    if (typeof parsed.ciPush !== 'boolean') throw new Error(`${file}: ciPush must be true or false (set it with shadowlap store push-from-ci on|off)`);
+    config.ciPush = parsed.ciPush;
   }
   const prices = parsePrices(parsed.prices, file);
   if (prices) config.prices = prices;

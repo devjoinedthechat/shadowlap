@@ -9,6 +9,7 @@ import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
+import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
 
 /** Running an agent command under a sidecar: its environment (base URLs, capture, the network guard), interventions, repeated attempts, and the offline replays of `shadowlap test` and `calibrate`. */
@@ -287,6 +288,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const result = sidecar.endRun(run.runId, status);
   await sidecar.close();
   store.close();
+  // Team store: a run someone pushed while it was recording goes to the store now that it has ended.
+  await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
   return { code, run, summary: result.summary };
@@ -363,6 +366,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   process.off('SIGTERM', onSignal);
   await sidecar.close();
   store.close();
+  // Team store: attempts someone pushed while they were recording go to the store now that they have ended.
+  await pushIfQueued(teamEnv(opts.db));
   await telemetry().flush();
   return results.filter(Boolean);
 }

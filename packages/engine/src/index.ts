@@ -9,6 +9,7 @@ export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
+export type { TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
@@ -25,6 +26,7 @@ export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd
 export type { Price } from './prices.js';
 export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, commandIsImported, hasRecordedCommand, packRun, unpackRun } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
+export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { withoutPrompt } from './prompt.js';

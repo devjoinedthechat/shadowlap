@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The release workflow's publish order: dependencies first.
-const PACKAGES = ['packages/engine', 'packages/sdk', 'packages/sidecar', 'packages/adapters', 'packages/tui', 'packages/dashboard', 'packages/cli', 'packages/test', 'packages/collector'];
+const PACKAGES = ['packages/engine', 'packages/sdk', 'packages/sidecar', 'packages/adapters', 'packages/tui', 'packages/remote', 'packages/dashboard', 'packages/cli', 'packages/test', 'packages/collector'];
 const VERSION = JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'utf8')).version;
 const PORT = Number(process.env.REGISTRY_PORT ?? 4873);
 const REGISTRY = `http://127.0.0.1:${PORT}/`;

@@ -28,7 +28,7 @@ jobs:
       - name: Tag matches package versions
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          for p in packages/engine packages/sidecar packages/sdk packages/adapters packages/tui packages/dashboard packages/cli packages/test packages/collector; do
+          for p in packages/engine packages/sidecar packages/sdk packages/adapters packages/tui packages/remote packages/dashboard packages/cli packages/test packages/collector; do
             V="$(node -p "require('./$p/package.json').version")"
             [ "$V" = "$TAG" ] || { echo "$p is $V, tag is $TAG"; exit 1; }
           done
@@ -51,7 +51,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for p in packages/engine packages/sdk packages/sidecar packages/adapters packages/tui packages/dashboard packages/cli packages/test packages/collector; do
+          for p in packages/engine packages/sdk packages/sidecar packages/adapters packages/tui packages/remote packages/dashboard packages/cli packages/test packages/collector; do
             npm publish --workspace "$p" --provenance --access public
           done
 

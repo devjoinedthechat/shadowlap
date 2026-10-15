@@ -107,7 +107,68 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: Team store. What this machine knows about the project's bucket (shadowlap push and pull),
+-- kept per store URL so pointing the project at another bucket starts afresh. team_runs has a row
+-- for every run that is in the bucket or on its way there: queued (still recording, pushed when it
+-- ends), pushed, pulled, or only listed in the bucket's index. Its base is the run's labels, notes
+-- and other shared metadata as of the last sync, which a three-way merge needs. A run deleted here
+-- keeps its row, so a pull doesn't bring it back. team_blobs and team_segments remember the blobs
+-- and index segments already known to be in the bucket, so a push uploads only what is new.
+CREATE TABLE IF NOT EXISTS team_runs (
+  remote       TEXT    NOT NULL,
+  run_id       TEXT    NOT NULL,
+  state        TEXT    NOT NULL CHECK (state IN ('queued', 'pushed', 'pulled', 'listed')),
+  at           INTEGER NOT NULL,
+  base         TEXT,
+  base_hash    TEXT,
+  remote_hash  TEXT,
+  entry        TEXT,
+  PRIMARY KEY (remote, run_id)
+);
+CREATE TABLE IF NOT EXISTS team_blobs (
+  remote  TEXT NOT NULL,
+  hash    TEXT NOT NULL,
+  PRIMARY KEY (remote, hash)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS team_segments (
+  remote  TEXT    NOT NULL,
+  key     TEXT    NOT NULL,
+  at      INTEGER NOT NULL,
+  PRIMARY KEY (remote, key)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS team_sync (
+  remote     TEXT PRIMARY KEY,
+  pushed_at  INTEGER,
+  pulled_at  INTEGER,
+  data       TEXT
+);
 `;
+
+/** How a run stands with the team store (v4 team_runs). */
+export type TeamRunState = 'queued' | 'pushed' | 'pulled' | 'listed';
+
+/** One row of team_runs: a run in the project's bucket, or on its way there. */
+export interface TeamRunRow {
+  runId: string;
+  state: TeamRunState;
+  /** When it was last synced (or queued), ms. */
+  at: number;
+  /** The run's shared metadata as of the last sync: the base of a three-way merge. */
+  base: Record<string, unknown> | null;
+  baseHash: string | null;
+  /** The metadata hash the bucket's index last gave for it. */
+  remoteHash: string | null;
+  /** The bucket's index entry for it: who made it, when, its status, labels and calls. */
+  entry: Record<string, unknown> | null;
+}
+
+/** When this machine last pushed to and pulled from a store, and what setup recorded about it. */
+export interface TeamSyncRow {
+  pushedAt: number | null;
+  pulledAt: number | null;
+  data: Record<string, unknown>;
+}
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
 export interface StoredEvent {
@@ -490,6 +551,120 @@ export class Store {
     this.db.exec('VACUUM');
   }
 
+  // ---- Team store (v4): what this machine knows about the project's bucket ----
+
+  /** Whether a blob is here, without reading it. */
+  hasBlob(hash: string): boolean {
+    return this.stmts.hasBlob.get(hash) !== undefined;
+  }
+
+  /** A blob's size in bytes, without reading it; null when it isn't here. */
+  blobSize(hash: string): number | null {
+    const row = this.db.prepare(`SELECT size FROM blobs WHERE hash = ?`).get(hash);
+    return row ? Number(row.size) : null;
+  }
+
+  teamRun(remote: string, runId: string): TeamRunRow | null {
+    const row = this.db.prepare(`SELECT * FROM team_runs WHERE remote = ? AND run_id = ?`).get(remote, runId);
+    return row ? rowToTeamRun(row) : null;
+  }
+
+  /** Every run this machine knows to be in the store (or queued for it). */
+  teamRuns(remote: string): TeamRunRow[] {
+    return this.db.prepare(`SELECT * FROM team_runs WHERE remote = ? ORDER BY run_id`).all(remote).map(rowToTeamRun);
+  }
+
+  setTeamRun(remote: string, row: TeamRunRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO team_runs (remote, run_id, state, at, base, base_hash, remote_hash, entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (remote, run_id) DO UPDATE SET state = excluded.state, at = excluded.at, base = excluded.base, base_hash = excluded.base_hash, remote_hash = excluded.remote_hash, entry = excluded.entry`,
+      )
+      .run(remote, row.runId, row.state, row.at, row.base === null ? null : JSON.stringify(row.base), row.baseHash, row.remoteHash, row.entry === null ? null : JSON.stringify(row.entry));
+  }
+
+  /** Forgets a run the store no longer has (deleted from the bucket), so pulls stop looking for it. */
+  deleteTeamRun(remote: string, runId: string): void {
+    this.db.prepare(`DELETE FROM team_runs WHERE remote = ? AND run_id = ?`).run(remote, runId);
+  }
+
+  /** Which of these blobs are known to be in the store already. */
+  knownTeamBlobs(remote: string, hashes: readonly string[]): Set<string> {
+    const known = new Set<string>();
+    const get = this.db.prepare(`SELECT 1 AS x FROM team_blobs WHERE remote = ? AND hash = ?`);
+    for (const h of hashes) if (get.get(remote, h)) known.add(h);
+    return known;
+  }
+
+  addTeamBlobs(remote: string, hashes: Iterable<string>): void {
+    const put = this.db.prepare(`INSERT OR IGNORE INTO team_blobs (remote, hash) VALUES (?, ?)`);
+    this.transaction(() => {
+      for (const h of hashes) put.run(remote, h);
+    });
+  }
+
+  /** Index segments of the store already read. */
+  seenTeamSegments(remote: string): Set<string> {
+    return new Set(this.db.prepare(`SELECT key FROM team_segments WHERE remote = ?`).all(remote).map((r) => String(r.key)));
+  }
+
+  addTeamSegments(remote: string, keys: Iterable<string>, at: number = Date.now()): void {
+    const put = this.db.prepare(`INSERT OR IGNORE INTO team_segments (remote, key, at) VALUES (?, ?, ?)`);
+    this.transaction(() => {
+      for (const k of keys) put.run(remote, k, at);
+    });
+  }
+
+  teamSync(remote: string): TeamSyncRow | null {
+    const row = this.db.prepare(`SELECT * FROM team_sync WHERE remote = ?`).get(remote);
+    if (!row) return null;
+    return { pushedAt: row.pushed_at === null ? null : Number(row.pushed_at), pulledAt: row.pulled_at === null ? null : Number(row.pulled_at), data: typeof row.data === 'string' ? (JSON.parse(row.data) as Record<string, unknown>) : {} };
+  }
+
+  /** Records a push, a pull, or setup progress (merged into `data`). */
+  setTeamSync(remote: string, patch: { pushedAt?: number; pulledAt?: number; data?: Record<string, unknown> }): void {
+    const current = this.teamSync(remote) ?? { pushedAt: null, pulledAt: null, data: {} };
+    const next = { pushedAt: patch.pushedAt ?? current.pushedAt, pulledAt: patch.pulledAt ?? current.pulledAt, data: { ...current.data, ...(patch.data ?? {}) } };
+    this.db
+      .prepare(`INSERT INTO team_sync (remote, pushed_at, pulled_at, data) VALUES (?, ?, ?, ?) ON CONFLICT (remote) DO UPDATE SET pushed_at = excluded.pushed_at, pulled_at = excluded.pulled_at, data = excluded.data`)
+      .run(remote, next.pushedAt, next.pulledAt, JSON.stringify(next.data));
+  }
+
+  /**
+   * What this machine knows the store holds, counted in SQL rather than read row by row: runs its
+   * index lists (a row not queued, with an index hash, as teamRunInStore in @shadowlap/remote has
+   * it), runs queued, each author with their runs, and the CI providers of runs made by `ci`.
+   */
+  teamSummary(remote: string): { inStore: number; queued: number; authors: Array<{ author: string | null; runs: number }>; ciProviders: string[] } {
+    const listed = `remote = ? AND state != 'queued' AND remote_hash IS NOT NULL`;
+    const inStore = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs WHERE ${listed}`).get(remote)?.n ?? 0);
+    const queued = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs WHERE remote = ? AND state = 'queued'`).get(remote)?.n ?? 0);
+    const authors = this.db
+      .prepare(`SELECT json_extract(entry, '$.author') AS author, COUNT(*) AS n FROM team_runs WHERE ${listed} GROUP BY author ORDER BY author`)
+      .all(remote)
+      .map((r) => ({ author: typeof r.author === 'string' ? r.author : null, runs: Number(r.n) }));
+    const ciProviders = this.db
+      .prepare(`SELECT DISTINCT json_extract(entry, '$.ci') AS ci FROM team_runs WHERE ${listed} AND json_extract(entry, '$.author') = 'ci' AND json_extract(entry, '$.ci') IS NOT NULL ORDER BY ci`)
+      .all(remote)
+      .map((r) => String(r.ci));
+    return { inStore, queued, authors, ciProviders };
+  }
+
+  /**
+   * Runs on this machine the store's index doesn't list, runs still recording and runs pulled from a
+   * pull request's folder aside (a push never sends those): how many, and the ids of the newest
+   * `limit` of them. The Runs page's `local` tag.
+   */
+  teamLocalOnly(remote: string, limit: number): { count: number; ids: string[] } {
+    const where = `r.status != 'running' AND json_extract(r.meta, '$.imported.pr') IS NULL AND NOT EXISTS (SELECT 1 FROM team_runs t WHERE t.remote = ? AND t.run_id = r.run_id AND t.state != 'queued' AND t.remote_hash IS NOT NULL)`;
+    const count = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM runs r WHERE ${where}`).get(remote)?.n ?? 0);
+    const ids = this.db
+      .prepare(`SELECT r.run_id FROM runs r WHERE ${where} ORDER BY r.started_at DESC, r.run_id DESC LIMIT ?`)
+      .all(remote, limit)
+      .map((r) => String(r.run_id));
+    return { count, ids };
+  }
+
   // ---- blobs ----
 
   /** Stores bytes under their SHA-256 (of the uncompressed content). Idempotent. */
@@ -620,6 +795,19 @@ function parseMeta(raw: unknown): CallMeta {
   } catch {
     return {};
   }
+}
+
+function rowToTeamRun(row: Record<string, unknown>): TeamRunRow {
+  const json = (v: unknown) => (typeof v === 'string' ? (JSON.parse(v) as Record<string, unknown>) : null);
+  return {
+    runId: String(row.run_id),
+    state: row.state as TeamRunState,
+    at: Number(row.at),
+    base: json(row.base),
+    baseHash: (row.base_hash as string | null) ?? null,
+    remoteHash: (row.remote_hash as string | null) ?? null,
+    entry: json(row.entry),
+  };
 }
 
 function rowToRun(row: Record<string, unknown>): RunRecord {

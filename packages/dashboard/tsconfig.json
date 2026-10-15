@@ -5,5 +5,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../engine" }, { "path": "../tui" }]
+  "references": [{ "path": "../engine" }, { "path": "../tui" }, { "path": "../remote" }]
 }

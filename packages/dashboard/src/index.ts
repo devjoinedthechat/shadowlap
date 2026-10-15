@@ -3,6 +3,8 @@ export type { Dashboard, DashboardOptions, SpawnCli } from './server.js';
 export { actionArgs, actionsFor, callDetail, compare, listRuns, runDetail } from './api.js';
 export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
+export { readTeamStoreInput, teamStoreStatus } from './team-store.js';
+export type { ReadTeamStoreOptions, TeamStoreInput, TeamStoreStatus } from './team-store.js';
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';

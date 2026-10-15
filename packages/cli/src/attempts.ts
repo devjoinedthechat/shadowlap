@@ -5,6 +5,7 @@ import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { agentEnv, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
+import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
 
 /**
@@ -110,7 +111,9 @@ export class AttemptRunner {
         ...(config.http ? { http: config.http } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
       });
-      return new AttemptRunner(store, sidecar, config, settings, upstreams);
+      const runner = new AttemptRunner(store, sidecar, config, settings, upstreams);
+      runner.db = opts.db;
+      return runner;
     } catch (err) {
       store.close();
       throw err;
@@ -219,11 +222,16 @@ export class AttemptRunner {
     return judgeRecording(this.store, run, calls, this.settings.spec, this.config.prices);
   }
 
+  /** The store's path as given (`--db`), for what runs after the attempts. */
+  private db: string | undefined;
+
   async close(): Promise<void> {
     process.off('SIGINT', this.onSignal);
     process.off('SIGTERM', this.onSignal);
     await this.sidecar.close();
     this.store.close();
+    // Team store: attempts someone pushed while they were recording go to the store now that they have ended.
+    await pushIfQueued(teamEnv(this.db));
     await telemetry().flush();
   }
 

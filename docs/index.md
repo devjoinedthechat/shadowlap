@@ -30,6 +30,7 @@ Shadowlap records every model API call and tool call an agent makes, then re-run
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
 - [Compared with other tools](./compare.md): cassettes, tracing platforms, framework time travel, durable execution.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
+- [Team store](./team.md): your team's runs in a bucket you own, pushed and pulled with your own credentials, with pull requests kept to their own folders, and share links.
 - [The wire protocol](./protocol.md), [the recordings protocol](./recordings-protocol.md) and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, or integrating another test runner.
 
 Shadowlap is pre-release and open source under Apache-2.0: [github.com/devjoinedthechat/shadowlap](https://github.com/devjoinedthechat/shadowlap).

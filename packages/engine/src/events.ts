@@ -12,7 +12,7 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * - `blame.done`, `repair.accepted`, `repair.empty`, `verify.rejected`, `verify.accepted`, `fix.applied`
  * - `pairs.exported`, `model.scored`
  * - `project.added`, `project.setup`, `project.removed`
- * - `store.pushed`, `store.pulled`
+ * - `store.set`, `store.checked`, `store.ci`, `store.pushed`, `store.pulled`, `run.shared`
  * Add new kinds here, with the feature that records them.
  */
 export type EventKind = string;

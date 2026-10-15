@@ -1,0 +1,45 @@
+{
+  "name": "@shadowlap/remote",
+  "version": "0.1.0",
+  "description": "Shadowlap's team run store in your own bucket: Amazon S3, Cloudflare R2 and other S3-compatible stores, Google Cloud Storage and Azure Blob, with your own credentials. Push, pull and share links.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@shadowlap/engine": "^0.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devjoinedthechat/shadowlap.git",
+    "directory": "packages/remote"
+  },
+  "homepage": "https://github.com/devjoinedthechat/shadowlap#readme",
+  "bugs": {
+    "url": "https://github.com/devjoinedthechat/shadowlap/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "s3",
+    "gcs",
+    "azure-blob",
+    "r2"
+  ]
+}
