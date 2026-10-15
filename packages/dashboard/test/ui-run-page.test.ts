@@ -1,0 +1,145 @@
+import { describe, expect, it } from 'vitest';
+import { choiceAnswer, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
+import { normalizeActions } from '../ui/normalize.js';
+import { placePop } from '../ui/place.js';
+
+// The fork menu and the dialog each action asks in: the server's action list arranged and worded,
+// and an instruction said to go in as a user message only when the server's flag says so.
+
+describe('the fork menu from the newer action list', () => {
+  const a = (key: string, label: string, extra: Partial<ActionLike> = {}): ActionLike => ({ key, label, opensRun: true, prompt: null, disabled: null, ...extra });
+  const grouped = [
+    a('r', 'Replay this run (clean if nothing changed)', { flag: 'replay', group: null }),
+    a('o', 'Override this tool’s result', { flag: '--override 16=…', group: 'call' }),
+    a('t', 'Answer with a tool error', { flag: '--fail-at 16=timeout', group: 'call' }),
+    a('x', 'Plant a prompt injection here', { flag: '--inject-result 16=… --repeat 3', group: 'call', opensRun: false }),
+    a('l', 'Force lookup_order live', { flag: '--live-tool lookup_order', group: 'call' }),
+    a('a', 'Diverge here', { flag: '--diverge-at 16', group: 'call' }),
+    a('e', 'Repeat the replay and compare', { flag: '--repeat 5', group: 'run', opensRun: false }),
+    a('s', 'Stub the writes', { flag: '--writes stub', group: 'run' }),
+    a('n', 'Add the suggested normalizer', { flag: 'normalize add', group: null, opensRun: false }),
+    a('p', 'Pack this run to a directory', { flag: 'pack', group: null, opensRun: false }),
+  ];
+
+  it('keeps the server’s order, and leaves out what has a place of its own', () => {
+    const menu = forkMenu(grouped, 'lookup_order');
+    expect(menu.call.map((m) => [m.label, m.flag])).toEqual([
+      ['Override this tool’s result', '--override 16=…'],
+      ['Answer with a tool error', '--fail-at 16=timeout'],
+      ['Plant a prompt injection here', '--inject-result 16=…'],
+      ['Force lookup_order live', '--live-tool lookup_order'],
+      ['Diverge here', '--diverge-at 16'],
+    ]);
+    expect(menu.run.map((m) => [m.label, m.flag])).toEqual([
+      ['Repeat the replay and compare', '--repeat 5'],
+      ['Stub the writes', '--writes stub'],
+    ]);
+  });
+
+  it('shows the first option and its value on the right, and the whole command in the dialog', () => {
+    expect(shortFlag('--inject 17=… --inject-as user')).toBe('--inject 17=…');
+    expect(shortFlag('--writes stub')).toBe('--writes stub');
+    expect(shortFlag('replay')).toBe('replay');
+    expect(menuFlag(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user' }))).toBe('--inject 17=…');
+  });
+
+  it('tells inject, override and a user’s answer apart', () => {
+    expect(isInject(a('i', 'Fork: inject an instruction at #17 (--inject)'))).toBe(true);
+    expect(isInject(a('x', 'Plant a prompt injection here', { flag: '--inject-result 16=… --repeat 3' }))).toBe(false);
+    expect(isOverride(a('o', 'Fork: override the result of #16 lookup_order (--override)'))).toBe(true);
+    expect(isOverride(a('u', 'Answer differently as the user…', { flag: '--override 9=…' }))).toBe(false);
+    expect(isUserAnswer(a('u', 'Answer differently as the user…'))).toBe(true);
+    expect(injectsAsUser(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user' }))).toBe(true);
+    expect(injectsAsUser(a('i', 'Fork: inject an instruction at #17 (--inject)'))).toBe(false);
+  });
+});
+
+describe('an action’s dialog', () => {
+  const a = (key: string, label: string, extra: Partial<ActionLike> = {}): ActionLike => ({ key, label, opensRun: true, prompt: { label: 'Answer:' }, disabled: null, ...extra });
+  const ctx = { id: '01K5CQ4N7G', callNo: 17 };
+
+  it('says an instruction goes in as a user message only when the server’s flag says so', () => {
+    const today = dialogCopy(a('i', 'Fork: inject an instruction at #17 (--inject)', { prompt: { label: 'Instruction to append at #17:', placeholder: 'Prefer sources from 2026.' } }), ctx);
+    expect(today.text).not.toMatch(/user message/);
+    expect(today.text).toBe('The instruction is added at #17 and stays in place for every later request of the fork. Calls before it replay.');
+    expect(today.command).toBe('shadowlap replay 01K5CQ4N7G --inject 17="…"');
+    expect(today).toMatchObject({ title: 'Inject an instruction at #17', multiline: true, ok: 'Fork', placeholder: 'Prefer sources from 2026.' });
+
+    const asUser = dialogCopy(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user' }), ctx);
+    expect(asUser.text).toMatch(/part of the last user message \(--inject-as user\)/);
+    expect(asUser.command).toBe('shadowlap replay 01K5CQ4N7G --inject 17="…" --inject-as user');
+
+    // The server's own words win when it sends them.
+    expect(dialogCopy(a('i', 'Inject an instruction', { flag: '--inject 17=… --inject-as user', hint: 'Goes in as part of the user turn.' }), ctx).text).toBe('Goes in as part of the user turn.');
+  });
+
+  it('opens an override on the server’s starting value, else the recorded result', () => {
+    expect(dialogCopy(a('o', 'Fork: override (--override)'), { ...ctx, callNo: 16, callName: 'lookup_order', recorded: { status: 'held' } })).toMatchObject({ title: 'Override #16 lookup_order', initial: '{\n  "status": "held"\n}', multiline: true });
+    expect(dialogCopy(a('o', 'Override this tool’s result', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '{"status":"held"}' } }), { ...ctx, recorded: { other: 1 } }).initial).toBe('{"status":"held"}');
+    expect(dialogCopy(a('u', 'Answer differently as the user…', { flag: '--override 9=…', prompt: { label: 'Reply:', initial: 'Yes please' } }), { ...ctx, callNo: 9, recorded: { text: 'Yes please' } })).toMatchObject({ title: 'Answer #9 differently', initial: 'Yes please' });
+  });
+
+  it('offers a tool error’s kinds and an HTTP failure’s statuses to pick from', () => {
+    const choices = [
+      { value: 'timeout', label: 'timeout' },
+      { value: '500', label: 'HTTP 500' },
+    ];
+    expect(dialogCopy(a('t', 'Answer with a tool error', { prompt: { label: 'How it fails:', initial: 'timeout', choices } }), { ...ctx, callNo: 16, callName: 'lookup_order' })).toMatchObject({ title: 'Answer #16 lookup_order with an error', label: 'Error', initial: 'timeout', choices });
+    expect(dialogCopy(a('f', 'Fork: answer #17 with an HTTP failure (--fail-at)', { prompt: { label: 'Status:', initial: '429' } }), ctx)).toMatchObject({ title: 'Answer #17 with a failure', label: 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)', initial: '429' });
+  });
+
+  it('asks for the message of "error, with a message", and sends it after the choice’s value', () => {
+    // As the newer action list sends a tool error's kinds: one of them needs a few words more.
+    const [action] = normalizeActions([
+      {
+        key: 't',
+        label: 'Answer with a tool error',
+        opensRun: true,
+        disabled: null,
+        flag: '--fail-at 16=timeout',
+        group: 'call',
+        prompt: {
+          label: 'How #16 lookup_order fails:',
+          initial: 'timeout',
+          choices: [
+            { value: 'timeout', label: 'timeout' },
+            { value: 'error:', label: 'error, with a message', text: 'Message' },
+            { value: '500', label: 'HTTP 500', text: '  ' },
+            { value: 7, label: 'not a choice' },
+          ],
+        },
+      } as never,
+    ]);
+    const choices = action!.prompt!.choices!;
+    expect(choices).toEqual([
+      { value: 'timeout', label: 'timeout' },
+      { value: 'error:', label: 'error, with a message', text: 'Message' },
+      { value: '500', label: 'HTTP 500' },
+    ]);
+    expect(dialogCopy(action!, { ...ctx, callNo: 16, callName: 'lookup_order' }).choices).toEqual(choices);
+    expect(choiceAnswer(choices[1]!, ' connection reset ')).toBe('error:connection reset');
+    // No message is a plain error (the server reads `error:` as `error`), and a choice without a field sends its value.
+    expect(choiceAnswer(choices[1]!, '')).toBe('error:');
+    expect(choiceAnswer(choices[0]!, 'ignored')).toBe('timeout');
+  });
+
+  it('asks a pack’s question with its warning, and a capture for the command that starts the agent', () => {
+    const warned = dialogCopy(a('i', 'Fork: inject (--inject)', { prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.js. Instruction to append at #17:' } }), ctx);
+    expect(warned.label).toBe('This run came from an imported pack; replaying it runs: node agent.js. Instruction to append at #17:');
+    const yes = dialogCopy(a('g', 'Fork: my changed prompt from #17 on (--prompt-from)', { prompt: { label: 'This run came from an imported pack; replaying it runs: node agent.js. Type yes to run it:', placeholder: 'yes' } }), ctx);
+    expect(yes).toMatchObject({ title: 'Fork with your changed prompt', text: '', placeholder: 'yes' });
+    expect(yes.label).toMatch(/Type yes to run it/);
+    expect(dialogCopy(a('r', 'Replay with your agent’s command', { prompt: { label: '01K5CQ9C4H came from a capture and has no command. What starts your agent?', placeholder: 'python agent.py' } }), { ...ctx, callNo: null, capture: true })).toMatchObject({ title: 'Replay a capture', ok: 'Replay', text: '01K5CQ9C4H came from a capture and has no command. What starts your agent?' });
+  });
+});
+
+describe('a menu’s place', () => {
+  const view = { width: 1440, height: 900 };
+  it('hangs under its opener, right edges lined up, and stays 12px inside the window', () => {
+    expect(placePop({ left: 1000, right: 1100, bottom: 100 }, { width: 330, height: 300 }, view)).toEqual({ top: 106, left: 770 });
+    expect(placePop({ left: 40, right: 120, bottom: 100 }, { width: 330, height: 300 }, view, 'left')).toEqual({ top: 106, left: 40 });
+    // Near the right and bottom edges, and wider than the opener's left side allows.
+    expect(placePop({ left: 1400, right: 1430, bottom: 800 }, { width: 330, height: 300 }, view, 'left')).toEqual({ top: 588, left: 1098 });
+    expect(placePop({ left: 10, right: 60, bottom: 40 }, { width: 330, height: 300 }, view)).toEqual({ top: 46, left: 12 });
+  });
+});

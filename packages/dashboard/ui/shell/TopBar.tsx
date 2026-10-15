@@ -1,0 +1,93 @@
+import { Fragment } from 'react';
+import { Brand, Icon } from '../components/Icon.js';
+import { shortId } from '../format.js';
+import { href, type Route } from '../route.js';
+import { useApp } from '../state.js';
+
+/** The names of Settings' tabs, for the breadcrumb. */
+export const SETTINGS_TABS: Readonly<Record<string, string>> = {
+  matching: 'Matching',
+  redaction: 'Redaction',
+  alerts: 'CI',
+  agents: 'Coding agents',
+  tools: 'Tools',
+  project: 'Project',
+  plan: 'Plan',
+  store: 'Store',
+  server: 'Server',
+  members: 'Members',
+  policies: 'Policies',
+  audit: 'Audit log',
+};
+
+type Crumb = { label: string; href?: string; mono?: boolean };
+
+function crumbsFor(route: Route, parentOf: (id: string) => string | null): Crumb[] {
+  switch (route.page) {
+    case 'runs':
+      return [{ label: 'Runs' }];
+    case 'run': {
+      const parent = parentOf(route.id);
+      return [{ label: 'Runs', href: href.runs() }, ...(parent ? [{ label: shortId(parent), href: href.run(parent), mono: true }] : []), { label: shortId(route.id), mono: true }];
+    }
+    case 'compare':
+      return [{ label: 'Compare' }];
+    case 'fixes':
+      return route.id ? [{ label: 'Fixes', href: href.fixes() }, { label: route.id, mono: true }] : [{ label: 'Fixes' }];
+    case 'tests':
+      return [{ label: 'Tests' }];
+    case 'training':
+      return [{ label: 'Training', href: href.training() }, { label: route.tab === 'tasks' ? 'Tasks' : 'Pairs', mono: true }];
+    case 'settings': {
+      const tab = route.tab ?? 'matching';
+      return [{ label: 'Settings', href: href.settings() }, { label: SETTINGS_TABS[tab] ?? tab, mono: true }];
+    }
+    case 'releases':
+      return route.id ? [{ label: 'Releases', href: href.releases() }, { label: route.id, mono: true }] : [{ label: 'Releases' }];
+    case 'new':
+      return [{ label: 'Add a project' }];
+    case 'setup':
+      return [{ label: 'Set up' }];
+    default:
+      return [];
+  }
+}
+
+export function TopBar({ route }: { route: Route }) {
+  const { runs, live, sideOpen, setSideOpen, setHelp, conn, exported } = useApp();
+  const parentOf = (id: string) => runs?.find((r) => r.runId === id || r.runId.startsWith(id))?.parentRunId ?? null;
+  const crumbs = crumbsFor(route, parentOf);
+  const recording = live[0]?.runId ?? runs?.find((r) => r.status === 'running')?.runId ?? null;
+  return (
+    <header className="top">
+      <button className="ibtn menu-toggle" type="button" aria-label="Menu" aria-expanded={sideOpen} aria-controls="side" onClick={() => setSideOpen(!sideOpen)}>
+        <Icon name="menu" />
+      </button>
+      <a className="brand" href={exported ? href.runs() : href.overview()} aria-label={exported ? 'Shadowlap, runs' : 'Shadowlap dashboard, overview'}>
+        <Brand />
+      </a>
+      <span className="pill">{exported ? 'exported' : 'dashboard'}</span>
+      <nav className="crumbs" aria-label="Breadcrumb">
+        {crumbs.map((c, i) => {
+          const inner = c.mono ? <b>{c.label}</b> : c.label;
+          return (
+            <Fragment key={`${i}-${c.label}`}>
+              {i ? <i>/</i> : null}
+              {c.href ? <a href={c.href}>{inner}</a> : <span>{inner}</span>}
+            </Fragment>
+          );
+        })}
+      </nav>
+      <div className="sp" />
+      {recording && conn === 'ok' ? (
+        <a className="livechip" href={href.run(recording)}>
+          <span className="dotlive" />
+          recording {shortId(recording)}
+        </a>
+      ) : null}
+      <button className="ibtn" id="helpBtn" type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts  ?" onClick={() => conn !== 'expired' && setHelp(true)}>
+        <Icon name="keys" />
+      </button>
+    </header>
+  );
+}

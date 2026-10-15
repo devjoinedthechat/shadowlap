@@ -1,80 +1,101 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** Loads with `load`, then again every `intervalMs` while mounted (and whenever `key` changes). */
-export function usePolling<T>(load: () => Promise<T>, key: string, intervalMs: number | null): { data: T | null; error: Error | null; reload: () => void; updatedAt: number | null } {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
-  const loadRef = useRef(load);
-  loadRef.current = load;
+/** The latest value, for callbacks that must not re-subscribe when it changes. */
+export function useLatest<T>(value: T): { readonly current: T } {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
+
+export interface Loaded<T> {
+  data: T | null;
+  error: Error | null;
+  loading: boolean;
+  reload: () => void;
+}
+
+/**
+ * Loads `load()` whenever `key` changes, and again whenever `refresh` changes, keeping what it had
+ * while it reloads. A different key starts empty. `load` returning null skips the request.
+ */
+export function useLoad<T>(load: () => Promise<T> | null, key: string, refresh: unknown = 0): Loaded<T> {
+  const [state, setState] = useState<{ key: string; data: T | null; error: Error | null; loading: boolean }>({ key, data: null, error: null, loading: true });
+  const loadRef = useLatest(load);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((n) => n + 1), []);
   useEffect(() => {
-    setData(null);
-    setError(null);
-  }, [key]);
-  useEffect(() => {
     let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const run = async () => {
-      try {
-        const value = await loadRef.current();
-        if (!alive) return;
-        setData(value);
-        setError(null);
-        setUpdatedAt(Date.now());
-      } catch (err) {
-        if (!alive) return;
-        setError(err instanceof Error ? err : new Error(String(err)));
-      }
-      if (alive && intervalMs !== null) timer = setTimeout(run, document.hidden ? intervalMs * 5 : intervalMs);
-    };
-    void run();
+    const p = loadRef.current();
+    if (!p) {
+      setState((s) => (s.key === key && s.data === null && !s.error && !s.loading ? s : { key, data: null, error: null, loading: false }));
+      return;
+    }
+    // A reload keeps what it had; a new key starts empty.
+    setState((s) => (s.key === key ? s : { key, data: null, error: null, loading: true }));
+    p.then(
+      // An unchanged answer (a 304 hands back the same object) changes nothing, so nothing redraws.
+      (data) => alive && setState((s) => (s.key === key && s.data === data && !s.error && !s.loading ? s : { key, data, error: null, loading: false })),
+      (err: unknown) => alive && setState((s) => ({ key, data: s.key === key ? s.data : null, error: err instanceof Error ? err : new Error(String(err)), loading: false })),
+    );
     return () => {
       alive = false;
-      if (timer) clearTimeout(timer);
     };
-  }, [key, intervalMs, tick]);
-  return { data, error, reload, updatedAt };
+  }, [key, refresh, tick, loadRef]);
+  const fresh = state.key === key;
+  return { data: fresh ? state.data : null, error: fresh ? state.error : null, loading: fresh ? state.loading : true, reload };
 }
 
-export function useKey(handler: (e: KeyboardEvent) => void, active = true): void {
-  const ref = useRef(handler);
-  ref.current = handler;
+/** Calls `fn` every `ms` while mounted; null pauses it. */
+export function useInterval(fn: () => void, ms: number | null): void {
+  const ref = useLatest(fn);
   useEffect(() => {
-    if (!active) return;
-    const on = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) && e.key !== 'Escape') return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      ref.current(e);
-    };
-    window.addEventListener('keydown', on);
-    return () => window.removeEventListener('keydown', on);
-  }, [active]);
+    if (ms === null) return;
+    const t = setInterval(() => ref.current(), ms);
+    return () => clearInterval(t);
+  }, [ms, ref]);
 }
 
-const THEME_KEY = 'shadowlap-dashboard-theme';
-export type Theme = 'system' | 'light' | 'dark';
+/** Whether a media query matches, following changes. */
+export function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => (typeof matchMedia === 'function' ? matchMedia(query).matches : false));
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const m = matchMedia(query);
+    const change = () => setOn(m.matches);
+    change();
+    m.addEventListener('change', change);
+    return () => m.removeEventListener('change', change);
+  }, [query]);
+  return on;
+}
 
-export function useTheme(): [Theme, (t: Theme) => void] {
-  const [theme, setTheme] = useState<Theme>(() => {
+/** A per-browser convenience kept in localStorage; it works without storage, for this page only. */
+export function useStored<T extends string>(key: string, initial: T, valid: (v: string) => v is T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => {
     try {
-      const t = localStorage.getItem(THEME_KEY);
-      return t === 'light' || t === 'dark' ? t : 'system';
+      const v = localStorage.getItem(key);
+      return v !== null && valid(v) ? v : initial;
     } catch {
-      return 'system';
+      return initial;
     }
   });
-  useEffect(() => {
-    if (theme === 'system') document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.setAttribute('data-theme', theme);
-    try {
-      if (theme === 'system') localStorage.removeItem(THEME_KEY);
-      else localStorage.setItem(THEME_KEY, theme);
-    } catch {
-      // per-browser convenience only
-    }
-  }, [theme]);
-  return [theme, setTheme];
+  const set = useCallback(
+    (v: T) => {
+      setValue(v);
+      try {
+        localStorage.setItem(key, v);
+      } catch {
+        // storage unavailable: the choice lasts for this page
+      }
+    },
+    [key],
+  );
+  return [value, set];
+}
+
+/** The time, ticking every `ms`, for words like "synced just now". */
+export function useNow(ms = 15_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useInterval(() => setNow(Date.now()), ms);
+  return now;
 }

@@ -1,44 +1,38 @@
-import type { ActionItem, CallDetail, LineageNode, RunDetail, RunListItem } from '../src/api.js';
 import type { RunComparison } from '../../engine/src/compare.js';
+import type { SearchHit } from '../../engine/src/search.js';
+import type { RunNote } from '../../engine/src/types.js';
+import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
+import { readTokenLink } from './route.js';
+import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
-export type { ActionItem, CallDetail, CallRow, LineageNode, RunDetail, RunListItem } from '../src/api.js';
-export type { RunComparison } from '../../engine/src/compare.js';
+/**
+ * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
+ * the server's, widened with the fields other parts of the API add. Every answer is put in the shape
+ * the views read (`normalize.ts`) as it arrives.
+ */
+
 export type { Block, Delta } from '../../engine/src/deltas.js';
-export type { SearchHit } from '../../engine/src/search.js';
 export type { Turn, TurnBlock } from '../../engine/src/conversation.js';
+export type { RunChanges } from '../../engine/src/changes.js';
+export type { RunComparison, SearchHit, RunNote };
+export type * from './types.js';
 
-export interface Meta {
-  version: string | null;
-  dbPath: string | null;
-  actions: boolean;
-  /** An exported HTML copy: recorded data only, no server behind it. */
-  static?: boolean;
-  exportedAt?: number;
-  redacted?: boolean;
-  runIds?: string[];
-}
-
-/** What `shadowlap export html` embeds: the answers this page would otherwise have asked a server for. */
-export interface StaticPayload {
-  shadowlap: string | null;
-  exportedAt: number;
-  runIds: string[];
-  redacted: boolean;
-  responses: Record<string, unknown>;
-}
-
-export interface JobView {
-  id: string;
-  args: string[];
-  runId: string;
-  opensRun: boolean;
-  startedAt: number;
-  done: boolean;
-  code: number | null;
-  newRunId: string | null;
-  lines: string[];
-  total: number;
-}
+/**
+ * The job kinds the UI starts through `POST /api/jobs`, by what they do. A button or palette entry
+ * for one shows only when the server lists the kind in `meta.jobKinds`.
+ */
+export const JOB_KINDS = {
+  exportHtml: 'export-html',
+  pack: 'pack',
+  dataset: 'export-dataset',
+  otel: 'export-otel',
+  har: 'export-har',
+  blame: 'blame',
+  tests: 'test',
+  importCapture: 'import',
+  calibrate: 'calibrate',
+  gc: 'gc',
+} as const;
 
 export class ApiError extends Error {
   constructor(
@@ -49,34 +43,99 @@ export class ApiError extends Error {
   }
 }
 
-const TOKEN_KEY = 'shadowlap-dashboard-token';
+// ---------------------------------------------------------------------------------------------- token
 
-/** The session token arrives in the URL fragment once; it is kept for this tab only and removed from the address bar. */
+const TOKEN_KEY = 'shadowlap-dashboard-token';
+let inUse: string | null = null;
+
+/**
+ * The session token arrives in the URL fragment once, from the link `shadowlap dashboard` prints. It
+ * is kept for this tab only and taken out of the address bar; `&open=` names the view to land on.
+ */
 export function takeToken(): string | null {
-  const m = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(location.hash);
-  if (m) {
+  const link = readTokenLink(location.hash);
+  if (link) {
     try {
-      sessionStorage.setItem(TOKEN_KEY, m[1]!);
+      sessionStorage.setItem(TOKEN_KEY, link.token);
     } catch {
       // storage unavailable: the token lives in memory for this page
     }
-    // `&open=/run/<id>` lands on a view; anything else lands on the home page.
-    const open = /&open=(\/[A-Za-z0-9/_-]*)/.exec(location.hash)?.[1];
-    history.replaceState(null, '', `${location.pathname}#${open ?? '/'}`);
-    return m[1]!;
+    history.replaceState(null, '', `${location.pathname}${location.search}${link.open}`);
+    inUse = link.token;
+    return inUse;
   }
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    inUse = sessionStorage.getItem(TOKEN_KEY);
   } catch {
-    return null;
+    inUse = null;
   }
+  return inUse;
+}
+
+/** The session token this page started with; null for an exported copy, or a link that had none. */
+export function tokenInUse(): string | null {
+  return inUse;
+}
+
+// ---------------------------------------------------------------------------------------------- client
+
+export interface Client {
+  /** An exported copy: answers come from the file, nothing changes. */
+  exported: boolean;
+  meta(): Promise<Meta>;
+  runs(): Promise<RunListItem[]>;
+  run(id: string): Promise<RunDetail>;
+  call(id: string, n: number): Promise<CallDetail>;
+  lineage(id: string): Promise<LineageNode[]>;
+  /** The run's record for Provenance, or null when the server does not work it out. */
+  provenance(id: string): Promise<ProvenanceView | null>;
+  compare(a: string, b: string): Promise<RunComparison>;
+  search(q: string): Promise<SearchHit[]>;
+  labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
+  note(id: string, callNo: number | null, text: string): Promise<{ notes: RunNote[] }>;
+  /** Runs one of the run's actions (`/api/runs/:id/actions`): the server builds the command line. */
+  action(id: string, key: string, callNo: number | null, value?: string): Promise<JobView>;
+  /** Starts a job of a registered kind (`POST /api/jobs`). */
+  startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
+  job(jobId: string, after: number): Promise<JobView>;
+  remove(id: string): Promise<{ deleted: string }>;
+  /** Saves a run, with the runs it came from, as one HTML file. */
+  exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
+  /** Saves a file a job wrote. */
+  downloadFile(file: JobFile): Promise<void>;
+  /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
+  changes(since: string | null): Promise<Changes | null>;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
 
-export function createClient(token: string) {
+/**
+ * Each answer in the shape the views read (`normalize.ts`), worked out once per answer: an unchanged
+ * answer (a 304 hands back the same object) comes back as the same object, so nothing redraws.
+ */
+const shaped = new WeakMap<object, unknown>();
+function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
+  if (shaped.has(raw)) return shaped.get(raw) as U;
+  const out = fn(raw);
+  shaped.set(raw, out);
+  return out;
+}
+
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function createClient(token: string): Client {
+  let hasChanges: boolean | null = null;
+  let hasProvenance: boolean | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const cached = (init.method ?? 'GET') === 'GET' ? etags.get(path) : undefined;
+    const method = init.method ?? 'GET';
+    const cached = method === 'GET' ? etags.get(path) : undefined;
     const res = await fetch(`/api/${path}`, {
       ...init,
       headers: { 'x-shadowlap-token': token, ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
@@ -91,44 +150,85 @@ export function createClient(token: string) {
     }
     if (!res.ok) throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
     const etag = res.headers.get('etag');
-    if (etag) etags.set(path, { etag, body });
+    if (etag && method === 'GET') etags.set(path, { etag, body });
     return body as T;
+  }
+  const id = encodeURIComponent;
+  async function fetchFile(path: string, fallbackName: string): Promise<{ filename: string; res: Response }> {
+    const res = await fetch(`/api/${path}`, { headers: { 'x-shadowlap-token': token } });
+    if (!res.ok) {
+      const text = await res.text();
+      let message = text || `HTTP ${res.status}`;
+      try {
+        message = (JSON.parse(text) as { error?: string }).error ?? message;
+      } catch {
+        // plain text
+      }
+      throw new ApiError(res.status, message);
+    }
+    const filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+    return { filename, res };
   }
   return {
     exported: false,
-    meta: () => request<Meta>('meta'),
-    runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => r.runs),
-    run: (id: string) => request<RunDetail>(`runs/${encodeURIComponent(id)}`),
-    call: (id: string, n: number) => request<CallDetail>(`runs/${encodeURIComponent(id)}/calls/${n}`),
-    labels: (id: string, add: string[], remove: string[] = []) => request<{ labels: string[] }>(`runs/${encodeURIComponent(id)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
-    note: (id: string, callNo: number | null, text: string) => request<{ notes: Array<{ callNo: number | null; text: string; at: number }> }>(`runs/${encodeURIComponent(id)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
-    search: (q: string) => request<{ hits: import('../../engine/src/search.js').SearchHit[] }>(`search?q=${encodeURIComponent(q)}`).then((r) => r.hits),
-    lineage: (id: string) => request<{ nodes: LineageNode[] }>(`runs/${encodeURIComponent(id)}/lineage`).then((r) => r.nodes),
-    compare: (a: string, b: string) => request<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
-    action: (id: string, key: string, callNo: number | null, value?: string) => request<JobView>(`runs/${encodeURIComponent(id)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
-    job: (jobId: string, after: number) => request<JobView>(`jobs/${jobId}?after=${after}`),
-    remove: (id: string) => request<{ deleted: string; blobs: number; bytes: number }>(`runs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    /**
-     * Saves the run as one HTML file. The API authenticates with a header, which a plain link cannot
-     * send, and a token in a URL would end up in history and logs: so the file is fetched here and
-     * handed to the browser to save.
-     */
-    download: async (id: string): Promise<{ filename: string; redacted: boolean }> => {
-      const res = await fetch(`/api/runs/${encodeURIComponent(id)}/export`, { headers: { 'x-shadowlap-token': token } });
-      if (!res.ok) throw new ApiError(res.status, (await res.text()) || `HTTP ${res.status}`);
-      const filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? `shadowlap-${id.slice(0, 10).toLowerCase()}.html`;
-      const url = URL.createObjectURL(await res.blob());
-      const a = Object.assign(document.createElement('a'), { href: url, download: filename });
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    meta: () => request<Meta>('meta').then((m) => shape(m, normalizeMeta)),
+    runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
+    run: (runId) => request<RunDetail>(`runs/${id(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
+    lineage: (runId) => request<{ nodes: LineageNode[] }>(`runs/${id(runId)}/lineage`).then((r) => r.nodes),
+    provenance: async (runId) => {
+      if (hasProvenance === false) return null;
+      try {
+        const out = await request<ProvenanceView>(`runs/${id(runId)}/provenance`);
+        hasProvenance = true;
+        return out;
+      } catch (err) {
+        // A server without the endpoint: Provenance shows what the run itself says.
+        if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasProvenance === null) {
+          hasProvenance = false;
+          return null;
+        }
+        throw err;
+      }
+    },
+    compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
+    search: (q) => request<{ hits: SearchHit[] }>(`search?q=${id(q)}&limit=40`).then((r) => r.hits),
+    labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
+    note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
+    action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
+    startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
+    job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
+    remove: (runId) => request<{ deleted: string }>(`runs/${id(runId)}`, { method: 'DELETE' }),
+    // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
+    // end up in history and logs: so a file is fetched here and handed to the browser to save.
+    exportHtml: async (runId) => {
+      const { filename, res } = await fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`);
+      saveBlob(await res.blob(), filename);
       return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
+    },
+    downloadFile: async (file) => {
+      const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
+      saveBlob(await res.blob(), filename);
+    },
+    changes: async (since) => {
+      if (hasChanges === false) return null;
+      try {
+        const out = await request<Changes>(`changes${since ? `?since=${id(since)}` : ''}`);
+        hasChanges = true;
+        return out;
+      } catch (err) {
+        // A server without the endpoint: the UI polls the run list instead.
+        if (err instanceof ApiError && (err.status === 404 || err.status === 405)) {
+          hasChanges = false;
+          return null;
+        }
+        throw err;
+      }
     },
   };
 }
 
-export type Client = ReturnType<typeof createClient>;
+// ---------------------------------------------------------------------------------------------- an exported copy
 
 /** The data an exported HTML file carries, when this page is one. */
 export function exportedData(): StaticPayload | null {
@@ -145,25 +245,28 @@ export function exportedData(): StaticPayload | null {
 export function createExportedClient(data: StaticPayload): Client {
   const get = <T,>(path: string): Promise<T> => {
     const body = data.responses[path];
-    if (body === undefined) return Promise.reject(new ApiError(404, 'this is an exported copy of a run, and that view is not part of it'));
+    if (body === undefined) return Promise.reject(new ApiError(404, 'this is an exported copy, and that view is not part of it'));
     return Promise.resolve(body as T);
   };
-  const readOnly = () => Promise.reject(new ApiError(405, 'this is an exported copy of a run: it cannot be changed from here'));
+  const readOnly = () => Promise.reject(new ApiError(405, 'this is an exported copy: it cannot be changed from here'));
   return {
     exported: true,
-    meta: () => get<Meta>('meta'),
-    runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => r.runs),
-    run: (id: string) => get<RunDetail>(`runs/${encodeURIComponent(id)}`),
-    call: (id: string, n: number) => get<CallDetail>(`runs/${encodeURIComponent(id)}/calls/${n}`),
+    meta: () => get<Meta>('meta').then((m) => shape(m, normalizeMeta)),
+    runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
+    run: (runId) => get<RunDetail>(`runs/${encodeURIComponent(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    call: (runId, n) => get<CallDetail>(`runs/${encodeURIComponent(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
+    lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${encodeURIComponent(runId)}/lineage`).then((r) => r.nodes),
+    provenance: (runId) => Promise.resolve((data.responses[`runs/${encodeURIComponent(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
+    compare: (a, b) => get<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+    search: () => Promise.resolve([]),
     labels: readOnly,
     note: readOnly,
-    search: () => Promise.resolve([]),
-    lineage: (id: string) => get<{ nodes: LineageNode[] }>(`runs/${encodeURIComponent(id)}/lineage`).then((r) => r.nodes),
-    compare: (a: string, b: string) => get<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
     action: readOnly,
+    startJob: readOnly,
     job: readOnly,
     remove: readOnly,
-    download: readOnly,
+    exportHtml: readOnly,
+    downloadFile: readOnly,
+    changes: () => Promise.resolve(null),
   };
 }
-export type { ActionItem as Action };

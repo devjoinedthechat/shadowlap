@@ -4,7 +4,8 @@
 // context, timeline and family views, and the comparison, and encodes the frames with ffmpeg.
 //
 //   npm run build && node scripts/dashboard-video.mjs [--dark]
-//   writes site/brand/dashboard-tour.mp4 and site/brand/dashboard-tour.jpg (the poster)
+//   writes site/brand/dashboard-tour.mp4 and site/brand/dashboard-tour.jpg (the poster); the
+//   dashboard is dark only, so --dark only names the files dashboard-tour-dark.*
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -97,7 +98,7 @@ await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-sch
 await send('Page.enable');
 await send('Page.navigate', { url: dash.runUrl(recordingId, 3) });
 for (let i = 0; i < 100; i++) {
-  if (await evaluate(`document.querySelectorAll('.calltable tbody tr').length > 0`)) break;
+  if (await evaluate(`document.querySelectorAll('table.calls tbody tr').length > 0`)) break;
   await wait(100);
 }
 await wait(800);
@@ -106,7 +107,7 @@ await wait(800);
 const CURSOR = `(() => {
   const c = document.createElement('div');
   c.id = 'tour-cursor';
-  c.innerHTML = '<svg width="22" height="26" viewBox="0 0 22 26"><path d="M2 2 L2 20 L7 15.5 L10.5 23.5 L13.5 22.2 L10 14.3 L17 14.3 Z" fill="${dark ? '#f4f4f0' : '#111'}" stroke="${dark ? '#111' : '#fff'}" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  c.innerHTML = '<svg width="22" height="26" viewBox="0 0 22 26"><path d="M2 2 L2 20 L7 15.5 L10.5 23.5 L13.5 22.2 L10 14.3 L17 14.3 Z" fill="#f4f4f0" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/></svg>';
   Object.assign(c.style, { position: 'fixed', left: '0', top: '0', zIndex: '99999', pointerEvents: 'none', transform: 'translate(${W * 0.6}px, ${H * 0.55}px)', transition: 'transform 700ms cubic-bezier(.3,.7,.2,1)', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.35))' });
   document.body.appendChild(c);
 })()`;
@@ -161,7 +162,7 @@ async function until(expression, ms = 20_000) {
   throw new Error(`timed out waiting for ${expression}`);
 }
 const byText = (selector, text) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.textContent.trim().toLowerCase().startsWith(${JSON.stringify(text.toLowerCase())}))`;
-const row = (n) => `[...document.querySelectorAll('.calltable tbody tr')].find((r) => r.querySelector('td')?.textContent.trim().endsWith('${n}'))`;
+const row = (n) => `[...document.querySelectorAll('table.calls tbody tr')].find((r) => r.querySelector('td')?.textContent.trim().endsWith('${n}'))`;
 
 // ---- The walkthrough. Paced for a looping figure: no beat outstays what it shows.
 await wait(900);
@@ -169,39 +170,40 @@ await moveTo(`document.querySelector('.cells')`, 700);
 await wait(450);
 await click(row(17));
 await wait(1100);
-await evaluate(`document.querySelector('.insp-body').scrollTo({ top: 1e6, behavior: 'smooth' })`);
+await evaluate(`document.querySelector('.ibody').scrollTo({ top: 1e6, behavior: 'smooth' })`);
 await wait(800);
-await click(byText('.inspector [role=tab], .inspector button', 'Response'));
+await click(byText('.insp [role=tab]', 'Response'));
 await wait(450);
-await click(byText('.player button', 'Play'), 450);
+await click(byText('.play button', 'Play'), 450);
 await wait(2000);
-await click(`document.querySelector('button[aria-haspopup=menu]')`);
+await click(`document.getElementById('forkBtn')`);
 await wait(600);
-await click(byText('.menu button', 'iFork: inject'), 500);
+await click(byText('.pop.fkm button', 'Inject an instruction'), 500);
 await until(`!!document.querySelector('textarea')`);
 await wait(350);
 await type('Prefer sources from 2026.', 26);
 await wait(400);
-await click(`[...document.querySelectorAll('.dialog .btn.primary, .scrim .btn.primary')].at(-1)`, 500);
-await until(`!!document.querySelector('.drawer .btn.primary')`, 60_000);
+await click(`document.querySelector('.dialog .dlg-ok')`, 500);
+await until(`!!document.querySelector('.drawer a.btn.lime')`, 60_000);
 // The command's output is a wall of small type; show that it ran, then move on.
 await wait(1100);
-await click(`document.querySelector('.drawer .btn.primary')`);
+// Opening the new run closes the drawer.
+await click(`document.querySelector('.drawer a.btn.lime')`);
 await until(`location.hash.includes('/run/') && !location.hash.includes('${recordingId}')`);
 await wait(500);
-await click(`document.querySelector('.drawer button[aria-label="Close output"]')`, 600);
+if (await evaluate(`!!document.querySelector('.drawer')`)) await click(`document.querySelector('.drawer [aria-label=Close]')`, 600);
 await wait(700);
-await moveTo(`document.querySelector('.cell.is-fork') ?? document.querySelector('.cells')`, 700);
+await moveTo(`document.querySelector('.cells button.mark') ?? document.querySelector('.cells')`, 700);
 await wait(600);
 // A fork opens with its diff shown; open it if this build starts it closed.
 if (await evaluate(`!!${byText('button', 'Show diff')}`)) await click(byText('button', 'Show diff'));
-await moveTo(`document.querySelector('.evidence') ?? document.querySelector('.forkinfo')`, 700);
+await moveTo(`document.querySelector('.diffpanel') ?? document.querySelector('.banner')`, 700);
 await wait(1800);
 // The fork from other angles: its context and cache per model call, its calls on a clock, its family.
-const view = (name) => `[...document.querySelectorAll('.panes button')].find((b) => b.textContent.trim() === '${name}')`;
+const view = (name) => `[...document.querySelectorAll('.views [role=tab]')].find((b) => b.textContent.trim().startsWith('${name}'))`;
 await click(view('Context'), 600);
 await wait(450);
-await moveTo(`[...document.querySelectorAll('.cx-bar')].at(-4)`, 600);
+await moveTo(`[...document.querySelectorAll('.cbar')].at(-4)`, 600);
 await wait(1200);
 await click(view('Timeline'), 550);
 await wait(1400);
