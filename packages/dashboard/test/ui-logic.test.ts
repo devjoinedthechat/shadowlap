@@ -10,7 +10,7 @@ import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, toke
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
-import { inScope, scopeCount, scopesOf } from '../ui/scopes.js';
+import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
 describe('routes', () => {
@@ -367,6 +367,17 @@ describe('runs', () => {
     expect(scopesOf(calls)).toEqual(['customer', 'agent', 'agent/policy-checker']);
     expect(calls.filter((c) => inScope(c, 'agent')).map((c) => c.callNo)).toEqual([2, 3]);
     expect(scopeCount(calls, 'all')).toBe(4);
+  });
+
+  it('lists the scope chips as a tree: a nested scope under its parent, which has a chip even with no call of its own', () => {
+    // Two sub-agents at once: the writer only works through its reviewer.
+    const team = [{ callNo: 1, scope: 'researcher' }, { callNo: 2, scope: 'writer/review' }, { callNo: 3, scope: 'researcher' }];
+    expect(scopeChips(team)).toEqual(['researcher', 'writer', 'writer/review']);
+    expect(scopeCount(team, 'writer')).toBe(1);
+    // A nested scope that first appears after a sibling of its parent still sits under its parent.
+    const late = [{ callNo: 1, scope: 'agent' }, { callNo: 2, scope: 'customer' }, { callNo: 3, scope: 'agent/policy-checker' }];
+    expect(scopeChips(late)).toEqual(['agent', 'agent/policy-checker', 'customer']);
+    expect(scopeChips([{ callNo: 1 }])).toEqual([]);
   });
 });
 

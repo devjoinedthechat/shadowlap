@@ -11,7 +11,7 @@ import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { CYCLE_VIEWS, href, nextView, type View } from '../route.js';
 import { navigate } from '../router.js';
-import { inScope, scopesOf } from '../scopes.js';
+import { inScope, scopeChips, scopesOf } from '../scopes.js';
 import { useApp, type PaletteCommand } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
 import { CallsTable, CallsToolbar, matchesFilter, type OriginFilter } from '../run/CallsView.js';
@@ -139,6 +139,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
 
   const [scope, setScope] = useState('all');
   const scopes = useMemo(() => scopesOf(calls), [calls]);
+  const scopeTree = useMemo(() => scopeChips(calls), [calls]);
   const scoped = scopes.length > 0;
   const scopedCalls = useMemo(() => (scope === 'all' ? calls : calls.filter((c) => inScope(c, scope))), [calls, scope]);
   const [filter, setFilter] = useState<OriginFilter>('all');
@@ -279,7 +280,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
         {calls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkAt} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
         <Legend origins={present} />
       </section>
-      {scoped ? <ScopeBar run={run} scopes={scopes} scope={scope} onScope={setScope} /> : null}
+      {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
           <div className="tabs" role="tablist" aria-label="Views">

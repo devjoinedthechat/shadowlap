@@ -16,6 +16,35 @@ export function scopesOf(calls: readonly ScopedCall[]): string[] {
   return out;
 }
 
+/**
+ * The scope chips, as a tree: every scope, each nested one right after the scope it sits in, which
+ * gets a chip of its own even when no call was made in it directly (`writer/review` brings `writer`).
+ * Siblings keep the order they first appear in.
+ */
+export function scopeChips(calls: readonly ScopedCall[]): string[] {
+  const first = new Map<string, number>();
+  scopesOf(calls).forEach((s, i) => {
+    const parts = s.split('/');
+    for (let k = 1; k <= parts.length; k++) {
+      const p = parts.slice(0, k).join('/');
+      if (!first.has(p)) first.set(p, i);
+    }
+  });
+  const all = [...first.keys()];
+  const depth = (s: string) => s.split('/').length;
+  const kids = (parent: string | null) =>
+    all.filter((s) => (parent === null ? depth(s) === 1 : depth(s) === depth(parent) + 1 && s.startsWith(`${parent}/`))).sort((a, b) => first.get(a)! - first.get(b)!);
+  const out: string[] = [];
+  const walk = (parent: string | null) => {
+    for (const s of kids(parent)) {
+      out.push(s);
+      walk(s);
+    }
+  };
+  walk(null);
+  return out;
+}
+
 /** Whether a call is in a scope or one nested in it; `all` takes every call. */
 export function inScope(c: ScopedCall, scope: string): boolean {
   if (scope === 'all') return true;
