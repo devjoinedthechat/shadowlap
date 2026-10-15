@@ -289,3 +289,6 @@ export interface StaticPayload {
   redacted: boolean;
   responses: Record<string, unknown>;
 }
+
+// ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
+export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TrainingView } from '../src/training.js';

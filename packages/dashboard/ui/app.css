@@ -1584,3 +1584,22 @@ table.t td.wrapcell { white-space: normal; }
 /* the status bar gives way from the store path, so the version stays */
 .status > span:not(.sp) { flex: none; }
 .status > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* training: what the mock drew inline, and what the real page links that it didn't (an attempt's run from its pip) */
+.trgap { margin-top: 16px; }
+pre.report.trserve { margin-top: 10px; }
+p.muted.flat { margin: 0; }
+p.muted.trafter { margin: 10px 0 0; }
+.form.trep { margin-top: 10px; }
+.dialog p.muted.trnote { margin: 10px 0 0; }
+.dialog p.trnotes { margin: 6px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
+table.t tbody tr.static { cursor: default; }
+table.tasks a.rlink { color: inherit; text-decoration: none; }
+table.tasks a.rlink:hover code { text-decoration: underline; text-underline-offset: 3px; }
+.pips a { display: block; line-height: 0; border-radius: 3px; }
+.pips a i { display: block; }
+.pips a:hover i, .pips a:focus-visible i { box-shadow: 0 0 0 1.5px var(--ink); }
+.pips a:focus-visible { outline: none; }
+.ans .alts small a { color: inherit; text-decoration: none; }
+.ans .alts small a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.pg1 a.chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }

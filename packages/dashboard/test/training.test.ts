@@ -50,8 +50,8 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ex
 const TASKS = [
   task('goldens/refund-over-limit', 'ready', 'escalate above the limit'),
   task('goldens/escalate-over-limit', 'ready', 'escalate above the limit'),
-  task('goldens/refund-in-limit', 'blocked', 'refund within the limit'),
   task('goldens/refund-flow-budget', 'not-a-task', null),
+  task('goldens/refund-in-limit', 'blocked', 'refund within the limit'),
 ];
 
 const score = (model: string, baseUrl: string | null, golden: string, attempt: number, value: number, at: number, spent = 0): TaskScoreRow => ({ model, baseUrl, golden, attempt, runId: `${model}-${golden}-${attempt}`, score: value, checks: [], spent, via: baseUrl ? 'Ollama, on this machine' : 'the recorded model', session: 's', at });

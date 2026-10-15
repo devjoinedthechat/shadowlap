@@ -251,6 +251,7 @@ export const money = (v: number) => (v ? `$${(v < 0.01 ? v.toFixed(4) : v < 1 ? 
 /** An estimate as the mock writes it: `≈$0.165`. */
 export const approx = (v: number) => (v ? `≈$${v < 1 ? v.toFixed(3) : v.toFixed(2)}` : '$0');
 const STATUS: Record<Task['status'], { label: string; badge: 'ok' | 'y' | 'n' }> = { ready: { label: 'ready', badge: 'ok' }, blocked: { label: 'blocked', badge: 'y' }, 'not-a-task': { label: 'not a task', badge: 'n' }, 'no-golden': { label: 'no golden', badge: 'n' } };
+const STATUS_ORDER: Record<Task['status'], number> = { ready: 0, blocked: 1, 'not-a-task': 2, 'no-golden': 3 };
 const FROM: Record<PairSource['kind'], string> = { blame: 'from blame', verify: 'from verify', repeat: 'from --repeat' };
 const LOOPBACK = /^https?:\/\/(localhost|127\.|\[::1\])/;
 
@@ -452,7 +453,9 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         fix: opposite?.status === 'blocked' ? { label: 'Fix it on Tests', href: '#/tests' } : null,
       }
     : null;
-  const taskRows: TaskRowView[] = input.tasks.map((t) => {
+  // Tasks a model can be scored on first, then what keeps the rest from being one; the project's order within each.
+  const byStatus = [...input.tasks].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  const taskRows: TaskRowView[] = byStatus.map((t) => {
     const outcome = t.checks.filter((c) => !c.cap).map((c) => c.label);
     const checks = outcome.length ? ['the agent exits 0', ...outcome] : t.checks.map((c) => c.label);
     const k = t.takeover?.callNo ?? null;

@@ -3,7 +3,7 @@ import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
+import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, StaticPayload, TrainingView } from './types.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -32,6 +32,9 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // Training: export preference pairs, and score a model on the tasks.
+  pairs: 'pairs',
+  score: 'score',
 } as const;
 
 export class ApiError extends Error {
@@ -105,6 +108,10 @@ export interface Client {
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
   changes(since: string | null): Promise<Changes | null>;
+  /** Training (`/api/training`): the strip, the pairs, the tasks and the scores. */
+  training(): Promise<TrainingView>;
+  /** The models Score a model offers, each priced (`/api/models`). It asks providers, so it can take a second. */
+  models(): Promise<ModelsView>;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
@@ -225,6 +232,8 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    training: () => request<TrainingView>('training'),
+    models: () => request<ModelsView>('models'),
   };
 }
 
@@ -268,5 +277,7 @@ export function createExportedClient(data: StaticPayload): Client {
     exportHtml: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
+    training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
+    models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
   };
 }
