@@ -217,6 +217,29 @@ describe('setupView', () => {
     expect(view(clean, facts({ runs: 1, recordings: [run()] })).calibrate.text).toBe('The replay was clean as recorded: nothing to add.');
   });
 
+  it('offers the normalizers calibrate proposed, and says why it stopped', () => {
+    const p = entry('research-agent', { stage: 'recorded', findings: findings(), runId: RUN });
+    const f = facts({ runs: 1, recordings: [run()] });
+    const one = view(p, f, { calibration: { done: false, added: [], proposed: [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }], stopped: null } });
+    expect(one.calibrate).toMatchObject({
+      state: 'current',
+      text: 'Found a value the agent makes anew on every run, at $.metadata.user_id: this looks like a UUID. A normalizer for it makes the replay clean.',
+      button: { label: 'Add it', action: 'calibratewrite', enabled: true },
+      cli: ['shadowlap calibrate 01K5CQ7A3M --write'],
+      proposed: [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }],
+      stopped: null,
+    });
+    const two = view(p, f, { calibration: { done: false, added: [], proposed: [{ path: '$.system', why: null }, { path: '$.metadata.user_id', why: null }], stopped: null } });
+    expect(two.calibrate.text).toBe('Found 2 values the agent makes anew on every run, at $.system and $.metadata.user_id. Normalizers for them make the replay clean.');
+    expect(two.calibrate.button).toMatchObject({ label: 'Add them', action: 'calibratewrite' });
+
+    const stopped = view(p, f, { calibration: { done: false, added: [], proposed: [], stopped: 'still diverging after 8 rounds' } });
+    expect(stopped.calibrate).toMatchObject({ text: 'Calibrate stopped: still diverging after 8 rounds.', button: { label: 'Calibrate', action: 'calibrate', enabled: true }, stopped: 'still diverging after 8 rounds' });
+    // Once the list says the step is done, an old result changes nothing.
+    const done = entry('research-agent', { stage: 'clean', runId: RUN, calibration: { added: [{ path: '$.metadata.user_id', why: null }] } });
+    expect(view(done, f, { calibration: { done: false, added: [], proposed: [{ path: '$.x', why: null }], stopped: null } }).calibrate).toMatchObject({ state: 'done', button: null, proposed: [], text: 'Added a normalizer for $.metadata.user_id. The replay is clean now.' });
+  });
+
   it('ends with the golden replaying clean, and the project set up', () => {
     const p = entry('research-agent', { stage: 'tested', findings: findings(), runId: RUN, golden: 'goldens/northwind-q3' });
     const v = view(p, facts({ runs: 2, recordings: [run()] }), { run: { runId: RUN, status: 'completed', calls: 12, spent: 0.04, durationMs: 1000 } });

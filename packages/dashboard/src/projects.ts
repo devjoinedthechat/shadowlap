@@ -8,6 +8,7 @@ import {
   stageAtLeast,
   tildePath,
   unwrappedTools,
+  type CalibrationOutcome,
   type EffectiveSetup,
   type FolderKind,
   type FolderSuggestions,
@@ -269,7 +270,12 @@ export interface RecordStep extends StepBase {
 export interface CalibrateStep extends StepBase {
   key: 'calibrate';
   text: string;
-  button: { label: string; action: 'calibrate'; enabled: boolean } | null;
+  /** Calibrate, or once it proposed normalizers, add them (`calibrate <run> --write`). */
+  button: { label: string; action: 'calibrate' | 'calibratewrite'; enabled: boolean } | null;
+  /** What the last calibrate proposed and didn't add yet. */
+  proposed: Array<{ path: string; why: string | null }>;
+  /** Why the last calibrate stopped short of a clean replay. */
+  stopped: string | null;
 }
 
 export interface TestStep extends StepBase {
@@ -309,6 +315,8 @@ export interface SetupInput {
   /** Redaction rules in the project's config. */
   redactRules: number;
   home: string;
+  /** The last calibrate job's result for the setup's run (`calibrationOutcome`), until the step is done. */
+  calibration?: CalibrationOutcome | null;
 }
 
 function findingRows(f: NonNullable<ProjectEntry['setup']['findings']>): FindingRow[] {
@@ -410,6 +418,9 @@ export function setupView(input: SetupInput): SetupView {
 
   // 3 · Make the replay clean
   const added = s.calibration?.added ?? null;
+  const last = !clean && recorded ? (input.calibration ?? null) : null;
+  const proposed = last && !last.done ? last.proposed : [];
+  const offer = proposed.length > 0 && !last?.stopped;
   const calibrate: CalibrateStep = {
     key: 'calibrate',
     n: 3,
@@ -422,8 +433,14 @@ export function setupView(input: SetupInput): SetupView {
         : added.length
           ? `Added ${added.length === 1 ? 'a normalizer' : 'normalizers'} for ${listed(added.map((a) => a.path))}${added.length === 1 && added[0]!.why ? `: ${added[0]!.why}` : ''}. The replay is clean now.`
           : 'The replay was clean as recorded: nothing to add.'
-      : 'Replays the run offline with the same code until it is clean, and proposes a normalizer for every value the agent makes anew. No model calls; writes are blocked.',
-    button: clean ? null : { label: 'Calibrate', action: 'calibrate', enabled: recorded },
+      : offer
+        ? `Found ${proposed.length === 1 ? 'a value' : `${proposed.length} values`} the agent makes anew on every run, at ${listed(proposed.map((p) => p.path))}${proposed.length === 1 && proposed[0]!.why ? `: ${proposed[0]!.why}` : ''}. ${proposed.length === 1 ? 'A normalizer for it makes' : 'Normalizers for them make'} the replay clean.`
+        : last?.stopped
+          ? `Calibrate stopped: ${last.stopped}.${proposed.length ? ` It found ${listed(proposed.map((p) => p.path))} on the way.` : ''}`
+          : 'Replays the run offline with the same code until it is clean, and proposes a normalizer for every value the agent makes anew. No model calls; writes are blocked.',
+    button: clean ? null : offer ? { label: proposed.length === 1 ? 'Add it' : 'Add them', action: 'calibratewrite', enabled: true } : { label: 'Calibrate', action: 'calibrate', enabled: recorded },
+    proposed,
+    stopped: last?.stopped ?? null,
   };
 
   // 4 · Keep it as a test

@@ -231,3 +231,37 @@ export function initialSetup(facts: StoreFacts, goldens: number, options: { inUs
   if (goldens > 0 && facts.recordings.some((r) => r.status === 'completed' || r.status === 'failed')) return { stage: 'done', runId: null, golden: null };
   return { stage: 'added', runId: null, golden: null };
 }
+
+// ---------------------------------------------------------------------------------------------
+// What a step's job means for the setup
+
+/** What calibrate's result means for the setup's third step. */
+export interface CalibrationOutcome {
+  /** The replay is clean with what the config holds now: the step is done. */
+  done: boolean;
+  /** Normalizers calibrate added to the config, for `ProjectRegistry.noteCalibrated`. */
+  added: Array<{ path: string; why: string | null }>;
+  /** Normalizers it proposed without adding them: offer to add them (`calibrate <run> --write`). */
+  proposed: Array<{ path: string; why: string | null }>;
+  /** Why it stopped short of a clean replay. */
+  stopped: string | null;
+}
+
+/**
+ * Reads calibrate's result (the object `calibrate --json` prints) for the setup: a recording that
+ * replays clean as it is completes the step on its own; one made clean by normalizers completes it
+ * once they are written to the config, and until then offers them. Null for anything else.
+ */
+export function calibrationOutcome(result: unknown): CalibrationOutcome | null {
+  if (typeof result !== 'object' || result === null) return null;
+  const r = result as Record<string, unknown>;
+  if (typeof r.clean !== 'boolean' || !Array.isArray(r.normalizers)) return null;
+  const rules = r.normalizers
+    .filter((n): n is Record<string, unknown> => typeof n === 'object' && n !== null)
+    .map((n) => ({ path: typeof n.path === 'string' && n.path ? n.path : '(every string)', why: typeof n.why === 'string' ? n.why : null }));
+  const written = r.written === true;
+  const stopped = typeof r.stopped === 'object' && r.stopped !== null && typeof (r.stopped as Record<string, unknown>).why === 'string' ? ((r.stopped as Record<string, unknown>).why as string) : null;
+  if (!r.clean) return { done: false, added: written ? rules : [], proposed: written ? [] : rules, stopped: stopped ?? 'the replay isn’t clean yet' };
+  if (written || !rules.length) return { done: true, added: written ? rules : [], proposed: [], stopped: null };
+  return { done: false, added: [], proposed: rules, stopped: null };
+}

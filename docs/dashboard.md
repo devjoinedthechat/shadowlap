@@ -61,7 +61,7 @@ A project with no runs shows its setup on every page but Settings; one that is p
 | Make the replay clean | `shadowlap calibrate <run> --write` |
 | Keep it as a test | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
 
-Running `init` or recording in a terminal moves the setup on as well. **Skip the rest** appears after the first recording.
+Making the replay clean replays the recording offline: when it replays clean as it is, the step is done by itself; when calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`. Running `init` or recording in a terminal moves the setup on as well. **Skip the rest** appears after the first recording.
 
 The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, so what only a shell would understand is refused rather than passed on as text: a pipe, `&&`, a redirection, `$VAR`, `~` or a wildcard outside quotes, `$VAR` or a substitution inside double quotes, and a backslash before a space or a quote. Single quotes keep text as it is. Put the rest in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again.
 

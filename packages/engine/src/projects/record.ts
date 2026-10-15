@@ -170,6 +170,11 @@ function parseUrl(value: unknown): URL | null {
   }
 }
 
+/** `SHADOWLAP_UPSTREAM_OPENAI=<url>` as a terminal takes it: only the value is quoted, or it would not set a variable. */
+function upstreamAssignment(upstream: string): string {
+  return `${UPSTREAM_ENV}=${quoteArgs([upstream])}`;
+}
+
 /** An http(s) address recording may forward to: no credentials in it, nothing but the URL. */
 export function upstreamUrl(value: unknown): string | null {
   const url = parseUrl(value);
@@ -204,7 +209,7 @@ export function planRecording(
   if (server && !server.upstream) return { ok: false, error: `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.` };
   const argv = parsed.argv;
   const env: Record<string, string> = server?.upstream ? { [UPSTREAM_ENV]: server.upstream } : {};
-  const display = `${server?.upstream ? `${quoteArgs([`${UPSTREAM_ENV}=${server.upstream}`])} ` : ''}shadowlap run -- ${quoteArgs(argv)}`;
+  const display = `${server?.upstream ? `${upstreamAssignment(server.upstream)} ` : ''}shadowlap run -- ${quoteArgs(argv)}`;
   const known = project.confirmed.some((c) => sameArgv(c.argv, argv));
   const calls = server?.upstream ? `Model calls go to ${server.url}, the model server this project uses.` : 'Model calls go to the real API with your keys, which are never stored.';
   const confirm: RecordConfirmation | null = known
@@ -288,7 +293,7 @@ export const setupJobArgs = {
  */
 export function setupCommands(input: { argv: readonly string[] | null; runId: string | null; golden: string; modelServer?: Pick<ModelServer, 'upstream'> | null }): { inspect: string[]; record: string[]; calibrate: string[]; test: string[] } {
   const run = input.runId ? shortRunId(input.runId) : '<run>';
-  const upstream = input.modelServer ? `${input.modelServer.upstream ? quoteArgs([`${UPSTREAM_ENV}=${input.modelServer.upstream}`]) : `${UPSTREAM_ENV}=<your model server>`} ` : '';
+  const upstream = input.modelServer ? `${input.modelServer.upstream ? upstreamAssignment(input.modelServer.upstream) : `${UPSTREAM_ENV}=<your model server>`} ` : '';
   return {
     inspect: ['shadowlap init'],
     record: [`${upstream}shadowlap run -- ${input.argv?.length ? quoteArgs(input.argv) : '<the command that starts your agent>'}`],

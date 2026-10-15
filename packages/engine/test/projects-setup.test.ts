@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { NO_COMMAND, Store, deriveSetup, emptyStoreFacts, initialSetup, laterStage, earlierStage, recordEvent, runTotals, stageAtLeast, storeFacts, type RunFact, type StoreFacts } from '../src/index.js';
+import { NO_COMMAND, Store, calibrationOutcome, deriveSetup, emptyStoreFacts, initialSetup, laterStage, earlierStage, recordEvent, runTotals, stageAtLeast, storeFacts, type RunFact, type StoreFacts } from '../src/index.js';
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -132,5 +132,30 @@ describe('runTotals', () => {
     expect(runTotals(store, run.runId)).toEqual({ runId: run.runId, status: 'completed', calls: 0, spent: 0, durationMs: 38_200 });
     expect(runTotals(store, 'NOPE')).toBeNull();
     store.close();
+  });
+});
+
+describe('calibrationOutcome', () => {
+  const result = (over: Record<string, unknown>) => ({ runId: 'R1', clean: true, rounds: [], normalizers: [], written: false, stopped: null, ...over });
+  const uuid = { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+
+  it('completes the step on its own when the recording replays clean as it is', () => {
+    expect(calibrationOutcome(result({}))).toEqual({ done: true, added: [], proposed: [], stopped: null });
+  });
+
+  it('offers what it found, and completes the step once that is written', () => {
+    expect(calibrationOutcome(result({ normalizers: [uuid] }))).toEqual({ done: false, added: [], proposed: [{ path: '$.metadata.user_id', why: null }], stopped: null });
+    expect(calibrationOutcome(result({ normalizers: [uuid, { pattern: 'uuid', replace: '<UUID>', why: 'a value generated on each run' }], written: true }))).toEqual({
+      done: true,
+      added: [{ path: '$.metadata.user_id', why: null }, { path: '(every string)', why: 'a value generated on each run' }],
+      proposed: [],
+      stopped: null,
+    });
+  });
+
+  it('says why it stopped short, and reads nothing else as a result', () => {
+    expect(calibrationOutcome(result({ clean: false, stopped: { why: 'still diverging after 8 rounds', details: '' } }))).toEqual({ done: false, added: [], proposed: [], stopped: 'still diverging after 8 rounds' });
+    expect(calibrationOutcome(result({ clean: false, normalizers: [uuid], stopped: null }))).toMatchObject({ done: false, proposed: [{ path: '$.metadata.user_id' }], stopped: 'the replay isn’t clean yet' });
+    for (const bad of [null, 'clean', { clean: 'yes', normalizers: [] }, { clean: true }]) expect(calibrationOutcome(bad)).toBeNull();
   });
 });

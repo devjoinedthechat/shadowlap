@@ -122,6 +122,9 @@ describe('planRecording', () => {
       command: 'SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node triage.mjs --all',
       text: expect.stringContaining('Model calls go to http://127.0.0.1:11434/v1, the model server this project uses.'),
     });
+    const query = planRecording(project, 'node triage.mjs', { modelServer: { url: 'http://llm.internal/v1', upstream: 'http://llm.internal/v1?team=a&x=1' } });
+    expect(query.ok && query.plan.display).toBe("SHADOWLAP_UPSTREAM_OPENAI='http://llm.internal/v1?team=a&x=1' shadowlap run -- node triage.mjs");
+    expect(query.ok && query.plan.env).toEqual({ SHADOWLAP_UPSTREAM_OPENAI: 'http://llm.internal/v1?team=a&x=1' });
     // Without an address it can forward to, the calls would go to the provider's API instead: refused.
     expect(planRecording(project, 'node triage.mjs', { modelServer: { url: 'https://llm.internal/v1', upstream: null } })).toEqual({ ok: false, error: expect.stringMatching(/can’t record through this project’s model server \(https:\/\/llm.internal\/v1\).*SHADOWLAP_UPSTREAM_OPENAI/) });
   });
@@ -195,6 +198,8 @@ describe('setup commands', () => {
     // A project on its own model server records with the upstream set, as init prints it.
     expect(setupCommands({ argv: ['node', 'agent.mjs'], runId: null, golden: 'goldens/x', modelServer: { upstream: 'http://127.0.0.1:11434' } }).record).toEqual(['SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node agent.mjs']);
     expect(setupCommands({ argv: ['node', 'agent.mjs'], runId: null, golden: 'goldens/x', modelServer: { upstream: null } }).record).toEqual(['SHADOWLAP_UPSTREAM_OPENAI=<your model server> shadowlap run -- node agent.mjs']);
+    // Only the value is quoted: a quoted NAME=value would be taken for a command.
+    expect(setupCommands({ argv: ['node', 'agent.mjs'], runId: null, golden: 'goldens/x', modelServer: { upstream: 'http://llm.internal/v1?team=a&x=1' } }).record).toEqual(["SHADOWLAP_UPSTREAM_OPENAI='http://llm.internal/v1?team=a&x=1' shadowlap run -- node agent.mjs"]);
   });
 
   it('gives the jobs their arguments', () => {
