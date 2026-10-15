@@ -44,6 +44,15 @@ describe('run statistics', () => {
     expect(statsOf(orphan).get(orphan)!.notWaitedMs).toBe(0);
   });
 
+  it('takes a replayed call’s recorded duration from the call itself when it carries one', () => {
+    const rec = addRun(store, { startedAt: NOW - DAY, calls: 'll' });
+    const replay = addRun(store, { parent: rec, startedAt: NOW, calls: 'rr' });
+    // As a sidecar that keeps `recordedMs` on replayed calls writes them: no parent to follow.
+    store.appendCallStart({ runId: replay, callNo: 3, kind: 'api', name: 'POST /v1/messages', fingerprint: 'x', occurrence: 1, origin: 'replayed', effect: null, requestRef: null, meta: {}, at: NOW });
+    store.appendCallEnd({ kind: 'api', name: 'POST /v1/messages', fingerprint: 'x', occurrence: 1 }, { runId: replay, callNo: 3, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 0, replayedFrom: 99, recordedMs: 750 }, at: NOW });
+    expect(statsOf(replay).get(replay)!.notWaitedMs).toBe(2000 + 2000 + 750);
+  });
+
   it('counts calls per origin and the prompt cache of live model calls', () => {
     const rec = addRun(store, { startedAt: NOW, calls: 'llbsfi' });
     const s = statsOf(rec).get(rec)!;

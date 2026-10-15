@@ -20,8 +20,8 @@ export interface RunStats {
   unknownModels: string[];
   /**
    * Time not waited: for every replayed call, the duration it took when it was recorded. A replayed
-   * call stores none of its own; its recording is the parent's call, or further back for a replay
-   * of a replay.
+   * call that carries it (`meta.recordedMs`) says so itself; otherwise its recording is the parent's
+   * call, or further back for a replay of a replay.
    */
   notWaitedMs: number;
   /** Live model calls with usage (imported runs left out): their whole input, and the part read from the prompt cache. */
@@ -47,16 +47,20 @@ SELECT s.run_id AS run, s.kind AS kind, s.origin AS origin, e.outcome AS outcome
        SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.outputTokens' END) AS output,
        SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.cacheReadInputTokens' END) AS cache_read,
        SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.cacheCreationInputTokens' END) AS cache_write,
-       group_concat(CASE WHEN s.origin = 'replayed' THEN e.meta ->> '$.replayedFrom' END) AS sources
+       SUM(CASE WHEN s.origin = 'replayed' THEN e.meta ->> '$.recordedMs' END) AS recorded_ms,
+       group_concat(CASE WHEN s.origin = 'replayed' AND e.meta ->> '$.recordedMs' IS NULL THEN e.meta ->> '$.replayedFrom' END) AS sources
 FROM call_events s
 ${FINAL_END}
 WHERE s.phase = 'start' AND s.run_id IN (SELECT value FROM json_each(?))
 GROUP BY s.run_id, s.kind, s.origin, e.outcome, injected, model`;
 
-/** Each call's recorded duration and, for a replayed call, the parent's call it was replayed from. */
+/**
+ * Each call's recorded duration and, for a replayed call that does not carry its own, the parent's
+ * call it was replayed from.
+ */
 const DURATIONS_SQL = `
-SELECT s.run_id AS run, s.call_no AS call, e.meta ->> '$.latencyMs' AS latency,
-       CASE WHEN s.origin = 'replayed' THEN e.meta ->> '$.replayedFrom' END AS source
+SELECT s.run_id AS run, s.call_no AS call, COALESCE(e.meta ->> '$.recordedMs', e.meta ->> '$.latencyMs') AS latency,
+       CASE WHEN s.origin = 'replayed' AND e.meta ->> '$.recordedMs' IS NULL THEN e.meta ->> '$.replayedFrom' END AS source
 FROM call_events s
 ${FINAL_END}
 WHERE s.phase = 'start' AND s.run_id IN (SELECT value FROM json_each(?))`;
@@ -117,6 +121,7 @@ export function runStats(store: Store, index: RunIndex, runs: Iterable<IndexedRu
       const count = n(row.n);
       st.calls += count;
       st.origins[codeOf(row.origin, row.outcome, row.injected) as keyof OriginCounts] += count;
+      st.notWaitedMs += n(row.recorded_ms);
       if (row.origin === 'replayed' && typeof row.sources === 'string' && row.sources) {
         const list = sources.get(runId) ?? [];
         for (const s of row.sources.split(',')) {
@@ -159,7 +164,7 @@ export function runStats(store: Store, index: RunIndex, runs: Iterable<IndexedRu
     const parent = index.byId.get(runId)?.parentRunId ?? null;
     let ms = 0;
     for (const k of list) ms += durations.of(parent, k);
-    fresh.get(runId)!.notWaitedMs = ms;
+    fresh.get(runId)!.notWaitedMs += ms;
   }
 
   for (const r of todo) {
@@ -236,3 +241,70 @@ export function sumStats(list: Iterable<RunStats>): RunStats {
   }
   return total;
 }
+
+/** A live model call where the prompt cache stopped hitting. */
+export interface CacheMiss {
+  runId: string;
+  callNo: number;
+  scope: string | null;
+  /** Input tokens sent again: the previous call's whole input, less what this call read from the cache. */
+  tokens: number;
+}
+
+/** A miss must send at least this many tokens again: smaller drops are noise. */
+export const CACHE_MISS_MIN_TOKENS = 1024;
+
+const MISSES_SQL = `
+WITH calls AS (
+  SELECT s.run_id AS run, s.call_no AS call, s.origin AS origin, s.meta ->> '$.scope' AS scope,
+         COALESCE(e.meta ->> '$.usage.inputTokens', 0) AS uin,
+         COALESCE(e.meta ->> '$.usage.cacheReadInputTokens', 0) AS cr,
+         COALESCE(e.meta ->> '$.usage.cacheCreationInputTokens', 0) AS cw
+  FROM call_events s
+  ${FINAL_END}
+  WHERE s.phase = 'start' AND s.kind = 'api' AND s.run_id IN (SELECT value FROM json_each(?)) AND e.meta -> '$.usage' IS NOT NULL
+), seq AS (
+  SELECT run, call, origin, scope, cr, uin + cr + cw AS whole,
+         LAG(uin + cr + cw) OVER w AS prev_whole, LAG(cr + cw) OVER w AS prev_cached
+  FROM calls
+  WINDOW w AS (PARTITION BY run, scope ORDER BY call)
+)
+SELECT run, call, scope, prev_whole - cr AS tokens FROM seq
+WHERE origin = 'live' AND prev_whole IS NOT NULL AND prev_cached > 0 AND whole >= prev_whole AND prev_whole - cr >= ?
+ORDER BY tokens DESC, run, call`;
+
+/**
+ * Live model calls where the prompt cache stopped hitting, largest first: a call misses when it read
+ * less from the cache than the previous model call's whole input in the same scope, by at least
+ * 1,024 tokens. Two guards stand in for conversation boundaries until calls carry them: the previous
+ * call used the cache (so it was hitting), and this call's input is no smaller than the previous
+ * one's (a smaller one starts a new conversation).
+ */
+export function cacheMisses(store: Store, runs: readonly IndexedRun[]): CacheMiss[] {
+  let kept = missCache.get(store);
+  if (!kept) {
+    kept = new Map();
+    missCache.set(store, kept);
+  }
+  const found = new Map<string, CacheMiss[]>();
+  const todo: IndexedRun[] = [];
+  for (const r of runs) {
+    if (found.has(r.runId)) continue;
+    const hit = kept.get(r.runId);
+    if (hit && hit.key === keyOf(r, '')) found.set(r.runId, hit.misses);
+    else {
+      found.set(r.runId, []);
+      todo.push(r);
+    }
+  }
+  for (const batch of batches(todo.map((r) => r.runId))) {
+    for (const row of store.query(MISSES_SQL, ids(batch), CACHE_MISS_MIN_TOKENS)) {
+      found.get(String(row.run))!.push({ runId: String(row.run), callNo: Number(row.call), scope: typeof row.scope === 'string' ? row.scope : null, tokens: n(row.tokens) });
+    }
+  }
+  for (const r of todo) if (r.status !== 'running') kept.set(r.runId, { key: keyOf(r, ''), misses: found.get(r.runId)! });
+  if (kept.size > 50_000) kept.clear();
+  return [...found.values()].flat().sort((a, b) => b.tokens - a.tokens || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : a.callNo - b.callNo));
+}
+
+const missCache = new WeakMap<Store, Map<string, { key: string; misses: CacheMiss[] }>>();
