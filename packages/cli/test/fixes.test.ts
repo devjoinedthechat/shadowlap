@@ -97,11 +97,14 @@ interface Result {
   events: Array<Record<string, unknown>>;
 }
 
+/** Not under CI, wherever the suite runs: a fix opened under CI says it came from there. */
+const NOT_CI = Object.fromEntries(['CI', 'GITHUB_ACTIONS', 'GITLAB_CI', 'BUILDKITE', 'CIRCLECI', 'JENKINS_URL', 'TF_BUILD', 'BITBUCKET_BUILD_NUMBER'].map((k) => [k, '']));
+
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<Result> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: project,
-      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, ANTHROPIC_BASE_URL: mock.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_AUTHOR: 'dana', SHADOWLAP_EVENTS_FD: '3', ...env },
+      env: { ...process.env, ...NOT_CI, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, ANTHROPIC_BASE_URL: mock.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_AUTHOR: 'dana', SHADOWLAP_EVENTS_FD: '3', ...env },
       stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
     });
     let out = '';
@@ -376,8 +379,10 @@ describe('shadowlap fix', () => {
   it('recognises a patch already in the tree, and refuses to apply over changes that conflict with it', async () => {
     const { failed } = await runs();
     mode = 'alternate';
-    const repaired = json(await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']));
+    // Run under CI, the blames the repair makes open a fix that says it came from there.
+    const repaired = json(await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { GITHUB_ACTIONS: 'true' }));
     const fixId = repaired.fixes[0].fixId as string;
+    expect(json(await shadowlap(['fix', 'show', fixId, '--json'])).source).toBe('from CI');
 
     writeFileSync(join(project, 'agent.mjs'), agentText().replace(ORIGINAL, 'You are a support agent. Be kind.'));
     const refused = await shadowlap(['fix', 'apply', fixId]);
