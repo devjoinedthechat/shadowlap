@@ -1,6 +1,5 @@
-import { statSync } from 'node:fs';
 import type { Store } from '@shadowlap/engine';
-import { cachedRuns } from './run-cache.js';
+import { countRuns } from './runs-list.js';
 import type { LiveRun, MetaView, ProjectView } from './views.js';
 
 /** `GET /api/meta` as a plain function: the store and what the server knows about itself. */
@@ -17,30 +16,16 @@ export interface MetaInput {
   project: ProjectView | null;
 }
 
-/** Runs recording now, with their calls so far. */
+/**
+ * Runs recording now, with their calls so far. A run whose recording process is gone (killed, or
+ * on a machine that went down) is not one, though its status still says running until gc marks it
+ * interrupted. Asked fresh each time: a process can end without anything in the store changing.
+ */
 export function liveRuns(store: Store): LiveRun[] {
-  return cachedRuns(store).live.map((r) => ({ runId: r.runId, calls: store.countCalls(r.runId) }));
-}
-
-/** The store's size on disk: the database and its write-ahead log. Null in memory or when it cannot be read. */
-export function storeBytes(dbPath: string | null): number | null {
-  if (!dbPath || dbPath === ':memory:') return null;
-  let total: number;
-  try {
-    total = statSync(dbPath).size;
-  } catch {
-    return null;
-  }
-  try {
-    total += statSync(`${dbPath}-wal`).size;
-  } catch {
-    // no write-ahead log right now
-  }
-  return total;
+  return store.recordingRuns().live.map(({ run }) => ({ runId: run.runId, calls: store.countCalls(run.runId) }));
 }
 
 export function metaView(store: Store, input: MetaInput): MetaView {
-  const index = cachedRuns(store);
   return {
     version: input.version,
     dbPath: input.dbPath,
@@ -48,8 +33,10 @@ export function metaView(store: Store, input: MetaInput): MetaView {
     readOnly: input.readOnly,
     readOnlyReason: input.readOnlyReason,
     address: input.address,
-    storeBytes: storeBytes(input.dbPath),
-    counts: { runs: index.runs.length - index.attempts, attempts: index.attempts },
+    // As SQLite counts the store, which Settings shows too; the files on disk can be larger for a while.
+    storeBytes: input.dbPath && input.dbPath !== ':memory:' ? store.size().bytes : null,
+    // Counted as the Runs page counts them: attempts bundled under their run, test replays as runs.
+    counts: countRuns(store),
     live: liveRuns(store),
     jobKinds: input.jobKinds,
     uploadLimit: input.uploadLimit,

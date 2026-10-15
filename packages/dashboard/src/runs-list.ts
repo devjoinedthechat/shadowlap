@@ -439,13 +439,17 @@ export interface DeleteResult {
  * Deletes several runs, with the attempts bundled under each. A run still in progress is left alone,
  * as is one a run in progress reads from: an attempt of it, or a replay or fork of it, would lose the
  * answers it has yet to serve. Forks of a deleted run keep their own data and lose the link to it.
+ * In progress means a process is still recording it (the store's recordingRuns): a run a killed
+ * process left marked running can be deleted, as gc would.
  */
 export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: string } {
   const list = idList(ids);
   if ('error' in list) return list;
   const index = loadRunIndex(store);
+  const live = new Set(store.recordingRuns().live.map((r) => r.run.runId));
+  const inProgress = (r: { runId: string }) => live.has(r.runId);
   // A replay serves its answers from its parent's calls as it goes: the parents of runs in progress.
-  const readFrom = new Set(index.runs.filter((r) => r.status === 'running' && r.parentRunId).map((r) => r.parentRunId!));
+  const readFrom = new Set(index.runs.filter((r) => inProgress(r) && r.parentRunId).map((r) => r.parentRunId!));
   const done: string[] = [];
   const attempts: string[] = [];
   const skipped: BulkSkip[] = [];
@@ -457,12 +461,12 @@ export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: 
       continue;
     }
     if (doomed.has(run.runId)) continue;
-    if (run.status === 'running') {
+    if (inProgress(run)) {
       skipped.push({ runId: run.runId, reason: run.mode === 'record' ? 'still recording' : 'still running' });
       continue;
     }
     const bundle = index.attempts.get(run.runId) ?? [];
-    if (bundle.some((a) => a.status === 'running')) {
+    if (bundle.some(inProgress)) {
       skipped.push({ runId: run.runId, reason: 'an attempt of it is still running' });
       continue;
     }

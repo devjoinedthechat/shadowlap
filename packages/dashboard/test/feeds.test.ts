@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordEvent, Store, ulid } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type ActivityPage, type ChangesView, type Dashboard, type MetaView, type RouteModule } from '../src/index.js';
+import { liveRuns } from '../src/meta.js';
 
 /** What the shell polls and shows around every page: meta, the change feed, the activity feed, and read-only refusals. */
 const FAKE = fileURLToPath(new URL('./fake-cli.mjs', import.meta.url));
@@ -191,5 +192,16 @@ describe('a read-only dashboard', () => {
     }
     expect(snapshot(), 'nothing made or removed, at start or at close').toEqual(before);
     rmSync(other, { recursive: true, force: true });
+  });
+});
+
+describe('live runs', () => {
+  it('leave out a run its recording process left behind', () => {
+    const mem = Store.open(':memory:');
+    // Still marked running, recorded by no process here and silent for two days, as a crash leaves a run.
+    mem.importRun({ runId: '01K5CQ4N7G0000000000000001', parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['x'], cwd: '.' }, codeVersion: null, startedAt: Date.now() - 2 * 86_400_000, endedAt: null });
+    const recording = mem.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+    expect(liveRuns(mem)).toEqual([{ runId: recording.runId, calls: 0 }]);
+    mem.close();
   });
 });

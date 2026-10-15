@@ -481,9 +481,10 @@ describe('projectSettings', () => {
   it('names the project and its store, counts runs and attempts, and gives the clean-up job', () => {
     const dbPath = join(cwd, '.shadowlap', 'shadowlap.db');
     const disk = Store.open(dbPath);
-    disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } });
-    disk.endRun(disk.allRuns()[0]!.runId, 'completed');
-    const probe = disk.createRun({ mode: 'replay', command: { argv: ['x'], cwd }, meta: { probe: { of: 'r', callNo: 2, passed: false } } });
+    const rec = disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } });
+    disk.endRun(rec.runId, 'completed');
+    // A blame probe of that recording: an attempt, bundled under it as the Runs page bundles it.
+    const probe = disk.createRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd }, meta: { probe: { of: rec.runId, callNo: 2, passed: false } } });
     disk.endRun(probe.runId, 'failed');
     disk.createRun({ mode: 'record', command: { argv: ['x'], cwd } }); // still recording
     const p = projectSettings({ store: disk, cwd, dbPath, address: '127.0.0.1:4777' });

@@ -22,6 +22,7 @@ import {
   type RunRecord,
   type Store,
 } from '@shadowlap/engine';
+import { countRuns } from './runs-list.js';
 
 /**
  * The read model behind Settings: one plain function per tab (Matching, Redaction, Coding agents,
@@ -930,7 +931,8 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
 export const CLEANUP_DAYS = 30;
 
 export function projectSettings(ctx: SettingsContext): ProjectSettings {
-  const counts = ctx.store.runCounts();
+  // Counted as the Runs page and the status bar count them.
+  const counts = countRuns(ctx.store);
   const recording = ctx.store.recordingRuns();
   const dbPath = ctx.dbPath && ctx.dbPath !== ':memory:' ? ctx.dbPath : null;
   const size = ctx.store.size();

@@ -334,6 +334,19 @@ describe('bulk actions', () => {
     }
   });
 
+  it('deletes a run its recording process left marked running, as gc would', () => {
+    const local = Store.open(':memory:');
+    try {
+      // Still marked running, recorded by no process here and silent for two days, as a crash leaves a run.
+      const left = '01K5CQ4N7G0000000000000009';
+      local.importRun({ runId: left, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['x'], cwd: '.' }, codeVersion: null, startedAt: Date.now() - 2 * 86_400_000, endedAt: null });
+      expect(deleteRuns(local, [left])).toMatchObject({ done: [left], skipped: [] });
+      expect(local.getRun(left)).toBeNull();
+    } finally {
+      local.close();
+    }
+  });
+
   it('leaves a run alone while a replay of it, or an attempt of it, still runs', () => {
     const local = Store.open(':memory:');
     try {
