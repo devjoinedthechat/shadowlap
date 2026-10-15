@@ -1558,8 +1558,11 @@ a.livechip:hover { color: var(--ink); }
 /* the fork menu: a long flag gives way before the action's words do */
 .pop.fkm button small { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* forks and provenance */
+/* forks and provenance: a ledger row selects its call */
 .fnode .f2.block { display: block; }
+table.ledger tbody tr { cursor: pointer; }
+table.ledger tbody tr:hover td { background: var(--hover); }
+table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .checks .bad { color: var(--err); }
 .prov > .actions { margin-top: 14px; }
 

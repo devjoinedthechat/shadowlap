@@ -298,7 +298,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
             {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'forks' ? <ForksView runId={runId} /> : null}
-            {v === 'provenance' ? <ProvenanceView run={run} /> : null}
+            {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
         <Inspector runId={runId} call={selectedRow} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} />

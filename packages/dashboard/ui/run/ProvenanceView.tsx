@@ -1,25 +1,56 @@
-import type { LineageNode, RunDetail } from '../api.js';
+import { useEffect, useState } from 'react';
+import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail } from '../api.js';
 import { CopyButton, Org } from '../components/bits.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { approx, callName, num, shortId, stamp, utcStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { countOrigins, ORIGIN_NAME, presentOrigins } from '../origins.js';
 import { href } from '../route.js';
+import { navigate } from '../router.js';
 import { kindWord } from '../runs.js';
 import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { originOf, runLikeOf } from './model.js';
+import { copyRules, endpointSamples, tallyProviders } from './provenance.js';
 
 /**
- * Provenance: the run's record (command, code version, times in UTC, models, endpoints, upstream
- * requests, origins), its lineage, each call's fingerprint and blobs when the server sends them,
- * what a copy made now would carry, and its labels and notes.
+ * The providers a run's model calls went to, with how many calls each: the server's count when it
+ * sends one, else read from one call of each endpoint the run used (a call's details name its
+ * provider). Null while it is being worked out or when no call says.
  */
-export function ProvenanceView({ run }: { run: RunDetail }) {
+function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ provider: string; calls: number }> | null {
+  const { client } = useApp();
+  const [found, setFound] = useState<Array<{ provider: string; calls: number }> | null>(null);
+  const runId = run.run.runId;
+  const known = server?.providers ?? null;
+  const sig = JSON.stringify(endpointSamples(run.calls));
+  useEffect(() => {
+    if (known) return;
+    const asked = JSON.parse(sig) as Array<{ first: number; calls: number }>;
+    if (!asked.length) return setFound([]);
+    let alive = true;
+    void Promise.all(asked.map((e) => client.call(runId, e.first).then((d) => ({ provider: d.call.provider, calls: e.calls }), () => ({ provider: null, calls: e.calls })))).then((list) => alive && setFound(tallyProviders(list)));
+    return () => {
+      alive = false;
+    };
+  }, [client, runId, sig, known]);
+  return known ?? found;
+}
+
+/**
+ * Provenance: the run's record (command, code version, times in UTC, models, provider, upstream
+ * requests, origins), its lineage, each call's fingerprint and blobs when the server sends them,
+ * what a copy made now would mask, and its labels and notes.
+ */
+export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
   const { client, meta } = useApp();
   const r = run.run;
   const s = run.summary;
   const lineage = useLoad(() => client.lineage(r.runId), r.runId);
+  // The server's record of the run, when it works one out: on the run, or from its own endpoint.
+  const fetched = useLoad(() => (run.provenance ? null : client.provenance(r.runId)), `${r.runId}:provenance`);
+  const prov = run.provenance ?? fetched.data ?? null;
+  const providers = useProviders(run, prov);
   const models = new Map<string, number>();
   const endpoints = new Set<string>();
   for (const c of run.calls) {
@@ -43,7 +74,8 @@ export function ProvenanceView({ run }: { run: RunDetail }) {
   }
   const notes = r.meta?.notes ?? [];
   const labels = r.meta?.labels ?? [];
-  const rules = meta?.redactRules;
+  const rules = prov?.mask?.rules ?? meta?.redactRules;
+  const masked = prov?.mask?.values ?? null;
   const ledger = run.calls.some((c) => c.fingerprint || c.requestRef || c.responseRef);
   const rows: Array<[string, React.ReactNode]> = [
     ['Run', <code key="r">{r.runId}</code>],
@@ -63,7 +95,23 @@ export function ProvenanceView({ run }: { run: RunDetail }) {
           ))
         : '—',
     ],
-    ['Endpoints', endpoints.size ? [...endpoints].join(', ') : '—'],
+    [
+      'Provider',
+      providers === null ? (
+        <span className="muted">…</span>
+      ) : providers.length ? (
+        providers.map((p, i) => (
+          <span key={p.provider}>
+            {i ? <br /> : null}
+            {p.provider} <small>{p.calls === 1 ? '1 call' : `${num(p.calls)} calls`}</small>
+          </span>
+        ))
+      ) : endpoints.size ? (
+        <code>{[...endpoints].join(', ')}</code>
+      ) : (
+        '—'
+      ),
+    ],
     ['Calls', `${num(s.byKind.api)} model · ${num(s.byKind.tool)} tool${s.byKind.clock + s.byKind.random ? ` · ${num(s.byKind.clock + s.byKind.random)} clock and random` : ''}${scopes.length ? ` · ${scopes.length} scopes` : ''}`],
     ['Upstream', `${num(s.upstreamRequests)} ${s.upstreamRequests === 1 ? 'request' : 'requests'} · ${approx(s.cost.spent)}`],
     ['Origins', presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'],
@@ -103,10 +151,10 @@ export function ProvenanceView({ run }: { run: RunDetail }) {
           <h3>Leaving this machine</h3>
           <p className="muted">
             A copy made now (pack, export html, export dataset) applies{' '}
-            {typeof rules === 'number' ? (rules ? `${rules} redaction ${rules === 1 ? 'rule' : 'rules'}` : 'no redaction rules: it would hold what was recorded') : 'the redaction rules in shadowlap.config.json'}
+            {copyRules(rules, masked)}
             .{' '}
             <a className="more" href={href.settings('redaction')}>
-              Settings
+              {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}
             </a>
           </p>
           <p className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</p>
@@ -151,7 +199,7 @@ export function ProvenanceView({ run }: { run: RunDetail }) {
               </thead>
               <tbody>
                 {run.calls.map((c) => (
-                  <tr key={c.callNo}>
+                  <tr key={c.callNo} aria-selected={c.callNo === selected} onClick={() => navigate(href.run(r.runId, c.callNo, 'provenance'), true)}>
                     <td className="num left">{c.callNo}</td>
                     <td>{callName(c.kind, c.name)}</td>
                     {scopes.length ? (
