@@ -7,7 +7,7 @@ import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, stamp } from '../format.js';
 import { useApp } from '../state.js';
-import { originOf, tokensText } from './model.js';
+import { originOf, tokensText, turnCalls } from './model.js';
 
 /**
  * The inspector for the selected call: Conversation (as the model saw it, thinking included, with
@@ -23,6 +23,8 @@ let formatJsonPref = true;
 export interface InspectorProps {
   runId: string;
   call: CallRow | null;
+  /** The run's calls, to say which call each message of a conversation came from. */
+  calls: readonly CallRow[];
   detail: CallDetail | null;
   error: string | null;
   tab: InspectorTab;
@@ -33,7 +35,7 @@ export interface InspectorProps {
   live: boolean;
 }
 
-export function Inspector({ runId, call, detail, error, tab, onTab, onStep, change, live }: InspectorProps) {
+export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live }: InspectorProps) {
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -67,7 +69,7 @@ export function Inspector({ runId, call, detail, error, tab, onTab, onStep, chan
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} change={change} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
       </div>
     </section>
   );
@@ -102,7 +104,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, change }: { detail: CallDetail; change: { turn: number; firstAt: number } | null }) {
+function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -144,6 +146,8 @@ function ConversationTab({ detail, change }: { detail: CallDetail; change: { tur
   ) : null;
   if (!conv) return <>{note}<div className="ibar">The request could not be read as a conversation; the Request tab shows it as stored.</div></>;
   const turns = conv.turns;
+  // Which call each message came from, when the server names the tool calls' ids.
+  const from = turnCalls(turns, calls);
   // Tool results name their call only by id in some providers: the tool's name comes from the call that asked for it.
   const names = new Map<string, string>();
   for (const t of turns) for (const b of t.blocks) if (b.type === 'tool_call' && b.id) names.set(b.id, b.name);
@@ -181,18 +185,21 @@ function ConversationTab({ detail, change }: { detail: CallDetail; change: { tur
               Show {hidden} earlier {hidden === 1 ? 'message' : 'messages'}
             </button>
           ) : null}
-          <Message turn={t} format={format} names={names} changed={change?.turn === i} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
+          <Message turn={t} callNo={from.get(i) ?? null} format={format} names={names} changed={change?.turn === i} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
         </Fragment>
       ))}
     </>
   );
 }
 
-function Message({ turn, format, names, changed, firstAt, innerRef }: { turn: Turn; format: boolean; names: Map<string, string>; changed: boolean; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
+function Message({ turn, callNo, format, names, changed, firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
   const role = turn.role;
   return (
     <div className={`msg ${role}${changed ? ' changed' : ''}`} ref={innerRef}>
-      <div className="role">{role}</div>
+      <div className="role">
+        {role}
+        {callNo !== null ? <small>#{callNo}</small> : null}
+      </div>
       <div>
         {turn.blocks.length === 0 ? <div className="txt muted">empty</div> : null}
         {turn.blocks.map((b, i) => (

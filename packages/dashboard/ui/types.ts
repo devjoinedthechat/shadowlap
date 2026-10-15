@@ -57,6 +57,8 @@ export interface CallRowExtras {
   conversationStart?: boolean;
   /** A tool call: the model call that asked for it. */
   requestedBy?: number | null;
+  /** A tool call: the tool-use id the provider gave the request for it. */
+  toolUseId?: string | null;
   /** A model call where the prompt cache stopped hitting: the tokens sent again, and the call it is judged against. */
   cacheMiss?: { sentAgain: number; previousCallNo: number } | null;
   requestRef?: string | null;

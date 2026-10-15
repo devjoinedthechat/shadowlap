@@ -68,4 +68,4 @@ export function checksOf(d: Pick<RunDetail, 'checks'> & { run: { meta?: RunDetai
   return (d.run.meta?.checks ?? []).map((c) => ({ label: c.label, ok: c.ok }));
 }
 
-export { callDetail, callTitle, modelCalls, originOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnsOf, type CallLike, type TimelineRow, type Turn } from './calls.js';
+export { callDetail, callTitle, modelCalls, originOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike, type TimelineRow, type Turn } from './calls.js';

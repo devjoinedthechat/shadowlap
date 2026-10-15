@@ -149,6 +149,37 @@ export function ticksFor(end: number): Array<{ at: number; label: string }> {
   return out;
 }
 
+/**
+ * The call each message of a conversation came from, by the message's place in it: a tool result is
+ * the tool call with its tool-use id, and an assistant message that asks for a tool is the model call
+ * that asked. Needs the server to name each tool call's id and the model call that asked for it;
+ * without, the map is empty.
+ */
+export function turnCalls(
+  turns: ReadonlyArray<{ role: string; blocks: ReadonlyArray<{ type: string; id?: string | undefined }> }>,
+  calls: ReadonlyArray<{ callNo: number; kind: string; toolUseId?: string | null; requestedBy?: number | null }>,
+): Map<number, number> {
+  const byId = new Map<string, { callNo: number; requestedBy: number | null }>();
+  for (const c of calls) if (c.kind === 'tool' && c.toolUseId) byId.set(c.toolUseId, { callNo: c.callNo, requestedBy: c.requestedBy ?? null });
+  const out = new Map<number, number>();
+  if (!byId.size) return out;
+  turns.forEach((t, i) => {
+    for (const b of t.blocks) {
+      const hit = b.id ? byId.get(b.id) : undefined;
+      if (!hit) continue;
+      if (t.role === 'tool' && b.type === 'tool_result') {
+        out.set(i, hit.callNo);
+        return;
+      }
+      if (t.role === 'assistant' && b.type === 'tool_call' && hit.requestedBy !== null) {
+        out.set(i, hit.requestedBy);
+        return;
+      }
+    }
+  });
+  return out;
+}
+
 export function callTitle(c: Pick<CallLike, 'callNo' | 'kind' | 'name'>): string {
   return `#${c.callNo} ${callName(c.kind, c.name)}`;
 }

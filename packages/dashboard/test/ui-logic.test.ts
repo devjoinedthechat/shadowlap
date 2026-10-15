@@ -6,7 +6,7 @@ import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, tildePa
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
-import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnsOf, type CallLike } from '../ui/run/calls.js';
+import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
@@ -501,6 +501,36 @@ describe('strip origins of failed and fenced calls', () => {
     expect(cells.find((c) => c.mark === 'fork')).toMatchObject({ target: 2001 });
     expect(cells.find((c) => c.selected)).toMatchObject({ target: 4321 });
     expect(cells.filter((c) => c.origin === 'fail')).toHaveLength(1);
+  });
+});
+
+describe('which call each message of a conversation came from', () => {
+  const turns = [
+    { role: 'system', blocks: [{ type: 'text' }] },
+    { role: 'user', blocks: [{ type: 'text' }] },
+    { role: 'assistant', blocks: [{ type: 'thinking' }, { type: 'tool_call', id: 'toolu_a' }] },
+    { role: 'tool', blocks: [{ type: 'tool_result', id: 'toolu_a' }] },
+    { role: 'assistant', blocks: [{ type: 'tool_call', id: 'toolu_b' }, { type: 'tool_call', id: 'toolu_c' }] },
+    { role: 'tool', blocks: [{ type: 'tool_result', id: 'toolu_b' }, { type: 'tool_result', id: 'toolu_c' }] },
+    { role: 'assistant', blocks: [{ type: 'text' }] },
+  ];
+  it('reads tool results by their tool-use id, and an assistant message by the model call that asked for its tools', () => {
+    const calls = [
+      { callNo: 3, kind: 'api' },
+      { callNo: 4, kind: 'tool', toolUseId: 'toolu_a', requestedBy: 3 },
+      { callNo: 6, kind: 'api' },
+      { callNo: 7, kind: 'tool', toolUseId: 'toolu_b', requestedBy: 6 },
+      { callNo: 8, kind: 'tool', toolUseId: 'toolu_c', requestedBy: 6 },
+    ];
+    expect([...turnCalls(turns, calls)]).toEqual([
+      [2, 3],
+      [3, 4],
+      [4, 6],
+      [5, 7],
+    ]);
+  });
+  it('says nothing without the ids the server sends', () => {
+    expect(turnCalls(turns, [{ callNo: 4, kind: 'tool' }]).size).toBe(0);
   });
 });
 

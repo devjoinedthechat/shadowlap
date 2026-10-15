@@ -302,7 +302,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <Inspector runId={runId} call={selectedRow} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} />
+        <Inspector runId={runId} call={selectedRow} calls={calls} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} />
       </div>
       {actions.dialog}
     </div>
