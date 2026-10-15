@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
+import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -134,9 +134,10 @@ export class AttemptRunner {
   /**
    * Replays a recorded run once, as `extra` says (a call forced live, request fields patched), and
    * judges what came out. `tally: false` leaves it out of the counts, for a replay that only confirms
-   * what the recording holds.
+   * what the recording holds. `extra.meta` marks the run before its agent starts (`probe`, `verify`,
+   * `repeat`), so run lists bundle it as an attempt while it runs, not only once it is done.
    */
-  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions } = {}, tally = true): Promise<Attempt> {
+  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta> } = {}, tally = true): Promise<Attempt> {
     const s = this.settings;
     const cwd = process.cwd();
     const { parent, argv } = target;
@@ -158,6 +159,7 @@ export class AttemptRunner {
       ...(extra.interventions ? { interventions: extra.interventions } : {}),
       ...(target.commandFromImport ? { commandFromImport: true } : {}),
     });
+    if (extra.meta) this.store.updateRunMeta(run.runId, extra.meta);
     const child = spawn(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'] });
     this.running.add(child);
     let output = '';

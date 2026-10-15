@@ -70,7 +70,8 @@ export async function runBlame(input: BlameInput): Promise<BlameReport> {
     // The recording, replayed as it is: free, and it must fail the way it did, or the probes that
     // follow would be judging something the recording doesn't show.
     log(p.dim(`  replaying ${shortId(parent.runId)} as recorded, to see it fail…`));
-    const baseline = await runner.attempt(target, {}, false);
+    const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const baseline = await runner.attempt(target, { meta: { repeat: { group: `${group}-as-recorded`, attempt: 1, of: 1 } } }, false);
     store.deleteRun(baseline.run.runId);
     if (runner.interrupted) throw new BlameError('interrupted before the first probe', 'interrupted');
     if (baseline.bypassed) throw new BlameError(`${shortId(parent.runId)} did not replay through Shadowlap: ${BYPASSED}`, 'bypassed');
@@ -86,7 +87,6 @@ export async function runBlame(input: BlameInput): Promise<BlameReport> {
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
-    const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const probe = async (callNo: number, step: number): Promise<BlameProbe | null> => {
       if (!runner.canStart()) return null;
       log(`  ${p.bold(`model call #${callNo}`)} ${p.dim(`(${step} of ${steps.length})`)}`);
@@ -98,7 +98,8 @@ export async function runBlame(input: BlameInput): Promise<BlameReport> {
       const worker = async () => {
         while (!prefixBroken && launched < s.attempts && probeVerdict(passes, attempts.length, s.attempts, s.needed) === 'open' && runner.canStart()) {
           const n = ++launched;
-          const a = await runner.attempt(target, { divergeAt: callNo, ...(interventions ? { interventions } : {}) });
+          const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: s.attempts }, probe: { of: parent.runId, callNo, passed: false } };
+          const a = await runner.attempt(target, { divergeAt: callNo, ...(interventions ? { interventions } : {}), meta: marks });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
           if (runner.interrupted) break;
           const d = a.summary.divergence;
@@ -109,7 +110,7 @@ export async function runBlame(input: BlameInput): Promise<BlameReport> {
               ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
               : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
           }
-          store.updateRunMeta(a.run.runId, { repeat: { group: `${group}-${callNo}`, attempt: n, of: s.attempts }, probe: { of: parent.runId, callNo, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
+          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed }, ...(a.checks.length ? { checks: a.checks } : {}) });
           if (a.passed) passes++;
           attempts.push({ runId: a.run.runId, passed: a.passed, exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests });
           log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}`);
