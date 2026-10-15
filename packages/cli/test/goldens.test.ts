@@ -2,8 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { packRun, Store } from '@shadowlap/engine';
 import { parseTests } from '../src/checks.js';
 import { givenCommand } from '../src/commands/testing.js';
+import { importGolden } from '../src/golden-test.js';
 import { expandRecordings, goldenName, listGoldens, rawExpectFor, readPackHead, testsKeyFor } from '../src/goldens.js';
 
 /** Finding a project's goldens, and naming them the way the test history does. */
@@ -62,5 +64,20 @@ describe('goldens', () => {
   it('keeps the command as typed, without the global options before it', () => {
     expect(givenCommand(['node', 'shadowlap', '--db', 'x.db', '-v', 'test', 'goldens/*', '--update'], 'test')).toEqual(['shadowlap', 'test', 'goldens/*', '--update']);
     expect(givenCommand(['node', 'shadowlap', 'test', 'goldens/a'], 'test')).toEqual(['shadowlap', 'test', 'goldens/a']);
+  });
+});
+
+describe('importing a golden', () => {
+  it('replays the pack\'s own run, even when only one of its ancestors had to be imported', () => {
+    const source = Store.open(':memory:');
+    const parent = source.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/p' } });
+    const fork = source.createRun({ mode: 'replay', parentRunId: parent.runId, command: { argv: ['node', 'agent.mjs'], cwd: '/p' } });
+    packRun(source, fork.runId, join(project, 'elsewhere', 'lineage'), { lineage: true });
+    source.close();
+    const store = Store.open(':memory:');
+    expect(importGolden(store, join(project, 'elsewhere', 'lineage')).runId).toBe(fork.runId);
+    store.deleteRun(parent.runId);
+    expect(importGolden(store, join(project, 'elsewhere', 'lineage')).runId).toBe(fork.runId);
+    store.close();
   });
 });

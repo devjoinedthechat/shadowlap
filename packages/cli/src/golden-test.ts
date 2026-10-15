@@ -2,6 +2,7 @@ import { basename, resolve } from 'node:path';
 import { formatDivergence, hasRecordedCommand, unpackRun, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { readPackHead } from './goldens.js';
 import { type JunitCase } from './junit.js';
 import { placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { type PackResult } from './test-report.js';
@@ -120,12 +121,18 @@ export interface GoldenOutcome {
   seconds: number;
 }
 
-/** Imports a golden's pack into the store (once) and returns the recording it replays. */
+/**
+ * Imports a golden's pack into the store (once) and returns the recording it replays: the last run
+ * in its run.json, whether it was imported now or was already there. (With a store that persists,
+ * a pack's ancestors can be missing while the run itself is present.)
+ */
 export function importGolden(store: Store, dir: string): RunRecord {
   const { imported, skipped } = unpackRun(store, dir);
-  const parentId = imported[imported.length - 1] ?? skipped[skipped.length - 1];
-  if (!parentId) throw new Error('the pack contains no runs');
-  return store.getRun(parentId)!;
+  const head = readPackHead(dir);
+  const parentId = 'error' in head ? (imported.at(-1) ?? skipped.at(-1)) : head.runId;
+  const parent = parentId ? store.getRun(parentId) : null;
+  if (!parent) throw new Error('the pack contains no runs');
+  return parent;
 }
 
 export async function testGolden(dir: string, golden: string, spec: TestSpec | null, ctx: RecordingTestContext): Promise<GoldenOutcome> {
