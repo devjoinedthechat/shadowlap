@@ -267,6 +267,10 @@ export function junitCase(o: GoldenOutcome): JunitCase {
  * fix starts from one), the newest passing one when this session's replay of that golden failed (to
  * compare against), anything with labels, notes or runs made from it, and anything from a session
  * still running or that ended after this one started. Returns how many runs it deleted.
+ *
+ * Only the runs go. Blobs are shared by content, and another process may be recording into the same
+ * store right now, writing each blob a moment before the call that references it: collecting
+ * unreferenced blobs here could take those. What a live replay alone held waits for `shadowlap gc`.
  */
 export function pruneReplays(store: Store, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): number {
   const byGolden = new Map<string, RunRecord[]>();
@@ -283,7 +287,6 @@ export function pruneReplays(store: Store, session: { sessionId: string; started
     return ended.get(id)!;
   };
   let deleted = 0;
-  let live = false;
   for (const [golden, runs] of byGolden) {
     const now = tested.get(golden)!;
     const passing = runs.filter((r) => r.status === 'completed' && !r.meta?.checks?.some((c) => !c.ok) && (!r.divergence || now.fork));
@@ -291,13 +294,22 @@ export function pruneReplays(store: Store, session: { sessionId: string; started
       const at = endedAt(run.meta!.test!.session);
       if (at === null || at > session.startedAt) continue;
       if (run.meta?.labels?.length || run.meta?.notes?.length || store.childRuns(run.runId).length) continue;
-      // A replay that went live (a golden that may fork) has answers of its own to collect.
-      live ||= store.getCalls(run.runId).some((c) => c.origin === 'live');
       store.deleteRun(run.runId);
       deleted++;
     }
   }
-  // A clean offline replay's answers are the golden's own, so only a live one leaves blobs behind.
-  if (live) store.gcBlobs();
   return deleted;
+}
+
+/**
+ * `pruneReplays` for a test session, which it never fails: the store may be busy with another
+ * process, and the replays can wait for the next session. Returns why nothing was pruned, or null.
+ */
+export function pruneQuietly(store: Store, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): string | null {
+  try {
+    pruneReplays(store, session, tested);
+    return null;
+  } catch (err) {
+    return `older replays were not pruned this time: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }

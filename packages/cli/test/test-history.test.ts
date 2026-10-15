@@ -127,6 +127,25 @@ describe('shadowlap test history', () => {
     s.close();
   });
 
+  it('prunes the older replays of a golden that may fork, which went live, and still writes the reports', async () => {
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/reference-agent': { fork: true, expect: { tools: { send_email: 1 } } } } }));
+    // The prompt changed, so each replay forks at call 3 and runs live from there (the mock answers).
+    const env = { AGENT_SYSTEM_SUFFIX: 'Be brief.' };
+    const first = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT], env);
+    expect(first.code, first.out).toBe(0);
+    expect(first.out).toMatch(/✓ reference-agent: forked at call 3/);
+    const second = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT, '--json', 'report.json', '--junit', 'junit.xml'], env);
+    expect(second.code, second.out).toBe(0);
+    expect(second.out).not.toContain('not pruned');
+    const s = store();
+    const kept = s.allRuns().filter((r) => r.meta?.test?.golden === 'goldens/reference-agent');
+    expect(kept.map((r) => r.runId)).toEqual([/replaying run (\w{26})/.exec(second.out)![1]]);
+    expect(s.getCalls(kept[0]!.runId).some((c) => c.origin === 'live')).toBe(true);
+    s.close();
+    expect(JSON.parse(readFileSync(join(work, 'report.json'), 'utf8'))).toMatchObject({ passed: 1, failed: 0 });
+    expect(existsSync(join(work, 'junit.xml'))).toBe(true);
+  });
+
   it('keeps nothing with --db :memory:, and refuses a pattern that matches nothing', async () => {
     const r = await shadowlap(['--db', ':memory:', 'test', 'goldens/*', '--cwd', ROOT]);
     expect(r.code, r.out).toBe(0);

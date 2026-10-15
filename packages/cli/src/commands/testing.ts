@@ -8,7 +8,7 @@ import { BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
-import { formatChecks, junitCase, outputTail, packResult, pruneReplays, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { describeChange, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
@@ -227,14 +227,24 @@ export function register(program: Command): void {
           const divergence = outcome.result?.shown.ended.summary.divergence;
           if (!flags.update && outcome.kind === 'diverged' && !(divergence && volatileValues(divergence, outcome.normalizers).explainsAll)) updatable.push(packDir);
         }
-        pruneReplays(store, session, tested);
+        // Housekeeping never fails a session whose goldens all ran: the reports below still get written.
+        const unpruned = pruneQuietly(store, session, tested);
+        if (unpruned) process.stderr.write(p.yellow(`[shadowlap] ${unpruned}\n`));
       } finally {
         // Counted from the results recorded, so a session cut short by an error counts what ran.
         const passed = results.filter((r) => r.ok).length;
         const failed = results.length - passed;
-        store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests });
+        try {
+          store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests });
+        } catch (err) {
+          process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${(err as Error).message}\n`));
+        }
         recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}) } });
-        store.close();
+        try {
+          store.close();
+        } catch {
+          // every write above has either landed or been reported
+        }
       }
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
       const report = testReport(results, { id: session.sessionId, revision });
