@@ -123,7 +123,7 @@ function gitRoot(cwd: string): string {
  * Where `--goldens` puts recordings in the repository, for a commit to `--branch`: the folder, from
  * the one repair runs in, relative to the repository's root. A folder outside it can't be committed.
  */
-function goldensInRepo(root: string, cwd: string, goldens: string): string {
+export function goldensInRepo(root: string, cwd: string, goldens: string): string {
   // Compared as the system names both: git gives the root's long name on Windows, where the folder
   // repair runs in may have been reached by a short one (C:\Users\RUNNER~1).
   const rel = relative(physicalPath(root), physicalPath(resolve(cwd, goldens)));

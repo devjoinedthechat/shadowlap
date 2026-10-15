@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
@@ -17,6 +17,9 @@ import { physicalPath } from '../src/real-path.js';
  * replay after that is offline.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+
+/** Whether the temporary folder's volume ignores letter case, as macOS's and Windows' do by default. */
+const CASE_INSENSITIVE = tmpdir() !== tmpdir().toUpperCase() && existsSync(tmpdir().toUpperCase());
 
 const AGENT = `import { readFileSync } from 'node:fs';
 const system = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();
@@ -323,6 +326,15 @@ describe('a repository reached through a symbolic link', () => {
     } finally {
       rmSync(link, { force: true });
     }
+  });
+
+  // Where a volume ignores case, a folder given in another case is the same folder, and git names the
+  // repository in the case on disk. Where case matters (Linux), another case is another folder.
+  it.skipIf(!CASE_INSENSITIVE)('takes --cwd given in another letter case, where the volume ignores case', async () => {
+    const other = join(dirname(project), basename(project).toUpperCase());
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Mention the prompt']!, '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', other]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toContain(`first bad commit ${rev['Mark summaries as drafts']} · Mark summaries as drafts`);
   });
 
   it('refuses a revision that would reach git as an option', async () => {
