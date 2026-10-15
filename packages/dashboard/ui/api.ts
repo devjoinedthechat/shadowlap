@@ -1,9 +1,10 @@
 import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
+import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
+import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload, TestsView } from './types.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -32,6 +33,10 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // Tests: update goldens, find the commit, add a normalizer and re-run (and `tests` above runs them).
+  testUpdate: 'test-update',
+  bisect: 'bisect',
+  normalizeAndTest: 'normalize-and-test',
 } as const;
 
 export class ApiError extends Error {
@@ -105,7 +110,13 @@ export interface Client {
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
   changes(since: string | null): Promise<Changes | null>;
+  // ---- Tests
+  /** The goldens on disk and how each did (`/api/tests`). */
+  tests(): Promise<TestsView>;
+  /** Settings → CI's two panels for the options given; those left out take the server's defaults (`/api/ci/workflows`). */
+  ciWorkflows(options?: Partial<CiWorkflowOptions>): Promise<CiWorkflowsView>;
 }
+
 
 const etags = new Map<string, { etag: string; body: unknown }>();
 
@@ -225,6 +236,8 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    tests: () => request<TestsView>('tests'),
+    ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
   };
 }
 
@@ -268,5 +281,7 @@ export function createExportedClient(data: StaticPayload): Client {
     exportHtml: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
+    tests: () => get<TestsView>('tests'),
+    ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
   };
 }

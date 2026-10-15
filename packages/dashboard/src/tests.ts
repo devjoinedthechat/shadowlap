@@ -30,6 +30,8 @@ export interface TestsOptions {
   revisions?: number;
   /** The project's goldens folder, for names and commands (default `goldens`). */
   folder?: string;
+  /** The normalizers in the project's config now: a divergence whose rules are all there needs only a re-run. */
+  normalizers?: readonly Normalizer[];
 }
 
 export interface TestsSessionView {
@@ -153,6 +155,12 @@ export interface DivergenceView {
    * such value diverged.
    */
   normalizeAndTest: string[][] | null;
+  /**
+   * Every rule Add normalizer would add is in the config already (added since this replay, for this
+   * golden or another): what is left is to run it again, or to update it when the rules alone can't
+   * make it match.
+   */
+  rulesAdded: boolean;
   /** Find the commit: from the last revision where it passed to the one where it failed (null: HEAD). */
   bisect: BisectRange | null;
   /** What Find the commit found, once it has run since this failure. */
@@ -263,6 +271,11 @@ function storedVolatile(kept: NonNullable<NonNullable<NonNullable<TestResult['da
   return { values: kept.values.map((v) => ({ ...v, certain: v.certain ?? true })), explainsAll: kept.explainsAll, coversAll: kept.coversAll ?? kept.explainsAll };
 }
 
+/** Whether two normalizers are the same rule: the same fields, whatever their order. */
+function sameRule(a: Normalizer, b: Normalizer): boolean {
+  return a.kind === b.kind && a.name === b.name && a.path === b.path && a.pattern === b.pattern && a.replace === b.replace;
+}
+
 /** The first value a view shows, with the command that adds its normalizer. */
 function shownValue(values: VolatileValues): DivergenceView['volatile'] {
   const v = values.values[0];
@@ -310,7 +323,7 @@ export function resultLine(r: TestResult, checks: readonly string[]): string {
   if (data.updated) parts.push('updated');
   const n = data.checks?.length ?? 0;
   if (data.attempts) {
-    parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 2 ? 'both checks' : n ? plural(n, 'check') : ''}`.trim());
+    parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
   } else if (data.divergence) {
     parts.push(`forked at call ${data.divergence.callNo}`);
     if (n) parts.push(`${plural(n, 'check')} passed`);
@@ -460,6 +473,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         rerun: ['test', row.path],
         update: ['test', row.path, '--update'],
         normalizeAndTest: normalizeSteps(volatile, row.path),
+        rulesAdded: volatile.values.length > 0 && volatile.values.every((v) => (options.normalizers ?? []).some((n) => sameRule(n, v.normalizer))),
         bisect,
         found,
       });

@@ -289,3 +289,10 @@ export interface StaticPayload {
   redacted: boolean;
   responses: Record<string, unknown>;
 }
+
+// ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
+
+/** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
+export type { BisectRange, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestsSessionView, TestsVerdict, TestsView } from '../src/tests.js';
+/** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
+export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';

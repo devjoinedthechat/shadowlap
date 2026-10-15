@@ -1,3 +1,4 @@
+import type { Normalizer } from '@shadowlap/engine';
 import { ciWorkflows, fixPreview, gitFacts, parseCiOptions } from '../ci-workflows.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
@@ -37,7 +38,17 @@ export function testsBuild(job: TestsJob): JobBuildResult {
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
 
-  router.get('/tests', (r) => r.tagged(testsView(ctx.store, goldens(), { folder: FOLDER })));
+  router.get('/tests', (r) => {
+    // The rules in the config now: a divergence they already mask needs only a re-run. A config that
+    // can't be read leaves that out rather than the whole screen.
+    let normalizers: Normalizer[] = [];
+    try {
+      normalizers = ctx.config().normalize;
+    } catch {
+      // the screen still shows the goldens
+    }
+    r.tagged(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers }));
+  });
 
   router.get('/ci/workflows', (r) => {
     const options = parseCiOptions(r.query);

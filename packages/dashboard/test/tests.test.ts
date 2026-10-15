@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
-import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
+import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
  * The Tests screen's read model over a store with three sessions at three revisions: one golden that
@@ -139,6 +139,8 @@ describe('the Tests screen', () => {
     expect(limit!.history.map((h) => h.result)).toEqual([null, 'pass', 'fail']);
     expect(limit!.history[2]!.note).toBe('diverged at call 1 · $.metadata.user_id looks like a UUID');
     expect(over).toMatchObject({ modeLabel: 'fork ×5', modeHint: 'allowed to fork; passes on its checks, 5 of 5 attempts', checks: ['issue_refund called 0 times', 'escalate called 1 time'], last: { line: '5 of 5 attempts passed both checks' } });
+    const attempts = (n: number) => resultLine({ sessionId: 's', golden: 'g', at: T0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: { attempts: { total: 3, passed: 3, required: 3, runs: [] }, checks: Array.from({ length: n }, (_, i) => ({ ok: true, label: `check ${i}`, detail: null })) } }, []);
+    expect([attempts(0), attempts(1), attempts(3)]).toEqual(['3 of 3 attempts passed', '3 of 3 attempts passed the check', '3 of 3 attempts passed all 3 checks']);
     expect(over!.history[1]).toMatchObject({ result: 'fail', note: '4 of 5 attempts passed, 5 needed. Attempt 2: check failed: issue_refund called 0 times, but called 1 time', runId: null });
     store.close();
   });
@@ -158,6 +160,11 @@ describe('the Tests screen', () => {
     expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'], live: false });
     expect(d!.found).toBeNull();
     expect(view.failures).toEqual([]);
+    // Once the config has its rule (added for this golden or another), a re-run is what is left.
+    expect(d!.rulesAdded).toBe(false);
+    const rule = { replace: '<UUID>', pattern: 'uuid', path: '$.metadata.user_id', kind: 'api' as const };
+    expect(testsView(store, goldens, { normalizers: [rule] }).divergences[0]!.rulesAdded).toBe(true);
+    expect(testsView(store, goldens, { normalizers: [{ ...rule, replace: '<ID>' }] }).divergences[0]!.rulesAdded).toBe(false);
     // Once Find the commit has run, its answer shows above the buttons.
     recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', at: T0 + 60_000, data: { good: 'c91d0f4', bad: 'd2e8a1f', first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00' }, why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, upstreamRequests: 0 } });
     expect(testsView(store, goldens).divergences[0]!.found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', untested: [], replays: 4, tokens: 0, at: T0 + 60_000 });

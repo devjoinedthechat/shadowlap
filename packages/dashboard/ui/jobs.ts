@@ -94,6 +94,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   const code = job.code;
   if (code === null) return { text: 'stopped', tone: 'err' };
   const exit = `exit ${code}`;
+  // Find the commit: whether bisect named the first bad commit.
+  if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
+  if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
   if (code === 0) {
     if (/check(s)? passed/i.test(all)) return { text: `check passed · ${exit}`, tone: 'ok' };
     if (/Replay clean|Reproduced exactly/.test(all)) return { text: `reproduced · ${exit}`, tone: 'ok' };
