@@ -24,9 +24,11 @@ import type { CallRecord, Normalizer, RunRecord } from './types.js';
  *   attempts carry nothing but their exit status, so they pair the same way, by exit status, when
  *   both outcomes exist.
  *
- * Identical answers count once. Two answers only make a pair when they answer the same conversation:
- * attempts whose paths parted before their answers did (a live read that returned something else)
- * make none, and neither does an answer that also passed, from the same point, in another attempt.
+ * Identical answers count once, across every source: a verify that finds the two answers a blame
+ * already paired adds nothing, and the pair stays high. Two answers only make a pair when they
+ * answer the same conversation: attempts whose paths parted before their answers did (a live read
+ * that returned something else) make none, and neither does an answer that also passed, from the
+ * same point, in another attempt.
  */
 
 export type PairConfidence = 'high' | 'medium';
@@ -45,7 +47,7 @@ export interface PairAnswer {
 }
 
 export interface Pair {
-  /** Stable for the same two answers from the same source: `pr-` and 12 hex digits. */
+  /** Stable for the same two answers to the same conversation, whichever source made them: `pr-` and 12 hex digits. */
   id: string;
   confidence: PairConfidence;
   /** The source's key (see PairSource). */
@@ -245,7 +247,8 @@ function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate)
   const rk = answerKey(rejected.blocks);
   const ck = answerKey(chosen.blocks);
   return {
-    id: `pr-${sha256(`${source.key}|${prompt.key}|${rk}|${ck}`).slice(0, 12)}`,
+    // Without the source: the same two answers to the same conversation are one pair, however many found them.
+    id: `pr-${sha256(`${prompt.key}|${rk}|${ck}`).slice(0, 12)}`,
     confidence: source.confidence,
     source: source.key,
     sourceKind: source.kind,
@@ -309,18 +312,30 @@ function contrast(r: Reader, failing: RunRecord[], passing: RunRecord[], whatFai
   return { candidates: out, same, paths, ambiguous };
 }
 
-/** Adds candidates as pairs, counting identical ones once; returns how many were new. */
-function addPairs(r: Reader, pairs: Pair[], seen: Set<string>, source: PairSource, about: RunRecord, candidates: Candidate[]): number {
+/**
+ * Adds candidates as pairs, counting identical ones once across every source: the first source to
+ * find a pair keeps it (blame before verify before --repeat, so a pair blame proved stays high).
+ * Returns how many were new, and how many another source had already made.
+ */
+function addPairs(r: Reader, pairs: Pair[], seen: Map<string, PairSource>, source: PairSource, about: RunRecord, candidates: Candidate[]): { made: number; elsewhere: number } {
   let made = 0;
+  let elsewhere = 0;
   for (const c of candidates) {
     const pair = makePair(r, source, about, c);
-    if (!pair || seen.has(pair.id)) continue;
-    seen.add(pair.id);
+    if (!pair) continue;
+    const owner = seen.get(pair.id);
+    if (owner) {
+      if (owner !== source) elsewhere++;
+      continue;
+    }
+    seen.set(pair.id, source);
     pairs.push(pair);
     made++;
   }
-  return made;
+  return { made, elsewhere };
 }
+
+const already = (n: number) => `${n === 1 ? 'One pair was' : `${n} pairs were`} already made by another source, so ${n === 1 ? 'it counts' : 'they count'} once.`;
 
 /** The invocation a verify attempt belongs to: its group, without the run id verify appends per run. */
 function verifyInvocation(run: RunRecord): string {
@@ -339,7 +354,7 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
   const r = new Reader(store);
   const pairs: Pair[] = [];
   const sources: PairSource[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, PairSource>();
   const byStart = (a: RunRecord, b: RunRecord) => a.startedAt - b.startedAt || a.runId.localeCompare(b.runId);
 
   // ---- blame: high ----
@@ -384,11 +399,18 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
       }
       candidates.push({ rejected: { run, call: recorded, what: 'the recording' }, chosen: { run: a, call, what: 'blame attempt, passed' } });
     }
-    source.made = rejectedKey ? addPairs(r, pairs, seen, source, run, candidates) : 0;
+    if (!rejectedKey) {
+      source.why = `The recording's answer at #${k} has no text or tool call, so there is nothing to pair it with.`;
+      continue;
+    }
+    const added = addPairs(r, pairs, seen, source, run, candidates);
+    source.made = added.made;
     const differing = candidates.length;
     if (source.made) {
-      const dup = differing - source.made;
-      source.why = `Probe #${k} rescued the run: ${plural(differing, 'attempt')} passed after a different answer at #${k}.${dup ? ` ${dup === 1 ? 'One' : dup} answered like another, so ${dup === 1 ? 'it counts' : 'they count'} once.` : ''}${same ? ` ${plural(same, 'attempt')} that passed answered as the recording did.` : ''}`;
+      const dup = differing - source.made - added.elsewhere;
+      source.why = `Probe #${k} rescued the run: ${plural(differing, 'attempt')} passed after a different answer at #${k}.${dup ? ` ${dup === 1 ? 'One' : dup} answered like another, so ${dup === 1 ? 'it counts' : 'they count'} once.` : ''}${added.elsewhere ? ` ${already(added.elsewhere)}` : ''}${same ? ` ${plural(same, 'attempt')} that passed answered as the recording did.` : ''}`;
+    } else if (added.elsewhere) {
+      source.why = `Probe #${k} rescued the run, but another source had already made ${added.elsewhere === 1 ? 'the pair' : `all ${added.elsewhere} pairs`} its attempts make: identical answers count once.`;
     } else if (!passing.length) {
       source.why = `No attempt that passed at #${k} is in the store any more.`;
     } else if (parted === passing.length) {
@@ -417,6 +439,7 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
     let same = 0;
     let paths = 0;
     let ambiguous = 0;
+    let elsewhere = 0;
     for (const [runId, list] of byRun) {
       const failing = list.filter((a) => a.meta?.verify?.passed === false);
       const passing = list.filter((a) => a.meta?.verify?.passed === true);
@@ -430,10 +453,12 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
       const about = byId.get(runId) ?? store.getRun(runId);
       if (!about) continue;
       const before = pairs.length;
-      source.made += addPairs(r, pairs, seen, source, about, c.candidates);
+      const added = addPairs(r, pairs, seen, source, about, c.candidates);
+      source.made += added.made;
+      elsewhere += added.elsewhere;
       if (source.callNo === null && pairs.length > before) source.callNo = pairs[before]!.callNo;
     }
-    source.why = whyContrast(mixed, same, paths, ambiguous, source.made, 'No run both passed and failed: each passed every attempt or none.');
+    source.why = whyContrast(mixed, { same, paths, ambiguous, elsewhere }, source.made, 'No run both passed and failed: each passed every attempt or none.');
   }
 
   // ---- --repeat: medium, by exit status ----
@@ -460,9 +485,10 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
     const c = contrast(r, failing, passing, (a) => `attempt, ${a.status === 'failed' ? 'exited with an error' : 'failed'}`, () => 'attempt, exited 0');
     const about = byId.get(parentId) ?? store.getRun(parentId) ?? first;
     const before = pairs.length;
-    source.made = addPairs(r, pairs, seen, source, about, c.candidates);
+    const added = addPairs(r, pairs, seen, source, about, c.candidates);
+    source.made = added.made;
     if (pairs.length > before) source.callNo = pairs[before]!.callNo;
-    source.why = whyContrast([`${failing.length} of ${finished.length} attempts exited with an error`], c.same, c.paths, c.ambiguous, source.made, '');
+    source.why = whyContrast([`${failing.length} of ${finished.length} attempts exited with an error`], { same: c.same, paths: c.paths, ambiguous: c.ambiguous, elsewhere: added.elsewhere }, source.made, '');
   }
 
   const kindOrder: Record<PairSourceKind, number> = { blame: 0, verify: 1, repeat: 2 };
@@ -472,13 +498,14 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
   return { pairs, sources };
 }
 
-function whyContrast(mixed: string[], same: number, paths: number, ambiguous: number, made: number, none: string): string {
+function whyContrast(mixed: string[], n: { same: number; paths: number; ambiguous: number; elsewhere: number }, made: number, none: string): string {
   if (!mixed.length) return none;
   const lines = [`${mixed.join('; ')}.`.replace(/^./, (c) => c.toUpperCase())];
   if (made) lines.push(`Pairs come from the first model call where a failing and a passing attempt answered differently.`);
-  if (same) lines.push(`${same === 1 ? 'Once' : `${same} times`} a failing attempt answered every model call as a passing one did: its failure wasn't an answer.`);
-  if (paths) lines.push(`${paths === 1 ? 'Once' : `${paths} times`} the attempts saw different conversations before their answers differed, as when a live read returns something else.`);
-  if (ambiguous) lines.push(`${plural(ambiguous, 'answer')} left out: the same answer, from the same point, also passed (or failed) elsewhere.`);
+  if (n.same) lines.push(`${n.same === 1 ? 'Once' : `${n.same} times`} a failing attempt answered every model call as a passing one did: its failure wasn't an answer.`);
+  if (n.paths) lines.push(`${n.paths === 1 ? 'Once' : `${n.paths} times`} the attempts saw different conversations before their answers differed, as when a live read returns something else.`);
+  if (n.ambiguous) lines.push(`${plural(n.ambiguous, 'answer')} left out: the same answer, from the same point, also passed (or failed) elsewhere.`);
+  if (n.elsewhere) lines.push(already(n.elsewhere));
   return lines.join(' ');
 }
 

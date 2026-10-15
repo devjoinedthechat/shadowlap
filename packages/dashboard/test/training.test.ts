@@ -15,8 +15,10 @@ function store() {
   const lost = recordRun(s, LOST, { status: 'failed', meta: { labels: ['refund-bug'] } }).run;
   s.updateRunMeta(lost.runId, { blame: { at: 2, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
   for (const steps of [[LOOKUP, POLICY, ESCALATE, DONE], [LOOKUP, POLICY, ESCALATE_2, DONE]]) recordRun(s, steps, { parentRunId: lost.runId, meta: { probe: { of: lost.runId, callNo: 5, passed: true } } });
-  const target = recordRun(s, LOST, { status: 'failed' }).run;
-  const attempt = (steps: Step[], passed: boolean) => recordRun(s, steps, { parentRunId: target.runId, status: passed ? 'completed' : 'failed', codeVersion: 'c91d0f4', meta: { verify: { role: 'target', passed }, repeat: { group: `v1-${target.runId}`, attempt: 1, of: 2 } } });
+  // Another order, so verify's pair isn't one blame already made (identical answers count once).
+  const user = 'The customer asks for a refund on order A-1103.';
+  const target = recordRun(s, LOST, { status: 'failed', user }).run;
+  const attempt = (steps: Step[], passed: boolean) => recordRun(s, steps, { parentRunId: target.runId, status: passed ? 'completed' : 'failed', codeVersion: 'c91d0f4', user, meta: { verify: { role: 'target', passed }, repeat: { group: `v1-${target.runId}`, attempt: 1, of: 2 } } });
   attempt(LOST, false);
   attempt([LOOKUP, POLICY, ESCALATE, DONE], true);
   const rec = recordRun(s, [LOOKUP, POLICY, ESCALATE, DONE]).run;

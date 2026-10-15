@@ -114,6 +114,28 @@ describe('pairs from verify and --repeat', () => {
     store.close();
   });
 
+  it('counts a pair once when blame and verify both found it, and keeps it high', () => {
+    const store = Store.open(':memory:');
+    const { run, attempts } = blamed(store);
+    // Verifying a fix replays the blamed run: one attempt refunds as the recording did, one escalates as a probe did.
+    const attempt = (steps: Step[], passed: boolean, n: number) => recordRun(store, steps, { parentRunId: run.runId, status: passed ? 'completed' : 'failed', codeVersion: 'c91d0f4', meta: { verify: { role: 'target', passed }, repeat: { group: `v9-${run.runId}`, attempt: n, of: 3 } } }).run;
+    attempt(LOST, false, 1);
+    attempt(SAVED, true, 2);
+    const novel = attempt([LOOKUP, POLICY, { text: 'This needs a manager.', tools: [{ name: 'escalate', input: { reason: 'over the limit' } }] }, DONE], true, 3);
+
+    const { pairs, sources } = findPairs(store);
+    expect(pairs.map((p) => [p.confidence, p.chosen.runId])).toEqual([
+      ['high', attempts[0]!.runId],
+      ['high', attempts[3]!.runId],
+      ['medium', novel.runId],
+    ]);
+    expect(new Set(pairs.map((p) => p.id)).size).toBe(3);
+    const verify = sources.find((s) => s.kind === 'verify')!;
+    expect(verify.made).toBe(1);
+    expect(verify.why).toContain('One pair was already made by another source, so it counts once.');
+    store.close();
+  });
+
   it('never takes blame, verify, test or scoring attempts for --repeat ones', () => {
     const store = Store.open(':memory:');
     const rec = recordRun(store, SAVED).run;

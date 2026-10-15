@@ -108,8 +108,8 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
 
--- v4: training. Preference pairs are read from the attempts blame, verify and --repeat already left
--- here, so nothing is stored for them; what is stored is each time pairs left the machine (an
+-- Training (v4). Preference pairs are read from the attempts blame, verify and --repeat already
+-- left here, so nothing is stored for them; what is stored is each time pairs left the machine (an
 -- export: how many, the file, when), and each scored attempt of a model on a task. Scoring a model
 -- on a task again replaces its rows. No foreign key on run_id: a score outlives its attempt's run.
 CREATE TABLE IF NOT EXISTS pair_exports (
@@ -412,7 +412,7 @@ export class Store {
     }));
   }
 
-  // ---- training (v4): pairs exports and task scores ----
+  // ---- Training (v4): pairs exports and task scores ----
 
   /** Records one pairs export; returns it as stored. */
   addPairsExport(input: NewPairsExport): PairsExport {
