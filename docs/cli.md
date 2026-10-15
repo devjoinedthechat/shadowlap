@@ -46,20 +46,34 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--reads live\|replay` | What `read` tools do after divergence. Default `live` |
 | `--live-tool <name>` | Force this tool's first call live (repeatable); use after fixing a tool |
 | `--diverge-at <call>` | Force call *n* live |
-| `--fail-at <call>=<status>` | Answer model call *n* with an HTTP failure instead of the recording, so the agent's own error path runs: `--fail-at 12=429` (repeatable, [details](./interventions.md#inject-a-failure)) |
+| `--fail-at <call>=<failure>` | Fail call *n* instead of serving it, so the agent's own error path runs: a model call with an HTTP status (`--fail-at 12=429`, [details](./interventions.md#inject-a-failure)), a tool call with `timeout`, `error`, `error:<message>` or a status (`--fail-at 19=timeout`); the tool does not run ([details](./interventions.md#fail-a-tool)). Repeatable |
+| `--inject-result <call>=<text\|@file>` | Plant an instruction in what read tool call *n* returned, as an attacker would leave it; the rest of the result stays. Repeatable ([details](./interventions.md#plant-an-instruction-in-a-tool-result)) |
+| `--expect <json\|@file>` | Checks the replay (each attempt, with `--repeat`) must pass besides exiting 0, as for `blame`: `'{"tools":{"send_email":0}}'`. Default: the checks `shadowlap.config.json` gives the recording ([below](#checks-on-a-replay)) |
 | `--watch` | Replay again whenever a file in the project changes. Ctrl-C to stop |
 | `--summary-json <file>` | Also write the summary (with `--repeat`, every attempt and the report) as JSON to a file |
 | `--prompt-from <call>` | Apply your changed system prompt and tool definitions only from model call *n*: earlier model calls replay from the recording ([details](./interventions.md#apply-a-changed-prompt-from-a-later-call)) |
 | `--override <call>=<json\|@file>` | Substitute a recorded tool result; the run forks at the first model call that sees it |
-| `--inject <call>=<text>` | Append an instruction at model call *n* and keep it in place in every later request; `--inject-as system\|user` |
-| `--set <call>:<key>=<value>` | Set a top-level request field from model call *n* on (repeatable) |
+| `--inject <call>=<text>` | Add an instruction at model call *n* and keep it in place in every later request of the conversation ([details](./interventions.md#inject-an-instruction)) |
+| `--inject-as user\|system` | `user` (default): part of the user turn the model answers next, on every provider. `system`: a system message after the conversation; refused on Gemini and Bedrock Converse |
+| `--set <call>:<key>=<value>` | Set a request field from model call *n* on, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini, `inferenceConfig.temperature` on Bedrock Converse); a dotted key is a path (repeatable, [details](./interventions.md#patch-parameters)) |
 | `-y`, `--yes` | Run the recorded command of a run imported from a pack without asking (see below) |
 | `--repeat <n>` | Run the replay *n* times and report how the attempts differ after the fork (see below) |
 | `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
-| `--model <call>:<model>` | Switch the model from model call *n* on |
+| `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
 
-See [Interventions](./interventions.md) for what each one does to the conversation prefix.
+See [Interventions](./interventions.md) for what each one does to the conversation prefix, and what each provider takes. A change the recorded request can't take (a system message on Gemini, a field Converse has no place for, a write tool to plant in) is refused before anything runs, with the reason; an intervention the replay never reached is named in its summary.
+
+### Checks on a replay
+
+A replay is judged by checks when it has them: `--expect`, or, without it, the `tests` entry of `shadowlap.config.json` for the recording the run came from (the pack it was unpacked from, or the golden `shadowlap test` replayed). The checks are those of an [outcome check](./ci.md#outcome-checks); the replay exits 1 when one fails, and they are kept on the run. With `--repeat`, every attempt is judged, and the report says in how many attempts each check failed:
+
+```
+  Checks (--expect)
+    ✗ send_email called 0 times: failed in 2 of 3 attempts (#1, #3)
+```
+
+The agent's output is captured, while still shown, only when a check reads it (`output`).
 
 ### Repeating a fork
 
@@ -82,7 +96,7 @@ Everything after a fork is live, so a model may do something different each time
 
 A path is the sequence of tool calls after the fork and what happened to each: blocked, stubbed, overridden or an error. Tools called between the same two model calls match in any order, since agents often run them at once. Attempts with the same path are grouped, most common first. Arguments aren't part of a path; `shadowlap diff` compares two attempts in full, and the report names the pair to start with. The prefix before the fork is served from the recording, so it costs nothing however many attempts there are. If attempts fork at different calls, the report says the prefix isn't deterministic.
 
-With `--concurrency`, attempts run at the same time through one sidecar; each attempt's output is printed whole when it finishes. `--strict` exits 1 if any attempt diverged; otherwise the exit code is 0 only when every attempt exited 0.
+With `--concurrency`, attempts run at the same time through one sidecar; each attempt's output is printed whole when it finishes. `--strict` exits 1 if any attempt diverged; otherwise the exit code is 0 only when every attempt exited 0 and passed its [checks](#checks-on-a-replay).
 
 ## blame
 
@@ -443,13 +457,20 @@ Messages are the conversation exactly as the model saw it, in a provider-neutral
 ```sh
 shadowlap export har <run>                 # HAR to stdout
 shadowlap export har <run> traffic.har
+shadowlap export har <run> --no-redact     # skip the config's redaction rules
 ```
 
 A run's model API calls as a HAR, for any tool that reads one, and the reverse of
 [`import`](#import): exporting a run and importing it again produces the same
 fingerprints. Tool, clock and randomness calls are left out, because a HAR describes HTTP. Azure,
 Vertex and Bedrock hosts depend on the account, so a representative host for the provider stands in.
-Credentials are never written, and redaction is already applied to what was stored.
+Credentials are never written.
+
+A HAR carries full requests and responses, so the redaction rules in `shadowlap.config.json` apply,
+as they do to `pack` and `export html`: every rule to the request bodies (rules with a path
+included), and the rules without a path to the URL, the headers and the responses, streamed or not.
+The rules are named in the log (`_shadowlap.redactions`). `--no-redact` skips them; the command says
+when there are none to apply.
 
 ## export otel
 

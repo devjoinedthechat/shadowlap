@@ -40,7 +40,7 @@ It found the call by forking the run, not by reading it: every call before a pro
 
 ## The rescue
 
-By default a probe asks the model the same question again, with the request exactly as recorded, and relies on sampling to produce a different answer. At temperature 0 a model answers the same way every time, so add `--set temperature=1` to let a probe sample.
+By default a probe asks the model the same question again, with the request exactly as recorded, and relies on sampling to produce a different answer. At temperature 0 a model answers the same way every time, so add `--set temperature=1` to let a probe sample. The setting goes where the provider keeps it (Gemini's `generationConfig`, Bedrock Converse's `inferenceConfig`), so this works on every provider; see [patching parameters](./interventions.md#patch-parameters).
 
 `--model` rescues with another model instead, from the probed call on:
 
@@ -50,7 +50,7 @@ shadowlap blame <run> --expect @checks.json --model claude-opus-5-5
 
 When no probe rescues the run, even from the first model call, the report says **Not rescued from any model call**. That is a finding, not an error: the failure is not one unlucky answer. It comes from the prompt, the tools, the harness, or a task the model cannot do. Blame with a stronger model tells the last two apart. If `--model` finds a call and resampling did not, the model's capability is the problem; if neither finds one, look at the code and the tools.
 
-`--set key=value` changes any other top-level request field from the probed call on, like `--set` on [`replay`](./interventions.md#patch-parameters).
+`--set key=value` changes any other request field from the probed call on, like `--set` on [`replay`](./interventions.md#patch-parameters), where the provider keeps it.
 
 ## Blaming one part of the agent
 

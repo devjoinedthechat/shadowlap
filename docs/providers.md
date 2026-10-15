@@ -68,6 +68,18 @@ Token usage is extracted from responses for the "tokens not re-spent" number:
 
 The model comes from the request body or, for Vertex AI, Bedrock and Azure deployments, from the path. Prices look through Bedrock's region prefixes and version suffixes (`us.anthropic.claude-sonnet-4-5-20250929-v1:0`) and Vertex's `@date` form, so those calls are priced like the models they name.
 
+## Interventions
+
+[Interventions](./interventions.md) change a model request in the provider's own shape, so `--inject`, `--set` and `--model` work on every provider here, and so does blame's resampling:
+
+- **Anthropic, and Claude on Vertex AI and Bedrock InvokeModel** (the Messages API): an instruction is a text block on the last user message, or with `--inject-as system` a system message after the conversation; fields are top-level; the model is the body's `model` on Anthropic and the path on Vertex and Bedrock.
+- **OpenAI, Azure OpenAI and OpenAI-compatible servers** (Chat Completions): an instruction joins the closing user message (a string stays a string), or follows tool output as a user message of its own; fields are top-level; the model is the body's `model`, or Azure's deployment in the path.
+- **The Responses API**: the same, in `input`; `max_tokens` becomes `max_output_tokens`. A request that continues with `previous_response_id` sends only new turns, and the provider keeps the instruction.
+- **Gemini, on the Gemini API and Vertex AI**: an instruction is a text part on the user turn; sampling settings go in `generationConfig`; the model is in the path. A system message mid-conversation is refused: Gemini takes system instructions only in `systemInstruction`.
+- **Bedrock Converse**: an instruction is a text block on the user turn; sampling settings go in `inferenceConfig`, and `top_k` in `additionalModelRequestFields`; the model is in the path. A system message mid-conversation is refused: Converse takes system prompts only in `system`.
+
+Bedrock requests are signed for their exact path and body, so a changed one is signed again with the credentials the agent signed with, when Shadowlap can read them: the environment, or the shared credentials and config files. Credentials an SSO session or an assumed role keeps inside the client can't sign it; the call is then answered with that reason instead of being sent. Export them for the replay with `aws configure export-credentials --format env`.
+
 ## Status
 
 Anthropic, OpenAI and Gemini are exercised end to end by their official SDKs in the test suite against scripted fakes of the wire format: `@anthropic-ai/sdk` (streaming, tool use, retries, error responses), `openai` (streaming Chat Completions with tool calls) and `@google/genai` (streaming `generateContent` with function calls).
@@ -78,4 +90,4 @@ None of the fakes is the real service; if a real API behaves differently, please
 
 ## Adding a provider
 
-A provider is one object in `packages/sidecar/src/providers.ts`: `id`, `hosts`, `upstream`, `env(baseUrl)`, `fingerprintHeaders`, `credentialHeaders`, an optional `retryCountHeader`, `isRetryableStatus`, `extractUsage`, `extractStopReason` and `extractModel`. If adding one needs a change in the engine beyond reading its wire format, the abstraction is wrong; open an issue.
+A provider is one object in `packages/sidecar/src/providers.ts`: `id`, `hosts`, `upstream`, `env(baseUrl)`, `fingerprintHeaders`, `credentialHeaders`, an optional `retryCountHeader`, `isRetryableStatus`, `extractUsage`, `extractStopReason` and `extractModel`. A new wire format also needs its request shape in `packages/engine/src/interventions.ts` (where its turns, sampling settings and model live), or interventions refuse its requests as not a conversation. If adding one needs a change in the engine beyond reading its wire format, the abstraction is wrong; open an issue.
