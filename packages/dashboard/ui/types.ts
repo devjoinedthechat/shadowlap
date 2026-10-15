@@ -184,7 +184,7 @@ export interface PromptChoice {
  * `group: null` is an action with a place of its own (Replay, Pack, a normalizer); `choices` are
  * answers a prompt offers as a list (any other answer is accepted too).
  */
-export type ActionItem = Omit<ServerAction, 'prompt'> & {
+export type ActionItem = Omit<ServerAction, 'prompt' | 'flag' | 'group' | 'hint'> & {
   prompt: { label: string; placeholder?: string; initial?: string; choices?: readonly PromptChoice[] } | null;
   flag?: string;
   group?: 'call' | 'run' | null;
