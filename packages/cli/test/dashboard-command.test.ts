@@ -9,9 +9,11 @@ import { Store } from '@shadowlap/engine';
 /**
  * `shadowlap dashboard` as a person starts it: a job started from the browser runs this CLI, which
  * reports the run it made over the events pipe; `--read-only` refuses it; stopping the dashboard,
- * however it is stopped, stops its jobs and the agents they started.
+ * however it is stopped, stops its jobs and the agents they started, and so does stopping the
+ * terminal UI that opened one.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+const EMBEDDED = fileURLToPath(new URL('./embedded-dashboard.mjs', import.meta.url));
 
 let cwd: string;
 let env: NodeJS.ProcessEnv;
@@ -209,5 +211,45 @@ describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', ()
     expect(await gone(agent), 'the agent was killed with the dashboard').toBe(true);
     agents.delete(agent);
     expect(statusOf(runId), 'the replay it left recording was marked as interrupted').toBe('crashed');
+  });
+
+  /** The dashboard `shadowlap ui` opens, started the way the terminal UI starts it (embedded-dashboard.mjs). */
+  function embedded(): Promise<Started> {
+    const child = spawn(process.execPath, [EMBEDDED, CLI, join(cwd, '.shadowlap', 'shadowlap.db')], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    return new Promise((resolve, reject) => {
+      let text = '';
+      const timer = setTimeout(() => reject(new Error(`no address printed: ${text}`)), 20_000);
+      child.stderr!.on('data', (c: Buffer) => (text += c.toString()));
+      child.stdout!.on('data', (c: Buffer) => {
+        text += c.toString();
+        const m = /^(\{.*\})$/m.exec(text);
+        if (!m) return;
+        clearTimeout(timer);
+        const { url, token } = JSON.parse(m[1]!) as { url: string; token: string };
+        resolve({ child, url, token, banner: text });
+      });
+    });
+  }
+
+  it('the terminal UI\'s dashboard kills its jobs and their agents when the terminal closes, then ends as the hangup would have', async () => {
+    const d = await embedded();
+    const { agent, runId } = await replaying(d);
+    const exited = new Promise<NodeJS.Signals | null>((r) => d.child.once('exit', (_code, signal) => r(signal)));
+    d.child.kill('SIGHUP');
+    expect(await exited).toBe('SIGHUP');
+    expect(await gone(agent), 'the agent did not outlive the terminal').toBe(true);
+    agents.delete(agent);
+    expect(statusOf(runId), 'the replay it left recording was marked as interrupted').toBe('crashed');
+  });
+
+  it('the terminal UI\'s dashboard stops its jobs on a kill, giving them the time to end their runs', async () => {
+    const d = await embedded();
+    const { agent, runId } = await replaying(d);
+    const exited = new Promise<NodeJS.Signals | null>((r) => d.child.once('exit', (_code, signal) => r(signal)));
+    d.child.kill('SIGTERM');
+    expect(await exited).toBe('SIGTERM');
+    expect(await gone(agent), 'the agent was stopped with it').toBe(true);
+    agents.delete(agent);
+    expect(statusOf(runId), 'the replay ended as interrupted').toBe('crashed');
   });
 });

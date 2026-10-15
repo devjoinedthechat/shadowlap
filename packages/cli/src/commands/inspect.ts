@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
+import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
@@ -55,16 +56,15 @@ export function register(program: Command): void {
       }
       // Jobs lead process groups of their own, so neither Ctrl-C nor a closing terminal reaches them:
       // stopping the dashboard stops them, with their agents, and waits. Stopping it again kills them.
-      const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+      let release: () => void = () => undefined;
       await new Promise<void>((done) => {
-        const first = () => {
-          for (const s of signals) process.off(s, first);
-          done();
-        };
-        for (const s of signals) process.on(s, first);
+        release = onStopSignals(
+          () => done(),
+          () => void dash.close({ now: true }),
+        );
       });
-      for (const s of signals) process.on(s, () => void dash.close({ now: true }));
       await dash.close();
+      release();
       store.close();
     });
 
@@ -87,21 +87,22 @@ export function register(program: Command): void {
       const cwd = process.cwd();
       const uiConfig = loadConfig(cwd);
       // `o` starts the dashboard in this process on first use, over the same store, and reuses it after.
-      let dashboard: Promise<import('@shadowlap/dashboard').Dashboard> | undefined;
-      const openDashboard = async (id: string, callNo?: number) => {
-        const { cliSpawner, startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
+      // Its jobs lead process groups of their own: from then on a closed terminal or a kill stops them
+      // too, before this process ends.
+      const dashboard = embeddedDashboard(async () => {
+        const { cliSpawner, startDashboard } = await import('@shadowlap/dashboard');
         // The dashboard's jobs get the events pipe; the terminal UI reads its actions' output as it always did.
-        dashboard ??= startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) }).catch((err: unknown) => {
-          dashboard = undefined;
-          throw err;
-        });
-        const url = (await dashboard).runUrl(id, callNo);
+        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) });
+      });
+      const openDashboard = async (id: string, callNo?: number) => {
+        const { openInBrowser } = await import('@shadowlap/dashboard');
+        const url = (await dashboard.open()).runUrl(id, callNo);
         return { url, opened: !process.env.CI && (await openInBrowser(url)) };
       };
       try {
         await launchTui(store, { spawnCli, openDashboard, ...(runId ? { runId } : {}), ...(flags.call !== undefined ? { callNo: flags.call } : {}), ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
       } finally {
-        if (dashboard) await dashboard.then((d) => d.close()).catch(() => undefined);
+        await dashboard.close();
         store.close();
       }
     });
