@@ -6,6 +6,7 @@ import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, tildePa
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
+import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref } from '../ui/route.js';
 import { compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
@@ -452,5 +453,80 @@ describe('strip origins of failed and fenced calls', () => {
     expect(cells.find((c) => c.mark === 'fork')).toMatchObject({ target: 2001 });
     expect(cells.find((c) => c.selected)).toMatchObject({ target: 4321 });
     expect(cells.filter((c) => c.origin === 'fail')).toHaveLength(1);
+  });
+});
+
+describe('a run’s calls in the views', () => {
+  const call = (callNo: number, kind: string, extra: Partial<CallLike> = {}): CallLike => ({
+    callNo,
+    kind,
+    name: kind === 'api' ? 'POST /v1/messages' : 'lookup_order',
+    origin: 'live',
+    effect: kind === 'tool' ? 'read' : null,
+    outcome: 'ok',
+    status: kind === 'api' ? 200 : null,
+    latencyMs: 100,
+    model: kind === 'api' ? 'sonnet-5' : null,
+    stopReason: kind === 'api' ? 'tool_use' : null,
+    usage: kind === 'api' ? { input: 200, output: 80, cacheRead: 2400, cacheWrite: 400 } : null,
+    detail: kind === 'tool' ? '{"order_id":"A-1042"}' : '',
+    attempts: 0,
+    replayedFrom: null,
+    error: null,
+    startedAt: 1000 + callNo * 100,
+    endedAt: 1000 + callNo * 100 + 90,
+    ttftMs: null,
+    scope: null,
+    ...extra,
+  });
+
+  it('counts a blamed call among the model calls of its scope', () => {
+    const calls = [call(1, 'api', { scope: 'customer' }), call(2, 'api', { scope: 'agent' }), call(3, 'tool', { scope: 'agent' }), call(4, 'api', { scope: 'agent' }), call(5, 'api', { scope: 'agent/policy-checker' })];
+    expect(modelCallOf(calls, 4, 'agent')).toEqual({ k: 2, m: 3 });
+    expect(modelCallOf(calls, 4, null)).toEqual({ k: 3, m: 4 });
+    expect(modelCallOf(calls, 3, 'agent')).toBeNull();
+  });
+
+  it('groups tool calls under the model call that asked for them, within a scope when there are scopes', () => {
+    const calls = [call(1, 'api', { scope: 'agent' }), call(2, 'api', { scope: 'customer' }), call(3, 'tool', { scope: 'agent' }), call(4, 'clock'), call(5, 'tool', { scope: 'customer' })];
+    expect(turnsOf(calls, true).map((t) => [t.model.callNo, t.tools.map((c) => c.callNo)])).toEqual([
+      [1, [3]],
+      [2, [5]],
+    ]);
+    expect(turnsOf(calls, false).map((t) => [t.model.callNo, t.tools.map((c) => c.callNo)])).toEqual([
+      [1, []],
+      [2, [3, 5]],
+    ]);
+  });
+
+  it('places calls on one clock and finds the ones that ran at once, under a long call too', () => {
+    const calls = [call(1, 'api', { startedAt: 1000, endedAt: 3000 }), call(2, 'tool', { startedAt: 1100, endedAt: 1200 }), call(3, 'tool', { startedAt: 1500, endedAt: 1600 }), call(4, 'api', { startedAt: 3100, endedAt: 3500, ttftMs: 40 })];
+    const t = timelineOf(calls);
+    expect(t.end).toBe(2500);
+    expect(t.rows.map((r) => [r.call.callNo, r.start, r.end, r.firstToken])).toEqual([
+      [1, 0, 2000, null],
+      [2, 100, 200, null],
+      [3, 500, 600, null],
+      [4, 2100, 2500, 40],
+    ]);
+    expect(t.parallel).toEqual([
+      [1, 2],
+      [1, 3],
+    ]);
+    expect(ticksFor(2500).map((x) => x.label)).toEqual(['0s', '0.5s', '1s', '1.5s', '2s', '2.5s']);
+  });
+
+  it('says what a call did on its line, and a replayed call’s time as recorded', () => {
+    expect(callDetail(call(1, 'api'))).toEqual({ text: 'sonnet-5 · tool_use', err: false });
+    expect(callDetail(call(1, 'api', { outcome: 'error', status: 529, attempts: 2 }))).toEqual({ text: 'HTTP 529 · 3 attempts', err: true });
+    expect(resultLine(call(3, 'tool', { origin: 'blocked', outcome: 'error' }))).toEqual({ text: 'blocked', err: true });
+    expect(resultLine(call(3, 'tool', { origin: 'stubbed', resultShort: '{"sent":true}' }))).toEqual({ text: 'stubbed {"sent":true}', err: false });
+    expect(resultLine(call(3, 'tool', { outcome: 'error', error: 'TimeoutError: 30 s' }))).toEqual({ text: 'TimeoutError: 30 s', err: true });
+    expect(resultLine(call(1, 'api'))).toBeNull();
+    const parent = indexCalls([{ callNo: 3, origin: 'live', latencyMs: 410 }]);
+    expect(timeOf(call(3, 'tool', { origin: 'replayed', latencyMs: 1, replayedFrom: 3 }), [parent], false)).toEqual({ text: '410 ms', was: true });
+    expect(timeOf(call(3, 'tool', { origin: 'replayed', latencyMs: 1 }), [], false)).toEqual({ text: '—', was: true });
+    expect(timeOf(call(5, 'api', { latencyMs: null, outcome: null }), [], true)).toEqual({ text: '…', was: false });
+    expect(tokensText(call(1, 'api'))).toBe('3.0k → 80');
   });
 });

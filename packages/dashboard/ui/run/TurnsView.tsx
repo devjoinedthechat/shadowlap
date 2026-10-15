@@ -11,7 +11,7 @@ import { originOf, tokensText, turnsOf, type Turn } from './model.js';
 export function TurnsView({ calls, selected, scoped, onSelect }: { calls: CallRow[]; selected: number | null; scoped: boolean; onSelect: (n: number) => void }) {
   const turns = turnsOf(calls, scoped);
   if (!turns.length) return <div className="empty">No model calls yet.</div>;
-  const turn = (t: Turn) => {
+  const turn = (t: Turn<CallRow>) => {
     const m = t.model;
     const sel = m.callNo === selected || t.tools.some((c) => c.callNo === selected);
     const ts = m.outcome === 'error' ? `HTTP ${m.status ?? 'error'}${m.attempts ? ` · ${m.attempts + 1} attempts` : ''}` : [tokensText(m), m.stopReason].filter(Boolean).join(' · ');

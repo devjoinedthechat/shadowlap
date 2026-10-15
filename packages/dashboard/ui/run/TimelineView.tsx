@@ -14,7 +14,7 @@ export function TimelineView({ calls, selected, scoped, onSelect }: { calls: Cal
   const { rows, end, parallel } = timelineOf(calls);
   if (!rows.length) return <div className="empty">{calls.length ? 'These calls carry no timing, so they have no place on a clock.' : 'No calls yet.'}</div>;
   const pct = (ms: number) => `${(ms / end) * 100}%`;
-  const row = (r: TimelineRow) => {
+  const row = (r: TimelineRow<CallRow>) => {
     const c = r.call;
     const o = originOf(c);
     const ms = r.end - r.start;
@@ -44,11 +44,11 @@ export function TimelineView({ calls, selected, scoped, onSelect }: { calls: Cal
   const longest = rows.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   const groups = scoped
     ? scopesOf(calls).map((sc) => {
-        const rs = calls.filter((c) => c.scope === sc).map((c) => byNo.get(c.callNo)).filter((r): r is TimelineRow => !!r);
+        const rs = calls.filter((c) => c.scope === sc).map((c) => byNo.get(c.callNo)).filter((r): r is TimelineRow<CallRow> => !!r);
         return { sc, rs };
       })
     : [];
-  const unscoped = scoped ? calls.filter((c) => !c.scope).map((c) => byNo.get(c.callNo)).filter((r): r is TimelineRow => !!r) : rows;
+  const unscoped = scoped ? calls.filter((c) => !c.scope).map((c) => byNo.get(c.callNo)).filter((r): r is TimelineRow<CallRow> => !!r) : rows;
   return (
     <>
       <div className="tl">
