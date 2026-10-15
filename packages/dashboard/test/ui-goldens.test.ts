@@ -105,6 +105,8 @@ describe('the goldens table', () => {
     expect(historyTip({ revision: 'b7e40c2', result: 'fail', note: 'input tokens 71,940, over the 60,000 budget', updated: false, runId: null, at: T }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', label: 'failed', value: 'input tokens 71,940, over the 60,000 budget', color: 'var(--err)' });
     expect(historyTip({ revision: 'd2e8a1f', result: 'pass', note: null, updated: true, runId: null, at: T }, 'x')).toMatchObject({ label: 'passed', value: 'updated here: re-recorded, its checks passed', color: 'var(--o-rep)' });
     expect(historyTip({ revision: null, result: null, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
+    // Updated, and its new recording failed the replay after it: both are said.
+    expect(historyTip({ revision: 'd2e8a1f', result: 'fail', note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {

@@ -52,7 +52,7 @@ export function revLabel(rev: string | null): string {
 export function historyTip(cell: HistoryCell, name: string): { title: string; label: string; value: string; color: string } {
   const title = `${cell.revision ?? 'no revision'} · ${name}`;
   if (cell.result === 'pass') return { title, label: 'passed', value: cell.updated ? 'updated here: re-recorded, its checks passed' : '', color: 'var(--o-rep)' };
-  if (cell.result === 'fail') return { title, label: 'failed', value: cell.note ?? '', color: 'var(--err)' };
+  if (cell.result === 'fail') return { title, label: 'failed', value: cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : (cell.note ?? ''), color: 'var(--err)' };
   return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
 }
 

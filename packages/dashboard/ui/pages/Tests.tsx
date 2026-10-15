@@ -350,7 +350,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         ) : (
           <span className="st n">not run yet</span>
         )}
-        <span className="rsub">{last.line}</span>
+        {last.result !== null || row.error ? <span className="rsub">{last.line}</span> : null}
       </td>
     </tr>
   );

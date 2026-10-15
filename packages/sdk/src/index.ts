@@ -192,8 +192,10 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
       case 'blocked':
         throw new ShadowlapWriteBlocked(name, args, r.error.message);
       case 'stubbed': {
-        const stub = options.onFork ? await options.onFork(args) : (undefined as R);
-        await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: stub ?? null, latencyMs: 0 });
+        // What is recorded is what the agent gets: null without a stub, as a replay of this call
+        // returns it (JSON has no undefined), so a run with stubbed writes replays as it went.
+        const stub = ((options.onFork ? await options.onFork(args) : null) ?? null) as R;
+        await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: stub, latencyMs: 0 });
         return stub;
       }
       case 'live': {
