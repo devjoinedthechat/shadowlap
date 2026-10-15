@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunRecord, type RunStatus, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, type CallRecord, type RunRecord, type RunStatus, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
@@ -173,24 +173,40 @@ export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<
 }
 
 /**
- * `--fail-at 12=429`: model calls to answer with an HTTP failure instead of the recording.
+ * `--fail-at 12=429`: a model call answered with an HTTP failure instead of the recording.
+ * `--fail-at 19=timeout`, `19=error:connection reset`, `19=503`: a tool call that fails without
+ * running, so the agent's handling of a failing tool runs.
  *
- * Only statuses a provider could actually return are accepted, because the point is to exercise the
- * agent's own error path — the SDK's retry policy, the harness's handling of a give-up — and a made
- * up status would exercise neither.
+ * Only failures a provider or a tool could really produce are accepted, because the point is to
+ * exercise the agent's own error path — the SDK's retry policy, the harness's handling of a give-up
+ * — and a made-up status would exercise neither.
  */
-export function parseFailures(specs: string[], parentCalls: CallRecord[]): Map<number, number> {
-  const out = new Map<number, number>();
+export function parseFailures(specs: string[], parentCalls: CallRecord[]): { models: Map<number, number>; tools: Map<number, ToolFailure> } {
+  const models = new Map<number, number>();
+  const tools = new Map<number, ToolFailure>();
   for (const spec of specs) {
-    const m = /^(\d+)=(\d{3})$/.exec(spec.trim());
-    if (!m) throw new Error(`--fail-at expects <call>=<status>, such as 12=429, got "${spec}"`);
+    const m = /^(\d+)=([\s\S]+)$/.exec(spec.trim());
+    if (!m) throw new Error(`--fail-at expects <call>=<status>, such as 12=429, or on a tool call <call>=timeout|error[:message]|<status>, got "${spec}"`);
     const callNo = Number(m[1]);
-    const status = Number(m[2]);
+    const value = m[2]!.trim();
+    const call = parentCalls.find((c) => c.callNo === callNo);
+    if (!call) throw new Error(`--fail-at: the recording has no call #${callNo}`);
+    if (call.kind === 'tool') {
+      const failure = parseToolFailure(value);
+      if ('error' in failure) throw new Error(`--fail-at ${callNo}=${value}: ${failure.error}`);
+      tools.set(callNo, failure);
+      continue;
+    }
+    if (call.kind !== 'api') throw new Error(`--fail-at: call #${callNo} is a ${call.kind} read; give the number of a model or tool call (see shadowlap show)`);
+    if (value === 'timeout' || value === 'error' || value.startsWith('error:')) {
+      throw new Error(`--fail-at ${callNo}=${value}: #${callNo} is a model call, which fails with an HTTP status (429 rate limited, 500 or 529 overloaded, 400 bad request); timeout and error are for tool calls`);
+    }
+    if (!/^\d{3}$/.test(value)) throw new Error(`--fail-at expects <call>=<status>, such as 12=429, got "${spec}"`);
+    const status = Number(value);
     if (status < 400 || status > 599) throw new Error(`--fail-at: ${status} is not a failure status; use 4xx or 5xx (429 rate limit, 500 or 529 overloaded, 400 bad request)`);
-    requireModelCall(callNo, parentCalls, '--fail-at');
-    out.set(callNo, status);
+    models.set(callNo, status);
   }
-  return out;
+  return { models, tools };
 }
 
 export function requireModelCall(callNo: number, parentCalls: CallRecord[], flag: string): void {
@@ -239,7 +255,24 @@ export function parseInterventions(flags: { inject?: string; injectAs: 'system' 
   return out.inject || out.set ? out : undefined;
 }
 
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn'): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary'] }> {
+/**
+ * The agent's output, for checks on what it printed, still shown as it comes. Only stdout and stderr
+ * are piped, and only when a check needs them: stdin stays the terminal's.
+ */
+function teeOutput(child: ReturnType<typeof spawn>): () => string {
+  let output = '';
+  child.stdout?.on('data', (d: Buffer) => {
+    output += d.toString();
+    process.stdout.write(d);
+  });
+  child.stderr?.on('data', (d: Buffer) => {
+    output += d.toString();
+    process.stderr.write(d);
+  });
+  return () => output;
+}
+
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -264,7 +297,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     // read-only working directory: the environment still carries SHADOWLAP_URL
   }
 
-  const child = spawn(argv[0]!, argv.slice(1), { stdio: 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+  const child = spawn(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+  const output = extra.capture ? teeOutput(child) : () => '';
   let interrupted = false;
   const onSignal = (sig: NodeJS.Signals) => {
     interrupted = true;
@@ -289,13 +323,15 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   store.close();
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
-  return { code, run, summary: result.summary };
+  return { code, run, summary: result.summary, output: output() };
 }
 
 export interface AttemptResult {
   run: RunRecord;
   code: number;
   summary: ReturnType<Sidecar['endRun']>['summary'];
+  /** What the agent printed, when it was captured for a check on it. */
+  output: string;
 }
 
 /**
@@ -303,7 +339,7 @@ export interface AttemptResult {
  * concurrency of 1 the agent's output streams as usual under a header per attempt; with more, each
  * attempt's output is collected and printed whole when it finishes, so attempts never interleave.
  */
-export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode): Promise<AttemptResult[]> {
+export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { capture?: boolean } = {}): Promise<AttemptResult[]> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -334,11 +370,15 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);
-      const child = spawn(argv[0]!, argv.slice(1), { stdio: streaming ? 'inherit' : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
+      const tee = streaming && extra.capture;
+      const child = spawn(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) });
       running.add(child);
       let output = '';
-      child.stdout?.on('data', (d: Buffer) => (output += d.toString()));
-      child.stderr?.on('data', (d: Buffer) => (output += d.toString()));
+      const shown = tee ? teeOutput(child) : null;
+      if (!tee) {
+        child.stdout?.on('data', (d: Buffer) => (output += d.toString()));
+        child.stderr?.on('data', (d: Buffer) => (output += d.toString()));
+      }
       const code = await new Promise<number>((resolveCode) => {
         child.on('error', (err) => {
           output += `failed to start ${argv[0]}: ${err.message}\n`;
@@ -347,9 +387,10 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         child.on('exit', (c, signal) => resolveCode(c ?? (signal ? 128 : 1)));
       });
       running.delete(child);
+      if (shown) output = shown();
       const status: Exclude<RunStatus, 'running'> = stopped ? 'crashed' : code === 0 ? 'completed' : 'failed';
       const ended = sidecar.endRun(run.runId, status);
-      results[i] = { run, code, summary: ended.summary };
+      results[i] = { run, code, summary: ended.summary, output };
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
       if (!streaming) process.stderr.write(`${header}\n${output}${output.endsWith('\n') || !output ? '' : '\n'}`);
       const s = ended.summary;

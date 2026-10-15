@@ -326,21 +326,23 @@ export function applyInjection(shape: RequestShape, body: unknown, text: string,
 
 /**
  * A recorded tool result with text added, as an attacker would leave an instruction in what a tool
- * reads: after a string result, or after the longest string inside a structured one (a page body, an
- * email, a snippet: the text the model reads most of). Everything else in the result stays as recorded.
+ * reads: after a string result, or after the longest prose inside a structured one (a page body, an
+ * email, a snippet: the text the model reads most of). A string with no space in it, a URL or an id,
+ * is chosen only when there is no prose. Everything else in the result stays as recorded.
  */
 export function plantInResult(result: unknown, text: string): { result: unknown; at: string } | Refusal {
   const join = (s: string) => (s && !/\s$/.test(s) ? `${s}\n\n${text}` : `${s}${text}`);
   if (typeof result === 'string') return { result: join(result), at: '$' };
-  let best: { path: Array<string | number>; length: number } | null = null;
+  let best: { path: Array<string | number>; score: [number, number] } | null = null;
   const walk = (v: unknown, path: Array<string | number>) => {
     if (typeof v === 'string') {
-      if (!best || v.length > best.length) best = { path, length: v.length };
+      const score: [number, number] = [/\s/.test(v.trim()) ? 1 : 0, v.length];
+      if (!best || score[0] > best.score[0] || (score[0] === best.score[0] && score[1] > best.score[1])) best = { path, score };
     } else if (Array.isArray(v)) v.forEach((x, i) => walk(x, [...path, i]));
     else if (isObject(v)) for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
   };
   walk(result, []);
-  const found = best as { path: Array<string | number>; length: number } | null;
+  const found = best as { path: Array<string | number>; score: [number, number] } | null;
   if (!found) return { refused: 'its recorded result holds no text to add to; give the whole result you want with --override instead' };
   const copy = structuredClone(result) as Record<string | number, unknown>;
   let node: Record<string | number, unknown> = copy;

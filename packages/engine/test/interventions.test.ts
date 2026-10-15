@@ -201,6 +201,9 @@ describe('plantInResult', () => {
     expect(result.notes[0]!.text).toBe('Customer asked twice about the delivery date.'); // the recording is never touched
     // An MCP result: the text block is what the model reads.
     expect(plantInResult({ content: [{ type: 'text', text: 'page body' }], isError: false }, 'x')).toMatchObject({ at: '$.content[0].text' });
+    // Prose wins over a longer URL or id; with no prose, the longest string still takes it.
+    expect(plantInResult({ url: 'https://example.com/a/very/long/path/to/a/page', title: 'Refund policy' }, 'x')).toMatchObject({ at: '$.title' });
+    expect(plantInResult({ id: 'ord_42', url: 'https://example.com/orders/42' }, 'x')).toMatchObject({ at: '$.url' });
   });
 
   it('refuses a result with no text in it', () => {
