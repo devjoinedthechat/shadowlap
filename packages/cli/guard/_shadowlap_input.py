@@ -46,9 +46,13 @@ def _stdin_origin():
         # A character device that is not a terminal is the null device (stdin ignored), on Windows too.
         if stat.S_ISCHR(own.st_mode):
             return "nobody"
-        # Unsigned 64-bit, as the CLI writes it: a socket's device number is -1 on macOS.
+        # Unsigned 64-bit, as the CLI writes it: a socket's device number is -1 on macOS. On Windows
+        # the CLI names a file's volume by its 32-bit serial number, where Python 3.12 and later give
+        # all 64 bits of it, and up to 128 bits of the file's id, whose low 64 are the CLI's. (A pipe
+        # there has neither, so only a file is ever the input named.)
         mask = (1 << 64) - 1
-        if own.st_ino and os.environ.get("SHADOWLAP_STDIN") == "%d:%d" % (own.st_dev & mask, own.st_ino & mask):
+        dev = own.st_dev & (0xFFFFFFFF if os.name == "nt" else mask)
+        if own.st_ino and os.environ.get("SHADOWLAP_STDIN") == "%d:%d" % (dev, own.st_ino & mask):
             return "person"
     except OSError:
         pass

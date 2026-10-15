@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, type BigIntStats } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -54,14 +54,22 @@ export function captureConfig(upstreams: Record<string, string>, http: readonly 
  */
 function stdinIdentity(): string | null {
   try {
-    // Exact and unsigned, as Python reads them: a pipe's inode on macOS is beyond a double's
-    // precision, and Node's big integers for it are signed.
-    const st = fstatSync(0, { bigint: true });
-    const unsigned = (n: bigint) => (n < 0n ? n + (1n << 64n) : n);
-    return st.ino ? `${unsigned(st.dev)}:${unsigned(st.ino)}` : null;
+    return inputIdentity(fstatSync(0, { bigint: true }));
   } catch {
     return null;
   }
+}
+
+/**
+ * An input's `dev:ino`, exact and unsigned, as Python reads them: a pipe's inode on macOS is beyond
+ * a double's precision, and Node's big integers for it are signed. On Windows only a file has one:
+ * Node numbers a pipe or a console by its handle, a number of the process's own that another
+ * process's pipe can have too, and Python sees none at all.
+ */
+export function inputIdentity(st: Pick<BigIntStats, 'dev' | 'ino' | 'isFile'>, platform: NodeJS.Platform = process.platform): string | null {
+  if (platform === 'win32' && !st.isFile()) return null;
+  const unsigned = (n: bigint) => (n < 0n ? n + (1n << 64n) : n);
+  return st.ino ? `${unsigned(st.dev)}:${unsigned(st.ino)}` : null;
 }
 
 /**
