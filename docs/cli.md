@@ -177,13 +177,13 @@ shadowlap tasks models [--json]
 
 Goldens as tasks a model can be scored on: a model under test takes over at one model call, the calls before it replay from the recording for free, and the golden's checks score what it did from there. `tasks` lists them: where the model takes over and why, what each rewards, which tools run live or are stubbed after the takeover, and whether each is ready, blocked (its test fails, or it was packed from a capture and has no command), not a task (its checks only cap tokens and cost, or its model calls are made in more than one scope) or has no golden, with a warning when every ready task rewards the same behaviour. The takeover, why, what a task rewards and the agent's scope can be set in a `task` object next to its `expect` in the config. Training (`docs/training.md`) explains the defaults.
 
-`tasks score` scores a model on every ready task, or on the goldens given: each attempt is a run, the score is the share of checks it passed, and scores are kept per model (scoring a model again replaces its scores, unless the re-score stops short). `--model <name>` asks the recording's provider for another model, `anthropic:<name>` and `openai:<name>` that provider's API, and `--base-url` an OpenAI-compatible server such as Ollama or vLLM; when that isn't the API the recording spoke, the conversation is translated at the takeover and the answer back. Training (`docs/training.md`) has every option and the JSON.
+`tasks score` scores a model on every ready task, or on the goldens given (`.` for every golden of the project): each attempt is a run, the score is the share of checks it passed, and scores are kept per model (scoring a model again replaces its scores, unless the re-score stops short). `--model <name>` asks the recording's provider for another model, `anthropic:<name>` and `openai:<name>` that provider's API, and `--base-url` an OpenAI-compatible server such as Ollama or vLLM; when that isn't the API the recording spoke, the conversation is translated at the takeover and the answer back. Either way a small upstream on 127.0.0.1 asks the model under test from the takeover call on, whatever the agent asked before it. Bedrock, Vertex AI and Azure OpenAI recordings can't be scored with another model yet. Training (`docs/training.md`) has every option and the JSON.
 
 | Option | Effect |
 |---|---|
 | `--model <model>` | The model to score (required) |
 | `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` (no user or password in it) |
-| `--key-env <name>` | The variable holding the endpoint's key; default `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` |
+| `--key-env <name>` | The variable holding the endpoint's key; default `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` on a recording that isn't Anthropic's (another model of the recording's own provider goes with the agent's own key) |
 | `--attempts <n>` | Attempts per task. Default 5 |
 | `--reads live\|replay` | What read tools do after the takeover. Default `live` |
 | `--concurrency <n>`, `--budget <usd>`, `--timeout <seconds>`, `--guard` | As for `blame` |
@@ -474,7 +474,7 @@ shadowlap export pairs --out pairs.jsonl
 shadowlap export pairs --min-confidence medium --format trl --out pairs.jsonl
 ```
 
-Preference pairs read from the attempts blame, verify and `--repeat` left in the store, one JSON line per pair: the conversation as the model saw it at a call, in the messages `export dataset` writes, an answer to prefer and one to avoid. It prints every source it read (including those that made no pairs, and why), the count and how many were left out, the shape, the redaction line and the file. Each export is kept in the store as what left the machine. Training (`docs/training.md`) explains where pairs come from and what high and medium mean.
+Preference pairs read from the attempts blame, verify and `--repeat` left in the store, one JSON line per pair: the conversation as the model saw it at a call, in the messages `export dataset` writes, an answer to prefer and one to avoid. It prints every source it read (including those that made no pairs, and why), the count and how many were left out, the shape, the redaction line and the file. Each export is kept in the store as what left the machine; when no pair is at the confidence asked for, nothing is written and a file already there is left as it was. Training (`docs/training.md`) explains where pairs come from and what high and medium mean.
 
 | Option | Effect |
 |---|---|
