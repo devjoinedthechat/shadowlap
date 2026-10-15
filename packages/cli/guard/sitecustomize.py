@@ -95,7 +95,7 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         if key is None or key in _allowed:
             return
         allow = key
-        names = list(_names.get(address[0], ()))
+        names = list(dict.fromkeys(_names.get(address[0], ())))
         named = ["%s:%s" % (name, address[1]) for name in names]
         if named and all(k in _allowed for k in named):
             return
