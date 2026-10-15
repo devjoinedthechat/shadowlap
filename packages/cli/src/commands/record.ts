@@ -241,7 +241,7 @@ export function register(program: Command): void {
         }
         if (proposals.length) {
           const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
-          const commands = proposals.map(({ normalizer: n }) => `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${quote(n.name)}` : ''} --path ${quote(n.path ?? '$')}${n.pattern ? ` --pattern ${quote(n.pattern)}` : ''} --replace ${quote(n.replace)}`);
+          const commands = proposals.map(({ normalizer: n }) => `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${quote(n.name)}` : ''}${n.path !== undefined ? ` --path ${quote(n.path)}` : ''}${n.pattern ? ` --pattern ${quote(n.pattern)}` : ''} --replace ${quote(n.replace)}`);
           const lead = outcome.clean ? `${p.green('✓')} ${proposals.length} normalizer${proposals.length === 1 ? '' : 's'} make${proposals.length === 1 ? 's' : ''} this recording replay clean.` : `${p.yellow('!')} ${proposals.length} normalizer${proposals.length === 1 ? '' : 's'} found before calibration stopped.`;
           if (flags.write) {
             const added = addRules(cwd, 'normalize', proposals.map((x) => x.normalizer));

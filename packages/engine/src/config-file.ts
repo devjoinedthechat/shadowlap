@@ -353,7 +353,9 @@ export function editConfigFile<T>(cwd: string, options: EditOptions, mutate: (da
     const data = structuredClone(current.data);
     const result = mutate(data, current);
     const text = serialize(data, current.format);
-    if (current.exists && text === serialize(current.data, current.format)) return { file: current, result, changed: false };
+    // Nothing changed: leave the file as it is, and don't create one that would be empty.
+    const unchanged = current.exists ? text === serialize(current.data, current.format) : Object.keys(data).length === 0;
+    if (unchanged) return { file: current, result, changed: false };
     replaceFile(target, text, current.exists);
     return { file: parseConfig(path, Buffer.from(text, 'utf8')), result, changed: true };
   });

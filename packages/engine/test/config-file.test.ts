@@ -135,6 +135,12 @@ describe('addRules and removeRule', () => {
     expect(statSync(file()).mtimeMs).toBe(before);
   });
 
+  it('creates no file for an edit that changes nothing', () => {
+    expect(addRules(cwd, 'normalize', [])).toMatchObject({ rules: [], events: [] });
+    expect(editConfigFile(cwd, {}, () => 'looked').changed).toBe(false);
+    expect(existsSync(file())).toBe(false);
+  });
+
   it('adds several in one write, with an event for each one added', () => {
     addRule(cwd, 'normalize', { path: '$.a', replace: '<A>' });
     const r = addRules(cwd, 'normalize', [
