@@ -23,7 +23,7 @@ that comes from data goes there, everything else is a class.
 | Component | File | Notes |
 |---|---|---|
 | `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). Esc or a click on the dimmed page cancels. |
-| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"); a yes or no with the command it runs. |
+| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does); a yes or no with the command it runs. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`), ↑ ↓ between items, closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
 | `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
 | `ToastHost` | `Toast.tsx` | One toast at a time: `useApp().toast(text)`. |
@@ -60,13 +60,15 @@ This run entries.
 `api.ts` is the one module that talks to the server. Its types live in `types.ts` (the server's,
 widened with optional fields other slices add), and every answer passes through `normalize.ts` as it
 arrives, so the views read one shape: a field a slice names its own way (`sentAgain`, `lostAt`,
-`attemptOf`, `{target, count, action}` hosts, `group: null`) is turned into the views' shape there,
-once. A new field goes in `types.ts` as optional, and in `normalize.ts` when its shape needs it.
+`attemptOf`, `{target, count, action}` hosts, `group: null`, a choice's `text`, the fix a run belongs
+to as `{id, status, title}` or as the fixes read model's `{role, fix, blame}`) is turned into the
+views' shape there, once. A new field goes in `types.ts` as optional, and in `normalize.ts` when its shape needs it.
 
 The logic behind the components has no DOM and is unit-tested: `route.ts` (routes and links),
 `palette.ts` (matching), `strip.ts` (cells and grouping), `origins.ts`, `runs.ts` (what a run is and
 how it ended, the Forks view's lines, the run an exported copy opens on), `recorded.ts` (a replayed
-call's recorded duration), `cache.ts` (where the cache stopped hitting), `backoff.ts` and
+call's recorded duration), `cache.ts` (where the cache stopped hitting, and what the Context view
+says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
