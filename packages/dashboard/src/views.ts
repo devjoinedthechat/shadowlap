@@ -28,7 +28,11 @@ export interface JobFile {
   directory: boolean;
 }
 
-/** A job as `GET /api/jobs/:id?after=n` returns it: the CLI run the dashboard started, and what it made. */
+/**
+ * A job as `GET /api/jobs/:id?after=n` returns it: the CLI run the dashboard started, and what it
+ * made. While it runs, poll this (every half second or so) with `after` set to the last `total`:
+ * output lines do not show in the change feed.
+ */
 export interface JobView {
   id: string;
   /** The registered kind it was started as: `action` for the run actions, then `blame`, `import`, … */
@@ -62,8 +66,8 @@ export interface JobView {
   total: number;
 }
 
-/** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output. */
-export type JobListItem = Omit<JobView, 'lines'>;
+/** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output and its result, which `GET /api/jobs/:id` has. */
+export type JobListItem = Omit<JobView, 'lines' | 'result'>;
 
 /** A run recording now, with its calls so far. */
 export interface LiveRun {
@@ -163,7 +167,10 @@ export interface ChangesView {
   calls: boolean;
   /** An activity event was stored (a normalizer added, a golden packed): refetch `/api/activity`. */
   events: boolean;
-  /** A job started, ended, or reported a run, link, file or result: refetch `/api/jobs` or the open job. */
+  /**
+   * A job started, ended, or reported a run, link, file or result: refetch `/api/jobs` or the open
+   * job. Output lines do not count: follow a running job's output with `GET /api/jobs/:id?after=n`.
+   */
   jobs: boolean;
   /** Other counted tables that changed, by name (features add their own: `fixes`, `tests`, …). */
   other: string[];

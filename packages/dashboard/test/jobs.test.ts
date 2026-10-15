@@ -346,8 +346,10 @@ describe('uploads', () => {
       req.end();
     });
     expect(streamed).toBe(413);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(readdirSync(uploadsDir()).filter((n) => n.endsWith('big.har'))).toEqual([]);
+    // The refused file goes once its write stream has closed, which can take a moment on a busy machine.
+    const left = () => readdirSync(uploadsDir()).filter((n) => n.endsWith('big.har'));
+    for (let i = 0; i < 200 && left().length; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(left()).toEqual([]);
     // A JSON body past its own limit is refused too.
     expect((await api(dash, 'jobs', { method: 'POST', body: JSON.stringify({ kind: 'fake', pad: 'x'.repeat(300 * 1024) }) })).status).toBe(413);
   });

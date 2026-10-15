@@ -616,7 +616,7 @@ export class JobManager {
     const job = typeof idOrJob === 'string' ? this.jobs.get(idOrJob) : idOrJob;
     if (!job) throw new HttpError(404, 'no such job');
     const from = Math.max(0, after - job.dropped);
-    return { ...this.item(job), lines: job.lines.slice(from) };
+    return { ...this.item(job), result: job.result, lines: job.lines.slice(from) };
   }
 
   private item(job: Job): JobListItem {
@@ -635,12 +635,11 @@ export class JobManager {
       runs: [...job.runs],
       links: job.links.map((l) => ({ ...l })),
       files: job.files.map((f) => ({ ...f })),
-      result: job.result,
       total: job.dropped + job.lines.length,
     };
   }
 
-  /** Recent jobs, newest first, without their output. */
+  /** Recent jobs, newest first, without their output or result (a result can be large; the job's own view has it). */
   list(): JobListItem[] {
     return [...this.jobs.values()].reverse().map((j) => this.item(j));
   }

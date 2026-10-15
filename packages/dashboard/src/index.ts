@@ -1,14 +1,14 @@
 export { startDashboard } from './server.js';
 export type { Dashboard, DashboardOptions } from './server.js';
-export { cliSpawner, JobManager } from './jobs.js';
+export { cliSpawner, JobManager, KEEP_JOBS, MAX_RUNNING, STOP_GRACE_MS } from './jobs.js';
 export type { JobBuild, JobBuildContext, JobBuildResult, JobKind, JobRequest, ProjectInfo, SpawnCli, SpawnCliOptions, UploadSource } from './jobs.js';
 export { Router } from './router.js';
 export type { Handler, Method, RouteOptions, RouteRequest } from './router.js';
 export type { ProjectConfig, RouteContext } from './context.js';
 export type { RouteModule } from './routes/index.js';
 export { HttpError } from './http.js';
-export { UploadStore, UPLOAD_LIMIT } from './uploads.js';
-export { activity, describeEvent, forkFlag, type EventText } from './activity.js';
+export { MAX_UPLOADS, UploadStore, UPLOAD_LIMIT } from './uploads.js';
+export { activity, describeEvent, forkFlag, parseActivityCursor, type EventText } from './activity.js';
 export { changesView } from './changes.js';
 export { metaView } from './meta.js';
 export { actionArgs, actionsFor, callDetail, compare, listRuns, lookupRun, runDetail } from './api.js';

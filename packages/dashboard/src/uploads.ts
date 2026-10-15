@@ -19,8 +19,8 @@ import type { UploadView } from './views.js';
 
 export const UPLOAD_LIMIT = 64 * 1024 * 1024;
 export const UPLOAD_MAX_IDLE_MS = 60 * 60 * 1000;
-/** Uploads kept at once: enough for a batch of imports, not enough to fill a disk by mistake. */
-const MAX_KEPT = 32;
+/** Uploads kept at once, counting those still arriving: enough for a batch of imports, not enough to fill a disk by mistake. */
+export const MAX_UPLOADS = 32;
 const SWEEP_EVERY_MS = 5 * 60 * 1000;
 const FILE = /^[0-9A-Z]{26}-[\w.-]+$/;
 
@@ -44,6 +44,9 @@ function removeFile(path: string): void {
 
 export class UploadStore implements UploadSource {
   private readonly uploads = new Map<string, Upload>();
+  /** Uploads still arriving: each holds a slot, so many sent at once cannot pass the limit together. */
+  private arriving = 0;
+  private closed = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly limit: number;
   private readonly maxIdleMs: number;
@@ -80,9 +83,9 @@ export class UploadStore implements UploadSource {
     const dir = this.dir;
     if (!dir || !this.o.project) throw new HttpError(501, 'uploads need a project folder: start the dashboard in your project with shadowlap dashboard');
     refuseOversized(req, this.limit, 'file');
-    if (this.uploads.size >= MAX_KEPT) {
+    if (this.uploads.size + this.arriving >= MAX_UPLOADS) {
       this.sweep();
-      if (this.uploads.size >= MAX_KEPT) throw new HttpError(429, `${MAX_KEPT} uploads are waiting for a job; start one with them, or wait an hour`);
+      if (this.uploads.size + this.arriving >= MAX_UPLOADS) throw new HttpError(429, `${MAX_UPLOADS} uploads are waiting for a job or still arriving; start a job with them, or wait an hour`);
     }
     const raw = req.headers['x-filename'];
     let given = typeof raw === 'string' ? raw : '';
@@ -92,10 +95,33 @@ export class UploadStore implements UploadSource {
       // not percent-encoded: taken as it is
     }
     const name = safeFileName(given, 'upload');
-    this.ensureDir(dir);
+    // The slot is taken before the first byte is written and given back however the upload ends.
+    this.arriving++;
+    let bytes: number;
     const id = ulid();
     const path = join(dir, `${id}-${name}`);
-    const bytes = await new Promise<number>((resolve, reject) => {
+    try {
+      this.ensureDir(dir);
+      bytes = await this.write(req, path);
+    } catch (err) {
+      throw this.closed ? new HttpError(503, 'the dashboard is stopping') : err;
+    } finally {
+      this.arriving--;
+    }
+    if (this.closed) {
+      // The dashboard stopped while it arrived: nothing is kept after close.
+      removeFile(path);
+      if (!this.arriving) this.removeDir();
+      throw new HttpError(503, 'the dashboard is stopping');
+    }
+    this.uploads.set(id, { id, name, path, bytes, lastUsed: this.now(), jobId: null });
+    this.schedule();
+    return { uploadId: id, name, bytes };
+  }
+
+  /** Streams the body to a new file, refused past the limit; a refused or cut-off upload leaves nothing behind. */
+  private write(req: IncomingMessage, path: string): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
       // `wx` never follows a link or overwrites; the file is the owner's alone.
       const out = createWriteStream(path, { flags: 'wx', mode: 0o600 });
       let size = 0;
@@ -122,9 +148,6 @@ export class UploadStore implements UploadSource {
       });
       req.pipe(out);
     });
-    this.uploads.set(id, { id, name, path, bytes, lastUsed: this.now(), jobId: null });
-    this.schedule();
-    return { uploadId: id, name, bytes };
   }
 
   /** The upload for a job that asked for it by id, or null for an unknown id or one another job holds. */
@@ -156,23 +179,28 @@ export class UploadStore implements UploadSource {
     for (const u of [...this.uploads.values()]) if (u.jobId === null && now - u.lastUsed >= this.maxIdleMs) this.remove(u);
   }
 
-  /** How many uploads are kept now. */
+  /** How many uploads are kept now (not counting those still arriving). */
   get size(): number {
     return this.uploads.size;
   }
 
   /** Deletes every upload: the dashboard is closing. */
   close(): void {
+    this.closed = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     for (const u of [...this.uploads.values()]) this.remove(u);
+    // An upload still arriving is deleted when it has, and the folder with it.
+    if (!this.arriving) this.removeDir();
+  }
+
+  private removeDir(): void {
     const dir = this.dir;
-    if (dir) {
-      try {
-        rmdirSync(dir); // only when empty: another dashboard on this project may be using it
-      } catch {
-        // not empty, or never made
-      }
+    if (!dir) return;
+    try {
+      rmdirSync(dir); // only when empty: another dashboard on this project may be using it
+    } catch {
+      // not empty, or never made
     }
   }
 
