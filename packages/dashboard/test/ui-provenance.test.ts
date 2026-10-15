@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { copyRules, endpointSamples, tallyProviders } from '../ui/run/provenance.js';
+import { copyRules, endpointSamples, redactRuleCount, tallyProviders } from '../ui/run/provenance.js';
 
 // Provenance names the provider a run's model calls went to, and what a copy made now would apply,
 // when the server does not work them out.
@@ -39,5 +39,13 @@ describe('what a copy made now applies', () => {
     expect(copyRules(2, null)).toBe('2 redaction rules');
     expect(copyRules(0, 0)).toBe('no redaction rules: it would hold what was recorded');
     expect(copyRules(undefined, null)).toBe('the redaction rules in shadowlap.config.json');
+  });
+
+  it('counts the Share menu’s rules from the server, else from the run’s provenance record', () => {
+    expect(redactRuleCount({ redactRules: 4 }, { mask: { rules: 3 } })).toBe(4);
+    expect(redactRuleCount({}, { mask: { rules: 3 } })).toBe(3);
+    expect(redactRuleCount({ redactRules: null }, { mask: { rules: 0 } })).toBe(0);
+    expect(redactRuleCount(null, null)).toBeNull();
+    expect(redactRuleCount({}, { mask: null })).toBeNull();
   });
 });

@@ -3,10 +3,12 @@ import { JOB_KINDS, type RunDetail } from '../api.js';
 import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { shortId } from '../format.js';
+import { useLoad } from '../hooks.js';
 import { DatasetDialog } from '../pages/Runs.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
+import { redactRuleCount } from './provenance.js';
 
 /**
  * Share: the run as an HTML file (with the runs it came from), a pack, an eval dataset, an
@@ -20,7 +22,9 @@ export function ShareMenu({ anchor, run, onClose, onAction }: { anchor: HTMLElem
   const id = run.run.runId;
   const low = shortId(id).toLowerCase();
   const packAction = run.actions.find((a) => a.key === 'p');
-  const rules = meta?.redactRules;
+  // The rules a copy applies: the server's count, else the run's provenance record (asked only when needed).
+  const prov = useLoad(() => (typeof meta?.redactRules === 'number' || run.provenance ? null : client.provenance(id)), `${id}:provenance`);
+  const rules = redactRuleCount(meta, run.provenance ?? prov.data);
   const close = () => {
     setDialog(null);
     onClose();

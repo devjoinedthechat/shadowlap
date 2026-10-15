@@ -31,3 +31,12 @@ export function copyRules(rules: number | null | undefined, masked: number | nul
   const counted = typeof masked === 'number' ? ` and would mask ${num(masked)} ${masked === 1 ? 'value' : 'values'} in this run` : '';
   return `${rules} redaction ${rules === 1 ? 'rule' : 'rules'}${counted}`;
 }
+
+/**
+ * How many redaction rules a copy made now applies, for the Share menu's note: the server's count
+ * when it sends one (`meta.redactRules`), else the run's provenance record's; null when neither says.
+ */
+export function redactRuleCount(meta: { redactRules?: number | null } | null | undefined, prov: { mask?: { rules: number } | null } | null | undefined): number | null {
+  if (typeof meta?.redactRules === 'number') return meta.redactRules;
+  return typeof prov?.mask?.rules === 'number' ? prov.mask.rules : null;
+}
