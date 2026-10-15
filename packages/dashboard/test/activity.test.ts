@@ -277,3 +277,24 @@ describe('how a replay parted from its recording', () => {
     store.close();
   });
 });
+
+describe('a feed polled while things happen', () => {
+  it('shows a recording as it starts and ends, and an event as it is recorded', () => {
+    const store = Store.open(':memory:');
+    const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1000 });
+    expect(activity(store).items.map((i) => [i.id, i.live])).toEqual([[`r:${r.runId}:start`, true]]);
+    // Calls arriving change nothing the feed says, and it answers the same.
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: r.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: null, meta: {}, at: 1100 });
+    store.appendCallEnd(id, { runId: r.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at: 1200 });
+    expect(activity(store).items).toHaveLength(1);
+    store.endRun(r.runId, 'completed', 2000);
+    expect(activity(store).items.map((i) => [i.text, i.live])).toEqual([
+      ['Recorded 1 call · node agent.js', undefined],
+      ['Recording started · node agent.js', undefined],
+    ]);
+    recordEvent(store, { kind: 'normalizer.added', ref: '$.x', at: 3000 });
+    expect(activity(store).items[0]).toMatchObject({ text: 'Normalizer added · $.x' });
+    store.close();
+  });
+});

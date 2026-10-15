@@ -391,6 +391,23 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
   return stubs;
 }
 
+const stubCache = new WeakMap<Store, { key: string; stubs: Stub[] }>();
+
+/**
+ * The derived entries, newest first, worked out again only when the runs or the events changed:
+ * a page that polls the feed during a recording reads them once. (A recording's calls do not change
+ * them: its entries name no counts until it ends, and an entry renders its counts when asked.)
+ */
+function derivedStubs(store: Store): Stub[] {
+  const counts = store.changeCounts();
+  const key = `${counts.runs ?? 0}:${counts.events ?? 0}`;
+  const hit = stubCache.get(store);
+  if (hit && hit.key === key) return hit.stubs;
+  const stubs = derived(store, runIndex(store).runs, coveredByEvents(store)).sort(order);
+  stubCache.set(store, { key, stubs });
+  return stubs;
+}
+
 /** Runs whose derived entry a stored event already tells (an import, a blame recorded with its fix). */
 function coveredByEvents(store: Store): Set<string> {
   const out = new Set<string>();
@@ -475,8 +492,7 @@ export function activity(store: Store, options: { limit?: number; before?: strin
         ? { at: given, id: null }
         : parseActivityCursor(given);
   if (given !== undefined && given !== null && given !== '' && !cursor) throw new Error(`not a page cursor: ${String(given).slice(0, 40)}`);
-  const runs = runIndex(store).runs;
-  const stubs = derived(store, runs, coveredByEvents(store)).filter((s) => after(cursor, s));
+  const stubs = derivedStubs(store).filter((s) => after(cursor, s));
   // A page holds at most `limit` stored events; one more says whether any are left.
   const stored = store.listEvents({ ...storedAfter(cursor), limit: limit + 1 });
   const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(order);
