@@ -262,36 +262,56 @@ function projectDirs(cwd: string): string[] {
 }
 
 /**
+ * A folder registrations are read from. `strict` for the home folder's, which no repository can
+ * put a file in: a file there that can't be trusted means something is wrong, and the proxy fails
+ * closed. A project's folder is one a cloned repository could carry, so a file there that can't be
+ * trusted is only skipped.
+ */
+export interface RegistryDir {
+  dir: string;
+  strict: boolean;
+}
+
+/**
  * The nearest registration among `chain`, read from `dirs`: the run to record into, a reason it
  * can't be trusted, or null when no ancestor has one.
  */
-export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly string[], skip: (reason: string) => void = () => {}): SidecarLookup | null {
+export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly RegistryDir[], skip: (reason: string) => void = () => {}): SidecarLookup | null {
   for (let i = 0; i < chain.length; i++) {
     const pid = chain[i]!.pid;
-    for (const dir of dirs) {
+    for (const { dir, strict } of dirs) {
       const file = join(dir, `${pid}.json`);
       let st: Stats;
-      try {
-        st = lstatSync(file);
-      } catch {
-        continue;
-      }
       let dirSt: Stats;
       try {
+        st = lstatSync(file);
         dirSt = lstatSync(dir);
       } catch {
         continue;
       }
+      const refuse = (reason: string): SidecarLookup | null => {
+        if (strict) return { kind: 'unusable', reason };
+        skip(`${reason}; ignoring it`);
+        return null;
+      };
       const problem = untrusted(dirSt, dir, 'dir') ?? untrusted(st, file, 'file');
-      if (problem) return { kind: 'unusable', reason: `${problem}, so the run it names can't be trusted` };
-      let j: Partial<Registration>;
-      try {
-        j = JSON.parse(readFileSync(file, 'utf8')) as Partial<Registration>;
-      } catch {
-        return { kind: 'unusable', reason: `${file} is unreadable` };
+      let j: Partial<Registration> | null = null;
+      if (!problem) {
+        try {
+          j = JSON.parse(readFileSync(file, 'utf8')) as Partial<Registration>;
+        } catch {
+          // reported below
+        }
       }
-      if (j.v !== 1 || j.pid !== pid || typeof j.parent !== 'number' || typeof j.url !== 'string' || typeof j.runId !== 'string' || !/^[\w.-]{1,100}$/.test(j.runId)) {
-        return { kind: 'unusable', reason: `${file} is not a registration Shadowlap wrote` };
+      const why = problem
+        ? `${problem}, so the run it names can't be trusted`
+        : !j || j.v !== 1 || j.pid !== pid || typeof j.parent !== 'number' || typeof j.url !== 'string' || typeof j.runId !== 'string' || !/^[\w.-]{1,100}$/.test(j.runId)
+          ? `${file} is not a registration Shadowlap wrote`
+          : null;
+      if (why || !j) {
+        const answer = refuse(why ?? `${file} is unreadable`);
+        if (answer) return answer;
+        continue;
       }
       // A file outliving its agent, whose process id now belongs to an unrelated ancestor, is stale.
       const parent = chain[i + 1]?.pid;
@@ -299,8 +319,12 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly s
         skip(`${file} names parent ${j.parent}, but process ${pid}'s parent is ${parent}: left over from an earlier run, ignoring it`);
         continue;
       }
-      if (!isLoopbackUrl(j.url)) return { kind: 'unusable', reason: `${file} points at ${j.url}, which is not this machine` };
-      return { kind: 'sidecar', target: { url: j.url.replace(/\/$/, ''), runId: j.runId }, from: file };
+      if (!isLoopbackUrl(j.url!)) {
+        const answer = refuse(`${file} points at ${j.url}, which is not this machine`);
+        if (answer) return answer;
+        continue;
+      }
+      return { kind: 'sidecar', target: { url: j.url!.replace(/\/$/, ''), runId: j.runId! }, from: file };
     }
   }
   return null;
@@ -314,7 +338,8 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly s
  */
 export async function lookupRegistration(o: { cwd?: string; home?: string | null; chain?: ProcessInfo[] | null; skip?: (reason: string) => void; waitMs?: number } = {}): Promise<SidecarLookup> {
   const home = o.home === undefined ? safeHome() : o.home;
-  const dirs = [...new Set([...(home ? [join(home, FOLDER)] : []), ...projectDirs(o.cwd ?? process.cwd())])];
+  const own = home ? join(home, FOLDER) : null;
+  const dirs: RegistryDir[] = [...(own ? [{ dir: own, strict: true }] : []), ...projectDirs(o.cwd ?? process.cwd()).filter((d) => d !== own).map((dir) => ({ dir, strict: false }))];
   const chain = o.chain === undefined ? processAncestors() : o.chain;
   if (!chain) {
     // Only the parent is known: enough for a client that is the agent itself.
@@ -331,5 +356,5 @@ export async function lookupRegistration(o: { cwd?: string; home?: string | null
     const later = findRegistration(chain, dirs, o.skip);
     if (later) return later;
   }
-  return { kind: 'unusable', reason: `this process was started under Shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]}` };
+  return { kind: 'unusable', reason: `this process was started under Shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]!.dir}` };
 }

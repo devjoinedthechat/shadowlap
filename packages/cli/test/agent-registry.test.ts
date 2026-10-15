@@ -56,8 +56,8 @@ describe('the agent registry', () => {
 
   it('finds the nearest registered ancestor, and checks that it is the one Shadowlap started', () => {
     registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, { cwd: project, home });
-    const dirs = [join(home, '.shadowlap', 'agents')];
-    expect(findRegistration(tree(), dirs)).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, from: join(dirs[0]!, '4242.json') });
+    const dirs = [{ dir: join(home, '.shadowlap', 'agents'), strict: true }];
+    expect(findRegistration(tree(), dirs)).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, from: join(dirs[0]!.dir, '4242.json') });
     // A process id reused by a process another one started: the file is stale.
     const skipped: string[] = [];
     expect(findRegistration(tree(process.pid + 1), dirs, (r) => skipped.push(r))).toBeNull();
@@ -66,6 +66,7 @@ describe('the agent registry', () => {
 
   it('distrusts a file that is not owner-only, is a link, or points away from this machine', () => {
     const dir = join(home, '.shadowlap', 'agents');
+    const strict = [{ dir, strict: true }];
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = join(dir, '4242.json');
     const write = (body: unknown, mode = 0o600) => {
@@ -74,18 +75,36 @@ describe('the agent registry', () => {
       chmodSync(file, mode);
     };
     write({ v: 1, pid: 4242, parent: process.pid, url: 'https://collector.example/t/x', runId: 'r' });
-    expect(findRegistration(tree(), [dir])).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not this machine') });
+    expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not this machine') });
     write({ v: 1, pid: 4243, parent: process.pid, url: 'http://127.0.0.1:1/t/x', runId: 'r' });
-    expect(findRegistration(tree(), [dir])).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not a registration Shadowlap wrote') });
+    expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('not a registration Shadowlap wrote') });
     if (posix) {
       write({ v: 1, pid: 4242, parent: process.pid, url: 'http://127.0.0.1:1/t/x', runId: 'r' }, 0o644);
-      expect(findRegistration(tree(), [dir])).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('can be read by other users') });
+      expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('can be read by other users') });
       rmSync(file);
       const elsewhere = join(home, 'elsewhere.json');
       writeFileSync(elsewhere, JSON.stringify({ v: 1, pid: 4242, parent: process.pid, url: 'http://127.0.0.1:1/t/x', runId: 'r' }), { mode: 0o600 });
       symlinkSync(elsewhere, file);
-      expect(findRegistration(tree(), [dir])).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('symbolic link') });
+      expect(findRegistration(tree(), strict)).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('symbolic link') });
     }
+  });
+
+  it("only skips a file it can't trust in a project's folder, which a cloned repository could carry", () => {
+    // As git checks it out: readable by everyone, in a folder readable by everyone.
+    const dir = join(project, '.shadowlap', 'agents');
+    mkdirSync(dir, { recursive: true });
+    chmodSync(dir, 0o755);
+    writeFileSync(join(dir, '4242.json'), JSON.stringify({ v: 1, pid: 4242, parent: process.pid, url: 'http://127.0.0.1:9/t/planted', runId: 'r' }), { mode: 0o644 });
+    const skipped: string[] = [];
+    if (posix) {
+      expect(findRegistration(tree(), [{ dir, strict: false }], (r) => skipped.push(r))).toBeNull();
+      expect(skipped.join()).toMatch(/can be read by other users.*ignoring it/);
+    }
+    chmodSync(dir, 0o700);
+    chmodSync(join(dir, '4242.json'), 0o600);
+    writeFileSync(join(dir, '4242.json'), JSON.stringify({ v: 1, pid: 4242, parent: process.pid, url: 'https://collector.example/t/x', runId: 'r' }));
+    expect(findRegistration(tree(), [{ dir, strict: false }], (r) => skipped.push(r))).toBeNull();
+    expect(skipped.at(-1)).toMatch(/not this machine; ignoring it/);
   });
 
   it('refuses rather than passes through when a Shadowlap command is an ancestor but no run turns up', async () => {
