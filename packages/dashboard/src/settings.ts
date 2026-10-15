@@ -1,4 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent, type Stats } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -8,21 +10,29 @@ import {
   REDACTION_EXPORTS,
   RULE_KINDS,
   calibrationTarget,
+  commandIsImported,
   configClock,
+  hasRecordedCommand,
   namedPatterns,
+  parseRules,
+  previewRedaction,
   readConfigFile,
   readRules,
+  tildePath,
   type CallKind,
   type ClockMode,
   type ConfigFile,
   type Effect,
   type Normalizer,
   type RedactionExport,
+  type RedactionPreview,
   type RuleList,
   type RunRecord,
   type Store,
 } from '@shadowlap/engine';
+import { ciStep, parseStoreUrl, type StoreLocation } from '@shadowlap/remote';
 import { countRuns } from './runs-list.js';
+import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
 
 /**
  * The read model behind Settings: one plain function per tab (Matching, Redaction, Coding agents,
@@ -230,6 +240,8 @@ export interface ToolsSettings {
 export interface ProjectSettings {
   name: string;
   folder: string;
+  /** The folder and the store's file as people read them: `~/support-agent/.shadowlap/shadowlap.db` inside the home folder. */
+  shown: { folder: string; store: string | null };
   /**
    * The store's file, and its size as the database counts it (its pages, whatever the write-ahead
    * log holds), so it doesn't jump while the log waits for a checkpoint. `free` is what a vacuum
@@ -245,9 +257,10 @@ export interface ProjectSettings {
   abandoned: number;
   address: string | null;
   /**
-   * Clean up old runs: the dry run first, whose result (the GcReport `gc --json` prints) counts the
-   * runs (`count`), lists the first 100 and what they free; then "Delete N runs" (N is `count`) runs
-   * cleanupArgv(result), which deletes exactly those runs or, if others match by then, nothing.
+   * Clean up old runs: the dry run first, whose result event (the GcReport `gc --json` prints)
+   * counts the runs (`count`), lists the first 100 and what they free, while the drawer shows what gc
+   * prints; then "Delete N runs" (N is `count`) runs cleanupArgv(result), which deletes exactly those
+   * runs or, if others match by then, nothing.
    */
   cleanup: { olderThanDays: number; dryRun: string[] };
 }
@@ -939,13 +952,14 @@ export function projectSettings(ctx: SettingsContext): ProjectSettings {
   return {
     name: ctx.name ?? basename(ctx.cwd),
     folder: ctx.cwd,
+    shown: { folder: shownPath(ctx.cwd), store: dbPath ? shownPath(dbPath) : null },
     store: { path: dbPath, bytes: size.bytes, free: size.free },
     runs: counts.runs,
     attempts: counts.attempts,
     running: recording.live.length,
     abandoned: recording.abandoned.length,
     address: ctx.address ?? null,
-    cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', String(CLEANUP_DAYS), '--dry-run', '--json'] },
+    cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', String(CLEANUP_DAYS), '--dry-run'] },
   };
 }
 
@@ -957,5 +971,185 @@ export function projectSettings(ctx: SettingsContext): ProjectSettings {
 export function cleanupArgv(dryRun: { cutoff: number | null; keep: number | null; expect: string }): string[] {
   if (dryRun.cutoff === null && dryRun.keep === null) throw new Error('the dry run picked no runs: give it --older-than or --keep');
   if (!/^\d+-[0-9a-f]{16}$/.test(dryRun.expect)) throw new Error('the dry run says no "expect": run it again with this version of Shadowlap');
-  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', dryRun.expect, '--json'];
+  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', dryRun.expect];
+}
+
+/** A path inside the home folder as `~/…` (reached by its own path or its real one); any other as it is. */
+export function shownPath(path: string, home: string = homedir()): string {
+  let real: string | null = null;
+  try {
+    real = realpathSync(home);
+  } catch {
+    // a home folder that can't be resolved: compare as given
+  }
+  for (const base of new Set([home, ...(real ? [real] : [])])) {
+    const shown = tildePath(path, base);
+    if (shown !== path) return shown;
+  }
+  return path;
+}
+
+// ---- refusals ----
+
+/**
+ * Why Settings can't do what was asked, with the HTTP status the route answers with: 404 for a run
+ * that isn't there, 409 for one still recording, 422 for rules that can't be read.
+ */
+export class SettingsRefusal extends Error {
+  override readonly name = 'SettingsRefusal';
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const RUN_REF = /^[0-9A-Za-z]{1,26}$/;
+
+/** The run an id or a unique prefix names, or a refusal that says why there is none. */
+function findRun(store: Store, ref: string): RunRecord {
+  if (!RUN_REF.test(ref)) throw new SettingsRefusal(400, 'name a run by its id or a unique prefix of it');
+  let run: RunRecord | null;
+  try {
+    run = store.findRun(ref);
+  } catch (err) {
+    throw new SettingsRefusal(400, err instanceof Error ? err.message : String(err));
+  }
+  if (!run) throw new SettingsRefusal(404, `no run matches ${ref}`);
+  return run;
+}
+
+// ---- Calibrate ----
+
+/**
+ * Why `calibrate` can't take this run, in the words the dashboard shows; null when it can. It takes
+ * what the Calibrate button offers: a finished recording made here, whose command it runs again
+ * offline. A replay or a fork is calibrated through the recording it came from; an import runs
+ * someone else's command, or none.
+ */
+export function notCalibratable(store: Store, run: RunRecord): string | null {
+  const id = shortRun(run.runId);
+  if (run.mode !== 'record') return `${id} is a replay; calibrate the recording it came from${run.parentRunId ? ` (${shortRun(run.parentRunId)})` : ''}`;
+  if (store.recordingRuns().live.some((r) => r.run.runId === run.runId)) return `${id} is still recording; calibrate it once it has ended`;
+  if (run.status !== 'completed' && run.status !== 'failed') return `${id} did not finish (${run.status}); calibrate a recording that ran to its end`;
+  if (!hasRecordedCommand(run) || commandIsImported(run)) return `${id} was imported, so there is no command recorded here to run again`;
+  return null;
+}
+
+/** The run a calibrate job takes: the one named, checked, or the one the button offers. */
+export function calibrateRun(ctx: Pick<SettingsContext, 'store' | 'setupRunId'>, runRef: string | null | undefined): RunRecord {
+  if (runRef) {
+    const run = findRun(ctx.store, runRef);
+    const why = notCalibratable(ctx.store, run);
+    if (why) throw new SettingsRefusal(409, why);
+    return run;
+  }
+  const target = calibrationTarget(ctx.store, { setupRunId: ctx.setupRunId ?? null });
+  if (!target) throw new SettingsRefusal(409, 'Record a run first: calibrate replays a finished recording made here');
+  return target.run;
+}
+
+// ---- the redaction preview, in the dashboard ----
+
+/**
+ * Calls a preview reads in the dashboard before it stops and says how far it got (`partial`): a
+ * preview answers while the page waits, and the server answers everything else meanwhile. The
+ * command it names reads them all.
+ */
+export const PREVIEW_MAX_CALLS = 2000;
+
+export interface RedactionPreviewView {
+  run: { runId: string; label: string };
+  /** What `redact preview <run> --json` prints: per rule, a count and up to two samples; the run's details apart. */
+  preview: RedactionPreview;
+  /** The command that previews the whole run in a terminal. */
+  command: string;
+}
+
+/**
+ * What the project's redaction rules would mask in one run, exactly as pack applies them (path
+ * rules included), computed here so the page shows it as soon as a run is picked. The rules are
+ * the file's, as the table lists them, numbered the same way. Refused for a run still recording
+ * (409), a run that isn't there (404), and rules that can't be read (422).
+ */
+export function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd'>, runRef: string, options: { maxCalls?: number } = {}): RedactionPreviewView {
+  const run = findRun(ctx.store, runRef);
+  if (ctx.store.recordingRuns().live.some((r) => r.run.runId === run.runId)) throw new SettingsRefusal(409, `${shortRun(run.runId)} is still recording; preview it once it has ended`);
+  let rules: Normalizer[];
+  try {
+    rules = parseRules(readConfigFile(ctx.cwd).data.redact, 'redact');
+  } catch (err) {
+    throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
+  }
+  const preview = previewRedaction(ctx.store, run.runId, rules, { maxCalls: options.maxCalls ?? PREVIEW_MAX_CALLS });
+  return { run: { runId: run.runId, label: `${shortRun(run.runId)} · ${commandOf(run)}` }, preview, command: `shadowlap redact preview ${shortRun(run.runId)}` };
+}
+
+// ---- Store ----
+
+export interface StoreSettings {
+  /** The config, for the version an edit (Push from CI) sends back. */
+  config: ConfigInfo;
+  /** `store` as shadowlap.config.json has it; null when it names none ("No store yet"). */
+  configured: string | null;
+  /** Why the configured store can't be used: not a bucket URL, or a config that can't be read. */
+  error: string | null;
+  /** The bucket, the last sync, runs in the store and only here, the last check, your access, Push from CI. */
+  status: TeamStoreStatus | null;
+  /** "Copy CI step": the GitHub Actions step `shadowlap store ci --provider github` prints. */
+  ciStep: { file: string; text: string; oidc: boolean } | null;
+}
+
+/**
+ * Settings → Store, the team store: what `shadowlap store show` says, offline. Push and pull are
+ * jobs; Push from CI is a config edit. Nothing here reaches the bucket.
+ */
+export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput): StoreSettings {
+  const { info } = loadConfigFile(ctx.cwd);
+  const configured = input.store;
+  if (!configured) return { config: info, configured: null, error: info.error, status: null, ciStep: null };
+  let loc: StoreLocation;
+  try {
+    loc = parseStoreUrl(configured);
+  } catch (err) {
+    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null };
+  }
+  const step = ciStep('github', loc);
+  return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc } };
+}
+
+// ---- CI ----
+
+export interface CiSettings {
+  /** `owner/name` on GitHub, from the project's `origin`, for the Slack preview's link; null when it isn't a GitHub repository. */
+  repo: string | null;
+  /** The branch the Alerts step posts for: origin's default branch, else `main`. */
+  branch: string;
+}
+
+const git = (cwd: string, args: string[]): string | null => {
+  try {
+    const out = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    return out.status === 0 ? out.stdout.trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+/** A GitHub remote's `owner/name`: `git@github.com:owner/name.git`, `https://github.com/owner/name`. */
+export function githubRepo(remote: string | null): string | null {
+  const m = remote ? /github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(remote.trim()) : null;
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/**
+ * What the CI tab fills in from the project's repository: where the Slack message links to, and the
+ * branch the Alerts step posts for. Everything else on the tab is the YAML the panels write as you
+ * pick (ci-yaml.ts); nothing runs on the server.
+ */
+export function ciSettings(cwd: string): CiSettings {
+  const head = git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  const branch = head?.replace(/^origin\//, '') || 'main';
+  return { repo: githubRepo(git(cwd, ['remote', 'get-url', 'origin'])), branch: /^[\w./-]{1,100}$/.test(branch) ? branch : 'main' };
 }

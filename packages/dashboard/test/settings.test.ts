@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
-import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
+import { agentsSection, cleanupArgv, codingAgentsSettings, githubRepo, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -493,14 +493,14 @@ describe('projectSettings', () => {
     expect(p.store.bytes).toBe(disk.size().bytes);
     expect(p.store.bytes).toBeGreaterThan(0);
     disk.close();
-    expect(p.cleanup).toEqual({ olderThanDays: 30, dryRun: ['gc', '--older-than', '30', '--dry-run', '--json'] });
+    expect(p.cleanup).toEqual({ olderThanDays: 30, dryRun: ['gc', '--older-than', '30', '--dry-run'] });
     expect(projectSettings({ store, cwd, name: 'support-agent' })).toMatchObject({ name: 'support-agent', store: { path: null }, runs: 0, address: null });
   });
 
   it('deletes exactly what the dry run listed: its cutoff, and the runs the dialog promised', () => {
     const dryRun = { dryRun: true, olderThanDays: 30, keep: null, cutoff: 1_757_000_000_000, total: 9, count: 2, runs: [{ runId: 'A' }, { runId: 'B' }], expect: '2-0123456789abcdef', blobs: 3, bytes: 1000 };
-    expect(cleanupArgv(dryRun)).toEqual(['gc', '--before', '1757000000000', '--expect', '2-0123456789abcdef', '--json']);
-    expect(cleanupArgv({ cutoff: null, keep: 200, expect: '0-e3b0c44298fc1c14' })).toEqual(['gc', '--keep', '200', '--expect', '0-e3b0c44298fc1c14', '--json']);
+    expect(cleanupArgv(dryRun)).toEqual(['gc', '--before', '1757000000000', '--expect', '2-0123456789abcdef']);
+    expect(cleanupArgv({ cutoff: null, keep: 200, expect: '0-e3b0c44298fc1c14' })).toEqual(['gc', '--keep', '200', '--expect', '0-e3b0c44298fc1c14']);
     expect(() => cleanupArgv({ cutoff: null, keep: null, expect: '0-e3b0c44298fc1c14' })).toThrow(/picked no runs/);
     expect(() => cleanupArgv({ cutoff: 1, keep: null, expect: '2' })).toThrow(/no "expect"/);
   });
@@ -513,5 +513,22 @@ describe('projectSettings', () => {
     disk.importRun({ runId: '01ABANDONED000000000000000', parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['x'], cwd }, codeVersion: null, startedAt: Date.now() - 2 * 86_400_000, endedAt: null });
     expect(projectSettings({ store: disk, cwd, dbPath })).toMatchObject({ running: 1, abandoned: 1 });
     disk.close();
+  });
+});
+
+describe('what the CI and Project tabs fill in', () => {
+  it("reads a GitHub repository from origin's address, in any of its forms", () => {
+    expect(githubRepo('git@github.com:devjoinedthechat/shadowlap.git')).toBe('devjoinedthechat/shadowlap');
+    expect(githubRepo('https://github.com/acme/support-agent')).toBe('acme/support-agent');
+    expect(githubRepo('https://github.com/acme/support.agent.git/')).toBe('acme/support.agent');
+    expect(githubRepo('ssh://git@github.com/acme/x.git')).toBe('acme/x');
+    expect(githubRepo('https://gitlab.com/acme/x.git')).toBeNull();
+    expect(githubRepo(null)).toBeNull();
+  });
+
+  it('shows paths inside the home folder from ~', () => {
+    expect(shownPath(join(cwd, 'agent', '.shadowlap', 'shadowlap.db'), cwd)).toBe('~/agent/.shadowlap/shadowlap.db');
+    expect(shownPath(cwd, cwd)).toBe('~');
+    expect(shownPath('/elsewhere/x.db', cwd)).toBe('/elsewhere/x.db');
   });
 });

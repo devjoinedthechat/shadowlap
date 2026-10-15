@@ -8,6 +8,7 @@ import * as jobs from './jobs.js';
 import * as meta from './meta.js';
 import * as runs from './runs.js';
 import * as search from './search.js';
+import * as settings from './settings.js';
 import * as uploads from './uploads.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
@@ -29,6 +30,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   files,
   uploads,
   activity,
+  settings,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {
