@@ -162,7 +162,7 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--apply` | Leave the accepted fix in the working tree |
 | `--branch <name>` | Commit it to a new branch without checking anything out |
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
-| `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too |
+| `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for `verify` |
 

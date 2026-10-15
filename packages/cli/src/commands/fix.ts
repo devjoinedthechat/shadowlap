@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList } from '@shadowlap/dashboard';
@@ -465,7 +466,8 @@ export function register(program: Command): void {
             argv: command.length ? command : null,
           },
         );
-        const goldensCopied = report.output.applied && flags.goldens ? report.output.goldens.map((g) => `${flags.goldens!.replace(/[\\/]+$/, '')}/${g.split(/[\\/]/).at(-1)!}`) : undefined;
+        // Where --apply --goldens put the recordings, relative to the project as the store keeps paths: the ones that got there.
+        const goldensCopied = report.output.applied && flags.goldens ? report.output.goldens.map((g) => resolve(flags.goldens!, basename(g))).filter((to) => existsSync(to)).map((to) => relative(process.cwd(), to)) : undefined;
         const kept = recordRepairFix(opts, report, { expect: expect?.json ?? null, command: line, ...(goldensCopied ? { goldensCopied } : {}) });
         const json = { ...report, repairId: kept?.repair.repairId ?? null, verifyId: kept?.verdict?.verifyId ?? null, fixes: keptFixes(kept?.fixes ?? []), ...(handOverFailed ? { error: { message: handOverFailed.message } } : {}) };
         if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');

@@ -80,7 +80,7 @@ Before an edit, the original bytes go to `.shadowlap/repair-journal.json`. The f
 | `--apply` | The fix left in the working tree |
 | `--branch <name>` | A commit with the fix on a new branch, the evidence in its message. Nothing is checked out: HEAD and the working tree stay as they are |
 | `--pr` | With `--branch`: the branch pushed to `origin` and a pull request opened with `gh`, the report as its body |
-| `--goldens <dir>` | With `--apply` or `--branch`: the recordings also placed in the project, for [`shadowlap test`](./ci.md) |
+| `--goldens <dir>` | With `--apply` or `--branch`: the recordings also placed in the project, for [`shadowlap test`](./ci.md). The folder is taken from the one repair runs in; with `--branch` it has to be inside the repository, which repair checks before it starts |
 
 The recordings were made by the fixed code, so `shadowlap test` replays them clean with the fix in place and fails the build if it is ever undone. Together with the patch, they turn a bug into a regression test.
 
@@ -111,7 +111,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 
 - When a candidate is accepted, its verification is kept as a verdict of its own. It turns the fix verified when it [counts](./verify.md#verdicts-are-kept) for it: checked under the fix's check, or one that asks for more. With `--apply` the change is already in the working tree, so the fix is applied; it copies no goldens into the project unless `--goldens` says where, and runs no test, which [`shadowlap fix apply`](./cli.md#fix) does later. With `--pr`, the pull request becomes where the fix came from.
 - When none is accepted, repair exits 1 and the fix stays open, and `shadowlap fix show` lists each candidate it tried, rejected or set aside, with why.
-- When handing the fix over fails part way (a push or `gh pr create` refused, a file changed during the repair), repair says why and exits 1, and keeps the repair anyway: `report.json` is written, the fix turns verified, or applied when the change was applied before the failure, and the report's warnings say where the hand-over stopped.
+- When handing the fix over fails part way (a push or `gh pr create` refused, a file changed during the repair, the recordings could not be copied to `--goldens`), repair says why and exits 1, and keeps the repair anyway: `report.json` is written, the fix turns verified, or applied when the change was applied before the failure, and the report's warnings say where the hand-over stopped. Goldens that didn't reach the project are left for `shadowlap fix apply` to copy.
 
 [`shadowlap fix apply <fix>`](./cli.md#fix) hands a verified fix over later: it applies `fix.patch`, copies the recordings in `goldens/` into the project's goldens folder, runs `shadowlap test` on them, and marks the fix applied. A repair logs `repair.accepted` or `repair.empty` in the store's activity, and `fix.applied` for a fix `--apply` applied. Run by a dashboard job, it reports a link to the fix's Repair step.
 

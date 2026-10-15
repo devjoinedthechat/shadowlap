@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, normalizeConversation, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
@@ -118,6 +118,16 @@ function gitRoot(cwd: string): string {
   }
 }
 
+/**
+ * Where `--goldens` puts recordings in the repository, for a commit to `--branch`: the folder, from
+ * the one repair runs in, relative to the repository's root. A folder outside it can't be committed.
+ */
+function goldensInRepo(root: string, cwd: string, goldens: string): string {
+  const rel = relative(root, resolve(cwd, goldens));
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new RepairError(`--goldens ${goldens} is outside the repository, so its recordings can't be committed to a branch: give a folder inside it`);
+  return rel;
+}
+
 const git = (root: string, args: string[], o: { input?: string; env?: NodeJS.ProcessEnv } = {}) =>
   execFileSync('git', args, { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024, ...(o.input !== undefined ? { input: o.input } : {}), ...(o.env ? { env: o.env } : {}) }).toString();
 
@@ -200,6 +210,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
   const { settings: s, log } = input;
   const cwd = process.cwd();
   const root = gitRoot(cwd);
+  // A hand-over that can't work is refused before anything runs, not after the repair.
+  if (input.outputs.branch && input.outputs.goldens) goldensInRepo(root, cwd, input.outputs.goldens);
   const restored = recoverWorkingTree(cwd);
   for (const f of restored) log(p.yellow(`  ! restored ${relative(cwd, f)}, which an interrupted repair had left edited`));
 
@@ -537,29 +549,38 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
 
   let failed: RepairError | null = null;
   if (accepted && report.patch) {
-    const goldensInTree = input.outputs.goldens;
+    // `--goldens`, from the folder repair runs in, so an absolute path is that path.
+    const goldens = input.outputs.goldens;
+    const goldensDir = goldens ? resolve(cwd, goldens) : null;
     try {
       if (input.outputs.apply) {
         const abs = join(root, accepted.file);
         const now = readFileSync(abs, 'utf8');
         if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${out.patch} by hand`);
         writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
-        if (goldensInTree) for (const g of out.goldens) cpSync(join(cwd, g), join(cwd, goldensInTree, g.split(/[\\/]/).at(-1)!), { recursive: true });
+        out.applied = true;
+        if (goldensDir) {
+          try {
+            for (const g of out.goldens) cpSync(join(cwd, g), join(goldensDir, basename(g)), { recursive: true });
+          } catch (err) {
+            throw new RepairError(`the fix is in the working tree, but copying its recordings to ${goldens} failed: ${(err as Error).message}`);
+          }
+        }
         if (input.settings.build) {
           const b = runBuild(input.settings.build, cwd);
           if (!b.ok) report.warnings.push(`${input.settings.build} failed after the fix was applied: ${b.tail}`);
         }
-        out.applied = true;
       }
       if (input.outputs.branch) {
-        out.branch = commitBranch(root, input.outputs.branch, accepted, goldensInTree ? out.goldens.map((g) => ({ from: join(cwd, g), to: join(relative(root, join(cwd, goldensInTree)), g.split(/[\\/]/).at(-1)!) })) : [], commitMessage(report, accepted), dir);
+        const inRepo = goldens ? goldensInRepo(root, cwd, goldens) : null;
+        out.branch = commitBranch(root, input.outputs.branch, accepted, inRepo !== null ? out.goldens.map((g) => ({ from: join(cwd, g), to: join(inRepo, basename(g)) })) : [], commitMessage(report, accepted), dir);
         input.log(`  committed to ${out.branch}`);
         if (input.outputs.pr) out.pr = openPullRequest(root, out.branch, commitTitle(accepted), join(dir, 'report.md'));
       }
     } catch (err) {
-      if (!(err instanceof RepairError)) throw err;
-      failed = err;
-      report.warnings.push(`handing the fix over stopped: ${err.message}`);
+      // Whatever stopped it, the repair ran and its verdict stands: it is kept, with where the hand-over stopped.
+      failed = err instanceof RepairError ? err : new RepairError((err as Error).message);
+      report.warnings.push(`handing the fix over stopped: ${failed.message}`);
     }
   }
   writeFileSync(join(dir, 'report.json'), JSON.stringify(report, null, 2) + '\n');

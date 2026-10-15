@@ -504,4 +504,45 @@ describe('shadowlap fix', () => {
       s.close();
     }
   });
+
+  it('puts the goldens of repair --apply where an absolute --goldens says, and keeps where they went relative to the project', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    const goldens = join(project, 'tests', 'goldens');
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--apply', '--goldens', goldens, '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = json(r);
+    const fixId = report.fixes[0].fixId as string;
+    const names = (report.output.goldens as string[]).map((g) => basename(g));
+    expect(names).toHaveLength(2);
+    for (const name of names) expect(existsSync(join(goldens, name, 'run.json'))).toBe(true);
+    expect(json(await shadowlap(['fix', 'show', fixId, '--json'])).applied).toMatchObject({ via: 'repair --apply', goldens: names.map((n) => `tests/goldens/${n}`), tests: 'skipped' });
+
+    // fix apply tests them where they are, and copies nothing again.
+    const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
+    expect(applied.code, applied.out).toBe(0);
+    expect(json(applied)).toMatchObject({ again: true, patch: 'already', tests: 'passed', goldens: names.map((n) => ({ to: join('tests', 'goldens', n), copied: false })) });
+    expect(existsSync(join(project, 'goldens'))).toBe(false);
+  });
+
+  it('keeps a repair whose recordings could not be copied after --apply, and lets fix apply copy them', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    // A file where the goldens folder should be: the change goes in, the copy fails.
+    writeFileSync(join(project, 'not-a-folder'), '');
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--apply', '--goldens', 'not-a-folder', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = json(r);
+    expect(report).toMatchObject({ outcome: 'fixed', output: { applied: true }, error: { message: expect.stringContaining('the fix is in the working tree, but copying its recordings to not-a-folder failed') } });
+    expect(agentText()).toContain(FIX);
+    const fixId = report.fixes[0].fixId as string;
+    expect(report.fixes[0]).toMatchObject({ status: 'applied', counts: true });
+    const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
+    expect(shown).toMatchObject({ applied: { via: 'repair --apply', goldens: [] }, actions: { apply: { pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them' } } });
+    expect(shown.repair.warnings).toContainEqual(expect.stringContaining('handing the fix over stopped: the fix is in the working tree, but copying its recordings'));
+
+    const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
+    expect(applied.code, applied.out).toBe(0);
+    expect(json(applied)).toMatchObject({ again: true, patch: 'already', tests: 'passed', goldens: [expect.objectContaining({ copied: true }), expect.objectContaining({ copied: true })] });
+  });
 });
