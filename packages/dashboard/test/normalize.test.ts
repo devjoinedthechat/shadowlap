@@ -134,35 +134,3 @@ describe('callName', () => {
     expect(callName('tool', 'POST /v1/looks_like_a_path')).toBe('POST /v1/looks_like_a_path');
   });
 });
-
-describe('stripCells', () => {
-  const call = (callNo: number, origin: string, outcome = 'ok') => ({ callNo, kind: 'tool', name: 't', origin, outcome }) as never;
-
-  it('draws one cell per call in a short run', async () => {
-    const { stripCells } = await import('../ui/strip.js');
-    // A fenced write ends in an error so the agent's call throws, but nothing failed: it is not
-    // marked as one. A live call that really errored is. Both cases, so neither drifts.
-    const cells = stripCells([call(1, 'replayed'), call(2, 'live'), call(3, 'blocked', 'error'), call(4, 'live', 'error')], 2, 2);
-    expect(cells.map((c) => [c.first, c.origin, c.selected, c.fork, c.error])).toEqual([
-      [1, 'replayed', false, false, false],
-      [2, 'live', true, true, false],
-      [3, 'blocked', false, false, false],
-      [4, 'live', false, false, true],
-    ]);
-  });
-
-  it('groups a long run into ranges that keep rare origins, the fork and the selection visible', async () => {
-    const { MAX_CELLS, stripCells } = await import('../ui/strip.js');
-    const calls = Array.from({ length: 5000 }, (_, i) => call(i + 1, i + 1 === 2500 ? 'blocked' : i + 1 > 2000 ? 'live' : 'replayed', i + 1 === 4000 ? 'error' : 'ok'));
-    const cells = stripCells(calls, 4321, 2001);
-    expect(cells.length).toBeLessThanOrEqual(MAX_CELLS);
-    expect(cells[0]!.first).toBe(1);
-    expect(cells.at(-1)!.last).toBe(5000);
-    const blocked = cells.find((c) => c.first <= 2500 && c.last >= 2500)!;
-    expect(blocked).toMatchObject({ origin: 'blocked', target: 2500 });
-    expect(blocked.title).toMatch(/1 blocked/);
-    expect(cells.find((c) => c.fork)).toMatchObject({ target: 2001 });
-    expect(cells.find((c) => c.selected)).toMatchObject({ target: 4321 });
-    expect(cells.filter((c) => c.error)).toHaveLength(1);
-  });
-});

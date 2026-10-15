@@ -1,35 +1,48 @@
 import { useEffect, useState } from 'react';
+import { parseRoute, routeHref, type Route } from './route.js';
 
-export type Route = { page: 'home' } | { page: 'run'; runId: string; callNo: number | null } | { page: 'compare'; a: string; b: string };
+/**
+ * Follows the address bar. Routes are parsed in `route.ts`; this only listens. A replace (selecting
+ * a call, switching a view) rewrites the URL without a history entry and still tells the app.
+ */
 
-export function parseRoute(hash: string): Route {
-  const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
-  if (parts[0] === 'run' && parts[1]) {
-    const n = parts[2] === 'call' ? Number(parts[3]) : NaN;
-    return { page: 'run', runId: parts[1], callNo: Number.isInteger(n) ? n : null };
-  }
-  if (parts[0] === 'compare' && parts[1] && parts[2]) return { page: 'compare', a: parts[1], b: parts[2] };
-  return { page: 'home' };
+const REPLACED = 'shadowlap:route';
+
+export function currentRoute(): Route {
+  return parseRoute(location.hash);
 }
 
-export const href = {
-  home: () => '#/',
-  run: (runId: string, callNo?: number | null) => `#/run/${runId}${callNo ? `/call/${callNo}` : ''}`,
-  compare: (a: string, b: string) => `#/compare/${a}/${b}`,
-};
-
 export function navigate(to: string, replace = false): void {
-  if (replace) history.replaceState(null, '', to);
-  else location.hash = to;
-  if (replace) window.dispatchEvent(new HashChangeEvent('hashchange'));
+  if (replace) {
+    if (location.hash === to) return;
+    history.replaceState(history.state, '', `${location.pathname}${location.search}${to}`);
+    window.dispatchEvent(new Event(REPLACED));
+  } else if (location.hash === to) {
+    window.dispatchEvent(new Event(REPLACED));
+  } else {
+    location.hash = to;
+  }
 }
 
 export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseRoute(location.hash));
+  const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
-    const on = () => setRoute(parseRoute(location.hash));
+    const on = () => {
+      const next = currentRoute();
+      setRoute((prev) => (routeHref(prev) === routeHref(next) ? prev : next));
+    };
     window.addEventListener('hashchange', on);
-    return () => window.removeEventListener('hashchange', on);
+    window.addEventListener(REPLACED, on);
+    return () => {
+      window.removeEventListener('hashchange', on);
+      window.removeEventListener(REPLACED, on);
+    };
   }, []);
   return route;
+}
+
+/** The `?state=offline` and `?state=expired` previews of the connection states. */
+export function previewState(): 'offline' | 'expired' | null {
+  const m = /[?&]state=(offline|expired)\b/.exec(location.search);
+  return (m?.[1] as 'offline' | 'expired' | undefined) ?? null;
 }

@@ -1,0 +1,100 @@
+/**
+ * What the job drawer says about a CLI run the dashboard started: its title, how each output line
+ * is coloured, and how it ended. No DOM here: the tests import it.
+ */
+
+export interface JobLike {
+  args: string[];
+  done: boolean;
+  code: number | null;
+  title?: string;
+}
+
+const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result'];
+
+/** What the drawer calls a job: "Replaying", "Forking", "Packing". */
+export function jobTitle(job: JobLike): string {
+  if (job.title) return job.title;
+  const [cmd, sub] = job.args;
+  switch (cmd) {
+    case 'replay':
+      if (job.args.includes('--repeat')) return 'Repeating';
+      return job.args.some((a) => FORK_FLAGS.includes(a)) ? 'Forking' : 'Replaying';
+    case 'pack':
+      return 'Packing';
+    case 'normalize':
+      return 'Adding a normalizer';
+    case 'redact':
+      return 'Adding a redaction rule';
+    case 'export':
+      return sub === 'html' ? 'Exporting HTML' : sub === 'har' ? 'Exporting HAR' : sub === 'otel' ? 'Exporting a trace' : sub === 'dataset' ? 'Exporting a dataset' : 'Exporting';
+    case 'blame':
+      return 'Blaming';
+    case 'repair':
+      return 'Repairing';
+    case 'verify':
+      return 'Verifying';
+    case 'test':
+      return 'Running the tests';
+    case 'import':
+      return 'Importing a capture';
+    case 'calibrate':
+      return 'Calibrating';
+    case 'gc':
+      return 'Cleaning up';
+    case 'rm':
+      return 'Deleting';
+    case 'bisect':
+      return 'Finding the commit';
+    default:
+      return 'Running';
+  }
+}
+
+/** The command as typed, for the drawer's first line. */
+export function jobCommand(args: readonly string[]): string {
+  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
+}
+
+export type LineTone = '' | 'p' | 'ok' | 'y' | 'no';
+
+/** How the drawer colours an output line, from the marks the CLI prints. */
+export function lineTone(line: string): LineTone {
+  const t = line.trimStart();
+  if (t.startsWith('$ ')) return 'p';
+  if (/^(✓|●)/.test(t)) return 'ok';
+  if (/^(✗|error\b|Error\b)/.test(t)) return 'no';
+  if (/^(⑂|⚠|!|warning\b)/.test(t)) return 'y';
+  return '';
+}
+
+/**
+ * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
+ * from the CLI's own words when the server sends no structured result.
+ */
+export function jobStatus(job: JobLike, lines: readonly string[]): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
+  if (!job.done) return { text: 'running', tone: '' };
+  const all = lines.join('\n');
+  const code = job.code;
+  if (code === null) return { text: 'stopped', tone: 'err' };
+  const exit = `exit ${code}`;
+  if (code === 0) {
+    if (/check(s)? passed/i.test(all)) return { text: `check passed · ${exit}`, tone: 'ok' };
+    if (/Replay clean|Reproduced exactly/.test(all)) return { text: `reproduced · ${exit}`, tone: 'ok' };
+    if (/Forked at call/.test(all)) return { text: `forked · ${exit}`, tone: 'ok' };
+    return { text: `finished · ${exit}`, tone: 'ok' };
+  }
+  if (/check(s)? failed/i.test(all)) return { text: `check failed · ${exit}`, tone: 'err' };
+  if (/Diverged at call/.test(all) && !/Forked at call/.test(all)) return { text: `diverged · ${exit}`, tone: 'err' };
+  if (/the agent process exited with an error|--fail-at/.test(all)) return { text: `agent exited ${code}`, tone: 'warn' };
+  return { text: exit, tone: 'err' };
+}
+
+/** The last line worth repeating in a toast when a job finishes behind a closed drawer. */
+export function lastLine(lines: readonly string[]): string {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = lines[i]!.replace(/^[\s✓✗⑂●!]+/, '').trim();
+    if (t) return t.length > 70 ? `${t.slice(0, 69)}…` : t;
+  }
+  return '';
+}
