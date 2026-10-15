@@ -186,7 +186,8 @@ export async function testAttempt(
   if (summary.divergence && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
-  } else if (code !== 0) {
+  } else if (code !== 0 || timedOut) {
+    // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
     failure = { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {

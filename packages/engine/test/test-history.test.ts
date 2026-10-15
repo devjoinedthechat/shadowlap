@@ -76,6 +76,13 @@ describe('values that change every run', () => {
     ]));
     expect(both.values.map((v) => v.path)).toEqual(['$.metadata.user_id']);
     expect(both.explainsAll).toBe(false);
+    // Keys that only end in the letters "id" are not ids; camel-case ids are.
+    for (const key of ['paid', 'valid', 'android', 'rapid', 'grid', 'Paid']) {
+      expect(volatileValues(divergence([{ path: `$.order.${key}`, op: 'changed', before: 1999, after: 2499 }])).values, key).toEqual([]);
+    }
+    for (const key of ['userId', 'requestID', 'traceUuid', 'user_id', 'request-id', 'id', 'NONCE']) {
+      expect(volatileValues(divergence([{ path: `$.meta.${key}`, op: 'changed', before: 1999, after: 2499 }])).values, key).toHaveLength(1);
+    }
     // Words are not ids, even under an id-like key.
     expect(volatileValues(divergence([{ path: '$.args.order_id', op: 'changed', before: 'refund', after: 'escalate' }])).values).toEqual([]);
     expect(volatileValues({ type: 'new_call', callNo: 2, kind: 'tool', name: 'x', replayedBefore: 1 }).values).toEqual([]);

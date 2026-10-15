@@ -44,14 +44,18 @@ function lastKey(path: string): string {
   return dotted ? dotted[1]! : '';
 }
 
-/** A key that names an identifier: `id`, `user_id`, `request-id`, `traceId`, `nonce`. */
-const ID_KEY = /^(?:id|uuid|guid|nonce)$|[_-](?:id|uuid|guid|nonce)$|[a-z0-9](?:Id|ID|Uuid|UUID|Guid|Nonce)$/i;
+/**
+ * A key that names an identifier: `id`, `user_id`, `request-id`, `traceId`, `requestID`, `nonce`.
+ * The camel-case form is matched case by case, so `paid`, `valid` and `android` are not ids.
+ */
+const ID_KEY = /^(?:id|uuid|guid|nonce)$|[_-](?:id|uuid|guid|nonce)$/i;
+const ID_KEY_CAMEL = /[a-z0-9](?:Id|ID|Uuid|UUID|Guid|GUID|Nonce)$/;
 /** A value shaped like an identifier: one token of letters, digits and joiners, with a digit in it. */
 const ID_VALUE = /^(?=[^\s]*\d)[A-Za-z0-9][A-Za-z0-9_.:-]{3,127}$/;
 
 function idLike(entry: DiffEntry, value: unknown): boolean {
   const key = lastKey(entry.path);
-  if (!key || !ID_KEY.test(key)) return false;
+  if (!key || !(ID_KEY.test(key) || ID_KEY_CAMEL.test(key))) return false;
   if (typeof value === 'number') return Number.isInteger(value);
   return typeof value === 'string' && ID_VALUE.test(value);
 }

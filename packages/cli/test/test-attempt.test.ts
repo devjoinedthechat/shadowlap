@@ -45,4 +45,26 @@ describe.skipIf(process.platform === 'win32')('a replay with a time limit', () =
     expect(statSync(beat).mtimeMs).toBe(mtime);
     store.close();
   });
+
+  it('fails an agent stopped at the limit even when it catches the signal and exits 0', async () => {
+    const store = Store.open(':memory:');
+    const parent = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    store.endRun(parent.runId, 'completed');
+    const attempt = await testAttempt(store, parent, {
+      cwd: dir,
+      upstreams: {},
+      extraEnv: {},
+      writes: 'block',
+      guard: 'off',
+      normalizers: [],
+      prices: undefined,
+      clock: undefined,
+      spec: null,
+      argv: [process.execPath, '-e', "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000)"],
+      timeoutMs: 500,
+    });
+    expect(attempt.code).toBe(0);
+    expect(attempt).toMatchObject({ kind: 'exit', failure: { message: 'the agent was stopped after 500ms' } });
+    store.close();
+  });
 });
