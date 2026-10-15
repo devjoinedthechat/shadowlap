@@ -147,6 +147,16 @@ describe('the Runs table', () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
     const page = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
     expect(page.runs.map((r) => r.local)).toEqual([true, true, true, true]);
+    // A recording in progress is only here too, though Needs a look counts finished runs: it can't be pushed yet.
+    const live = addRun(store, { startedAt: NOW, calls: 'l', status: 'running' });
+    try {
+      const now = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
+      expect(now.runs.find((r) => r.runId === live)).toMatchObject({ status: 'running', local: true });
+      const s = await get<OverviewSummary>(dash, 'summary');
+      expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
+    } finally {
+      store.deleteRun(live);
+    }
   });
 });
 

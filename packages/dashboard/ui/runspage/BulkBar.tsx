@@ -34,9 +34,10 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   const deletable = runs.filter((r) => !isLive(r));
   const off = actionsOff ?? undefined;
 
+  // A run still recording goes too: the CLI queues it, and pushes it when it ends.
   const push = () => {
-    const up = runs.filter((r) => !isLive(r) && r.local !== false);
-    if (!up.length) return toast(live.length ? 'A run that is still recording is pushed when it ends.' : 'Already in the store.');
+    const up = runs.filter((r) => isLive(r) || r.local !== false);
+    if (!up.length) return toast('Already in the store.');
     watchJob(client.startJob(JOB_KINDS.push, { runIds: up.map((r) => r.runId) }));
   };
 

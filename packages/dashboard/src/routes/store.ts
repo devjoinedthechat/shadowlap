@@ -19,14 +19,16 @@ export function teamStoreFor(ctx: RouteContext): TeamStoreStatus | null {
 }
 
 /**
- * Which of these runs are only on this machine: finished, not pulled from a pull request's folder,
- * and not listed in the store's index (as `teamLocalOnly` counts them). The Runs page's `local` tag.
+ * Which of these runs are only on this machine: not pulled from a pull request's folder, and not
+ * listed in the store's index. The Runs page's `local` tag. A recording in progress is one of them
+ * until it is pushed, as the design tags it; Needs a look counts finished runs only, as
+ * `teamLocalOnly` does, since one still recording can't be pushed yet.
  */
 export function localRunIds(store: Store, remote: string, runIds: readonly string[]): Set<string> {
   if (!runIds.length) return new Set();
   const rows = store.query(
     `SELECT r.run_id AS id FROM runs r WHERE r.run_id IN (SELECT value FROM json_each(?))
-       AND r.status != 'running' AND json_extract(r.meta, '$.imported.pr') IS NULL
+       AND json_extract(r.meta, '$.imported.pr') IS NULL
        AND NOT EXISTS (SELECT 1 FROM team_runs t WHERE t.remote = ? AND t.run_id = r.run_id AND t.state != 'queued' AND t.remote_hash IS NOT NULL)`,
     JSON.stringify(runIds),
     remote,
