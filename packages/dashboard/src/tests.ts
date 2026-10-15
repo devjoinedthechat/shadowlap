@@ -177,6 +177,8 @@ export interface FailureView {
   reason: string;
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   details: string | null;
+  /** The last lines the agent printed, as `test --markdown` shows them; null when none were kept. */
+  output: string | null;
   bisect: BisectRange | null;
   found: FoundCommit | null;
 }
@@ -462,7 +464,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         found,
       });
     } else {
-      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, bisect, found });
+      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, bisect, found });
     }
   }
 

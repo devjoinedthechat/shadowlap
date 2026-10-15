@@ -10,6 +10,7 @@ import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type SpawnCli } from './jobs.js';
 import { Router, routeRequest } from './router.js';
 import { registerRoutes, type RouteModule } from './routes/index.js';
+import type { GoldenSource } from './tests.js';
 import { UploadStore } from './uploads.js';
 
 export type { SpawnCli, SpawnCliOptions } from './jobs.js';
@@ -55,6 +56,12 @@ export interface DashboardOptions {
   project?: { name?: string; path: string };
   /** Reads the project's shadowlap.config.json, fresh on every call, as the CLI does. */
   loadConfig?: () => ProjectConfig;
+  /**
+   * The project's goldens, read fresh on every call: the packs in its goldens folder and those its
+   * config's `tests` name, as `projectGoldens` in the CLI lists them. Tests shows them, and its jobs
+   * take only these. Without it the project has no goldens.
+   */
+  goldens?: () => GoldenSource[];
   /** The most one upload may hold, in bytes (64 MB). */
   uploadLimit?: number;
   /** How long an upload no job used is kept, in milliseconds (an hour). */

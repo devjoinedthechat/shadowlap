@@ -367,6 +367,8 @@ export interface TestResultData {
   };
   /** The failure as the CLI printed it under the golden's line. */
   details?: string;
+  /** For a failure: the last lines the agent printed, as `test --markdown` shows them (at most 20, cut short). */
+  output?: string;
   /** `test --update` re-recorded the golden: the run it replaced, the new one, its calls, and what the agent sends differently. */
   updated?: { from: string | null; to: string; calls: number; changes?: string[] };
 }

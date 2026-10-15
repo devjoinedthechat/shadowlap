@@ -315,6 +315,9 @@ export function register(program: Command): void {
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
       if (pusher) await pusher.finish(report);
       emitJobEvent({ type: 'result', data: report });
+      // One golden, as the dashboard's Add normalizer and re-run tests it: a link to its replay.
+      const only = results.length === 1 && packs.length === 1 ? results[0]! : null;
+      if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).

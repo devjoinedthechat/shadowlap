@@ -232,8 +232,20 @@ describe('the Tests screen', () => {
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
     expect(view.verdict!.title).toBe('x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
-    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', bisect: null, found: null }]);
+    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, bisect: null, found: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
+    store.close();
+  });
+
+  it('shows what the agent printed last when it exited with an error, as test --markdown does', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    const output = 'Traceback (most recent call last):\n  File "agent.py", line 12\nKeyError: \'refund\'';
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', revision: 'abc1234', data: { details: '30/30 calls replayed', output } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]);
+    expect(view.verdict!.title).toBe('x exited with code 1');
+    expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, details: '30/30 calls replayed', output }]);
     store.close();
   });
 
