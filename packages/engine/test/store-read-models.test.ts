@@ -29,6 +29,18 @@ describe('Store.query', () => {
     }
   });
 
+  it('leaves a connection that was read-only before read-only after', () => {
+    const store = Store.open(':memory:');
+    try {
+      // As a dashboard started read-only might hold its connection.
+      (store as unknown as { db: { exec(sql: string): void } }).db.exec('PRAGMA query_only = ON');
+      expect(store.query(`SELECT 1 AS one`)).toEqual([{ one: 1 }]);
+      expect(() => store.createRun({ mode: 'record', command: { argv: ['node', 'a.js'], cwd: '/w' } })).toThrow(/readonly/);
+    } finally {
+      store.close();
+    }
+  });
+
   it('keeps run statistics only for runs that exist, and drops them with their run', () => {
     const store = Store.open(':memory:');
     try {

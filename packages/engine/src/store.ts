@@ -506,11 +506,13 @@ export class Store {
   // ---- read models (the dashboard's overview, run list and calendar) ----
 
   private readonly readStatements = new Map<string, SqliteStatement>();
+  private queryOnlyState: SqliteStatement | null = null;
 
   /**
    * Runs one read-only statement and returns its rows, for read models that aggregate in SQL instead
    * of loading every call of every run. Callers pass fixed SQL and bind every value. SQLite itself
-   * refuses a write here (`query_only`), whatever the SQL says; only the first statement runs.
+   * refuses a write here (`query_only`), whatever the SQL says; only the first statement runs. A
+   * connection that was read-only before is left read-only.
    */
   query(sql: string, ...params: SqlValue[]): Record<string, unknown>[] {
     if (!/^\s*(SELECT|WITH)\b/i.test(sql)) throw new Error('Store.query runs read-only SELECT statements');
@@ -521,11 +523,13 @@ export class Store {
       statement = this.db.prepare(sql);
       this.readStatements.set(sql, statement);
     }
-    this.db.exec('PRAGMA query_only = ON');
+    this.queryOnlyState ??= this.db.prepare('PRAGMA query_only');
+    const readOnly = Number(this.queryOnlyState.get()?.query_only) === 1;
+    if (!readOnly) this.db.exec('PRAGMA query_only = ON');
     try {
       return statement.all(...params);
     } finally {
-      this.db.exec('PRAGMA query_only = OFF');
+      if (!readOnly) this.db.exec('PRAGMA query_only = OFF');
     }
   }
 
