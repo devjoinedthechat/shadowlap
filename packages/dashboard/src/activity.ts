@@ -196,6 +196,8 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
     if (outcome) parts.push(outcome);
     return { ...item, kind: checks?.failed ? 'fail' : 'clean', text: parts.join(' · ') };
   }
+  // A replay that made no calls at all (nothing went through Shadowlap) is not clean, and not a failure either.
+  if (run.status === 'completed') return { ...item, kind: checks?.failed ? 'fail' : 'clean', text: `Replay finished · no calls${outcome ? ` · ${outcome}` : ''}` };
   const what = run.status === 'crashed' ? 'Replay stopped' : 'Replay failed';
   return { ...item, kind: run.status === 'crashed' ? 'clean' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
 }

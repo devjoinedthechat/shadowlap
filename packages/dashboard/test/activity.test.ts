@@ -45,6 +45,10 @@ function build(): { store: Store; ids: Record<string, string> } {
   call(override, 2, 'tool', 'lookup_order', 'overridden');
   call(override, 3, 'api', 'POST /v1/messages', 'live');
   store.setDivergence(override, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 });
+  // Replays that did not fork: one whose agent failed, one interrupted, one that made no calls at all.
+  replayed(run('replayFailed', { mode: 'replay', parentRunId: rec, startedAt: 4300 }, { at: 4310, status: 'failed' }));
+  replayed(run('replayStopped', { mode: 'replay', parentRunId: rec, startedAt: 4320 }, { at: 4330, status: 'crashed' }));
+  run('replayEmpty', { mode: 'replay', parentRunId: rec, startedAt: 4340 }, { at: 4350 });
 
   // replay --repeat 2: two attempts forked at #2 that took the same path.
   for (const attempt of [1, 2]) {
@@ -98,6 +102,9 @@ describe('the activity feed', () => {
     expect(byId(items, `r:${ids.clean}:end`)).toMatchObject({ kind: 'clean', text: 'Replay clean · 3/3 · 0 upstream' });
     expect(byId(items, `r:${ids.failAt}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #2 with --fail-at 2=529 · 1 live · 1 blocked · the agent failed' });
     expect(byId(items, `r:${ids.override}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #3 with --override 2 · 1 live' });
+    expect(byId(items, `r:${ids.replayFailed}:end`)).toMatchObject({ kind: 'fail', text: 'Replay failed · 3/3 replayed' });
+    expect(byId(items, `r:${ids.replayStopped}:end`)).toMatchObject({ kind: 'clean', text: 'Replay stopped · 3/3 replayed' });
+    expect(byId(items, `r:${ids.replayEmpty}:end`)).toMatchObject({ kind: 'clean', text: 'Replay finished · no calls' });
   });
 
   it('bundles --repeat attempts into one entry, and leaves blame probes out', () => {
