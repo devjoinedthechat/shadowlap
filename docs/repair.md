@@ -110,9 +110,9 @@ Without a repairer, repair still tries the fixes that need none (`--stronger`), 
 Repair blames each failing run first, and each blame opens or joins a [fix](./blame.md#fixes), so a repair of runs never blamed opens one. The repair is kept with that fix: its report, its directory, and every candidate it tried with why it was dropped. Its failing runs, held-out ones included, become the fix's failing runs, and its good runs the fix's good runs.
 
 - When a candidate is accepted, its verification is kept as a verdict of its own and the fix turns verified. With `--apply` the change is already in the working tree, so the fix is applied. With `--pr`, the pull request becomes where the fix came from.
-- When none is accepted, repair exits 1 and the fix stays open. Its Repair step lists each candidate, accepted, rejected or set aside, with why.
+- When none is accepted, repair exits 1 and the fix stays open, and `shadowlap fix show` lists each candidate it tried, rejected or set aside, with why.
 
-[`shadowlap fix apply <fix>`](./cli.md#fix) hands a verified fix over later: it applies `fix.patch`, copies the recordings in `goldens/` into the project's goldens folder, runs `shadowlap test` on them, and marks the fix applied. A repair logs `repair.accepted` or `repair.empty` in the store's activity and, started from the dashboard, links its job to the fix's Repair step.
+[`shadowlap fix apply <fix>`](./cli.md#fix) hands a verified fix over later: it applies `fix.patch`, copies the recordings in `goldens/` into the project's goldens folder, runs `shadowlap test` on them, and marks the fix applied. A repair logs `repair.accepted` or `repair.empty` in the store's activity. Run by a dashboard job, it reports a link to the fix's Repair step.
 
 ## Outcomes
 

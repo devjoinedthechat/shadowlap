@@ -84,7 +84,7 @@ A replay re-runs a run's recorded command, but in the environment verify runs in
 
 Every verdict is kept in the store with its whole report, whether or not `--json` was given, and linked to the [fix](./cli.md#fix) of the failing runs: the fix they fail in, or, for runs never blamed, the fix of runs with the same label that is not applied yet. The good runs become the fix's good runs, and the target and held-out runs its failing runs. An accepted verdict turns the fix verified. A rejected one is kept too, and counts as a change rejected before it shipped; a fix stays verified whatever a later verdict says. A verdict on runs no fix holds is kept on its own.
 
-The report ends with the fix it was kept with, and the verdict is logged as a `verify.accepted` or `verify.rejected` event in the store's activity. Started from the dashboard, the job links to that verdict on the fix's Verify step.
+The report ends with the fix it was kept with, and the verdict is logged as a `verify.accepted` or `verify.rejected` event in the store's activity. Run by a dashboard job, it reports a link to that verdict on the fix's Verify step.
 
 ## JSON
 

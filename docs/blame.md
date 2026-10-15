@@ -78,7 +78,7 @@ Every attempt is a run in the store, marked as a blame attempt and bundled per p
 
 ## Fixes
 
-Every blame is kept in the store whole, with the fix it opens or joins. A fix is one failure, from the blame that reproduced it to a change that held: [`shadowlap fix`](./cli.md#fix) lists them, and the dashboard's Fixes page shows each one's blame, repair and verify. The report ends with it:
+Every blame is kept in the store whole, with the fix it opens or joins. A fix is one failure, from the blame that reproduced it to a change that held: [`shadowlap fix`](./cli.md#fix) lists them and shows each one's blame, repair and verify. The report ends with it:
 
 ```
   fix fx-01M3RZ4XKN · issue_refund called with amount 240 · opened · shadowlap fix show fx-01M3RZ4XKN
@@ -93,7 +93,7 @@ Which fix a blamed run goes to:
 
 A blame that stopped early opens or joins a fix too: it replayed the run and saw it fail before it probed anything, so the failure is reproduced. A blame that refused (the run passes, or doesn't replay as recorded) leaves nothing behind. An applied fix is finished: no run joins it, and the same failure coming back after it shipped opens a new one.
 
-Each blame also logs a `blame.done` event in the store's activity, and, started from the dashboard, links its job to the fix's Blame step.
+Each blame also logs a `blame.done` event in the store's activity. Run by a dashboard job, it reports a link to the fix's Blame step.
 
 ## Cost
 

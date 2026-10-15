@@ -190,11 +190,11 @@ A fix is one failure, from the blame that reproduced it to a change that held. A
 | `--goldens <dir>` | `fix apply`: where the recordings go. Default `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them |
 | `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test |
-| `--json` | The list, the fix, or what `fix apply` did, as JSON: what the dashboard reads |
+| `--json` | The list, the fix, or what `fix apply` did, as JSON: the dashboard's read model of Fixes |
 
 `fix apply` exits 1 when the fix is still open, when the patch does not apply, or when the test fails; a patch that applied stays applied. Run it in the folder the repair ran in, where its directory under `.shadowlap/repairs/` is.
 
-`fix show --json` has the steps as the dashboard shows them:
+`fix show --json` has the three steps in full:
 
 | Field | |
 |---|---|
