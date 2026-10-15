@@ -27,12 +27,14 @@ export function useLoad<T>(load: () => Promise<T> | null, key: string, refresh: 
     let alive = true;
     const p = loadRef.current();
     if (!p) {
-      setState({ key, data: null, error: null, loading: false });
+      setState((s) => (s.key === key && s.data === null && !s.error && !s.loading ? s : { key, data: null, error: null, loading: false }));
       return;
     }
-    setState((s) => (s.key === key ? { ...s, loading: true } : { key, data: null, error: null, loading: true }));
+    // A reload keeps what it had; a new key starts empty.
+    setState((s) => (s.key === key ? s : { key, data: null, error: null, loading: true }));
     p.then(
-      (data) => alive && setState({ key, data, error: null, loading: false }),
+      // An unchanged answer (a 304 hands back the same object) changes nothing, so nothing redraws.
+      (data) => alive && setState((s) => (s.key === key && s.data === data && !s.error && !s.loading ? s : { key, data, error: null, loading: false })),
       (err: unknown) => alive && setState((s) => ({ key, data: s.key === key ? s.data : null, error: err instanceof Error ? err : new Error(String(err)), loading: false })),
     );
     return () => {

@@ -178,12 +178,15 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
     [listFor, selected, select],
   );
   const canFork = !exported && !live && !actionsOff;
+  // Stable, so a row does not redraw when the selection moves elsewhere.
+  const selectedNow = useLatest(selected);
+  const openAt = forkMenu.openAt;
   const openForkAt = useCallback(
     (n: number, el: HTMLElement) => {
-      if (n !== selected) select(n);
-      forkMenu.openAt(el);
+      if (n !== selectedNow.current) select(n);
+      openAt(el);
     },
-    [selected, select, forkMenu],
+    [selectedNow, select, openAt],
   );
 
   // The run's keys, while this page is open.

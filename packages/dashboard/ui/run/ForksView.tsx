@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { Fragment, useMemo, type ReactNode } from 'react';
 import type { LineageNode, RunListItem } from '../api.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { approx, num, plural, shortId, stamp } from '../format.js';
@@ -101,7 +101,7 @@ export function ForksView({ runId }: { runId: string }) {
     for (const n of plain) {
       items.push(node(n));
       const sub = family(n.runId);
-      if (sub) items.push(sub);
+      if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
     for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
     if (!items.length) return null;
