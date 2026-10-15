@@ -1,6 +1,7 @@
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
 import { loadApiRequest, storeApiRequest } from './manifest.js';
 import { applyNormalizers, parsePath, rewriteText } from './normalize.js';
+import { maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import type { Store } from './store.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunRecord } from './types.js';
 
@@ -86,27 +87,65 @@ function redactEventPayload(payload: Buffer, rules: Normalizer[]): Buffer | null
   return masked === text ? null : Buffer.from(masked, 'utf8');
 }
 
-/** A Bedrock event stream with every frame's payload masked; a frame nothing matched stays byte for byte. */
+/**
+ * One frame's event, parsed, and how to write the frame's payload again once the event has changed.
+ * InvokeModelWithResponseStream wraps the provider's own event in base64 `bytes`. Null when the
+ * payload is no JSON.
+ */
+function frameEvent(payload: Buffer): { event: unknown; encode: () => Buffer } | null {
+  const parse = (bytes: Buffer): unknown => {
+    const text = asText(bytes);
+    if (text === null) return undefined;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
+  };
+  const outer = parse(payload);
+  if (outer === undefined) return null;
+  if (isObject(outer) && typeof outer.bytes === 'string') {
+    const inner = parse(Buffer.from(outer.bytes, 'base64'));
+    if (inner === undefined) return null;
+    return { event: inner, encode: () => Buffer.from(JSON.stringify({ ...outer, bytes: Buffer.from(JSON.stringify(inner), 'utf8').toString('base64') }), 'utf8') };
+  }
+  return { event: outer, encode: () => Buffer.from(JSON.stringify(outer), 'utf8') };
+}
+
+/**
+ * A Bedrock event stream with every frame's payload masked: first the text the model streamed in
+ * pieces, across frames, then each payload as text. A frame nothing matched stays byte for byte.
+ */
 function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[]): Buffer {
+  const events = frames.map((f) => frameEvent(f.payload));
+  const across = maskStreamed(
+    events.map((e) => e?.event),
+    rules,
+  );
   return Buffer.concat(
-    frames.map((f) => {
-      const payload = redactEventPayload(f.payload, rules);
-      return payload ? encodeEventStreamFrame(f.headers, payload) : f.raw;
+    frames.map((f, i) => {
+      const payload = across.has(i) ? events[i]!.encode() : f.payload;
+      const masked = redactEventPayload(payload, rules) ?? payload;
+      return masked.equals(f.payload) ? f.raw : encodeEventStreamFrame(f.headers, masked);
     }),
   );
 }
 
 /**
- * A stored response, or any bytes, with every pathless rule applied to its text. An AWS event stream
- * (Bedrock's streamed responses: binary frames around JSON events) is masked event by event and its
- * frames rebuilt with new checksums. Other bytes that are not text stay as they are.
+ * A stored response, or any bytes, with every pathless rule applied to its text. A streamed response
+ * (server-sent events, Gemini's array of chunks, or Bedrock's AWS event stream) is first masked
+ * across its events, since the model's text arrives in pieces a rule never sees whole (see
+ * redact-stream.ts). An event stream's frames are rebuilt with new checksums. Other bytes that are
+ * not text stay as they are.
  */
 export function redactBytes(bytes: Buffer, rules: Normalizer[]): Buffer {
   if (!rules.some((n) => n.path === undefined && n.pattern !== undefined)) return bytes;
   const frames = eventStreamFrames(bytes);
   if (frames) return redactEventStream(frames, rules);
   const text = asText(bytes);
-  return text === null ? bytes : Buffer.from(rewriteText(text, rules), 'utf8');
+  if (text === null) return bytes;
+  const streamed = maskSseStream(text, rules) ?? maskJsonChunks(text, rules) ?? text;
+  return Buffer.from(rewriteText(streamed, rules), 'utf8');
 }
 
 /**

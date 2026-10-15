@@ -86,7 +86,7 @@ shadowlap redact add --kind tool --path '$.args.api_key' --pattern '/.+/' --repl
 shadowlap pack <run> ./share/run
 ```
 
-`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request and the raw text of responses and tool results. The local store is never modified. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean. `--no-redact` skips the rules.
+`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request and the raw text of responses and tool results. A streamed response is masked across its events too, since the model's text arrives in pieces no rule sees whole: each block's text and each tool call's arguments are masked as the text they add up to. The local store is never modified. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean. `--no-redact` skips the rules.
 
 Two rules for rules: a replacement must not itself match the pattern (rules are applied again at match time and must be idempotent), and redaction is pattern-based: it masks what your rules describe and nothing else. Review a pack before sharing it.
 

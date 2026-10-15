@@ -469,8 +469,10 @@ Credentials are never written.
 A HAR carries full requests and responses, so the redaction rules in `shadowlap.config.json` apply,
 as they do to `pack` and `export html`: every rule to the request bodies (rules with a path
 included), and the rules without a path to the URL, the headers and the responses, streamed or not.
-The rules are named in the log (`_shadowlap.redactions`). `--no-redact` skips them; the command says
-when there are none to apply.
+A model streams its text in pieces, so an address it writes back arrives split across events; each
+run of pieces (a block's text, a tool call's arguments) is masked as the text it adds up to, and the
+masked text is spread back over the same events. The rules are named in the log
+(`_shadowlap.redactions`). `--no-redact` skips them; the command says when there are none to apply.
 
 ## export otel
 

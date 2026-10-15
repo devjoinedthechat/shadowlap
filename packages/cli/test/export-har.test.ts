@@ -154,6 +154,20 @@ describe('export har: redaction', () => {
     store.close();
   });
 
+  it('masks a secret the model streamed back in pieces, which no rule sees in one event', () => {
+    const store = Store.open(':memory:');
+    const delta = (text: string) => `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })}\n\n`;
+    const split = secretEntry();
+    split.response.content.text = ['Rotated sk-li', 've-9f8e7d', '6c5b4a for ma', 'ya@example', '.com.'].map(delta).join('');
+    const { run } = importHar(store, har(split), { source: 'in.har' });
+    const { har: out } = runToHar(store, run, store.getCalls(run.runId), { redact: RULES });
+    const stream = Buffer.from((out as { log: { entries: Array<{ response: { content: { text: string } } }> } }).log.entries[0]!.response.content.text, 'base64').toString('utf8');
+    expect(stream).not.toMatch(/sk-li|9f8e7d|6c5b4a|maya|example\.com/);
+    const texts = [...stream.matchAll(/"text":"([^"]*)"/g)].map((m) => m[1]);
+    expect(texts.join('')).toBe('Rotated <KEY> for <EMAIL>.');
+    store.close();
+  });
+
   it('masks the secret in the file the CLI writes, with the project\'s rules, unless --no-redact', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-har-redact-'));
     try {
