@@ -73,6 +73,12 @@ export interface DashboardOptions {
   jobStopGraceMs?: number;
   /** Route modules registered after the built-in ones in routes/index.ts: for tests, and for embedding the server elsewhere. */
   routes?: RouteModule[];
+  /**
+   * Options that belong to a project's folder, such as how to list its goldens: asked once for each
+   * project the dashboard serves (and for the folder of a dashboard that serves one store) and laid
+   * over the rest, so each project's routes read their own. `id` is null with one store.
+   */
+  projectOptions?: (project: { id: string | null; name: string; path: string }) => Partial<DashboardOptions>;
 }
 
 export interface Dashboard {
@@ -232,7 +238,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   const contextOf = (pc: ProjectContext<ProjectConfig>, kinds: Map<string, JobKind>, problem: string | null): RouteContext => {
     const store = problem ? () => (standIn ??= Store.open(':memory:')) : () => storeOf(pc);
     const config = () => readConfig(() => pc.config());
-    const options: DashboardOptions = { ...opts };
+    const options: DashboardOptions = { ...opts, ...(opts.projectOptions?.({ id: pc.id, name: pc.name, path: pc.path }) ?? {}) };
     Object.defineProperties(options, {
       store: { get: store, enumerable: true, configurable: true },
       dbPath: { value: pc.dbPath, enumerable: true, configurable: true },
@@ -294,7 +300,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     single = new Router();
     registerAll(single, {
       store: opts.store!,
-      options: opts,
+      options: project && opts.projectOptions ? { ...opts, ...opts.projectOptions({ id: null, name: project.name, path: project.path }) } : opts,
       jobs,
       uploads,
       read: opts.prices ? { prices: opts.prices } : {},

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { ProjectHost, ProjectRegistry, Store, projectDbPath, type SetupFindings } from '@shadowlap/engine';
-import { cliSpawner, startDashboard, type Dashboard, type ProjectConfig, type RouteModule } from '../src/index.js';
+import { cliSpawner, startDashboard, type Dashboard, type DashboardOptions, type ProjectConfig, type RouteModule } from '../src/index.js';
 
 /**
  * One dashboard over several projects: the switcher, adding a folder within the limits, removing
@@ -78,7 +78,7 @@ afterEach(async () => {
   open = [];
 });
 
-async function world(options: { routes?: RouteModule[]; env?: Record<string, string> } = {}) {
+async function world(options: { routes?: RouteModule[]; env?: Record<string, string>; projectOptions?: DashboardOptions['projectOptions'] } = {}) {
   const home = tempDir('sl-proj-home-');
   const slHome = join(home, '.sl');
   const support = files(join(home, 'support-agent'), { 'pyproject.toml': '[project]\nname = "support"\n' });
@@ -104,6 +104,7 @@ async function world(options: { routes?: RouteModule[]; env?: Record<string, str
     spawnCli: cliSpawner({ command: [process.execPath, fake], cwd: support, env: { ...process.env, ...(options.env ?? {}) } }),
     version: '0.1.0',
     routes: options.routes ?? [],
+    ...(options.projectOptions ? { projectOptions: options.projectOptions } : {}),
   });
   open.push({ dash, host });
   const api = async <T = Record<string, unknown>>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: T }> => {
@@ -193,17 +194,19 @@ describe('the switcher', () => {
     const capturing: RouteModule = {
       register: (router, ctx) => {
         const { store, project, jobs } = ctx;
-        router.get('/kept', (r) => r.json({ runs: store.allRuns().length, project: project?.name }));
+        // What the CLI gives per folder (how to list its goldens, say) is the project's own too.
+        const folder = (ctx.options as { folder?: string }).folder;
+        router.get('/kept', (r) => r.json({ runs: store.allRuns().length, project: project?.name, folder }));
         jobs.registerJobKind('kept', { title: () => 'Keeping', build: () => ({ args: ['kept', project!.name] }) });
         // Each instance hears the jobs of its own project.
         jobs.onJob((n) => (n.type === 'end' ? heard.push([project!.name, n.job.kind]) : undefined));
       },
     };
-    const w = await world({ routes: [capturing] });
+    const w = await world({ routes: [capturing], projectOptions: (p) => ({ folder: p.path }) as Partial<DashboardOptions> });
     w.registry.add(w.triage);
-    expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent' });
+    expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent', folder: w.support });
     await w.api('projects/triage-bot/select', { method: 'POST' });
-    expect((await w.api('kept')).body).toEqual({ runs: 0, project: 'triage-bot' });
+    expect((await w.api('kept')).body).toEqual({ runs: 0, project: 'triage-bot', folder: w.triage });
     // The kind is listed once, and its job is built by the current project's instance.
     expect((await w.api<{ jobKinds: string[] }>('meta')).body.jobKinds.filter((k) => k === 'kept')).toHaveLength(1);
     const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'kept' } });
@@ -212,7 +215,7 @@ describe('the switcher', () => {
     expect(heard).toEqual([['triage-bot', 'kept']]);
     // Back again: the first project's instance, with its store.
     await w.api('projects/support-agent/select', { method: 'POST' });
-    expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent' });
+    expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent', folder: w.support });
   });
 
   it('shows an empty stand-in for a project whose folder is gone, so the switcher still works, and refuses its jobs with the reason', async () => {
