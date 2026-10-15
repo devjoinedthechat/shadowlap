@@ -570,6 +570,32 @@ export class Store {
       .map(rowToRun);
   }
 
+  /**
+   * The revisions runs were made at (their code version), newest first: when each was last seen,
+   * how many runs ended there and how many of those failed (a non-zero exit, a crash, or a failed
+   * check). `argv` counts only runs of that command, `before` only runs started before it. Blame's
+   * probes and verify's attempts are left out: they ran with a change of their own. Bisect offers
+   * these as commits where a run still worked.
+   */
+  runRevisions(options: { argv?: readonly string[]; before?: number; limit?: number } = {}): Array<{ revision: string; lastAt: number; runs: number; failed: number }> {
+    const where = [`code_version IS NOT NULL`, `status <> 'running'`, `json_extract(meta, '$.probe') IS NULL`, `json_extract(meta, '$.verify') IS NULL`];
+    const params: unknown[] = [];
+    if (options.argv) {
+      where.push(`json_extract(command, '$.argv') = json(?)`);
+      params.push(JSON.stringify(options.argv));
+    }
+    if (options.before !== undefined) {
+      where.push('started_at < ?');
+      params.push(options.before);
+    }
+    params.push(Math.max(1, Math.min(1000, options.limit ?? 50)));
+    const failed = `status IN ('failed', 'crashed') OR EXISTS (SELECT 1 FROM json_each(meta, '$.checks') WHERE json_extract(value, '$.ok') = 0)`;
+    return this.db
+      .prepare(`SELECT code_version, MAX(started_at) AS last_at, COUNT(*) AS runs, SUM(CASE WHEN ${failed} THEN 1 ELSE 0 END) AS failed FROM runs WHERE ${where.join(' AND ')} GROUP BY code_version ORDER BY last_at DESC, code_version ASC LIMIT ?`)
+      .all(...params)
+      .map((row) => ({ revision: String(row.code_version), lastAt: Number(row.last_at), runs: Number(row.runs), failed: Number(row.failed) }));
+  }
+
   // ---- runs ----
 
   createRun(input: CreateRunInput): RunRecord {

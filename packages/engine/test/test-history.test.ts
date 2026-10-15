@@ -57,6 +57,32 @@ describe('test history in the store', () => {
     store.close();
   });
 
+  it('counts the runs at each revision and how many failed, newest first, for one command', () => {
+    const store = Store.open(':memory:');
+    const agent = ['node', 'agent.mjs'];
+    const run = (argv: string[], codeVersion: string | null, startedAt: number, status: 'completed' | 'failed' | 'crashed', meta?: Parameters<Store['createRun']>[0]['meta']) => {
+      const r = store.createRun({ mode: 'record', command: { argv, cwd: '/p' }, codeVersion, startedAt, ...(meta ? { meta } : {}) });
+      store.endRun(r.runId, status, startedAt + 1);
+    };
+    run(agent, 'aaa1111', 100, 'completed');
+    run(agent, 'aaa1111', 110, 'failed');
+    run(agent, 'bbb2222', 200, 'completed', { checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }] });
+    run(agent, 'bbb2222', 210, 'completed', { checks: [{ ok: true, label: 'send_email called 0 times', detail: null }] });
+    run(agent, 'ccc3333', 300, 'crashed');
+    run(agent, 'ccc3333', 310, 'completed', { probe: { of: 'X', callNo: 2, passed: false } });
+    run(['python', 'other.py'], 'ddd4444', 400, 'completed');
+    run(agent, null, 500, 'completed');
+    store.createRun({ mode: 'record', command: { argv: agent, cwd: '/p' }, codeVersion: 'eee5555', startedAt: 600 });
+    expect(store.runRevisions({ argv: agent })).toEqual([
+      { revision: 'ccc3333', lastAt: 300, runs: 1, failed: 1 },
+      { revision: 'bbb2222', lastAt: 210, runs: 2, failed: 1 },
+      { revision: 'aaa1111', lastAt: 110, runs: 2, failed: 1 },
+    ]);
+    expect(store.runRevisions({ argv: agent, before: 300, limit: 1 })).toEqual([{ revision: 'bbb2222', lastAt: 210, runs: 2, failed: 1 }]);
+    expect(store.runRevisions().map((r) => r.revision)).toEqual(['ddd4444', 'ccc3333', 'bbb2222', 'aaa1111']);
+    store.close();
+  });
+
   it('keeps history when the runs it names are deleted', () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/' } });
