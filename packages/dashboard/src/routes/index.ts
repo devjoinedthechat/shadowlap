@@ -9,6 +9,11 @@ import * as meta from './meta.js';
 import * as runs from './runs.js';
 import * as search from './search.js';
 import * as uploads from './uploads.js';
+// overview-runs: the Overview, the Runs page, imports and the team store.
+import * as imports from './imports.js';
+import * as overview from './overview.js';
+import * as runsList from './runs-list.js';
+import * as teamStore from './store.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -29,6 +34,11 @@ export const ROUTE_MODULES: RouteModule[] = [
   files,
   uploads,
   activity,
+  // overview-runs
+  overview,
+  runsList,
+  teamStore,
+  imports,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {
