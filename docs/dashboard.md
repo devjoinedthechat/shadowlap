@@ -41,7 +41,7 @@ Some jobs take a file from your browser, such as a capture to import. The dashbo
 
 ## Read-only
 
-`shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. Downloading a run as HTML still works, since it changes nothing. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one; it opens that store the way every command does, which brings an older store's layout up to date. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way.
+`shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. Downloading a run as HTML still works, since it changes nothing. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one, and it leaves the uploads folder alone (even files another dashboard left there); it opens that store the way every command does, which brings an older store's layout up to date and lets search build its index. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way.
 
 ## Keys
 

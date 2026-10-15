@@ -96,7 +96,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   const readOnlyReason = !readOnly ? null : opts.readOnly ? 'this dashboard is read-only (started with --read-only): it shows runs and changes nothing' : 'this dashboard is read-only: start it with shadowlap dashboard to change runs and run actions';
   const projectPath = opts.project ? resolve(opts.project.path) : null;
   const project = projectPath ? { name: opts.project?.name ?? basename(projectPath), path: projectPath } : null;
-  const uploads = new UploadStore({ project, limit: opts.uploadLimit, maxIdleMs: opts.uploadMaxIdleMs });
+  const uploads = new UploadStore({ project, limit: opts.uploadLimit, maxIdleMs: opts.uploadMaxIdleMs, readOnly });
   const jobs = new JobManager({ store, spawnCli: opts.spawnCli, project, uploads, log, stopGraceMs: opts.jobStopGraceMs });
   let port = 0;
 

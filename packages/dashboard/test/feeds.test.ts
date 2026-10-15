@@ -1,9 +1,9 @@
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { recordEvent, Store } from '@shadowlap/engine';
+import { recordEvent, Store, ulid } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type ActivityPage, type ChangesView, type Dashboard, type MetaView, type RouteModule } from '../src/index.js';
 
 /** What the shell polls and shows around every page: meta, the change feed, the activity feed, and read-only refusals. */
@@ -169,5 +169,27 @@ describe('a read-only dashboard', () => {
     }
     expect(store.getRun(recId)).not.toBeNull();
     expect(await (await api(ro, 'preview', { method: 'POST' })).json()).toEqual({ previewed: true });
+  });
+
+  it('leaves the project folder as it found it, even the uploads another dashboard left behind', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'sl-feeds-ro-')));
+    const uploads = join(other, '.shadowlap', 'uploads');
+    mkdirSync(uploads, { recursive: true });
+    // Left two hours ago by a dashboard that stopped without closing: a writable dashboard sweeps it.
+    const stale = join(uploads, `${ulid()}-old.har`);
+    writeFileSync(stale, 'x');
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(stale, twoHoursAgo, twoHoursAgo);
+    const snapshot = () => readdirSync(other, { recursive: true }).map(String).sort();
+    const before = snapshot();
+    const d = await startDashboard({ store, dbPath, readOnly: true, project: { path: other } });
+    try {
+      expect(existsSync(stale), 'not swept at start').toBe(true);
+      expect((await api(d, 'uploads', { method: 'POST', body: 'x' })).status).toBe(403);
+    } finally {
+      await d.close();
+    }
+    expect(snapshot(), 'nothing made or removed, at start or at close').toEqual(before);
+    rmSync(other, { recursive: true, force: true });
   });
 });

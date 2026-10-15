@@ -60,12 +60,17 @@ export class UploadStore implements UploadSource {
       /** How long an upload no job claimed is kept; an hour by default. */
       maxIdleMs?: number | undefined;
       now?: (() => number) | undefined;
+      /**
+       * A read-only dashboard: it takes no uploads and touches nothing in the uploads folder, not
+       * even the leftovers of another dashboard (which that one, or the next writable one, sweeps).
+       */
+      readOnly?: boolean | undefined;
     },
   ) {
     this.limit = o.limit ?? UPLOAD_LIMIT;
     this.maxIdleMs = o.maxIdleMs ?? UPLOAD_MAX_IDLE_MS;
     this.now = o.now ?? Date.now;
-    this.sweepLeftovers();
+    if (!o.readOnly) this.sweepLeftovers();
   }
 
   /** The folder uploads go to, or null without a project. */
@@ -81,6 +86,7 @@ export class UploadStore implements UploadSource {
   /** Stores the request body as a new upload. Throws an HttpError the client should see. */
   async receive(req: IncomingMessage): Promise<UploadView> {
     const dir = this.dir;
+    if (this.o.readOnly) throw new HttpError(403, 'this dashboard is read-only: it takes no uploads');
     if (!dir || !this.o.project) throw new HttpError(501, 'uploads need a project folder: start the dashboard in your project with shadowlap dashboard');
     refuseOversized(req, this.limit, 'file');
     if (this.uploads.size + this.arriving >= MAX_UPLOADS) {
@@ -196,7 +202,7 @@ export class UploadStore implements UploadSource {
 
   private removeDir(): void {
     const dir = this.dir;
-    if (!dir) return;
+    if (!dir || this.o.readOnly) return;
     try {
       rmdirSync(dir); // only when empty: another dashboard on this project may be using it
     } catch {
