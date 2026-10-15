@@ -219,9 +219,10 @@ export function forkFlag(run: RunRecord, overridden: number[] = []): string | nu
     const flags: string[] = [];
     for (const i of listed as unknown[]) {
       if (typeof i !== 'object' || i === null) continue;
-      const { kind, flag } = i as { kind?: unknown; flag?: unknown };
-      // A command given after `--` is not a flag: the run's own record names it.
-      if (kind !== 'command' && typeof flag === 'string' && flag.trim()) flags.push(flag.trim());
+      const { kind, flag, value } = i as { kind?: unknown; flag?: unknown; value?: unknown };
+      // A command given after `--` is not a flag: the run's own record names it. A flag kept apart
+      // from its value (`--fail-at`, `19=529`) is named with it.
+      if (kind !== 'command' && typeof flag === 'string' && flag.trim()) flags.push(typeof value === 'string' && value.trim() ? `${flag.trim()} ${value.trim()}` : flag.trim());
     }
     const text = flags.join(' ');
     return !text ? null : text.length > 120 ? `${text.slice(0, 119)}…` : text;
