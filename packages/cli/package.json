@@ -25,7 +25,8 @@
     "@shadowlap/sidecar": "^0.1.0",
     "commander": "^15.0.0",
     "@shadowlap/tui": "^0.1.0",
-    "@shadowlap/dashboard": "^0.1.0"
+    "@shadowlap/dashboard": "^0.1.0",
+    "@shadowlap/remote": "^0.1.0"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": ">=0.126.0"

@@ -17,6 +17,7 @@ import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
 import { openStore, parseChoice, parseIntArg, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
+import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -27,7 +28,7 @@ import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
  * It prints how to reach it (base URLs per slot, with `__SLOT__` for the plugin to fill in, and the
  * in-process capture module) and runs until its stdin closes, which is when the test runner exits.
  */
-async function serveRecordings(store: Store, config: ReturnType<typeof loadConfig>): Promise<void> {
+async function serveRecordings(store: Store, config: ReturnType<typeof loadConfig>, db: string | undefined): Promise<void> {
   const root = process.cwd();
   const upstreams = upstreamOverrides(process.env);
   const host = new RecordingHost(store, root, { codeVersion: codeVersion(root), redact: config.redact });
@@ -54,6 +55,8 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   host.close();
   await sidecar.close();
   store.close();
+  // Team store: recordings someone pushed while they were running go to the store now that they have ended.
+  await pushIfQueued(teamEnv(db));
 }
 
 /** Whether a pack folder is one the config's tests name, so a golden wherever it lives. */
@@ -132,7 +135,8 @@ export function register(program: Command): void {
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) {
+    .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean }) {
       const opts = program.opts<GlobalOpts>();
       const guardGiven = this.getOptionValueSource('guard') === 'cli';
       const projectDir = process.cwd();
@@ -143,6 +147,8 @@ export function register(program: Command): void {
       if (unmatched.length) {
         throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
       }
+      // Team store: no store or no credentials is a warning; the tests still decide the exit code.
+      const pusher = flags.push ? await prepareTestPush(teamEnv(opts.db), { ...(flags.annotations ? { annotations: true } : {}) }) : null;
 
       const store = openTestStore(opts, projectDir);
       const actor = resolveAuthor({ cwd: projectDir });
@@ -188,11 +194,14 @@ export function register(program: Command): void {
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
             stopped,
           };
+          // Every run this golden makes, for --push: its replays, and a re-recording with --update.
+          const made: string[] = [];
           // Every replay counts towards the session's upstream requests, an updated golden's first one too.
           const replayed = (o: GoldenOutcome) => {
             for (const a of o.result?.attempts ?? []) {
               telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
               upstreamRequests += a.ended.summary.upstreamRequests;
+              made.push(a.ended.summary.runId);
             }
             return o;
           };
@@ -228,6 +237,7 @@ export function register(program: Command): void {
                 stopped,
               });
               upstreamRequests += u.summary?.upstreamRequests ?? 0;
+              if (u.run) made.push(u.run.runId);
               if (u.checks?.length && !u.interrupted) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
               if (!u.replaced || !u.run) {
                 process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason}\n`);
@@ -270,6 +280,8 @@ export function register(program: Command): void {
           tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
           const divergence = outcome.result?.shown.ended.summary.divergence;
           if (!flags.update && outcome.kind === 'diverged' && !(divergence && volatileValues(divergence, outcome.normalizers).explainsAll)) updatable.push(packDir);
+          // Team store: every run this golden made, once its result is kept, with the golden it replayed.
+          if (pusher && made.length) await pusher.pushRuns(store, made);
         }
         // Housekeeping never fails a session whose goldens all ran: the reports below still get written.
         if (!signal) {
@@ -301,6 +313,7 @@ export function register(program: Command): void {
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
+      if (pusher) await pusher.finish(report);
       emitJobEvent({ type: 'result', data: report });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
@@ -413,7 +426,7 @@ export function register(program: Command): void {
       const store = openStore(opts);
       const config = loadConfig(process.cwd());
       if (flags.recordings) {
-        await serveRecordings(store, config);
+        await serveRecordings(store, config, opts.db);
         return;
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
@@ -432,5 +445,6 @@ export function register(program: Command): void {
       printOutcome(summary);
       await sidecar.close();
       store.close();
+      await pushIfQueued(teamEnv(opts.db));
     });
 }

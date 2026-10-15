@@ -34,6 +34,9 @@ export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, Matching
 // Training: pairs, tasks and the model picker.
 export { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, trainingView } from './training.js';
 export type { ModelOptionView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingView } from './training.js';
+// The team store's status: the bucket, the last push and pull, runs in the store and only here, the last check.
+export { readTeamStoreInput, teamStoreStatus } from './team-store.js';
+export type { ReadTeamStoreOptions, TeamStoreInput, TeamStoreStatus } from './team-store.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';

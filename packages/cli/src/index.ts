@@ -5,6 +5,7 @@ import { register as registerImport } from './commands/import.js';
 import { register as registerInspect } from './commands/inspect.js';
 import { register as registerRecord } from './commands/record.js';
 import { register as registerSetup } from './commands/setup.js';
+import { register as registerTeam } from './commands/team.js';
 import { register as registerTesting } from './commands/testing.js';
 import { register as registerTraining } from './commands/training.js';
 import { VERSION } from './shared.js';
@@ -34,6 +35,7 @@ export async function main(argv: string[]): Promise<void> {
   registerData(program);
   // After data: `export pairs` joins the export command it registers.
   registerTraining(program);
+  registerTeam(program);
 
   await program.parseAsync(argv);
 }

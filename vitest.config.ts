@@ -18,6 +18,7 @@ export default defineConfig({
       '@shadowlap/tui': src('tui'),
       '@shadowlap/dashboard': src('dashboard'),
       '@shadowlap/collector': src('collector'),
+      '@shadowlap/remote': src('remote'),
       '@shadowlap-testing/mock-openai': fileURLToPath(new URL('./testing/mock-openai/src/index.ts', import.meta.url)),
       '@shadowlap-testing/mock-gemini': fileURLToPath(new URL('./testing/mock-gemini/src/index.ts', import.meta.url)),
       '@shadowlap-testing/mock-anthropic': fileURLToPath(new URL('./testing/mock-anthropic/src/index.ts', import.meta.url)),

@@ -32,10 +32,13 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
  * - `project.added`, `project.removed`: ref the project; data { path, name, again? }
  * - `project.setup`: data { name, stage: 'done', skipped } from a setup, { name, config: 'created' } from init
- * - `org.noted`: ref the organisation; data { group, size, end, organisation }, or { group, refreshed: true }
- * - `store.pushed`: ref the bucket; data { pushed, updated, queued, refused }; `store.pulled`: data
- *   { pulled, merged, failed }; `run.shared`: runId; data { runs, redacted, expiresAt }
- * - `release.tagged`: ref the release
+ * - `store.set`: ref the bucket; data { provider, previous }; `store.ci`: ref the bucket, when one is
+ *   set; data { push, previous }; `store.checked`: ref the bucket; data { ok, versioning, objectLock,
+ *   encryption }
+ * - `store.pushed`: ref the bucket; data { pushed, updated, repaired, queued, refused, blobs, bytes,
+ *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
+ *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
+ * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

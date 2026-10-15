@@ -21,6 +21,8 @@ const ALLOWED: Record<string, string[]> = {
   '@shadowlap/dashboard': [],
   '@shadowlap/collector': [],
   '@shadowlap/test': [],
+  // The team store: buckets reached with fetch and SigV4 of its own, no cloud SDK.
+  '@shadowlap/remote': [],
   // The only package with a real dependency tree, and the only one you can use Shadowlap without.
   '@shadowlap/tui': ['ink', 'react'],
 };

@@ -138,8 +138,12 @@ export interface RunMeta {
   redactions?: Normalizer[];
   /** Hash of the fingerprint version and the normalizers this run's stored fingerprints were computed under; a replay under the same list reuses them. */
   normalizersHash?: string;
-  /** Set by `unpack`: the run came from a pack, so its recorded command is someone else's. */
-  imported?: { at: number; from: string };
+  /**
+   * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
+   * is someone else's. `pr`: it came from a pull request's folder in the store, so it never goes
+   * back into the store's own runs.
+   */
+  imported?: { at: number; from: string; pr?: string };
   /**
    * A partial recording: the call kinds it actually contains. An import that only saw the network
    * covers `['api']`; a trace that kept some tools' outputs adds `tool:<name>` for each of those
@@ -171,6 +175,8 @@ export interface RunMeta {
   notes?: RunNote[];
   /** Who made the run (resolveAuthor): an email, a user name, or `ci`. */
   author?: string;
+  /** With `author` `ci`: the CI provider it ran under (ciProvider): github, gitlab, buildkite… */
+  ci?: string;
   /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
   test?: { golden: string; session: string };
   /** What a replay changed, as the flags that change it: what made a fork, and how to make it again. */

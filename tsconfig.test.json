@@ -21,6 +21,7 @@
       "@shadowlap/tui/*": ["./packages/tui/src/*"],
       "@shadowlap/dashboard": ["./packages/dashboard/src/index.ts"],
       "@shadowlap/collector": ["./packages/collector/src/index.ts"],
+      "@shadowlap/remote": ["./packages/remote/src/index.ts"],
       "@shadowlap-testing/mock-anthropic": ["./testing/mock-anthropic/src/index.ts"],
       "@shadowlap-testing/mock-openai": ["./testing/mock-openai/src/index.ts"],
       "@shadowlap-testing/mock-gemini": ["./testing/mock-gemini/src/index.ts"]

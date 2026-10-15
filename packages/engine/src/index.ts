@@ -15,6 +15,7 @@ export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, 
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
+export type { TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
@@ -45,6 +46,7 @@ export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd
 export type { Price } from './prices.js';
 export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, commandIsImported, hasRecordedCommand, packRun, unpackRun } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
+export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { quoteArgv, safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, runKind, runOutcome } from './classify.js';
