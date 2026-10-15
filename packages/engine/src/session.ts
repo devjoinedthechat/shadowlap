@@ -113,6 +113,8 @@ export class Session {
   private readonly consumed = new Set<number>();
   /** Recorded calls a tool-call intervention (override, planted text, failure) took effect on. */
   private readonly applied = new Set<number>();
+  /** Recorded calls whose intervention the caller could not carry out, and said so itself. */
+  private readonly declinedCalls = new Set<number>();
   private readonly occurrences = new Map<string, number>();
   private readonly forcedTools = new Set<string>();
   private readonly loadRequest: (record: CallRecord) => unknown;
@@ -167,9 +169,14 @@ export class Session {
     const forced = this.isForced(input);
     if (this.state === 'replaying') {
       const record = forced ? undefined : this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
-      if (record && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
+      if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
       this.state = 'diverged';
-      this.divergence = this.explain(input, forced, occurrence);
+      // A flag changed this request, yet it matches the recording: a normalizer or --prompt-from masks
+      // the change for matching. The flag named this call, so it still forks here.
+      this.divergence =
+        record && !this.consumed.has(record.callNo) && input.changedBy
+          ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
+          : this.explain(input, forced, occurrence);
     } else if (input.kind === 'tool' && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay'))) {
       // After divergence only declared-pure results (and reads, on request) may come from the recording.
       const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
@@ -239,6 +246,15 @@ export class Session {
   }
 
   /**
+   * The caller could not carry out the intervention on this recorded call (text to plant in a result
+   * that has none) and has said why; `unapplied` leaves it out.
+   */
+  declined(callNo: number): void {
+    this.applied.delete(callNo);
+    this.declinedCalls.add(callNo);
+  }
+
+  /**
    * Tool-call interventions that never took effect, each as a sentence: the run forked before
    * reaching the call, or reached it with other arguments, so the result it was meant to change
    * was never served. Meaningful once the run has ended.
@@ -247,7 +263,7 @@ export class Session {
     const out: string[] = [];
     const where = this.divergence ? `the replay forked at call ${this.divergence.callNo} before reaching it, and calls after a fork are matched to the recording only when they are the same call` : 'the run never made that call';
     const note = (flag: string, callNo: number) => {
-      if (this.applied.has(callNo)) return;
+      if (this.applied.has(callNo) || this.declinedCalls.has(callNo)) return;
       const rec = this.parentCalls.find((c) => c.callNo === callNo);
       out.push(`${flag} ${callNo} changed nothing: ${rec ? `#${callNo} ${rec.name} was not served, because ${where}` : `the recording has no call #${callNo}`}`);
     };

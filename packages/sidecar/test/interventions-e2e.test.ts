@@ -89,6 +89,15 @@ describe('Anthropic', () => {
     expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 2, reason: 'forced live by --set 2:max_tokens=64', counterpart: { callNo: 2 } });
   });
 
+  it('forks at the named call even when --prompt-from hides the injected system message from matching', async () => {
+    const before = mock.requests.length;
+    // --prompt-from matches earlier calls without their system messages, which hides this injection.
+    const { summary } = await replay(sidecar, parent, { inject: { atCall: 1, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run), { promptFrom: 2 });
+    expect(mock.requests.length - before).toBe(2);
+    expect(mock.requests[before]!.body.messages.at(-1)).toEqual({ role: 'system', content: 'Prefer store credit.' });
+    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 1, reason: 'forced live by --inject 1 --inject-as system: an instruction added as a system message, a change the normalizers or --prompt-from hide from matching' });
+  });
+
   it('sets fields and switches the model from the call named on', async () => {
     const { run } = await replay(sidecar, parent, { set: { fromCall: 2, fields: { temperature: 0, model: 'claude-opus-5' } } }, (r) => agent(sidecar, r));
     expect(mock.requests.at(-1)!.body).toMatchObject({ model: 'claude-opus-5', temperature: 0 });
@@ -188,12 +197,16 @@ describe('Gemini', () => {
   let parent: string;
   let failNext = 0;
 
-  /** Two generateContent calls with a function call between, sent with fetch; a 503 is retried with the same bytes, as an SDK does. */
-  async function agent(sc: Sidecar, run: Run): Promise<string> {
+  /**
+   * Two generateContent calls with a function call between, sent with fetch; a 503 is retried, as an
+   * SDK does. With `tagAttempts`, each attempt carries its own number in a label a normalizer masks.
+   */
+  async function agent(sc: Sidecar, run: Run, tagAttempts = false): Promise<string> {
     const base = `${sc.url}/r/${run.runId}/gemini/v1beta/models/gemini-2.5-flash:generateContent`;
-    const send = async (body: unknown) => {
+    const send = async (body: Record<string, unknown>) => {
       for (let attempt = 0; ; attempt++) {
-        const res = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': 'AIza-test' }, body: JSON.stringify(body) });
+        const sent = tagAttempts ? { ...body, labels: { attempt: String(attempt) } } : body;
+        const res = await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': 'AIza-test' }, body: JSON.stringify(sent) });
         if (res.status === 503 && attempt < 2) continue;
         if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
         return (await res.json()) as { candidates: Array<{ content: { parts: Array<{ text?: string; functionCall?: unknown }> } }> };
@@ -272,6 +285,22 @@ describe('Gemini', () => {
     await replay(sidecar, parent, { set: { fromCall: 1, fields: { temperature: 0 } }, inject: { atCall: 2, text: 'Escalate.', as: 'user' } }, (run) => agent(sidecar, run));
     const sent = mock.requests.slice(before).map((r) => JSON.stringify(r.body.contents).includes('Escalate.'));
     expect(sent).toEqual([false, false, true]);
+  });
+
+  it('counts a retry that differs only in a masked field as the call it retries', async () => {
+    const masked = await Sidecar.start({ store, upstreams: { gemini: mock.url }, normalizers: [{ kind: 'api', path: '$.labels.attempt', replace: '<attempt>' }] });
+    try {
+      const rec = masked.startRun({ mode: 'record', command });
+      await agent(masked, rec, true);
+      masked.endRun(rec.runId, 'completed');
+      failNext = 1;
+      const before = mock.requests.length;
+      await replay(masked, rec.runId, { set: { fromCall: 1, fields: { temperature: 0 } }, inject: { atCall: 2, text: 'Escalate.', as: 'user' } }, (run) => agent(masked, run, true));
+      const sent = mock.requests.slice(before).map((r) => [(r.body as { labels?: { attempt?: string } }).labels?.attempt, JSON.stringify(r.body.contents).includes('Escalate.')]);
+      expect(sent).toEqual([['0', false], ['1', false], ['0', true]]);
+    } finally {
+      await masked.close();
+    }
   });
 });
 

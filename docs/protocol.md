@@ -170,9 +170,13 @@ with a replayed error that also carries `injected`, and has already recorded the
 
 ```json
 { "origin": "replayed", "callNo": 19, "outcome": "error",
-  "error": { "name": "TimeoutError", "message": "search_web timed out", "code": "ETIMEDOUT", "data": { "injected": "timeout" } },
+  "error": { "name": "TimeoutError", "message": "search_web timed out", "code": "ETIMEDOUT" },
   "injected": { "kind": "timeout" } }
 ```
+
+The `error` is what a real failure of that kind would carry, and nothing more, because agents hand
+errors to the model (an MCP client passes `data` on too) and a model told it is being tested
+behaves differently. Only `injected` says otherwise, and only to the client.
 
 `injected` is `{ "kind": "timeout" }`, `{ "kind": "error", "message": "…" }` (the message is
 optional) or `{ "kind": "status", "status": 503 }`. A client SHOULD raise an **injected failure**

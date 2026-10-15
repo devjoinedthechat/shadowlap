@@ -12,9 +12,8 @@ import {
   fingerprintMisc,
   fingerprintTool,
   loadApiRequest,
-  plantInResult,
+  plantInToolResult,
   refused,
-  sha256,
   storeApiRequest,
   normalizersHash,
   storedModelResolver,
@@ -138,7 +137,7 @@ class RunContext {
   apiCalls = 0;
   readonly calls = new Map<number, TrackedCall>();
   readonly lastByFingerprint = new Map<string, number>();
-  /** The last model call made with exactly these bytes, by scope and path: how a retry is told apart before any intervention rewrites it. */
+  /** With request interventions: the last model call by scope and the fingerprint of its request before any rewrite, so a retry keeps its call's place. */
   readonly lastByRequest = new Map<string, { callNo: number; apiIndex: number }>();
   readonly warnings: string[] = [];
   readonly providersUsed = new Set<string>();
@@ -623,22 +622,23 @@ export class Sidecar {
     const retryHeader = provider.retryCountHeader ? headers[provider.retryCountHeader] : undefined;
     const retryCount = retryHeader === undefined ? 0 : Number.parseInt(retryHeader, 10) || 0;
 
-    // Model calls are counted as the recording counts them: every one, whatever it sends (an
-    // embeddings call too), and a retry as the call it retries. A retry is told apart by its bytes,
-    // before an intervention rewrites them, so it gets the same rewrite as the attempt it repeats.
-    const requestKey = `${scope ?? ''}\n${method} ${subpath}\n${sha256(rawBody)}`;
-    const sameBytes = ctx.lastByRequest.get(requestKey);
-    const repeats = sameBytes !== undefined && ctx.calls.get(sameBytes.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
-    const apiIndex = repeats ? sameBytes!.apiIndex : ctx.apiCalls++;
-
     // Interventions rewrite the request before it is fingerprinted, stored or forwarded, so the
     // recording of the fork holds exactly what was sent.
     let path = subpath;
     let forced: { by: string; counterpart: number } | undefined;
     let changedBy: string | undefined;
     let refusal: string | undefined;
+    let counted: { key: string; apiIndex: number } | undefined;
     if (ctx.interventions?.active) {
-      const rewrite = ctx.interventions.apply(apiIndex, provider.id, subpath, body);
+      // A flag names a model call by its place among the recording's model calls, counted the way the
+      // recording counts them: every one, whatever it sends (an embeddings call too), and a retry as
+      // the call it retries. A retry is told apart as the recording tells it, by its fingerprint, here
+      // of the request before any rewrite, so it gets the same rewrite as the attempt it repeats.
+      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt }).fingerprint}`;
+      const same = ctx.lastByRequest.get(key);
+      const repeats = same !== undefined && ctx.calls.get(same.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
+      counted = { key, apiIndex: repeats ? same!.apiIndex : ctx.apiCalls++ };
+      const rewrite = ctx.interventions.apply(counted.apiIndex, provider.id, subpath, body);
       if ('refused' in rewrite) refusal = rewrite.refused;
       else {
         // At the call a flag named: a changed body diverges on its own, and its diff shows the
@@ -699,7 +699,7 @@ export class Sidecar {
         at: Date.now(),
       });
     }
-    ctx.lastByRequest.set(requestKey, { callNo, apiIndex });
+    if (counted) ctx.lastByRequest.set(counted.key, { callNo, apiIndex: counted.apiIndex });
     if (refusal !== undefined) return this.serveRefusal(ctx, res, callNo, tracked, refusal);
 
     // Checked after the retry branch and keyed by call number, so every attempt of an injected
@@ -1011,15 +1011,16 @@ export class Sidecar {
     if (decision.origin === 'planted') {
       const recorded = decision.record.end!;
       const payload = (recorded.responseRef ? this.store.getJson<{ result?: HttpResult; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      const planted = payload.result ? plantInHttpResult(payload.result, decision.text) : { refused: 'it failed when it was recorded, so it has no response to add to' };
+      const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
       if (refused(planted)) {
+        ctx.session.declined(decision.record.callNo);
         ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
         end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
         if (payload.result) return send(payload.result, 'replayed');
         return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
       }
       end(this.store.putJson({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
-      return send(planted.result, 'overridden');
+      return send(planted.result as HttpResult, 'overridden');
     }
     if (decision.origin === 'overridden') {
       const value = decision.result as Partial<HttpResult> | null;
@@ -1097,13 +1098,14 @@ export class Sidecar {
       const record = decision.record;
       const end = record.end!;
       const payload = (end.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
-      const planted = end.outcome === 'ok' ? plantInResult(payload.result, decision.text) : { refused: 'it failed when it was recorded, so it has no result to add to' };
+      const planted = end.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
       if (!refused(planted)) {
         this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson({ result: planted.result }), outcome: 'ok', meta: { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 }, at: Date.now() });
         tracked.done = true;
         return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
       }
       // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
+      ctx.session.declined(record.callNo);
       ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: end.responseRef, outcome: end.outcome, meta: { ...end.meta, replayedFrom: record.callNo, latencyMs: 0 }, at: Date.now() });
       tracked.done = true;
@@ -1276,13 +1278,6 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   return decision.origin;
 }
 
-/** A captured HTTP response with text planted in its body: JSON or text, never bytes. */
-function plantInHttpResult(result: HttpResult, text: string): { result: HttpResult; at: string } | { refused: string } {
-  if (result.encoding === 'base64') return { refused: 'its recorded response is binary, with no text to add to' };
-  const planted = plantInResult(result.body ?? '', text);
-  if (refused(planted)) return planted;
-  return { result: { ...result, body: planted.result, encoding: result.encoding ?? 'text' }, at: `$.body${planted.at.slice(1)}` };
-}
 
 /** The SDKs' `scope()`, from x-shadowlap-scope: printable, at most 200 characters, or none. */
 function scopeOf(req: IncomingMessage): string | undefined {

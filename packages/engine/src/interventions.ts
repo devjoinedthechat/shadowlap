@@ -1,4 +1,6 @@
+import { STATUS_CODES } from 'node:http';
 import { canonicalize } from './canonical.js';
+import { deepEqual } from './diff.js';
 import { sha256 } from './ids.js';
 import { stripKeysDeep } from './normalize.js';
 import type { SerializedError } from './types.js';
@@ -86,7 +88,7 @@ export const refused = (r: unknown): r is Refusal => isObject(r) && typeof r.ref
  * deployment, a Bedrock model id or inference profile, a Gemini or Vertex model), otherwise the
  * body's `model`. A body that also carries `model` gets it in both places, so they never disagree.
  */
-export function switchModel(provider: string | null | undefined, path: string, body: unknown, model: string): { path: string; body: unknown } | Refusal {
+export function switchModel(provider: string | null | undefined, path: string, body: unknown, model: string): { path: string; body: unknown; changed: boolean } | Refusal {
   const at = modelInRequest(provider, path, body);
   if (!at) return { refused: 'the request names no model, in its path or its body' };
   let nextPath = path;
@@ -97,7 +99,7 @@ export function switchModel(provider: string | null | undefined, path: string, b
   }
   const next = isObject(body) ? { ...body } : body;
   if (isObject(next) && (at.where === 'body' || typeof next.model === 'string')) next.model = model;
-  return { path: nextPath, body: next };
+  return { path: nextPath, body: next, changed: at.model !== model };
 }
 
 // ---- request fields ----
@@ -191,23 +193,46 @@ export function placeFields(shape: RequestShape, fields: Record<string, unknown>
   return out;
 }
 
-/** A copy of `body` with the fields set where `placeFields` says. */
-export function setRequestFields(shape: RequestShape, body: unknown, fields: Record<string, unknown>): { body: Record<string, unknown> } | Refusal {
+/**
+ * A copy of `body` with the fields set where `placeFields` says, and whether any value differs from
+ * what the request had. A path goes into a list by index (`tools.0.description`). Gemini's REST API
+ * also takes snake_case, so a body that spells its config `generation_config` keeps that spelling.
+ */
+export function setRequestFields(shape: RequestShape, body: unknown, fields: Record<string, unknown>): { body: Record<string, unknown>; changed: boolean } | Refusal {
   if (!isObject(body)) return { refused: 'the request body is not a JSON object' };
   const placed = placeFields(shape, fields);
   if (refused(placed)) return placed;
+  const snake = shape === 'gemini' && body.generationConfig === undefined && isObject(body.generation_config);
   const next: Record<string, unknown> = { ...body };
-  for (const { path, value } of placed) {
-    let node = next;
-    for (const key of path.slice(0, -1)) {
-      const child = node[key];
-      const copy = isObject(child) ? { ...child } : {};
-      node[key] = copy;
+  let changed = false;
+  for (const { path: given, value } of placed) {
+    const path = snake && given[0] === 'generationConfig' ? ['generation_config', ...given.slice(1)] : given;
+    let node: Record<string, unknown> | unknown[] = next;
+    for (let i = 0; i < path.length; i++) {
+      const key = path[i]!;
+      const last = i === path.length - 1;
+      let slot: string | number = key;
+      if (Array.isArray(node)) {
+        if (!/^\d+$/.test(key) || Number(key) >= node.length) {
+          // An index out of range is replaced in the example; a name gets an index before it.
+          const example = [...path.slice(0, i), '0', ...path.slice(/^\d+$/.test(key) ? i + 1 : i)].join('.');
+          return { refused: `${path.slice(0, i).join('.')} is a list of ${node.length}; give an index into it, such as ${example}` };
+        }
+        slot = Number(key);
+      }
+      const holder = node as Record<string | number, unknown>;
+      if (last) {
+        if (!deepEqual(holder[slot], value)) changed = true;
+        holder[slot] = value;
+        break;
+      }
+      const child = holder[slot];
+      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...child] : isObject(child) ? { ...child } : {};
+      holder[slot] = copy;
       node = copy;
     }
-    node[path[path.length - 1]!] = value;
   }
-  return { body: next };
+  return { body: next, changed };
 }
 
 // ---- an injected instruction ----
@@ -352,6 +377,19 @@ export function plantInResult(result: unknown, text: string): { result: unknown;
   return { result: copy, at: '$' + found.path.map((k) => (typeof k === 'number' ? `[${k}]` : /^[A-Za-z_]\w*$/.test(k) ? `.${k}` : `[${JSON.stringify(k)}]`)).join('') };
 }
 
+/**
+ * Plants text in a tool call's recorded result as the sidecar serves it: a result captured from an
+ * HTTP host (`http`) is a response, and the text goes into its body, which must be text or JSON.
+ */
+export function plantInToolResult(result: unknown, text: string, http: boolean): { result: unknown; at: string } | Refusal {
+  if (!http) return plantInResult(result, text);
+  if (!isObject(result)) return { refused: 'its recorded response is missing' };
+  if (result.encoding === 'base64') return { refused: 'its recorded response is binary, with no text to add to' };
+  const planted = plantInResult(result.body ?? '', text);
+  if (refused(planted)) return planted;
+  return { result: { ...result, body: planted.result, encoding: result.encoding ?? 'text' }, at: `$.body${planted.at.slice(1)}` };
+}
+
 // ---- a failing tool ----
 
 /** `--fail-at <call>=timeout|error[:message]|<status>` on a tool call: what the agent gets instead of the tool's result. */
@@ -378,30 +416,16 @@ export function formatToolFailure(f: ToolFailure): string {
   return f.kind === 'status' ? String(f.status) : f.kind === 'error' && f.message ? `error:${f.message}` : f.kind;
 }
 
-const STATUS_TEXT: Record<number, string> = {
-  400: 'Bad Request',
-  401: 'Unauthorized',
-  403: 'Forbidden',
-  404: 'Not Found',
-  408: 'Request Timeout',
-  409: 'Conflict',
-  413: 'Payload Too Large',
-  422: 'Unprocessable Entity',
-  429: 'Too Many Requests',
-  500: 'Internal Server Error',
-  502: 'Bad Gateway',
-  503: 'Service Unavailable',
-  504: 'Gateway Timeout',
-};
-
 /**
- * The error a failed tool raises in the agent, as the SDKs receive it. Its wording is what a real
- * failure of that kind says, because the agent often hands the message to the model as the tool's
- * answer, and a message naming Shadowlap would tell the model it is being tested. The recording
- * says what really happened: the call is stored as injected by `--fail-at`.
+ * The error a failed tool raises in the agent, as the SDKs receive it. Its wording, and everything
+ * else it carries, is what a real failure of that kind says, because the agent often hands an error
+ * to the model as the tool's answer (an MCP client passes its data on too), and an error that named
+ * Shadowlap would tell the model it is being tested. The recording says what really happened: the
+ * call is stored as injected by `--fail-at`, and the SDKs learn it from the answer, not the error.
  */
 export function toolFailureError(tool: string, f: ToolFailure): SerializedError {
-  if (f.kind === 'timeout') return { name: 'TimeoutError', message: `${tool} timed out`, code: 'ETIMEDOUT', data: { injected: 'timeout' } };
-  if (f.kind === 'error') return { name: 'Error', message: f.message ?? `${tool} failed`, data: { injected: 'error' } };
-  return { name: 'HTTPError', message: `HTTP ${f.status}${STATUS_TEXT[f.status] ? ` ${STATUS_TEXT[f.status]}` : ''}`, data: { injected: 'status', status: f.status } };
+  if (f.kind === 'timeout') return { name: 'TimeoutError', message: `${tool} timed out`, code: 'ETIMEDOUT' };
+  if (f.kind === 'error') return { name: 'Error', message: f.message ?? `${tool} failed` };
+  const text = STATUS_CODES[f.status];
+  return { name: 'HTTPError', message: `HTTP ${f.status}${text ? ` ${text}` : ''}`, data: { status: f.status } };
 }

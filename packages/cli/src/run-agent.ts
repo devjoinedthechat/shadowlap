@@ -256,6 +256,17 @@ export function parseInterventions(flags: { inject?: string; injectAs: 'system' 
 }
 
 /**
+ * Resolves once a child with piped output has exited and its output has been read to the end: `exit`
+ * can come before the last of stdout and stderr, and a check on what the agent printed must see all
+ * of it. A grandchild that holds the pipes open keeps the run waiting no more than a moment.
+ */
+function onDrained(child: ReturnType<typeof spawn>, resolve: (code: number) => void): void {
+  const status = (c: number | null, signal: NodeJS.Signals | null) => c ?? (signal ? 128 : 1);
+  child.on('close', (c, signal) => resolve(status(c, signal)));
+  child.on('exit', (c, signal) => setTimeout(() => resolve(status(c, signal)), 2_000).unref());
+}
+
+/**
  * The agent's output, for checks on what it printed, still shown as it comes. Only stdout and stderr
  * are piped, and only when a check needs them: stdin stays the terminal's.
  */
@@ -311,7 +322,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
       process.stderr.write(p.red(`failed to start ${argv[0]}: ${err.message}\n`));
       resolve(127);
     });
-    child.on('exit', (c, signal) => resolve(c ?? (signal ? 128 : 1)));
+    if (extra.capture) onDrained(child, resolve);
+    else child.on('exit', (c, signal) => resolve(c ?? (signal ? 128 : 1)));
   });
   process.off('SIGINT', onSignal);
   process.off('SIGTERM', onSignal);
@@ -384,7 +396,9 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
           output += `failed to start ${argv[0]}: ${err.message}\n`;
           resolveCode(127);
         });
-        child.on('exit', (c, signal) => resolveCode(c ?? (signal ? 128 : 1)));
+        // Piped output is read to the end before it is printed or checked.
+        if (!streaming || tee) onDrained(child, resolveCode);
+        else child.on('exit', (c, signal) => resolveCode(c ?? (signal ? 128 : 1)));
       });
       running.delete(child);
       if (shown) output = shown();

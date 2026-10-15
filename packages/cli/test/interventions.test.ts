@@ -110,6 +110,29 @@ describe('replay --inject-result', () => {
   });
 });
 
+describe('replay --expect', () => {
+  it('judges what the agent printed, read to its last line, and keeps the checks on the run', async () => {
+    const r = await shadowlap(['replay', runId, '--expect', '{"output":{"includes":["recorded runs replay deterministically"]},"tools":{"send_email":1}}']);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain('✓ 2 checks passed (--expect)');
+    // The agent's output still reaches the terminal while it is captured.
+    expect(r.stdout).toContain('"finalText":"Done. Summary: recorded runs replay deterministically');
+    const replayed = /replaying run (\w{26})/.exec(r.out)![1]!;
+    const store = Store.open(db);
+    try {
+      expect(store.getRun(replayed)!.meta?.checks).toEqual([
+        { ok: true, label: 'send_email called 1 time', detail: null },
+        { ok: true, label: 'output includes "recorded runs replay deterministically"', detail: null },
+      ]);
+    } finally {
+      store.close();
+    }
+    const failing = await shadowlap(['replay', runId, '--expect', '{"output":{"includes":["refund issued"]}}']);
+    expect(failing.code).toBe(1);
+    expect(failing.out).toMatch(/✗ 1 of 1 check failed \(--expect\)\n\s+✗ output includes "refund issued", but not found in the output/);
+  });
+});
+
 describe('replay --inject', () => {
   it('goes into the user turn by default, as a block after the tool results', async () => {
     const third = calls.filter((c) => c.kind === 'api')[2]!.callNo;

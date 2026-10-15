@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { estimateCost, finalAnswer, loadApiRequest, placeInjection, plantInResult, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { estimateCost, finalAnswer, loadApiRequest, placeInjection, plantInToolResult, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -54,10 +54,8 @@ export function parsePlants(specs: string[], parentCalls: CallRecord[], resultOf
     if (!text.trim()) throw new Error(`--inject-result: the text for #${callNo} is empty`);
     const recorded = resultOf(call);
     if (recorded.outcome !== 'ok') throw new Error(`--inject-result: #${callNo} ${call.name} ${recorded.outcome === 'error' ? `failed when it was recorded (${recorded.error?.message ?? 'an error'})` : 'never completed'}, so it has no result to add to; give it one with --override`);
-    const http = call.meta.http !== undefined;
-    const body = http && recorded.result && typeof recorded.result === 'object' ? (recorded.result as { body?: unknown; encoding?: string }) : null;
-    if (body?.encoding === 'base64') throw new Error(`--inject-result: #${callNo} ${call.name} returned binary data, with no text to add to`);
-    const planted = plantInResult(body ? (body.body ?? '') : recorded.result, text);
+    // The same check the sidecar makes when it serves the call, so what passes here is planted there.
+    const planted = plantInToolResult(recorded.result, text, call.meta.http !== undefined);
     if (refused(planted)) throw new Error(`--inject-result: #${callNo} ${call.name}: ${planted.refused}`);
     out.set(callNo, text);
   }
