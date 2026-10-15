@@ -607,7 +607,8 @@ function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => voi
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
-      {notes ? <p className="trnotes">{notes}</p> : null}
+      {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint. */}
+      {notes && pick !== ENDPOINT ? <p className="trnotes">{notes}</p> : null}
     </Dialog>
   );
 }
