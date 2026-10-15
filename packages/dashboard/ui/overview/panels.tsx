@@ -131,7 +131,7 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
   const [open, setOpen] = useState(false);
   const shown = needsLookShown(items, total, open);
   return (
-    <section className="panel">
+    <section className="panel needs">
       <header>
         <h2>Needs a look</h2>
         <span className="sub">{num(total)}</span>
@@ -143,7 +143,9 @@ export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; to
             <EventIcon kind={x.icon} />
             <span>
               <span className="t">{x.title}</span>
-              <span className="d">{x.detail}</span>
+              <span className="d" title={x.detail}>
+                {x.detail}
+              </span>
             </span>
             <span className="go">{x.action} →</span>
           </a>

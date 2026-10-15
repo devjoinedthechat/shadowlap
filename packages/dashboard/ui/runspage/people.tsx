@@ -17,14 +17,17 @@ export function Avatar({ author }: { author: string | null }) {
   );
 }
 
-/** A person in a table cell: the avatar and the name, and what kind of author when it is CI. */
-export function Person({ author, ci }: { author: string | null; ci?: string | null }) {
+/** A person in a table cell: the avatar and the name (with "you" for whoever this machine records as), and what kind of author when it is CI. */
+export function Person({ author, ci, you = false }: { author: string | null; ci?: string | null; you?: boolean }) {
   const provider = author === 'ci' ? ciName(ci) : null;
   return (
     <span className="person" title={author ?? 'who made this run is not recorded'}>
       <Avatar author={author} />
       <span className="pn">
-        <span className="nm">{personName(author)}</span>
+        <span className="nm">
+          {personName(author)}
+          {you ? <em>you</em> : null}
+        </span>
         {provider ? <small>{provider}</small> : null}
       </span>
     </span>

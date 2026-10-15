@@ -390,10 +390,14 @@ export function runStats(store: Store, index: RunIndex, runs: Iterable<IndexedRu
   return out;
 }
 
-/** What each run spent live, for sorting the Runs table by it. */
+/**
+ * What each run spent live, for sorting the Runs table by it as the table shows it: a run recorded
+ * elsewhere (a capture, a teammate's run pulled from the team store, an unpacked golden) by what its
+ * calls cost there.
+ */
 export function spentOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): Map<string, number> {
   const out = new Map<string, number>();
-  for (const [runId, s] of runStats(store, index, runs, options)) out.set(runId, s.spent);
+  for (const [runId, s] of runStats(store, index, runs, options)) out.set(runId, s.spent + s.captured);
   return out;
 }
 

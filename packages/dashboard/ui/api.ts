@@ -4,7 +4,7 @@ import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
 import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
-import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, UploadView } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
 
 /**
@@ -126,8 +126,8 @@ export interface Client {
   labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
   /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. */
   deleteRuns(ids: readonly string[]): Promise<DeleteResult>;
-  /** The team store the project's config names, or null without one (or on a server without the route). */
-  teamStore(): Promise<TeamStoreStatus | null>;
+  /** The team store the project's config names and who this machine records as, or null without one (or on a server without the route). */
+  teamStore(): Promise<TeamStoreView | null>;
   /** Whether the trace stores' keys are set on this machine, and where each is reached; null on a server without the route. */
   importSources(): Promise<ImportSources | null>;
   /** Sends a file for a job to use (`POST /api/uploads`). */
@@ -163,6 +163,8 @@ export function createClient(token: string): Client {
   let hasChanges: boolean | null = null;
   let hasProvenance: boolean | null = null;
   let hasStore: boolean | null = null;
+  // The store's answer as the screens take it, kept while the server's answer is the same one (a 304).
+  let storeView: { from: unknown; view: TeamStoreView | null } | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -249,9 +251,10 @@ export function createClient(token: string): Client {
     teamStore: async () => {
       if (hasStore === false) return null;
       try {
-        const out = await request<{ store: TeamStoreStatus | null }>('store');
+        const out = await request<{ store: TeamStoreStatus | null; you?: string | null }>('store');
         hasStore = true;
-        return out.store;
+        if (storeView?.from !== out) storeView = { from: out, view: out.store ? { ...out.store, you: out.you ?? null } : null };
+        return storeView.view;
       } catch (err) {
         if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasStore === null) {
           hasStore = false;

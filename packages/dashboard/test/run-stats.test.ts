@@ -149,7 +149,7 @@ describe('run statistics', () => {
     expect(doubled.spent).not.toBeCloseTo(list.spent, 6);
   });
 
-  it('reads what runs spent live, as their statistics say', () => {
+  it('reads what runs spent, as the table sorts by it: live, or what a run recorded elsewhere cost there', () => {
     const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llllbl' });
     const fork = addRun(store, { parent: rec, startedAt: NOW, divergence: 3, calls: 'rrll' });
     const cap = capture(store, NOW);
@@ -157,9 +157,11 @@ describe('run statistics', () => {
     const runs = [rec, fork, cap].map((id) => index.byId.get(id)!);
     const spent = spentOf(store, index, runs);
     const stats = runStats(store, index, runs);
-    for (const id of [rec, fork, cap]) expect(spent.get(id)).toBeCloseTo(stats.get(id)!.spent, 12);
-    expect(spent.get(cap)).toBe(0);
+    for (const id of [rec, fork]) expect(spent.get(id)).toBeCloseTo(stats.get(id)!.spent, 12);
+    // A capture spent nothing live here: it sorts by what its traffic cost where it ran, as it shows.
+    expect(stats.get(cap)!.spent).toBe(0);
     expect(stats.get(cap)!.captured).toBeGreaterThan(0);
+    expect(spent.get(cap)).toBeCloseTo(stats.get(cap)!.captured, 12);
     expect(spent.get(rec)).toBeGreaterThan(spent.get(fork)!);
   });
 

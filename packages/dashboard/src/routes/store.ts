@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import { resolveAuthor, type Store } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
@@ -7,9 +7,9 @@ import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../te
 /**
  * The team store, free: a bucket of your own that `push` copies runs to and `pull` brings the
  * team's from. `GET /api/store` says what this machine knows of it (nothing is asked of the
- * bucket); the `push`, `pull` and `share` job kinds run the CLI, which talks to the bucket with this
- * machine's own credentials. The Runs page (the `local` tag, Pull, Push in the bulk bar), a run's
- * page (Push, Share link) and Settings → Store use them.
+ * bucket) and who it records as; the `push`, `pull` and `share` job kinds run the CLI, which talks
+ * to the bucket with this machine's own credentials. The Runs page (the `local` tag, Pull, Push in
+ * the bulk bar), a run's page (Push, Share link) and Settings → Store use them.
  */
 
 /** The store the project's config names, as `teamStoreStatus` reports it, or null without one. Read fresh: Settings and `store set` change it. */
@@ -39,8 +39,19 @@ const PUSH_MAX = 1000;
 const RUN_ID = /^[0-9A-Z]{26}$/;
 
 export function register(router: Router, ctx: RouteContext): void {
+  // Who this machine records as (what `shadowlap run` stamps on a run made here), for the By
+  // column's "you": worked out once, and only once a store is set.
+  let you: string | null | undefined;
+  const whoAmI = (): string | null => {
+    if (you === undefined) you = ctx.project ? resolveAuthor({ cwd: ctx.project.path }) : null;
+    return you;
+  };
+
   // Asked whenever runs change (the status bar, Runs, the Overview): an unchanged answer is a 304.
-  router.get('/store', (r) => r.tagged({ store: teamStoreFor(ctx) }));
+  router.get('/store', (r) => {
+    const store = teamStoreFor(ctx);
+    r.tagged({ store, you: store ? whoAmI() : null });
+  });
 
   // Push: the runs picked (their ancestors go too, as the CLI does), or with `all` every run only on
   // this machine. A run still recording is queued by the CLI and goes when it ends.

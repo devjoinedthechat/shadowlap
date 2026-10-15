@@ -5,6 +5,7 @@ import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { guessImportFormat, keyList, tooLargeNote } from '../ui/runspage/imports.js';
+import { runSpent, type RunLike } from '../ui/runs.js';
 import type { DayCount, NeedsLookRow } from '../ui/types.js';
 
 // The Overview's and the Runs page's logic: what each panel says from the server's numbers, how the
@@ -211,5 +212,14 @@ describe('the Runs page’s requests and words', () => {
     expect(ciName('github')).toBe('GitHub Actions');
     expect(ciName('drone')).toBe('drone');
     expect(ciName(null)).toBeNull();
+  });
+
+  it('shows what a run spent, a capture as captured and a run recorded elsewhere by what it cost there', () => {
+    const base: RunLike = { runId: '01K5CQ4N7G0000000000000000', parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: 'python refund_agent.py', codeVersion: null, startedAt: 0, calls: 30, spent: 0.051, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [] };
+    expect(runSpent(base)).toEqual({ text: '≈$0.051', captured: false });
+    // A teammate's run, pulled from the team store: it spent live on their machine.
+    expect(runSpent({ ...base, imported: true, spent: 0, captured: 0.072 })).toEqual({ text: '≈$0.072', captured: false });
+    // Traffic another tool captured has no command of its own.
+    expect(runSpent({ ...base, command: '', source: 'traffic.har', covers: ['api'], imported: true, spent: 0, captured: 0.4 })).toEqual({ text: '$0.4', captured: true });
   });
 });

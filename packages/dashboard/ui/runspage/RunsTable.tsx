@@ -23,6 +23,7 @@ export function RunsTable({
   picked,
   selectable,
   byColumn,
+  you = null,
   sort,
   onSort,
   onPick,
@@ -35,6 +36,8 @@ export function RunsTable({
   selectable: boolean;
   /** A team store is set: who made each run, and the local tag. */
   byColumn: boolean;
+  /** Who this machine records as: "you" in the By column. */
+  you?: string | null;
   sort: RunSort;
   onSort: (s: RunSort) => void;
   onPick: (run: TableRun, on: boolean) => void;
@@ -69,14 +72,14 @@ export function RunsTable({
       </thead>
       <tbody>
         {rows.map((r) => (
-          <Row key={r.runId} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} onPick={onPick} now={now} />
+          <Row key={r.runId} run={r} on={picked.has(r.runId)} selectable={selectable} byColumn={byColumn} you={!!you && r.author === you} onPick={onPick} now={now} />
         ))}
       </tbody>
     </table>
   );
 }
 
-const Row = memo(function Row({ run: r, on, selectable, byColumn, onPick, now }: { run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; onPick: (run: TableRun, on: boolean) => void; now: number }) {
+const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, now }: { run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number }) {
   const out = runOutcome(r);
   const sub = runSublineParts(r);
   const spent = runSpent(r);
@@ -106,7 +109,7 @@ const Row = memo(function Row({ run: r, on, selectable, byColumn, onPick, now }:
       </td>
       {byColumn ? (
         <td className="hide-md bycell">
-          <Person author={r.author ?? null} ci={r.ci ?? null} />
+          <Person author={r.author ?? null} ci={r.ci ?? null} you={you} />
         </td>
       ) : null}
       <td className="hide-lg labcell">

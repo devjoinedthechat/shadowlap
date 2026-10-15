@@ -185,10 +185,13 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
   return { tone: 'n', text: '—' };
 }
 
-/** What a run spent live, or for a capture what its traffic cost where it ran. */
+/**
+ * What a run spent live. A capture's traffic reads "as captured"; a run recorded on another machine
+ * (a teammate's, pulled from the team store, or a golden unpacked here) shows what it cost there.
+ */
 export function runSpent(r: RunLike): { text: string; captured: boolean } {
-  if (runType(r) === 'capture' || (r.imported && r.captured && !r.spent)) return { text: money(r.captured), captured: true };
-  return { text: approx(r.spent), captured: false };
+  if (runType(r) === 'capture') return { text: money(r.captured), captured: true };
+  return { text: approx(r.spent || (r.imported ? r.captured : 0)), captured: false };
 }
 
 export type RunChip = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed';

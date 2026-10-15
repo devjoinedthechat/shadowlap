@@ -255,7 +255,7 @@ function ServerRuns() {
         </label>
       </div>
       <section className="panel tscroll">
-        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} />
+        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} />
         {page.error && !page.data ? (
           <div className="empty">The runs could not be read: {page.error.message}</div>
         ) : !page.data ? (

@@ -314,6 +314,9 @@ export interface RunsQuery {
   sort?: 'when' | 'calls' | 'spent';
 }
 
+/** The team store as the screens show it: what this machine knows of it, and who it records as (the By column's "you"). */
+export type TeamStoreView = import('../src/team-store.js').TeamStoreStatus & { you: string | null };
+
 /** Where the trace stores are reached from this machine, and whether their keys are set here. */
 export interface ImportSources {
   formats: readonly string[];

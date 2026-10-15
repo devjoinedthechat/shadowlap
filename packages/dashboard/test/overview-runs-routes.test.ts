@@ -202,12 +202,21 @@ describe('bulk actions', () => {
 });
 
 describe('the team store', () => {
-  it('says there is none until the config names one, then what this machine knows of it', async () => {
-    expect(await get(dash, 'store')).toEqual({ store: null });
+  it('says there is none until the config names one, then what this machine knows of it and who it records as', async () => {
+    expect(await get(dash, 'store')).toEqual({ store: null, you: null });
     setConfig({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' });
-    const { store: s } = await get<{ store: { name: string; onlyLocal: number; pushedAt: number | null } }>(dash, 'store');
-    expect(s).toMatchObject({ name: 'northwind-agent-runs/support-agent', pushedAt: null });
-    expect(s.onlyLocal).toBeGreaterThan(0);
+    const author = process.env.SHADOWLAP_AUTHOR;
+    process.env.SHADOWLAP_AUTHOR = 'dana@northwind.example';
+    try {
+      const { store: s, you } = await get<{ store: { name: string; onlyLocal: number; pushedAt: number | null }; you: string | null }>(dash, 'store');
+      expect(s).toMatchObject({ name: 'northwind-agent-runs/support-agent', pushedAt: null });
+      expect(s.onlyLocal).toBeGreaterThan(0);
+      // The By column's "you": what a run made on this machine is stamped with.
+      expect(you).toBe('dana@northwind.example');
+    } finally {
+      if (author === undefined) delete process.env.SHADOWLAP_AUTHOR;
+      else process.env.SHADOWLAP_AUTHOR = author;
+    }
   });
 
   it('pushes the runs picked or every local run, pulls, and shares a run with its ancestors', async () => {
