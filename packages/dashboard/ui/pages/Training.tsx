@@ -20,7 +20,7 @@ import { ENDPOINT, filterGroups, firstPick, leftNote, noteTrainingCounts, notesL
  * `/api/models` for the picker; words and layout follow the mock.
  */
 
-addPaletteSource(trainingPalette);
+addPaletteSource((ctx) => trainingPalette(ctx, JOB_KINDS));
 
 export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const { client, tick, exported, actionsOff, hasKind, guard } = useApp();

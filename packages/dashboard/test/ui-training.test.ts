@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PaletteContext } from '../ui/palette-sources.js';
-import type { AppState } from '../ui/state.js';
-import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone } from '../ui/training.js';
+import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
 // Training's logic without a browser: what a filter shows, the words for times and files, what Score
@@ -104,22 +102,21 @@ describe('Score a model', () => {
 });
 
 describe('the palette’s Training actions', () => {
-  const ctx = (kinds: string[], went: string[] = []): PaletteContext =>
-    ({
-      app: { exported: false, hasKind: (k: string) => kinds.includes(k), guard: (fn: () => void) => fn(), client: { training: () => new Promise(() => undefined) } } as unknown as AppState,
-      route: { page: 'overview' },
-      go: (to: string) => went.push(to),
-    }) as PaletteContext;
+  const KINDS = { pairs: 'pairs', score: 'score' };
+  const ctx = (kinds: string[], went: string[] = [], exported = false): TrainingPaletteContext => ({
+    app: { exported, hasKind: (k: string) => kinds.includes(k), guard: (fn: () => void) => fn(), client: { training: () => new Promise(() => undefined) } },
+    go: (to: string) => void went.push(to),
+  });
 
   it('offers both until Training was read, then only what there is, and only kinds the server runs', () => {
     noteTrainingCounts(null);
-    expect(trainingPalette(ctx(['pairs', 'score'])).map((c) => c.label)).toEqual(['Export preference pairs…', 'Score a model on the tasks…']);
-    expect(trainingPalette(ctx(['pairs'])).map((c) => c.label)).toEqual(['Export preference pairs…']);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…', 'Score a model on the tasks…']);
+    expect(trainingPalette(ctx(['pairs']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…']);
     noteTrainingCounts({ tabs: { pairs: 0, tasks: 2 } } as TrainingView);
-    expect(trainingPalette(ctx(['pairs', 'score'])).map((c) => c.label)).toEqual(['Score a model on the tasks…']);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Score a model on the tasks…']);
     noteTrainingCounts({ tabs: { pairs: 3, tasks: 0 } } as TrainingView);
-    expect(trainingPalette(ctx(['pairs', 'score'])).map((c) => [c.label, c.hint, c.group])).toEqual([['Export preference pairs…', 'shadowlap export pairs', 'Actions']]);
-    expect(trainingPalette({ ...ctx(['pairs']), app: { exported: true } as AppState })).toEqual([]);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => [c.label, c.hint, c.group])).toEqual([['Export preference pairs…', 'shadowlap export pairs', 'Actions']]);
+    expect(trainingPalette(ctx(['pairs'], [], true), KINDS)).toEqual([]);
   });
 
   it('opens Training on the right tab and asks the page for the dialog', () => {
@@ -127,7 +124,7 @@ describe('the palette’s Training actions', () => {
     const went: string[] = [];
     const heard: string[] = [];
     const off = onTrainingDialog((k) => heard.push(k));
-    const [, score] = trainingPalette(ctx(['pairs', 'score'], went));
+    const [, score] = trainingPalette(ctx(['pairs', 'score'], went), KINDS);
     score!.run();
     expect(went).toEqual(['#/training/tasks']);
     expect(heard).toEqual(['score']);
