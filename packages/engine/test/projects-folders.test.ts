@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { SUGGEST_LIMITS, checkFolder, countGoldens, describeFolder, displayPath, projectRoots, suggestFolders } from '../src/index.js';
+import { SUGGEST_LIMITS, checkFolder, countGoldens, describeFolder, displayPath, listPacks, projectRoots, readPack, suggestFolders } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -278,6 +278,27 @@ describe('countGoldens', () => {
     });
     expect(countGoldens(root)).toBe(3);
     expect(countGoldens(tempDir('sl-nogoldens-'))).toBe(0);
+  });
+
+  it('lists each pack with the runs it holds, and never reads through a link out of the project', () => {
+    const root = files(tempDir('sl-packs-'), {
+      'goldens/refund/run.json': JSON.stringify({ format: 'shadowlap-pack', version: 1, runs: [{ runId: 'R1' }, { runId: 'R0' }] }),
+      'goldens/flows/escalate/run.json': '{ not json',
+    });
+    expect(listPacks(root).sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: 'goldens/flows/escalate', runIds: [] },
+      { path: 'goldens/refund', runIds: ['R1', 'R0'] },
+    ]);
+    expect(readPack(join(root, 'goldens', 'refund'))).toEqual(['R1', 'R0']);
+    expect(readPack(join(root, 'goldens'))).toBeNull();
+    // A goldens link that stays in the project is followed; one that leads out isn't.
+    const inside = files(tempDir('sl-packs-in-'), { 'packs/a/run.json': JSON.stringify({ runs: [{ runId: 'A' }] }) });
+    symlinkSync(join(inside, 'packs'), join(inside, 'goldens'));
+    expect(listPacks(inside)).toEqual([{ path: 'goldens/a', runIds: ['A'] }]);
+    const outside = tempDir('sl-packs-out-');
+    symlinkSync(join(root, 'goldens'), join(outside, 'goldens'));
+    expect(listPacks(outside)).toEqual([]);
+    expect(countGoldens(outside)).toBe(0);
   });
 });
 

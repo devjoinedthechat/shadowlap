@@ -1,4 +1,4 @@
-import { opendirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, opendirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
@@ -190,13 +190,39 @@ export function describeFolder(folder: string, options: { home?: string } = {}):
   };
 }
 
+/** The largest `run.json` read to see which runs a pack holds; a pack's is a few kilobytes. */
+const MAX_PACK_MANIFEST = 1024 * 1024;
+
 /**
- * How many goldens a project keeps in its repository: packs (folders with a `run.json`) under
- * `goldens/`, one or two levels down. Capped; it only looks for that one file name.
+ * The runs a pack folder holds, from its `run.json`: null when the folder isn't a pack. A `run.json`
+ * that is a link, too large or not what `pack` writes still makes the folder a pack, holding runs
+ * that can't be told (an empty list).
  */
-export function countGoldens(folder: string, limit = 500): number {
+export function readPack(dir: string): string[] | null {
+  const file = join(dir, 'run.json');
+  let st;
+  try {
+    st = lstatSync(file);
+  } catch {
+    return null;
+  }
+  if (!st.isFile() || st.size > MAX_PACK_MANIFEST) return [];
+  try {
+    const manifest = JSON.parse(readFileSync(file, 'utf8')) as { runs?: unknown };
+    if (!Array.isArray(manifest.runs)) return [];
+    return manifest.runs.flatMap((r) => (typeof r === 'object' && r !== null && typeof (r as { runId?: unknown }).runId === 'string' ? [(r as { runId: string }).runId] : []));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Packs in a project's repository, as Tests finds them: folders with a `run.json` under `goldens/`,
+ * one or two levels down, never through a link or into a hidden folder. Capped.
+ */
+function visitPacks(folder: string, limit: number, found: (path: string, dir: string) => void): void {
   let count = 0;
-  const visit = (dir: string, depth: number) => {
+  const visit = (dir: string, rel: string, depth: number) => {
     let handle;
     try {
       handle = opendirSync(dir);
@@ -207,15 +233,35 @@ export function countGoldens(folder: string, limit = 500): number {
       for (let entry = handle.readSync(); entry && count < limit; entry = handle.readSync()) {
         if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
         const path = join(dir, entry.name);
-        if (isFile(join(path, 'run.json'))) count++;
-        else if (depth < 2) visit(path, depth + 1);
+        const relPath = `${rel}/${entry.name}`;
+        if (isFile(join(path, 'run.json'))) {
+          count++;
+          found(relPath, path);
+        } else if (depth < 2) visit(path, relPath, depth + 1);
       }
     } finally {
       handle.closeSync();
     }
   };
-  visit(join(folder, 'goldens'), 1);
+  // `goldens` may be a link, as long as it stays in the project.
+  const goldens = realpathOrNull(join(folder, 'goldens'));
+  const root = realpathOrNull(folder);
+  if (!goldens || !root || !isWithin(goldens, root) || !isDirectory(goldens)) return;
+  visit(goldens, 'goldens', 1);
+}
+
+/** How many goldens a project keeps in its repository (see {@link listPacks}); it only looks for the file names. */
+export function countGoldens(folder: string, limit = 500): number {
+  let count = 0;
+  visitPacks(folder, limit, () => count++);
   return count;
+}
+
+/** The goldens in a project's repository with the runs each holds, so the setup knows its recording was packed. */
+export function listPacks(folder: string, limit = 500): Array<{ path: string; runIds: string[] }> {
+  const packs: Array<{ path: string; runIds: string[] }> = [];
+  visitPacks(folder, limit, (path, dir) => packs.push({ path, runIds: readPack(dir) ?? [] }));
+  return packs;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -29,11 +29,11 @@ const findings = (over: Partial<SetupFindings> = {}): SetupFindings => ({
   ...over,
 });
 
-const run = (status: RunFact['status'] = 'completed'): RunFact => ({ runId: RUN, status, startedAt: 1, endedAt: status === 'running' ? null : 2, live: status === 'running' });
+const run = (status: RunFact['status'] = 'completed', over: Partial<RunFact> = {}): RunFact => ({ runId: RUN, status, startedAt: 10, endedAt: status === 'running' ? null : 20, live: status === 'running', calls: status === 'running' ? 3 : 12, replayedClean: false, ...over });
 const facts = (over: Partial<StoreFacts> = {}): StoreFacts => ({ ...emptyStoreFacts(), ...over });
 
-function view(project: ProjectEntry, f: StoreFacts, extra: Partial<SetupInput> = {}) {
-  return setupView({ project, setup: deriveSetup(project.setup, f), redactRules: 0, home: HOME, ...extra });
+function view(project: ProjectEntry, f: StoreFacts, extra: Partial<SetupInput> = {}, packs: Array<{ path: string; runIds: string[] }> = []) {
+  return setupView({ project, setup: deriveSetup(project.setup, f, { packs }), redactRules: 0, home: HOME, ...extra });
 }
 
 describe('projectSwitcher', () => {
@@ -189,6 +189,8 @@ describe('setupView', () => {
     expect(v.record.state).toBe('done');
     expect(v.record.recorded).toEqual({ runId: RUN, href: `#/run/${RUN}`, calls: 12, spent: 0.0412, durationMs: 38_200, text: 'Recorded 01K5CQ7A3M · 12 calls · ≈$0.041 · 38.2 s' });
     expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. Wrap them and record again before you keep it as a test.');
+    expect(v.record.again).toEqual({ label: 'Record again', action: 'record', command: { value: 'uv run research-agent', enabled: true }, cli: ['shadowlap run -- uv run research-agent'] });
+    expect(v.record.empty).toBeNull();
     expect(v.calibrate).toMatchObject({ state: 'current', cli: ['shadowlap calibrate 01K5CQ7A3M --write'], button: { enabled: true } });
     expect(v.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
     expect(v.inspect.folded).toBe(false);
@@ -260,6 +262,69 @@ describe('setupView', () => {
     // Calibrated, then skipped: the calibration still counts.
     const calibrated = entry('research-agent', { stage: 'done', skipped: true, runId: RUN, calibration: { added: [] } });
     expect(view(calibrated, facts({ runs: 1, recordings: [run()] })).steps.map((x) => x.state)).toEqual(['done', 'done', 'done', 'skipped']);
+  });
+
+  it('words one tool that isn’t wrapped in the singular', () => {
+    const oneTool = findings({ tools: [findings().tools[0]!, findings().tools[1]!], wrap: [{ language: 'python', tools: ['save_report'], code: 'from shadowlap import tool\n…' }] });
+    const v = view(entry('research-agent', { stage: 'inspected', findings: oneTool, runId: RUN }), facts({ runs: 1, recordings: [run()] }));
+    expect(v.inspect.warning).toMatchObject({
+      title: '1 write tool isn’t wrapped.',
+      text: 'Its calls won’t be recorded, so a replay runs it for real: save_report would act again. Wrap it, with the effect declared:',
+      recheck: { label: 'I wrapped it, check again', action: 'recheck' },
+    });
+    expect(v.record.warning).toBe('1 tool wasn’t wrapped, so its calls aren’t in this recording. Wrap it and record again before you keep it as a test.');
+  });
+
+  it('says when the tools a recording missed are wrapped now, and offers to record again until the replay is clean', () => {
+    const wrappedNow = findings({ at: 50, tools: findings().tools.map((t) => ({ ...t, wrapped: true })), wrap: [] });
+    const p = entry('research-agent', { stage: 'recorded', findings: wrappedNow, inspections: [{ at: 1, unwrapped: ['save_report', 'notify_slack'] }, { at: 50, unwrapped: [] }], runId: RUN, command: ['uv', 'run', 'research-agent'] });
+    const v = view(p, facts({ runs: 1, recordings: [run()] }));
+    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. They are wrapped now: record again before you keep it as a test.');
+    expect(v.record.again).toMatchObject({ label: 'Record again', action: 'record', command: { value: 'uv run research-agent', enabled: true } });
+    expect(v.inspect.warning).toBeNull();
+    // Recorded again since: the new recording is the setup's, with nothing missing.
+    const r2 = { ...run('completed', { startedAt: 60 }), runId: '01K5CQ9Z0000000000000000R2' };
+    const again = view(p, facts({ runs: 2, recordings: [r2, run()] }));
+    expect(again.record).toMatchObject({ state: 'done', warning: null, again: null, recorded: { runId: r2.runId } });
+    expect(again.calibrate.cli).toEqual(['shadowlap calibrate 01K5CQ9Z00 --write']);
+    // Once the replay is clean, the recording stays: no more Record again.
+    const clean = entry('research-agent', { stage: 'clean', findings: wrappedNow, inspections: p.setup.inspections, runId: RUN, calibration: { added: [] } });
+    expect(view(clean, facts({ runs: 1, recordings: [run()] })).record).toMatchObject({ warning: expect.stringContaining('They are wrapped now'), again: null });
+  });
+
+  it('says when the last recording held nothing, and asks for the command again', () => {
+    const typo = { ...run('failed', { calls: 0, startedAt: 30 }), runId: '01M4ZKQKEF000000000000TYPO' };
+    const v = view(entry('research-agent', { stage: 'inspected', findings: findings(), runId: typo.runId, command: ['nod', 'agent.mjs'] }), facts({ runs: 1, recordings: [typo] }));
+    expect(v.title).toBe('Set up research-agent');
+    expect(v.record).toMatchObject({ state: 'current', recorded: null, command: { value: 'nod agent.mjs', enabled: true }, button: { label: 'Record a run', enabled: true } });
+    expect(v.record.empty).toEqual({ runId: typo.runId, href: `#/run/${typo.runId}`, text: '01M4ZKQKEF holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.' });
+    expect(v.skip).toBeNull();
+    // An earlier recording stays the setup's, and the empty one is still pointed out.
+    const kept = view(entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN }), facts({ runs: 2, recordings: [typo, run()] }));
+    expect(kept.record).toMatchObject({ state: 'done', recorded: { runId: RUN }, empty: { runId: typo.runId } });
+  });
+
+  it('offers the free golden path the server found, and counts a pack made in a terminal as kept', () => {
+    const p = entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN });
+    const f = facts({ runs: 1, recordings: [run()] });
+    const offered = view(p, f, { golden: 'goldens/research-agent-2' });
+    expect(offered.test).toMatchObject({ golden: { value: 'goldens/research-agent-2', enabled: false }, cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent-2', 'shadowlap test goldens/research-agent-2'] });
+    const packed = view(p, f, { golden: 'goldens/research-agent-2' }, [{ path: 'goldens/q3', runIds: [RUN] }]);
+    expect(packed.test).toMatchObject({ state: 'done', cli: [], golden: null, result: { text: 'Packed as goldens/q3. shadowlap test goldens/q3 replays it offline.', link: { label: 'Open Tests', href: '#/tests' } } });
+    // Packed without calibrating first: step 3 was skipped.
+    expect(packed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'done']);
+    expect(packed.skip).toBeNull();
+    expect(packed.done).toMatchObject({ title: 'research-agent is set up.' });
+  });
+
+  it('counts a clean replay as step 3, and never shows another recording’s calibration', () => {
+    const p = entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN });
+    const replayed = view(p, facts({ runs: 2, recordings: [run('completed', { replayedClean: true })] }));
+    expect(replayed.calibrate).toMatchObject({ state: 'done', cli: [], button: null, text: 'A replay of 01K5CQ7A3M ran clean.' });
+    expect(replayed.test).toMatchObject({ state: 'current', button: { enabled: true } });
+    // The list calibrated a recording since deleted: this one isn't clean yet.
+    const other = entry('research-agent', { stage: 'clean', findings: findings({ tools: [], wrap: [] }), runId: 'DELETED', calibration: { added: [{ path: '$.system', why: null }] } });
+    expect(view(other, facts({ runs: 1, recordings: [run()] })).calibrate).toMatchObject({ state: 'current', button: { label: 'Calibrate', action: 'calibrate', enabled: true } });
   });
 
   it('counts a recording made in a terminal, and shows the setup nowhere once it is finished', () => {

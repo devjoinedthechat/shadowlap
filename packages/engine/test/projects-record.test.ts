@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COMMAND_LIMITS, UPSTREAM_ENV, defaultGolden, goldenPath, modelServerFinding, parseAgentCommand, planRecording, quoteArgs, setupCommands, setupJobArgs, upstreamUrl } from '../src/index.js';
+import { quoteArgv } from '../src/index.js';
+import { COMMAND_LIMITS, UPSTREAM_ENV, defaultGolden, freeGoldenPath, goldenPath, modelServerFinding, parseAgentCommand, planRecording, setupCommands, setupJobArgs, upstreamUrl } from '../src/projects/index.js';
 
 const argv = (line: string) => {
   const r = parseAgentCommand(line);
@@ -90,6 +91,7 @@ describe('planRecording', () => {
         cwd: '/home/dana/triage-bot',
         env: {},
         display: "shadowlap run -- node triage.mjs --label 'billing & bugs'",
+        upstream: null,
         confirm: {
           title: 'Run this command in ~/triage-bot?',
           text: 'The first command in a folder asks first. Shadowlap starts a local sidecar, runs it once, and records every model and tool call. Model calls go to the real API with your keys, which are never stored.',
@@ -112,13 +114,20 @@ describe('planRecording', () => {
 
   it('records through the model server init found, as init tells a terminal to', () => {
     const modelServer = { url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' };
-    const r = planRecording(project, 'node triage.mjs', { home: '/home/dana', modelServer });
+    const confirmedThere = { ...project, confirmed: [...project.confirmed, { argv: ['node', 'triage.mjs'], upstream: 'http://127.0.0.1:11434' }] };
+    const r = planRecording(confirmedThere, 'node triage.mjs', { home: '/home/dana', modelServer });
     expect(r.ok && r.plan).toMatchObject({
       args: ['run', '--', 'node', 'triage.mjs'],
       env: { [UPSTREAM_ENV]: 'http://127.0.0.1:11434' },
       display: 'SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node triage.mjs',
+      upstream: 'http://127.0.0.1:11434',
       confirm: null,
     });
+    // Confirmed while its calls went to the provider's API: through the model server it asks again.
+    const moved = planRecording(project, 'node triage.mjs', { home: '/home/dana', modelServer });
+    expect(moved.ok && moved.plan.confirm).toMatchObject({ text: expect.stringMatching(/^It ran here before with its model calls going somewhere else, so it asks again\. .*Model calls go to http:\/\/127\.0\.0\.1:11434\/v1/) });
+    // And a server other than the one confirmed asks again too.
+    expect(planRecording(confirmedThere, 'node triage.mjs', { modelServer: { url: 'http://10.0.0.9:8000/v1', upstream: 'http://10.0.0.9:8000' } })).toMatchObject({ ok: true, plan: { confirm: { title: expect.any(String) } } });
     const first = planRecording(project, 'node triage.mjs --all', { home: '/home/dana', modelServer });
     expect(first.ok && first.plan.confirm).toMatchObject({
       command: 'SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node triage.mjs --all',
@@ -137,6 +146,10 @@ describe('modelServerFinding', () => {
     expect(modelServerFinding({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'agent.py:4' })).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'agent.py:4' });
     expect(modelServerFinding({ url: 'https://dana:s3cret@llm.internal/v1', upstream: 'https://dana:s3cret@llm.internal', from: '.env' })).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: '.env' });
     expect(modelServerFinding({ url: 'not a url', upstream: 'x', from: '' })).toBeNull();
+    // A key or a token in the query is a credential too; other parameters are not.
+    expect(modelServerFinding({ url: 'https://llm.internal/v1?api_key=s3cret&team=a', upstream: 'https://llm.internal?api_key=s3cret&team=a', from: '.env' })).toEqual({ url: 'https://llm.internal/v1?team=a', upstream: null, from: '.env' });
+    expect(modelServerFinding({ url: 'https://x.blob.core/v1?sig=abc&sv=2024', upstream: 'https://x.blob.core', from: '' })).toMatchObject({ url: 'https://x.blob.core/v1?sv=2024', upstream: null });
+    expect(modelServerFinding({ url: 'http://llm.internal/v1?api-version=2024-06-01', upstream: 'http://llm.internal/v1?api-version=2024-06-01', from: '' })).toMatchObject({ upstream: 'http://llm.internal/v1?api-version=2024-06-01' });
     expect(modelServerFinding({ url: 'http://127.0.0.1:8000/v1', upstream: 'file:///etc/passwd', from: '' })).toMatchObject({ upstream: null });
   });
 
@@ -155,6 +168,40 @@ describe('goldenPath', () => {
     expect(goldenPath('tests\\packs\\x')).toEqual({ ok: true, path: 'tests/packs/x' });
     for (const bad of ['', '../outside', 'goldens/../../x', '/etc/x', 'C:/x', '~/x', 'goldens/.hidden', 'goldens/a b', 'goldens//x', 'a/b/c/d/e/f/g/h/i']) {
       expect(goldenPath(bad).ok, bad).toBe(false);
+    }
+  });
+
+  it('never starts a part with a dash, which pack and test would read as an option', () => {
+    for (const bad of ['-V/x', '--no-redact/x', '-h', 'goldens/-x', 'goldens/--help']) expect(goldenPath(bad), bad).toEqual({ ok: false, error: 'A part of the golden’s path can’t start with a dash.' });
+    expect(goldenPath('goldens/first-run-2')).toEqual({ ok: true, path: 'goldens/first-run-2' });
+  });
+
+  it('never packs over a golden already there, or into a folder of other files', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'sl-golden-taken-')));
+    try {
+      mkdirSync(join(folder, 'goldens', 'agent'), { recursive: true });
+      writeFileSync(join(folder, 'goldens', 'agent', 'run.json'), JSON.stringify({ format: 'shadowlap-pack', version: 1, runs: [{ runId: 'OLD' }] }));
+      expect(goldenPath('goldens/agent', { folder })).toEqual({ ok: false, taken: true, error: 'goldens/agent already holds a golden. Give this one another name: Shadowlap never packs over a golden.' });
+      expect(goldenPath('goldens/agent', { folder, runId: 'NEW' })).toMatchObject({ ok: false, taken: true });
+      // The same run packed again (its test failed, and it is packed once more) is fine.
+      expect(goldenPath('goldens/agent', { folder, runId: 'OLD' })).toEqual({ ok: true, path: 'goldens/agent' });
+      mkdirSync(join(folder, 'goldens', 'notes'));
+      writeFileSync(join(folder, 'goldens', 'notes', 'README.md'), 'notes');
+      expect(goldenPath('goldens/notes', { folder })).toEqual({ ok: false, taken: true, error: 'goldens/notes isn’t empty. Give the golden a folder of its own.' });
+      writeFileSync(join(folder, 'goldens', 'file'), 'x');
+      expect(goldenPath('goldens/file', { folder })).toMatchObject({ ok: false, taken: true, error: 'goldens/file is a file, so Shadowlap won’t pack there.' });
+      mkdirSync(join(folder, 'goldens', 'empty'));
+      expect(goldenPath('goldens/empty', { folder })).toEqual({ ok: true, path: 'goldens/empty' });
+
+      // The setup offers the first free path after goldens/<project>.
+      expect(freeGoldenPath(folder, 'agent')).toBe('goldens/agent-2');
+      expect(freeGoldenPath(folder, 'agent', 'OLD')).toBe('goldens/agent');
+      expect(freeGoldenPath(folder, 'triage-bot')).toBe('goldens/triage-bot');
+      mkdirSync(join(folder, 'goldens', 'agent-2'));
+      writeFileSync(join(folder, 'goldens', 'agent-2', 'run.json'), '{}');
+      expect(freeGoldenPath(folder, 'agent')).toBe('goldens/agent-3');
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
     }
   });
 
@@ -213,6 +260,6 @@ describe('setup commands', () => {
   });
 
   it('quotes arguments as a terminal would take them back', () => {
-    expect(quoteArgs(['node', 'a b', "it's", 'x=1'])).toBe("node 'a b' 'it'\\''s' x=1");
+    expect(quoteArgv(['node', 'a b', "it's", 'x=1'])).toBe("node 'a b' 'it'\\''s' x=1");
   });
 });

@@ -1,8 +1,20 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ProjectError, ProjectHost, ProjectRegistry, projectDbPath } from '../src/index.js';
+import { Store, packRun } from '../src/index.js';
+import { ProjectError, ProjectHost, ProjectRegistry, projectDbPath } from '../src/projects/index.js';
+
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: new (path: string) => { exec(sql: string): void; prepare(sql: string): { get(): Record<string, unknown> | undefined }; close(): void } };
+
+/** A finished recording with calls in a store, as `shadowlap run` leaves it. */
+function recordInto(store: Store, cwd: string, opts: { calls?: number; status?: 'completed' | 'failed' } = {}): string {
+  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd } });
+  for (let callNo = 1; callNo <= (opts.calls ?? 2); callNo++) store.appendCallStart({ runId: run.runId, callNo, kind: 'api', name: 'POST /v1/messages', fingerprint: `f${callNo}`, occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: {}, at: Date.now() });
+  store.endRun(run.runId, opts.status ?? 'completed');
+  return run.runId;
+}
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -188,7 +200,13 @@ describe('ProjectHost', () => {
     registry.add('~/triage-bot');
     expect(() => host.finishSetup('triage-bot')).toThrow(expect.objectContaining({ code: 'setup', status: 409, message: 'Record a first run before finishing the setup.' }));
     const store = host.context('triage-bot').store();
-    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'triage.mjs'], cwd: registry.get('triage-bot')!.path } });
+    const path = registry.get('triage-bot')!.path;
+    // A typo: the command never started, and nothing was recorded.
+    recordInto(store, path, { calls: 0, status: 'failed' });
+    expect(() => host.finishSetup('triage-bot')).toThrow(expect.objectContaining({ code: 'setup' }));
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'added', run: null, empty: { status: 'failed', calls: 0 } });
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'triage.mjs'], cwd: path } });
+    store.appendCallStart({ runId: run.runId, callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'f', occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: {}, at: Date.now() });
     // Still recording: not yet.
     expect(() => host.finishSetup('triage-bot')).toThrow(expect.objectContaining({ code: 'setup' }));
     store.endRun(run.runId, 'completed');
@@ -213,3 +231,115 @@ describe('ProjectHost', () => {
   });
 });
 
+
+describe('ProjectHost: what it reads and keeps', () => {
+  it('counts another project’s runs without migrating its store or adding to its folder', () => {
+    const { registry, loadConfig, support, triage } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    // An older Shadowlap's store: schema v3, before activity events.
+    const db = projectDbPath(triage);
+    const store = Store.open(db);
+    recordInto(store, triage);
+    store.close();
+    const raw = new DatabaseSync(db);
+    raw.exec(`DROP TABLE events; UPDATE meta SET value = '3' WHERE key = 'schema_version'`);
+    raw.close();
+    rmSync(join(triage, '.shadowlap', '.gitignore'));
+
+    expect(host.stats()['triage-bot']).toMatchObject({ runs: 1, attempts: 0 });
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'recorded', run: { calls: 2 } });
+    const check = new DatabaseSync(db);
+    expect(check.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get()?.value).toBe('3');
+    check.close();
+    expect(existsSync(join(triage, '.shadowlap', '.gitignore'))).toBe(false);
+
+    // One written by a newer Shadowlap is listed, with nothing counted.
+    const newer = new DatabaseSync(db);
+    newer.exec(`UPDATE meta SET value = '99' WHERE key = 'schema_version'`);
+    newer.close();
+    expect(host.stats()['triage-bot']).toMatchObject({ runs: 0, missing: false });
+    host.close();
+  });
+
+  it('takes a golden packed from the setup’s recording in a terminal as its last step, and offers a free path for a new one', () => {
+    const { registry, loadConfig, support, triage } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    const store = host.context('triage-bot').store();
+    const runId = recordInto(store, triage);
+    // goldens/triage-inbox is another golden: the setup offers goldens/triage-bot.
+    expect(host.suggestGolden('triage-bot')).toBe('goldens/triage-bot');
+    // goldens/triage-bot holds an earlier setup's golden: the next free path.
+    mkdirSync(join(triage, 'goldens', 'triage-bot'), { recursive: true });
+    writeFileSync(join(triage, 'goldens', 'triage-bot', 'run.json'), JSON.stringify({ runs: [{ runId: 'SOMEONE-ELSES' }] }));
+    expect(host.suggestGolden('triage-bot')).toBe('goldens/triage-bot-2');
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'recorded', steps: { tested: false }, golden: null });
+    // Packed in a terminal: step 4 is done.
+    packRun(store, runId, join(triage, 'goldens', 'triage-bot-old'));
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'tested', steps: { tested: true }, golden: 'goldens/triage-bot-old', goldenFrom: 'packed' });
+    // Its golden, once kept, is what it offers.
+    expect(host.suggestGolden('triage-bot')).toBe('goldens/triage-bot-old');
+    expect(host.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', runId, golden: 'goldens/triage-bot-old', skipped: false });
+    host.close();
+  });
+
+  it('confirms a planned recording with the model server it records through', () => {
+    const { registry, loadConfig, support } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    const plan = host.planRecording('support-agent', 'python agent.py');
+    expect(plan.ok && plan.plan.upstream).toBeNull();
+    if (plan.ok) host.confirmCommand('support-agent', plan.plan);
+    expect(host.planRecording('support-agent', 'python agent.py')).toMatchObject({ ok: true, plan: { confirm: null } });
+    // init now finds a model server in .env: the same command asks again before its calls go there.
+    registry.noteInspected('support-agent', {
+      at: 1, language: 'Python', files: [], sdk: null, framework: null, command: null, commandFrom: null,
+      config: { file: 'shadowlap.config.json', created: false, existed: true }, tools: [], wrap: [],
+      modelServer: { url: 'http://10.0.0.9:8000/v1', upstream: 'http://10.0.0.9:8000', from: 'OPENAI_BASE_URL in .env' },
+    });
+    const moved = host.planRecording('support-agent', 'python agent.py');
+    expect(moved).toMatchObject({ ok: true, plan: { upstream: 'http://10.0.0.9:8000', confirm: { text: expect.stringMatching(/^It ran here before with its model calls going somewhere else, so it asks again\./) } } });
+    if (moved.ok) host.confirmCommand('support-agent', moved.plan);
+    expect(host.planRecording('support-agent', 'python agent.py')).toMatchObject({ ok: true, plan: { confirm: null } });
+    host.close();
+  });
+});
+
+describe('ProjectHost: a project list it can’t use', () => {
+  it('opens on the start folder with a notice when the list isn’t valid JSON, and changes nothing', () => {
+    const { registry, loadConfig, support } = world();
+    mkdirSync(dirname(registry.file), { recursive: true });
+    writeFileSync(registry.file, '{ not json');
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    expect(host.notice).toMatch(/isn’t valid JSON\. .*Until it is fixed and the dashboard started again, it shows ~\/support-agent only, and can’t add or remove projects or keep a setup’s progress\.$/);
+    expect(host.list().map((p) => p.id)).toEqual(['support-agent']);
+    expect(host.current()).toMatchObject({ id: 'support-agent', path: support });
+    host.current().store().createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: support } });
+    expect(host.stats()['support-agent']!.runs).toBe(1);
+    expect(() => host.add('~/triage-bot')).toThrow(expect.objectContaining({ code: 'registry' }));
+    expect(() => host.remove('support-agent')).toThrow(expect.objectContaining({ code: 'registry', message: host.notice }));
+    expect(() => host.confirmCommand('support-agent', { argv: ['python', 'agent.py'], upstream: null })).toThrow(expect.objectContaining({ code: 'registry' }));
+    expect(readFileSync(registry.file, 'utf8')).toBe('{ not json');
+    host.close();
+  });
+
+  it('lists what a newer version’s list holds beside the start folder, which it can’t add', () => {
+    const { registry, loadConfig, support, triage } = world();
+    mkdirSync(dirname(registry.file), { recursive: true });
+    writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [{ id: 'triage-bot', name: 'triage-bot', path: triage, addedAt: 1 }] }));
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    expect(host.notice).toMatch(/written by a newer Shadowlap/);
+    expect(host.list().map((p) => p.id)).toEqual(['support-agent', 'triage-bot']);
+    expect(host.switchTo('triage-bot').path).toBe(triage);
+    host.close();
+    // The start folder in a newer version's list: served from it, with the reason changes fail.
+    writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [{ id: 'support-agent', name: 'support-agent', path: support, addedAt: 1 }] }));
+    const listed = ProjectHost.open(support, { registry, loadConfig });
+    expect(listed.list().map((p) => p.id)).toEqual(['support-agent']);
+    expect(listed.notice).toMatch(/written by a newer Shadowlap\. Upgrade Shadowlap to change the project list\.$/);
+    listed.close();
+    // A list it can use: no notice.
+    const fine = world();
+    expect(ProjectHost.open(fine.support, { registry: fine.registry, loadConfig: fine.loadConfig }).notice).toBeNull();
+  });
+});

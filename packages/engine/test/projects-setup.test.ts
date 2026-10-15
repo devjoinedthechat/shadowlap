@@ -2,7 +2,8 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { NO_COMMAND, Store, calibrationOutcome, deriveSetup, emptyStoreFacts, initialSetup, laterStage, earlierStage, recordEvent, runTotals, stageAtLeast, storeFacts, type RunFact, type StoreFacts } from '../src/index.js';
+import { NO_COMMAND, Store, recordEvent } from '../src/index.js';
+import { LIVE_RUN_MS, calibrationOutcome, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -12,8 +13,28 @@ function freshStore(): Store {
   return Store.open(join(d, 'shadowlap.db'));
 }
 
-const fact = (runId: string, status: RunFact['status'] = 'completed', live = status === 'running'): RunFact => ({ runId, status, startedAt: 1, endedAt: status === 'running' ? null : 2, live });
+/** Adds `n` calls to a run, as the sidecar records them. */
+function addCalls(store: Store, runId: string, n: number): void {
+  for (let callNo = 1; callNo <= n; callNo++) store.appendCallStart({ runId, callNo, kind: 'api', name: 'POST /v1/messages', fingerprint: `f${callNo}`, occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: {}, at: Date.now() });
+}
+
+const fact = (runId: string, status: RunFact['status'] = 'completed', over: Partial<RunFact> = {}): RunFact => ({ runId, status, startedAt: 1, endedAt: status === 'running' ? null : 2, live: status === 'running', calls: 3, replayedClean: false, ...over });
 const facts = (over: Partial<StoreFacts> = {}): StoreFacts => ({ ...emptyStoreFacts(), ...over });
+const findings = (at: number, unwrapped: string[]): SetupFindings => ({
+  at,
+  language: 'Python',
+  files: [],
+  sdk: null,
+  framework: null,
+  command: ['python', 'agent.py'],
+  commandFrom: null,
+  config: { file: 'shadowlap.config.json', created: false, existed: true },
+  tools: [
+    { name: 'search', effect: 'read', wrapped: true, why: 'declared', file: 'agent.py', line: 1 },
+    ...unwrapped.map((name, i) => ({ name, effect: 'write' as const, wrapped: false, why: '"send" changes something', file: 'agent.py', line: 10 + i })),
+  ],
+  wrap: [],
+});
 
 describe('setup stages', () => {
   it('only move forward', () => {
@@ -22,41 +43,103 @@ describe('setup stages', () => {
     expect(laterStage('recorded', 'inspected')).toBe('recorded');
     expect(earlierStage('done', 'inspected')).toBe('inspected');
   });
+
+  it('call a run live for an hour after it started, and not after', () => {
+    const now = 10 * LIVE_RUN_MS;
+    expect(isLiveRun({ status: 'running', startedAt: now - LIVE_RUN_MS + 1000 }, now)).toBe(true);
+    expect(isLiveRun({ status: 'running', startedAt: now - LIVE_RUN_MS - 1000 }, now)).toBe(false);
+    expect(isLiveRun({ status: 'completed', startedAt: now }, now)).toBe(false);
+  });
 });
 
 describe('deriveSetup', () => {
   it('shows the setup everywhere while a project has no runs', () => {
-    expect(deriveSetup({ stage: 'added', runId: null }, facts())).toEqual({ stage: 'added', run: null, live: false, shows: 'everywhere' });
+    expect(deriveSetup({ stage: 'added', runId: null }, facts())).toMatchObject({ stage: 'added', run: null, live: false, shows: 'everywhere', steps: { recorded: false, clean: false, tested: false }, empty: null });
     // A project set up whose runs are all gone starts again from its first steps.
-    expect(deriveSetup({ stage: 'done', runId: 'GONE' }, facts())).toEqual({ stage: 'inspected', run: null, live: false, shows: 'everywhere' });
+    expect(deriveSetup({ stage: 'done', runId: 'GONE' }, facts())).toMatchObject({ stage: 'inspected', run: null, live: false, shows: 'everywhere' });
   });
 
   it('counts a recording made in a terminal as the setup’s', () => {
     const r = deriveSetup({ stage: 'inspected', runId: null }, facts({ runs: 1, recordings: [fact('R1')] }));
-    expect(r).toEqual({ stage: 'recorded', run: fact('R1'), live: false, shows: 'overview' });
+    expect(r).toMatchObject({ stage: 'recorded', run: fact('R1'), live: false, shows: 'overview', own: false, steps: { recorded: true, clean: false, tested: false } });
   });
 
   it('follows a recording still being made, and holds the stage until it ends', () => {
-    const r = deriveSetup({ stage: 'inspected', runId: 'R2' }, facts({ runs: 1, recordings: [fact('R2', 'running')], live: true }));
-    expect(r).toEqual({ stage: 'inspected', run: fact('R2', 'running'), live: true, shows: 'overview' });
+    const r = deriveSetup({ stage: 'inspected', runId: 'R2' }, facts({ runs: 1, recordings: [fact('R2', 'running', { calls: 0 })], live: true }));
+    expect(r).toMatchObject({ stage: 'inspected', run: { runId: 'R2' }, live: true, shows: 'overview', empty: null });
   });
 
   it('passes over a recording that was interrupted, or left running by a process that died', () => {
-    const stale = fact('STALE', 'running', false);
-    expect(deriveSetup({ stage: 'inspected', runId: 'STALE' }, facts({ runs: 1, recordings: [stale] }))).toEqual({ stage: 'inspected', run: null, live: false, shows: 'overview' });
+    const stale = fact('STALE', 'running', { live: false });
+    expect(deriveSetup({ stage: 'inspected', runId: 'STALE' }, facts({ runs: 1, recordings: [stale] }))).toMatchObject({ stage: 'inspected', run: null, live: false, shows: 'overview' });
     const r = deriveSetup({ stage: 'inspected', runId: null }, facts({ runs: 3, recordings: [stale, fact('CRASHED', 'crashed'), fact('OK', 'failed')] }));
     expect(r).toMatchObject({ stage: 'recorded', run: { runId: 'OK' }, live: false });
   });
 
-  it('keeps the setup’s own recording, and falls back to the newest when it was deleted', () => {
-    const recordings = [fact('NEW'), fact('SETUP')];
-    expect(deriveSetup({ stage: 'clean', runId: 'SETUP' }, facts({ runs: 2, recordings })).run?.runId).toBe('SETUP');
-    expect(deriveSetup({ stage: 'clean', runId: 'DELETED' }, facts({ runs: 2, recordings })).run?.runId).toBe('NEW');
+  it('never counts a recording with no calls: a typo, or an agent that failed before its first call', () => {
+    // `shadowlap run -- nod agent.mjs`: exit 127, nothing recorded.
+    const typo = fact('TYPO', 'failed', { calls: 0, startedAt: 5 });
+    const r = deriveSetup({ stage: 'inspected', runId: 'TYPO' }, facts({ runs: 1, recordings: [typo] }));
+    expect(r).toMatchObject({ stage: 'inspected', run: null, steps: { recorded: false }, empty: { runId: 'TYPO' } });
+    // One that exits cleanly before calling its model recorded nothing either.
+    expect(deriveSetup({ stage: 'inspected', runId: null }, facts({ runs: 1, recordings: [fact('QUIET', 'completed', { calls: 0 })] }))).toMatchObject({ run: null, empty: { runId: 'QUIET' } });
+    // An earlier recording with calls stays the setup's, and the empty one is pointed out.
+    const earlier = fact('R1', 'completed', { startedAt: 1 });
+    expect(deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 2, recordings: [typo, earlier] }))).toMatchObject({ stage: 'recorded', run: { runId: 'R1' }, own: true, empty: { runId: 'TYPO' } });
+  });
+
+  it('follows the newest recording until the replay is clean: recording again replaces the first', () => {
+    const r1 = fact('R1', 'completed', { startedAt: 10 });
+    const r2 = fact('R2', 'completed', { startedAt: 20 });
+    // R2 recorded in a terminal after wrapping the tools: the setup moves to it.
+    const again = deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 2, recordings: [r2, r1] }));
+    expect(again).toMatchObject({ stage: 'recorded', run: { runId: 'R2' }, own: false });
+    // Once the list says the named one was calibrated, it stays the setup's.
+    const pinned = deriveSetup({ stage: 'clean', runId: 'R1', calibration: { added: [] } }, facts({ runs: 2, recordings: [r2, r1] }));
+    expect(pinned).toMatchObject({ stage: 'clean', run: { runId: 'R1' }, own: true, steps: { clean: true } });
+  });
+
+  it('honours what the list made only for the recording it names', () => {
+    const r3 = fact('R3', 'completed', { startedAt: 30 });
+    // The calibrated recording was deleted: its calibration and golden don't carry over to another one.
+    const r = deriveSetup({ stage: 'tested', runId: 'DELETED', calibration: { added: [{ path: '$.system', why: null }] }, golden: 'goldens/agent' }, facts({ runs: 1, recordings: [r3] }));
+    expect(r).toMatchObject({ stage: 'recorded', run: { runId: 'R3' }, own: false, steps: { recorded: true, clean: false, tested: false }, golden: null });
+  });
+
+  it('works out which tools weren’t wrapped when the recording was made', () => {
+    const r1 = fact('R1', 'completed', { startedAt: 100 });
+    const r2 = fact('R2', 'completed', { startedAt: 300 });
+    const inspections = [
+      { at: 50, unwrapped: ['save_report', 'notify_slack'] },
+      { at: 200, unwrapped: [] },
+    ];
+    const state = { stage: 'recorded' as const, runId: 'R1', inspections, findings: findings(200, []) };
+    expect(deriveSetup(state, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual(['save_report', 'notify_slack']);
+    // Recorded again after the tools were wrapped and checked again: nothing missing.
+    expect(deriveSetup(state, facts({ runs: 2, recordings: [r2, r1] })).unwrappedAtRecord).toEqual([]);
+    // Findings alone (a list from before inspections were kept) say it too.
+    expect(deriveSetup({ stage: 'recorded', runId: null, findings: findings(50, ['send_email']) }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual(['send_email']);
+    // Inspected only after the recording: unknown, unless the list noted it when recording started.
+    expect(deriveSetup({ stage: 'recorded', runId: 'R1', findings: findings(500, ['x']) }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual([]);
+    expect(deriveSetup({ stage: 'recorded', runId: 'R1', unwrappedAtRecord: ['x'] }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual(['x']);
+  });
+
+  it('counts a clean replay of the recording as step 3, and a pack of it in the repository as step 4', () => {
+    const replayed = fact('R1', 'completed', { replayedClean: true });
+    expect(deriveSetup({ stage: 'inspected', runId: null }, facts({ runs: 2, recordings: [replayed] }))).toMatchObject({ stage: 'clean', steps: { recorded: true, clean: true, tested: false } });
+    const packs = [{ path: 'goldens/other', runIds: ['OTHER'] }, { path: 'goldens/agent', runIds: ['R1'] }];
+    const packed = deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 1, recordings: [fact('R1')] }), { packs });
+    expect(packed).toMatchObject({ stage: 'tested', steps: { recorded: true, clean: false, tested: true }, golden: 'goldens/agent', goldenFrom: 'packed' });
+    // Tested from the setup: the list's golden.
+    expect(deriveSetup({ stage: 'tested', runId: 'R1', golden: 'goldens/q3' }, facts({ runs: 1, recordings: [fact('R1')] }))).toMatchObject({ stage: 'tested', golden: 'goldens/q3', goldenFrom: 'tested' });
   });
 
   it('is done once finished, with runs; a project with imports only is still set up', () => {
-    expect(deriveSetup({ stage: 'done', runId: null }, facts({ runs: 3 }))).toEqual({ stage: 'done', run: null, live: false, shows: 'none' });
-    expect(deriveSetup({ stage: 'tested', runId: 'R' }, facts({ runs: 1, recordings: [fact('R')] })).shows).toBe('overview');
+    expect(deriveSetup({ stage: 'done', runId: null }, facts({ runs: 3 }))).toMatchObject({ stage: 'done', run: null, live: false, shows: 'none', steps: { recorded: false, clean: false, tested: false } });
+    expect(deriveSetup({ stage: 'tested', runId: 'R', golden: 'goldens/x' }, facts({ runs: 1, recordings: [fact('R')] })).shows).toBe('overview');
+    // Finished: each step done only when there is something to show for it.
+    const finished = deriveSetup({ stage: 'done', runId: 'R', calibration: { added: [] }, golden: null }, facts({ runs: 1, recordings: [fact('R')] }));
+    expect(finished).toMatchObject({ stage: 'done', steps: { recorded: true, clean: true, tested: false }, golden: null });
   });
 });
 
@@ -66,6 +149,8 @@ describe('initialSetup', () => {
     recordEvent(store, { kind: 'project.setup', runId: 'R1', data: { stage: 'done', golden: 'goldens/refund' } });
     expect(initialSetup(storeFacts(store), 0)).toEqual({ stage: 'done', runId: 'R1', golden: 'goldens/refund' });
     expect(initialSetup(facts({ runs: 1, recordings: [fact('R')] }), 2)).toEqual({ stage: 'done', runId: null, golden: null });
+    // Recordings that hold nothing don't make a project set up.
+    expect(initialSetup(facts({ runs: 1, recordings: [fact('R', 'failed', { calls: 0 })] }), 2)).toEqual({ stage: 'added', runId: null, golden: null });
     expect(initialSetup(facts({ runs: 1, recordings: [fact('R')] }), 0)).toEqual({ stage: 'added', runId: null, golden: null });
     expect(initialSetup(facts(), 3)).toEqual({ stage: 'added', runId: null, golden: null });
     // The folder a dashboard starts in: any runs there mean it is in use already.
@@ -75,31 +160,63 @@ describe('initialSetup', () => {
 });
 
 describe('storeFacts', () => {
-  it('counts runs and attempts apart, and lists only recordings made here', () => {
+  it('counts runs and attempts apart, and lists only recordings made here, with their calls', () => {
     const store = freshStore();
-    const make = (opts: { mode?: 'record' | 'replay'; parent?: string; meta?: Record<string, unknown>; argv?: string[]; status?: 'completed' | 'failed' | 'running' } = {}) => {
+    const make = (opts: { mode?: 'record' | 'replay'; parent?: string; meta?: Record<string, unknown>; argv?: string[]; status?: 'completed' | 'failed' | 'running'; calls?: number } = {}) => {
       const run = store.createRun({ mode: opts.mode ?? 'record', command: { argv: opts.argv ?? ['node', 'agent.mjs'], cwd: '/x' }, ...(opts.parent ? { parentRunId: opts.parent } : {}), ...(opts.meta ? { meta: opts.meta } : {}) });
+      addCalls(store, run.runId, opts.calls ?? 2);
       if ((opts.status ?? 'completed') !== 'running') store.endRun(run.runId, (opts.status ?? 'completed') as 'completed' | 'failed');
       return run.runId;
     };
     const first = make();
-    const failed = make({ status: 'failed' });
+    const failed = make({ status: 'failed', calls: 0 });
     make({ mode: 'replay', parent: first });
     make({ mode: 'replay', parent: first, meta: { repeat: { group: 'g', attempt: 1, of: 2 } } });
     make({ mode: 'replay', parent: first, meta: { repeat: { group: 'g', attempt: 2, of: 2 } } });
     make({ mode: 'replay', parent: first, meta: { probe: { of: first, callNo: 3, passed: true } } });
     make({ meta: { imported: { at: 1, from: 'goldens/x' } } });
     make({ argv: [NO_COMMAND] });
-    const live = make({ status: 'running' });
+    const live = make({ status: 'running', calls: 1 });
     recordEvent(store, { kind: 'project.added', ref: 'p' });
 
     const f = storeFacts(store);
     expect(f.runs).toBe(6);
     expect(f.attempts).toBe(3);
-    expect(f.recordings.map((r) => [r.runId, r.live])).toEqual([[live, true], [failed, false], [first, false]]);
+    expect(f.recordings.map((r) => [r.runId, r.live, r.calls, r.replayedClean])).toEqual([
+      [live, true, 1, false],
+      [failed, false, 0, false],
+      [first, false, 2, true],
+    ]);
     expect(f.live).toBe(true);
     expect(f.addedBefore).toBe(true);
     expect(f.setupEvent).toBeNull();
+    store.close();
+  });
+
+  it('counts a replay as clean only when it ended as the recording did, without a divergence and with calls', () => {
+    const store = freshStore();
+    const record = (status: 'completed' | 'failed') => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' } });
+      addCalls(store, r.runId, 2);
+      store.endRun(r.runId, status);
+      return r.runId;
+    };
+    const replay = (parent: string, status: 'completed' | 'failed', opts: { calls?: number; diverged?: boolean } = {}) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: parent, command: { argv: ['node', 'a.mjs'], cwd: '/x' } });
+      addCalls(store, r.runId, opts.calls ?? 2);
+      if (opts.diverged) store.setDivergence(r.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0 });
+      store.endRun(r.runId, status);
+    };
+    const forked = record('completed');
+    replay(forked, 'completed', { diverged: true });
+    const noCalls = record('completed');
+    replay(noCalls, 'completed', { calls: 0 });
+    const exitsWithError = record('failed');
+    replay(exitsWithError, 'failed');
+    const otherEnding = record('completed');
+    replay(otherEnding, 'failed');
+    const byId = new Map(storeFacts(store).recordings.map((r) => [r.runId, r.replayedClean]));
+    expect([byId.get(forked), byId.get(noCalls), byId.get(exitsWithError), byId.get(otherEnding)]).toEqual([false, false, true, false]);
     store.close();
   });
 
@@ -115,6 +232,7 @@ describe('storeFacts', () => {
   it('lists the setup’s own recording however many came after it', () => {
     const store = freshStore();
     const first = store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' }, startedAt: 1000 }).runId;
+    addCalls(store, first, 1);
     store.endRun(first, 'completed');
     for (let i = 0; i < 60; i++) store.endRun(store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' }, startedAt: 2000 + i }).runId, 'completed');
     expect(storeFacts(store).recordings.map((r) => r.runId)).not.toContain(first);

@@ -1,6 +1,8 @@
-import { lstatSync } from 'node:fs';
+import { lstatSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { quoteArgv } from '../text.js';
+import { readPack } from './folders.js';
 import { displayPath, isWithin, realpathOrNull } from './paths.js';
 
 /**
@@ -8,7 +10,8 @@ import { displayPath, isWithin, realpathOrNull } from './paths.js';
  * that already exists for a capture's replay: the agent's own command, which only ever becomes what
  * follows `--` in `shadowlap run -- <command>`. The server builds the arguments here, without a
  * shell, and asks before the first run of a command in a folder: the project list keeps each
- * confirmed (folder, command) pair, so the same command there doesn't ask again.
+ * confirmed (folder, command) pair, with the model server it records through, so the same command
+ * there doesn't ask again, unless its model calls would now go somewhere else.
  */
 
 export const COMMAND_LIMITS = Object.freeze({ chars: 4000, args: 200 });
@@ -103,11 +106,6 @@ export function parseAgentCommand(line: string): ParsedCommand {
   return { ok: true, argv: args };
 }
 
-/** Arguments as a terminal would take them back: plain words bare, anything else in single quotes. */
-export function quoteArgs(argv: readonly string[]): string {
-  return argv.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(' ');
-}
-
 /** The dialog that asks before a command's first run in a folder. */
 export interface RecordConfirmation {
   title: string;
@@ -131,7 +129,13 @@ export interface RecordPlan {
   env: Record<string, string>;
   /** As a terminal shows it: `shadowlap run -- uv run agent.py`. */
   display: string;
-  /** Set the first time this command runs in this folder: ask with this before running it. */
+  /** The model server it records through ({@link UPSTREAM_ENV}), or null for the provider's API: part of what is confirmed. */
+  upstream: string | null;
+  /**
+   * Set the first time this command runs in this folder, or when its model calls would go somewhere
+   * else than when it was confirmed: ask with this before running it, then
+   * `ProjectRegistry.confirmCommand(id, plan.argv, { upstream: plan.upstream })`.
+   */
   confirm: RecordConfirmation | null;
 }
 
@@ -175,7 +179,7 @@ function parseUrl(value: unknown): URL | null {
 
 /** `SHADOWLAP_UPSTREAM_OPENAI=<url>` as a terminal takes it: only the value is quoted, or it would not set a variable. */
 function upstreamAssignment(upstream: string): string {
-  return `${UPSTREAM_ENV}=${quoteArgs([upstream])}`;
+  return `${UPSTREAM_ENV}=${quoteArgv([upstream])}`;
 }
 
 /** An http(s) address recording may forward to: no credentials in it, nothing but the URL. */
@@ -184,24 +188,38 @@ export function upstreamUrl(value: unknown): string | null {
   return url && !url.username && !url.password ? (value as string) : null;
 }
 
-/** A model server `init` found, as the project list may keep it: never with the credentials its address holds. */
-export function modelServerFinding(server: { url: string; upstream: string; from: string }): ModelServer | null {
+/** Query parameters that carry a key or a token (`api_key`, `token`, `sig`): an address with one holds credentials. */
+const SECRET_PARAM = /key|token|secret|passw|pwd|auth|credential|signature|^sig$/i;
+
+/**
+ * A model server `init` found, as the project list keeps it and `init --json` prints it: never with
+ * the credentials its address holds (a user and password, or a key in its query), which are removed
+ * from the address shown; such a server gets no upstream, so the dashboard won't record through it.
+ */
+export function modelServerFinding(server: { url: string; upstream?: string | null; from: string }): ModelServer | null {
   const url = parseUrl(server.url);
   if (!url) return null;
-  const secret = !!(url.username || url.password);
+  const params = [...url.searchParams.keys()].filter((k) => SECRET_PARAM.test(k));
+  const secret = !!(url.username || url.password || params.length);
   url.username = '';
   url.password = '';
+  for (const k of params) url.searchParams.delete(k);
   return { url: secret ? url.toString() : server.url, upstream: secret ? null : upstreamUrl(server.upstream), from: server.from };
+}
+
+/** Whether a command was confirmed in a folder: the same arguments, recorded through the same model server. */
+export function isConfirmedCommand(confirmed: ReadonlyArray<{ argv: readonly string[]; upstream?: string | null }>, argv: readonly string[], upstream: string | null): boolean {
+  return confirmed.some((c) => sameArgv(c.argv, argv) && (c.upstream ?? null) === upstream);
 }
 
 /**
  * What recording a typed command in a project's folder takes: the arguments for the job, the
  * variables it sets (the project's model server, when `init` found one), and the confirmation to
- * show first unless this exact command was confirmed in this folder before. The server records the
- * pair once the person confirms (`ProjectRegistry.confirmCommand`).
+ * show first unless this exact command was confirmed in this folder before, through the same model
+ * server. The server records the pair once the person confirms (`ProjectRegistry.confirmCommand`).
  */
 export function planRecording(
-  project: { path: string; confirmed: ReadonlyArray<{ argv: string[] }> },
+  project: { path: string; confirmed: ReadonlyArray<{ argv: string[]; upstream?: string | null }> },
   line: string,
   options: { home?: string; modelServer?: Pick<ModelServer, 'url' | 'upstream'> | null } = {},
 ): RecordPlanResult {
@@ -212,30 +230,39 @@ export function planRecording(
   if (server && !server.upstream) return { ok: false, error: `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.` };
   const argv = parsed.argv;
   const env: Record<string, string> = server?.upstream ? { [UPSTREAM_ENV]: server.upstream } : {};
-  const display = `${server?.upstream ? `${upstreamAssignment(server.upstream)} ` : ''}shadowlap run -- ${quoteArgs(argv)}`;
-  const known = project.confirmed.some((c) => sameArgv(c.argv, argv));
+  const display = `${server?.upstream ? `${upstreamAssignment(server.upstream)} ` : ''}shadowlap run -- ${quoteArgv(argv)}`;
+  const upstream = server?.upstream ?? null;
+  const known = isConfirmedCommand(project.confirmed, argv, upstream);
+  // Confirmed before, with its model calls going elsewhere (the project's .env changed since): ask again.
+  const moved = !known && project.confirmed.some((c) => sameArgv(c.argv, argv));
   const calls = server?.upstream ? `Model calls go to ${server.url}, the model server this project uses.` : 'Model calls go to the real API with your keys, which are never stored.';
   const confirm: RecordConfirmation | null = known
     ? null
     : {
         title: `Run this command in ${displayPath(project.path, options.home ?? homedir())}?`,
-        text: `The first command in a folder asks first. Shadowlap starts a local sidecar, runs it once, and records every model and tool call. ${calls}`,
+        text: `${moved ? 'It ran here before with its model calls going somewhere else, so it asks again.' : 'The first command in a folder asks first.'} Shadowlap starts a local sidecar, runs it once, and records every model and tool call. ${calls}`,
         command: display,
         button: 'Run and record',
       };
-  return { ok: true, plan: { args: ['run', '--', ...argv], argv, cwd: project.path, env, display, confirm } };
+  return { ok: true, plan: { args: ['run', '--', ...argv], argv, cwd: project.path, env, display, upstream, confirm } };
 }
 
-export type GoldenPathResult = { ok: true; path: string } | { ok: false; error: string };
+export type GoldenPathResult =
+  | { ok: true; path: string }
+  /** `taken`: something is at that path already, a golden or other files; another name is free. */
+  | { ok: false; error: string; taken?: boolean };
 
 /**
  * Where the setup keeps its golden, as typed in its last step: a folder inside the project, such as
  * `goldens/triage-inbox`. A bare name goes under `goldens/`, where Tests finds packs. Never absolute,
- * never `..`, never hidden, plain characters only: `pack` writes there. Given the project's folder,
- * it also checks that no part of the path that exists already is a link out of the folder, so a
- * `goldens` link planted in a checkout can't send the pack somewhere else.
+ * never `..`, never hidden, never a part that starts with a dash (the CLI would read it as an
+ * option), plain characters only: `pack` writes there. Given the project's folder, it also checks
+ * that no part of the path that exists already is a link out of the folder, so a `goldens` link
+ * planted in a checkout can't send the pack somewhere else, and that nothing is there yet: `pack`
+ * writes over what it finds, so a golden already there (from an earlier setup, or another
+ * recording) is refused, unless it holds `runId` itself, the run being packed again.
  */
-export function goldenPath(input: string, options: { folder?: string } = {}): GoldenPathResult {
+export function goldenPath(input: string, options: { folder?: string; runId?: string | null } = {}): GoldenPathResult {
   let path = input.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
   if (!path) return { ok: false, error: 'Give the golden a folder, such as goldens/first-run.' };
   if (path.length > 200) return { ok: false, error: 'That path is longer than 200 characters.' };
@@ -246,8 +273,10 @@ export function goldenPath(input: string, options: { folder?: string } = {}): Go
   for (const s of segments) {
     if (!s || s === '.' || s === '..') return { ok: false, error: 'The golden goes inside the project: no empty, . or .. parts.' };
     if (s.startsWith('.')) return { ok: false, error: 'The golden can’t go in a hidden folder.' };
+    if (s.startsWith('-')) return { ok: false, error: 'A part of the golden’s path can’t start with a dash.' };
     if (!/^[A-Za-z0-9._-]+$/.test(s)) return { ok: false, error: 'Use letters, digits, dots, dashes and underscores in the golden’s path.' };
   }
+  const clean = segments.join('/');
   if (options.folder) {
     const root = realpathOrNull(options.folder);
     if (!root) return { ok: false, error: 'The project’s folder doesn’t exist any more.' };
@@ -263,14 +292,41 @@ export function goldenPath(input: string, options: { folder?: string } = {}): Go
       const real = realpathOrNull(here);
       if (!real || !isWithin(real, root)) return { ok: false, error: `${segments.slice(0, i).join('/')} ${link && !real ? 'is a link to nowhere' : 'leads out of the project'}, so Shadowlap won’t pack there.` };
     }
+    const target = join(options.folder, ...segments);
+    const there = realpathOrNull(target);
+    if (there) {
+      if (!statSync(there).isDirectory()) return { ok: false, taken: true, error: `${clean} is a file, so Shadowlap won’t pack there.` };
+      const held = readPack(there);
+      if (held) {
+        if (!options.runId || !held.includes(options.runId)) return { ok: false, taken: true, error: `${clean} already holds a golden. Give this one another name: Shadowlap never packs over a golden.` };
+      } else if (readdirSync(there).length) {
+        return { ok: false, taken: true, error: `${clean} isn’t empty. Give the golden a folder of its own.` };
+      }
+    }
   }
-  return { ok: true, path: segments.join('/') };
+  return { ok: true, path: clean };
 }
 
 /** A golden name the setup offers first: `goldens/<project id>`. */
 export function defaultGolden(projectId: string): string {
   const slug = projectId.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '');
   return `goldens/${slug || 'first-run'}`;
+}
+
+/**
+ * The golden's path the setup offers, free on disk: `goldens/<project id>`, or `goldens/<project
+ * id>-2` and so on when a golden from an earlier setup is there (one holding `runId` is the setup's
+ * own, and fine). `goldens/<project id>` when no free one is found, which the pack then refuses.
+ */
+export function freeGoldenPath(folder: string, projectId: string, runId?: string | null): string {
+  const base = defaultGolden(projectId);
+  for (let n = 1; n <= 99; n++) {
+    const candidate = n === 1 ? base : `${base}-${n}`;
+    const check = goldenPath(candidate, { folder, runId: runId ?? null });
+    if (check.ok) return check.path;
+    if (!check.taken) break;
+  }
+  return base;
 }
 
 /** A run id as the setup shows it in commands; the CLI takes any unique prefix. */
@@ -280,7 +336,10 @@ export function shortRunId(runId: string): string {
 
 /**
  * The CLI arguments for each setup step, as the dashboard's jobs run them (each in the project's
- * folder, with `--db` added by the server). Pack and test are two jobs, test after pack.
+ * folder, with `--db` added by the server). Pack and test are two jobs, test after pack. Calibrate
+ * runs without `--json`, so its rounds stream into the job's output; its result arrives as the
+ * job's `result` event (the object `--json` prints), for `calibrationOutcome`. `init --json`
+ * writes its findings to the project list itself.
  */
 export const setupJobArgs = {
   inspect: (): string[] => ['init', '--json'],
@@ -299,7 +358,7 @@ export function setupCommands(input: { argv: readonly string[] | null; runId: st
   const upstream = input.modelServer ? `${input.modelServer.upstream ? upstreamAssignment(input.modelServer.upstream) : `${UPSTREAM_ENV}=<your model server>`} ` : '';
   return {
     inspect: ['shadowlap init'],
-    record: [`${upstream}shadowlap run -- ${input.argv?.length ? quoteArgs(input.argv) : '<the command that starts your agent>'}`],
+    record: [`${upstream}shadowlap run -- ${input.argv?.length ? quoteArgv(input.argv) : '<the command that starts your agent>'}`],
     calibrate: [`shadowlap calibrate ${run} --write`],
     test: [`shadowlap pack ${run} ${input.golden}`, `shadowlap test ${input.golden}`],
   };

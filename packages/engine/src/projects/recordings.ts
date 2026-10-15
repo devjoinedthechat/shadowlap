@@ -1,7 +1,8 @@
 import { existsSync, lstatSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { Store } from '../store.js';
 import { projectDbPath } from './paths.js';
+import { isLiveRun } from './setup.js';
+import { readStore } from './store-reader.js';
 
 /**
  * Deleting a project's recordings: its store, `.shadowlap/shadowlap.db` and the files SQLite keeps
@@ -20,8 +21,6 @@ export class RecordingsError extends Error {
 }
 
 const STORE_FILES = ['shadowlap.db', 'shadowlap.db-wal', 'shadowlap.db-shm', 'shadowlap.db-journal'];
-/** A run marked as running that started longer ago than this was left by a process that died. */
-const RECENT_RUN_MS = 15 * 60 * 1000;
 
 function alive(pid: number): boolean {
   try {
@@ -34,9 +33,10 @@ function alive(pid: number): boolean {
 
 /**
  * Whether something is recording into the folder's store right now: a `shadowlap run` whose
- * process is alive (`.shadowlap/active.json`), or a run still marked running that started in the
- * last quarter of an hour. A store that can't be opened to look (one held by a long write, or from a
- * newer Shadowlap) can't be said to be idle: that throws rather than answering no.
+ * process is alive (`.shadowlap/active.json`), or a run still marked running that started within
+ * the last hour, as the setup counts a live run (`isLiveRun`). A store that can't be opened to look
+ * (one held by a long write, or from a newer Shadowlap) can't be said to be idle: that throws rather
+ * than answering no.
  */
 export function recordingInProgress(folder: string, now: number = Date.now()): boolean {
   const active = join(folder, '.shadowlap', 'active.json');
@@ -50,16 +50,11 @@ export function recordingInProgress(folder: string, now: number = Date.now()): b
   }
   const db = projectDbPath(folder);
   if (!existsSync(db)) return false;
-  let store: Store;
   try {
-    store = Store.open(db);
+    // Read-only: a store about to be deleted isn't migrated first.
+    return readStore(db, (store) => store.runningRuns().some((r) => isLiveRun(r, now)));
   } catch (err) {
     throw new RecordingsError('store', `Shadowlap can’t open the store to check that nothing is recording into it: ${(err as Error).message}`);
-  }
-  try {
-    return store.listRuns(20).some((r) => r.status === 'running' && now - r.startedAt < RECENT_RUN_MS);
-  } finally {
-    store.close();
   }
 }
 

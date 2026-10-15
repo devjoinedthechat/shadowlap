@@ -8,9 +8,12 @@ import type { ModelServer } from './record.js';
 /**
  * Setting a project up: four steps, each a CLI command (inspect with `init`, record with `run`, make
  * the replay clean with `calibrate`, keep it as a test with `pack` and `test`). The project list
- * remembers how far a project got, so the switcher can say "setting up" and the setup resumes; the
- * store says what it can by itself (a recording made in a terminal counts), so a step done outside
- * the dashboard still shows as done.
+ * remembers how far a project got, so the switcher can say "setting up" and the setup resumes. The
+ * store and the repository say the rest, so the same commands typed in a terminal move the setup on
+ * too: `init` writes its findings to the list, a recording counts once it holds calls, a clean
+ * replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/`
+ * completes step 4. `calibrate --write` in a terminal leaves no trace of its own (it deletes its
+ * replays), so after it the setup's Calibrate finds the replay clean as it is, or a replay shows it.
  */
 
 export const SETUP_STAGES = ['added', 'inspected', 'recorded', 'clean', 'tested', 'done'] as const;
@@ -84,8 +87,26 @@ export function unwrappedTools(findings: SetupFindings | null): SetupTool[] {
   return findings ? findings.tools.filter((t) => !t.wrapped) : [];
 }
 
+/** One `init` in the folder: when it ran, and which tools weren't wrapped then. */
+export interface Inspection {
+  at: number;
+  unwrapped: string[];
+}
+
 // ---------------------------------------------------------------------------------------------
 // What the store says
+
+/**
+ * A run marked running that started longer ago than this was left so by a process that died; one
+ * being recorded or replayed now started within it. The setup and deleting a project's recordings
+ * go by the same rule.
+ */
+export const LIVE_RUN_MS = 60 * 60 * 1000;
+
+/** Being recorded or replayed right now, as far as the store can tell: see {@link LIVE_RUN_MS}. */
+export function isLiveRun(run: { status: RunStatus; startedAt: number }, now: number): boolean {
+  return run.status === 'running' && now - run.startedAt < LIVE_RUN_MS;
+}
 
 /** A run, as far as the setup needs it. */
 export interface RunFact {
@@ -93,11 +114,15 @@ export interface RunFact {
   status: RunStatus;
   startedAt: number;
   endedAt: number | null;
-  /**
-   * Being recorded right now: marked running, and started within the last hour. One marked running
-   * that started earlier was left so by a process that died.
-   */
+  /** Being recorded right now ({@link isLiveRun}). */
   live: boolean;
+  /**
+   * The calls it holds. A recording that ended without one recorded nothing: its command didn't
+   * start (a typo), or the agent stopped before its first model call.
+   */
+  calls: number;
+  /** A replay of it ended as it did, without a divergence and with calls replayed: the replay is clean. */
+  replayedClean: boolean;
 }
 
 export interface StoreFacts {
@@ -115,6 +140,13 @@ export interface StoreFacts {
   addedBefore: boolean;
 }
 
+/** What {@link storeFacts} reads: a `Store`, or a read-only view of one (`readStoreFacts`). */
+export interface FactsSource {
+  allRuns(): RunRecord[];
+  countCalls(runId: string): number;
+  listEvents(options: { kinds?: string[]; limit?: number }): StoredEvent[];
+}
+
 /** An attempt rather than a run of its own: `replay --repeat`, a blame probe, a verify attempt. */
 export function isAttempt(run: RunRecord): boolean {
   return Boolean(run.meta?.repeat || run.meta?.probe || run.meta?.verify);
@@ -125,27 +157,42 @@ export function isRecording(run: RunRecord): boolean {
   return run.mode === 'record' && run.parentRunId === null && !run.meta?.imported && hasRecordedCommand(run) && !isAttempt(run);
 }
 
-const LIVE_WINDOW_MS = 60 * 60 * 1000;
-
 export function emptyStoreFacts(): StoreFacts {
   return { runs: 0, attempts: 0, recordings: [], live: false, setupEvent: null, addedBefore: false };
 }
 
 /** Recordings listed at most, newest first; the setup's own is always among them. */
 const MAX_RECORDINGS = 50;
+/** Clean replays looked into per recording at most. */
+const MAX_REPLAYS_CHECKED = 5;
 
 /**
- * What a project's store says about its setup. Reads run rows and two event kinds; no calls.
- * `keep` is the setup's recording, listed however many newer ones there are.
+ * What a project's store says about its setup: runs counted, its recordings with their calls and
+ * whether a replay of one ran clean, and two event kinds. `keep` is the setup's recording, listed
+ * however many newer ones there are.
  */
-export function storeFacts(store: Store, now: number = Date.now(), options: { keep?: string | null } = {}): StoreFacts {
+export function storeFacts(store: FactsSource, now: number = Date.now(), options: { keep?: string | null } = {}): StoreFacts {
   const facts = emptyStoreFacts();
+  // Replays that ended without a divergence, by the run they replay, with how they ended.
+  const replays = new Map<string, Array<{ runId: string; status: RunStatus }>>();
   for (const run of store.allRuns()) {
     if (isAttempt(run)) facts.attempts++;
     else facts.runs++;
-    const live = run.status === 'running' && now - run.startedAt < LIVE_WINDOW_MS;
+    const live = isLiveRun(run, now);
     if (live) facts.live = true;
-    if (isRecording(run) && (facts.recordings.length < MAX_RECORDINGS || run.runId === options.keep)) facts.recordings.push({ runId: run.runId, status: run.status, startedAt: run.startedAt, endedAt: run.endedAt, live });
+    if (run.mode === 'replay' && run.parentRunId && !run.divergence && (run.status === 'completed' || run.status === 'failed') && !isAttempt(run)) {
+      const list = replays.get(run.parentRunId) ?? [];
+      list.push({ runId: run.runId, status: run.status });
+      replays.set(run.parentRunId, list);
+    }
+    if (isRecording(run) && (facts.recordings.length < MAX_RECORDINGS || run.runId === options.keep)) {
+      facts.recordings.push({ runId: run.runId, status: run.status, startedAt: run.startedAt, endedAt: run.endedAt, live, calls: store.countCalls(run.runId), replayedClean: false });
+    }
+  }
+  for (const r of facts.recordings) {
+    // Clean: it ended as the recording did (an agent that exits with an error does so again), and replayed calls.
+    const same = (replays.get(r.runId) ?? []).filter((x) => x.status === r.status).slice(0, MAX_REPLAYS_CHECKED);
+    r.replayedClean = r.calls > 0 && same.some((x) => store.countCalls(x.runId) > 0);
   }
   facts.setupEvent = store.listEvents({ kinds: ['project.setup'], limit: 1 })[0] ?? null;
   facts.addedBefore = store.listEvents({ kinds: ['project.added'], limit: 1 }).length > 0;
@@ -171,15 +218,38 @@ export function runTotals(store: Store, runId: string, prices?: Record<string, P
 // ---------------------------------------------------------------------------------------------
 // Where a project's setup is
 
-/** The part of a project's entry the setup reads. */
+/** The part of a project's entry the setup reads (`ProjectSetup` has all of it). */
 export interface SetupState {
   stage: SetupStage;
+  /** The recording the list names: the one the setup recorded, calibrated or packed. */
   runId: string | null;
+  /** What `init` found last. */
+  findings?: SetupFindings | null;
+  /** Each `init` in the folder, to tell which tools weren't wrapped when a recording was made. */
+  inspections?: readonly Inspection[];
+  /** Tools not wrapped when the named recording was made, as noted when it started (lists written before `inspections`). */
+  unwrappedAtRecord?: readonly string[];
+  /** What calibrate added for the named recording. */
+  calibration?: { added: ReadonlyArray<{ path: string; why: string | null }> } | null;
+  /** The golden kept from the named recording. */
+  golden?: string | null;
+}
+
+/** A pack in the project's repository, with the runs it holds (`listPacks`). */
+export interface PackFact {
+  /** Relative to the project's folder: `goldens/triage-inbox`. */
+  path: string;
+  runIds: readonly string[];
 }
 
 export interface EffectiveSetup {
+  /** The furthest step done, `done` once the setup was finished. */
   stage: SetupStage;
-  /** The setup's recording: the one the project list names, else the newest recording in the store. */
+  /**
+   * The setup's recording. Until its replay is made clean, the newest recording that holds calls:
+   * recording again (after wrapping tools, or after one that recorded nothing) replaces the first.
+   * From then on, the one the project list names, which its calibration and golden belong to.
+   */
   run: RunFact | null;
   /** That recording is still being made. */
   live: boolean;
@@ -188,30 +258,78 @@ export interface EffectiveSetup {
    * on the Overview while it is being set up, nowhere once it is.
    */
   shows: 'everywhere' | 'overview' | 'none';
+  /** Which steps are done for that recording: what the list says it made for it, or what the store and the repository show. */
+  steps: { recorded: boolean; clean: boolean; tested: boolean };
+  /** The recording is the one the list names, so the calibration the list keeps is its own. */
+  own: boolean;
+  /** Tools that weren't wrapped when the recording was made, as far as `init` said then: their calls aren't in it. */
+  unwrappedAtRecord: string[];
+  /** The newest recording, when it ended without a call after the setup's own (or with none to fall back on): nothing was recorded. */
+  empty: RunFact | null;
+  /** The golden kept from the recording: the one the list names, or a pack of it found in the repository. */
+  golden: string | null;
+  /** How the golden was kept: packed and tested from the setup (`noteTested`), or found packed in the repository. */
+  goldenFrom: 'tested' | 'packed' | null;
 }
 
 /**
- * Where a project's setup is, from what the project list remembers and what its store holds. A
- * stage never goes back, except where the store says otherwise: without a finished recording the
- * setup is at most inspected (the recording may have been deleted, or still be running), and a
- * finished one counts even when it was made in a terminal. A project finished with no runs left
- * shows the steps from the start again.
+ * A recording can be the setup's when it holds calls and ended (completed, or failed: the agent
+ * exited with an error, and that is what it does), or is being made now. One that was interrupted,
+ * or left marked running by a process that died, holds only part of a run; one that ended with no
+ * calls recorded nothing.
  */
-export function deriveSetup(state: SetupState, facts: StoreFacts): EffectiveSetup {
-  const shows = (stage: SetupStage): EffectiveSetup['shows'] => (facts.runs === 0 ? 'everywhere' : stage === 'done' ? 'none' : 'overview');
-  // A recording can be the setup's when it ended (completed, or failed: the agent exited with an
-  // error, and that is what it does) or is being made now; one that was interrupted, or left
-  // marked running by a process that died, holds only part of a run.
-  const usable = (r: RunFact) => r.live || r.status === 'completed' || r.status === 'failed';
+function usable(r: RunFact): boolean {
+  return r.live || ((r.status === 'completed' || r.status === 'failed') && r.calls > 0);
+}
+
+/** Which tools weren't wrapped when `run` was recorded: what the last `init` before it said. */
+function unwrappedWhen(state: SetupState, run: RunFact, own: boolean): string[] {
+  const known: Inspection[] = [...(state.inspections ?? [])];
+  if (state.findings) known.push({ at: state.findings.at, unwrapped: unwrappedTools(state.findings).map((t) => t.name) });
+  let last: Inspection | null = null;
+  for (const i of known) if (i.at <= run.startedAt && (!last || i.at >= last.at)) last = i;
+  if (last) return [...last.unwrapped];
+  return own && state.unwrappedAtRecord ? [...state.unwrappedAtRecord] : [];
+}
+
+/**
+ * Where a project's setup is, from what the project list remembers, what its store holds and the
+ * packs in its repository. Without a recording that holds calls the setup is at most inspected (the
+ * recording may have been deleted, still be running, or have recorded nothing); one made in a
+ * terminal counts. The list's own progress (calibrated, tested) counts only for the recording it
+ * names. A project finished with no runs left shows the steps from the start again.
+ */
+export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?: readonly PackFact[] } = {}): EffectiveSetup {
+  const hasRuns = facts.runs > 0;
+  const shows = (stage: SetupStage): EffectiveSetup['shows'] => (!hasRuns ? 'everywhere' : stage === 'done' ? 'none' : 'overview');
+  const finished = state.stage === 'done';
   const named = state.runId ? (facts.recordings.find((r) => r.runId === state.runId && usable(r)) ?? null) : null;
-  const run = named ?? facts.recordings.find(usable) ?? null;
-  if (state.stage === 'done' && facts.runs > 0) return { stage: 'done', run, live: !!run?.live, shows: 'none' };
+  const newest = facts.recordings.find(usable) ?? null;
+  const run = ((finished || stageAtLeast(state.stage, 'clean')) && named) || newest;
+  const own = !!run && run.runId === state.runId;
+  const latest = facts.recordings[0] ?? null;
+  const empty = latest && !latest.live && latest.calls === 0 && (!run || latest.startedAt > run.startedAt) ? latest : null;
+  const base = { run, own, unwrappedAtRecord: run ? unwrappedWhen(state, run, own) : [], empty };
+
+  const ownGolden = own && state.golden ? state.golden : null;
+  const packed = run ? (repo.packs?.find((p) => p.runIds.includes(run.runId))?.path ?? null) : null;
+  const kept = (tested: boolean): Pick<EffectiveSetup, 'golden' | 'goldenFrom'> => (!tested ? { golden: null, goldenFrom: null } : ownGolden ? { golden: ownGolden, goldenFrom: 'tested' } : { golden: packed, goldenFrom: 'packed' });
+
+  if (finished && hasRuns) {
+    const recorded = !!run && !run.live;
+    const clean = recorded && ((own && state.calibration != null) || run.replayedClean);
+    const tested = recorded && (!!ownGolden || !!packed);
+    return { ...base, stage: 'done', live: !!run?.live, shows: 'none', steps: { recorded, clean, tested }, ...kept(tested) };
+  }
   if (!run || run.live) {
     const stage = earlierStage(state.stage, 'inspected');
-    return { stage, run, live: !!run, shows: shows(stage) };
+    return { ...base, stage, live: !!run, shows: shows(stage), steps: { recorded: false, clean: false, tested: false }, ...kept(false) };
   }
-  const stage = laterStage(state.stage, 'recorded');
-  return { stage, run, live: false, shows: shows(stage) };
+  const listed = own ? state.stage : 'recorded';
+  const tested = (stageAtLeast(listed, 'tested') && !!ownGolden) || !!packed;
+  const clean = stageAtLeast(listed, 'clean') || run.replayedClean;
+  const stage: SetupStage = tested ? 'tested' : clean ? 'clean' : 'recorded';
+  return { ...base, stage, live: false, shows: shows(stage), steps: { recorded: true, clean, tested }, ...kept(tested) };
 }
 
 /**
@@ -228,7 +346,7 @@ export function initialSetup(facts: StoreFacts, goldens: number, options: { inUs
     return { stage: 'done', runId: event.runId, golden };
   }
   if (options.inUse && facts.runs > 0) return { stage: 'done', runId: null, golden: null };
-  if (goldens > 0 && facts.recordings.some((r) => r.status === 'completed' || r.status === 'failed')) return { stage: 'done', runId: null, golden: null };
+  if (goldens > 0 && facts.recordings.some((r) => !r.live && usable(r))) return { stage: 'done', runId: null, golden: null };
   return { stage: 'added', runId: null, golden: null };
 }
 
@@ -248,9 +366,10 @@ export interface CalibrationOutcome {
 }
 
 /**
- * Reads calibrate's result (the object `calibrate --json` prints) for the setup: a recording that
- * replays clean as it is completes the step on its own; one made clean by normalizers completes it
- * once they are written to the config, and until then offers them. Null for anything else.
+ * Reads calibrate's result (the object `calibrate --json` prints, and a dashboard job hears as its
+ * `result` event) for the setup: a recording that replays clean as it is completes the step on its
+ * own; one made clean by normalizers completes it once they are written to the config, and until
+ * then offers them. Null for anything else.
  */
 export function calibrationOutcome(result: unknown): CalibrationOutcome | null {
   if (typeof result !== 'object' || result === null) return null;
@@ -258,7 +377,7 @@ export function calibrationOutcome(result: unknown): CalibrationOutcome | null {
   if (typeof r.clean !== 'boolean' || !Array.isArray(r.normalizers)) return null;
   const rules = r.normalizers
     .filter((n): n is Record<string, unknown> => typeof n === 'object' && n !== null)
-    .map((n) => ({ path: typeof n.path === 'string' && n.path ? n.path : '(every string)', why: typeof n.why === 'string' ? n.why : null }));
+    .map((n) => ({ path: typeof n.path === 'string' && n.path ? n.path : '(every string)', why: typeof n.why === 'string' && n.why ? n.why : null }));
   const written = r.written === true;
   const stopped = typeof r.stopped === 'object' && r.stopped !== null && typeof (r.stopped as Record<string, unknown>).why === 'string' ? ((r.stopped as Record<string, unknown>).why as string) : null;
   if (!r.clean) return { done: false, added: written ? rules : [], proposed: written ? [] : rules, stopped: stopped ?? 'the replay isn’t clean yet' };

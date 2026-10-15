@@ -12,7 +12,14 @@ export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
-export * from './projects/index.js';
+export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, tildePath } from './projects/index.js';
+export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';
+export { UPSTREAM_ENV, defaultGolden, freeGoldenPath, goldenPath, modelServerFinding, parseAgentCommand, planRecording, setupCommands, setupJobArgs } from './projects/index.js';
+export { SETUP_STAGES, calibrationOutcome, deriveSetup, emptyStoreFacts, readStoreFacts, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './projects/index.js';
+export type { AddedProject, ConfirmedCommand, ProjectContext, ProjectCounts, ProjectEntry, ProjectErrorCode, ProjectHostOptions, ProjectSetup, RegistryOptions, RemovedProject } from './projects/index.js';
+export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, SuggestOptions } from './projects/index.js';
+export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';
+export type { CalibrationOutcome, EffectiveSetup, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { describeChanges, type RunChanges } from './changes.js';
@@ -27,7 +34,7 @@ export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd
 export type { Price } from './prices.js';
 export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, commandIsImported, hasRecordedCommand, packRun, unpackRun } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
-export { safeLine, safeText } from './text.js';
+export { quoteArgv, safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { withoutPrompt } from './prompt.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';

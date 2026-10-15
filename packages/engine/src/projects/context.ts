@@ -1,11 +1,12 @@
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Store } from '../store.js';
-import { countGoldens } from './folders.js';
-import { projectDbPath } from './paths.js';
-import { planRecording, type RecordPlanResult } from './record.js';
+import { countGoldens, listPacks } from './folders.js';
+import { displayPath, projectDbPath } from './paths.js';
+import { freeGoldenPath, planRecording, type RecordPlanResult } from './record.js';
 import { ProjectError, type AddedProject, type ProjectEntry, type ProjectRegistry, type RemovedProject } from './registry.js';
-import { deriveSetup, emptyStoreFacts, stageAtLeast, storeFacts, type EffectiveSetup, type StoreFacts } from './setup.js';
+import { deriveSetup, emptyStoreFacts, storeFacts, type EffectiveSetup, type PackFact, type StoreFacts } from './setup.js';
+import { readStoreFacts } from './store-reader.js';
 
 /**
  * Several projects behind one dashboard. A {@link ProjectContext} is everything the server needs to
@@ -30,10 +31,16 @@ export interface ProjectContext<C = unknown> {
   store(): Store;
   /** Whether the store exists yet, without creating it. */
   hasStore(): boolean;
-  /** What the store says about runs and the setup; empty facts while there is no store. `keep` is the setup's recording. */
+  /**
+   * What the store says about runs and the setup; empty facts while there is no store. From the
+   * open store when there is one, else read without opening it for writing: counting another
+   * project's runs never migrates its store. `keep` is the setup's recording.
+   */
   facts(options?: { keep?: string | null }): StoreFacts;
   /** Goldens in the project's repository (packs under `goldens/`). */
   goldens(): number;
+  /** Those packs with the runs each holds. */
+  packs(): PackFact[];
   /** CLI arguments for a job in this project: its store first, so the job writes where it reads. */
   cliArgs(args: readonly string[]): string[];
   /** Closes the store; the next use opens it again. */
@@ -92,11 +99,16 @@ class Context<C> implements ProjectContext<C> {
   }
 
   facts(options: { keep?: string | null } = {}): StoreFacts {
-    return this.hasStore() ? storeFacts(this.store(), Date.now(), options) : emptyStoreFacts();
+    if (this.opened) return storeFacts(this.opened, Date.now(), options);
+    return existsSync(this.path) ? readStoreFacts(this.dbPath, Date.now(), options) : emptyStoreFacts();
   }
 
   goldens(): number {
     return countGoldens(this.path);
+  }
+
+  packs(): PackFact[] {
+    return listPacks(this.path);
   }
 
   cliArgs(args: readonly string[]): string[] {
@@ -122,6 +134,13 @@ export interface ProjectHostOptions<C> {
   configFile?: string;
   /** The folder the dashboard started in: added again if the list loses every project. */
   startFolder?: string;
+  /**
+   * The project for the start folder, kept in memory only, when the project list can't be read or
+   * changed ({@link ProjectHost.open} sets it): the dashboard serves it with {@link notice} shown.
+   */
+  standIn?: ProjectEntry;
+  /** Why the project list can't be used. */
+  notice?: string;
 }
 
 /** What the switcher and the Remove dialog count for a project (the dashboard's `ProjectStats`). */
@@ -142,11 +161,11 @@ export class ProjectHost<C = unknown> {
   private readonly customDb = new Map<string, { path: string; dbPath: string }>();
 
   constructor(private readonly options: ProjectHostOptions<C>) {
-    const entry = options.registry.get(options.current);
+    const entry = this.entry(options.current);
     if (!entry) throw new ProjectError('not-found', `No project ${options.current}.`);
     this.currentId = options.current;
     for (const [id, dbPath] of Object.entries(options.dbPaths ?? {})) {
-      const p = id === entry.id ? entry : options.registry.get(id);
+      const p = id === entry.id ? entry : this.entry(id);
       if (p) this.customDb.set(id, { path: p.path, dbPath });
     }
   }
@@ -154,28 +173,83 @@ export class ProjectHost<C = unknown> {
   /**
    * The host for a dashboard started in `folder`: the folder becomes a project if it isn't one
    * (it was chosen in a terminal, so the dashboard's limits on adding don't apply) and is current.
-   * `dbPath` is the store `--db` named, if any.
+   * `dbPath` is the store `--db` named, if any. When the project list can't be read (it isn't valid
+   * JSON) or changed (a newer Shadowlap wrote it) and the folder isn't in it, the dashboard still
+   * opens on the folder, as it always did, with {@link notice} saying why it lists nothing else.
    */
-  static open<C>(folder: string, options: Omit<ProjectHostOptions<C>, 'current' | 'startFolder'> & { dbPath?: string }): ProjectHost<C> {
-    const entry = options.registry.ensure(folder, options.dbPath ? { dbPath: options.dbPath } : {});
+  static open<C>(folder: string, options: Omit<ProjectHostOptions<C>, 'current' | 'startFolder' | 'standIn' | 'notice'> & { dbPath?: string }): ProjectHost<C> {
     const { dbPath, ...rest } = options;
+    const db = dbPath ? { dbPath } : {};
+    let entry: ProjectEntry;
+    let fallback: { standIn: ProjectEntry; notice: string } | null = null;
+    try {
+      entry = options.registry.ensure(folder, db);
+    } catch (err) {
+      if (!(err instanceof ProjectError) || err.code !== 'registry') throw err;
+      entry = options.registry.unlisted(folder, db);
+      fallback = { standIn: entry, notice: `${err.message} Until it is fixed and the dashboard started again, it shows ${displayPath(entry.path, options.registry.home)} only, and can’t add or remove projects or keep a setup’s progress.` };
+    }
     const dbPaths = { ...(options.dbPaths ?? {}), ...(dbPath && resolve(dbPath) !== projectDbPath(entry.path) ? { [entry.id]: resolve(dbPath) } : {}) };
-    return new ProjectHost<C>({ ...rest, dbPaths, current: entry.id, startFolder: entry.path });
+    return new ProjectHost<C>({ ...rest, dbPaths, current: entry.id, startFolder: entry.path, ...(fallback ?? {}) });
   }
 
   get registry(): ProjectRegistry {
     return this.options.registry;
   }
 
-  /** The projects, in the order they were added. */
+  /**
+   * Why the project list can't be used, when it can't: the dashboard shows it as a notice. The
+   * stand-in's while the dashboard serves one; else why the list can't be changed now (a newer
+   * Shadowlap wrote it), or null.
+   */
+  get notice(): string | null {
+    return this.options.notice ?? this.options.registry.problem();
+  }
+
+  /** The projects, in the order they were added; with the stand-in first when the list can't be used. */
   list(): ProjectEntry[] {
-    return this.options.registry.list();
+    return this.entries();
+  }
+
+  private entries(): ProjectEntry[] {
+    const standIn = this.options.standIn;
+    let listed: ProjectEntry[];
+    try {
+      listed = this.options.registry.list();
+    } catch (err) {
+      if (standIn) return [standIn];
+      throw err;
+    }
+    return standIn && !listed.some((p) => p.id === standIn.id || p.path === standIn.path) ? [standIn, ...listed] : listed;
+  }
+
+  private entry(id: string): ProjectEntry | null {
+    return this.entries().find((p) => p.id === id) ?? null;
+  }
+
+  private need(id: string): ProjectEntry {
+    const entry = this.entry(id);
+    if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
+    return entry;
+  }
+
+  /** Changes to a project go to the list: the stand-in for a list that can't be used has none to go to. */
+  private writable(id: string): void {
+    const standIn = this.options.standIn;
+    if (!standIn || standIn.id !== id) return;
+    let listed = false;
+    try {
+      listed = this.options.registry.get(id)?.path === standIn.path;
+    } catch {
+      // still unreadable
+    }
+    if (!listed) throw new ProjectError('registry', this.options.notice ?? 'The project list can’t be changed.');
   }
 
   /** The current project's id. When it left the list (another dashboard or the CLI removed it), the first project left becomes current. */
   currentProject(): string {
-    if (this.options.registry.get(this.currentId)) return this.currentId;
-    const first = this.list()[0] ?? (this.options.startFolder ? this.options.registry.ensure(this.options.startFolder) : null);
+    if (this.entry(this.currentId)) return this.currentId;
+    const first = this.entries()[0] ?? (this.options.startFolder ? this.options.registry.ensure(this.options.startFolder) : null);
     if (!first) throw new ProjectError('not-found', `No project ${this.currentId}.`);
     this.currentId = first.id;
     return this.currentId;
@@ -191,7 +265,7 @@ export class ProjectHost<C = unknown> {
    * that now names another folder gets a context of its own.
    */
   context(id: string): ProjectContext<C> {
-    const entry = this.options.registry.get(id);
+    const entry = this.entry(id);
     const known = this.contexts.get(id);
     if (!entry) {
       known?.close();
@@ -207,7 +281,7 @@ export class ProjectHost<C = unknown> {
     return ctx;
   }
 
-  /** Makes a project current. The stores of the others stay open for the switcher's counts. */
+  /** Makes a project current. The stores of the others stay as they are: their counts are read without opening them. */
   switchTo(id: string): ProjectContext<C> {
     const ctx = this.context(id);
     this.currentId = id;
@@ -217,7 +291,7 @@ export class ProjectHost<C = unknown> {
   /** Runs, attempts and goldens for every project, for the switcher and the Remove dialog. A store that can't be read counts nothing. */
   stats(): Record<string, ProjectCounts> {
     const out: Record<string, ProjectCounts> = {};
-    for (const p of this.list()) {
+    for (const p of this.entries()) {
       const missing = !existsSync(p.path);
       let facts: StoreFacts = emptyStoreFacts();
       if (!missing) {
@@ -232,35 +306,53 @@ export class ProjectHost<C = unknown> {
     return out;
   }
 
-  /** Where a project's setup is, from the list and its store. */
+  /** Where a project's setup is, from the list, its store and the goldens in its repository. */
   setup(id: string): EffectiveSetup {
-    const entry = this.options.registry.get(id);
-    if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
-    return deriveSetup(entry.setup, this.context(id).facts({ keep: entry.setup.runId }));
+    const entry = this.need(id);
+    const ctx = this.context(id);
+    return deriveSetup(entry.setup, ctx.facts({ keep: entry.setup.runId }), { packs: existsSync(entry.path) ? ctx.packs() : [] });
+  }
+
+  /**
+   * The golden's path the setup's last step offers: `goldens/<project>`, or the first free one
+   * after it when a golden from an earlier setup is there (`freeGoldenPath`). The one the setup
+   * kept, once it kept one.
+   */
+  suggestGolden(id: string): string {
+    const entry = this.need(id);
+    const setup = this.setup(id);
+    return setup.golden ?? freeGoldenPath(entry.path, entry.id, setup.run?.runId ?? null);
   }
 
   /**
    * Recording from a project's setup: what typing `line` runs in its folder ({@link planRecording}),
    * with the commands already confirmed there and the model server `init` found. The job runs
    * `context.cliArgs(plan.args)` in `plan.cwd` with `plan.env` added; when `plan.confirm` is set,
-   * ask first, then `registry.confirmCommand(id, plan.argv)`.
+   * ask first, then {@link confirmCommand}.
    */
   planRecording(id: string, line: string): RecordPlanResult {
-    const entry = this.options.registry.get(id);
-    if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
+    const entry = this.need(id);
     return planRecording(entry, line, { home: this.options.registry.home, modelServer: entry.setup.findings?.modelServer ?? null });
   }
 
+  /** The person confirmed a planned recording: the same command, through the same model server, runs there again without asking. */
+  confirmCommand(id: string, plan: { argv: readonly string[]; upstream: string | null }): ProjectEntry {
+    this.writable(id);
+    return this.options.registry.confirmCommand(id, plan.argv, { upstream: plan.upstream });
+  }
+
   /**
-   * Skip the rest, or Go to the overview: the project is set up (see `ProjectRegistry.finishSetup`).
-   * The setup offers both only once its first recording has finished, so this refuses before then:
-   * a request can't skip recording.
+   * Skip the rest, or Go to the overview: the project is set up (see `ProjectRegistry.finishSetup`),
+   * with the recording, golden and steps the setup found. The setup offers both only once its first
+   * recording has finished with calls in it, so this refuses before then: a request can't skip
+   * recording.
    */
   finishSetup(id: string): ProjectEntry {
     const setup = this.setup(id);
-    if (setup.stage === 'done') return this.options.registry.get(id)!;
-    if (!setup.run || setup.live || !stageAtLeast(setup.stage, 'recorded')) throw new ProjectError('setup', 'Record a first run before finishing the setup.');
-    return this.options.registry.finishSetup(id, { runId: setup.run.runId });
+    if (setup.stage === 'done') return this.need(id);
+    if (!setup.run || setup.live || !setup.steps.recorded) throw new ProjectError('setup', 'Record a first run before finishing the setup.');
+    this.writable(id);
+    return this.options.registry.finishSetup(id, { runId: setup.run.runId, golden: setup.golden, skipped: !setup.steps.tested });
   }
 
   /** Adds a folder picked in the dashboard (see `ProjectRegistry.add`) and returns its context too. */
@@ -275,7 +367,8 @@ export class ProjectHost<C = unknown> {
    * first remaining project becomes current.
    */
   remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): RemovedProject & { current: string } {
-    const entry = this.options.registry.get(id);
+    const entry = this.entry(id);
+    this.writable(id);
     const custom = this.customDb.get(id);
     if (options.deleteRecordings && entry && custom && custom.path === entry.path) throw new ProjectError('store', `This project’s store is ${custom.dbPath}, outside its folder. Delete it yourself if you mean to.`);
     this.contexts.get(id)?.close();

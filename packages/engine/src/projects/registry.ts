@@ -6,10 +6,11 @@ import { recordEvent, type RecordEventInput } from '../events.js';
 import { Store } from '../store.js';
 import { writeFileAtomic, withFileLock } from './files.js';
 import { checkFolder, countGoldens, projectRoots, type ProjectRoots } from './folders.js';
-import { displayPath, expandHome, projectDbPath, realpathOrNull, shadowlapHome } from './paths.js';
+import { displayPath, expandHome, projectDbPath, realpathOrNull, shadowlapHome, shadowlapHomeProblem } from './paths.js';
 import { RecordingsError, deleteRecordings, storeFilesToDelete } from './recordings.js';
-import { modelServerFinding, sameArgv, type ModelServer } from './record.js';
-import { emptyStoreFacts, initialSetup, isSetupStage, laterStage, stageAtLeast, storeFacts, unwrappedTools, type SetupFindings, type SetupStage, type StoreFacts } from './setup.js';
+import { isConfirmedCommand, modelServerFinding, type ModelServer } from './record.js';
+import { earlierStage, emptyStoreFacts, initialSetup, isSetupStage, laterStage, stageAtLeast, unwrappedTools, type Inspection, type SetupFindings, type SetupStage, type StoreFacts } from './setup.js';
+import { readStoreFacts } from './store-reader.js';
 
 /**
  * The projects opened in the dashboard on this machine: `projects.json` in Shadowlap's home folder
@@ -30,6 +31,8 @@ export const REGISTRY_VERSION = 1;
 const MAX_CONFIRMED = 20;
 const MAX_TOOLS = 200;
 const MAX_WRAP_CHARS = 20_000;
+/** Inspections kept per project, the newest; enough to tell what a recent recording was made with. */
+const MAX_INSPECTIONS = 20;
 
 /** How far a project's setup got, and what it made on the way. */
 export interface ProjectSetup {
@@ -42,6 +45,8 @@ export interface ProjectSetup {
   unwrappedAtRecord: string[];
   /** What `shadowlap init` found, the last time it ran in the folder. */
   findings: SetupFindings | null;
+  /** Each `init` in the folder (the newest {@link MAX_INSPECTIONS}): which tools weren't wrapped when, so a recording's own can be told. */
+  inspections: Inspection[];
   /** What calibrate added to make the replay clean; an empty list when it was clean as recorded. */
   calibration: { added: Array<{ path: string; why: string | null }> } | null;
   /** The golden kept as a test (step 4), relative to the folder. */
@@ -51,9 +56,14 @@ export interface ProjectSetup {
   updatedAt: number;
 }
 
-/** A command confirmed for recording in a project's folder: it runs there again without asking. */
+/**
+ * A command confirmed for recording in a project's folder: it runs there again without asking, as
+ * long as its model calls go where they went then.
+ */
 export interface ConfirmedCommand {
   argv: string[];
+  /** The model server it was confirmed to record through (`SHADOWLAP_UPSTREAM_OPENAI`); null for the provider's API. */
+  upstream: string | null;
   at: number;
 }
 
@@ -124,7 +134,17 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : nul
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 export function emptySetup(at: number): ProjectSetup {
-  return { stage: 'added', runId: null, command: null, unwrappedAtRecord: [], findings: null, calibration: null, golden: null, skipped: false, updatedAt: at };
+  return { stage: 'added', runId: null, command: null, unwrappedAtRecord: [], findings: null, inspections: [], calibration: null, golden: null, skipped: false, updatedAt: at };
+}
+
+/**
+ * The setup moves to another recording (recorded again, or one made in a terminal replaces the
+ * first): what the list says it made for the old one, its calibration and golden, goes with it, and
+ * the stage goes back to before the recording. The command typed last stays.
+ */
+function retarget(setup: ProjectSetup, runId: string): ProjectSetup {
+  if (setup.runId === runId) return setup;
+  return { ...setup, runId, stage: earlierStage(setup.stage, 'inspected'), unwrappedAtRecord: [], calibration: null, golden: null, skipped: false };
 }
 
 const EFFECTS = new Set(['pure', 'read', 'write']);
@@ -175,6 +195,13 @@ function toSetup(raw: unknown, fallbackAt: number): ProjectSetup {
     command: Array.isArray(r.command) ? strings(r.command) : null,
     unwrappedAtRecord: strings(r.unwrappedAtRecord),
     findings: toFindings(r.findings),
+    inspections: Array.isArray(r.inspections)
+      ? r.inspections
+          .filter(isObject)
+          .filter((i) => typeof i.at === 'number')
+          .map((i) => ({ ...i, at: i.at as number, unwrapped: strings(i.unwrapped) }))
+          .slice(-MAX_INSPECTIONS)
+      : [],
     calibration,
     golden: str(r.golden),
     skipped: r.skipped === true,
@@ -196,9 +223,11 @@ function toEntry(raw: unknown): ProjectEntry | null {
     path,
     addedAt,
     setup: toSetup(raw.setup, addedAt),
-    confirmed: Array.isArray(raw.confirmed) ? raw.confirmed.filter(isObject).map((c) => ({ ...c, argv: strings(c.argv), at: typeof c.at === 'number' ? c.at : 0 })).filter((c) => c.argv.length > 0) : [],
+    confirmed: Array.isArray(raw.confirmed) ? raw.confirmed.filter(isObject).map((c) => ({ ...c, argv: strings(c.argv), upstream: str(c.upstream), at: typeof c.at === 'number' ? c.at : 0 })).filter((c) => c.argv.length > 0) : [],
   };
 }
+
+const newerList = (file: string) => `${file} was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.`;
 
 /** The name typed in the Remove dialog confirms deleting a project's recordings once it is the project's name exactly. */
 export function nameConfirms(typed: string, name: string): boolean {
@@ -244,6 +273,8 @@ export class ProjectRegistry {
   readonly home: string;
   /** The home folder's real path, as project paths are kept: what the dashboard's read model shows paths against. */
   readonly realHome: string;
+  /** Settings it ignored, and why: a relative `SHADOWLAP_HOME`. The dashboard shows them. */
+  readonly warnings: string[];
   private readonly env: NodeJS.ProcessEnv;
   private readonly now: () => number;
   private readonly actor: (folder: string) => string | null;
@@ -254,6 +285,8 @@ export class ProjectRegistry {
     this.home = options.home ?? homedir();
     this.realHome = realpathOrNull(this.home) ?? resolve(this.home);
     this.dir = options.dir ?? shadowlapHome(this.env, this.home);
+    const problem = options.dir ? null : shadowlapHomeProblem(this.env, this.home);
+    this.warnings = problem ? [problem] : [];
     this.file = join(this.dir, REGISTRY_FILE);
     this.now = options.now ?? Date.now;
     this.actor = options.actor ?? ((folder) => resolveAuthor({ env: this.env, cwd: folder }));
@@ -276,6 +309,19 @@ export class ProjectRegistry {
     const abs = resolve(expandHome(folder, this.home));
     const real = realpathOrNull(abs) ?? abs;
     return this.list().find((p) => p.path === real || p.path === abs || realpathOrNull(p.path) === real) ?? null;
+  }
+
+  /**
+   * Why the list can't be read or changed right now, or null when it can: it isn't valid JSON, or a
+   * newer Shadowlap wrote it. The dashboard shows it, as every change would fail with it.
+   */
+  problem(): string | null {
+    try {
+      const { raw } = this.read();
+      return typeof raw.version === 'number' && raw.version > REGISTRY_VERSION ? newerList(this.file) : null;
+    } catch (err) {
+      return (err as Error).message;
+    }
   }
 
   /** Folders suggestions and adds may reach: the home folder, `roots` in the file, `SHADOWLAP_PROJECT_ROOTS`. */
@@ -306,8 +352,9 @@ export class ProjectRegistry {
     return displayPath(folder, this.home);
   }
 
-  isConfirmed(id: string, argv: readonly string[]): boolean {
-    return this.need(this.list(), id).confirmed.some((c) => sameArgv(c.argv, argv));
+  /** Whether this command was confirmed in the project's folder, recording through this model server (null: the provider's API). */
+  isConfirmed(id: string, argv: readonly string[], options: { upstream?: string | null } = {}): boolean {
+    return isConfirmedCommand(this.need(this.list(), id).confirmed, argv, options.upstream ?? null);
   }
 
   // ---- changing ----
@@ -333,9 +380,7 @@ export class ProjectRegistry {
   ensure(folder: string, options: { dbPath?: string } = {}): ProjectEntry {
     const existing = this.find(folder);
     if (existing) return existing;
-    const abs = resolve(expandHome(folder, this.home));
-    const real = realpathOrNull(abs);
-    if (!real || !statSync(real).isDirectory()) throw new ProjectError('folder', `${this.display(abs)} isn’t a folder.`);
+    const real = this.startFolder(folder);
     try {
       return this.addFolder(real, { inUse: true, ...(options.dbPath ? { dbPath: resolve(options.dbPath) } : {}) }).project;
     } catch (err) {
@@ -346,22 +391,55 @@ export class ProjectRegistry {
     }
   }
 
+  /**
+   * The entry {@link ensure} would add for a folder, built in memory and never written: what the
+   * dashboard serves when the list can't be read or changed. Its id is unique among the projects
+   * the list still shows.
+   */
+  unlisted(folder: string, options: { dbPath?: string } = {}): ProjectEntry {
+    const real = this.startFolder(folder);
+    let taken: ProjectEntry[] = [];
+    try {
+      taken = this.list();
+    } catch {
+      // unreadable: nothing to clash with
+    }
+    return this.newEntry(real, taken, this.startOf(real, options.dbPath ? resolve(options.dbPath) : projectDbPath(real), true).start);
+  }
+
+  /** The real path of a folder a dashboard starts in; it must be a folder. */
+  private startFolder(folder: string): string {
+    const abs = resolve(expandHome(folder, this.home));
+    const real = realpathOrNull(abs);
+    if (!real || !statSync(real).isDirectory()) throw new ProjectError('folder', `${this.display(abs)} isn’t a folder.`);
+    return real;
+  }
+
+  /** Where a folder's setup starts, from what its store and repository say (read before any lock is taken: it may wait on SQLite). */
+  private startOf(real: string, dbPath: string, inUse: boolean): { facts: StoreFacts; start: ReturnType<typeof initialSetup> } {
+    const facts = this.factsOf(dbPath);
+    return { facts, start: initialSetup(facts, countGoldens(real), { inUse }) };
+  }
+
+  /** A new entry for a folder, with an id unique among `taken`. */
+  private newEntry(real: string, taken: readonly ProjectEntry[], start: ReturnType<typeof initialSetup>): ProjectEntry {
+    const at = this.now();
+    return {
+      id: uniqueId(basename(real), taken),
+      name: basename(real) || real,
+      path: real,
+      addedAt: at,
+      setup: { ...emptySetup(at), stage: start.stage, runId: start.runId, golden: start.golden },
+      confirmed: [],
+    };
+  }
+
   private addFolder(real: string, options: { inUse?: boolean; dbPath?: string } = {}): AddedProject {
     const dbPath = options.dbPath ?? projectDbPath(real);
-    // The store is read before taking the lock: opening it may wait on SQLite.
-    const facts = this.factsOf(dbPath);
-    const start = initialSetup(facts, countGoldens(real), { inUse: !!options.inUse });
-    const at = this.now();
+    const { facts, start } = this.startOf(real, dbPath, !!options.inUse);
     const project = this.mutate((state) => {
       if (state.projects.some((p) => p.path === real)) throw new ProjectError('exists', `${this.display(real)} is already in the dashboard.`);
-      const entry: ProjectEntry = {
-        id: uniqueId(basename(real), state.projects),
-        name: basename(real) || real,
-        path: real,
-        addedAt: at,
-        setup: { ...emptySetup(at), stage: start.stage, runId: start.runId, golden: start.golden },
-        confirmed: [],
-      };
+      const entry = this.newEntry(real, state.projects, start);
       state.projects.push(entry);
       return entry;
     });
@@ -419,54 +497,90 @@ export class ProjectRegistry {
     });
   }
 
-  /** Step 1: `shadowlap init` ran in the folder (again, after "I wrapped them, check again"). */
-  noteInspected(id: string, findings: SetupFindings): ProjectEntry {
-    return this.updateSetup(id, { stage: 'inspected', findings: boundedFindings(findings) });
+  /**
+   * Changes the setup of a project that isn't finished yet, moved to `runId` first: a finished
+   * project stays as it is, whatever a late job says.
+   */
+  private changeSetup(id: string, runId: string, change: (setup: ProjectSetup) => ProjectSetup): ProjectEntry {
+    const at = this.now();
+    return this.mutate((state) => {
+      const p = this.need(state.projects, id);
+      if (p.setup.stage === 'done') return p;
+      p.setup = { ...change(retarget(p.setup, runId)), updatedAt: at };
+      return p;
+    });
   }
 
-  /** Step 2 started: the run recording now, and the tools whose calls it won't hold. */
+  /** Step 1: `shadowlap init` ran in the folder (again, after "I wrapped them, check again"). */
+  noteInspected(id: string, findings: SetupFindings): ProjectEntry {
+    const kept = boundedFindings(findings);
+    const at = this.now();
+    return this.mutate((state) => {
+      const p = this.need(state.projects, id);
+      const inspection: Inspection = { at: kept.at, unwrapped: unwrappedTools(kept).map((t) => t.name) };
+      const inspections = [...p.setup.inspections, inspection].sort((a, b) => a.at - b.at).slice(-MAX_INSPECTIONS);
+      p.setup = { ...p.setup, findings: kept, inspections, stage: laterStage(p.setup.stage, 'inspected'), updatedAt: at };
+      return p;
+    });
+  }
+
+  /**
+   * Step 2 started: the run recording now, the command it runs, and the tools whose calls it won't
+   * hold. Recording again replaces the setup's recording, and what was made for the old one.
+   */
   noteRecording(id: string, runId: string, argv: readonly string[]): ProjectEntry {
-    const p = this.need(this.list(), id);
-    return this.updateSetup(id, { runId, command: [...argv], unwrappedAtRecord: unwrappedTools(p.setup.findings).map((t) => t.name) });
+    return this.changeSetup(id, runId, (s) => ({ ...s, command: [...argv], unwrappedAtRecord: unwrappedTools(s.findings).map((t) => t.name) }));
   }
 
   /** Step 2 done: the recording finished. */
   noteRecorded(id: string, runId: string): ProjectEntry {
-    return this.updateSetup(id, { stage: 'recorded', runId });
+    return this.changeSetup(id, runId, (s) => ({ ...s, stage: laterStage(s.stage, 'recorded') }));
   }
 
   /** Step 3 done: calibrate made the replay clean, adding these normalizers (none when it was clean as recorded). */
   noteCalibrated(id: string, runId: string, added: Array<{ path: string; why?: string | null }>): ProjectEntry {
-    return this.updateSetup(id, { stage: 'clean', runId, calibration: { added: added.map((a) => ({ path: a.path, why: a.why ?? null })) } });
+    return this.changeSetup(id, runId, (s) => ({ ...s, stage: laterStage(s.stage, 'clean'), calibration: { added: added.map((a) => ({ path: a.path, why: a.why ?? null })) } }));
   }
 
   /** Step 4 done: the golden was packed and its test passed. */
   noteTested(id: string, runId: string, golden: string): ProjectEntry {
-    return this.updateSetup(id, { stage: 'tested', runId, golden });
+    return this.changeSetup(id, runId, (s) => ({ ...s, stage: laterStage(s.stage, 'tested'), golden }));
   }
 
   /**
    * Go to the overview, or Skip the rest: the project is set up. Logged as `project.setup` in its
    * store, which is also what brings the finished setup back if the folder is added again. The
-   * dashboard offers it only after the first recording; pass that run to keep it as the setup's.
+   * dashboard offers it only after the first recording (`ProjectHost.finishSetup` checks), and
+   * passes what the setup found: its recording, the golden kept from it, and whether the setup is
+   * finished before a golden was kept. Without them, the list's own say.
    */
-  finishSetup(id: string, options: { runId?: string | null } = {}): ProjectEntry {
-    const before = this.need(this.list(), id);
-    // Finished already: whether it was skipped stays as it was.
-    if (before.setup.stage === 'done') return before;
-    const skipped = !stageAtLeast(before.setup.stage, 'tested');
-    const project = this.updateSetup(id, { stage: 'done', skipped, ...(options.runId ? { runId: options.runId } : {}) });
-    this.activity(project, { kind: 'project.setup', runId: project.setup.runId, ref: project.id, data: { stage: 'done', name: project.name, skipped, golden: project.setup.golden } }, true);
+  finishSetup(id: string, options: { runId?: string | null; golden?: string | null; skipped?: boolean } = {}): ProjectEntry {
+    const at = this.now();
+    const { project, changed } = this.mutate((state) => {
+      const p = this.need(state.projects, id);
+      // Finished already: whether it was skipped stays as it was, and it is logged once.
+      if (p.setup.stage === 'done') return { project: p, changed: false };
+      const s = options.runId ? retarget(p.setup, options.runId) : p.setup;
+      const golden = options.golden !== undefined ? options.golden : s.golden;
+      const skipped = options.skipped ?? !(stageAtLeast(s.stage, 'tested') && !!golden);
+      p.setup = { ...s, stage: 'done', golden, skipped, updatedAt: at };
+      return { project: p, changed: true };
+    });
+    if (changed) this.activity(project, { kind: 'project.setup', runId: project.setup.runId, ref: project.id, data: { stage: 'done', name: project.name, skipped: project.setup.skipped, golden: project.setup.golden } }, true);
     return project;
   }
 
-  /** The person confirmed recording this command in this project's folder: it won't ask again. */
-  confirmCommand(id: string, argv: readonly string[]): ProjectEntry {
+  /**
+   * The person confirmed recording this command in this project's folder, through this model server
+   * (`plan.upstream`): it won't ask again while both stay the same.
+   */
+  confirmCommand(id: string, argv: readonly string[], options: { upstream?: string | null } = {}): ProjectEntry {
     if (!argv.length) throw new ProjectError('folder', 'No command to confirm.');
+    const upstream = options.upstream ?? null;
     const at = this.now();
     return this.mutate((state) => {
       const p = this.need(state.projects, id);
-      if (!p.confirmed.some((c) => sameArgv(c.argv, argv))) p.confirmed = [...p.confirmed, { argv: [...argv], at }].slice(-MAX_CONFIRMED);
+      if (!isConfirmedCommand(p.confirmed, argv, upstream)) p.confirmed = [...p.confirmed, { argv: [...argv], upstream, at }].slice(-MAX_CONFIRMED);
       return p;
     });
   }
@@ -507,7 +621,7 @@ export class ProjectRegistry {
     try {
       return withFileLock(this.file, this.lockTimeoutMs, () => {
         const state = this.read();
-        if (typeof state.raw.version === 'number' && state.raw.version > REGISTRY_VERSION) throw new ProjectError('registry', `${this.file} was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.`);
+        if (typeof state.raw.version === 'number' && state.raw.version > REGISTRY_VERSION) throw new ProjectError('registry', newerList(this.file));
         const result = fn(state);
         const rawProjects = Array.isArray(state.raw.projects) ? state.raw.projects : [];
         const byId = new Map(state.projects.map((p) => [p.id, p]));
@@ -534,16 +648,11 @@ export class ProjectRegistry {
     }
   }
 
-  /** What a store says, without creating one where there is none. */
+  /** What a store says, read without creating or migrating it. */
   private factsOf(db: string): StoreFacts {
     if (!existsSync(db)) return emptyStoreFacts();
     try {
-      const store = Store.open(db);
-      try {
-        return storeFacts(store, this.now());
-      } finally {
-        store.close();
-      }
+      return readStoreFacts(db, this.now());
     } catch {
       return emptyStoreFacts();
     }

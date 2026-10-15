@@ -14,3 +14,11 @@ export function safeText(s: string): string {
 export function safeLine(s: string): string {
   return safeText(s).replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
 }
+
+/**
+ * A command line as a shell would need it typed: plain words bare, anything else in single quotes.
+ * The CLI prints commands with it, and the dashboard shows them the same way.
+ */
+export function quoteArgv(argv: readonly string[]): string {
+  return argv.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(' ');
+}

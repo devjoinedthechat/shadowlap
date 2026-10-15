@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { ProjectError, ProjectRegistry, Store, projectDbPath, type ProjectEntry, type SetupFindings } from '../src/index.js';
+import { Store } from '../src/index.js';
+import { ProjectError, ProjectRegistry, projectDbPath, type ProjectEntry, type SetupFindings } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -30,11 +31,12 @@ function setup(options: { now?: () => number } = {}) {
   return { home, shadowlapDir, registry, agent };
 }
 
-/** Records a finished run into a project's store, as `shadowlap run` would. */
-function record(folder: string, opts: { status?: 'completed' | 'failed' | 'running'; meta?: Record<string, unknown>; mode?: 'record' | 'replay'; parent?: string } = {}): string {
+/** Records a finished run with its calls into a project's store, as `shadowlap run` would. */
+function record(folder: string, opts: { status?: 'completed' | 'failed' | 'running'; meta?: Record<string, unknown>; mode?: 'record' | 'replay'; parent?: string; calls?: number } = {}): string {
   const store = Store.open(projectDbPath(folder));
   try {
     const run = store.createRun({ mode: opts.mode ?? 'record', command: { argv: ['node', 'agent.mjs'], cwd: folder }, ...(opts.parent ? { parentRunId: opts.parent } : {}), ...(opts.meta ? { meta: opts.meta } : {}) });
+    for (let callNo = 1; callNo <= (opts.calls ?? 2); callNo++) store.appendCallStart({ runId: run.runId, callNo, kind: 'api', name: 'POST /v1/messages', fingerprint: `f${callNo}`, occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: {}, at: Date.now() });
     if ((opts.status ?? 'completed') !== 'running') store.endRun(run.runId, (opts.status ?? 'completed') as 'completed' | 'failed');
     return run.runId;
   } finally {
@@ -261,13 +263,13 @@ describe('ProjectRegistry: setup', () => {
     const folder = agent('research-agent', { 'pyproject.toml': '' });
     registry.add('~/research-agent');
 
-    expect(registry.noteInspected('research-agent', findings()).setup).toMatchObject({ stage: 'inspected', findings: { sdk: 'anthropic 0.69.0' } });
+    expect(registry.noteInspected('research-agent', findings()).setup).toMatchObject({ stage: 'inspected', findings: { sdk: 'anthropic 0.69.0' }, inspections: [{ at: 1, unwrapped: ['save_report'] }] });
     const recording = registry.noteRecording('research-agent', 'RUN1', ['uv', 'run', 'agent.py']);
     expect(recording.setup).toMatchObject({ stage: 'inspected', runId: 'RUN1', command: ['uv', 'run', 'agent.py'], unwrappedAtRecord: ['save_report'] });
     expect(registry.noteRecorded('research-agent', 'RUN1').setup.stage).toBe('recorded');
-    // Checking again after wrapping the tools updates the findings, not the stage.
-    const rechecked = registry.noteInspected('research-agent', findings({ tools: [] }));
-    expect(rechecked.setup).toMatchObject({ stage: 'recorded', findings: { tools: [] } });
+    // Checking again after wrapping the tools updates the findings, not the stage, and keeps when.
+    const rechecked = registry.noteInspected('research-agent', findings({ at: 2, tools: [] }));
+    expect(rechecked.setup).toMatchObject({ stage: 'recorded', findings: { tools: [] }, inspections: [{ at: 1, unwrapped: ['save_report'] }, { at: 2, unwrapped: [] }] });
     expect(registry.noteCalibrated('research-agent', 'RUN1', [{ path: '$.system', why: 'a value generated on each run' }]).setup).toMatchObject({ stage: 'clean', calibration: { added: [{ path: '$.system', why: 'a value generated on each run' }] } });
     expect(registry.noteTested('research-agent', 'RUN1', 'goldens/northwind-q3').setup).toMatchObject({ stage: 'tested', golden: 'goldens/northwind-q3' });
     expect(events(folder, 'project.setup')).toEqual([]);
@@ -290,6 +292,54 @@ describe('ProjectRegistry: setup', () => {
     expect(events(folder, 'project.setup')[0]?.data).toMatchObject({ skipped: true });
     // Go to the overview after Skip the rest changes nothing.
     expect(registry.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', skipped: true });
+    expect(events(folder, 'project.setup')).toHaveLength(1);
+  });
+
+  it('moves the setup to a new recording, leaving what was made for the old one behind', () => {
+    const { registry, agent } = setup();
+    agent('research-agent', { 'pyproject.toml': '' });
+    registry.add('~/research-agent');
+    registry.noteInspected('research-agent', findings());
+    registry.noteRecording('research-agent', 'R1', ['uv', 'run', 'agent.py']);
+    registry.noteRecorded('research-agent', 'R1');
+    registry.noteCalibrated('research-agent', 'R1', [{ path: '$.system', why: 'a temp path' }]);
+    registry.noteTested('research-agent', 'R1', 'goldens/research-agent');
+    expect(registry.get('research-agent')!.setup).toMatchObject({ stage: 'tested', runId: 'R1', golden: 'goldens/research-agent' });
+
+    // Recorded again: back to step 2 for R2, with no calibration or golden of its own yet.
+    const again = registry.noteRecording('research-agent', 'R2', ['uv', 'run', 'agent.py', '--all']);
+    expect(again.setup).toMatchObject({ stage: 'inspected', runId: 'R2', command: ['uv', 'run', 'agent.py', '--all'], calibration: null, golden: null, skipped: false, unwrappedAtRecord: ['save_report'] });
+    // A job's note about a run made in a terminal moves it the same way.
+    expect(registry.noteCalibrated('research-agent', 'R3', []).setup).toMatchObject({ stage: 'clean', runId: 'R3', calibration: { added: [] }, command: ['uv', 'run', 'agent.py', '--all'] });
+    // The same run again changes only what the note says.
+    expect(registry.noteRecorded('research-agent', 'R3').setup).toMatchObject({ stage: 'clean', runId: 'R3', calibration: { added: [] } });
+  });
+
+  it('leaves a finished setup as it is, whatever a late job notes', () => {
+    const { registry, agent } = setup();
+    const folder = agent('triage-bot');
+    registry.add('~/triage-bot');
+    const runId = record(folder);
+    registry.finishSetup('triage-bot', { runId, golden: null, skipped: true });
+    for (const late of [() => registry.noteRecording('triage-bot', 'LATE', ['node', 'x.mjs']), () => registry.noteRecorded('triage-bot', 'LATE'), () => registry.noteCalibrated('triage-bot', 'LATE', []), () => registry.noteTested('triage-bot', 'LATE', 'goldens/x')]) {
+      expect(late().setup).toMatchObject({ stage: 'done', runId, skipped: true, golden: null });
+    }
+    // init in the folder still updates what it found.
+    expect(registry.noteInspected('triage-bot', findings()).setup).toMatchObject({ stage: 'done', findings: { sdk: 'anthropic 0.69.0' } });
+  });
+
+  it('finishes a setup with what the setup found, and logs it once', () => {
+    const { registry, agent } = setup();
+    const folder = agent('triage-bot');
+    registry.add('~/triage-bot');
+    registry.noteCalibrated('triage-bot', 'OLD', [{ path: '$.x' }]);
+    const runId = record(folder);
+    // Finished on a recording made in a terminal, packed there too: the list's calibration was another run's.
+    const done = registry.finishSetup('triage-bot', { runId, golden: 'goldens/triage-bot', skipped: false });
+    expect(done.setup).toMatchObject({ stage: 'done', runId, golden: 'goldens/triage-bot', skipped: false, calibration: null });
+    expect(events(folder, 'project.setup')).toEqual([expect.objectContaining({ runId, data: { stage: 'done', name: 'triage-bot', skipped: false, golden: 'goldens/triage-bot' } })]);
+    registry.finishSetup('triage-bot', { runId: 'OTHER', skipped: true });
+    expect(registry.get('triage-bot')!.setup).toMatchObject({ runId, skipped: false });
     expect(events(folder, 'project.setup')).toHaveLength(1);
   });
 
@@ -323,8 +373,15 @@ describe('ProjectRegistry: setup', () => {
     registry.confirmCommand('triage-bot', ['node', 'triage.mjs']);
     registry.confirmCommand('triage-bot', ['node', 'triage.mjs']);
     expect(registry.isConfirmed('triage-bot', ['node', 'triage.mjs'])).toBe(true);
+    // Confirmed for the provider's API: through a model server it asks again, and that is kept apart.
+    expect(registry.isConfirmed('triage-bot', ['node', 'triage.mjs'], { upstream: 'http://127.0.0.1:11434' })).toBe(false);
+    registry.confirmCommand('triage-bot', ['node', 'triage.mjs'], { upstream: 'http://127.0.0.1:11434' });
+    expect(registry.isConfirmed('triage-bot', ['node', 'triage.mjs'], { upstream: 'http://127.0.0.1:11434' })).toBe(true);
+    expect(registry.isConfirmed('triage-bot', ['node', 'triage.mjs'], { upstream: 'http://10.0.0.9:8000' })).toBe(false);
+    expect(registry.get('triage-bot')!.confirmed.map((c) => c.upstream)).toEqual([null, 'http://127.0.0.1:11434']);
+    registry.confirmCommand('triage-bot', ['node', 'triage.mjs'], { upstream: 'http://127.0.0.1:11434' });
     expect(registry.isConfirmed('triage-bot', ['node', 'triage.mjs', '--all'])).toBe(false);
-    expect(registry.get('triage-bot')!.confirmed).toHaveLength(1);
+    expect(registry.get('triage-bot')!.confirmed).toHaveLength(2);
     for (let i = 0; i < 25; i++) registry.confirmCommand('triage-bot', ['node', `run-${i}.mjs`]);
     const confirmed = registry.get('triage-bot')!.confirmed;
     expect(confirmed).toHaveLength(20);
@@ -378,7 +435,8 @@ describe('ProjectRegistry: the file', () => {
     const onDisk = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ pinned: boolean; setup: Record<string, unknown>; confirmed: Array<Record<string, unknown>> }> };
     expect(onDisk.projects[0]!.pinned).toBe(true);
     expect(onDisk.projects[0]!.setup.laterField).toBe('kept');
-    expect(onDisk.projects[0]!.confirmed[0]).toEqual({ argv: ['node', 'triage.mjs'], at: 2, note: 'kept' });
+    // A command confirmed before model servers were part of it was confirmed for the provider's API.
+    expect(onDisk.projects[0]!.confirmed[0]).toEqual({ argv: ['node', 'triage.mjs'], upstream: null, at: 2, note: 'kept' });
 
     // Findings with tools that aren't what this version writes are cleaned up as they are read.
     const findingsRaw = { at: 3, tools: [{ name: 'send', effect: 'explode', wrapped: 'yes' }, { effect: 'read' }], wrap: [{ code: 'x', language: 'cobol' }, { language: 'python' }] };
@@ -416,6 +474,30 @@ describe('ProjectRegistry: the file', () => {
     writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [] }));
     expect(registry.list()).toEqual([]);
     expect(() => registry.add('~/triage-bot')).toThrow(/written by a newer Shadowlap/);
+  });
+
+  it('ignores a relative SHADOWLAP_HOME, which would name another folder in every directory, and says so', () => {
+    const home = tempDir('sl-reg-relhome-');
+    const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: 'state' } });
+    expect(registry.dir).toBe(join(home, '.shadowlap'));
+    expect(registry.warnings).toEqual([`SHADOWLAP_HOME is state, which isn’t an absolute path, so it is ignored: the project list is in ${join(home, '.shadowlap')}.`]);
+    expect(new ProjectRegistry({ home, env: { SHADOWLAP_HOME: '~/sl' } })).toMatchObject({ dir: join(home, 'sl'), warnings: [] });
+    expect(new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, 'abs') } })).toMatchObject({ dir: join(home, 'abs'), warnings: [] });
+  });
+
+  it('builds the start folder’s entry in memory, without writing, when the list can’t be used', () => {
+    const { registry, agent, shadowlapDir } = setup();
+    const folder = agent('triage-bot');
+    record(folder);
+    mkdirSync(shadowlapDir, { recursive: true });
+    writeFileSync(registry.file, '{ not json');
+    expect(() => registry.ensure(folder)).toThrow(expect.objectContaining({ code: 'registry' }));
+    expect(registry.unlisted(folder)).toMatchObject({ id: 'triage-bot', name: 'triage-bot', path: folder, setup: { stage: 'done' } });
+    expect(readFileSync(registry.file, 'utf8')).toBe('{ not json');
+    // Written by a newer version: readable, and the stand-in's id doesn't clash with the projects in it.
+    writeFileSync(registry.file, JSON.stringify({ version: 2, projects: [{ id: 'triage-bot', name: 'triage-bot', path: '/elsewhere/triage-bot', addedAt: 1 }] }));
+    expect(registry.unlisted(folder).id).toBe('triage-bot-2');
+    expect(() => registry.unlisted(join(folder, 'missing'))).toThrow(expect.objectContaining({ code: 'folder' }));
   });
 
   it('reads configured roots from the file and SHADOWLAP_PROJECT_ROOTS', () => {

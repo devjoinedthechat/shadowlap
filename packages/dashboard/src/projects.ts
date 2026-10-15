@@ -2,9 +2,8 @@ import {
   UPSTREAM_ENV,
   defaultGolden,
   nameConfirms,
-  quoteArgs,
+  quoteArgv,
   setupCommands,
-  shortRunId,
   stageAtLeast,
   tildePath,
   unwrappedTools,
@@ -49,6 +48,8 @@ const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : ms < 60_0
 const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 /** The letter on a project's badge. */
 const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name)?.[0] ?? '?').toUpperCase();
+/** A run id as the setup shows it: the first ten characters, which every command takes. */
+const short = (runId: string) => runId.slice(0, 10);
 
 // ---------------------------------------------------------------------------------------------
 // The project switcher
@@ -211,7 +212,7 @@ export function addedMessage(added: { project: ProjectEntry; again: boolean; run
 // ---------------------------------------------------------------------------------------------
 // Setting a project up
 
-/** `skipped`: the setup was finished without this step (Skip the rest, or set up in a terminal). */
+/** `skipped`: the setup went past this step without it (Skip the rest, or a later step done in a terminal). */
 export type StepState = 'done' | 'current' | 'todo' | 'skipped';
 
 interface StepBase {
@@ -265,6 +266,14 @@ export interface RecordStep extends StepBase {
   recorded: { runId: string; href: string; calls: number; spent: number; durationMs: number | null; text: string } | null;
   /** Tools weren't wrapped when it was recorded. */
   warning: string | null;
+  /**
+   * Record again, with the command and the line for a terminal: offered while the recording misses
+   * the calls of tools that weren't wrapped, until the replay is made clean. The new recording
+   * replaces it.
+   */
+  again: { label: string; action: 'record'; command: { value: string; enabled: boolean }; cli: string[] } | null;
+  /** The newest recording held no calls: nothing was recorded, and why that usually is. */
+  empty: { runId: string; href: string; text: string } | null;
 }
 
 export interface CalibrateStep extends StepBase {
@@ -300,7 +309,7 @@ export interface SetupView {
   calibrate: CalibrateStep;
   test: TestStep;
   steps: [InspectStep, RecordStep, CalibrateStep, TestStep];
-  /** Once the golden replays clean. */
+  /** Once the golden is kept. */
   done: { title: string; text: string; button: { label: string; action: 'finishsetup' } } | null;
   /** Where the setup shows: every page but Settings, the Overview, or nowhere. */
   shows: EffectiveSetup['shows'];
@@ -308,7 +317,7 @@ export interface SetupView {
 
 export interface SetupInput {
   project: ProjectEntry;
-  /** `deriveSetup(project.setup, facts)`. */
+  /** `ProjectHost.setup(id)`: `deriveSetup` over the project list, its store and its repository. */
   setup: EffectiveSetup;
   /** The setup recording's calls, cost and duration (`runTotals`), when there is one. */
   run?: RunTotals | null;
@@ -317,6 +326,11 @@ export interface SetupInput {
   home: string;
   /** The last calibrate job's result for the setup's run (`calibrationOutcome`), until the step is done. */
   calibration?: CalibrationOutcome | null;
+  /**
+   * The golden's path to offer, free on disk (`ProjectHost.suggestGolden`): `goldens/<project>`, or
+   * `goldens/<project>-2` when a golden is already there. `goldens/<project>` without it.
+   */
+  golden?: string | null;
 }
 
 function findingRows(f: NonNullable<ProjectEntry['setup']['findings']>): FindingRow[] {
@@ -325,7 +339,7 @@ function findingRows(f: NonNullable<ProjectEntry['setup']['findings']>): Finding
     { label: 'Model SDK', value: f.sdk ?? 'none found', code: false, small: null },
     ...(f.modelServer ? [{ label: 'Model server', value: f.modelServer.url, code: false, small: f.modelServer.from ? `from ${f.modelServer.from}` : null }] : []),
     { label: 'Framework', value: f.framework ?? 'none detected', code: false, small: null },
-    { label: 'Command', value: f.command ? quoteArgs(f.command) : 'none found', code: !!f.command, small: f.commandFrom ? `from ${f.commandFrom}` : null },
+    { label: 'Command', value: f.command ? quoteArgv(f.command) : 'none found', code: !!f.command, small: f.commandFrom ? `from ${f.commandFrom}` : null },
     { label: 'Config', value: f.config.created ? `wrote an empty ${f.config.file}` : f.config.existed ? `${f.config.file} exists · left as it is` : 'none written', code: false, small: null },
   ];
 }
@@ -344,14 +358,13 @@ export function setupView(input: SetupInput): SetupView {
   const inspected = stageAtLeast(stage, 'inspected');
   const run = setup.run;
   const live = setup.live && !!run;
-  const recorded = !!run && !live && stageAtLeast(stage, 'recorded');
-  // A finished setup is done whichever steps it took: a step counts as done only when the list
-  // says what it made (the calibration, the golden), and the rest were skipped.
   const finished = stage === 'done';
-  const clean = recorded && stageAtLeast(stage, 'clean') && (!finished || s.calibration !== null);
-  const tested = recorded && stageAtLeast(stage, 'tested') && (!finished || s.golden !== null);
-  const state = (done: boolean, ready: boolean): StepState => (done ? 'done' : finished ? 'skipped' : ready ? 'current' : 'todo');
-  const golden = s.golden ?? defaultGolden(project.id);
+  const recorded = !!run && !live && setup.steps.recorded;
+  const clean = recorded && setup.steps.clean;
+  const tested = recorded && setup.steps.tested;
+  // A step is done when there is something to show for it; one a later step went past without is skipped.
+  const state = (done: boolean, ready: boolean, passed = false): StepState => (done ? 'done' : finished || passed ? 'skipped' : ready ? 'current' : 'todo');
+  const golden = setup.golden ?? input.golden ?? defaultGolden(project.id);
   const argv = s.command ?? findings?.command ?? null;
   const server = findings?.modelServer ?? null;
   const commands = setupCommands({ argv, runId: run?.runId ?? null, golden, modelServer: server });
@@ -360,6 +373,7 @@ export function setupView(input: SetupInput): SetupView {
   // 1 · Inspect the folder
   const unwrapped = unwrappedTools(findings);
   const writes = unwrapped.filter((t) => t.effect === 'write');
+  const one = unwrapped.length === 1;
   const inspect: InspectStep = {
     key: 'inspect',
     n: 1,
@@ -369,22 +383,22 @@ export function setupView(input: SetupInput): SetupView {
     text: inspected ? (findings ? null : 'Inspect it again to see what it finds.') : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
     button: inspected && findings ? null : { label: 'Inspect the folder', action: 'init' },
     findings: inspected && findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
-    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(findings.command ? [quoteArgs(findings.command)] : [])].join(' · ') : null,
+    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(findings.command ? [quoteArgv(findings.command)] : [])].join(' · ') : null,
     folded: inspected && !!findings && recorded && unwrapped.length === 0,
     warning:
       inspected && unwrapped.length
         ? {
-            title: `${unwrapped.length === writes.length ? plural(unwrapped.length, 'write tool') : plural(unwrapped.length, 'tool')} ${unwrapped.length === 1 ? 'isn’t' : 'aren’t'} wrapped.`,
-            text: `Their calls won’t be recorded, so a replay runs them for real${writes.length ? `: ${listed(writes.map((t) => t.name))} would act again` : ''}. Wrap them, with the effect declared:`,
+            title: `${unwrapped.length === writes.length ? plural(unwrapped.length, 'write tool') : plural(unwrapped.length, 'tool')} ${one ? 'isn’t' : 'aren’t'} wrapped.`,
+            text: `${one ? 'Its' : 'Their'} calls won’t be recorded, so a replay runs ${one ? 'it' : 'them'} for real${writes.length ? `: ${listed(writes.map((t) => t.name))} would act again` : ''}. Wrap ${one ? 'it' : 'them'}, with the effect declared:`,
             code: findings?.wrap ?? [],
             copy: 'Copy',
-            recheck: { label: 'I wrapped them, check again', action: 'recheck' },
+            recheck: { label: `I wrapped ${one ? 'it' : 'them'}, check again`, action: 'recheck' },
           }
         : null,
   };
 
   // 2 · Record a first run
-  const unwrappedAtRecord = run && s.runId === run.runId ? s.unwrappedAtRecord : [];
+  const missed = recorded ? setup.unwrappedAtRecord : [];
   // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
   const canRecord = inspected && !(server && !server.upstream);
   const recordText = !server
@@ -392,6 +406,9 @@ export function setupView(input: SetupInput): SetupView {
     : server.upstream
       ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`
       : `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.`;
+  const command = { value: argv ? quoteArgv(argv) : '', enabled: canRecord };
+  // Tools wrapped since: `init` checked again after the recording, and finds none of them unwrapped.
+  const wrappedSince = missed.length > 0 && !!findings && !!run && findings.at > run.startedAt && missed.every((name) => !unwrapped.some((t) => t.name === name));
   const record: RecordStep = {
     key: 'record',
     n: 2,
@@ -399,25 +416,35 @@ export function setupView(input: SetupInput): SetupView {
     state: state(recorded, inspected),
     cli: recorded || live ? [] : commands.record,
     text: recorded || live ? null : recordText,
-    command: recorded || live ? null : { value: argv ? quoteArgs(argv) : '', enabled: canRecord },
+    command: recorded || live ? null : command,
     button: recorded || live ? null : { label: 'Record a run', action: 'record', enabled: canRecord },
-    live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${shortRunId(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: `#/run/${run.runId}` } } : null,
+    live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: `#/run/${run.runId}` } } : null,
     recorded:
       recorded && run
         ? {
             runId: run.runId,
             href: `#/run/${run.runId}`,
-            calls: totals?.calls ?? 0,
+            calls: totals?.calls ?? run.calls,
             spent: totals?.spent ?? 0,
             durationMs: totals?.durationMs ?? null,
-            text: [`Recorded ${shortRunId(run.runId)}`, ...(totals ? [plural(totals.calls, 'call'), approx(totals.spent)] : []), ...(totals?.durationMs != null ? [duration(totals.durationMs)] : [])].join(' · '),
+            text: [`Recorded ${short(run.runId)}`, ...(totals ? [plural(totals.calls, 'call'), approx(totals.spent)] : []), ...(totals?.durationMs != null ? [duration(totals.durationMs)] : [])].join(' · '),
           }
         : null,
-    warning: recorded && unwrappedAtRecord.length ? `${plural(unwrappedAtRecord.length, 'tool')} ${unwrappedAtRecord.length === 1 ? 'wasn’t' : 'weren’t'} wrapped, so their calls aren’t in this recording. Wrap them and record again before you keep it as a test.` : null,
+    warning: missed.length
+      ? `${plural(missed.length, 'tool')} ${missed.length === 1 ? 'wasn’t' : 'weren’t'} wrapped, so ${missed.length === 1 ? 'its' : 'their'} calls aren’t in this recording. ${wrappedSince ? `${missed.length === 1 ? 'It is' : 'They are'} wrapped now: record again` : `Wrap ${missed.length === 1 ? 'it' : 'them'} and record again`} before you keep it as a test.`
+      : null,
+    again: missed.length && !clean && !tested && !finished ? { label: 'Record again', action: 'record', command, cli: commands.record } : null,
+    empty: setup.empty
+      ? {
+          runId: setup.empty.runId,
+          href: `#/run/${setup.empty.runId}`,
+          text: `${short(setup.empty.runId)} holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.`,
+        }
+      : null,
   };
 
   // 3 · Make the replay clean
-  const added = s.calibration?.added ?? null;
+  const added = setup.own ? (s.calibration?.added ?? null) : null;
   const last = !clean && recorded ? (input.calibration ?? null) : null;
   const proposed = last && !last.done ? last.proposed : [];
   const offer = proposed.length > 0 && !last?.stopped;
@@ -425,11 +452,11 @@ export function setupView(input: SetupInput): SetupView {
     key: 'calibrate',
     n: 3,
     title: 'Make the replay clean',
-    state: state(clean, recorded),
+    state: state(clean, recorded, tested),
     cli: clean ? [] : commands.calibrate,
     text: clean
       ? added === null
-        ? 'The replay is clean.'
+        ? `A replay of ${short(run!.runId)} ran clean.`
         : added.length
           ? `Added ${added.length === 1 ? 'a normalizer' : 'normalizers'} for ${listed(added.map((a) => a.path))}${added.length === 1 && added[0]!.why ? `: ${added[0]!.why}` : ''}. The replay is clean now.`
           : 'The replay was clean as recorded: nothing to add.'
@@ -461,13 +488,18 @@ export function setupView(input: SetupInput): SetupView {
         },
     golden: tested ? null : { value: golden, enabled: clean },
     button: tested ? null : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
-    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: '#/tests' } } : null,
+    result: tested
+      ? {
+          text: setup.goldenFrom === 'tested' ? `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}` : `Packed as ${golden}. shadowlap test ${golden} replays it offline.`,
+          link: { label: 'Open Tests', href: '#/tests' },
+        }
+      : null,
   };
 
   return {
     project: { id: project.id, name: project.name, path },
     eyebrow: `${project.name} · ${path}`,
-    title: run ? `Set up ${project.name}` : 'No runs yet',
+    title: setup.shows === 'everywhere' ? 'No runs yet' : `Set up ${project.name}`,
     intro: 'Record the agent once. Every lap after that replays for free.',
     skip: recorded && !tested && !finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
     inspect,

@@ -7,10 +7,23 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
  * and how a folder is shown. Shared by the registry, folder suggestions and the dashboard's read model.
  */
 
-/** Shadowlap's folder for this machine's files (the project list): `SHADOWLAP_HOME`, else `~/.shadowlap`. */
+/**
+ * Shadowlap's folder for this machine's files (the project list): `SHADOWLAP_HOME`, else
+ * `~/.shadowlap`. Only an absolute path (or one starting with `~/`) counts: a relative one would
+ * name a different folder in every directory a command runs in, so `init` in a project and the
+ * dashboard would keep different lists. It is ignored ({@link shadowlapHomeProblem} says so).
+ */
 export function shadowlapHome(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
   const explicit = env.SHADOWLAP_HOME?.trim();
-  return explicit ? resolve(expandHome(explicit, home)) : join(home, '.shadowlap');
+  const expanded = explicit ? expandHome(explicit, home) : '';
+  return expanded && isAbsolute(expanded) ? resolve(expanded) : join(home, '.shadowlap');
+}
+
+/** Why `SHADOWLAP_HOME` is ignored, when it is set to a relative path; null otherwise. */
+export function shadowlapHomeProblem(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string | null {
+  const explicit = env.SHADOWLAP_HOME?.trim();
+  if (!explicit || isAbsolute(expandHome(explicit, home))) return null;
+  return `SHADOWLAP_HOME is ${explicit}, which isn’t an absolute path, so it is ignored: the project list is in ${join(home, '.shadowlap')}.`;
 }
 
 /** `~` and `~/x` (or `~\x`) become the home folder; anything else is returned as given. */
