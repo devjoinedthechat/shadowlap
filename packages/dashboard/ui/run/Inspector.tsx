@@ -298,6 +298,13 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
         )}
       </>
     );
+  if (r.kind === 'text' && !raw)
+    return (
+      <>
+        {mode}
+        <div className="resp">{r.raw}</div>
+      </>
+    );
   if (raw)
     return (
       <>

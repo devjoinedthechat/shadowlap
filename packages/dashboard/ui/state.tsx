@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { ApiError, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
+import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { backoffSeconds, isUnreachable } from './backoff.js';
 import { useLatest } from './hooks.js';
 import { jobTitle, lastLine } from './jobs.js';
@@ -107,8 +107,10 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
   const [conn, setConn] = useState<Conn>(preview === 'expired' ? 'expired' : 'ok');
-  const [attempt, setAttempt] = useState(0);
-  const [retryIn, setRetryIn] = useState(backoffSeconds(0));
+  // Offline: when the next try is due, and how many tries have failed (5, 10, 20, then 30 s apart).
+  const [retryAt, setRetryAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const attempt = useRef(0);
   const [retrying, setRetrying] = useState(false);
   const [tick, setTick] = useState(0);
   const [live, setLive] = useState<LiveRun[]>([]);
@@ -124,18 +126,21 @@ export function AppProvider({ client, children }: { client: Client; children: Re
 
   const toast = useCallback((text: string) => setToastText({ id: Date.now() + Math.random(), text }), []);
 
-  const fail = useCallback((err: unknown) => {
-    if (err instanceof ApiError && err.status === 401) setConn('expired');
-    else if (isUnreachable(err)) {
-      setConn((c) => {
-        if (c === 'ok') {
-          setAttempt(0);
-          setRetryIn(backoffSeconds(0));
-        }
-        return c === 'expired' ? c : 'offline';
-      });
+  const goOffline = useCallback(() => {
+    if (connRef.current !== 'offline') {
+      attempt.current = 0;
+      setRetryAt(Date.now() + backoffSeconds(0) * 1000);
     }
-  }, []);
+    setConn((c) => (c === 'expired' ? c : 'offline'));
+  }, [connRef]);
+
+  const fail = useCallback(
+    (err: unknown) => {
+      if (err instanceof ApiError && err.status === 401) setConn('expired');
+      else if (isUnreachable(err)) goOffline();
+    },
+    [goOffline],
+  );
 
   const loadRuns = useCallback(async () => {
     const list = await client.runs();
@@ -162,16 +167,14 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         if (!alive || !previewOffline.current) return;
         // ?state=offline: show the page as loaded, then the server as gone.
         previewOffline.current = false;
-        setAttempt(0);
-        setRetryIn(backoffSeconds(0));
-        setConn('offline');
+        goOffline();
       },
       (err: unknown) => alive && fail(err),
     );
     return () => {
       alive = false;
     };
-  }, [client, fail, loadRuns, preview]);
+  }, [client, fail, loadRuns, preview, goOffline]);
 
   // Live updates: /api/changes when the server has it, else the run list itself (an ETag makes it cheap).
   useEffect(() => {
@@ -212,35 +215,33 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       setMeta(m);
       await loadRuns();
       cursor.current = null;
+      attempt.current = 0;
+      setRetryAt(null);
       setConn('ok');
-      setAttempt(0);
       if (/[?&]state=offline/.test(location.search)) history.replaceState(history.state, '', `${location.pathname}${location.hash}`);
       toast(`Reconnected to ${m.address ?? location.host}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) setConn('expired');
       else {
-        setAttempt((a) => {
-          setRetryIn(backoffSeconds(a + 1));
-          return a + 1;
-        });
+        attempt.current += 1;
+        setRetryAt(Date.now() + backoffSeconds(attempt.current) * 1000);
       }
     } finally {
       setRetrying(false);
     }
   }, [client, loadRuns, toast]);
 
-  // Offline: count down to the next try, backing off 5, 10, 20, then 30 s.
+  // Offline: a clock for the countdown, and the next try when it is due.
   useEffect(() => {
-    if (conn !== 'offline' || retrying) return;
-    const t = setInterval(() => {
-      setRetryIn((s) => {
-        if (s > 1) return s - 1;
-        void reconnect();
-        return 0;
-      });
-    }, 1000);
+    if (conn !== 'offline') return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
-  }, [conn, retrying, reconnect, attempt]);
+  }, [conn]);
+  useEffect(() => {
+    if (conn === 'offline' && !retrying && retryAt !== null && now >= retryAt) void reconnect();
+  }, [conn, retrying, retryAt, now, reconnect]);
+  const retryIn = retryAt === null ? backoffSeconds(attempt.current) : Math.max(0, Math.ceil((retryAt - now) / 1000));
 
   const retryNow = useCallback(() => void reconnect(), [reconnect]);
 
@@ -294,6 +295,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         }
         following.current.delete(first.id);
         refresh();
+        // A HAR export downloads as well as being written, as an HTML copy does.
+        if (next.code === 0 && next.kind === JOB_KINDS.har) for (const f of next.files ?? []) void client.downloadFile(f).catch(() => undefined);
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
         if (!shown?.open) toast(`${jobTitle(next)} finished${lastLine(all) ? ` · ${lastLine(all)}` : ''}`);
