@@ -23,8 +23,8 @@ that comes from data goes there, everything else is a class.
 | Component | File | Notes |
 |---|---|---|
 | `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). Esc or a click on the dimmed page cancels. |
-| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs; a yes or no with the command it runs. |
-| `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop`, ↑ ↓ between items, closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
+| `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"); a yes or no with the command it runs. |
+| `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`), ↑ ↓ between items, closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
 | `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
 | `ToastHost` | `Toast.tsx` | One toast at a time: `useApp().toast(text)`. |
 | `HoverCardLayer`, `tipText`, `tipCard` | `HoverCard.tsx` | Hover cards in one style, a title and coloured rows. Put `data-tip={tipCard(title, rows)}` on any element; one layer follows the pointer. |
@@ -52,14 +52,25 @@ overlay registers itself with `useLayer(kind, open, close)` from `state.tsx`.
 ## State and logic
 
 `state.tsx` holds what every screen shares (`useApp()`): the client, `meta`, the run list, the
-connection, `actionsOff` (why actions cannot run here, for a disabled control's title), `hasKind`
-(whether the server runs a job kind), `guard` (runs an action, or says actions are paused while
-the server is unreachable), toasts, jobs and the palette's This run entries.
+connection, `actionsOff` (why actions cannot run here, for a disabled control's title: the server's
+`readOnlyReason` when it sends one), `hasKind` (whether the server runs a job kind), `guard` (runs an
+action, or says actions are paused while the server is unreachable), toasts, jobs and the palette's
+This run entries.
+
+`api.ts` is the one module that talks to the server. Its types live in `types.ts` (the server's,
+widened with optional fields other slices add), and every answer passes through `normalize.ts` as it
+arrives, so the views read one shape: a field a slice names its own way (`sentAgain`, `lostAt`,
+`attemptOf`, `{target, count, action}` hosts, `group: null`) is turned into the views' shape there,
+once. A new field goes in `types.ts` as optional, and in `normalize.ts` when its shape needs it.
 
 The logic behind the components has no DOM and is unit-tested: `route.ts` (routes and links),
 `palette.ts` (matching), `strip.ts` (cells and grouping), `origins.ts`, `runs.ts` (what a run is and
-how it ended), `recorded.ts` (a replayed call's recorded duration), `cache.ts` (where the cache
-stopped hitting), `backoff.ts`, `actions.ts` (the fork menu), `jobs.ts` and `format.ts`.
+how it ended, the Forks view's lines, the run an exported copy opens on), `recorded.ts` (a replayed
+call's recorded duration), `cache.ts` (where the cache stopped hitting), `backoff.ts` and
+`connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
+recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
+`normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
+`run/metrics.ts`, `run/model.ts` and `run/calls.ts`.
 
 A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
 `palette-sources.ts`. Pages a later version fills in each have their own file under `pages/`.
