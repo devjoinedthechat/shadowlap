@@ -126,6 +126,8 @@ export interface TestsSummary {
   /** Goldens failing now: the regressions the tests caught. */
   regressions: number;
   lastRunAt: number | null;
+  /** The goldens failing now, newest first, each with the run that failed: what Needs a look lists. */
+  failing: Array<{ golden: string; runId: string; outcome: RunOutcome; at: number }>;
 }
 
 export interface CacheUse {
@@ -150,7 +152,7 @@ export interface FixesFunnel {
   verified: number | null;
   applied: number | null;
   open: number;
-  /** Failed runs (tests aside) no blame has looked at yet: not fixes yet, for Needs a look. */
+  /** Failed runs no blame has looked at yet (`needsLook.notBlamed`): not fixes yet. */
   notBlamed: number;
   /** The blame probes and verify attempts behind them, and what they spent live. */
   attempts: number;
@@ -189,6 +191,21 @@ export interface OverviewOptions extends StatsOptions {
   hooks?: OverviewHooks;
 }
 
+/**
+ * What Needs a look can say from runs alone. Failing tests are in `outcomes.testsPassing.failing`;
+ * open fixes and verified fixes waiting to be applied come from the fixes slice.
+ */
+export interface NeedsLook {
+  /**
+   * Failed runs no blame has looked at, newest first (at most 20): not fixes yet, each offers Run
+   * blame. Tests are left out (a divergence is not blamed), as is a replay that reproduced its
+   * recording's failure (the recording is the run to blame).
+   */
+  notBlamed: Array<{ runId: string; kind: RunKind; label: string; command: string; source: string | null; outcome: RunOutcome; startedAt: number }>;
+  /** Such runs past the 20 listed. */
+  more: number;
+}
+
 export interface OverviewSummary {
   tz: string;
   now: number;
@@ -203,10 +220,15 @@ export interface OverviewSummary {
   outcomes: OutcomeStrip;
   cache: CacheUse;
   fixes: FixesFunnel;
+  needsLook: NeedsLook;
 }
 
 const GRID_CELLS = 60;
 const GRID_MIN_CALLS = 30;
+const NEEDS_LOOK_LISTED = 20;
+
+/** A failure no blame has looked at: a run that failed, not a test and not a reproduction of its recording's failure. */
+const needsBlame = (r: IndexedRun) => r.failed && !r.bundled && r.kind !== 'test' && r.kind !== 'clean' && !r.meta.blame;
 
 function emptyWeek(): WeekSums {
   return { runs: 0, calls: 0, origins: emptyOriginCounts(), spent: 0, notRespent: 0, notWaitedMs: 0, attempts: 0, attemptsSpent: 0 };
@@ -258,6 +280,8 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   const blamed = index.runs.filter((r) => r.meta.blame && !r.bundled);
   const open = fixHook?.open ?? blamed.length;
   const blamedIn = (w: TimeWindow) => blamed.filter((r) => r.meta.blame!.at >= w.from && r.meta.blame!.at < w.to).length;
+  // Newest first, as the index lists runs.
+  const notBlamed = index.runs.filter(needsBlame);
 
   return {
     tz,
@@ -275,7 +299,11 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
       spent: { value: sums.week.spent, lastWeek: sums.lastWeek.spent, notRespent: sums.week.notRespent, notWaitedMs: sums.week.notWaitedMs },
     },
     cache: hooks.cache?.(thisWeek.map((r) => r.runId)) ?? cacheUse(store, index, thisWeek, stats),
-    fixes: fixesFunnel(store, index, options, blamed.length, fixHook),
+    fixes: fixesFunnel(store, index, options, blamed.length, notBlamed.length, fixHook),
+    needsLook: {
+      notBlamed: notBlamed.slice(0, NEEDS_LOOK_LISTED).map((r) => ({ runId: r.runId, kind: r.kind, label: r.label, command: r.argv.join(' '), source: r.source, outcome: r.outcome, startedAt: r.startedAt })),
+      more: Math.max(0, notBlamed.length - NEEDS_LOOK_LISTED),
+    },
   };
 }
 
@@ -429,19 +457,25 @@ function testsSummary(index: RunIndex, now: number, weekStart: number): TestsSum
       if (!found) latest.set(golden, { session, runs: [r] });
       else if (found.session === session) found.runs.push(r);
     }
-    const out = new Map<string, boolean>();
+    const out = new Map<string, { passed: boolean; failedRun: IndexedRun | null }>();
     for (const [golden, { runs }] of latest) {
-      const passed = runs.filter((r) => r.status === 'completed' && !r.failed).length;
+      const passes = (r: IndexedRun) => r.status === 'completed' && !r.failed;
+      const passed = runs.filter(passes).length;
       const required = runs.find((r) => r.meta.test!.passes !== null)?.meta.test!.passes ?? runs.length;
-      out.set(golden, passed >= required);
+      // The newest attempt that failed; the newest of all when too few attempts ran.
+      out.set(golden, passed >= required ? { passed: true, failedRun: null } : { passed: false, failedRun: runs.find((r) => !passes(r)) ?? runs[0]! });
     }
     return out;
   };
-  const count = (m: Map<string, boolean>) => [...m.values()].filter(Boolean).length;
+  const count = (m: Map<string, { passed: boolean }>) => [...m.values()].filter((v) => v.passed).length;
   const current = verdicts(Number.POSITIVE_INFINITY);
   const before = verdicts(weekStart);
   const passing = count(current);
-  return { goldens: current.size, passing, lastWeek: before.size ? count(before) : null, regressions: current.size - passing, lastRunAt: tests[0]!.startedAt };
+  const failing = [...current]
+    .filter(([, v]) => v.failedRun)
+    .map(([golden, v]) => ({ golden, runId: v.failedRun!.runId, outcome: v.failedRun!.outcome, at: v.failedRun!.startedAt }))
+    .sort((a, b) => b.at - a.at || (a.golden < b.golden ? -1 : 1));
+  return { goldens: current.size, passing, lastWeek: before.size ? count(before) : null, regressions: current.size - passing, lastRunAt: tests[0]!.startedAt, failing };
 }
 
 function cacheUse(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>): CacheUse {
@@ -459,7 +493,7 @@ function cacheUse(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<
   return { input, cacheRead, misses: misses.slice(0, 4), sentAgain: misses.reduce((t, m) => t + m.tokens, 0), missCount: misses.length };
 }
 
-function fixesFunnel(store: Store, index: RunIndex, options: StatsOptions, blamed: number, hook: FixesHookResult | null): FixesFunnel {
+function fixesFunnel(store: Store, index: RunIndex, options: StatsOptions, blamed: number, notBlamed: number, hook: FixesHookResult | null): FixesFunnel {
   const attempts = index.runs.filter((r) => r.meta.probe || r.meta.verify);
   const stats = runStats(store, index, attempts, options);
   return {
@@ -468,7 +502,7 @@ function fixesFunnel(store: Store, index: RunIndex, options: StatsOptions, blame
     verified: hook?.verified ?? null,
     applied: hook?.applied ?? null,
     open: hook?.open ?? blamed,
-    notBlamed: index.runs.filter((r) => r.failed && !r.bundled && r.kind !== 'test' && !r.meta.blame).length,
+    notBlamed,
     attempts: attempts.length,
     spent: attempts.reduce((t, r) => t + (stats.get(r.runId)?.spent ?? 0), 0),
   };

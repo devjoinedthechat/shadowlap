@@ -197,7 +197,14 @@ describe('the Overview: outcomes, the prompt cache and fixes', () => {
   it('leads with failures reproduced, tests passing and what was spent, each against last week', () => {
     expect(o.outcomes.reproduced).toEqual({ value: 1, lastWeek: 1, open: 2 });
     expect(o.outcomes.fixesVerified).toBeNull();
-    expect(o.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, lastWeek: 0, regressions: 1, lastRunAt: at(10, 1, 7, 1) });
+    expect(o.outcomes.testsPassing).toEqual({
+      goldens: 2,
+      passing: 1,
+      lastWeek: 0,
+      regressions: 1,
+      lastRunAt: at(10, 1, 7, 1),
+      failing: [{ golden: 'g2', runId: id.test2, outcome: { kind: 'diverged', callNo: 1 }, at: at(10, 1, 7, 1) }],
+    });
     expect(o.outcomes.spent).toEqual({ value: o.sums.week.spent, lastWeek: o.sums.lastWeek.spent, notRespent: o.sums.week.notRespent, notWaitedMs: o.sums.week.notWaitedMs });
   });
 
@@ -221,25 +228,49 @@ describe('the Overview: outcomes, the prompt cache and fixes', () => {
       now: NOW,
       hooks: {
         fixes: () => ({ failures: 3, blamed: 3, verified: 2, applied: 1, open: 1, accepted: 3, acceptedLastWeek: 1, rejected: 1 }),
-        tests: () => ({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: 5 }),
+        tests: () => ({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: 5, failing: [] }),
         cache: (ids) => ({ input: ids.length, cacheRead: 0, misses: [], sentAgain: 0, missCount: 0 }),
       },
     });
     expect(hooked.outcomes.fixesVerified).toEqual({ value: 3, lastWeek: 1, rejected: 1 });
     expect(hooked.outcomes.reproduced.open).toBe(1);
     expect(hooked.fixes).toMatchObject({ failures: 3, blamed: 3, verified: 2, applied: 1, open: 1 });
-    expect(hooked.outcomes.testsPassing).toEqual({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: 5 });
+    expect(hooked.outcomes.testsPassing).toEqual({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: 5, failing: [] });
     expect(hooked.cache.input).toBe(WEEK_ROWS.length);
   });
 
-  it('counts failed runs no blame has looked at, tests aside, for Needs a look', () => {
+  it('lists failed runs no blame has looked at for Needs a look, tests and reproductions aside', () => {
     const local = Store.open(':memory:');
     try {
-      addRun(local, { startedAt: NOW - HOUR, status: 'failed', calls: 'll' });
+      const failed = addRun(local, { startedAt: NOW - 3 * HOUR, status: 'failed', argv: ['node', 'agent.mjs'], calls: 'll' });
       addRun(local, { startedAt: NOW - 2 * HOUR, status: 'failed', calls: 'll', meta: { blame: blameOf(1, null, NOW - HOUR) } });
+      // Replaying the failure exactly reproduces it: the recording is the run to blame.
+      addRun(local, { parent: failed, startedAt: NOW - 2 * HOUR, status: 'failed', calls: 'rr' });
+      // A fork whose check failed is a failure of its own.
+      const fork = addRun(local, { parent: failed, startedAt: NOW - HOUR, divergence: 2, calls: 'rl', meta: { checks: [{ ok: false, label: 'send_email called once', detail: 'it was called 0 times' }] } });
       const pack = addRun(local, { startedAt: NOW - 9 * DAY, calls: 'l', meta: { imported: { at: NOW - 9 * DAY, from: 'goldens/g' } } });
       addRun(local, { parent: pack, startedAt: NOW - HOUR, status: 'failed', divergence: 1, calls: 'f', meta: { test: { golden: 'goldens/g', session: 's' } } });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).fixes).toMatchObject({ failures: 1, blamed: 1, open: 1, notBlamed: 1 });
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW });
+      expect(s.fixes).toMatchObject({ failures: 1, blamed: 1, open: 1, notBlamed: 2 });
+      expect(s.needsLook).toEqual({
+        notBlamed: [
+          { runId: fork, kind: 'fork', label: 'fork @2', command: 'python refund_agent.py', source: null, outcome: { kind: 'check-failed', check: 'send_email called once' }, startedAt: NOW - HOUR },
+          { runId: failed, kind: 'recording', label: 'recording', command: 'node agent.mjs', source: null, outcome: { kind: 'check-failed', check: null }, startedAt: NOW - 3 * HOUR },
+        ],
+        more: 0,
+      });
+    } finally {
+      local.close();
+    }
+  });
+
+  it('lists the newest 20 runs that need a blame, and counts the rest', () => {
+    const local = Store.open(':memory:');
+    try {
+      const made = Array.from({ length: 23 }, (_, i) => addRun(local, { startedAt: NOW - (i + 1) * HOUR, status: 'failed', calls: 'l' }));
+      const look = overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook;
+      expect(look.notBlamed.map((r) => r.runId)).toEqual(made.slice(0, 20));
+      expect(look.more).toBe(3);
     } finally {
       local.close();
     }
@@ -256,9 +287,20 @@ describe('the Overview: outcomes, the prompt cache and fixes', () => {
       test('g1', 'a', NOW - 9 * DAY, 'completed');
       test('g2', 'a', NOW - 9 * DAY, 'crashed');
       for (const [i, st] of (['completed', 'failed', 'completed'] as const).entries()) test('g1', 'b', NOW - HOUR + i, st, 2);
-      for (const [i, st] of (['completed', 'completed', 'failed'] as const).entries()) test('g2', 'b', NOW - HOUR + i, st);
-      test('g3', 'b', NOW - HOUR + 9, 'crashed');
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toEqual({ goldens: 3, passing: 1, lastWeek: 1, regressions: 2, lastRunAt: NOW - HOUR + 9 });
+      const g2 = (['completed', 'completed', 'failed'] as const).map((st, i) => test('g2', 'b', NOW - HOUR + i, st));
+      const g3 = test('g3', 'b', NOW - HOUR + 9, 'crashed');
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toEqual({
+        goldens: 3,
+        passing: 1,
+        lastWeek: 1,
+        regressions: 2,
+        lastRunAt: NOW - HOUR + 9,
+        // Newest first, each with the attempt that failed: an interrupted run says nothing more.
+        failing: [
+          { golden: 'g3', runId: g3, outcome: { kind: 'none' }, at: NOW - HOUR + 9 },
+          { golden: 'g2', runId: g2[2], outcome: { kind: 'check-failed', check: null }, at: NOW - HOUR + 2 },
+        ],
+      });
     } finally {
       local.close();
     }
