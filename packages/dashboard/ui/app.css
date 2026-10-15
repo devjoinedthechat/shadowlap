@@ -1623,6 +1623,7 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .fxlist { margin: 6px 0 14px; padding-left: 18px; color: var(--dim); font-size: 13px; }
 .fxlist.bad { color: var(--del); }
 .ph .fxrename { margin-left: 4px; vertical-align: 1px; }
+.ph .fxrename[disabled] { opacity: .45; cursor: not-allowed; background: none; }
 .fxsource { color: var(--accent); }
 .dialog p.fxdlg { margin: 0; color: var(--dim); font-size: 13px; }
 .prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }
