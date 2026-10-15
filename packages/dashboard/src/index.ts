@@ -23,6 +23,11 @@ export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, Run
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
 export { fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, repairArgv } from './fixes.js';
 export type { BlameStep, CandidateVerdict, FixActions, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, RepairStep, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
+// Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
+export { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob } from './tests.js';
+export type { BisectChoices, BisectRange, DivergenceView, FailingTest, FailureView, FoundCommit, GoldenList, GoldenRow, GoldenSource, HistoryCell, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
+export { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
+export type { AlertsSettings, FixOnFailureSettings } from './ci-yaml.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';

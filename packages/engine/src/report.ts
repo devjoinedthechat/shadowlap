@@ -1,4 +1,5 @@
 import { firstDifference } from './diff.js';
+import { normalizeAddCommand } from './volatile.js';
 import { loadApiRequest } from './manifest.js';
 import { estimateCost, formatUsd, type Price } from './prices.js';
 import { safeLine, safeText } from './text.js';
@@ -212,13 +213,8 @@ export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEnt
       if (entries.length > maxEntries) lines.push(p.dim(`  … ${entries.length - maxEntries} more`));
       for (const h of d.hints ?? []) {
         lines.push(p.yellow(`  hint: ${safeLine(h.message)}`));
-        if (h.normalizer) {
-          const n = h.normalizer;
-          const args = [n.kind ? `--kind ${n.kind}` : '', n.name ? `--name ${JSON.stringify(n.name)}` : '', `--path '${n.path}'`, n.pattern ? `--pattern ${n.pattern}` : '']
-            .filter(Boolean)
-            .join(' ');
-          lines.push(p.yellow(`        shadowlap normalize add ${safeLine(args)}`));
-        }
+        // The rule as every other place prints it, with its replacement.
+        if (h.normalizer) lines.push(p.yellow(`        ${safeLine(normalizeAddCommand(h.normalizer))}`));
       }
       break;
     }

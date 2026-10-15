@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,8 @@ function action(inputs: Record<string, string>, extraEnv: Record<string, string>
   const summary = join(dir, 'summary.md');
   writeFileSync(output, '');
   writeFileSync(summary, '');
-  const env: NodeJS.ProcessEnv = { ...process.env, SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: dir, NO_COLOR: '1', SHADOWLAP_GUARD: 'off', ...extraEnv };
+  // The test history goes to a store of the test's own, not the repository's.
+  const env: NodeJS.ProcessEnv = { ...process.env, SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: dir, NO_COLOR: '1', SHADOWLAP_GUARD: 'off', INPUT_STORE: join(dir, 'shadowlap.db'), ...extraEnv };
   for (const [k, v] of Object.entries(inputs)) env[`INPUT_${k}`] = v;
   const r = spawnSync(process.execPath, [RUN], { cwd: ROOT, env, encoding: 'utf8', timeout: 120_000 });
   const outputs = Object.fromEntries(readFileSync(output, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
@@ -35,7 +36,8 @@ describe('the GitHub Action', () => {
   it('passes a clean replay and reports it in the outputs and the job summary', () => {
     const r = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, GUARD: 'off' });
     expect(r.code).toBe(0);
-    expect(r.outputs).toMatchObject({ passed: '1', failed: '0' });
+    expect(r.outputs).toMatchObject({ passed: '1', failed: '0', diverged: '0', 'checks-failed': '0', fixes: '0', 'fix-prs': '' });
+    expect(r.outputs.session).toMatch(/^\w{26}$/);
     expect(readFileSync(r.outputs['report-json']!, 'utf8')).toContain('"passed": 1');
     expect(r.summary).toContain('### Shadowlap: 1 recording passed');
     expect(r.summary).toMatch(/✅ \| `reference-agent` \| clean \| 30\/30/);
@@ -45,11 +47,11 @@ describe('the GitHub Action', () => {
   it('fails a diverging replay, annotates it and puts the diff in the summary', () => {
     const r = action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GUARD: 'off' }, { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
     expect(r.code).toBe(1);
-    expect(r.outputs).toMatchObject({ passed: '0', failed: '1' });
+    expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '1', 'checks-failed': '0' });
     expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=Shadowlap%3A reference-agent::diverged at call 3');
     expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
     expect(r.summary).toContain('+ "You are a research agent. Use the tools, then email a summary. Be brief."');
-    expect(r.summary).toContain('shadowlap pack <run> <dir>');
+    expect(r.summary).toContain('update the golden: `shadowlap test testing/golden/reference-agent --update`');
   });
 
   it('reports without failing the step when fail-on-divergence is false', () => {
@@ -69,18 +71,44 @@ describe('the GitHub Action', () => {
     expect(bad.out).toContain('input writes must be block, stub or allow');
     const deep = action({ RECORDINGS: 'testing/*/reference-agent', WORKING_DIRECTORY: ROOT });
     expect(deep.out).toContain('only the last part of a recordings path may contain a wildcard');
+    const budget = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, FIX_BUDGET: 'lots' });
+    expect(budget.out).toContain('input fix-budget must be an amount in dollars');
+    const repairer = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'gpt' });
+    expect(repairer.out).toContain('input repairer must be claude-code, anthropic');
+  });
+
+  it('never takes a hidden folder for a recording, as shadowlap test doesn\'t', () => {
+    // What an interrupted update or another tool might leave beside the goldens.
+    const project = mkdtempSync(join(tmpdir(), 'fp-hidden-'));
+    dirs.push(project);
+    cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(project, 'goldens', '.reference-agent.new-1'), { recursive: true });
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('no recordings found for goldens/*');
+  });
+
+  it('opens no fix for a divergence, even with fix-on-failure on', () => {
+    const r = action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GUARD: 'off', FIX_ON_FAILURE: 'true', FAIL_ON_DIVERGENCE: 'false' }, { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
+    expect(r.code).toBe(0);
+    expect(r.outputs).toMatchObject({ failed: '1', diverged: '1', fixes: '0' });
+    expect(r.out).toContain('reference-agent: no fix pull request: diverged: never fixed automatically, because most divergences are intended');
+    expect(r.summary).toContain('### Shadowlap: no fix pull request opened');
   });
 });
 
 describe('test reports', () => {
-  const failed: PackResult = { name: 'summarize|thread', dir: 'goldens\\summarize', ok: false, message: 'diverged at call 3 (api POST /v1/messages)', details: 'a ``` fence\n50% of it: here, there', output: 'Error: boom', seconds: 1, calls: { total: 5, replayed: 2, live: 3, blocked: 0, stubbed: 0 }, upstreamRequests: 0, tokensNotRespent: 1200, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, checks: null, attempts: null };
-  const clean: PackResult = { ...failed, name: 'triage', dir: 'goldens/triage', ok: true, message: null, details: null, output: null, calls: { total: 30, replayed: 30, live: 0, blocked: 0, stubbed: 0 }, divergence: null };
+  const failed: PackResult = { name: 'summarize|thread', dir: 'goldens\\summarize', golden: 'goldens/summarize', mode: 'replay', ok: false, failure: 'diverged', runId: null, runs: [], goldenRunId: null, expect: null, updated: null, message: 'diverged at call 3 (api POST /v1/messages)', details: 'a ``` fence\n50% of it: here, there', output: 'Error: boom', seconds: 1, calls: { total: 5, replayed: 2, live: 3, blocked: 0, stubbed: 0 }, upstreamRequests: 0, tokensNotRespent: 1200, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages' }, checks: null, attempts: null };
+  const clean: PackResult = { ...failed, name: 'triage', dir: 'goldens/triage', golden: 'goldens/triage', ok: true, failure: null, message: null, details: null, output: null, calls: { total: 30, replayed: 30, live: 0, blocked: 0, stubbed: 0 }, divergence: null };
 
   it('writes Markdown that survives pipes and backticks in its content', () => {
     const md = markdownReport(testReport([clean, failed]));
     expect(md).toContain('| ✅ | `triage` | clean | 30/30 | 1k |');
     expect(md).toContain('| ❌ | `summarize\\|thread` | diverged at call 3 (api POST /v1/messages) | 2/5 | 1k |');
     expect(md).toContain('````text\na ``` fence');
+    // What to do about a divergence that was meant: the update, by the pack directory as given.
+    expect(md).toContain('Once you mean it, update the golden: `shadowlap test goldens/summarize --update` re-records it live with writes stubbed');
+    expect(md).not.toContain('interrupted');
+    expect(markdownReport(testReport([clean], { id: 'S', revision: null, interrupted: true }))).toContain('The session was interrupted: only the recordings above finished, and the rest did not run.');
   });
 
   it('escapes GitHub annotation properties and data', () => {

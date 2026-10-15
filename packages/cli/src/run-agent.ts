@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, type CallRecord, type RunRecord, type RunStatus, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -124,38 +124,95 @@ export interface TestAttempt {
   /** Null when the recording has no checks. */
   checks: CheckResult[] | null;
   failure: JunitCase['failure'];
+  /** What kind of failure it was, or null when it passed. */
+  kind: Exclude<TestFailure, 'error'> | null;
+  /** The signal (Ctrl-C, a dashboard job stopped) that cut it short: its run ended as crashed, and its result says nothing about the recording. */
+  interrupted: NodeJS.Signals | null;
 }
 
 /** One replay of a packed recording under `shadowlap test`, judged by its checks. */
 export async function testAttempt(
   store: Store,
   parent: RunRecord,
-  o: { cwd: string; upstreams: Record<string, string>; extraEnv: Record<string, string>; writes: WritePolicy; guard: GuardMode; normalizers: ReturnType<typeof loadConfig>['normalize']; prices: ReturnType<typeof loadConfig>['prices']; clock: ReturnType<typeof loadConfig>['clock']; http?: ReturnType<typeof loadConfig>['http']; spec: TestSpec | null },
+  o: {
+    cwd: string; upstreams: Record<string, string>; extraEnv: Record<string, string>; writes: WritePolicy; guard: GuardMode; normalizers: ReturnType<typeof loadConfig>['normalize']; prices: ReturnType<typeof loadConfig>['prices']; clock: ReturnType<typeof loadConfig>['clock']; http?: ReturnType<typeof loadConfig>['http']; spec: TestSpec | null;
+    // `shadowlap test` and `bisect`: the command to run (default: the recorded one), metadata for the
+    // replay (`test: { golden, session }`), a callback once the replay run exists, a time limit, and a
+    // call forced live (`test --update` re-records from call 1).
+    argv?: string[]; meta?: Partial<RunMeta>; onRun?: (runId: string) => void; timeoutMs?: number | null; divergeAt?: number;
+    /**
+     * A signal always reaches the agent's whole process group, and the run ends as crashed. Then, with
+     * `return`, the attempt returns (`interrupted`) to a caller that winds down by itself (`test`,
+     * `bisect`); by default the signal is raised again, which ends this process as it would have ended
+     * without Shadowlap in between.
+     */
+    onSignal?: 'return' | 'exit';
+  },
 ): Promise<TestAttempt> {
   const started = Date.now();
   let output = '';
+  const argv = o.argv ?? parent.command.argv;
   const sidecar = await Sidecar.start({ store, normalizers: o.normalizers, upstreams: o.upstreams, ...(o.prices ? { prices: o.prices } : {}), ...(o.clock ? { clock: o.clock } : {}), ...(o.http ? { http: o.http } : {}) });
   const run = sidecar.startRun({
     mode: 'replay',
     parentRunId: parent.runId,
-    command: { argv: parent.command.argv, cwd: o.cwd },
+    command: { argv, cwd: o.cwd },
     codeVersion: codeVersion(o.cwd),
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
-    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}) },
+    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}) },
   });
+  if (o.meta) store.updateRunMeta(run.runId, o.meta);
   recordsInput(store, run.runId);
-  const child = spawnAgent(parent.command.argv[0]!, parent.command.argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] }, { url: sidecar.url, runId: run.runId });
+  o.onRun?.(run.runId);
+  // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
+  // `sh -c`): at the time limit, on a signal, and once it exits. It no longer hears the terminal's
+  // Ctrl-C itself, so a signal that reaches this process is passed on to the group.
+  const group = process.platform !== 'win32';
+  const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
   child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
   child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
+  const kill = (sig: NodeJS.Signals) => {
+    try {
+      if (group && child.pid) process.kill(-child.pid, sig);
+      else child.kill(sig);
+    } catch {
+      // already gone
+    }
+  };
+  let interrupted = null as NodeJS.Signals | null;
+  const forward = (sig: NodeJS.Signals) => {
+    // A second signal doesn't wait for the agent to wind down.
+    kill(interrupted ? 'SIGKILL' : sig);
+    interrupted ??= sig;
+  };
+  process.on('SIGINT', forward);
+  process.on('SIGTERM', forward);
+  let timedOut = false;
+  const timer = o.timeoutMs
+    ? setTimeout(() => {
+        timedOut = true;
+        kill('SIGTERM');
+        setTimeout(() => kill('SIGKILL'), 5_000).unref();
+      }, o.timeoutMs)
+    : null;
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
-      output += `failed to start ${parent.command.argv[0]}: ${err.message}\n`;
+      output += `failed to start ${argv[0]}: ${err.message}\n`;
       res(127);
     });
     child.on('exit', (c, signal) => res(c ?? (signal ? 128 : 1)));
   });
-  const ended = sidecar.endRun(run.runId, code === 0 ? 'completed' : 'failed');
+  if (timer) clearTimeout(timer);
+  process.off('SIGINT', forward);
+  process.off('SIGTERM', forward);
+  // Whatever the agent left running in its group goes with it.
+  if (group) kill('SIGKILL');
+  if (timedOut) output += `\n[shadowlap] stopped after ${formatDuration(o.timeoutMs!)}\n`;
+  if (interrupted) output += `\n[shadowlap] interrupted (${interrupted})\n`;
+  const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   await sidecar.close();
+  // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
+  if (interrupted && o.onSignal !== 'return') process.kill(process.pid, interrupted);
   const { summary } = ended;
 
   let checks: CheckResult[] | null = null;
@@ -171,20 +228,33 @@ export async function testAttempt(
     store.updateRunMeta(run.runId, { checks });
   }
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
+  // Every value the report lists that changes every run gets its normalizer, not only the dates and
+  // UUIDs the engine hints at: a request id too, and an id that may be a real change says so.
+  if (summary.divergence) summary.divergence.hints = [...(summary.divergence.hints ?? []), ...valueHints(summary.divergence, [...o.normalizers, ...(parent.meta?.redactions ?? [])])];
   const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
   let failure: JunitCase['failure'];
-  if (summary.divergence && !o.spec?.fork) {
+  let kind: TestAttempt['kind'] = null;
+  if (interrupted) {
+    // Never a pass, whatever the agent did with the signal: an update must not keep it.
+    kind = 'exit';
+    failure = { message: `the replay was interrupted (${interrupted})`, details: divergence + formatSummary(summary) };
+  } else if (summary.divergence && !o.spec?.fork) {
+    kind = 'diverged';
     failure = { message: `diverged at call ${summary.divergence.callNo} (${summary.divergence.kind} ${summary.divergence.name})`, details: divergence + formatSummary(summary) };
-  } else if (code !== 0) {
-    failure = { message: `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
+  } else if (code !== 0 || timedOut) {
+    // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
+    kind = 'exit';
+    failure = { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
+    kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
   } else if (failedChecks.length) {
+    kind = 'check';
     const first = failedChecks[0]!;
     const more = failedChecks.length > 1 ? `; ${failedChecks.length - 1} more check${failedChecks.length > 2 ? 's' : ''} failed` : '';
     failure = { message: `check failed: ${first.label}, but ${first.detail}${more}`, details: divergence + formatSummary(summary) };
   }
-  return { ended, code, ms: Date.now() - started, output, checks, failure };
+  return { ended, code, ms: Date.now() - started, output, checks, failure, kind, interrupted };
 }
 
 export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<number, unknown> {

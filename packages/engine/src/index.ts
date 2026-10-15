@@ -13,6 +13,8 @@ export type { SqlValue } from './store.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
+export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
+export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';

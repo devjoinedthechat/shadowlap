@@ -1,25 +1,26 @@
 import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Command } from 'commander';
-import { formatTokens, hasRecordedCommand, packRun, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
+import { Command, InvalidArgumentError } from 'commander';
+import { formatTokens, packRun, recordEvent, resolveAuthor, Store, unpackRun, volatileValues, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
-import { specFor, type CheckResult } from '../checks.js';
-import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { BisectError, formatBisect, runBisect } from '../bisect.js';
+import { specFor } from '../checks.js';
+import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { readExpect } from './fix.js';
+import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { describeChange, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
+import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
-import { captureConfig, placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from '../run-agent.js';
-import { openStore, parseChoice, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts, type RunSummaryLike } from '../shared.js';
+import { captureConfig, type GuardMode } from '../run-agent.js';
+import { openStore, parseChoice, parseIntArg, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
-import { palette as p, quoteArgv, safe } from '../ui.js';
+import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
-/** Recordings as tests: `shadowlap test` for packed goldens in CI, packs, and the host that the pytest and Vitest plugins start. */
-
-function formatChecks(checks: CheckResult[]): string {
-  return checks.map((c) => (c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail}`)).join('\n');
-}
+/** Recordings as tests: `shadowlap test` for packed goldens in CI, `bisect`, packs, and the host that the pytest and Vitest plugins start. */
 
 /**
  * `shadowlap serve --recordings`: the host a test-runner plugin starts once per worker process.
@@ -64,130 +65,293 @@ function isTestPack(dir: string): boolean {
   }
 }
 
+
+/**
+ * The store a test session keeps its history in: the one `--db` names (`:memory:` keeps nothing),
+ * else the project's, created if needed. A project store that can't be opened (a read-only
+ * checkout) costs the history, not the tests.
+ */
+function openTestStore(opts: GlobalOpts, projectDir: string): Store {
+  if (opts.db) return Store.open(opts.db);
+  const path = defaultDbPath(projectDir);
+  try {
+    return Store.open(path);
+  } catch (err) {
+    process.stderr.write(p.yellow(`[shadowlap] ${path} could not be opened (${(err as Error).message}); this session's history is not kept\n`));
+    return Store.open(':memory:');
+  }
+}
+
+/** The command as it was given, without the global options before it: `['shadowlap', 'test', 'goldens/*']`. */
+export function givenCommand(argv: readonly string[], name: string): string[] {
+  const args = argv.slice(2);
+  let i = 0;
+  while (i < args.length && args[i]!.startsWith('-') && args[i] !== name) i += args[i] === '--db' ? 2 : 1;
+  return ['shadowlap', ...(args[i] === name ? args.slice(i) : [name, ...args.slice(i)])];
+}
+
+/** The one-line result of a golden that passed: `30/30 replayed, 12k input tokens not re-spent, 2 checks passed`. */
+function passedLine(o: GoldenOutcome): string {
+  const r = o.result!;
+  const s = r.shown.ended.summary;
+  return [
+    s.divergence ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed` : `${s.byOrigin.replayed}/${s.total} replayed`,
+    `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
+    ...(r.shown.checks?.length ? [`${r.shown.checks.length} check${r.shown.checks.length === 1 ? '' : 's'} passed`] : []),
+    ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),
+  ].join(', ');
+}
+
+function printGolden(o: GoldenOutcome, suffix = ''): void {
+  if (!o.failure) {
+    process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
+    return;
+  }
+  process.stdout.write(`${p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  if (!o.result) return;
+  const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
+  if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
+  process.stdout.write(indent(o.failure.details));
+  const tail = outputTail(o.result.shown.output);
+  if (tail) process.stdout.write(p.dim(indent(tail, '    │ ')));
+}
+
 export function register(program: Command): void {
   program.commandsGroup('Test:');
 
   program
     .command('test')
-    .description('Replay packed recordings offline and fail on any divergence or failed check (CI). Each pack re-runs its recorded command; checks come from "tests" in shadowlap.config.json.')
-    .argument('<pack...>', 'directories written by shadowlap pack')
+    .description('Replay packed recordings offline and fail on any divergence or failed check (CI). Each pack re-runs its recorded command; checks come from "tests" in shadowlap.config.json. Each session is kept in the project\'s store as test history.')
+    .argument('<pack...>', 'directories written by shadowlap pack; a * in the last part matches several, as in goldens/*')
     .option('--junit <file>', 'write a JUnit XML report')
-    .option('--json <file>', 'write a JSON report (results per pack, for other tools)')
+    .option('--json <file>', 'write a JSON report (results per pack, with each replay\'s run id, for other tools)')
     .option('--markdown <file>', 'append a Markdown report to this file, e.g. $GITHUB_STEP_SUMMARY')
     .option('--annotations', 'print GitHub Actions error annotations for packs that fail')
+    .option('--update', 're-record each golden that diverged, live with writes stubbed, and replace it in the working tree when its checks pass')
     .option('--online', 'allow live calls after a divergence (default: offline, a live call fails the test)')
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .action(async (packs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) {
       const opts = program.opts<GlobalOpts>();
-      const config = loadConfig(process.cwd());
-      const tests = loadTests(process.cwd());
-      const cwd = resolve(flags.cwd ?? process.cwd());
+      const guardGiven = this.getOptionValueSource('guard') === 'cli';
+      const projectDir = process.cwd();
+      const config = loadConfig(projectDir);
+      const tests = loadTests(projectDir);
+      const cwd = resolve(flags.cwd ?? projectDir);
+      const { dirs: packs, unmatched } = expandRecordings(packArgs, projectDir);
+      if (unmatched.length) {
+        throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
+      }
+
+      const store = openTestStore(opts, projectDir);
+      const actor = resolveAuthor({ cwd: projectDir });
+      const revision = codeVersion(cwd);
+      const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
-      let failed = 0;
-      for (const packDir of packs) {
-        const started = Date.now();
-        const name = basename(resolve(packDir));
-        const spec = specFor(tests, packDir, process.cwd());
-        // An ephemeral store per pack: CI never accumulates recordings locally.
-        const store = opts.db ? openStore(opts) : Store.open(':memory:');
-        let output = '';
-        let failure: JunitCase['failure'];
-        let packSummary: RunSummaryLike | null = null;
-        let checks: CheckResult[] | null = null;
-        let attemptCounts: PackResult['attempts'] = null;
-        try {
-          const { imported, skipped } = unpackRun(store, packDir);
-          const parentId = imported[imported.length - 1] ?? skipped[skipped.length - 1];
-          if (!parentId) throw new Error('the pack contains no runs');
-          const parent = store.getRun(parentId)!;
-          // A golden has to be able to start its agent. One packed straight from a capture cannot, and
-          // spawning its placeholder would fail for a reason the report would not name.
-          if (!hasRecordedCommand(parent)) {
-            throw new Error('this recording was imported from a capture and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run: it records everything, and has a command of its own');
+      let upstreamRequests = 0;
+      let updates = 0;
+      const tested = new Map<string, { ok: boolean; fork: boolean }>();
+      // Goldens that diverged in a way an update would fix: not only on values that change every run.
+      const updatable: string[] = [];
+      // Ctrl-C, or a dashboard job being stopped: the replay running now is cut short (its agent, and
+      // whatever the agent started, get the signal), the goldens after it don't run, and the session
+      // ends with the results of the ones that finished.
+      let signal = null as NodeJS.Signals | null;
+      let current = null as string | null;
+      const onSignal = (sig: NodeJS.Signals) => {
+        if (signal) return;
+        signal = sig;
+        process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${current ? `stopping ${current}, ` : ''}no golden after it runs, and the session keeps what finished\n`));
+      };
+      process.on('SIGINT', onSignal);
+      process.on('SIGTERM', onSignal);
+      const stopped = () => signal !== null;
+      let cut = null as string | null;
+      try {
+        for (const packDir of packs) {
+          if (signal) break;
+          const golden = goldenName(packDir, projectDir);
+          current = golden;
+          const spec = specFor(tests, packDir, projectDir);
+          const expect = rawExpectFor(tests, packDir, projectDir);
+          const ctx: RecordingTestContext = {
+            store,
+            config,
+            cwd,
+            writes: flags.writes,
+            guard: flags.guard,
+            online: !!flags.online,
+            test: { golden, session: session.sessionId },
+            // The line a dashboard job reads a new run from, and a way to open each replay.
+            onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
+            stopped,
+          };
+          // Every replay counts towards the session's upstream requests, an updated golden's first one too.
+          const replayed = (o: GoldenOutcome) => {
+            for (const a of o.result?.attempts ?? []) {
+              telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
+              upstreamRequests += a.ended.summary.upstreamRequests;
+            }
+            return o;
+          };
+          let outcome = replayed(await testGolden(packDir, golden, spec, ctx));
+          // Cut short, it says nothing about the golden: no result, and nothing after it.
+          if (outcome.interrupted) {
+            cut = golden;
+            break;
           }
-          // A recording marked `fork` may diverge on purpose; from the fork on it needs the real providers.
-          const live = !!flags.online || !!spec?.fork;
-          const upstreams = live ? upstreamOverrides(process.env) : Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
-          const extraEnv = live ? {} : placeholderAwsCredentials(process.env, store.getCalls(parent.runId));
-          const attempts: TestAttempt[] = [];
-          for (let i = 0; i < (spec?.repeat ?? 1); i++) {
-            const attempt = await testAttempt(store, parent, { cwd, upstreams, extraEnv, writes: flags.writes, guard: flags.guard, normalizers: config.normalize, prices: config.prices, clock: config.clock, http: config.http, spec });
-            telemetry().record({ type: 'test', ...usageOf(attempt.ended, attempt.ms, attempt.code) });
-            attempts.push(attempt);
+          printGolden(outcome);
+
+          let updated: PackResult['updated'] = null;
+          if (flags.update && outcome.failure && !signal) {
+            if (outcome.kind !== 'diverged' || !outcome.parent || !outcome.result) {
+              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
+            } else {
+              const before = outcome.parent;
+              const divergence = outcome.result.shown.ended.summary.divergence;
+              const normalizers = outcome.normalizers;
+              for (const w of volatileWarning(divergence, normalizers)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
+              process.stdout.write(`    ${p.cyan('↻')} updating ${golden}: re-recording live, writes stubbed\n`);
+              const u = await rerecordGolden(packDir, before, spec, {
+                store,
+                config,
+                cwd,
+                projectDir,
+                // Live, as `run` records: the guard warns, unless --guard was given.
+                guard: guardGiven ? flags.guard : 'warn',
+                onRun: (runId) => {
+                  process.stderr.write(p.dim(`[shadowlap] recording run ${runId}: ${golden} again, live, writes stubbed\n`));
+                  emitJobEvent({ type: 'run', runId, role: 'new' });
+                },
+                stopped,
+              });
+              upstreamRequests += u.summary?.upstreamRequests ?? 0;
+              if (u.checks?.length && !u.interrupted) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
+              if (!u.replaced || !u.run) {
+                process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason}\n`);
+                const tail = u.interrupted ? null : outputTail(u.output, 10);
+                if (tail) process.stdout.write(p.dim(tail.split('\n').map((l) => `      │ ${l}`).join('\n') + '\n'));
+              } else {
+                updates++;
+                const changes = requestChanges(store, before, u.run, divergence, normalizers);
+                process.stdout.write(`      re-recorded as run ${shortId(u.run.runId)}: ${describeChange(u.before, u.after!)} · ${updateReceipt(u.summary)}\n`);
+                if (changes.length) process.stdout.write(`      what changed: ${safe(changes.join(' · '))}\n`);
+                process.stdout.write(`      replaced ${golden} in the working tree; review the change in your pull request\n`);
+                recordEvent(store, { kind: 'golden.updated', actor, runId: u.run.runId, ref: golden, data: { session: session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0, changes } });
+                updated = { from: before.runId, to: u.run.runId, calls: u.after!.total, changes };
+                // The new golden, replayed as the next test will replay it. Cut short, the result is the
+                // replay that diverged, with the update it led to.
+                const again = replayed(await testGolden(packDir, golden, spec, ctx));
+                if (again.interrupted) process.stdout.write(p.dim(`    the replay of the updated golden was interrupted; it runs with the next test\n`));
+                else {
+                  outcome = again;
+                  printGolden(outcome, ' (updated)');
+                }
+              }
+            }
           }
-          const passed = attempts.filter((a) => !a.failure).length;
-          const required = spec?.passes ?? 1;
-          const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
-          output = shown.output;
-          packSummary = shown.ended.summary;
-          checks = shown.checks;
-          if (attempts.length > 1) attemptCounts = { total: attempts.length, passed, required };
-          if (passed < required) {
-            const f = shown.failure!;
-            failure =
-              attempts.length === 1
-                ? f
-                : {
-                    message: `${passed} of ${attempts.length} attempts passed, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
-                    details: `${attempts.map((a, i) => `attempt ${i + 1}  ${a.failure ? `✗ ${a.failure.message}` : '✓ passed'}`).join('\n')}\n\n${f.details}`,
-                  };
-          }
-          const summary = shown.ended.summary;
-          if (failure) {
-            process.stdout.write(`${p.red('✗')} ${name}: ${failure.message}\n`);
-          } else {
-            const parts = [
-              summary.divergence ? `forked at call ${summary.divergence.callNo}, ${summary.byOrigin.replayed}/${summary.total} replayed` : `${summary.byOrigin.replayed}/${summary.total} replayed`,
-              `${formatTokens(summary.tokensNotRespent.inputTokens)} input tokens not re-spent`,
-              ...(checks?.length ? [`${checks.length} check${checks.length === 1 ? '' : 's'} passed`] : []),
-              ...(attempts.length > 1 ? [`${passed}/${attempts.length} attempts passed`] : []),
-            ];
-            process.stdout.write(`${p.green('✓')} ${name}: ${parts.join(', ')}\n`);
-          }
-          if (failure) {
-            failed++;
-            if (checks?.length) process.stdout.write(formatChecks(checks).split('\n').map((l) => '    ' + l).join('\n') + '\n');
-            process.stdout.write(failure.details.split('\n').map((l) => '    ' + l).join('\n') + '\n');
-            if (output.trim()) process.stdout.write(p.dim(output.trim().split('\n').slice(-20).map((l) => '    │ ' + l).join('\n')) + '\n');
-          }
-        } catch (err) {
-          failed++;
-          const message = err instanceof Error ? err.message : String(err);
-          failure = { message, details: message };
-          process.stdout.write(`${p.red('✗')} ${name}: ${message}\n`);
-        } finally {
-          store.close();
+
+          for (const a of outcome.result?.attempts ?? []) emitJobEvent({ type: 'run', runId: a.ended.summary.runId, role: a.failure ? 'failing' : 'passing' });
+          store.addTestResult({
+            sessionId: session.sessionId,
+            golden,
+            ok: !outcome.failure,
+            failure: outcome.kind,
+            reason: outcome.failure?.message ?? null,
+            runId: outcome.result?.shown.ended.summary.runId ?? null,
+            goldenRunId: outcome.parent?.runId ?? null,
+            revision,
+            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}) },
+          });
+          cases.push(junitCase(outcome));
+          results.push(packResult(outcome, { expect, updated }));
+          tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
+          const divergence = outcome.result?.shown.ended.summary.divergence;
+          if (!flags.update && outcome.kind === 'diverged' && !(divergence && volatileValues(divergence, outcome.normalizers).explainsAll)) updatable.push(packDir);
         }
-        const junitFailure = failure && checks?.length ? { ...failure, details: `${formatChecks(checks)}\n\n${failure.details}` } : failure;
-        cases.push({ name, classname: 'shadowlap.replay', timeSeconds: (Date.now() - started) / 1000, ...(junitFailure ? { failure: junitFailure } : {}), ...(output ? { systemOut: output } : {}) });
-        const s = packSummary;
-        results.push({
-          name,
-          dir: packDir,
-          ok: !failure,
-          message: failure?.message ?? null,
-          details: failure?.details ?? null,
-          output: failure && output.trim() ? output.trim().split('\n').slice(-20).join('\n') : null,
-          seconds: (Date.now() - started) / 1000,
-          calls: s ? { total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed } : null,
-          upstreamRequests: s ? s.upstreamRequests : null,
-          tokensNotRespent: s ? s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0) : null,
-          divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name } : null,
-          checks,
-          attempts: attemptCounts,
-        });
+        // Housekeeping never fails a session whose goldens all ran: the reports below still get written.
+        if (!signal) {
+          const unpruned = pruneQuietly(store, session, tested);
+          if (unpruned) process.stderr.write(p.yellow(`[shadowlap] ${unpruned}\n`));
+        }
+      } finally {
+        process.off('SIGINT', onSignal);
+        process.off('SIGTERM', onSignal);
+        // Counted from the results recorded, so a session cut short by an error or a signal counts what ran.
+        const passed = results.filter((r) => r.ok).length;
+        const failed = results.length - passed;
+        try {
+          store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests, interrupted: signal !== null });
+        } catch (err) {
+          process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${(err as Error).message}\n`));
+        }
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
+        try {
+          store.close();
+        } catch {
+          // every write above has either landed or been reported
+        }
       }
+      const notRun = packs.length - results.length;
+      if (cut) process.stdout.write(`${p.yellow('⏹')} ${safe(cut)}: interrupted, so it has no result this time\n`);
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
-      const report = testReport(results);
+      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null });
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
-      process.stdout.write(`\n${cases.length - failed} passed, ${failed} failed\n`);
+      emitJobEvent({ type: 'result', data: report });
+      emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
+      process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
+      if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));
       await telemetry().flush();
-      process.exitCode = failed ? 1 : 0;
+      // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM.
+      process.exitCode = signal ? (signal === 'SIGINT' ? 130 : 143) : report.failed ? 1 : 0;
+    });
+
+  program
+    .command('bisect')
+    .description('Find the commit that broke a golden or a run: replay it at commits between a good one and a bad one, halving each time, each in a temporary git worktree. Replays are offline, so it costs no tokens.')
+    .argument('<recording>', 'a golden (a directory written by shadowlap pack) or a run id')
+    .requiredOption('--good <rev>', 'a commit where it still passed')
+    .option('--bad <rev>', 'a commit where it fails (default: HEAD)', 'HEAD')
+    .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
+    .option('--fork', 'let each replay diverge and run live from the fork (it costs tokens), so only the exit status and the checks decide: for a run that failed a check')
+    .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build"')
+    .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
+    .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
+    .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('--json', 'print the result as JSON (progress still goes to stderr)')
+    .action(async (target: string, flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; json?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      try {
+        const report = await runBisect({
+          opts,
+          target,
+          good: flags.good,
+          bad: flags.bad,
+          spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,
+          fork: !!flags.fork,
+          build: flags.build ?? null,
+          cwd: resolve(flags.cwd ?? process.cwd()),
+          timeoutMs: flags.timeout * 1000,
+          guard: flags.guard,
+          log: (line) => process.stderr.write(`${line}\n`),
+        });
+        if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+        else process.stdout.write(formatBisect(report, p) + '\n');
+        emitJobEvent({ type: 'result', data: report });
+        // Where the answer shows: above a golden's buttons on Tests, or on the run's page.
+        emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: '#/tests' } : { type: 'link', label: 'Open the run', href: `#/run/${report.target.runId}` });
+        process.exitCode = report.outcome === 'found' ? 0 : 1;
+      } catch (err) {
+        if (!(err instanceof BisectError)) throw err;
+        if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
+        else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
+        process.exitCode = 1;
+      }
     });
 
   program
@@ -269,5 +433,4 @@ export function register(program: Command): void {
       await sidecar.close();
       store.close();
     });
-
 }

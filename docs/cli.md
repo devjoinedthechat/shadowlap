@@ -256,7 +256,7 @@ Runs, newest first, with their labels; `--tree` nests forks under their parents.
 | `imported` | `{ at, from }` for a run from a pack or a capture, or `null` |
 | `partial` | the kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
 | `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
-| `checks` | `{ passed, total }` for a run from `shadowlap test --db` with [outcome checks](./ci.md#outcome-checks), or `null` |
+| `checks` | `{ passed, total }` for a run from `shadowlap test` with [outcome checks](./ci.md#outcome-checks), or `null` |
 
 ## label, note
 
@@ -289,17 +289,38 @@ The [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` nam
 ## test
 
 ```sh
-shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations] [--online] [--writes <policy>] [--cwd <dir>]
+shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [--annotations] [--update] [--online] [--writes <policy>] [--cwd <dir>]
 ```
 
-[CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none.
+[CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none. A `*` in the last part of a path (`goldens/*`) is expanded by the command itself.
+
+Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the revision, passed and failed, and each golden's result with why it failed; global `--db :memory:` keeps nothing. Each replay prints `replaying run <id>` and is marked as made by `test` for its golden. Exit status: 0 when every pack passed, 1 when one failed, and 130 (143 for SIGTERM) when a signal stopped the session, which then keeps the results of the packs that finished.
 
 | Option | Effect |
 |---|---|
 | `--junit <file>` | Write a JUnit XML report |
-| `--json <file>` | Write a JSON report: counts and, per pack, the result, calls by origin, tokens not re-spent, the divergence, each check and, for a repeated recording, how many attempts passed |
+| `--json <file>` | Write a JSON report: the session, counts and, per pack, the result and the kind of failure (`diverged`, `check`, `exit`, `no-calls`, `error`), its replays' run ids, calls by origin, tokens not re-spent, the divergence, each check, the checks as configured and, for a repeated recording, how many attempts passed |
 | `--markdown <file>` | Append a Markdown report: a results table, and the diff and agent output for each failure. Point it at `$GITHUB_STEP_SUMMARY` for a GitHub job summary |
 | `--annotations` | Print a GitHub Actions error annotation for each failed pack, attached to its `run.json` |
+| `--update` | [Re-record each golden that diverged](./ci.md#update-a-golden-after-an-intended-change), live with writes stubbed, and replace its pack (`run.json`, `calls.jsonl`, `blobs/`; other files in its folder stay) in the working tree when the agent exits 0 and its checks pass. Prints what the agent sends differently. Warns, with the normalizer to add, when the divergence is a value that changes every run |
+
+## bisect
+
+```sh
+shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [--json]
+```
+
+[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one.
+
+| Option | Effect |
+|---|---|
+| `--expect <json\|@file>` | The checks a replay must pass besides exiting 0 (default: the golden's under `tests`) |
+| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide: for a run that failed a check, whose recording no older commit would replay. The live part costs tokens, and the result says how many |
+| `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped |
+| `--cwd <dir>` | Where the recorded command runs, inside the repository (default: the current directory) |
+| `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |
+| `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
+| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
 
 ## pack, unpack
 

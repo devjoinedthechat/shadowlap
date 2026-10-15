@@ -130,7 +130,7 @@ ShadowlapReplayDiverged: diverged from its recording at call 1 (tool lookup)
 If the change is intended, record the test again with SHADOWLAP_RECORD=all. To inspect the replay: shadowlap dashboard 01M2R0QYWC…
 ```
 
-- **Intended change:** record again with `SHADOWLAP_RECORD=all`, and review the new recording in the pull request.
+- **Intended change:** record again with `SHADOWLAP_RECORD=all`, and review the new recording in the pull request. (A golden that `shadowlap test` replays is updated with [`shadowlap test --update`](./ci.md#update-a-golden-after-an-intended-change) instead.)
 - **A date or an id** in a prompt: add the [normalizer](./normalizers-and-redaction.md) the report suggests. It applies to every recording, old ones included.
 - **To look closer:** the diverged replay stays in the local store, so `shadowlap dashboard <run>` opens it next to its recording. Clean replays are not kept.
 
@@ -140,7 +140,7 @@ The plugin starts `shadowlap serve --recordings` once per test process (per Vite
 
 - Tool calls go through the Shadowlap SDK as usual, so wrap tools with `tool()` or an [adapter](./frameworks.md). Tools that aren't wrapped run for real on every replay.
 - `shadowlap.config.json` applies: normalizers when matching, and redaction rules when a recording is saved.
-- Recordings are packs, the same format as `shadowlap pack`, so `shadowlap test` and `shadowlap unpack` read them.
+- Recordings are packs, the same format as `shadowlap pack`, so `shadowlap test` and `shadowlap unpack` read them. They still belong to their test runner, which replays them with the test's own assertions: the [test history](./ci.md#test-history) that `shadowlap test` keeps covers the project's goldens, the packs in `goldens/` and those named under `tests` in the config.
 - Running the whole test suite under `shadowlap run` or `shadowlap replay` turns the plugin off; that run records everything.
 - The plugin needs the `shadowlap` CLI: from `npm install shadowlap` (a dependency of `@shadowlap/test`), on your `PATH`, or named by `SHADOWLAP_CLI`.
 - Tests that run concurrently inside one worker (`test.concurrent`, `pytest-asyncio` tasks sharing a loop) share its slot, so their calls can't be told apart. Run recorded tests one at a time per worker.

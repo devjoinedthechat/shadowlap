@@ -36,14 +36,41 @@ inputs:
   junit:
     description: Also write a JUnit XML report to this path, relative to working-directory.
     default: ''
+  store:
+    description: The store that keeps the test history and the replays, relative to working-directory. Empty uses the project's, .shadowlap/shadowlap.db.
+    default: ''
+  fix-on-failure:
+    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence; never merges. Needs contents and pull-requests write permission, GH_TOKEN, the repairer's key, and the agent's own provider keys (blame and verify run it live).
+    default: 'false'
+  fix-budget:
+    description: Dollars fix-on-failure may spend per failing golden, on blame, the repairer and verify together.
+    default: '2.00'
+  repairer:
+    description: The model that proposes fixes, as for shadowlap repair --repairer (claude-code, anthropic, anthropic:<model>, openai:<model>). Empty uses repair.repairer in shadowlap.config.json.
+    default: ''
 
 outputs:
   passed:
     description: Recordings that passed.
     value: ${{ steps.test.outputs.passed }}
   failed:
-    description: Recordings that diverged, made a live call or exited with an error.
+    description: Recordings that failed (diverged, made a live call, exited with an error, or failed a check). The Alerts workflow posts when it isn't 0.
     value: ${{ steps.test.outputs.failed }}
+  diverged:
+    description: Recordings that failed because the agent sent a different request.
+    value: ${{ steps.test.outputs.diverged }}
+  checks-failed:
+    description: Recordings that failed an outcome check.
+    value: ${{ steps.test.outputs.checks-failed }}
+  session:
+    description: The test session's id in the store's history.
+    value: ${{ steps.test.outputs.session }}
+  fixes:
+    description: Fix pull requests opened by fix-on-failure.
+    value: ${{ steps.test.outputs.fixes }}
+  fix-prs:
+    description: Their URLs, separated by spaces.
+    value: ${{ steps.test.outputs.fix-prs }}
   report-json:
     description: Path of the JSON report.
     value: ${{ steps.test.outputs.report-json }}
@@ -98,4 +125,8 @@ runs:
         INPUT_SUMMARY: ${{ inputs.summary }}
         INPUT_ANNOTATIONS: ${{ inputs.annotations }}
         INPUT_JUNIT: ${{ inputs.junit }}
+        INPUT_STORE: ${{ inputs.store }}
+        INPUT_FIX_ON_FAILURE: ${{ inputs.fix-on-failure }}
+        INPUT_FIX_BUDGET: ${{ inputs.fix-budget }}
+        INPUT_REPAIRER: ${{ inputs.repairer }}
       run: node "${{ github.action_path }}/action/run.mjs"

@@ -37,7 +37,7 @@ When a divergence is only a date, time, UUID or ULID, the report proposes the ru
 
 ```
   hint: this looks like a date; to ignore it in matching, add a normalizer
-        shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date
+        shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date --replace '<DATE>'
 ```
 
 The TUI's actions palette adds it with one key.

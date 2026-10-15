@@ -9,7 +9,7 @@ Start from the report. It names the call, the type of divergence, the closest re
       - "…Today is 2026-09-15. You are a research agent…"
       + "…Today is 2026-09-16. You are a research agent…"
   hint: this looks like a date; to ignore it in matching, add a normalizer
-        shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date
+        shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date --replace '<DATE>'
 ```
 
 `shadowlap show <replay-run>` prints it again; `shadowlap ui <replay-run>` opens at the divergence with `d` for the diff.
