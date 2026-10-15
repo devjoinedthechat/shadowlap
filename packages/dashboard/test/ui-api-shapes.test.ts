@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeAction, normalizeActions, normalizeMeta, normalizeRunDetail, normalizeRuns, sentence } from '../ui/normalize.js';
-import { exportStartRun, familyLine, isAttempt, isFailed, runOutcome, runType, type RunLike } from '../ui/runs.js';
+import { exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
 import type { ActionItem, Meta, RunDetail, RunListItem } from '../ui/types.js';
 
 // The dashboard reads what other parts of the API send in their own shapes: these turn each into
@@ -192,5 +192,21 @@ describe('the Forks view’s lines', () => {
     expect(familyLine({ ...base, status: 'running', calls: 9 })).toBe('recording · 9 calls so far');
     expect(familyLine({ ...base, source: 'traffic.har', covers: ['api'], captured: 0.12 })).toBe('capture · 30 calls · $0.12 as captured');
     expect(familyLine({ ...base, mode: 'replay', parentRunId: '01K5CQ4N7G', divergence: { callNo: 4, type: 'forced' } })).toBe('fork @4 · 30 calls · ≈$0.040');
+  });
+
+  it('bundles the attempts of one replay --repeat as the design words them', () => {
+    const attempt = (n: number, over: Partial<RepeatAttempt> = {}): RepeatAttempt => ({ runId: `01K5CQ5G1${n}0000000000000000`, status: 'completed', divergence: { callNo: 17 }, spent: 0.03, startedAt: n, repeat: { attempt: n, of: 3 }, checks: null, ...over });
+    const b = repeatBundle([attempt(2), attempt(1), attempt(3, { status: 'failed', divergence: { callNo: 19 } })]);
+    expect(b.title).toBe('replay --repeat 3');
+    expect(b.line).toBe('forked 3 attempts, 2 passed · ≈$0.090');
+    expect(b.attempts).toEqual([
+      { runId: '01K5CQ5G110000000000000000', text: '01K5CQ5G11 · passed', ok: true },
+      { runId: '01K5CQ5G120000000000000000', text: '01K5CQ5G12 · passed', ok: true },
+      { runId: '01K5CQ5G130000000000000000', text: '01K5CQ5G13 · failed · forked at #19', ok: false },
+    ]);
+    // A repeat of a recording replays it: nothing forked; checks decide when there are some.
+    const clean = repeatBundle([attempt(1, { divergence: null, spent: 0, checks: { passed: 2, total: 2 } }), attempt(2, { divergence: null, spent: 0, checks: { passed: 1, total: 2 } })]);
+    expect(clean.line).toBe('2 attempts, 1 passed');
+    expect(clean.attempts.map((a) => a.text)).toEqual(['01K5CQ5G11 · checks 2 of 2', '01K5CQ5G12 · checks 1 of 2']);
   });
 });

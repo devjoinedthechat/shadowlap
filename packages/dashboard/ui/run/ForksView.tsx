@@ -1,10 +1,10 @@
 import { Fragment, useMemo, type ReactNode } from 'react';
 import type { LineageNode, RunListItem } from '../api.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
-import { approx, plural, shortId, stamp } from '../format.js';
+import { shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { familyLine, type RunLike } from '../runs.js';
+import { familyLine, repeatBundle, type RunLike } from '../runs.js';
 import { useApp } from '../state.js';
 
 /**
@@ -93,40 +93,24 @@ export function ForksView({ runId }: { runId: string }) {
 }
 
 function Bundle({ attempts, current }: { attempts: LineageNode[]; current: string }) {
-  const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0));
-  const checked = sorted.filter((n) => n.checks);
-  const passed = checked.filter((n) => n.checks!.passed === n.checks!.total).length;
-  const first = sorted[0]!;
-  const forkAt = first.divergence?.callNo;
-  const spent = sorted.reduce((s, n) => s + n.spent, 0);
-  const has = sorted.some((n) => n.runId === current);
+  const b = repeatBundle(attempts.map((n) => ({ runId: n.runId, status: n.status, divergence: n.divergence, spent: n.spent, startedAt: n.startedAt, repeat: n.repeat, checks: n.checks })));
+  const first = attempts.find((n) => n.runId === b.attempts[0]?.runId) ?? attempts[0]!;
+  const has = attempts.some((n) => n.runId === current);
   return (
     <a className={`fnode${has ? ' here' : ''}`} href={href.run(first.runId)}>
       <Glyph kind="fork" label="Repeated attempts" />
       <span>
         <span className="f1">
-          <code>
-            --repeat {first.repeat?.of ?? sorted.length}
-            {forkAt ? ` · #${forkAt}` : ''}
-          </code>
+          <code>{b.title}</code>
         </span>
-        <span className="f2 block">
-          {forkAt ? 'forked ' : ''}
-          {plural(sorted.length, 'attempt')}
-          {checked.length ? `, ${passed} passed` : ''}
-          {spent ? ` · ${approx(spent)}` : ''}
-        </span>
+        <span className="f2 block">{b.line}</span>
         <span className="attempts">
-          {sorted.map((n) => {
-            const ok = n.checks ? n.checks.passed === n.checks.total : n.status === 'completed';
-            return (
-              <span key={n.runId}>
-                <i className={ok ? undefined : 'no'} />
-                {n.repeat?.attempt ?? '?'} · {n.divergence ? `forked at #${n.divergence.callNo}` : 'same path'}
-                {n.checks ? ` · checks ${n.checks.passed}/${n.checks.total}` : ''}
-              </span>
-            );
-          })}
+          {b.attempts.map((a) => (
+            <span key={a.runId}>
+              <i className={a.ok ? undefined : 'no'} />
+              {a.text}
+            </span>
+          ))}
         </span>
       </span>
       <span className="fr">{stamp(first.startedAt)}</span>

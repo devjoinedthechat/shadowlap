@@ -125,6 +125,17 @@ export function projectOfStore(dbPath: string): { name: string; path: string } |
   return name ? { name, path } : null;
 }
 
+/** A call's fingerprint as the inspector shows it, `sha256:30350c36c41e6a18`; the whole hash is on hover. */
+export function shortFingerprint(fp: string): string {
+  const m = /^(?:sha256:)?([0-9a-f]{64})$/i.exec(fp);
+  return m ? `sha256:${m[1]!.slice(0, 16)}` : fp;
+}
+
+/** A stored blob's hash, short enough for a table cell: its first 24 characters. */
+export function shortHash(hash: string): string {
+  return hash.length > 24 ? hash.slice(0, 24) : hash;
+}
+
 /** api, tool, clk, rnd: a call's kind in four characters or fewer. */
 export function kindShort(kind: string): string {
   return kind === 'clock' ? 'clk' : kind === 'random' ? 'rnd' : kind;

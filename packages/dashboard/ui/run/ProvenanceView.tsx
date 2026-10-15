@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail } from '../api.js';
 import { CopyButton, Org } from '../components/bits.js';
 import { RunIcon } from '../components/RunIcon.js';
-import { approx, callName, num, shortId, stamp, utcStamp } from '../format.js';
+import { approx, callName, num, shortFingerprint, shortHash, shortId, stamp, utcStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { countOrigins, ORIGIN_NAME, presentOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -211,10 +211,10 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                       <Org origin={originOf(c)} />
                     </td>
                     <td>
-                      <code>{c.fingerprint ?? c.requestRef ?? '—'}</code>
+                      <code title={c.fingerprint ?? c.requestRef ?? undefined}>{c.fingerprint ? `${shortFingerprint(c.fingerprint)}…` : c.requestRef ? shortHash(c.requestRef) : '—'}</code>
                     </td>
                     <td>
-                      <code>{c.responseRef ?? '—'}</code>
+                      <code title={c.responseRef ?? undefined}>{c.responseRef ? shortHash(c.responseRef) : '—'}</code>
                     </td>
                   </tr>
                 ))}

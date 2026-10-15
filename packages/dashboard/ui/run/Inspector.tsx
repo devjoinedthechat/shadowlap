@@ -5,7 +5,7 @@ import { Org, Seg } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
-import { asJson, dur, formatUsd, jsonText, num, stamp } from '../format.js';
+import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { useApp } from '../state.js';
 import { originOf, tokensText, turnCalls } from './model.js';
 
@@ -450,10 +450,16 @@ function DetailsTab({ runId, detail }: { runId: string; detail: CallDetail }) {
   if (c.kind === 'api') rows.push(['Cost', c.cost === null ? <small>no price for this model · add one under prices in shadowlap.config.json</small> : <>≈{formatUsd(c.cost)}{c.origin === 'replayed' ? <small> not re-spent</small> : null}</>]);
   if (c.latencyMs !== null) rows.push(['Latency', <>{dur(c.latencyMs)}{c.ttftMs !== null ? <small> first token at {dur(c.ttftMs)}</small> : null}{c.origin === 'replayed' ? <small> replayed</small> : null}</>]);
   if (c.bytes !== null) rows.push(['Size', `${(c.bytes / 1024).toFixed(1)} kB response`]);
-  if (c.attempts) rows.push(['Retries', `${c.attempts} before the final outcome`]);
+  if (c.attempts || c.kind === 'api') rows.push(['Retries', c.attempts ? `${c.attempts} before the final outcome` : '0']);
   if (c.replayedFrom !== null) rows.push(['Replayed from', `#${c.replayedFrom} of the parent run`]);
   if (c.error) rows.push(['Error', <span className="err">{c.error}</span>]);
-  rows.push(['Fingerprint', <>{c.fingerprint} <small>occurrence {c.occurrence}</small></>]);
+  rows.push([
+    'Fingerprint',
+    <>
+      <span title={c.fingerprint}>{shortFingerprint(c.fingerprint)}</span> <small>occurrence {c.occurrence}</small>
+    </>,
+  ]);
+  rows.push(['Run', runId]);
   if (c.implHash) rows.push(['Implementation', c.implHash]);
   rows.push(['Started', stamp(c.startedAt)]);
   const headers = Object.entries(c.headers);

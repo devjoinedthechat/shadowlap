@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, type UsageCall } from '../ui/cache.js';
-import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, tildePath, whenShort } from '../ui/format.js';
+import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
@@ -276,6 +276,15 @@ describe('formatting', () => {
     expect(whenShort(now - 20_000, now)).toBe('now');
     expect(whenShort(new Date(2026, 9, 1, 9, 58).getTime(), now)).toBe('09:58');
     expect(whenShort(new Date(2026, 8, 30, 23, 0).getTime(), now)).toBe('Sep 30');
+  });
+
+  it('shows a fingerprint and a blob’s hash short, as the design does', () => {
+    const hex = '30350c36c41e6a18' + 'a'.repeat(48);
+    expect(shortFingerprint(hex)).toBe('sha256:30350c36c41e6a18');
+    expect(shortFingerprint(`sha256:${hex}`)).toBe('sha256:30350c36c41e6a18');
+    expect(shortFingerprint('not-a-hash')).toBe('not-a-hash');
+    expect(shortHash(hex)).toBe('30350c36c41e6a18aaaaaaaa');
+    expect(shortHash('abc')).toBe('abc');
   });
 
   it('shortens a home folder and finds the project a store belongs to', () => {

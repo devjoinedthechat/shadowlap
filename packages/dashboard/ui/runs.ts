@@ -291,6 +291,40 @@ export function familyLine(r: RunLike): string {
   return `recording · ${plural(r.calls, 'call')} · ${approx(r.spent)}`;
 }
 
+/** An attempt of one `replay --repeat`, as the run's family lists it. */
+export interface RepeatAttempt {
+  runId: string;
+  status: RunLike['status'];
+  divergence: { callNo: number } | null;
+  spent: number;
+  startedAt: number;
+  repeat: { attempt: number; of: number } | null;
+  checks: { passed: number; total: number } | null;
+}
+
+/**
+ * One `replay --repeat` bundled in the Forks view, as the design words it: `replay --repeat 5`, then
+ * "forked 5 attempts, 4 passed · ≈$0.141", then each attempt by its id. An attempt passed when its
+ * checks did, or, without checks, when it exited cleanly (the first check of every outcome check is
+ * the exit code). An attempt that left the path somewhere else than the others says where.
+ */
+export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean }> } {
+  const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0) || a.startedAt - b.startedAt);
+  const ok = (n: RepeatAttempt) => (n.checks ? n.checks.passed === n.checks.total : n.status === 'completed');
+  const forkAt = sorted[0]?.divergence?.callNo ?? null;
+  const spent = sorted.reduce((s, n) => s + n.spent, 0);
+  const passed = sorted.filter(ok).length;
+  return {
+    title: `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
+    line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${spent ? ` · ${approx(spent)}` : ''}`,
+    attempts: sorted.map((n) => {
+      const where = n.divergence && n.divergence.callNo !== forkAt ? ` · forked at #${n.divergence.callNo}` : '';
+      const how = n.checks ? `checks ${n.checks.passed} of ${n.checks.total}` : n.status === 'completed' ? 'passed' : n.status === 'running' ? 'running' : n.status === 'crashed' ? 'interrupted' : 'failed';
+      return { runId: n.runId, text: `${shortId(n.runId)} · ${how}${where}`, ok: ok(n) };
+    }),
+  };
+}
+
 /**
  * The run an exported copy opens on: the one the others lead to. A copy holds a run with the runs it
  * came from, in whatever order the exporter listed them; the run that no other included run names as
