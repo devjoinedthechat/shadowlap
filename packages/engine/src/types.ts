@@ -249,8 +249,11 @@ export interface RunSummary {
   upstreamRequests: number;
   /** Live calls Shadowlap answered itself with `--fail-at`: model calls that reached no provider, tools that did not run. */
   injected: number;
-  /** Model calls answered with the reason an intervention could not be applied to them: they reached no provider either. */
-  refused: number;
+  /**
+   * Model calls answered with the reason an intervention could not be applied to them: they reached no
+   * provider either. `summarizeRun` always counts them; a summary built or saved elsewhere may not.
+   */
+  refused?: number;
   /**
    * The run came from elsewhere — a pack someone recorded, or a capture — so the calls it holds were
    * made by someone else's process. Its cost is `captured`, not `spent`, and it made no upstream requests.
