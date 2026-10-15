@@ -44,8 +44,19 @@ export function describeInterventions(replay: Partial<ReplayOptions> | undefined
   for (const name of replay?.liveTools ?? []) add('--live-tool', name, null);
   if (replay?.writes && replay.writes !== 'block') add('--writes', replay.writes, null);
   if (replay?.reads && replay.reads !== 'live') add('--reads', replay.reads, null);
+  // An option added since this list was written is named after its key, so the page still says it.
+  for (const [key, value] of Object.entries(replay ?? {})) {
+    if (KNOWN_OPTIONS.has(key) || value === undefined || value === null) continue;
+    const flag = `--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+    if (value instanceof Map) for (const [k, v] of value) add(flag, `${String(k)}=${oneLine(v, VALUE_MAX)}`, typeof k === 'number' ? k : null);
+    else if (value instanceof Set) for (const v of value) add(flag, String(v), null);
+    else add(flag, typeof value === 'object' ? JSON.stringify(value) : String(value), typeof value === 'number' ? value : null);
+  }
   return out;
 }
+
+/** The replay options described above, and `kinds`, which a partial recording sets, not a flag. */
+const KNOWN_OPTIONS = new Set(['failAt', 'overrides', 'promptFrom', 'divergeAt', 'liveTools', 'writes', 'reads', 'kinds']);
 
 const FORCED = /^forced live by (--fail-at|--diverge-at|--prompt-from|--live-tool) (\S+)/;
 

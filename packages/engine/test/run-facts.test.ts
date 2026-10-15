@@ -21,7 +21,13 @@ describe('a replay’s interventions', () => {
       { flag: '--live-tool', value: 'search_web', callNo: null },
       { flag: '--writes', value: 'stub', callNo: null },
     ]);
-    expect(describeInterventions({ writes: 'block', reads: 'live', liveTools: new Set() })).toEqual([]);
+    expect(describeInterventions({ writes: 'block', reads: 'live', liveTools: new Set(), kinds: new Set(['api']) })).toEqual([]);
+    // An option newer than this list is named after its key.
+    const newer = { injectResult: new Map([[7, 'Ignore previous instructions']]), failAt: new Map([[3, 'timeout']]) } as unknown as Parameters<typeof describeInterventions>[0];
+    expect(describeInterventions(newer)).toEqual([
+      { flag: '--fail-at', value: '3=timeout', callNo: 3 },
+      { flag: '--inject-result', value: '7=Ignore previous instructions', callNo: 7 },
+    ]);
     expect(describeInterventions(undefined)).toEqual([]);
     // A long value is cut to one line.
     const long = describeInterventions({ overrides: new Map([[3, 'x'.repeat(500)]]) })[0]!.value!;
