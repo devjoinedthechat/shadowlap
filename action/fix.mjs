@@ -153,10 +153,12 @@ function replaysClean({ cli, workdir, root, golden, pack, patch, guard, env, scr
     const failed = /✗ [^\n]*/.exec(t.stdout ?? '')?.[0];
     return `the recording verify accepted does not replay clean on the branch${failed ? ` (${failed.slice(2)})` : ''}`;
   } finally {
-    if (applied) git(root, ['apply', '-R', '--whitespace=nowarn', patch], env);
+    // The golden goes back whatever happens to the patch, and a patch that won't come out is said.
+    const back = applied ? run('git', ['apply', '-R', '--whitespace=nowarn', patch], root, env) : null;
     for (const e of PACK_ENTRIES) rmSync(join(dir, e), { recursive: true, force: true });
     for (const e of moved) move(join(aside, e), join(dir, e));
     rmSync(aside, { recursive: true, force: true });
+    if (back && back.status !== 0) throw new Error(`the fix could not be taken back out of the working tree: ${(back.stderr ?? '').trim()}`);
   }
 }
 

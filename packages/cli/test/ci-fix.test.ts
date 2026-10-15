@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,13 +88,13 @@ afterAll(async () => {
   await mock.close();
 });
 
-/** The agent and its golden, committed, with a remote to push to and gh standing by. */
-async function setUp(tests: Record<string, unknown>): Promise<void> {
+/** The agent and its golden, committed, with a remote to push to and gh standing by. `agent` rewrites the agent's source. */
+async function setUp(tests: Record<string, unknown>, agent: (source: string) => string = (x) => x): Promise<void> {
   // Outside this repository, so an interrupted run never leaves a nested one behind in it; the
   // agent's imports resolve through this repository's node_modules, linked in and ignored.
   project = mkdtempSync(join(tmpdir(), `sl-cifix-${counter++}-`));
   symlinkSync(join(ROOT, 'node_modules'), join(project, 'node_modules'), process.platform === 'win32' ? 'junction' : undefined);
-  copyFileSync(AGENT, join(project, 'agent.mjs'));
+  writeFileSync(join(project, 'agent.mjs'), agent(readFileSync(AGENT, 'utf8')));
   writeFileSync(join(project, '.gitignore'), '.shadowlap/\nnode_modules\n');
   sh(project, 'git', ['init', '-q', '-b', 'main']);
   sh(project, 'git', ['config', 'user.name', 'Test']);
@@ -182,6 +182,30 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*', '--writes', 'stub']);
     expect(onBranch.code, onBranch.out).toBe(0);
     expect(onBranch.out).toMatch(/✓ refund-over-limit: forked at call 1/);
+  });
+
+  it('opens the pull request with the golden as it was when the fixed agent\'s recording won\'t replay clean, and says how to update it', async () => {
+    // Once fixed, this agent sends a fresh value on every run, so the recording verify accepted diverges offline.
+    const askLine = 'const ask = (request) => (simulated ? scope(\'agent\', () => client.messages.create(request)) : client.messages.create(request));';
+    await setUp({ expect: EXPECT }, (source) => {
+      expect(source).toContain(askLine);
+      return source.replace(askLine, 'const ask = (request) => client.messages.create(/escalate every refund/.test(request.system) ? { ...request, metadata: { user_id: Math.random().toString(36).slice(2) } } : request);');
+    });
+    const golden = readFileSync(join(project, 'goldens', 'refund-over-limit', 'run.json'), 'utf8');
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ failed: '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
+    expect(r.out).toContain('goldens/refund-over-limit not re-recorded on shadowlap/fix-');
+    const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+    expect(sh(project, 'git', ['diff', '--name-only', 'main', branch])).toBe('agent.mjs');
+    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
+    expect(body).toContain('`goldens/refund-over-limit` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch.');
+    expect(body).toContain('shadowlap test goldens/refund-over-limit --update');
+    expect(body).toMatch(/It was not re-recorded automatically: the recording verify accepted does not replay clean on the branch \(refund-over-limit: diverged at call 1/);
+    expect(r.summary).toContain('· golden not re-recorded: run `shadowlap test goldens/refund-over-limit --update` on the branch');
+    // The check ran in the working tree and left it as it was: the old golden, without the fix.
+    expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
+    expect(readFileSync(join(project, 'goldens', 'refund-over-limit', 'run.json'), 'utf8')).toBe(golden);
+    expect(readFileSync(join(project, 'agent.mjs'), 'utf8')).not.toContain(FIX);
   });
 
   it('stops once the budget per failing golden is spent, and opens nothing', async () => {
