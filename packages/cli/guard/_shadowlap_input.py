@@ -20,6 +20,7 @@ import builtins
 import contextlib
 import json
 import os
+import stat
 import sys
 import threading
 import time
@@ -40,8 +41,8 @@ def _stdin_origin():
         if os.isatty(0):
             return "person"
         own = os.fstat(0)
-        null = os.stat(os.devnull)
-        if own.st_ino and (own.st_dev, own.st_ino) == (null.st_dev, null.st_ino):
+        # A character device that is not a terminal is the null device (stdin ignored), on Windows too.
+        if stat.S_ISCHR(own.st_mode):
             return "nobody"
         # Unsigned 64-bit, as the CLI writes it: a socket's device number is -1 on macOS.
         mask = (1 << 64) - 1

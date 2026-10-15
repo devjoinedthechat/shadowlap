@@ -11,9 +11,8 @@
 // Only the input Shadowlap gave the agent counts: a terminal, the null device (stdin ignored), or
 // the very pipe or file `shadowlap` itself was given (SHADOWLAP_STDIN names it). A child process that
 // talks to its parent over a pipe, an MCP server for one, is left alone.
-import { fstatSync, statSync } from 'node:fs';
+import { fstatSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { devNull } from 'node:os';
 import readline from 'node:readline';
 import readlinePromises from 'node:readline/promises';
 import { PassThrough } from 'node:stream';
@@ -30,8 +29,8 @@ function stdinOrigin() {
     // precision, and Node's big integers for it are signed.
     const unsigned = (n) => (n < 0n ? n + (1n << 64n) : n);
     const own = fstatSync(0, { bigint: true });
-    const nul = statSync(devNull, { bigint: true });
-    if (own.ino && own.dev === nul.dev && own.ino === nul.ino) return 'nobody';
+    // A character device that is not a terminal is the null device (stdin ignored), on Windows too.
+    if (own.isCharacterDevice()) return 'nobody';
     if (own.ino && process.env.SHADOWLAP_STDIN === `${unsigned(own.dev)}:${unsigned(own.ino)}`) return 'person';
   } catch {
     // no fd 0 at all
