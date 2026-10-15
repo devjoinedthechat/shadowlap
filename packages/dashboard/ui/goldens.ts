@@ -56,6 +56,23 @@ export function historyTip(cell: HistoryCell, name: string): { title: string; la
   return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
 }
 
+/**
+ * A check as the table names it, in the screen's words: `issue_refund never called`, `send_email
+ * called once`, `input tokens ≤ 6,000`, `cost ≤ $0.02`. Any other label stays as the CLI wrote it,
+ * as the reports under the table print them.
+ */
+export function checkWords(label: string): string {
+  let m = /^(.+) called 0 times$/.exec(label);
+  if (m) return `${m[1]} never called`;
+  m = /^(.+) called 1 time$/.exec(label);
+  if (m) return `${m[1]} called once`;
+  m = /^at (most|least) (\d+) (input|output) tokens?$/.exec(label);
+  if (m) return `${m[3]} tokens ${m[1] === 'most' ? '≤' : '≥'} ${Number(m[2]).toLocaleString('en-US')}`;
+  m = /^cost at (most|least) (\$[\d.]+)$/.exec(label);
+  if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]}`;
+  return label;
+}
+
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */
 export function sourceText(row: GoldenRow): { runId: string } | { text: string } {
   if (row.source.kind === 'run') return { runId: row.source.runId };
@@ -98,6 +115,12 @@ export function failureLines(f: FailureView): ReportLine[] {
 
 /** What a failure other than a divergence means, in one line under its report. */
 export function failureHint(f: FailureView): string {
+  // A live call the guard blocked is what the agent tripped on, whatever failed after it.
+  const blocked = f.blocked ?? [];
+  if (blocked.length) {
+    const where = blocked.join(', ');
+    return `A live call to ${where} bypassed Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=${blocked.join(',')}.`;
+  }
   switch (f.failure) {
     case 'check':
       return 'A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.';

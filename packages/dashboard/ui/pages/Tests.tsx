@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
-import { commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, type ReportLine } from '../goldens.js';
+import { checkWords, commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -302,7 +302,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
       </td>
       <td className="chk hide-sm">
         {row.checks.length ? (
-          row.checks.map((c) => <span key={c}>{c}</span>)
+          row.checks.map((c, i) => <span key={`${c}:${i}`}>{checkWords(c)}</span>)
         ) : (
           <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
             exit status only

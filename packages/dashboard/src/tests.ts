@@ -187,6 +187,11 @@ export interface FailureView {
   details: string | null;
   /** The last lines the agent printed, as `test --markdown` shows them; null when none were kept. */
   output: string | null;
+  /**
+   * A live call: the connections the network guard blocked during the failing replay (`host:port`).
+   * They bypassed Shadowlap, so CI, replaying offline, refused them. Null when it blocked none.
+   */
+  blocked: string[] | null;
   bisect: BisectRange | null;
   found: FoundCommit | null;
 }
@@ -343,6 +348,29 @@ const modeOf = (g: GoldenSource) =>
 
 const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
 
+/** What the network guard prints when it blocks a connection, Node's and Python's alike, and the error it raises. */
+const GUARD_BLOCKED = /blocked (?:an )?outbound connection to (\S+?)(?=:\s|\s\(SHADOWLAP_GUARD)/g;
+
+/**
+ * The connections the network guard blocked during a failed replay (`host:port`): calls that bypass
+ * Shadowlap, which a test, replaying offline, refuses. The run keeps what the guard reported; an
+ * agent that dies at once can exit before its report lands, so what it printed counts too.
+ */
+function blockedTargets(store: Store, r: TestResult): string[] {
+  const out = new Set<string>();
+  const hosts = r.runId ? store.getRun(r.runId)?.meta?.notRecorded?.hosts : undefined;
+  if (Array.isArray(hosts)) for (const h of hosts) if (h?.action === 'blocked' && typeof h.target === 'string') out.add(h.target);
+  for (const text of [r.data?.output, r.data?.details]) if (typeof text === 'string') for (const m of text.matchAll(GUARD_BLOCKED)) out.add(m[1]!);
+  return [...out].slice(0, 5);
+}
+
+/** A failed result's line, saying first when the replay made a live call the guard blocked. */
+function failedLine(store: Store, r: TestResult, checks: readonly string[]): string {
+  const blocked = r.ok ? [] : blockedTargets(store, r);
+  const line = resultLine(r, checks);
+  return blocked.length ? `live call to ${blocked.join(', ')} blocked · ${line}` : line;
+}
+
 /** A committed revision to bisect from: `abc1234+dirty` was tested with changes on top of abc1234. */
 const committed = (rev: string | null) => (rev ? rev.replace(/\+dirty$/, '') : null);
 
@@ -436,10 +464,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       checks: g.checks,
       history: revisions.map((rev) => {
         const r = list.find((x) => x.revision === rev) ?? null;
-        return { revision: rev, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r && !r.ok ? resultLine(r, g.checks) : null, updated: !!r?.data?.updated, runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
+        return { revision: rev, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r && !r.ok ? failedLine(store, r, g.checks) : null, updated: !!r?.data?.updated, runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
       }),
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: resultLine(latest, g.checks), at: latest.at, updated: !!latest.data?.updated }
+        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: failedLine(store, latest, g.checks), at: latest.at, updated: !!latest.data?.updated }
         : { result: null, failure: null, line: g.error ? `can't be read: ${g.error}` : 'not run yet', at: null, updated: false },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error: g.error ?? null,
@@ -478,7 +506,8 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         found,
       });
     } else {
-      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, bisect, found });
+      const blocked = blockedTargets(store, latest);
+      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, blocked: blocked.length ? blocked : null, bisect, found });
     }
   }
 
@@ -615,7 +644,7 @@ export function failingTests(store: Store, options: { goldens: GoldenList; folde
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
-      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: resultLine(r, checksOf.get(r.golden) ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: failedLine(store, r, checksOf.get(r.golden) ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
     });
 }
 

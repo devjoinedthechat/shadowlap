@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ciQuery, commandText, dayClock, divergenceButtons, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, shortDate, sourceText, updatePlan } from '../ui/goldens.js';
+import { checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, shortDate, sourceText, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { DivergenceView, FailureView, GoldenRow, TestsView } from '../ui/types.js';
 
@@ -136,6 +136,7 @@ describe('the reports', () => {
       ],
       details: '⑂ Forked at call 5: 4 calls replayed, then 4 live\n',
       output: 'Issuing the refund.\nDone.',
+      blocked: null,
       bisect: null,
       found: null,
     };
@@ -146,6 +147,40 @@ describe('the reports', () => {
       { text: '    ⑂ Forked at call 5: 4 calls replayed, then 4 live', tone: '' },
       { text: '    │ Issuing the refund.', tone: 'dim' },
       { text: '    │ Done.', tone: 'dim' },
+    ]);
+    expect(failureHint(f)).toBe('A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.');
+  });
+
+  it('says a live call the network guard blocked is what the agent tripped on', () => {
+    const f: FailureView = {
+      golden: 'goldens/notify-ops',
+      name: 'notify-ops',
+      runId: null,
+      failure: 'exit',
+      reason: 'the agent exited with code 1',
+      checks: null,
+      details: '✓ Replay clean: 1/1 calls replayed',
+      output: '[shadowlap] blocked an outbound connection to hooks.example.com:443: it bypasses Shadowlap (SHADOWLAP_GUARD=block).',
+      blocked: ['hooks.example.com:443'],
+      bisect: null,
+      found: null,
+    };
+    expect(failureHint(f)).toBe('A live call to hooks.example.com:443 bypassed Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=hooks.example.com:443.');
+    expect(failureHint({ ...f, blocked: null })).toBe('The agent exited with an error while it replayed: its last lines of output are above.');
+  });
+
+  it('names checks in the table as the mock does, and leaves any other label as the CLI wrote it', () => {
+    expect(['issue_refund called 0 times', 'escalate called 1 time', 'send_email with {"to":"a@b.c"} called 1 time', 'at most 6000 input tokens', 'at least 1 output token', 'cost at most $0.02', 'issue_refund called 2 times', 'at most 3 model calls', 'cost exactly $0.50', 'final answer includes "refund"'].map(checkWords)).toEqual([
+      'issue_refund never called',
+      'escalate called once',
+      'send_email with {"to":"a@b.c"} called once',
+      'input tokens ≤ 6,000',
+      'output tokens ≥ 1',
+      'cost ≤ $0.02',
+      'issue_refund called 2 times',
+      'at most 3 model calls',
+      'cost exactly $0.50',
+      'final answer includes "refund"',
     ]);
   });
 

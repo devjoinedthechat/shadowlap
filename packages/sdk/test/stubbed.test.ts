@@ -46,10 +46,10 @@ describe('a stubbed write', () => {
 
   it('returns what onFork gives, and records it', async () => {
     const sendEmail = tool('send_email', { effect: 'write', onFork: (a: { to: string }) => ({ sent: false, to: a.to }) }, async (_a: { to: string }) => ({ sent: true }));
-    const silent = tool('notify', { effect: 'write', onFork: () => undefined }, async () => undefined);
+    const silent = tool('notify', { effect: 'write', onFork: (_a: { channel: string }) => undefined }, async (_a: { channel: string }) => undefined);
     completed.length = 0;
     expect(await sendEmail({ to: 'customer@example.com' })).toEqual({ sent: false, to: 'customer@example.com' });
-    expect(await silent()).toBeNull();
+    expect(await silent({ channel: 'on-call' })).toBeNull();
     expect(completed).toEqual([
       { outcome: 'ok', result: { sent: false, to: 'customer@example.com' }, latencyMs: 0 },
       { outcome: 'ok', result: null, latencyMs: 0 },
