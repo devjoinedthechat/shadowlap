@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { displayPath, isWithin, realpathOrNull } from './paths.js';
@@ -23,7 +23,8 @@ const SHELL_SYNTAX: ReadonlyArray<readonly [RegExp, string]> = [
   [/[`]|\$[({]/, 'a substitution'],
   [/\$[A-Za-z_]/, 'a variable'],
   [/[()]/, 'a subshell'],
-  [/[*?]/, 'a wildcard'],
+  [/[*?[]/, 'a wildcard'],
+  [/\{[^{} ]*(?:,|\.\.)[^{} ]*\}/, 'a brace expansion'],
   [/(?:^| )#/, 'a comment'],
 ];
 
@@ -165,9 +166,15 @@ export function goldenPath(input: string, options: { folder?: string } = {}): Go
     if (!root) return { ok: false, error: 'The project’s folder doesn’t exist any more.' };
     for (let i = 1; i <= segments.length; i++) {
       const here = join(options.folder, ...segments.slice(0, i));
-      if (!existsSync(here)) break;
+      let link: boolean;
+      try {
+        link = lstatSync(here).isSymbolicLink();
+      } catch {
+        break; // nothing there yet: pack creates the rest inside what was checked
+      }
+      // A link that leads nowhere yet could lead anywhere by the time pack runs.
       const real = realpathOrNull(here);
-      if (!real || !isWithin(real, root)) return { ok: false, error: `${segments.slice(0, i).join('/')} leads out of the project, so Shadowlap won’t pack there.` };
+      if (!real || !isWithin(real, root)) return { ok: false, error: `${segments.slice(0, i).join('/')} ${link && !real ? 'is a link to nowhere' : 'leads out of the project'}, so Shadowlap won’t pack there.` };
     }
   }
   return { ok: true, path: segments.join('/') };

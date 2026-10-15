@@ -87,6 +87,11 @@ export interface RunFact {
   status: RunStatus;
   startedAt: number;
   endedAt: number | null;
+  /**
+   * Being recorded right now: marked running, and started within the last hour. One marked running
+   * that started earlier was left so by a process that died.
+   */
+  live: boolean;
 }
 
 export interface StoreFacts {
@@ -120,14 +125,21 @@ export function emptyStoreFacts(): StoreFacts {
   return { runs: 0, attempts: 0, recordings: [], live: false, setupEvent: null, addedBefore: false };
 }
 
-/** What a project's store says about its setup. Reads run rows and two event kinds; no calls. */
-export function storeFacts(store: Store, now: number = Date.now()): StoreFacts {
+/** Recordings listed at most, newest first; the setup's own is always among them. */
+const MAX_RECORDINGS = 50;
+
+/**
+ * What a project's store says about its setup. Reads run rows and two event kinds; no calls.
+ * `keep` is the setup's recording, listed however many newer ones there are.
+ */
+export function storeFacts(store: Store, now: number = Date.now(), options: { keep?: string | null } = {}): StoreFacts {
   const facts = emptyStoreFacts();
   for (const run of store.allRuns()) {
     if (isAttempt(run)) facts.attempts++;
     else facts.runs++;
-    if (run.status === 'running' && now - run.startedAt < LIVE_WINDOW_MS) facts.live = true;
-    if (isRecording(run) && facts.recordings.length < 50) facts.recordings.push({ runId: run.runId, status: run.status, startedAt: run.startedAt, endedAt: run.endedAt });
+    const live = run.status === 'running' && now - run.startedAt < LIVE_WINDOW_MS;
+    if (live) facts.live = true;
+    if (isRecording(run) && (facts.recordings.length < MAX_RECORDINGS || run.runId === options.keep)) facts.recordings.push({ runId: run.runId, status: run.status, startedAt: run.startedAt, endedAt: run.endedAt, live });
   }
   facts.setupEvent = store.listEvents({ kinds: ['project.setup'], limit: 1 })[0] ?? null;
   facts.addedBefore = store.listEvents({ kinds: ['project.added'], limit: 1 }).length > 0;
@@ -181,10 +193,14 @@ export interface EffectiveSetup {
  */
 export function deriveSetup(state: SetupState, facts: StoreFacts): EffectiveSetup {
   const shows = (stage: SetupStage): EffectiveSetup['shows'] => (facts.runs === 0 ? 'everywhere' : stage === 'done' ? 'none' : 'overview');
-  const named = state.runId ? (facts.recordings.find((r) => r.runId === state.runId) ?? null) : null;
-  const run = named ?? facts.recordings[0] ?? null;
-  if (state.stage === 'done' && facts.runs > 0) return { stage: 'done', run, live: !!run && run.status === 'running', shows: 'none' };
-  if (!run || run.status === 'running') {
+  // A recording can be the setup's when it ended (completed, or failed: the agent exited with an
+  // error, and that is what it does) or is being made now; one that was interrupted, or left
+  // marked running by a process that died, holds only part of a run.
+  const usable = (r: RunFact) => r.live || r.status === 'completed' || r.status === 'failed';
+  const named = state.runId ? (facts.recordings.find((r) => r.runId === state.runId && usable(r)) ?? null) : null;
+  const run = named ?? facts.recordings.find(usable) ?? null;
+  if (state.stage === 'done' && facts.runs > 0) return { stage: 'done', run, live: !!run?.live, shows: 'none' };
+  if (!run || run.live) {
     const stage = earlierStage(state.stage, 'inspected');
     return { stage, run, live: !!run, shows: shows(stage) };
   }
@@ -206,6 +222,6 @@ export function initialSetup(facts: StoreFacts, goldens: number, options: { inUs
     return { stage: 'done', runId: event.runId, golden };
   }
   if (options.inUse && facts.runs > 0) return { stage: 'done', runId: null, golden: null };
-  if (goldens > 0 && facts.recordings.some((r) => r.status !== 'running')) return { stage: 'done', runId: null, golden: null };
+  if (goldens > 0 && facts.recordings.some((r) => r.status === 'completed' || r.status === 'failed')) return { stage: 'done', runId: null, golden: null };
   return { stage: 'added', runId: null, golden: null };
 }

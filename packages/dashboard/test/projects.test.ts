@@ -29,7 +29,7 @@ const findings = (over: Partial<SetupFindings> = {}): SetupFindings => ({
   ...over,
 });
 
-const run = (status: RunFact['status'] = 'completed'): RunFact => ({ runId: RUN, status, startedAt: 1, endedAt: status === 'running' ? null : 2 });
+const run = (status: RunFact['status'] = 'completed'): RunFact => ({ runId: RUN, status, startedAt: 1, endedAt: status === 'running' ? null : 2, live: status === 'running' });
 const facts = (over: Partial<StoreFacts> = {}): StoreFacts => ({ ...emptyStoreFacts(), ...over });
 
 function view(project: ProjectEntry, f: StoreFacts, extra: Partial<SetupInput> = {}) {
@@ -205,6 +205,19 @@ describe('setupView', () => {
     expect(v.done).toEqual({ title: 'research-agent is set up.', text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to the overview', action: 'finishsetup' } });
     expect(v.skip).toBeNull();
     expect(v.steps.map((s) => s.state)).toEqual(['done', 'done', 'done', 'done']);
+  });
+
+  it('shows the steps a setup finished without as skipped, and claims no golden it never packed', () => {
+    const p = entry('research-agent', { stage: 'done', skipped: true, findings: findings(), runId: RUN });
+    const v = view(p, facts({ runs: 1, recordings: [run()] }));
+    expect(v.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'skipped']);
+    expect(v.test.result).toBeNull();
+    expect(v.done).toBeNull();
+    expect(v.skip).toBeNull();
+    expect(v.shows).toBe('none');
+    // Calibrated, then skipped: the calibration still counts.
+    const calibrated = entry('research-agent', { stage: 'done', skipped: true, runId: RUN, calibration: { added: [] } });
+    expect(view(calibrated, facts({ runs: 1, recordings: [run()] })).steps.map((x) => x.state)).toEqual(['done', 'done', 'done', 'skipped']);
   });
 
   it('counts a recording made in a terminal, and shows the setup nowhere once it is finished', () => {

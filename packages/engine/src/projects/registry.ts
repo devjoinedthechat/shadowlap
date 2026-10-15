@@ -127,15 +127,47 @@ export function emptySetup(at: number): ProjectSetup {
   return { stage: 'added', runId: null, command: null, unwrappedAtRecord: [], findings: null, calibration: null, golden: null, skipped: false, updatedAt: at };
 }
 
+const EFFECTS = new Set(['pure', 'read', 'write']);
+
+/**
+ * Findings as read from the file, or null when they aren't usable (an older format, or a hand
+ * edit). Each part is checked; keys this version doesn't know are kept.
+ */
+function toFindings(raw: unknown): SetupFindings | null {
+  if (!isObject(raw) || !Array.isArray(raw.tools) || !Array.isArray(raw.wrap)) return null;
+  const config = isObject(raw.config) ? raw.config : {};
+  return {
+    ...raw,
+    at: typeof raw.at === 'number' ? raw.at : 0,
+    language: str(raw.language),
+    files: strings(raw.files),
+    sdk: str(raw.sdk),
+    framework: str(raw.framework),
+    command: Array.isArray(raw.command) ? strings(raw.command) : null,
+    commandFrom: str(raw.commandFrom),
+    config: { ...config, file: str(config.file) ?? 'shadowlap.config.json', created: config.created === true, existed: config.existed === true },
+    tools: raw.tools
+      .filter(isObject)
+      .filter((t) => typeof t.name === 'string' && t.name)
+      .map((t) => ({ ...t, name: String(t.name), effect: EFFECTS.has(t.effect as string) ? (t.effect as SetupFindings['tools'][number]['effect']) : 'write', wrapped: t.wrapped === true, why: typeof t.why === 'string' ? t.why : '', file: typeof t.file === 'string' ? t.file : '', line: typeof t.line === 'number' ? t.line : 0 })),
+    wrap: raw.wrap
+      .filter(isObject)
+      .filter((w) => typeof w.code === 'string')
+      .map((w) => ({ ...w, language: w.language === 'python' || w.language === 'typescript' ? w.language : 'javascript', tools: strings(w.tools), code: String(w.code) })),
+  };
+}
+
+/** A setup as read from the file; keys this version doesn't know are kept. */
 function toSetup(raw: unknown, fallbackAt: number): ProjectSetup {
   const r = isObject(raw) ? raw : {};
-  const calibration = isObject(r.calibration) && Array.isArray(r.calibration.added) ? { added: r.calibration.added.filter(isObject).map((a) => ({ path: String(a.path ?? ''), why: str(a.why) })) } : null;
+  const calibration = isObject(r.calibration) && Array.isArray(r.calibration.added) ? { ...r.calibration, added: r.calibration.added.filter(isObject).map((a) => ({ ...a, path: String(a.path ?? ''), why: str(a.why) })) } : null;
   return {
+    ...r,
     stage: isSetupStage(r.stage) ? r.stage : 'added',
     runId: str(r.runId),
     command: Array.isArray(r.command) ? strings(r.command) : null,
     unwrappedAtRecord: strings(r.unwrappedAtRecord),
-    findings: isObject(r.findings) ? (r.findings as unknown as SetupFindings) : null,
+    findings: toFindings(r.findings),
     calibration,
     golden: str(r.golden),
     skipped: r.skipped === true,
@@ -143,7 +175,7 @@ function toSetup(raw: unknown, fallbackAt: number): ProjectSetup {
   };
 }
 
-/** A project as read from the file, or null for an entry this version can't use (kept as it is on write). */
+/** A project as read from the file, or null for an entry this version can't use (kept as it is on write). Unknown keys are kept. */
 function toEntry(raw: unknown): ProjectEntry | null {
   if (!isObject(raw)) return null;
   const id = str(raw.id);
@@ -151,20 +183,26 @@ function toEntry(raw: unknown): ProjectEntry | null {
   if (!id || id.length > 100 || /[/\\?#%\s]/.test(id) || !path || !isAbsolute(path)) return null;
   const addedAt = typeof raw.addedAt === 'number' ? raw.addedAt : 0;
   return {
+    ...raw,
     id,
     name: str(raw.name) ?? (basename(path) || path),
     path,
     addedAt,
     setup: toSetup(raw.setup, addedAt),
-    confirmed: Array.isArray(raw.confirmed) ? raw.confirmed.filter(isObject).map((c) => ({ argv: strings(c.argv), at: typeof c.at === 'number' ? c.at : 0 })).filter((c) => c.argv.length > 0) : [],
+    confirmed: Array.isArray(raw.confirmed) ? raw.confirmed.filter(isObject).map((c) => ({ ...c, argv: strings(c.argv), at: typeof c.at === 'number' ? c.at : 0 })).filter((c) => c.argv.length > 0) : [],
   };
+}
+
+/** The name typed in the Remove dialog confirms deleting a project's recordings once it is the project's name exactly. */
+export function nameConfirms(typed: string, name: string): boolean {
+  return typed.trim() === name;
 }
 
 /** A folder name as an id: lowercase letters, digits, dots, dashes and underscores. */
 export function projectSlug(name: string): string {
   const s = name
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[-.]+|[-.]+$/g, '')
@@ -328,7 +366,7 @@ export class ProjectRegistry {
     const project = this.need(list, id);
     if (list.length <= 1) throw new ProjectError('only-project', 'This is the only project. Add another one first.');
     if (options.deleteRecordings) {
-      if ((options.typedName ?? '').trim() !== project.name) throw new ProjectError('name-mismatch', `Type ${project.name} to confirm deleting its recordings.`);
+      if (!nameConfirms(options.typedName ?? '', project.name)) throw new ProjectError('name-mismatch', `Type ${project.name} to confirm deleting its recordings.`);
       // Everything that could stop the deletion is checked before the project leaves the list.
       try {
         storeFilesToDelete(project.path, this.now());
@@ -399,11 +437,11 @@ export class ProjectRegistry {
    */
   finishSetup(id: string, options: { runId?: string | null } = {}): ProjectEntry {
     const before = this.need(this.list(), id);
+    // Finished already: whether it was skipped stays as it was.
+    if (before.setup.stage === 'done') return before;
     const skipped = !stageAtLeast(before.setup.stage, 'tested');
     const project = this.updateSetup(id, { stage: 'done', skipped, ...(options.runId ? { runId: options.runId } : {}) });
-    if (before.setup.stage !== 'done') {
-      this.activity(project, { kind: 'project.setup', runId: project.setup.runId, ref: project.id, data: { stage: 'done', name: project.name, skipped, golden: project.setup.golden } }, true);
-    }
+    this.activity(project, { kind: 'project.setup', runId: project.setup.runId, ref: project.id, data: { stage: 'done', name: project.name, skipped, golden: project.setup.golden } }, true);
     return project;
   }
 

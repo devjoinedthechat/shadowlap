@@ -159,6 +159,14 @@ export const tools = {
   });
 });
 
+describe('initFindings', () => {
+  it('keeps a wrapped tool’s declared effect, whatever its name suggests', () => {
+    const j = json(project(RESEARCH));
+    const declared = { ...j, tools: [{ name: 'send_digest', file: 'agent.py', line: 3, via: 'shadowlap', effect: 'read' as const, suggested: 'write' as const, why: '"send" changes something', wrapped: true }] };
+    expect(initFindings(declared).tools).toEqual([{ name: 'send_digest', effect: 'read', wrapped: true, why: 'declared', file: 'agent.py', line: 3 }]);
+  });
+});
+
 describe('shadowlap init in a dashboard project', () => {
   const env = (home: string) => ({ ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: home });
 

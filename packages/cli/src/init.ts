@@ -607,7 +607,8 @@ const cleanVersion = (v: string) => v.replace(/^[\^~>=<v\s]+/, '').split(/[\s,|]
 function packageVersion(cwd: string, name: string): string | null {
   const installed = installedVersion(cwd, name);
   if (installed) return installed;
-  const declared = ((readJson(join(cwd, 'package.json'))?.dependencies ?? {}) as Record<string, string>)[name] ?? ((readJson(join(cwd, 'package.json'))?.devDependencies ?? {}) as Record<string, string>)[name];
+  const pkg = readJson(join(cwd, 'package.json'));
+  const declared = ((pkg?.dependencies ?? {}) as Record<string, string>)[name] ?? ((pkg?.devDependencies ?? {}) as Record<string, string>)[name];
   if (typeof declared === 'string' && /\d/.test(declared)) return cleanVersion(declared);
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_.]/g, '[-_.]');
   for (const lock of ['uv.lock', 'poetry.lock', 'pdm.lock']) {
@@ -710,7 +711,8 @@ export function initFindings(json: InitJson, at: number = Date.now()): SetupFind
     command: json.command?.argv ?? null,
     commandFrom: json.command?.from ?? null,
     config: { file: basename(json.config.path), created: json.config.created, existed: json.config.existed },
-    tools: json.tools.map((t) => ({ name: t.name, effect: t.suggested, wrapped: t.wrapped, why: t.why, file: t.file, line: t.line })),
+    // A wrapped tool shows the effect it declares; one that isn't, the effect suggested for it.
+    tools: json.tools.map((t) => ({ name: t.name, effect: t.effect ?? t.suggested, wrapped: t.wrapped, why: t.effect ? 'declared' : t.why, file: t.file, line: t.line })),
     wrap: json.wrap,
   };
 }

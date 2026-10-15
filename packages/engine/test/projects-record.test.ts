@@ -19,7 +19,9 @@ describe('parseAgentCommand', () => {
     // Backslashes stay as typed: a Windows path survives.
     expect(argv('python C:\\agents\\refund.py')).toEqual(['python', 'C:\\agents\\refund.py']);
     // Shell syntax inside quotes is text.
-    expect(argv(`node agent.mjs --prompt "a | b && c > d; $HOME * ?"`)).toEqual(['node', 'agent.mjs', '--prompt', 'a | b && c > d; $HOME * ?']);
+    expect(argv(`node agent.mjs --prompt "a | b && c > d; $HOME * ? {a,b} [x]"`)).toEqual(['node', 'agent.mjs', '--prompt', 'a | b && c > d; $HOME * ? {a,b} [x]']);
+    // Braces without a list or a range are text to a shell too.
+    expect(argv('node agent.mjs {} {x}')).toEqual(['node', 'agent.mjs', '{}', '{x}']);
   });
 
   it('drops a pasted shadowlap run --, and refuses a shadowlap command', () => {
@@ -41,6 +43,9 @@ describe('parseAgentCommand', () => {
       ['node a.mjs ${X}', /a substitution/],
       ['node a.mjs $TASK', /a variable/],
       ['python *.py', /a wildcard/],
+      ['python agent.py data/[ab].json', /a wildcard/],
+      ['node run.js --in=data/{a,b}.json', /a brace expansion/],
+      ['node run.js {1..3}', /a brace expansion/],
       ['(cd x && node a.mjs)', /a subshell|chained/],
       ['node a.mjs # a comment', /a comment/],
       ['python ~/agent.py', /~ would not mean your home folder/],
@@ -114,6 +119,9 @@ describe('goldenPath', () => {
       symlinkSync(join(folder, 'packs'), join(folder, 'goldens', 'inside'));
       expect(goldenPath('goldens/inside/x', { folder })).toEqual({ ok: true, path: 'goldens/inside/x' });
       expect(goldenPath('goldens/x', { folder: join(folder, 'gone') })).toMatchObject({ ok: false });
+      // A link to nowhere could point anywhere by the time pack runs.
+      symlinkSync(join(outside, 'not-yet'), join(folder, 'goldens', 'dangling'));
+      expect(goldenPath('goldens/dangling', { folder })).toEqual({ ok: false, error: 'goldens/dangling is a link to nowhere, so Shadowlap won’t pack there.' });
     } finally {
       rmSync(folder, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -278,7 +279,7 @@ describe('ProjectRegistry: setup', () => {
     expect(events(folder, 'project.setup')).toHaveLength(1);
   });
 
-  it('marks a setup finished before a golden was kept as skipped', () => {
+  it('marks a setup finished before a golden was kept as skipped, and keeps it so', () => {
     const { registry, agent } = setup();
     const folder = agent('triage-bot');
     registry.add('~/triage-bot');
@@ -286,6 +287,9 @@ describe('ProjectRegistry: setup', () => {
     const done = registry.finishSetup('triage-bot', { runId });
     expect(done.setup).toMatchObject({ stage: 'done', skipped: true, runId });
     expect(events(folder, 'project.setup')[0]?.data).toMatchObject({ skipped: true });
+    // Go to the overview after Skip the rest changes nothing.
+    expect(registry.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', skipped: true });
+    expect(events(folder, 'project.setup')).toHaveLength(1);
   });
 
   it('remembers the commands confirmed in each folder, exactly, the newest twenty', () => {
@@ -323,6 +327,60 @@ describe('ProjectRegistry: the file', () => {
     expect(registry.list().map((p) => p.id)).toEqual(['old', 'triage-bot']);
   });
 
+  it('reads findings it can’t use as none, and keeps keys it doesn’t know inside a project too', () => {
+    const { registry, agent, shadowlapDir } = setup();
+    const folder = agent('triage-bot');
+    mkdirSync(shadowlapDir, { recursive: true });
+    writeFileSync(
+      registry.file,
+      JSON.stringify({
+        version: 1,
+        projects: [
+          {
+            id: 'triage-bot',
+            name: 'triage-bot',
+            path: folder,
+            addedAt: 1,
+            pinned: true,
+            setup: { stage: 'inspected', findings: { at: 1 }, laterField: 'kept' },
+            confirmed: [{ argv: ['node', 'triage.mjs'], at: 2, note: 'kept' }],
+          },
+        ],
+      }),
+    );
+    expect(registry.get('triage-bot')!.setup.findings).toBeNull();
+    // Recording with findings that don't say which tools aren't wrapped doesn't fail.
+    expect(registry.noteRecording('triage-bot', 'RUN', ['node', 'triage.mjs']).setup.unwrappedAtRecord).toEqual([]);
+    registry.confirmCommand('triage-bot', ['node', 'triage.mjs', '--all']);
+    const onDisk = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ pinned: boolean; setup: Record<string, unknown>; confirmed: Array<Record<string, unknown>> }> };
+    expect(onDisk.projects[0]!.pinned).toBe(true);
+    expect(onDisk.projects[0]!.setup.laterField).toBe('kept');
+    expect(onDisk.projects[0]!.confirmed[0]).toEqual({ argv: ['node', 'triage.mjs'], at: 2, note: 'kept' });
+
+    // Findings with tools that aren't what this version writes are cleaned up as they are read.
+    const findingsRaw = { at: 3, tools: [{ name: 'send', effect: 'explode', wrapped: 'yes' }, { effect: 'read' }], wrap: [{ code: 'x', language: 'cobol' }, { language: 'python' }] };
+    const raw = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ setup: Record<string, unknown> }> };
+    raw.projects[0]!.setup.findings = findingsRaw;
+    writeFileSync(registry.file, JSON.stringify(raw));
+    expect(registry.get('triage-bot')!.setup.findings).toMatchObject({
+      tools: [{ name: 'send', effect: 'write', wrapped: false, why: '', file: '', line: 0 }],
+      wrap: [{ code: 'x', language: 'javascript', tools: [] }],
+      config: { file: 'shadowlap.config.json', created: false, existed: false },
+    });
+  });
+
+  it('never deletes a store it can’t open to check that nothing is recording', () => {
+    const { registry, agent } = setup();
+    agent('triage-bot');
+    const folder = agent('support-agent');
+    registry.add('~/triage-bot');
+    registry.add('~/support-agent');
+    writeFileSync(projectDbPath(folder), 'not a database');
+    expect(() => registry.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' })).toThrow(expect.objectContaining({ code: 'store', status: 409 }));
+    expect(readFileSync(projectDbPath(folder), 'utf8')).toBe('not a database');
+    expect(registry.list()).toHaveLength(2);
+  });
+
   it('never overwrites a list it can’t read, or one from a newer version', () => {
     const { registry, agent, shadowlapDir } = setup();
     agent('triage-bot');
@@ -354,15 +412,34 @@ describe('ProjectRegistry: the file', () => {
   it('waits for another writer’s lock, and takes over one left by a dead process', () => {
     const { registry, agent, shadowlapDir } = setup();
     agent('triage-bot');
+    agent('support-agent');
+    agent('research-agent');
     mkdirSync(shadowlapDir, { recursive: true });
     const lock = `${registry.file}.lock`;
-    writeFileSync(lock, '999999');
     const busy = new ProjectRegistry({ home: registry.home, dir: shadowlapDir, lockTimeoutMs: 100 });
+
+    // Held by a process that is running (this one, standing in for another): wait, then give up.
+    writeFileSync(lock, String(process.pid));
     expect(() => busy.add('~/triage-bot')).toThrow(/held by another Shadowlap process/);
-    // Ten seconds old: its process is gone.
-    const old = (Date.now() - 20_000) / 1000;
-    utimesSync(lock, old, old);
+    expect(existsSync(lock)).toBe(true);
+
+    // Held by a process that is gone: taken over at once.
+    const dead = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+    writeFileSync(lock, dead.stdout);
     expect(busy.add('~/triage-bot').project.id).toBe('triage-bot');
     expect(existsSync(lock)).toBe(false);
+    expect(existsSync(`${lock}.stale`)).toBe(false);
+
+    // Older than ten seconds: taken over whoever holds it.
+    writeFileSync(lock, String(process.pid));
+    const old = (Date.now() - 20_000) / 1000;
+    utimesSync(lock, old, old);
+    expect(busy.add('~/support-agent').project.id).toBe('support-agent');
+
+    // A lock that doesn't say who holds it is waited for like a live one.
+    writeFileSync(lock, '');
+    expect(() => busy.add('~/research-agent')).toThrow(/held by another Shadowlap process/);
+    rmSync(lock);
+    expect(busy.add('~/research-agent').project.id).toBe('research-agent');
   });
 });

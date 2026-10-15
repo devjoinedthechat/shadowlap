@@ -29,8 +29,8 @@ export interface ProjectContext<C = unknown> {
   store(): Store;
   /** Whether the store exists yet, without creating it. */
   hasStore(): boolean;
-  /** What the store says about runs and the setup; empty facts while there is no store. */
-  facts(): StoreFacts;
+  /** What the store says about runs and the setup; empty facts while there is no store. `keep` is the setup's recording. */
+  facts(options?: { keep?: string | null }): StoreFacts;
   /** Goldens in the project's repository (packs under `goldens/`). */
   goldens(): number;
   /** CLI arguments for a job in this project: its store first, so the job writes where it reads. */
@@ -90,8 +90,8 @@ class Context<C> implements ProjectContext<C> {
     return this.opened !== null || existsSync(this.dbPath);
   }
 
-  facts(): StoreFacts {
-    return this.hasStore() ? storeFacts(this.store()) : emptyStoreFacts();
+  facts(options: { keep?: string | null } = {}): StoreFacts {
+    return this.hasStore() ? storeFacts(this.store(), Date.now(), options) : emptyStoreFacts();
   }
 
   goldens(): number {
@@ -181,7 +181,7 @@ export class ProjectHost<C = unknown> {
   setup(id: string): EffectiveSetup {
     const entry = this.options.registry.get(id);
     if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
-    return deriveSetup(entry.setup, this.context(id).facts());
+    return deriveSetup(entry.setup, this.context(id).facts({ keep: entry.setup.runId }));
   }
 
   /** Adds a folder picked in the dashboard (see `ProjectRegistry.add`) and returns its context too. */

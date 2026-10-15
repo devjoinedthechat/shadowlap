@@ -6,7 +6,7 @@ export { displayPath, expandHome, isWithin, projectDbPath, realpathOrNull, shado
 export { COMMAND_LIMITS, defaultGolden, goldenPath, parseAgentCommand, planRecording, quoteArgs, sameArgv, setupCommands, setupJobArgs, shortRunId } from './record.js';
 export type { GoldenPathResult, ParsedCommand, RecordConfirmation, RecordPlan, RecordPlanResult } from './record.js';
 export { RecordingsError, deleteRecordings, recordingInProgress, storeFilesToDelete } from './recordings.js';
-export { ProjectError, ProjectRegistry, REGISTRY_FILE, REGISTRY_VERSION, emptySetup, projectSlug } from './registry.js';
+export { ProjectError, ProjectRegistry, REGISTRY_FILE, REGISTRY_VERSION, emptySetup, nameConfirms, projectSlug } from './registry.js';
 export type { AddedProject, ConfirmedCommand, ProjectEntry, ProjectErrorCode, ProjectSetup, RegistryOptions, RemovedProject, SetupPatch } from './registry.js';
 export { SETUP_STAGES, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isAttempt, isRecording, isSetupStage, laterStage, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './setup.js';
 export type { EffectiveSetup, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './setup.js';

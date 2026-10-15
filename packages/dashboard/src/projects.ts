@@ -1,6 +1,7 @@
 import {
   defaultGolden,
   displayPath,
+  nameConfirms,
   quoteArgs,
   setupCommands,
   shortRunId,
@@ -206,7 +207,8 @@ export function addedMessage(added: { project: ProjectEntry; again: boolean; run
 // ---------------------------------------------------------------------------------------------
 // Setting a project up
 
-export type StepState = 'done' | 'current' | 'todo';
+/** `skipped`: the setup was finished without this step (Skip the rest, or set up in a terminal). */
+export type StepState = 'done' | 'current' | 'todo' | 'skipped';
 
 interface StepBase {
   n: 1 | 2 | 3 | 4;
@@ -331,8 +333,12 @@ export function setupView(input: SetupInput): SetupView {
   const run = setup.run;
   const live = setup.live && !!run;
   const recorded = !!run && !live && stageAtLeast(stage, 'recorded');
-  const clean = recorded && stageAtLeast(stage, 'clean');
-  const tested = recorded && stageAtLeast(stage, 'tested');
+  // A finished setup is done whichever steps it took: a step counts as done only when the list
+  // says what it made (the calibration, the golden), and the rest were skipped.
+  const finished = stage === 'done';
+  const clean = recorded && stageAtLeast(stage, 'clean') && (!finished || s.calibration !== null);
+  const tested = recorded && stageAtLeast(stage, 'tested') && (!finished || s.golden !== null);
+  const state = (done: boolean, ready: boolean): StepState => (done ? 'done' : finished ? 'skipped' : ready ? 'current' : 'todo');
   const golden = s.golden ?? defaultGolden(project.id);
   const argv = s.command ?? findings?.command ?? null;
   const commands = setupCommands({ argv, runId: run?.runId ?? null, golden });
@@ -345,7 +351,7 @@ export function setupView(input: SetupInput): SetupView {
     key: 'inspect',
     n: 1,
     title: 'Inspect the folder',
-    state: inspected ? 'done' : 'current',
+    state: state(inspected, true),
     cli: inspected ? [] : commands.inspect,
     text: inspected ? (findings ? null : 'Inspect it again to see what it finds.') : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
     button: inspected && findings ? null : { label: 'Inspect the folder', action: 'init' },
@@ -370,7 +376,7 @@ export function setupView(input: SetupInput): SetupView {
     key: 'record',
     n: 2,
     title: 'Record a first run',
-    state: recorded ? 'done' : inspected ? 'current' : 'todo',
+    state: state(recorded, inspected),
     cli: recorded || live ? [] : commands.record,
     text: recorded || live ? null : 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.',
     command: recorded || live ? null : { value: argv ? quoteArgs(argv) : '', enabled: inspected },
@@ -396,7 +402,7 @@ export function setupView(input: SetupInput): SetupView {
     key: 'calibrate',
     n: 3,
     title: 'Make the replay clean',
-    state: clean ? 'done' : recorded ? 'current' : 'todo',
+    state: state(clean, recorded),
     cli: clean ? [] : commands.calibrate,
     text: clean
       ? added === null
@@ -414,7 +420,7 @@ export function setupView(input: SetupInput): SetupView {
     key: 'test',
     n: 4,
     title: 'Keep it as a test',
-    state: tested ? 'done' : clean ? 'current' : 'todo',
+    state: state(tested, clean),
     cli: tested ? [] : commands.test,
     text: tested ? null : 'Packs the run into the repository, and CI replays it offline on every commit.',
     redaction: tested
@@ -434,7 +440,7 @@ export function setupView(input: SetupInput): SetupView {
     eyebrow: `${project.name} · ${path}`,
     title: run ? `Set up ${project.name}` : 'No runs yet',
     intro: 'Record the agent once. Every lap after that replays for free.',
-    skip: recorded && !tested && stage !== 'done' ? { label: 'Skip the rest', action: 'finishsetup' } : null,
+    skip: recorded && !tested && !finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
     inspect,
     record,
     calibrate,
@@ -521,9 +527,9 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
   };
 }
 
-/** The typed name confirms deleting the recordings once it matches the project's name. */
+/** The typed name confirms deleting the recordings once it matches the project's name: the server's rule, so the button and the check agree. */
 export function nameMatches(typed: string, name: string): boolean {
-  return typed.trim() === name;
+  return nameConfirms(typed, name);
 }
 
 // ---------------------------------------------------------------------------------------------

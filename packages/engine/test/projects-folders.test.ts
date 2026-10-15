@@ -134,6 +134,23 @@ describe('suggestFolders', () => {
     expect(suggestFolders('~root/', { home }).note).toBe('Only your own home folder is listed.');
   });
 
+  it('answers the same for a path elsewhere whether it exists or not', () => {
+    const there = suggestFolders(`${outside}/`, { home });
+    const notThere = suggestFolders(`${outside}-nope/`, { home });
+    expect(notThere).toEqual({ ...there, query: `${outside}-nope/` });
+    expect(checkFolder(`${outside}-nope`, { home })).toEqual(checkFolder(outside, { home }));
+    expect(checkFolder(`${outside}-nope`, { home })).toMatchObject({ code: 'outside' });
+  });
+
+  it('reaches a configured root through the link it was given as', () => {
+    const real = files(tempDir('sl-linked-root-'), { 'agent/package.json': '{}' });
+    const alias = join(tempDir('sl-alias-'), 'work');
+    symlinkSync(real, alias);
+    const s = suggestFolders(`${alias}/`, { home, roots: [alias] });
+    expect(s.folders.map((f) => [f.name, f.path])).toEqual([['agent', join(real, 'agent')]]);
+    expect(checkFolder(join(alias, 'agent'), { home, roots: [alias] })).toMatchObject({ ok: true, path: join(real, 'agent') });
+  });
+
   it('follows a link only to a folder inside the home folder, and shows such a folder once', () => {
     const names = suggestFolders('~/', { home }).folders.map((f) => f.name);
     expect(names).not.toContain('link-out');

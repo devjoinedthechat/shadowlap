@@ -12,7 +12,7 @@ function freshStore(): Store {
   return Store.open(join(d, 'shadowlap.db'));
 }
 
-const fact = (runId: string, status: RunFact['status'] = 'completed'): RunFact => ({ runId, status, startedAt: 1, endedAt: status === 'running' ? null : 2 });
+const fact = (runId: string, status: RunFact['status'] = 'completed', live = status === 'running'): RunFact => ({ runId, status, startedAt: 1, endedAt: status === 'running' ? null : 2, live });
 const facts = (over: Partial<StoreFacts> = {}): StoreFacts => ({ ...emptyStoreFacts(), ...over });
 
 describe('setup stages', () => {
@@ -39,6 +39,13 @@ describe('deriveSetup', () => {
   it('follows a recording still being made, and holds the stage until it ends', () => {
     const r = deriveSetup({ stage: 'inspected', runId: 'R2' }, facts({ runs: 1, recordings: [fact('R2', 'running')], live: true }));
     expect(r).toEqual({ stage: 'inspected', run: fact('R2', 'running'), live: true, shows: 'overview' });
+  });
+
+  it('passes over a recording that was interrupted, or left running by a process that died', () => {
+    const stale = fact('STALE', 'running', false);
+    expect(deriveSetup({ stage: 'inspected', runId: 'STALE' }, facts({ runs: 1, recordings: [stale] }))).toEqual({ stage: 'inspected', run: null, live: false, shows: 'overview' });
+    const r = deriveSetup({ stage: 'inspected', runId: null }, facts({ runs: 3, recordings: [stale, fact('CRASHED', 'crashed'), fact('OK', 'failed')] }));
+    expect(r).toMatchObject({ stage: 'recorded', run: { runId: 'OK' }, live: false });
   });
 
   it('keeps the setup’s own recording, and falls back to the newest when it was deleted', () => {
@@ -89,7 +96,7 @@ describe('storeFacts', () => {
     const f = storeFacts(store);
     expect(f.runs).toBe(6);
     expect(f.attempts).toBe(3);
-    expect(f.recordings.map((r) => r.runId)).toEqual([live, failed, first]);
+    expect(f.recordings.map((r) => [r.runId, r.live])).toEqual([[live, true], [failed, false], [first, false]]);
     expect(f.live).toBe(true);
     expect(f.addedBefore).toBe(true);
     expect(f.setupEvent).toBeNull();
@@ -99,7 +106,20 @@ describe('storeFacts', () => {
   it('calls a run marked running long ago not live', () => {
     const store = freshStore();
     store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' }, startedAt: Date.now() - 2 * 60 * 60 * 1000 });
-    expect(storeFacts(store).live).toBe(false);
+    const f = storeFacts(store);
+    expect(f.live).toBe(false);
+    expect(f.recordings[0]!.live).toBe(false);
+    store.close();
+  });
+
+  it('lists the setup’s own recording however many came after it', () => {
+    const store = freshStore();
+    const first = store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' }, startedAt: 1000 }).runId;
+    store.endRun(first, 'completed');
+    for (let i = 0; i < 60; i++) store.endRun(store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' }, startedAt: 2000 + i }).runId, 'completed');
+    expect(storeFacts(store).recordings.map((r) => r.runId)).not.toContain(first);
+    expect(storeFacts(store, Date.now(), { keep: first }).recordings.map((r) => r.runId)).toContain(first);
+    expect(deriveSetup({ stage: 'clean', runId: first }, storeFacts(store, Date.now(), { keep: first })).run?.runId).toBe(first);
     store.close();
   });
 });

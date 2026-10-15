@@ -35,7 +35,8 @@ function alive(pid: number): boolean {
 /**
  * Whether something is recording into the folder's store right now: a `shadowlap run` whose
  * process is alive (`.shadowlap/active.json`), or a run still marked running that started in the
- * last quarter of an hour.
+ * last quarter of an hour. A store that can't be opened to look (one held by a long write, or from a
+ * newer Shadowlap) can't be said to be idle: that throws rather than answering no.
  */
 export function recordingInProgress(folder: string, now: number = Date.now()): boolean {
   const active = join(folder, '.shadowlap', 'active.json');
@@ -49,15 +50,16 @@ export function recordingInProgress(folder: string, now: number = Date.now()): b
   }
   const db = projectDbPath(folder);
   if (!existsSync(db)) return false;
+  let store: Store;
   try {
-    const store = Store.open(db);
-    try {
-      return store.listRuns(20).some((r) => r.status === 'running' && now - r.startedAt < RECENT_RUN_MS);
-    } finally {
-      store.close();
-    }
-  } catch {
-    return false;
+    store = Store.open(db);
+  } catch (err) {
+    throw new RecordingsError('store', `Shadowlap can’t open the store to check that nothing is recording into it: ${(err as Error).message}`);
+  }
+  try {
+    return store.listRuns(20).some((r) => r.status === 'running' && now - r.startedAt < RECENT_RUN_MS);
+  } finally {
+    store.close();
   }
 }
 
