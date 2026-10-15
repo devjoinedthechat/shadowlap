@@ -76,3 +76,9 @@ recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.t
 
 A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
 `palette-sources.ts`. Pages a later version fills in each have their own file under `pages/`.
+
+Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
+view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
+when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),
+and the logic they share, DOM-free and tested (`model.ts`: chips, steps, the Blame step's row of
+calls, the change cut to what changed, report.md read as blocks, the drawer's outcome words).

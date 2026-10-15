@@ -1,3 +1,5 @@
+import { fixJobStatus } from './fixes/model.js';
+
 /**
  * What the job drawer says about a CLI run the dashboard started: its title, how each output line
  * is coloured, and how it ended. No DOM here: the tests import it.
@@ -8,6 +10,9 @@ export interface JobLike {
   done: boolean;
   code: number | null;
   title?: string;
+  kind?: string;
+  /** What the command reported as its outcome (what `--json` would print). */
+  result?: unknown;
 }
 
 /** What following a job does after a poll for it failed. */
@@ -90,6 +95,9 @@ export function lineTone(line: string): LineTone {
 export function jobStatus(job: JobLike, lines: readonly string[], lost = false): { text: string; tone: '' | 'ok' | 'warn' | 'err' } {
   if (lost && !job.done) return { text: 'lost · the dashboard server no longer has this job', tone: 'err' };
   if (!job.done) return { text: 'running', tone: '' };
+  // Blame, repair and fix apply say how they came out in their result.
+  const fixes = fixJobStatus(job);
+  if (fixes) return fixes;
   const all = lines.join('\n');
   const code = job.code;
   if (code === null) return { text: 'stopped', tone: 'err' };

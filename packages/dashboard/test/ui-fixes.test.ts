@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bundledRuns, bundleGlyph, bundleLine, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixName, inlineParts, laterStamp, outcomeTone, parseMarkdown, probeBadge, roleBadges, statusBadge, stepFor, verifyFor } from '../ui/fixes/model.js';
+import { bundledRuns, bundleGlyph, bundleLine, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, outcomeTone, parseMarkdown, probeBadge, roleBadges, statusBadge, stepFor, verifyFor } from '../ui/fixes/model.js';
+import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
 // How the Fixes pages read a fix: the chips, the step and verdict a URL opens, the main action, the
@@ -209,5 +210,28 @@ describe('report.md', () => {
       { code: false, text: ': done' },
     ]);
     expect(inlineParts('<b>not html</b>')).toEqual([{ code: false, text: '<b>not html</b>' }]);
+  });
+});
+
+describe('the job drawer', () => {
+  const job = (kind: string, code: number | null, result: unknown) => ({ kind, code, result, args: [kind], done: true });
+
+  it('ends a blame, a repair and a fix apply on how they came out', () => {
+    expect(jobStatus(job('blame', 0, { outcome: 'blamed', blamed: { callNo: 5 } }), [])).toEqual({ text: 'lost at #5 · exit 0', tone: 'ok' });
+    expect(jobStatus(job('blame', 0, { outcome: 'unrescuable', blamed: null }), [])).toEqual({ text: 'not rescued · exit 0', tone: 'warn' });
+    expect(jobStatus(job('blame', 1, { outcome: 'stopped' }), [])).toEqual({ text: 'stopped early · exit 1', tone: 'err' });
+    expect(jobStatus(job('repair', 0, { outcome: 'fixed' }), [])).toEqual({ text: 'fixed · exit 0', tone: 'ok' });
+    expect(jobStatus(job('repair', 1, { outcome: 'not-fixed' }), [])).toEqual({ text: 'no fix found · exit 1', tone: 'err' });
+    expect(jobStatus(job('repair', 1, { outcome: 'fixed', error: { message: 'gh refused' } }), [])).toEqual({ text: 'fixed, not handed over · exit 1', tone: 'err' });
+    expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'passed' }), [])).toEqual({ text: 'applied · tests passed · exit 0', tone: 'ok' });
+    expect(jobStatus(job('apply', 1, { status: 'applied', tests: 'failed' }), [])).toEqual({ text: 'applied · tests failed · exit 1', tone: 'err' });
+    expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'skipped' }), [])).toEqual({ text: 'applied · exit 0', tone: 'ok' });
+  });
+
+  it('leaves other jobs, and a result it does not know, to the output', () => {
+    expect(fixJobStatus(job('apply', 1, { fixId: 'fx', status: 'error', error: { message: 'conflict' } }))).toBeNull();
+    expect(fixJobStatus(job('pack', 0, { outcome: 'blamed' }))).toBeNull();
+    expect(fixJobStatus(job('blame', null, null))).toBeNull();
+    expect(jobStatus(job('apply', 1, null), ['✗ agent.mjs has uncommitted changes'])).toEqual({ text: 'exit 1', tone: 'err' });
   });
 });

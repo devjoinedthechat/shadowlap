@@ -328,3 +328,39 @@ export function inlineParts(text: string): Array<{ code: boolean; text: string }
   if (at < text.length) out.push({ code: false, text: text.slice(at) });
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------- the job drawer
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
+ * command reported: "lost at #5 · exit 0", "no fix found · exit 1", "applied · tests passed · exit 0".
+ * Null for any other job, or a result this doesn't know, so the drawer reads the output instead.
+ */
+export function fixJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
+  const r = job.result;
+  if (job.code === null || !isRecord(r)) return null;
+  const exit = `exit ${job.code}`;
+  const tone = job.code === 0 ? 'ok' : 'err';
+  if (job.kind === 'blame') {
+    const blamed = isRecord(r.blamed) && typeof r.blamed.callNo === 'number' ? r.blamed.callNo : null;
+    if (r.outcome === 'blamed' && blamed !== null) return { text: `lost at #${blamed} · ${exit}`, tone };
+    if (r.outcome === 'unrescuable') return { text: `not rescued · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
+    if (r.outcome === 'stopped') return { text: `stopped early · ${exit}`, tone: 'err' };
+    return null;
+  }
+  if (job.kind === 'repair') {
+    if (r.outcome === 'fixed') return { text: `${isRecord(r.error) ? 'fixed, not handed over' : 'fixed'} · ${exit}`, tone };
+    if (r.outcome === 'not-fixed') return { text: `no fix found · ${exit}`, tone: 'err' };
+    if (r.outcome === 'no-diagnosis') return { text: `nothing to try · ${exit}`, tone: 'err' };
+    if (r.outcome === 'stopped') return { text: `stopped · ${exit}`, tone: 'err' };
+    return null;
+  }
+  if (job.kind === 'apply') {
+    if (r.status === 'already-applied') return { text: `applied already · ${exit}`, tone };
+    if (r.status !== 'applied') return null;
+    return { text: `applied${r.tests === 'passed' || r.tests === 'failed' ? ` · tests ${r.tests}` : ''} · ${exit}`, tone: r.tests === 'failed' ? 'err' : tone };
+  }
+  return null;
+}
