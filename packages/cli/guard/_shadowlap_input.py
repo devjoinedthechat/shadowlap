@@ -18,18 +18,20 @@ message from Slack) and goes through this module when it is loaded, so nothing i
 
 import builtins
 import contextlib
+import contextvars
 import json
 import os
 import stat
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
 
 _url = os.environ.get("SHADOWLAP_URL")
 _run = os.environ.get("SHADOWLAP_RUN_ID")
-_local = threading.local()
+# A context variable, not a thread-local: asyncio.to_thread() and run_in_executor carry it into the
+# worker thread, so input() read there for shadowlap.user_input_async() isn't recorded a second time.
+_depth = contextvars.ContextVar("shadowlap_input_passthrough", default=0)
 
 active = False
 original_input = builtins.input
@@ -56,16 +58,15 @@ def _stdin_origin():
 @contextlib.contextmanager
 def passthrough():
     """Reads inside this block go straight to the real input, unrecorded: the recording is made around them."""
-    depth = getattr(_local, "depth", 0)
-    _local.depth = depth + 1
+    token = _depth.set(_depth.get() + 1)
     try:
         yield
     finally:
-        _local.depth = depth
+        _depth.reset(token)
 
 
 def _passing_through():
-    return getattr(_local, "depth", 0) > 0
+    return _depth.get() > 0
 
 
 def _scope():

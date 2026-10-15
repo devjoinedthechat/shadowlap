@@ -2,13 +2,17 @@
 The sidecar is stubbed; the vitest suite drives the preload that records input() end to end."""
 
 import asyncio
+import builtins
 import contextlib
+import importlib.util
 import os
 import sys
 import types
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, ".."))
+PRELOAD = os.path.join(HERE, "..", "..", "..", "packages", "cli", "guard", "_shadowlap_input.py")
 
 import shadowlap  # noqa: E402
 from shadowlap import user_input, user_input_async  # noqa: E402
@@ -99,6 +103,33 @@ class UserInput(unittest.TestCase):
 
         self.assertEqual(asyncio.run(user_input_async("Order? ", from_socket)), "over the socket")
         self.assertEqual(sidecar.sent[1][1]["result"], {"text": "over the socket"})
+
+
+    def test_input_read_in_a_worker_thread_for_user_input_async_is_recorded_once(self):
+        # The real preload, loaded without installing it over this process's input().
+        builtins._shadowlap_input = True
+        try:
+            spec = importlib.util.spec_from_file_location("_shadowlap_input", PRELOAD)
+            preload = importlib.util.module_from_spec(spec)
+            sys.modules["_shadowlap_input"] = preload
+            spec.loader.exec_module(preload)
+        finally:
+            del builtins._shadowlap_input
+        preload.active = True
+        preload.original_input = lambda prompt="": "typed in a thread"
+        recorded_by_preload = []
+        preload._post = lambda path, body: recorded_by_preload.append(path) or {"origin": "live", "callNo": 9}
+        sidecar = Sidecar({"origin": "live", "callNo": 3})
+        shadowlap._post = sidecar
+
+        # input() inside the preload is recorded_input(); the agent reads it on a worker thread.
+        answer = asyncio.run(user_input_async("Order? ", lambda p: asyncio.to_thread(preload.recorded_input, p)))
+        self.assertEqual(answer, "typed in a thread")
+        self.assertEqual(recorded_by_preload, [])
+        self.assertEqual([path for path, _ in sidecar.sent], ["/v1/calls/resolve", "/v1/calls/3/complete"])
+        # Outside a user_input call, a read in a worker thread is the preload's to record.
+        self.assertEqual(asyncio.run(asyncio.to_thread(preload.recorded_input, "> ")), "typed in a thread")
+        self.assertEqual(recorded_by_preload, ["/v1/calls/resolve", "/v1/calls/9/complete"])
 
 
 if __name__ == "__main__":

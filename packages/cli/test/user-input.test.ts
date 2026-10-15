@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import { startMockAnthropic, type MockServer, type Script } from '@shadowlap-testing/mock-anthropic';
+import { message, startMockAnthropic, text, type MockServer, type Script } from '@shadowlap-testing/mock-anthropic';
 
 /**
  * What a person types is recorded as `user_input` calls, so an interactive agent replays, tests and
@@ -111,7 +111,15 @@ beforeAll(async () => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-user-input-')));
   db = join(cwd, 'store.db');
   const { supportScript } = (await import(MOCK_MODEL)) as { supportScript: Script };
-  mock = await startMockAnthropic({ script: supportScript, eventDelayMs: () => 0 });
+  // The example's model, and a careful one that won't refund on its own: blame's rescue.
+  const careful: Script = (ctx) => {
+    const last = ctx.request.messages.at(-1);
+    if (ctx.request.model === 'careful-model' && typeof last?.content === 'string' && /refund/i.test(last.content)) {
+      return { message: message([text('A refund of $240 needs a manager; I have passed it on. Anything else?')], { model: ctx.request.model }) };
+    }
+    return supportScript(ctx);
+  };
+  mock = await startMockAnthropic({ script: careful, eventDelayMs: () => 0 });
 });
 afterAll(async () => {
   await mock.close();
@@ -207,6 +215,29 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     const test = await shadowlap(['test', 'goldens/chat']);
     expect(test.out).toMatch(/1 passed/);
     expect(test.code).toBe(0);
+  });
+
+  it('is blamed with no one at the keyboard: the answers come from the recording, in order, after each fork', async () => {
+    const rec = await piped(['run', '--', PYTHON!, CHAT], 'My blender arrived broken. Order A-1042.\nA refund, please.\nNo, thanks!\n');
+    expect(rec.out).toContain('Refunded $240.');
+    const runId = latestRecording();
+    const blame = await shadowlap(['blame', runId, '--expect', '{"tools":{"issue_refund":0}}', '--model', 'careful-model', '--attempts', '1', '--json']);
+    expect(blame.code, blame.out).toBe(0);
+    const report = JSON.parse(blame.out.slice(blame.out.indexOf('{'))) as { outcome: string };
+    // Model call #6 answered "A refund, please." with the refund: asked again, it escalates and the run passes.
+    expect(report).toMatchObject({ outcome: 'blamed', blamed: { callNo: 6 }, lost: { callNo: 8 } });
+    // Every probe was a full conversation: the answers after its fork were served from the recording.
+    const store = Store.open(db);
+    try {
+      const probes = store.allRuns().filter((r) => r.meta?.probe?.of === runId);
+      expect(probes.length).toBeGreaterThan(1);
+      for (const probe of probes) {
+        const inputs = store.getCalls(probe.runId).filter((c) => c.meta.input === true);
+        expect(inputs.map((c) => c.origin)).toEqual(['replayed', 'replayed', 'replayed', 'replayed']);
+      }
+    } finally {
+      store.close();
+    }
   });
 
   it('leaves a child process that reads a pipe from its parent alone: that is not a person typing', async () => {

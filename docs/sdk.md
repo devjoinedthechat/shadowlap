@@ -95,7 +95,11 @@ from shadowlap import user_input, user_input_async
 reply = user_input("How can I help? ")                                  # input() by default
 reply = user_input("How can I help? ", read=lambda p: queue.get())
 reply = await user_input_async("How can I help? ", lambda p: websocket.recv())
+reply = await user_input_async("How can I help? ", lambda p: asyncio.to_thread(input, p))
 ```
+
+A read inside `user_input()` or `user_input_async()` that goes through `input()` or `sys.stdin`,
+on a worker thread included, is recorded once: as the answer of the wrapping call.
 
 On replay the answers come from the recording; `read` isn't called. After a fork there is still no
 one to type, so the recorded answers are served in the order they were given, whatever the prompt

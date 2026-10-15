@@ -453,7 +453,8 @@ def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) ->
 
 async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
     """``user_input`` for an asyncio agent: ``read(prompt)`` may be a coroutine function, such as
-    ``websocket.recv`` behind a lambda. The sidecar is asked off the event loop."""
+    ``websocket.recv`` behind a lambda, or ``asyncio.to_thread(input, prompt)``. The sidecar is asked
+    off the event loop."""
     cfg = _config()
     if cfg is None:
         answer = read(prompt)
@@ -464,9 +465,13 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
     if r["origin"] != "live":
         raise RuntimeError(f"unexpected origin {r['origin']} for user input")
     started = time.time()
+    preload = _input_preload()
     try:
-        answer = read(prompt)
-        text = await answer if inspect.isawaitable(answer) else answer
+        # The preload's passthrough is a context variable, which asyncio.to_thread() carries into
+        # its worker, so input() read there isn't recorded a second time.
+        with preload.passthrough() if preload else contextlib.nullcontext():
+            answer = read(prompt)
+            text = await answer if inspect.isawaitable(answer) else answer
     except BaseException as err:
         await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
         raise
