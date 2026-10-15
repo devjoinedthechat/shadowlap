@@ -149,6 +149,23 @@ describe('shadowlap bisect', () => {
   });
 });
 
+// A shell build step that sleeps, so there is time to interrupt; Windows has no sleep.
+describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
+  it('stops at Ctrl-C, concludes nothing from the replay it cut short, and removes its worktrees', async () => {
+    const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'sleep 2'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    setTimeout(() => child.kill('SIGINT'), 1000);
+    const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
+    expect(code, out).toBe(1);
+    expect(out).toContain('no first bad commit: interrupted');
+    expect(out).not.toContain('first bad commit ' + rev['Ask for brevity']);
+    expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
+    expect(readdirSync(join(project, '.shadowlap', 'bisect'))).toEqual([]);
+  });
+});
+
 describe('the command at each commit', () => {
   it('runs files from the worktree, and executables only the working tree has from there', () => {
     const root = join(project, 'repo');

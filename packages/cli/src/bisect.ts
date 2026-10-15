@@ -280,14 +280,16 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   };
 
   try {
+    // A replay cut short by Ctrl-C is no evidence either way, so nothing is concluded from it.
     const atBad = await probe(badRev);
+    if (stopped) return report;
     if (atBad.ok) {
       report.outcome = 'passes-at-bad';
       report.why = `it passes at ${bad.short}, so there is nothing to find`;
       return report;
     }
-    if (stopped) return report;
     const atGood = await probe(goodRev);
+    if (stopped) return report;
     if (!atGood.ok) {
       report.outcome = 'fails-at-good';
       report.why = `it already fails at ${good.short}: ${atGood.result}. Give an older --good, or, when the agent can't start in a fresh checkout, --build with what it needs`;
@@ -297,16 +299,15 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     let hi = commits.length - 1;
     let why = atBad.result;
     while (hi - lo > 1) {
-      if (stopped) return report;
       const mid = (lo + hi) >> 1;
       const step = await probe(commits[mid]!);
+      if (stopped) return report;
       if (step.ok) lo = mid;
       else {
         hi = mid;
         why = step.result;
       }
     }
-    if (stopped) return report;
     report.outcome = 'found';
     report.first = { ...commitInfo(root, commits[hi]!), why };
     return report;

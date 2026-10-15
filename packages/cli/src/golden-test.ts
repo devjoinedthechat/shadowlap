@@ -160,6 +160,16 @@ function inputTokens(store: Store, runId: string): number {
     }, 0);
 }
 
+/** A changed value as the history keeps it: long strings and large objects cut to 2,000 characters. */
+function clipValue(v: unknown): unknown {
+  if (typeof v === 'string') return v.length > 2000 ? `${v.slice(0, 2000)}…` : v;
+  if (v !== null && typeof v === 'object') {
+    const json = JSON.stringify(v);
+    return json.length > 2000 ? `${json.slice(0, 2000)}…` : v;
+  }
+  return v;
+}
+
 /** The last lines the agent printed, for a failure. */
 export function outputTail(output: string, lines = 20): string | null {
   const t = output.trim();
@@ -189,7 +199,8 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
       kind: d.kind,
       name: d.name,
       replayedBefore: d.replayedBefore,
-      ...(d.diff ? { diff: d.diff.slice(0, 12) } : {}),
+      // The changed values themselves, cut short: the printed report has what a reader needs.
+      ...(d.diff ? { diff: d.diff.slice(0, 12).map((e) => ({ ...e, ...('before' in e ? { before: clipValue(e.before) } : {}), ...('after' in e ? { after: clipValue(e.after) } : {}) })) } : {}),
       ...(d.hints ? { hints: d.hints } : {}),
       text: formatDivergence(d),
     };
