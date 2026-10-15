@@ -39,9 +39,11 @@ export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; curre
         <span className="f2 block">{bundleLine(b, approx)}</span>
         <span className="attempts">
           {b.attempts.map((a) => (
-            <span key={a.runId}>
+            <span key={a.runId} title={`${shortId(a.runId)} · ${a.note}`}>
               <i className={a.passed ? undefined : 'no'} />
-              {shortId(a.runId)} · {a.note}
+              <span className="t">
+                {shortId(a.runId)} · {a.note}
+              </span>
             </span>
           ))}
         </span>

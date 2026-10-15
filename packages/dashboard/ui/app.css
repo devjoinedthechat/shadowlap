@@ -1600,6 +1600,10 @@ table.t td.wrapcell { white-space: normal; }
 .attempts a:hover { color: var(--ink); }
 .attempts a i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--o-rep); }
 .attempts a i.no { background: var(--o-block); }
+/* an attempt's line ends in an ellipsis rather than past its panel; the whole line is on hover */
+.attempts > a, .attempts > span { min-width: 0; }
+.attempts > span > i { flex: none; }
+.attempts .t { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
 .fxcmd { margin-top: 14px; }
 .fxlost { margin: 6px 0 14px; }
@@ -1636,7 +1640,7 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .fxcode .del { color: var(--del); }
 .fxtable { overflow-x: auto; margin: 0 0 12px; }
 .fxtable table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.fxtable th { text-align: left; font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.fxtable th { text-align: left; vertical-align: bottom; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: break-word; }
 .fxtable td code { white-space: nowrap; }
 .fxmore { padding: 0 18px 14px; }

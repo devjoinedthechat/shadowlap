@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { inlineParts, parseMarkdown, type MdBlock } from './model.js';
 
 /** A step's header: its title, a line or two under it, and its actions on the right (`.sh`). */
@@ -93,20 +93,35 @@ function Block({ b }: { b: MdBlock }) {
 }
 
 /**
- * report.md, the pull request body, as the page draws it: its first part, with the rest a click
- * away. Drawn from blocks, never as HTML.
+ * report.md, the pull request body, as the page draws it: whole when it fits the panel, else its
+ * first part with the rest a click away. Drawn from blocks, never as HTML.
  */
-export function Markdown({ text, clamp = true }: { text: string; clamp?: boolean }) {
-  const [all, setAll] = useState(!clamp);
-  const blocks = parseMarkdown(text);
+export function Markdown({ text }: { text: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [all, setAll] = useState(false);
+  // Whether the body is taller than the clamped panel. It starts clamped and is measured before it
+  // paints: a body that fits drops the clamp and the button. Another body is measured again.
+  const [long, setLong] = useState(true);
+  const [measured, setMeasured] = useState(text);
+  if (measured !== text) {
+    setMeasured(text);
+    setLong(true);
+    setAll(false);
+  }
+  const blocks = useMemo(() => parseMarkdown(text), [text]);
+  const clamp = long && !all;
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && clamp) setLong(el.scrollHeight > el.clientHeight + 1);
+  }, [text, clamp]);
   return (
     <>
-      <div className={`prbody${all ? '' : ' clamp'}`}>
+      <div ref={box} className={`prbody${clamp ? ' clamp' : ''}`}>
         {blocks.map((b, i) => (
           <Block key={i} b={b} />
         ))}
       </div>
-      {clamp ? (
+      {long ? (
         <div className="fxmore">
           <button className="linkbtn" type="button" aria-expanded={all} onClick={() => setAll(!all)}>
             {all ? 'Show less' : 'Show all of report.md'}

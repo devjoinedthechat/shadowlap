@@ -123,9 +123,11 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                   <span className="k">{x.title}</span>
                   <div className="attempts">
                     {x.attempts.map((a) => (
-                      <a key={a.runId} href={a.href}>
+                      <a key={a.runId} href={a.href} title={`${shortId(a.runId)} · ${a.note}`}>
                         <i className={a.passed ? undefined : 'no'} />
-                        {shortId(a.runId)} · {a.note}
+                        <span className="t">
+                          {shortId(a.runId)} · {a.note}
+                        </span>
                       </a>
                     ))}
                   </div>
