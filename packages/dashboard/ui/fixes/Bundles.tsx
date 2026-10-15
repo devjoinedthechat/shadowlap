@@ -37,18 +37,19 @@ export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; curre
           {b.blamed ? <span className="chip">blamed</span> : null}
         </span>
         <span className="f2 block">{bundleLine(b, approx)}</span>
-        <span className="attempts">
-          {b.attempts.map((a) => (
-            <span key={a.runId} title={`${shortId(a.runId)} · ${a.note}`}>
-              <i className={a.passed ? undefined : 'no'} />
-              <span className="t">
-                {shortId(a.runId)} · {a.note}
-              </span>
-            </span>
-          ))}
-        </span>
       </span>
       <span className="fr">{stamp(b.at)}</span>
+      {/* A row of their own, under the time as well, as wide as the node. */}
+      <span className="attempts fxwide">
+        {b.attempts.map((a) => (
+          <span key={a.runId} title={`${shortId(a.runId)} · ${a.note}`}>
+            <i className={a.passed ? undefined : 'no'} />
+            <span className="t">
+              {shortId(a.runId)} · {a.note}
+            </span>
+          </span>
+        ))}
+      </span>
     </a>
   );
 }
