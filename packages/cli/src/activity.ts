@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { recordEvent, resolveAuthor, Store, type RecordEventInput, type RunMeta } from '@shadowlap/engine';
+import { ciProvider, recordEvent, resolveAuthor, Store, type RecordEventInput, type RunMeta } from '@shadowlap/engine';
 import { defaultDbPath } from './config.js';
 import type { GlobalOpts } from './shared.js';
 
@@ -16,10 +16,14 @@ export function currentAuthor(): string | null {
   return author;
 }
 
-/** What a run this command makes is stamped with: who made it, when that is known. */
+/** What a run this command makes is stamped with: who made it, when that is known, and in CI which CI. */
 export function newRunMeta(): Partial<RunMeta> {
   const who = currentAuthor();
-  return who ? { author: who } : {};
+  if (!who) return {};
+  // The By column names the CI that made a run, as the team store's index carries it; a push fills
+  // it in only for runs made before this that lack it.
+  const ci = who === 'ci' ? ciProvider(process.env) : null;
+  return { author: who, ...(ci ? { ci } : {}) };
 }
 
 /** Marks a run with who made it. Never throws: a run without an author is still a run. */
