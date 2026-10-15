@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { PACK_FORMAT, PACK_LIMITS, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
-import { configPath } from './config.js';
+import { configPath, loadTests } from './config.js';
 
 /**
  * Goldens: packed recordings in the repository that `shadowlap test` replays. This finds them (the
@@ -186,4 +186,19 @@ export function listGoldens(projectDir: string, entries: readonly TestEntry[], f
       error: 'error' in head ? head.error : null,
     };
   });
+}
+
+/**
+ * A project's goldens as the dashboard's Tests screen lists them: `listGoldens` with the `tests` of
+ * its config. A config that can't be read still lists the goldens folder. This is what the dashboard
+ * server is given to call (`GoldenSource[]` in @shadowlap/dashboard).
+ */
+export function projectGoldens(projectDir: string, folder = GOLDENS_FOLDER): GoldenInfo[] {
+  let entries: TestEntry[] = [];
+  try {
+    entries = loadTests(projectDir);
+  } catch {
+    // a config being edited: the folder alone
+  }
+  return listGoldens(projectDir, entries, folder);
 }

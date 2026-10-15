@@ -6,7 +6,7 @@ import { packRun, Store } from '@shadowlap/engine';
 import { parseTests } from '../src/checks.js';
 import { givenCommand } from '../src/commands/testing.js';
 import { importGolden } from '../src/golden-test.js';
-import { expandRecordings, goldenName, listGoldens, rawExpectFor, readPackHead, testsKeyFor } from '../src/goldens.js';
+import { expandRecordings, goldenName, listGoldens, projectGoldens, rawExpectFor, readPackHead, testsKeyFor } from '../src/goldens.js';
 
 /** Finding a project's goldens, and naming them the way the test history does. */
 let project: string;
@@ -45,6 +45,17 @@ describe('goldens', () => {
     expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [] });
     expect(goldens[3]!.checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);
     expect(listGoldens(project, [], 'nowhere')).toEqual([]);
+    // As the dashboard asks for them: from the config on disk, or the folder alone when it can't be read.
+    expect(projectGoldens(project)).toEqual(goldens);
+    const broken = mkdtempSync(join(tmpdir(), 'sl-goldens-broken-'));
+    try {
+      mkdirSync(join(broken, 'goldens', 'a'), { recursive: true });
+      writeFileSync(join(broken, 'goldens', 'a', 'run.json'), JSON.stringify({ format: 'shadowlap-pack', version: 1, createdAt: 5, runs: [{ runId: 'R_A', command: { argv: ['node'] } }] }));
+      writeFileSync(join(broken, 'shadowlap.config.json'), '{ "tests": ');
+      expect(projectGoldens(broken).map((g) => [g.path, g.runId])).toEqual([['goldens/a', 'R_A']]);
+    } finally {
+      rmSync(broken, { recursive: true, force: true });
+    }
   });
 
   it('expands a pattern itself, names goldens by their folder, and finds their checks as written', () => {
