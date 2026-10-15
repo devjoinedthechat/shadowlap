@@ -935,7 +935,8 @@ export class Sidecar {
     const retryable = provider.isRetryableStatus(status) || streamError !== undefined;
     const outcome = status < 400 && !streamError && !clientGone ? 'ok' : 'error';
     const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - started, retryable, bytes: body.length, provider: provider.id };
-    const requestedModel = provider.extractModel(subpath, requestBodyForMeta);
+    // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
+    const requestedModel = responseHeaders['x-shadowlap-model'] || provider.extractModel(subpath, requestBodyForMeta);
     if (requestedModel) meta.model = requestedModel;
     const stopReason = outcome === 'ok' ? provider.extractStopReason(body, contentType) : null;
     if (stopReason) meta.stopReason = stopReason;

@@ -179,6 +179,34 @@
                 "$ref": "#/$defs/amount"
               }
             }
+          },
+          "task": {
+            "description": "`shadowlap tasks`: the golden as a task a model is scored on. Every key is optional.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "takeover": {
+                "description": "The model call where the model under test takes over; the calls before it replay from the recording. Defaults to the call blame found, else the first model call after the last recorded input, else the first.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "why": {
+                "description": "Why that call, in a few words.",
+                "type": "string",
+                "maxLength": 200
+              },
+              "rewards": {
+                "description": "What a passing attempt does, in a few words, such as \"escalate above the limit\". Defaults to the outcome checks.",
+                "type": "string",
+                "maxLength": 200
+              },
+              "scope": {
+                "description": "The scope the agent's model calls are made in, when a simulated user's are made in another (scope() in the SDKs): the default takeover is the agent's call. Defaults to the scope blame was limited to.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
           }
         }
       }

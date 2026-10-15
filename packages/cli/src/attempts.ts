@@ -36,6 +36,8 @@ export interface AttemptSettings {
   /** Stop an attempt after this long, and count it as a failure. */
   timeoutMs: number | null;
   guard: GuardMode;
+  /** Upstreams that replace the environment's for some providers, such as a model under test's (tasks score). */
+  upstreams?: Record<string, string>;
 }
 
 /** A recorded run to replay, and the command that replays it. */
@@ -102,7 +104,7 @@ export class AttemptRunner {
   static async start(opts: GlobalOpts, settings: AttemptSettings): Promise<AttemptRunner> {
     const store = openStore(opts);
     const config = loadConfig(process.cwd());
-    const upstreams = upstreamOverrides(process.env);
+    const upstreams = { ...upstreamOverrides(process.env), ...settings.upstreams };
     try {
       const sidecar = await Sidecar.start({
         store,

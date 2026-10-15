@@ -231,6 +231,35 @@ It trusts nothing it reads from the store: the repair's directory must be `.shad
 
 Blame, repair, verify and apply each log an activity event in the store (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`, `fix.applied`).
 
+## tasks
+
+```sh
+shadowlap tasks [--json]
+shadowlap tasks score [goldens...] --model <model> [--base-url <url>] [--attempts <n>] [--reads replay]
+shadowlap tasks serve [goldens...] [--port 4779] [--base-url <url> [--key-env <name>]]
+shadowlap tasks models [--json]
+```
+
+Goldens as tasks a model can be scored on: a model under test takes over at one model call, the calls before it replay from the recording for free, and the golden's checks score what it did from there. `tasks` lists them: where the model takes over and why, what each rewards, which tools run live or are stubbed after the takeover, and whether each is ready, blocked (its test fails, or it was packed from a capture and has no command), not a task (its checks only cap tokens and cost, or its model calls are made in more than one scope) or has no golden, with a warning when every ready task rewards the same behaviour. The takeover, why, what a task rewards and the agent's scope can be set in a `task` object next to its `expect` in the config. Training (`docs/training.md`) explains the defaults.
+
+`tasks score` scores a model on every ready task, or on the goldens given (`.` for every golden of the project): each attempt is a run, the score is the share of checks it passed, and scores are kept per model (scoring a model again replaces its scores, unless the re-score stops short). `--model <name>` asks the recording's provider for another model, `anthropic:<name>` and `openai:<name>` that provider's API, and `--base-url` an OpenAI-compatible server such as Ollama or vLLM; when that isn't the API the recording spoke, the conversation is translated at the takeover and the answer back. Either way a small upstream on 127.0.0.1 asks the model under test from the takeover call on, whatever the agent asked before it. Bedrock, Vertex AI and Azure OpenAI recordings can't be scored with another model yet. Training (`docs/training.md`) has every option and the JSON.
+
+| Option | Effect |
+|---|---|
+| `--model <model>` | The model to score (required) |
+| `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` (no user or password in it) |
+| `--key-env <name>` | The variable holding the endpoint's key; default `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` on a recording that isn't Anthropic's (another model of the recording's own provider goes with the agent's own key) |
+| `--attempts <n>` | Attempts per task. Default 5 |
+| `--reads live\|replay` | What read tools do after the takeover. Default `live` |
+| `--concurrency <n>`, `--budget <usd>`, `--timeout <seconds>`, `--guard` | As for `blame` |
+| `--json` | The scores as JSON on stdout |
+
+Exit status 0 when every task was scored in full, 1 when a task was skipped or stopped.
+
+`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. Training (`docs/training.md`) shows a request and its response.
+
+`tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt and last score. A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
+
 ## show
 
 ```sh
@@ -502,7 +531,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)) |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see `docs/training.md`) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 
 The schema is [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json) in the repository. It gives completion in any
@@ -636,6 +665,24 @@ Recordings as an eval or fine-tuning dataset, one JSON line per example. Select 
 
 Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. The redaction rules apply to each model call's request and response as `pack` applies them, path rules included, before its conversation and answer are read; then the rules without a path apply to every string of the row, its command line, labels and notes too. A rule that can't be read stops the export.
 
+## export pairs
+
+```sh
+shadowlap export pairs --out pairs.jsonl
+shadowlap export pairs --min-confidence medium --format trl --out pairs.jsonl
+```
+
+Preference pairs read from the attempts blame, verify and `--repeat` left in the store, one JSON line per pair: the conversation as the model saw it at a call, in the messages `export dataset` writes, an answer to prefer and one to avoid. It prints every source it read (including those that made no pairs, and why), the count and how many were left out, the shape, the redaction line and the file. Each export is kept in the store as what left the machine; when no pair is at the confidence asked for, nothing is written and a file already there is left as it was. Training (`docs/training.md`) explains where pairs come from and what high and medium mean.
+
+| Option | Effect |
+|---|---|
+| `--min-confidence high` (default) | Answers blame proved decided the run |
+| `--min-confidence medium` | Also where a failing and a passing attempt first answered differently |
+| `--format openai-preference` (default) | `{ input: { messages, tools }, preferred_output, non_preferred_output }` |
+| `--format trl` | `{ prompt, chosen, rejected }` as chat messages, with `tools` |
+| `--out <file>` | Write here instead of stdout |
+| `--no-redact` | Skip the redaction rules, which otherwise apply to the copy: rules without a path to every string, rules with a path to the message fields kept |
+
 ## export har
 
 ```sh
@@ -682,4 +729,6 @@ A trace carries no prompt text, tool arguments or results. The redaction rules w
 | `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them. Otherwise `ci` in CI, else git's `user.email`, else the OS user |
 | `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects), as an absolute path (default `~/.shadowlap`; a relative path is ignored) |
 | `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` |
+| `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters; a random one is printed without it |
+| `OLLAMA_HOST` | Where `tasks models` lists Ollama's installed models (default `127.0.0.1:11434`) |
 | `NO_COLOR` | Plain output |

@@ -83,3 +83,15 @@ export { inferInterventions, overrideSources, recordNotRecorded, redactRunFacts,
 export type { InterventionFlag, OverrideSources } from './run-facts.js';
 export { showJson } from './show.js';
 export type { ShowJson } from './show.js';
+// Training: preference pairs from attempts, goldens as tasks, models to score them on, and the
+// translation that lets a model of another provider take over a recorded conversation.
+export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES } from './pairs.js';
+export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
+export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
+export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
+export { anthropicBase, endpointVia, isLoopback, listingInput, listModelChoices, ollamaBase, openAIBase, OFFICIAL } from './models.js';
+export type { ListModelsInput, ModelChoice, ModelListing } from './models.js';
+export { anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, chatCompletionChunks, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
+export type { AnthropicMessage, ChatCompletion, ChatShape, OpenAITool, ToOpenAIOptions, TranslatedRequest } from './translate.js';
+export { messagesOf, type DatasetMessage } from './dataset.js';
+export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
