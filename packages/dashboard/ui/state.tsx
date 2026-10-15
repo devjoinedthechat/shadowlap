@@ -61,6 +61,8 @@ export interface AppState {
   watchJob: (p: Promise<JobView>) => void;
   jobs: WatchedJob[];
   closeJob: (id: string) => void;
+  /** Closes every job's drawer, as leaving a page does; running jobs go on and say when they finish. */
+  closeJobs: () => void;
   registerLayer: (kind: LayerKind, close: () => void) => () => void;
   /** Esc: closes a menu, else a dialog, else a panel. False when nothing was open. */
   closeTopLayer: () => boolean;
@@ -318,6 +320,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   );
 
   const closeJob = useCallback((id: string) => setJobs((list) => list.map((w) => (w.job.id === id ? { ...w, open: false } : w)).filter((w) => w.open || !w.job.done)), []);
+  const closeJobs = useCallback(() => setJobs((list) => (list.some((w) => w.open) ? list.filter((w) => !w.job.done).map((w) => ({ ...w, open: false })) : list)), []);
 
   // ---- layers: menus over dialogs over panels; Esc closes the topmost.
   const layers = useRef<Array<{ id: number; kind: LayerKind; close: () => void }>>([]);
@@ -365,6 +368,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       watchJob,
       jobs,
       closeJob,
+      closeJobs,
       registerLayer,
       closeTopLayer,
       blockingLayer,
@@ -378,7 +382,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, live, refresh, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, live, refresh, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

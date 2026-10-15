@@ -133,7 +133,7 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
       <section className="banner blame">
         <span className="bk">diverged at</span>
         {call(d.callNo)}
-        <code>{callName(d.kind, d.name)}</code>
+        <code>{d.name}</code>
         <Why>
           {num(d.replayedBefore)} calls replayed before it{d.hints?.[0] ? ` · ${d.hints[0].message}` : ''}
         </Why>
@@ -151,7 +151,7 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
       <section className="banner fork">
         <span className="bk">forked at</span>
         {call(d.callNo)}
-        <code>{callName(d.kind, d.name)}</code>
+        <code>{d.name}</code>
         <Why>
           {reason ?? (flag ? `${flag} · ` : '') + (DIVERGED[d.type] ?? d.type)}
           {' · '}

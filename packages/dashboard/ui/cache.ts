@@ -1,8 +1,8 @@
 /**
  * Where the prompt cache stopped hitting. One rule, the Context view's and the Overview's: a model
  * call misses when its cache read is smaller than the previous model call's whole input in the same
- * scope and conversation, by at least 1,024 tokens; the tokens sent again are the difference.
- * No DOM here: the tests import it.
+ * scope and conversation, by at least 1,024 tokens; the tokens sent again are the difference. A
+ * conversation that never wrote to the cache is not judged. No DOM here: the tests import it.
  */
 
 export const MISS_MIN_TOKENS = 1024;
@@ -34,7 +34,9 @@ export function cacheMisses(calls: readonly UsageCall[], min = MISS_MIN_TOKENS):
     if (c.kind !== 'api' || !c.usage) continue;
     const key = `${c.scope ?? ''}\u0000${c.conversation ?? 0}`;
     const prev = last.get(key);
-    if (prev) {
+    // Only a conversation that uses the cache can miss it: with nothing written or read before, every
+    // call would count, and none of them says where a prompt change broke it.
+    if (prev && prev.cacheRead + prev.cacheWrite > 0) {
       const gap = wholeInput(prev) - c.usage.cacheRead;
       if (gap >= min) out.push({ callNo: c.callNo, tokens: gap });
     }

@@ -212,7 +212,8 @@ function PathColumn({ run, calls, other, from, answer }: { run: RunDetail; calls
       </h4>
       {shown.map((c, i) => {
         const o = other[i];
-        const same = !!o && o.kind === c.kind && o.name === c.name && o.detail === c.detail;
+        // The call where the requests first differ is never "the same", whatever its name.
+        const same = !!o && c.callNo !== from + 1 && o.kind === c.kind && o.name === c.name && o.detail === c.detail;
         return (
           <a key={c.callNo} className={`pcall${same ? ' same' : ''}`} href={href.run(run.run.runId, c.callNo)}>
             <span className="pn">#{c.callNo}</span>

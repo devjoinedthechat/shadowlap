@@ -29,10 +29,13 @@ import { TopBar } from './TopBar.js';
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
 export function Shell() {
   const route = useRoute();
-  const { setSideOpen, exported, meta } = useApp();
+  const { setSideOpen, exported, meta, closeJobs } = useApp();
 
-  // The phone sidebar closes on navigation.
+  // The phone sidebar closes on navigation; a job's drawer closes when the page changes (not when a
+  // call or a view is picked), and a toast says when the job finishes.
   useEffect(() => setSideOpen(false), [route, setSideOpen]);
+  const pageKey = route.page === 'run' ? `run:${route.id}` : route.page;
+  useEffect(() => closeJobs(), [pageKey, closeJobs]);
 
   // An exported copy holds runs and Compare between them: it opens on its first run.
   useEffect(() => {

@@ -206,6 +206,10 @@ describe('cache misses', () => {
     expect(cacheMisses(batch)).toEqual([]);
     expect(cacheReadShare([m(1, 0, 100), m(2, 300, 100)])).toBeCloseTo(300 / 500);
   });
+
+  it('does not judge a conversation that never used the cache', () => {
+    expect(cacheMisses([m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)])).toEqual([]);
+  });
 });
 
 describe('backoff', () => {
