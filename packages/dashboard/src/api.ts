@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { buildActions, notRun } from '@shadowlap/tui/actions';
 import { loadRunTree, modelResolver, runLabel } from '@shadowlap/tui/data';
 
@@ -374,7 +374,6 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
     if (out.length >= 1000) return;
     const calls = store.getCalls(r.runId);
     const s = summarizeRun(r, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
-    const checks = r.meta?.checks;
     out.push({
       runId: r.runId,
       parentRunId: r.parentRunId,
@@ -388,7 +387,7 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       saved: s.cost.saved,
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
-      checks: checks?.length ? { passed: checks.filter((c) => c.ok).length, total: checks.length } : null,
+      checks: checksOf(r),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };

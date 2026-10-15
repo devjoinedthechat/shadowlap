@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
@@ -181,7 +181,7 @@ export function register(program: Command): void {
           imported: r.meta?.imported ?? null,
           partial: r.meta?.covers?.length ? r.meta.covers : null,
           repeat: r.meta?.repeat ?? null,
-          checks: r.meta?.checks ? { passed: r.meta.checks.filter((c) => c.ok).length, total: r.meta.checks.length } : null,
+          checks: checksOf(r),
           codeVersion: r.codeVersion,
           startedAt: r.startedAt,
           endedAt: r.endedAt,
