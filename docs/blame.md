@@ -84,14 +84,17 @@ Every blame is kept in the store whole, with the fix it opens or joins. A fix is
   fix fx-01M3RZ4XKN · issue_refund called with amount 240 · opened · shadowlap fix show fx-01M3RZ4XKN
 ```
 
-Which fix a blamed run goes to:
+Which fix a blamed run goes to. Labels come first, because they are how you group runs, and the check decides where they can't. The check is the `--expect` the blame was given, whatever order its keys are in; without `--expect`, it is the exit code. A fix's labels are the ones its failing runs carry now, so a label given to its runs later counts, and the label `good` never names a failure.
 
-- A run that already fails in a fix stays in it, so blaming it again, with `--model` say, adds a blame to the same fix.
-- Otherwise it joins the fix of another run with the same [label](./cli.md#label-note), such as `refund-over-limit`. The label `good` never names a failure.
-- A run with no label joins the fix with the same check: the same `--expect`, whatever order its keys are in. Without `--expect`, the check is the exit code.
+- A run that already fails in a fix stays in it, so blaming it again, with `--model` say, adds a blame to the same fix. That holds for an applied fix too: an old recording can't show the failure coming back.
+- Otherwise it joins a fix that shares one of its [labels](./cli.md#label-note) and has the same check.
+- Else a fix that holds every label the run has, whatever its check: the label decides. A run labelled `refund-over-limit` and blamed under another check joins the `refund-over-limit` fix.
+- Else a fix with no labels and the same check. A run with no labels joins the fix with its check, labelled or not, when only one fix has it.
 - Otherwise the blame opens a new fix. Its title says how the recording failed the check, in plain words: *issue_refund called with amount 240*, *send_email called twice, not once*, *Output never says "refund issued"*. `shadowlap fix title` replaces it with one of your own.
 
-A blame that stopped early opens or joins a fix too: it replayed the run and saw it fail before it probed anything, so the failure is reproduced. A blame that refused (the run passes, or doesn't replay as recorded) leaves nothing behind. An applied fix is finished: no run joins it, and the same failure coming back after it shipped opens a new one.
+A run that shares one label with a fix but carries another the fix doesn't hold, under another check, is taken for another failure: a run labelled `customer-x` and `double-email` opens a fix of its own next to a `customer-x`, `refund-over-limit` fix, rather than hide in it. Where several fixes would take a run, the one sharing more of its labels wins, then the first opened. Runs labelled differently stay apart even under the same check.
+
+A blame that stopped early opens or joins a fix too: it replayed the run and saw it fail before it probed anything, so the failure is reproduced. A blame that refused (the run passes, or doesn't replay as recorded) leaves nothing behind. An applied fix is finished: no new run joins it, and the same failure in a run recorded after it shipped opens a new fix.
 
 Each blame also logs a `blame.done` event in the store's activity. Run by a dashboard job, it reports a link to the fix's Blame step.
 

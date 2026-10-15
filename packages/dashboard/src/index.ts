@@ -6,7 +6,7 @@ export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './stati
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
 export { fixDetail, fixesSummary, fixForRun, fixHref, fixList, needsLookFixes, repairArgv } from './fixes.js';
-export type { BlameStep, FixActions, FixDetail, FixesSummary, FixForRun, FixList, FixRow, FixStep, NeedsLookItem, RepairStep, RunBlame, VerifyStep } from './fixes.js';
+export type { BlameStep, CandidateVerdict, FixActions, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, RepairStep, RunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';
