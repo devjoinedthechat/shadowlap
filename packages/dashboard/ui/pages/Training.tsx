@@ -174,14 +174,19 @@ function PairsTab({ view }: { view: TrainingView }) {
   );
 }
 
-/** Pairs from the same call share their conversation and rejected answer, so they show as one group. */
+/**
+ * Pairs from the same call share their conversation and rejected answer, so they show as one group,
+ * headed by the run they are about. A verify or `--repeat` answer came from an attempt at that run:
+ * each answer links its own attempt.
+ */
 function PairGroup({ g }: { g: PairGroupView }) {
+  const ownAttempt = g.rejected.runId !== g.runId;
   return (
     <div className="pgroup">
       <div className="pg1">
         <Badge tone={g.confidence === 'high' ? 'ok' : 'y'}>{g.confidence}</Badge>
         <a className="more" href={g.href} title="Open the run at this call">
-          <code>{shortId(g.rejected.runId)}</code> #{g.callNo}
+          <code>{shortId(g.runId)}</code> #{g.callNo}
         </a>
         {g.fix ? (
           <a className="chip" href={g.fix.href} title={`Open the fix: ${g.fix.label}`}>
@@ -197,6 +202,13 @@ function PairGroup({ g }: { g: PairGroupView }) {
         <div>
           <span className="k">rejected · {g.rejected.what}</span>
           <code>{g.rejected.text}</code>
+          {ownAttempt ? (
+            <small className="rj">
+              <a href={g.rejected.href} title="Open the attempt at this call">
+                {shortId(g.rejected.runId)}
+              </a>
+            </small>
+          ) : null}
         </div>
         <div className="good">
           <span className="k">{g.chosenLabel}</span>
@@ -518,11 +530,13 @@ function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => voi
   const nameRef = useRef<HTMLInputElement>(null);
   const modelRef = useRef<HTMLSelectElement>(null);
   // The first model not scored yet, once the list is in; your own endpoint when it can't be listed.
-  // The picker opens disabled while the list comes in, so it takes the focus once it can.
+  // The picker opens disabled while the list comes in, so the dialog couldn't focus it: it takes the
+  // focus once it can, unless it was moved to another field of the dialog meanwhile.
   useEffect(() => {
     if (pick !== null || !listed) return;
     setPick(firstPick(d));
-    if (!document.activeElement || document.activeElement === document.body) modelRef.current?.focus();
+    const select = modelRef.current;
+    if (select && !select.closest('.dialog')?.contains(document.activeElement)) select.focus();
   }, [pick, listed, d]);
   useEffect(() => {
     if (pick === ENDPOINT) nameRef.current?.focus();

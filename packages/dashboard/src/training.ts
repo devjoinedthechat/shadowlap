@@ -112,9 +112,13 @@ export interface AnswerView {
 export interface PairGroupView {
   key: string;
   confidence: 'high' | 'medium';
+  /** The run the pairs are about: the blamed run, or the run verify or `--repeat` replayed. */
   runId: string;
   callNo: number;
-  /** Opens the run at the call the answers answer. */
+  /**
+   * Opens that run at the call the answers answer. A verify or `--repeat` attempt replays its run,
+   * so the call has the same number there; the rejected answer links its own attempt as well.
+   */
   href: string;
   fix: { label: string; href: string } | null;
   source: { key: string; kind: PairSource['kind']; label: string; href: string };
@@ -307,7 +311,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     options,
     groups: [...new Set(options.map((o) => o.group))],
     selected: first?.key ?? null,
-    attempts: [5, 10],
+    attempts: [...SCORE_ATTEMPTS],
     endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: scoreNote(null, null) },
     notes: listing.notes,
   };
@@ -339,8 +343,10 @@ export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow
 }
 
 /**
- * From a training loop: one `tasks serve` request for a ready task and its response, in the shape
- * the endpoint answers with (serve-tasks.ts in the CLI). The model, run id and timing are samples.
+ * From a training loop: one `tasks serve` request for a ready task and its response (serve-tasks.ts
+ * in the CLI), cut to what a loop reads, as the mock shows it: the score, each check, the run and
+ * what it cost. The endpoint also answers the task, model, takeover, each check's detail, the exit
+ * code and the time (docs/training.md has all of it). The model and run id are samples.
  */
 function serveSample(t: Task): { command: string; request: string; response: string } {
   const q = JSON.stringify;
@@ -349,14 +355,7 @@ function serveSample(t: Task): { command: string; request: string; response: str
   return {
     command: 'shadowlap tasks serve goldens/ --port 4779',
     request: [`POST /v1/tasks/${t.name}/attempts`, 'Authorization: Bearer <token>', `{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1"${from !== null ? `,\n  "from": ${from}` : ''} }`].join('\n'),
-    response: [
-      '200 OK',
-      `{ "task": ${q(t.name)}, "model": "my-finetune", "takeover": ${from ?? 'null'},`,
-      '  "score": 1,',
-      '  "checks": [',
-      ...checks.map((c, i) => `    { "check": ${q(c)}, "pass": true, "detail": null }${i < checks.length - 1 ? ',' : ' ],'}`),
-      '  "run": "01K5CR2M8Q…", "spent": 0, "exitCode": 0, "ms": 5130 }',
-    ].join('\n'),
+    response: ['200 OK', '{ "score": 1,', '  "checks": [', ...checks.map((c, i) => `    { "check": ${q(c)}, "pass": true }${i < checks.length - 1 ? ',' : ' ],'}`), '  "run": "01K5CR2M8Q…", "spent": 0 }'].join('\n'),
   };
 }
 
@@ -419,7 +418,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         confidence: x.confidence,
         runId: x.runId,
         callNo: x.callNo,
-        href: `#/run/${x.rejected.runId}/${x.rejected.callNo}`,
+        href: `#/run/${x.runId}/${x.callNo}`,
         fix: fix && s ? { label: fix.label, href: sourceHref(s, fix) } : null,
         source: { key: x.source, kind: x.sourceKind, label: s?.label ?? x.sourceKind, href: s ? sourceHref(s, fix) : `#/run/${x.runId}` },
         from: FROM[x.sourceKind],
@@ -458,11 +457,13 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const taskRows: TaskRowView[] = byStatus.map((t) => {
     const outcome = t.checks.filter((c) => !c.cap).map((c) => c.label);
     const checks = outcome.length ? ['the agent exits 0', ...outcome] : t.checks.map((c) => c.label);
-    const k = t.takeover?.callNo ?? null;
+    // Without an outcome check nothing is scored, so no model takes over: the mock's "no call to take over".
+    const takeover = outcome.length && t.status !== 'no-golden' ? t.takeover : null;
+    const k = takeover?.callNo ?? null;
     return {
       golden: t.golden,
       name: t.name,
-      sub: t.takeover && t.status !== 'no-golden' ? `takes over at #${t.takeover.callNo} · ${t.takeover.why}${t.scope !== null && t.scopes.length > 1 ? ` · plays scope ${t.scope}` : ''}` : 'no call to take over',
+      sub: takeover ? `takes over at #${takeover.callNo} · ${takeover.why}${t.scope !== null && t.scopes.length > 1 ? ` · plays scope ${t.scope}` : ''}` : 'no call to take over',
       takeover: k,
       checks,
       after: k !== null ? t.after : null,
@@ -539,6 +540,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
 export const PAIRS_EXPORT_FILE = '.shadowlap/exports/pairs.jsonl';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** Attempts per task Score a model offers; the job takes no other count (the CLI takes any). */
+export const SCORE_ATTEMPTS: readonly number[] = [5, 10];
 const MODEL_NAME = /^[\w.:/@+][\w.:/@+-]{0,199}$/;
 
 /**
@@ -555,9 +558,10 @@ export function exportPairsJob(body: unknown): { args: string[]; out: string } |
 }
 
 /**
- * Score a model as a job: `{ model, baseUrl?, attempts, goldens? }` from the dialog, checked, as argv
- * after `shadowlap`. The goldens must be ready tasks (every ready task when none are named); the model
- * is a name, and the base URL an http or https URL, such as an OpenAI-compatible server's.
+ * Score a model as a job: `{ model, baseUrl?, attempts (5 or 10), goldens? }` from the dialog,
+ * checked, as argv after `shadowlap`. The goldens must be ready tasks (every ready task when none are
+ * named); the model is a name, and the base URL an http or https URL, such as an OpenAI-compatible
+ * server's.
  */
 export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: string[]; goldens: string[] } | { error: string } {
   if (!isObject(body)) return { error: 'the request must be a JSON object' };
@@ -577,7 +581,7 @@ export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: st
     base = url.toString().replace(/\/+$/, '');
   }
   const n = attempts ?? 5;
-  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100) return { error: 'attempts must be a whole number from 1 to 100' };
+  if (!SCORE_ATTEMPTS.includes(n as number)) return { error: `attempts must be ${SCORE_ATTEMPTS.join(' or ')}` };
   const ready = tasks.filter((t) => t.status === 'ready').map((t) => t.golden);
   let chosen: string[];
   if (goldens === undefined || goldens === null) chosen = ready;

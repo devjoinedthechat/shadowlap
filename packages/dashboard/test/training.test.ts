@@ -120,6 +120,11 @@ describe('the Training read model', () => {
     expect(blame!.context).toContain('read_policy returned');
     expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
     expect(verify!.source.href).toBe(`#/run/${target.runId}/5/forks`);
+    // The group opens the run verify replayed, at the call; the rejected answer opens its own attempt.
+    expect(verify!.href).toBe(`#/run/${target.runId}/5`);
+    expect(verify!.rejected).toMatchObject({ what: 'verify attempt, failed', callNo: 5 });
+    expect(verify!.rejected.runId).not.toBe(target.runId);
+    expect(verify!.rejected.href).toBe(`#/run/${verify!.rejected.runId}/5`);
     expect(view.pairs.madeBy).toEqual({ [`blame:${lost.runId}`]: 2, [verify!.source.key]: 1 });
 
     expect(view.pairs.sources.map((x) => [x.label, x.made, x.confidence])).toEqual([
@@ -159,10 +164,11 @@ describe('the Training read model', () => {
       ['refund-flow-budget', 'not a task', 'n', null],
     ]);
     expect(view.tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating', checks: ['the agent exits 0', 'issue_refund called 0 times'], after: { live: ['queue_status'], stubbed: ['send_email'] } });
-    expect(view.tasks.rows[3]).toMatchObject({ checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
+    // Checks that only cap spending score nothing, so no model takes over: no call, no tools after it.
+    expect(view.tasks.rows[3]).toMatchObject({ sub: 'no call to take over', takeover: null, after: null, checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
     expect(view.tasks.weak).toBe('refund-flow-budget');
     // A golden with a simulated user: the row says which scope the model plays, and why it can't be scored yet.
-    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
+    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
     expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
 
     // Means count the ready tasks only: qwen's zeros on the blocked task don't.
@@ -222,7 +228,8 @@ describe('the Training read model', () => {
     expect(scoreModelJob({ model: 'm; rm -rf /' }, TASKS)).toEqual({ error: 'model must be a model name, such as qwen2.5:7b' });
     expect(scoreModelJob({ model: 'm', baseUrl: 'file:///etc/passwd' }, TASKS)).toEqual({ error: 'baseUrl must be an http or https URL' });
     expect(scoreModelJob({ model: 'm', baseUrl: 'http://user:pw@127.0.0.1:8000/v1' }, TASKS)).toMatchObject({ error: expect.stringContaining('must not carry credentials') });
-    expect(scoreModelJob({ model: 'm', attempts: 0 }, TASKS)).toEqual({ error: 'attempts must be a whole number from 1 to 100' });
+    expect(scoreModelJob({ model: 'm', attempts: 0 }, TASKS)).toEqual({ error: 'attempts must be 5 or 10' });
+    expect(scoreModelJob({ model: 'm', attempts: 3 }, TASKS)).toEqual({ error: 'attempts must be 5 or 10' });
     expect(scoreModelJob({ model: 'm' }, TASKS.filter((t) => t.status !== 'ready'))).toEqual({ error: 'no task is ready to score' });
   });
 

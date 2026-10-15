@@ -160,7 +160,7 @@ describe('GET /api/training', () => {
       ['claude-sonnet-5', 1, '≈$0.040 spent'],
       ['qwen2.5:7b', 0.75, '$0, not a paid API'],
     ]);
-    expect(view.serve?.response).toContain('"exitCode": 0');
+    expect(view.serve?.response).toContain('{ "check": "issue_refund called 0 times", "pass": true } ],');
   });
 
   it('answers 304 when nothing changed, filters by confidence, and refuses a filter it doesn’t know', async () => {
@@ -271,7 +271,8 @@ describe('the pairs and score jobs', () => {
       [{ model: 'm; rm -rf /' }, 'model must be a model name, such as qwen2.5:7b'],
       [{ model: 'm', baseUrl: 'file:///etc/passwd' }, 'baseUrl must be an http or https URL'],
       [{ model: 'm', goldens: ['goldens/refund-in-limit'] }, 'goldens/refund-in-limit is not a ready task'],
-      [{ model: 'm', attempts: 1000 }, 'attempts must be a whole number from 1 to 100'],
+      [{ model: 'm', attempts: 1000 }, 'attempts must be 5 or 10'],
+      [{ model: 'm', attempts: 7 }, 'attempts must be 5 or 10'],
     ] as const) {
       const r = await startJob(dash, { kind: 'score', ...body });
       expect(r.status).toBe(400);
