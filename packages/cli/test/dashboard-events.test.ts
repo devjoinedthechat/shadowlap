@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -134,6 +134,42 @@ describe('a command started by a dashboard job', () => {
       expect(outside).toMatchObject({ ref: 'share-with-ravi', data: { outside: true } });
       expect(JSON.stringify(outside)).not.toContain('..');
       expect(JSON.stringify(outside)).not.toContain(elsewhere);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('export html, har, dataset and otel: name the file each wrote, and what it holds', async () => {
+    const quiet = { env: { OTEL_EXPORTER_OTLP_ENDPOINT: '' } };
+    const exports: Array<[string[], string, string, Record<string, unknown>]> = [
+      [['export', 'html', recordingId, 'run.html'], 'run.html', 'HTML', { runIds: [recordingId], calls: 30, redacted: false }],
+      [['export', 'har', recordingId, 'run.har'], 'run.har', 'HAR', { entries: expect.any(Number), skipped: expect.any(Number) }],
+      [['export', 'dataset', recordingId, '--out', 'dataset.jsonl'], 'dataset.jsonl', 'Dataset', { examples: 1, runs: 1, format: 'jsonl', calls: 'final' }],
+      [['export', 'otel', recordingId, '--out', 'trace.json'], 'trace.json', 'OTel trace', { spans: 31, written: true, sent: false }],
+    ];
+    for (const [args, name, label, result] of exports) {
+      const r = await shadowlap(args, quiet);
+      expect(r.code, r.out).toBe(0);
+      const file = r.events.find((e) => e.type === 'file') as { path: string; label: string } | undefined;
+      expect(file?.label, name).toBe(label);
+      expect(realpathSync(file!.path)).toBe(realpathSync(join(cwd, name)));
+      expect(r.events.find((e) => e.type === 'result'), name).toEqual({ type: 'result', data: result });
+    }
+  });
+
+  it('unpack: reports the runs it brought in, the pack\'s own run last, so the job opens it', async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'sl-dash-events-unpack-'));
+    try {
+      // The fork made above, packed with the recording it came from.
+      const fork = withStore((s) => s.childRuns(recordingId).find((r) => !r.meta?.repeat))!.runId;
+      expect((await shadowlap(['pack', fork, 'share/lineage', '--lineage'])).code).toBe(0);
+      const r = await shadowlap(['unpack', join(cwd, 'share', 'lineage')], { db: join(elsewhere, 'shadowlap.db') });
+      expect(r.code, r.out).toBe(0);
+      expect(r.events.filter((e) => e.type === 'run')).toEqual([
+        { type: 'run', runId: recordingId, role: 'imported' },
+        { type: 'run', runId: fork, role: 'imported' },
+      ]);
+      expect(r.events.find((e) => e.type === 'result')).toEqual({ type: 'result', data: { imported: [recordingId, fork], skipped: [] } });
     } finally {
       rmSync(elsewhere, { recursive: true, force: true });
     }

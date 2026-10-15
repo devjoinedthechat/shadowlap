@@ -232,6 +232,9 @@ export function register(program: Command): void {
       }
       for (const { runId, argv } of result.commands) process.stdout.write(`imported ${runId}  ${p.dim(`command: ${safe(quoteArgv(argv))}`)}\n`);
       for (const id of result.skipped) process.stdout.write(p.dim(`skipped ${id} (already present)\n`));
+      // A dashboard job opens what it brought in: the pack's own run, which comes after its ancestors.
+      for (const runId of result.imported) emitJobEvent({ type: 'run', runId, role: 'imported' });
+      emitJobEvent({ type: 'result', data: { imported: result.imported, skipped: result.skipped } });
       if (result.commands.length) {
         process.stdout.write(p.yellow(`\nReplaying an imported run executes the command it was recorded with (shown above), which came from whoever made the pack.\n`) + p.dim(`shadowlap replay asks before running it; give your own command after "--" to run that instead.\n`));
       }
