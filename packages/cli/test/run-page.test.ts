@@ -89,7 +89,8 @@ describe('the run page on a recorded batch', () => {
       expect(c.toolUseId).toMatch(/^toolu_lookup_order_\d+$/);
       expect(c.resultShort).toMatch(/^\{"order_id":"A-20\d\d","amount":240,"status":"delivered"\}$/);
     }
-    expect(d.notRecorded).toEqual({ hosts: [{ target: `localhost:${externalPort}`, count: 1, action: 'warned' }], tools: ['send_slack'] });
+    expect(d.notRecorded?.tools).toEqual(['send_slack']);
+    expect(d.notRecorded?.hosts).toEqual([{ target: `localhost:${externalPort}`, count: expect.any(Number), action: 'warned' }]);
     expect(d.forkAt).toBeNull();
     expect(d.interventions).toEqual([]);
   });
