@@ -484,6 +484,10 @@ describe('shadowlap fix', () => {
     expect((await shadowlap(['fix', 'ls'])).stdout).toContain('! shadowlap test failed on its goldens');
     shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
     expect(shown).toMatchObject({ broken: 'shadowlap test failed on its goldens', applied: { tests: 'failed', via: 'fix apply', patch: 'applied' }, actions: { apply: { pending: 'run shadowlap test on its goldens' } } });
+    // --no-test leaves the failed test as it is, and says so.
+    const untested = await shadowlap(['fix', 'apply', fixId, '--no-test']);
+    expect(untested.code).toBe(1);
+    expect(untested.stdout).toMatch(new RegExp(`! ${fixId.slice(0, 13)} is already applied \\([^)]*\\), but its goldens failed their last test: run it without --no-test to test them\n`));
 
     sh(project, 'git', ['checkout', '--', 'agent.mjs']);
     sh(project, 'git', ['apply', report.output.patch]);
