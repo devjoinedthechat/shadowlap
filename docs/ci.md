@@ -43,7 +43,7 @@ The JUnit report renders in GitHub, GitLab and most CI dashboards; each pack is 
 
 Each `shadowlap test` is a session, kept in the project's store (`.shadowlap/shadowlap.db`, created if needed): the command as you gave it, the revision it tested, when, how many goldens passed and failed, and the upstream requests it made (0 for goldens that replay offline). For each golden the session keeps its result and why it failed: a divergence, with the report as printed; a failed check, with every check; a non-zero exit; or a replay that made no calls. Over time that is each golden's result at each revision. A golden is named by its pack directory relative to the project, so its history follows it as long as it stays there.
 
-The replays a session makes are runs like any other, marked as made by `shadowlap test` for that golden, so you can open one: each prints `replaying run <id>` as it starts, and the JSON report (`--json`) names the session, each golden's replays and the recording it replayed. Global `--db :memory:` (given before `test`) keeps nothing.
+The replays a session makes are runs like any other, marked as made by `shadowlap test` for that golden, so you can open one: each prints `replaying run <id>` as it starts, and the JSON report (`--json`) names the session, each golden's replays and the recording it replayed. So the store doesn't fill with clean replays, only the newest one of each golden is kept; every replay that failed stays, with the last clean one before it, as does any replay you labelled, noted or forked. Global `--db :memory:` (given before `test`) keeps nothing.
 
 ## Outcome checks
 

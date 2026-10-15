@@ -8,7 +8,7 @@ import { BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
-import { formatChecks, junitCase, outputTail, packResult, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { formatChecks, junitCase, outputTail, packResult, pruneReplays, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { describeChange, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
@@ -140,6 +140,7 @@ export function register(program: Command): void {
       const results: PackResult[] = [];
       let upstreamRequests = 0;
       let updates = 0;
+      const tested = new Map<string, { ok: boolean; fork: boolean }>();
       try {
         for (const packDir of packs) {
           const golden = goldenName(packDir, projectDir);
@@ -218,7 +219,9 @@ export function register(program: Command): void {
           });
           cases.push(junitCase(outcome));
           results.push(packResult(outcome, { expect, updated }));
+          tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
         }
+        pruneReplays(store, session, tested);
       } finally {
         // Counted from the results recorded, so a session cut short by an error counts what ran.
         const passed = results.filter((r) => r.ok).length;

@@ -245,3 +245,39 @@ export function junitCase(o: GoldenOutcome): JunitCase {
   const output = o.result?.shown.output ?? '';
   return { name: o.name, classname: 'shadowlap.replay', timeSeconds: o.seconds, ...(failure ? { failure } : {}), ...(output ? { systemOut: output } : {}) };
 }
+
+/**
+ * Replays of earlier sessions that passed are not kept once a newer one exists: the test history
+ * keeps how each did, and the store doesn't fill with clean replays. Kept: every failing replay (a
+ * fix starts from one), the newest passing one when this session's replay of that golden failed (to
+ * compare against), anything with labels, notes or runs made from it, and anything from a session
+ * still running or that ended after this one started. Returns how many runs it deleted.
+ */
+export function pruneReplays(store: Store, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): number {
+  const byGolden = new Map<string, RunRecord[]>();
+  for (const run of store.allRuns()) {
+    const t = run.meta?.test;
+    if (!t || t.session === session.sessionId || !tested.has(t.golden)) continue;
+    const list = byGolden.get(t.golden);
+    if (list) list.push(run);
+    else byGolden.set(t.golden, [run]);
+  }
+  const ended = new Map<string, number | null>();
+  const endedAt = (id: string) => {
+    if (!ended.has(id)) ended.set(id, store.getTestSession(id)?.endedAt ?? null);
+    return ended.get(id)!;
+  };
+  let deleted = 0;
+  for (const [golden, runs] of byGolden) {
+    const now = tested.get(golden)!;
+    const passing = runs.filter((r) => r.status === 'completed' && !r.meta?.checks?.some((c) => !c.ok) && (!r.divergence || now.fork));
+    for (const run of passing.slice(now.ok ? 0 : 1)) {
+      const at = endedAt(run.meta!.test!.session);
+      if (at === null || at > session.startedAt) continue;
+      if (run.meta?.labels?.length || run.meta?.notes?.length || store.childRuns(run.runId).length) continue;
+      store.deleteRun(run.runId);
+      deleted++;
+    }
+  }
+  return deleted;
+}

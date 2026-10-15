@@ -103,6 +103,29 @@ describe('shadowlap test history', () => {
     s.close();
   });
 
+  it('keeps the newest clean replay of each golden, and every one that failed', async () => {
+    const replays = () => {
+      const s = store();
+      const runs = s.allRuns().filter((r) => r.meta?.test?.golden === 'goldens/reference-agent').map((r) => r.runId);
+      s.close();
+      return runs;
+    };
+    const idOf = (r: Result) => /replaying run (\w{26})/.exec(r.out)![1]!;
+    const first = idOf(await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT]));
+    const second = idOf(await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT]));
+    expect(replays()).toEqual([second]);
+    // A labelled replay is kept; a failing one is kept, with the newest clean one before it.
+    expect((await shadowlap(['label', second, 'baseline'])).code).toBe(0);
+    const third = idOf(await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT]));
+    expect(replays()).toEqual([third, second]);
+    const failing = idOf(await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT], { AGENT_SYSTEM_SUFFIX: 'Be brief.' }));
+    expect(replays()).toEqual([failing, third, second]);
+    // The history still has every session's result, with the run it made.
+    const s = store();
+    expect(s.listTestResults({ golden: 'goldens/reference-agent' }).map((r) => r.runId)).toEqual([failing, third, second, first]);
+    s.close();
+  });
+
   it('keeps nothing with --db :memory:, and refuses a pattern that matches nothing', async () => {
     const r = await shadowlap(['--db', ':memory:', 'test', 'goldens/*', '--cwd', ROOT]);
     expect(r.code, r.out).toBe(0);
