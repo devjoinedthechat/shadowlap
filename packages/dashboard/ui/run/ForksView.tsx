@@ -4,13 +4,15 @@ import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { familyLine, repeatBundle, type RunLike } from '../runs.js';
+import { familyLine, type RunLike } from '../runs.js';
 import { useApp } from '../state.js';
+import { attemptBundle } from './forks.js';
 
 /**
  * Forks: the run's family, its recording and every replay and fork of it, each with a line that says
- * what happened ("fork @17 · 13 live · 1 blocked"). Attempts of one `--repeat` are bundled with how
- * many passed.
+ * what happened ("fork @17 · 13 live · 1 blocked"). The attempts one command made are bundled: a
+ * `--repeat` with how many passed, a blame probe linking to the fix's blame step (the probe it settled
+ * on marked blamed), a verify linking to its verdict.
  */
 
 function asRun(n: LineageNode, listed: RunListItem | undefined): RunLike {
@@ -85,23 +87,28 @@ export function ForksView({ runId }: { runId: string }) {
       const sub = family(n.runId);
       if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
-    for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
+    const parentNode = parent ? nodes.find((n) => n.runId === parent) ?? null : null;
+    for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} parent={parentNode} current={runId} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };
   return <div className="fam">{family(null)}</div>;
 }
 
-function Bundle({ attempts, current }: { attempts: LineageNode[]; current: string }) {
-  const b = repeatBundle(attempts.map((n) => ({ runId: n.runId, status: n.status, divergence: n.divergence, spent: n.spent, startedAt: n.startedAt, repeat: n.repeat, checks: n.checks })));
+function Bundle({ attempts, parent, current }: { attempts: LineageNode[]; parent: LineageNode | null; current: string }) {
+  const b = attemptBundle(
+    attempts.map((n) => ({ runId: n.runId, status: n.status, divergence: n.divergence, spent: n.spent, startedAt: n.startedAt, repeat: n.repeat, checks: n.checks, probe: n.probe ?? null, verify: n.verify ?? null, fix: n.fix ?? null })),
+    parent ? { blamedAt: parent.blamedAt ?? null, fix: parent.fix ?? null } : null,
+  );
   const first = attempts.find((n) => n.runId === b.attempts[0]?.runId) ?? attempts[0]!;
   const has = attempts.some((n) => n.runId === current);
   return (
-    <a className={`fnode${has ? ' here' : ''}`} href={href.run(first.runId)}>
-      <Glyph kind="fork" label="Repeated attempts" />
+    <a className={`fnode${has ? ' here' : ''}`} href={b.href ?? href.run(first.runId)}>
+      <Glyph kind={b.glyph} label={b.glyphLabel} />
       <span>
         <span className="f1">
           <code>{b.title}</code>
+          {b.blamed ? <span className="chip">blamed</span> : null}
         </span>
         <span className="f2 block">{b.line}</span>
         <span className="attempts">

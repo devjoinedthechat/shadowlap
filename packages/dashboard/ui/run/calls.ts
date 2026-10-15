@@ -54,20 +54,40 @@ export function tokensText(c: CallLike): string {
   return `${ktok(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} → ${ktok(c.usage.output)}`;
 }
 
-/** The detail beside a call's name: a model call's stop reason or HTTP failure, a tool's arguments. */
-export function callDetail(c: CallLike): { text: string; err: boolean } {
+/**
+ * The tools each model call asked for, by the calls the run made for it (`requestedBy`), as the Calls
+ * view words them: `search_web, read_file`, a tool asked for more than once with its count.
+ */
+export function askedTools(calls: ReadonlyArray<{ callNo: number; kind: string; name: string; requestedBy?: number | null }>): Map<number, string> {
+  const by = new Map<number, Map<string, number>>();
+  for (const c of calls) {
+    if (c.kind !== 'tool' || c.requestedBy === null || c.requestedBy === undefined) continue;
+    const names = by.get(c.requestedBy) ?? new Map<string, number>();
+    names.set(c.name, (names.get(c.name) ?? 0) + 1);
+    by.set(c.requestedBy, names);
+  }
+  return new Map([...by].map(([n, names]) => [n, [...names].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(', ')]));
+}
+
+/**
+ * The detail beside a call's name: a model call's HTTP failure, the tools it asked for (`→ search_web`)
+ * or its stop reason; a tool's arguments; the value a clock read or a random value gave.
+ */
+export function callDetail(c: CallLike, asked?: string | null): { text: string; err: boolean } {
   if (c.kind === 'api') {
     if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : ''}` : (c.error ?? 'error'), err: true };
-    if (c.resultShort) return { text: c.resultShort, err: false };
-    return { text: [c.model, c.stopReason].filter(Boolean).join(' · '), err: false };
+    if (asked) return { text: `→ ${asked}`, err: false };
+    if (asked === undefined && c.resultShort) return { text: c.resultShort, err: false };
+    return { text: (asked === undefined ? [c.model, c.stopReason] : [c.stopReason]).filter(Boolean).join(' · '), err: false };
   }
+  if (c.kind === 'clock' || c.kind === 'random') return { text: c.resultShort ?? c.detail, err: false };
   if (c.error && c.origin !== 'blocked' && c.origin !== 'stubbed') return { text: c.detail || c.error, err: false };
   return { text: c.detail, err: false };
 }
 
 /** What a tool returned, on the line under it: the server's short result, or what fenced it. */
 export function resultLine(c: CallLike): { text: string; err: boolean } | null {
-  if (c.kind === 'api') return null;
+  if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked') return { text: 'blocked', err: true };
   if (c.resultShort) return { text: `${c.origin === 'stubbed' ? 'stubbed ' : ''}${c.resultShort}`, err: false };
   if (c.origin === 'stubbed') return { text: 'stubbed', err: false };

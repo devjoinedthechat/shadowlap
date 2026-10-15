@@ -14,11 +14,11 @@ import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js
 
 export type OriginFilter = 'all' | 'live' | 'rep' | 'over' | 'inject' | 'fail' | 'block';
 
-export function matchesFilter(c: CallRow, f: OriginFilter, text: string): boolean {
+export function matchesFilter(c: CallRow, f: OriginFilter, text: string, asked?: string | null): boolean {
   const o = originOf(c);
   if (f === 'block' ? o !== 'block' && o !== 'stub' : f !== 'all' && o !== f) return false;
   if (!text) return true;
-  const d = callDetail(c).text;
+  const d = callDetail(c, asked).text;
   const res = resultLine(c)?.text ?? '';
   return `${callName(c.kind, c.name)} ${c.name} ${d} ${res} ${c.model ?? ''} #${c.callNo}`.toLowerCase().includes(text.toLowerCase());
 }
@@ -65,7 +65,7 @@ export function CallsToolbar({ counts, filter, onFilter, text, onText, inputRef 
   );
 }
 
-export function CallsTable({ calls, selected, scoped, forkAt, lostAt, ancestors, live, canFork, onSelect, onFork }: { calls: CallRow[]; selected: number | null; scoped: boolean; forkAt: number | null; lostAt: number | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
+export function CallsTable({ calls, asked, selected, scoped, forkAt, lostAt, ancestors, live, canFork, onSelect, onFork }: { calls: CallRow[]; asked: ReadonlyMap<number, string> | null; selected: number | null; scoped: boolean; forkAt: number | null; lostAt: number | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
   const body = useRef<HTMLTableSectionElement>(null);
   const placed = useRef(false);
   // Keep the selected row in view, scrolling the views pane only: centred when the run opens, by as
@@ -101,15 +101,15 @@ export function CallsTable({ calls, selected, scoped, forkAt, lostAt, ancestors,
       </thead>
       <tbody ref={body}>
         {calls.map((c) => (
-          <Row key={c.callNo} c={c} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} ancestors={ancestors} live={live} canFork={canFork} onSelect={onSelect} onFork={onFork} />
+          <Row key={c.callNo} c={c} asked={c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} ancestors={ancestors} live={live} canFork={canFork} onSelect={onSelect} onFork={onFork} />
         ))}
       </tbody>
     </table>
   );
 }
 
-const Row = memo(function Row({ c, selected, scoped, mark, ancestors, live, canFork, onSelect, onFork }: { c: CallRow; selected: boolean; scoped: boolean; mark: 'fork' | 'lost' | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
-  const d = callDetail(c);
+const Row = memo(function Row({ c, asked, selected, scoped, mark, ancestors, live, canFork, onSelect, onFork }: { c: CallRow; asked: string | null | undefined; selected: boolean; scoped: boolean; mark: 'fork' | 'lost' | null; ancestors: readonly CallIndex[]; live: boolean; canFork: boolean; onSelect: (n: number) => void; onFork: (n: number, el: HTMLElement) => void }) {
+  const d = callDetail(c, asked);
   const res = resultLine(c);
   const t = timeOf(c, ancestors, live);
   return (

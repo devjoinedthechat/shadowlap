@@ -23,12 +23,13 @@ describe('the fork menu from the newer action list', () => {
 
   it('keeps the server’s order, and leaves out what has a place of its own', () => {
     const menu = forkMenu(grouped, 'lookup_order');
+    // At a call, the option alone, as a menu shows a shortcut; the whole flag is on the line's hover and in its dialog.
     expect(menu.call.map((m) => [m.label, m.flag])).toEqual([
-      ['Override this tool’s result', '--override 16=…'],
-      ['Answer with a tool error', '--fail-at 16=timeout'],
-      ['Plant a prompt injection here', '--inject-result 16=…'],
-      ['Force lookup_order live', '--live-tool lookup_order'],
-      ['Diverge here', '--diverge-at 16'],
+      ['Override this tool’s result', '--override'],
+      ['Answer with a tool error', '--fail-at'],
+      ['Plant a prompt injection here', '--inject-result'],
+      ['Force lookup_order live', '--live-tool'],
+      ['Diverge here', '--diverge-at'],
     ]);
     expect(menu.run.map((m) => [m.label, m.flag])).toEqual([
       ['Repeat the replay and compare', '--repeat 5'],

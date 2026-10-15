@@ -1,4 +1,5 @@
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
+import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 
 /**
  * The shapes the dashboard's API answers with, as the views read them: the server's types
@@ -128,6 +129,8 @@ export interface ProvenanceView {
   mask?: { rules: number; values: number | null } | null;
   startedUtc?: string;
   endedUtc?: string | null;
+  /** The run and the runs it came from, the recording first, each with its code version. */
+  lineage?: Array<{ runId: string; codeVersion: string | null }>;
 }
 
 /** What `/api/runs/:id` may add for the run page. */
@@ -161,6 +164,8 @@ export interface FixView {
   title: string;
   /** Where it opens, when the server says. */
   href?: string | null;
+  /** The check its failures failed, in words (`send_email never called`), when the server says. */
+  check?: string | null;
 }
 /**
  * The server's run with the fields above as the views read them. The run page's read model sends
@@ -198,7 +203,17 @@ export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {
   forkTitle?: string;
 };
 
-export type LineageNode = ServerLineageNode & { probe?: unknown; verify?: unknown; origins?: string | string[] | null };
+export type LineageNode = ServerLineageNode & { origins?: string | string[] | null };
+
+/**
+ * What the run page offers for a run beyond its record (`/api/runs/:id/offers`): how many redaction
+ * rules each copy applies, where the run stands with the team store, the check Run blame uses, Find
+ * the commit's revisions, and the diverged test's actions.
+ */
+export type RunOffers = ServerRunOffers;
+export type BlameOffer = NonNullable<ServerRunOffers['blame']>;
+export type BisectOffer = NonNullable<ServerRunOffers['bisect']>;
+export type TestBannerOffer = NonNullable<ServerRunOffers['test']>;
 
 export interface LiveRun {
   runId: string;

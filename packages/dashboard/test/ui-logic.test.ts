@@ -446,7 +446,7 @@ describe('fork menu', () => {
     const next = [a('t', 'Answer with a tool error', { flag: '--fail-at 16=timeout', group: 'call' }), a('b', 'Find the commit that broke it', { flag: 'bisect', group: 'run' }), a('l', 'Fork: force get_policy live (--live-tool)')];
     const menu = forkMenu(next, 'get_policy');
     expect(menu.call.map((x) => [x.label, x.flag])).toEqual([
-      ['Answer with a tool error', '--fail-at 16=timeout'],
+      ['Answer with a tool error', '--fail-at'],
       ['Force get_policy live', '--live-tool'],
     ]);
     expect(menu.run.map((x) => [x.label, x.flag])).toEqual([['Find the commit that broke it', 'bisect']]);

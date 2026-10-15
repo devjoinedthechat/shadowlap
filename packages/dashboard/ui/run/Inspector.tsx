@@ -146,6 +146,9 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
   ) : null;
   if (!conv) return <>{note}<div className="ibar">The request could not be read as a conversation; the Request tab shows it as stored.</div></>;
   const turns = conv.turns;
+  // A run of many conversations (a batch): which one this call's is.
+  const conversations = calls.reduce((n, x) => Math.max(n, x.conversation ?? 0), 0);
+  const which = conv.n && conversations > 1 ? ` · conversation ${num(conv.n)} of ${num(conversations)}` : '';
   // Which call each message came from, when the server names the tool calls' ids.
   const from = turnCalls(turns, calls);
   // Tool results name their call only by id in some providers: the tool's name comes from the call that asked for it.
@@ -159,8 +162,9 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
       {note}
       <div className="ibar">
         <span>
-          {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{c.callNo}
-          {conv.model ? ` · ${conv.model}` : ''}
+          {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{conv.fromCallNo ?? c.callNo}
+          {which}
+          {conv.model && !which ? ` · ${conv.model}` : ''}
         </span>
         {change ? (
           <button

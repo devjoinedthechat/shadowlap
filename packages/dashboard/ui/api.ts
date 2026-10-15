@@ -3,7 +3,7 @@ import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
+import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload } from './types.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -32,6 +32,13 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // ---- the run page reaches these, each registered by its own slice: Find the commit, the diverged
+  // test's Add normalizer and Update golden (tests), Push and the share link (the team store).
+  bisect: 'bisect',
+  normalizeAndTest: 'normalize-and-test',
+  testUpdate: 'test-update',
+  push: 'push',
+  share: 'share',
 } as const;
 
 export class ApiError extends Error {
@@ -89,6 +96,10 @@ export interface Client {
   lineage(id: string): Promise<LineageNode[]>;
   /** The run's record for Provenance, or null when the server does not work it out. */
   provenance(id: string): Promise<ProvenanceView | null>;
+  /** What the run page offers for a run (Share's counts, Push, Run blame, Find the commit), or null when the server does not say. */
+  offers(id: string): Promise<RunOffers | null>;
+  /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
+  showJson(id: string): Promise<unknown>;
   compare(a: string, b: string): Promise<RunComparison>;
   search(q: string): Promise<SearchHit[]>;
   labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
@@ -133,6 +144,7 @@ function saveBlob(blob: Blob, filename: string): void {
 export function createClient(token: string): Client {
   let hasChanges: boolean | null = null;
   let hasProvenance: boolean | null = null;
+  let hasOffers: boolean | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -191,6 +203,22 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    offers: async (runId) => {
+      if (hasOffers === false) return null;
+      try {
+        const out = await request<RunOffers>(`runs/${id(runId)}/offers`);
+        hasOffers = true;
+        return out;
+      } catch (err) {
+        // A server without the endpoint (not a run it doesn't have): the page offers what the run itself says.
+        if (err instanceof ApiError && (err.status === 405 || (err.status === 404 && /^no endpoint/.test(err.message))) && hasOffers === null) {
+          hasOffers = false;
+          return null;
+        }
+        throw err;
+      }
+    },
+    showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
     compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
     search: (q) => request<{ hits: SearchHit[] }>(`search?q=${id(q)}&limit=40`).then((r) => r.hits),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
@@ -257,6 +285,8 @@ export function createExportedClient(data: StaticPayload): Client {
     call: (runId, n) => get<CallDetail>(`runs/${encodeURIComponent(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${encodeURIComponent(runId)}/lineage`).then((r) => r.nodes),
     provenance: (runId) => Promise.resolve((data.responses[`runs/${encodeURIComponent(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
+    offers: () => Promise.resolve(null),
+    showJson: (runId) => get<unknown>(`runs/${encodeURIComponent(runId)}/show`),
     compare: (a, b) => get<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
     search: () => Promise.resolve([]),
     labels: readOnly,

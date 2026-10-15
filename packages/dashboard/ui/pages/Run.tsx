@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CallDetail, RunDetail } from '../api.js';
+import { JOB_KINDS, type CallDetail, type RunDetail } from '../api.js';
 import { Legend } from '../components/bits.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
@@ -18,6 +18,7 @@ import { CallsTable, CallsToolbar, matchesFilter, type OriginFilter } from '../r
 import { ContextView } from '../run/ContextView.js';
 import { ForksView } from '../run/ForksView.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
+import { askedTools } from '../run/calls.js';
 import { blameOf, checksOf, forkAtOf, originOf } from '../run/model.js';
 import { Banner, DiffPanel, Metrics, ScopeBar } from '../run/parts.js';
 import { ProvenanceView } from '../run/ProvenanceView.js';
@@ -106,7 +107,7 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
 
 function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
-  const { client, toast, exported, actionsOff, setRunCommands, runKeys, setPalette } = app;
+  const { client, toast, exported, actionsOff, setRunCommands, runKeys, setPalette, tick } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   const calls = run.calls;
@@ -144,7 +145,9 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const scopedCalls = useMemo(() => (scope === 'all' ? calls : calls.filter((c) => inScope(c, scope))), [calls, scope]);
   const [filter, setFilter] = useState<OriginFilter>('all');
   const [text, setText] = useState('');
-  const visible = useMemo(() => scopedCalls.filter((c) => matchesFilter(c, filter, text.trim())), [scopedCalls, filter, text]);
+  // The tools each model call asked for, when the server says which call asked for each tool call.
+  const asked = useMemo(() => (calls.some((c) => c.kind === 'tool' && c.requestedBy !== undefined) ? askedTools(calls) : null), [calls]);
+  const visible = useMemo(() => scopedCalls.filter((c) => matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined)), [scopedCalls, filter, text, asked]);
   const filterCounts = useMemo(() => {
     const n = countOrigins(scopedCalls.map(originOf));
     return { all: scopedCalls.length, live: n.live, rep: n.rep, over: n.over, inject: n.inject, fail: n.fail, block: n.block + n.stub } satisfies Record<OriginFilter, number>;
@@ -157,7 +160,9 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const [showDiff, setShowDiff] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
   const forkMenu = useMenu();
-  const actions = useActionRunner(runId, !!run.source);
+  // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find the commit.
+  const offers = useLoad(() => (exported ? null : client.offers(runId)), `${runId}:offers`, tick).data ?? null;
+  const actions = useActionRunner(runId, !!run.source, offers);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${selected}:${selectedRow?.outcome ?? 'pending'}`;
@@ -223,6 +228,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   }, [runKeys, keyState, select, forkMenu]);
 
   // This run, in the palette.
+  const findCommit = useLatest(actions.findCommit);
   useEffect(() => {
     const items: PaletteCommand[] = [];
     const replay = run.actions.find((a) => a.key === 'r');
@@ -247,6 +253,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
           if (btn) setTimeout(() => btn.click());
         },
       });
+    if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: 'Find the commit that broke it…', hint: 'shadowlap bisect', run: () => findCommit.current() });
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => setView('provenance') });
     if (run.parent) items.push({ group: 'This run', label: 'Compare with parent', hint: shortId(run.parent.runId), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
@@ -272,9 +279,9 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} forkMenu={forkMenu} onAction={actions.run} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} />
       <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
-      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} />
+      <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} />
       {showDiff ? <DiffPanel run={run} /> : null}
       <section className="strip">
         {calls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkAt} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
@@ -294,7 +301,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
           {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} /> : null}
           {/* Each view starts at its top; Calls centres the selected call. */}
           <div className="vbody" tabIndex={-1} key={v}>
-            {v === 'calls' ? <CallsTable calls={visible} selected={selected} scoped={scoped} forkAt={forkAt} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} /> : null}
+            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkAt} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
             {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
