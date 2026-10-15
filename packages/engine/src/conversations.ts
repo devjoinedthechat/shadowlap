@@ -541,6 +541,17 @@ const LOOK_BACK = 256;
 
 const sameTool = (requested: string, recorded: string) => requested === recorded || requested.endsWith(`__${recorded}`) || recorded.endsWith(`__${requested}`);
 
+/**
+ * The arguments a model asked for, as the tool was called with them: equal, or every argument the
+ * model gave with the same value (an SDK that records arguments by name adds the defaults).
+ */
+function sameArgs(input: unknown, args: unknown): boolean {
+  if (deepEqual(input, args)) return true;
+  if (!isObject(input) || !isObject(args)) return false;
+  const given = Object.entries(input);
+  return given.length > 0 && given.every(([k, v]) => k in args && deepEqual(v, args[k]));
+}
+
 function attributeOthers(store: Store, calls: readonly CallRecord[], ofCall: Map<number, Open>, byCall: Map<number, CallConversation>, response: (c: CallRecord) => ResponseInfo): void {
   // Model calls that belong to a conversation, oldest first: all of them, and per scope.
   const models = calls.filter((c) => ofCall.has(c.callNo));
@@ -595,7 +606,7 @@ function attributeOthers(store: Store, calls: readonly CallRecord[], ofCall: Map
         const u = usedOf(m);
         for (let k = 0; k < tools.length; k++) {
           if (u[k] || !sameTool(tools[k]!.name, t.name)) continue;
-          if (args !== undefined && deepEqual(tools[k]!.input, args)) {
+          if (args !== undefined && sameArgs(tools[k]!.input, args)) {
             u[k] = true;
             return { model: m, tool: tools[k]! };
           }

@@ -214,6 +214,22 @@ describe('what counts as continuing a conversation', () => {
     store.close();
   });
 
+  it('matches a tool call recorded with its default arguments to the request that left them out', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    // Two tickets at once, both asking for search; the SDK records each call with its defaults.
+    const ma = b.model({ messages: [user('Ticket A')] }, [toolUse('search', { q: 'a' }, 'toolu_a')]);
+    const mb = b.model({ messages: [user('Ticket B')] }, [toolUse('search', { q: 'b' }, 'toolu_b')]);
+    // A's call comes first, after B's request: the latest request of that name is B's.
+    const ta = b.tool('search', { q: 'a', limit: 10 }, []);
+    const tb = b.tool('search', { q: 'b', limit: 10 }, []);
+    b.end();
+    const { r } = conv(store, b.runId);
+    expect(r.byCall.get(ta)).toMatchObject({ conversation: 1, requestedBy: ma, toolUseId: 'toolu_a' });
+    expect(r.byCall.get(tb)).toMatchObject({ conversation: 2, requestedBy: mb, toolUseId: 'toolu_b' });
+    store.close();
+  });
+
   it('places tools nobody asked for with the call waiting on tools, or with the next one', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);
