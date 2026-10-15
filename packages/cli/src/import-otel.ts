@@ -253,8 +253,10 @@ function spansOf(payload: unknown): Span[] {
   const out: Span[] = [];
   const requests = Array.isArray(payload) ? payload : [payload];
   for (const request of requests) {
-    if (!isObject(request) || !Array.isArray(request.resourceSpans)) continue;
-    for (const rs of request.resourceSpans) {
+    // Grafana Tempo downloads a trace with the same content under `batches`.
+    const resources = isObject(request) ? (Array.isArray(request.resourceSpans) ? request.resourceSpans : Array.isArray(request.batches) ? request.batches : null) : null;
+    if (!resources) continue;
+    for (const rs of resources) {
       if (!isObject(rs)) continue;
       const scopes = Array.isArray(rs.scopeSpans) ? rs.scopeSpans : Array.isArray(rs.instrumentationLibrarySpans) ? rs.instrumentationLibrarySpans : [];
       for (const ss of scopes) {
@@ -312,7 +314,7 @@ export interface OtelRead {
 /** Reads OTLP requests into one trace per trace id. Throws only when nothing in them is a span. */
 export function readOtel(payloads: unknown[]): OtelRead {
   const spans = spansOf(payloads);
-  if (!spans.length) throw new Error('not an OpenTelemetry trace: no spans under "resourceSpans"');
+  if (!spans.length) throw new Error('not an OpenTelemetry trace: no spans under "resourceSpans" (or "batches", as Tempo writes it)');
   const byTrace = new Map<string, Span[]>();
   for (const s of spans) byTrace.set(s.traceId, [...(byTrace.get(s.traceId) ?? []), s]);
 

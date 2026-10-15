@@ -134,6 +134,12 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     store.close();
   });
 
+  it('reads a trace downloaded from Grafana Tempo, which calls resourceSpans batches', () => {
+    const exported = JSON.parse(fixture('otel-genai.json')) as { resourceSpans: unknown[] };
+    const read = readOtel([{ batches: exported.resourceSpans }]);
+    expect(read.traces[0]!.calls).toHaveLength(3);
+  });
+
   it('refuses a file with no spans, survives a parent loop, and reads attributes without touching prototypes', () => {
     expect(() => readOtel(parseOtlpFile('{"resourceSpans":[]}'))).toThrow(/no spans/);
     expect(() => parseOtlpFile('not json\nat all')).toThrow(/not OTLP JSON/);
