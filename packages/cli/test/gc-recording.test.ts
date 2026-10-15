@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,14 +47,16 @@ function seedOld(runs: number, calls: number): string[] {
 
 /** A recording in its own process: model calls back to back, then a check that every blob its calls reference is there. */
 const WRITER = `
+const { existsSync } = await import('node:fs');
 const { Store, storeApiRequest, manifestRefs } = await import(${JSON.stringify(`file://${ENGINE}`)});
-const [db, ms, system] = process.argv.slice(1);
+const [db, stop, system] = process.argv.slice(1);
 const store = Store.open(db);
 const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
 process.stdout.write('recording\\n');
-const until = Date.now() + Number(ms);
+// Records until the test says stop, however slow the machine is (and never more than 25 seconds).
+const until = Date.now() + 25000;
 let n = 0;
-while (Date.now() < until) {
+while (Date.now() < until && !(n % 20 === 0 && existsSync(stop))) {
   n++;
   const id = { kind: 'api', name: 'POST /v1/messages', fingerprint: String(n).padStart(64, 'f'), occurrence: 1 };
   store.appendCallStart({ runId: run.runId, callNo: n, ...id, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'm', system, messages: [{ role: 'user', content: 'new ' + n }] }), meta: {}, at: Date.now() });
@@ -84,7 +86,8 @@ function cli(args: string[]): Promise<{ code: number | null; out: string; err: s
 describe('gc while another process records', () => {
   it('deletes old runs but leaves every blob alone until no run is recording', async () => {
     const old = seedOld(6, 40);
-    const writer = spawn(process.execPath, ['--input-type=module', '-e', WRITER, dbPath(), '2500', SYSTEM], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const stop = join(cwd, 'stop');
+    const writer = spawn(process.execPath, ['--input-type=module', '-e', WRITER, dbPath(), stop, SYSTEM], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     writer.stderr!.on('data', (d: Buffer) => (err += d.toString()));
@@ -114,6 +117,7 @@ describe('gc while another process records', () => {
     expect(report.runs.map((x) => x.runId).sort()).toEqual([...old].sort());
     expect(report).toMatchObject({ blobs: 0, deferred: true, recording: [{ runId: expect.any(String) }] });
 
+    writeFileSync(stop, '');
     await done;
     const result = JSON.parse(out.trim().split('\n').pop()!) as { runId: string; calls: number; missing: number };
     expect(err).toBe('');
