@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import {
   countPairs,
@@ -137,7 +137,10 @@ export function register(program: Command): void {
         say(redactionLine(rules.length, !flags.redact));
         const rows = pairRows(store, kept, { format: flags.format, redact: rules });
         const body = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
-        if (flags.out) writeFileSync(flags.out, body);
+        if (flags.out) {
+          mkdirSync(dirname(resolve(flags.out)), { recursive: true });
+          writeFileSync(flags.out, body);
+        }
         else process.stdout.write(body);
         const file = flags.out ?? '-';
         if (rows.length < kept.length) say(p.yellow(`  ${kept.length - rows.length} pair${kept.length - rows.length === 1 ? '' : 's'} left out: the request at that call can't be read`));

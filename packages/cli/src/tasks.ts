@@ -9,12 +9,14 @@ import {
   errorMessage,
   formatDivergence,
   goldenPaths,
+  loadApiRequest,
   oneSided,
   parseTaskFields,
   projectPath,
   readGolden,
   unpackRun,
   untranslatable,
+  type CallRecord,
   type Golden,
   type OneSided,
   type ReadPolicy,
@@ -171,6 +173,30 @@ export interface TaskScore {
   unknownModels: string[];
 }
 
+/**
+ * The model a recorded model request asked for: the one its URL names (Gemini and Vertex
+ * `…/models/<m>:…`, Bedrock `…/model/<m>/…`, an Azure deployment), else its `model` field. Null when
+ * neither says.
+ */
+export function askedModel(store: Store, call: Pick<CallRecord, 'name' | 'requestRef'>): string | null {
+  const path = call.name.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '';
+  const named = /\/models\/([^/:]+)[:/]/.exec(path) ?? /\/model\/([^/]+)\//.exec(path) ?? /\/deployments\/([^/]+)\//.exec(path);
+  if (named) {
+    try {
+      return decodeURIComponent(named[1]!);
+    } catch {
+      return named[1]!;
+    }
+  }
+  if (!call.requestRef) return null;
+  try {
+    const body = loadApiRequest(store, call.requestRef) as { model?: unknown } | null;
+    return typeof body?.model === 'string' ? body.model : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Why a task can't be scored with this target, or null when it can. */
 export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: number): string | null {
   if (task.status !== 'ready') return `${task.golden} is ${task.status === 'not-a-task' ? 'not a task' : task.status === 'no-golden' ? 'gone' : 'blocked'}: ${task.note ?? task.status}`;
@@ -245,6 +271,13 @@ export async function scoreTask(
           break;
         }
         const at = a.calls.find((c) => c.callNo === k);
+        // The score must be the model under test's: a request whose model --model can't change asked the recorded one.
+        const asked = at ? askedModel(store, at) : null;
+        if (asked !== null && asked !== target.model) {
+          result.stopped = `${target.model} wasn't asked at #${k}: the request still named ${asked}, because --model can't change the model of ${provider ? `a ${provider}` : 'this'} request yet (run ${a.run.runId})`;
+          store.updateRunMeta(a.run.runId, { repeat: { group: `${session.id}-${task.name}`, attempt: n, of: settings.of ?? settings.attempts } });
+          break;
+        }
         if (at?.end?.outcome === 'error') {
           // The model never answered the takeover: a score would grade the endpoint, not the model.
           const body = at.end.responseRef ? store.getBlob(at.end.responseRef)?.toString('utf8') : undefined;

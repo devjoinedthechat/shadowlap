@@ -179,6 +179,10 @@ describe('shadowlap export pairs', () => {
       expect(row.chosen[0]!.tool_calls[0]!.function.arguments).toEqual({ reason: 'refund of $240 is above $100' });
       expect(JSON.stringify(row)).toContain('A-1042');
       withStore(db, (s) => expect(s.listPairsExports().map((e) => e.file)).toEqual(['-', 'pairs.jsonl']));
+      // The dashboard's export goes into the project's exports folder, made when it isn't there yet.
+      const nested = await shadowlap(work, ['export', 'pairs', '--out', '.shadowlap/exports/pairs.jsonl']);
+      expect(nested.code, nested.out).toBe(0);
+      expect(readFileSync(join(work, '.shadowlap', 'exports', 'pairs.jsonl'), 'utf8').trim().split('\n')).toHaveLength(1);
     } finally {
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
