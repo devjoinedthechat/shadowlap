@@ -1,9 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, readConfigFile, removeRule, storeApiRequest, type Effect, type RunMeta } from '@shadowlap/engine';
-import { agentsSection, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpServers, parseJsonc, projectSettings, redactionSettings, toolsSettings } from '../src/settings.js';
+import { agentsSection, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServers, parseJsonc, projectSettings, redactionSettings, toolsSettings } from '../src/settings.js';
+
+const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
 let cwd: string;
 let store: Store;
@@ -40,7 +43,7 @@ describe('matchingSettings', () => {
     expect(m.config).toMatchObject({ file: 'shadowlap.config.json', exists: false, version: 'absent', error: null });
     expect(m.rules).toEqual([]);
     expect(m.clock).toEqual({ mode: 'auto', explicit: false, error: null });
-    expect(m.calibrate).toEqual({ runId: null, source: null, label: 'Record a run first', command: null, argv: null });
+    expect(m.calibrate).toEqual({ runId: null, source: null, label: 'Record a run first', command: null, argv: null, writeArgv: null });
     expect(m.form).toEqual({ kinds: ['api', 'tool', 'clock', 'random'], patterns: ['iso-datetime', 'iso-date', 'uuid', 'ulid', 'number', 'email'], defaultReplace: '<MASKED>' });
   });
 
@@ -70,7 +73,7 @@ describe('matchingSettings', () => {
     expect(m.rules[4]!.rule).toBeNull();
     expect(m.rules[2]!.remove).toEqual(['normalize', 'rm', '3']);
     expect(m.clock).toEqual({ mode: 'exact', explicit: true, error: null });
-    expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', label: `Calibrate ${newest.runId.slice(0, 10)}`, command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId] });
+    expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', label: `Calibrate ${newest.runId.slice(0, 10)}`, command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId], writeArgv: ['calibrate', newest.runId, '--write'] });
     expect(matchingSettings({ store, cwd, setupRunId: setup.runId }).calibrate).toMatchObject({ runId: setup.runId, source: 'setup' });
   });
 
@@ -144,9 +147,10 @@ describe('codingAgentsSettings', () => {
       { path: '.cursor/rules', agents: 'Cursor', found: true, type: 'folder', mentions: true },
       { path: '.github/copilot-instructions.md', agents: 'GitHub Copilot', found: false, type: null, mentions: false },
     ]);
-    // Read from the docs when asked, so the page and the docs can't disagree.
-    expect(s.section).toMatch(/^## Debugging the agent with Shadowlap\n\nAgent runs are recorded with Shadowlap/);
-    expect(s.section).toContain('shadowlap test goldens/*');
+    // Read from the docs when asked, so the page and the docs can't disagree: the block as docs/agents.md has it.
+    expect(s.section).toBeTruthy();
+    expect(repoDoc('agents.md')).toContain(`\n${s.section}\n\`\`\``);
+    expect(s.section).toMatch(/shadowlap/i);
     expect(s.section).not.toContain('```');
     expect(codingAgentsSettings({ cwd }, { agentsDoc: null }).section).toBeNull();
   });
@@ -202,7 +206,13 @@ describe('toolsSettings', () => {
 
   it('takes the client config example from docs/mcp.md', () => {
     const t = toolsSettings({ store, cwd });
-    expect(JSON.parse(t.mcp.clientConfig!)).toMatchObject({ mcpServers: { filesystem: { command: 'shadowlap', args: expect.arrayContaining(['mcp']) } } });
+    const servers = Object.values((JSON.parse(t.mcp.clientConfig!) as { mcpServers: Record<string, { command: string; args: string[] }> }).mcpServers);
+    expect(servers.length).toBeGreaterThan(0);
+    for (const server of servers) expect([server.command, server.args[0]]).toEqual(['shadowlap', 'mcp']);
+    expect(repoDoc('mcp.md')).toContain(t.mcp.clientConfig!);
+    // The first JSON block that lists servers, not an example of something else before it.
+    expect(mcpClientConfig('```json\n{ "mcp": { "effects": {} } }\n```\n\n```json\n{ "mcpServers": {} }\n```\n')).toBe('{ "mcpServers": {} }');
+    expect(mcpClientConfig('no blocks')).toBeNull();
   });
 });
 
@@ -240,6 +250,46 @@ describe('mcpServers', () => {
     expect(JSON.stringify(servers)).not.toMatch(/ghp_|never_shown|Bearer|sk_live/);
   });
 
+  it('hides a credential in a URL wherever it appears: the target, the shadowlap mcp line and the entry', () => {
+    put('.mcp.json', JSON.stringify({
+      mcpServers: {
+        remote: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp?api_key=SECRET1'] },
+        bridge: { command: 'npx', args: ['-y', 'mcp-remote', 'https://mcp.example.com/sse?token=SECRET2'] },
+        db: { command: 'node', args: ['server.js', '--endpoint=https://u:SECRET3@db.example.com/x', 'https://x.example.com/#access_token=SECRET4'] },
+      },
+    }));
+    const { servers } = mcpServers(cwd);
+    expect(JSON.stringify(servers)).not.toMatch(/SECRET/);
+    expect(servers.map((s) => [s.name, s.hidden])).toEqual([['remote', true], ['bridge', true], ['db', true]]);
+    expect(servers[0]).toMatchObject({ target: 'https://mcp.example.com/mcp?api_key=•••', line: "shadowlap mcp --url 'https://mcp.example.com/mcp?api_key=•••'", viaShadowlap: true });
+    expect(servers[1]!.entry.args).toEqual(['mcp', '--', 'npx', '-y', 'mcp-remote', 'https://mcp.example.com/sse?token=•••']);
+    expect(servers[2]!.target).toBe("node server.js --endpoint=https://db.example.com/x 'https://x.example.com/#•••'");
+  });
+
+  it('knows shadowlap mcp behind a package runner, and reads a config file through a link', () => {
+    put('shared/mcp.json', JSON.stringify({
+      mcpServers: {
+        a: { command: 'pnpm', args: ['dlx', 'shadowlap@0.2.0', 'mcp', '--', 'node', 'a.js'] },
+        b: { command: 'npm', args: ['exec', '--yes', '--', 'shadowlap', 'mcp', '--url', 'https://b.example.com/mcp'] },
+        c: { command: 'bunx', args: ['shadowlap', 'mcp', 'node', 'c.js'] },
+        d: { command: 'npx', args: ['-y', 'some-server', 'shadowlap', 'mcp'] },
+      },
+    }));
+    symlinkSync(join(cwd, 'shared', 'mcp.json'), join(cwd, '.mcp.json'));
+    const { servers } = mcpServers(cwd);
+    expect(servers.map((s) => [s.name, s.viaShadowlap, s.transport, s.target])).toEqual([
+      ['a', true, 'stdio', 'node a.js'],
+      ['b', true, 'http', 'https://b.example.com/mcp'],
+      ['c', true, 'stdio', 'node c.js'],
+      ['d', false, 'stdio', 'npx -y some-server shadowlap mcp'],
+    ]);
+  });
+
+  it('does not read a client config that is too large to be one', () => {
+    put('.mcp.json', `{"mcpServers": {}, "pad": "${'x'.repeat(1024 * 1024)}"}`);
+    expect(mcpServers(cwd).files[0]).toEqual({ path: '.mcp.json', found: true, error: 'larger than 1 MB, so it was not read' });
+  });
+
   it('finds nothing in a project with no MCP config', () => {
     expect(mcpServers(cwd)).toEqual({ servers: [], files: [{ path: '.mcp.json', found: false, error: null }, { path: '.cursor/mcp.json', found: false, error: null }, { path: '.vscode/mcp.json', found: false, error: null }] });
   });
@@ -255,6 +305,10 @@ describe('secrets in commands and URLs', () => {
 
   it('reads VS Code config files: comments and trailing commas, strings left alone', () => {
     expect(parseJsonc('{\n // a comment\n "a": "http://x//y", /* block */ "b": [1, 2,],\n}')).toEqual({ a: 'http://x//y', b: [1, 2] });
+    // A comma and a bracket inside a string are text, not a trailing comma.
+    expect(parseJsonc('{ "args": ["a, }", "b,]", "c \\" ,}"], }')).toEqual({ args: ['a, }', 'b,]', 'c " ,}'] });
+    expect(parseJsonc('[1, /* two */ 2 /* , */ ]')).toEqual([1, 2]);
+    expect(() => parseJsonc('{ "a": 1,, }')).toThrow();
   });
 });
 

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync, type Dirent, type Stats } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent, type Stats } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -92,8 +92,12 @@ export interface MatchingSettings {
   form: RuleForm;
   /** `explicit`: the file says auto or exact; `error`: it says something else, which loading the config refuses. */
   clock: { mode: ClockMode; explicit: boolean; error: string | null };
-  /** The button: "Calibrate <run>" with the job's argv, or "Record a run first" with none. */
-  calibrate: { runId: string | null; source: 'setup' | 'newest' | null; label: string; command: string | null; argv: string[] | null };
+  /**
+   * The button: "Calibrate <run>" with the job's argv, or "Record a run first" with none. The job
+   * streams each round and ends with a result event (the object `calibrate --json` prints); when it
+   * proposed normalizers, "Add it (--write)" runs `writeArgv`, which replays again and adds them.
+   */
+  calibrate: { runId: string | null; source: 'setup' | 'newest' | null; label: string; command: string | null; argv: string[] | null; writeArgv: string[] | null };
 }
 
 export interface RedactionSettings {
@@ -265,8 +269,8 @@ export function matchingSettings(ctx: SettingsContext): MatchingSettings {
     form: form('normalize'),
     clock: { ...clock, error: written === undefined || clock.explicit ? null : `${CONFIG_FILE}: clock must be "auto" or "exact"` },
     calibrate: target
-      ? { runId: target.run.runId, source: target.source, label: `Calibrate ${shortRun(target.run.runId)}`, command: `shadowlap calibrate ${shortRun(target.run.runId)}`, argv: ['calibrate', target.run.runId] }
-      : { runId: null, source: null, label: 'Record a run first', command: null, argv: null },
+      ? { runId: target.run.runId, source: target.source, label: `Calibrate ${shortRun(target.run.runId)}`, command: `shadowlap calibrate ${shortRun(target.run.runId)}`, argv: ['calibrate', target.run.runId], writeArgv: ['calibrate', target.run.runId, '--write'] }
+      : { runId: null, source: null, label: 'Record a run first', command: null, argv: null, writeArgv: null },
   };
 }
 
@@ -373,9 +377,19 @@ export function agentsSection(doc: string): string | null {
   return fencedBlock(from >= 0 ? doc.slice(from) : doc, 'md');
 }
 
+/** The fenced code blocks in `text` marked `lang`, in order, without their fences. */
+function fencedBlocks(text: string, lang: string): string[] {
+  const re = new RegExp('^```' + lang + '[ \\t]*\\r?\\n([\\s\\S]*?)^```[ \\t]*$', 'gm');
+  return [...text.matchAll(re)].map((m) => m[1]!.replace(/\r?\n$/, ''));
+}
+
 function fencedBlock(text: string, lang: string): string | null {
-  const m = new RegExp('^```' + lang + '[ \\t]*\\r?\\n([\\s\\S]*?)^```[ \\t]*$', 'm').exec(text);
-  return m ? m[1]!.replace(/\r?\n$/, '') : null;
+  return fencedBlocks(text, lang)[0] ?? null;
+}
+
+/** The client configuration example in docs/mcp.md: its first JSON block that lists servers. */
+export function mcpClientConfig(doc: string): string | null {
+  return fencedBlocks(doc, 'json').find((block) => block.includes('"mcpServers"')) ?? null;
 }
 
 const MONOREPO = 'shadowlap-monorepo';
@@ -480,7 +494,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
     http,
-    mcp: { effects, servers: servers.servers, files: servers.files, clientConfig: doc === null ? null : fencedBlock(doc, 'json') },
+    mcp: { effects, servers: servers.servers, files: servers.files, clientConfig: doc === null ? null : mcpClientConfig(doc) },
   };
 }
 
@@ -493,58 +507,90 @@ const MCP_FILES: Array<{ path: string; key: string }> = [
   { path: '.vscode/mcp.json', key: 'servers' },
 ];
 
-/** JSON with comments and trailing commas, as VS Code writes its config files. */
+/** Where the JSON string starting at `i` (a `"`) ends: the index just past its closing quote. */
+function stringEnd(text: string, i: number): number {
+  let j = i + 1;
+  while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+  return j + 1;
+}
+
+/** JSON with comments and trailing commas, as VS Code writes its config files. Strings are left exactly as they are. */
 export function parseJsonc(text: string): unknown {
-  let out = '';
-  let i = 0;
-  while (i < text.length) {
+  // Comments out, strings kept whole: a "//" inside a URL is not a comment.
+  let plain = '';
+  for (let i = 0; i < text.length; ) {
     const c = text[i]!;
     if (c === '"') {
-      let j = i + 1;
-      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
-      out += text.slice(i, j + 1);
-      i = j + 1;
+      const end = stringEnd(text, i);
+      plain += text.slice(i, end);
+      i = end;
     } else if (c === '/' && text[i + 1] === '/') {
       while (i < text.length && text[i] !== '\n') i++;
     } else if (c === '/' && text[i + 1] === '*') {
       const end = text.indexOf('*/', i + 2);
       i = end < 0 ? text.length : end + 2;
+      plain += ' ';
     } else {
-      out += c;
+      plain += c;
       i++;
     }
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'));
+  // A comma before a closing bracket goes, but only between tokens: "a, }" in a string stays.
+  let out = '';
+  for (let i = 0; i < plain.length; ) {
+    const c = plain[i]!;
+    if (c === '"') {
+      const end = stringEnd(plain, i);
+      out += plain.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (c === ',') {
+      let j = i + 1;
+      while (j < plain.length && /\s/.test(plain[j]!)) j++;
+      if (plain[j] === '}' || plain[j] === ']') {
+        i++;
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return JSON.parse(out);
 }
 
 const SECRET_FLAG = /(token|key|secret|password|passwd|auth|credential|bearer)/i;
 const SECRET_VALUE = /^(sk-|sk_|rk_|pk_live|ghp_|gho_|ghs_|github_pat_|glpat-|xox[abpr]-|AKIA|ASIA|AIza|ya29\.|eyJ)/;
+const URL_LIKE = /^[a-z][a-z0-9+.-]*:\/\//i;
 const HIDDEN = '•••';
 
 /**
  * Arguments with anything that looks like a credential hidden: the value of a flag, a `NAME=value`
- * or a `Header: value` whose name says it is one, and a token recognisable by its shape.
+ * or a `Header: value` whose name says it is one, a URL's user, password and query values (as an
+ * argument or a flag's value), and a token recognisable by its shape.
  */
 export function hideSecrets(argv: readonly string[]): string[] {
   return argv.map((a, i) => {
-    const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=(.+)$/.exec(a);
-    if (assigned && SECRET_FLAG.test(assigned[1]!)) return `${assigned[1]}=${HIDDEN}`;
-    const header = /^([\w-]+)\s*:\s*\S/.exec(a);
-    if (header && SECRET_FLAG.test(header[1]!)) return `${header[1]}: ${HIDDEN}`;
     const prev = argv[i - 1];
     if (prev && /^--?[\w.-]+$/.test(prev) && SECRET_FLAG.test(prev) && !a.startsWith('-')) return HIDDEN;
+    const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=(.+)$/.exec(a);
+    if (assigned && SECRET_FLAG.test(assigned[1]!)) return `${assigned[1]}=${HIDDEN}`;
+    if (assigned && URL_LIKE.test(assigned[2]!)) return `${assigned[1]}=${hideUrlSecrets(assigned[2]!)}`;
+    if (URL_LIKE.test(a)) return hideUrlSecrets(a);
+    const header = /^([\w-]+)\s*:\s*\S/.exec(a);
+    if (header && SECRET_FLAG.test(header[1]!)) return `${header[1]}: ${HIDDEN}`;
     if (SECRET_VALUE.test(a) || /^Bearer\s/i.test(a)) return HIDDEN;
     return a;
   });
 }
 
-/** A URL without its user, password or query values. */
+/** A URL without its user, password, query values or fragment. */
 export function hideUrlSecrets(url: string): string {
   try {
     const u = new URL(url);
-    if (!u.username && !u.password && !u.search) return url;
+    if (!u.username && !u.password && !u.search && !u.hash) return url;
     const query = [...new Set(u.searchParams.keys())].map((k) => `${encodeURIComponent(k)}=${HIDDEN}`).join('&');
-    return `${u.protocol}//${u.host}${u.pathname}${query ? `?${query}` : ''}`;
+    return `${u.protocol}//${u.host}${u.pathname}${query ? `?${query}` : ''}${u.hash ? `#${HIDDEN}` : ''}`;
   } catch {
     return url;
   }
@@ -553,15 +599,23 @@ export function hideUrlSecrets(url: string): string {
 const quote = (a: string) => (/^[\w@%+=:,./•-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
 const commandLine = (argv: readonly string[]) => argv.map(quote).join(' ');
 
+/** The arguments after `mcp` when an entry starts `shadowlap mcp`, directly or through a package runner. */
+function shadowlapMcpArgs(command: string, args: string[]): string[] | null {
+  if (/(^|[\\/])shadowlap(\.cmd|\.exe)?$/i.test(command)) return args[0] === 'mcp' ? args.slice(1) : null;
+  let runner: string[];
+  if (/(^|[\\/])(npx|pnpx|bunx)(\.cmd|\.exe)?$/i.test(command)) runner = args;
+  else if (/(^|[\\/])(pnpm|yarn|bun|npm)(\.cmd|\.exe)?$/i.test(command) && ['dlx', 'x', 'exec'].includes(args[0] ?? '')) runner = args.slice(1);
+  else return null;
+  // `npx -y shadowlap mcp …`, `pnpm dlx shadowlap@1.2.0 mcp …`, `npm exec -- shadowlap mcp …`
+  const at = runner.findIndex((a) => /^shadowlap(@.*)?$/.test(a));
+  if (at < 0 || runner[at + 1] !== 'mcp' || runner.slice(0, at).some((a) => !a.startsWith('-'))) return null;
+  return runner.slice(at + 2);
+}
+
 /** `shadowlap mcp …` in a client entry: the server it stands in front of. */
 function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'; target: string[] } | null {
-  let rest: string[];
-  if (/(^|[\\/])shadowlap(\.cmd|\.exe)?$/i.test(command) && args[0] === 'mcp') rest = args.slice(1);
-  else if (/(^|[\\/])(npx|pnpx|bunx)(\.cmd)?$/i.test(command)) {
-    const at = args.findIndex((a) => /^shadowlap(@.*)?$/.test(a));
-    if (at < 0 || args[at + 1] !== 'mcp' || args.slice(0, at).some((a) => !a.startsWith('-'))) return null;
-    rest = args.slice(at + 2);
-  } else return null;
+  const rest = shadowlapMcpArgs(command, args);
+  if (!rest) return null;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if (a === '--url') return { transport: 'http', target: [rest[i + 1] ?? ''] };
@@ -578,11 +632,14 @@ export function mcpServers(cwd: string): { servers: McpServerRow[]; files: Array
   const servers: McpServerRow[] = [];
   const files = MCP_FILES.map(({ path, key }) => {
     const full = join(cwd, path);
+    let st: Stats;
     try {
-      if (!lstatSync(full).isFile()) return { path, found: false, error: null };
+      st = statSync(full);
     } catch {
       return { path, found: false, error: null };
     }
+    if (!st.isFile()) return { path, found: false, error: null };
+    if (st.size > READ_LIMIT) return { path, found: true, error: `larger than ${READ_LIMIT / (1024 * 1024)} MB, so it was not read` };
     let parsed: unknown;
     try {
       parsed = parseJsonc(readFileSync(full, 'utf8'));
