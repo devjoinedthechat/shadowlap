@@ -385,7 +385,7 @@ export function setupView(input: SetupInput): SetupView {
 
   // 2 · Record a first run
   const unwrappedAtRecord = run && s.runId === run.runId ? s.unwrappedAtRecord : [];
-  // A model server the dashboard can't forward to (its address holds credentials) is recorded in a terminal.
+  // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
   const canRecord = inspected && !(server && !server.upstream);
   const recordText = !server
     ? 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.'

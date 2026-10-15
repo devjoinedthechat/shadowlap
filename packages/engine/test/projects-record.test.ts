@@ -63,6 +63,8 @@ describe('parseAgentCommand', () => {
       ['node a.mjs # a comment', /a comment/],
       ['python ~/agent.py', /~ would not mean your home folder/],
       ['OPENAI_BASE_URL=http://x node a.mjs', /NAME=value/],
+      // The command a model-server project's step shows for a terminal, pasted whole.
+      ['SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node a.mjs', /Leave out SHADOWLAP_UPSTREAM_OPENAI=…: the dashboard records through the model server init finds/],
       ['node a.mjs\nrm -rf /', /line break/],
       ['node "a.mjs', /double quote is never closed/],
       ["node 'a.mjs", /single quote is never closed/],

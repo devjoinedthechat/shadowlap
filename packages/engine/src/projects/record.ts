@@ -95,6 +95,9 @@ export function parseAgentCommand(line: string): ParsedCommand {
   if (args[lead] === 'shadowlap' && args[lead + 1] === 'run' && args[lead + 2] === '--') args.splice(0, lead + 3);
   if (!args.length) return { ok: false, error: 'Give the command that starts your agent.' };
   if (args[0] === 'shadowlap' || (args[0] === 'npx' && args[1] === 'shadowlap')) return { ok: false, error: 'Give the command that starts your agent: Shadowlap runs it with shadowlap run.' };
+  // The step's command for a project on its own model server starts with the upstream; the dashboard sets that itself.
+  const upstream = /^(SHADOWLAP_UPSTREAM_[A-Z0-9_]+)=/.exec(args[0]!);
+  if (upstream) return { ok: false, error: `Leave out ${upstream[1]}=…: the dashboard records through the model server init finds in the project. To record through another one, use a terminal.` };
   if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(args[0]!)) return { ok: false, error: 'Shadowlap runs the command without a shell, so NAME=value before it would not set a variable. Set it before starting the dashboard, or in a script.' };
   if (args.length > COMMAND_LIMITS.args) return { ok: false, error: `The command has more than ${COMMAND_LIMITS.args} arguments.` };
   return { ok: true, argv: args };
