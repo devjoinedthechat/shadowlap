@@ -46,6 +46,9 @@ describe('a replay’s interventions', () => {
       { flag: '--note', value: null, callNo: null },
     ]);
     expect(describeInterventions(undefined)).toEqual([]);
+    // A model named with its version, as on Vertex, is a model; a value with an address in it is not.
+    expect(describeInterventions(undefined, { set: { fromCall: 4, fields: { model: 'claude-opus-5@20260101' } } })).toEqual([{ flag: '--model', value: '4:claude-opus-5@20260101', callNo: 4 }]);
+    expect(describeInterventions(undefined, { set: { fromCall: 4, fields: { model: 'ask jane.doe@corp.example' } } })).toEqual([{ flag: '--set', value: '4:model', callNo: 4 }]);
   });
 
   it('reads the files overrides came from as the CLI was given them', () => {

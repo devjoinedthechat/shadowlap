@@ -36,11 +36,13 @@ export function overrideSources(specs: readonly string[]): Record<number, string
   return out;
 }
 
-/** A short word a flag takes (a status such as `529` or `timeout`, a model or tool name): never a payload. */
+/** A short word a flag takes (a status such as `529` or `timeout`, a tool name): never a payload. */
 const WORD = /^[A-Za-z0-9][\w.:/-]{0,79}$/;
-const word = (v: unknown): string | null => {
+/** A model id, which may name its version after an `@` (Vertex: `claude-opus-5@20260101`). */
+const MODEL = /^[A-Za-z0-9][\w.:/-]{0,79}(?:@[\w.-]{1,40})?$/;
+const word = (v: unknown, shape = WORD): string | null => {
   const s = typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' ? v : null;
-  return s !== null && WORD.test(s) ? s : null;
+  return s !== null && shape.test(s) ? s : null;
 };
 
 /**
@@ -70,7 +72,7 @@ export function describeInterventions(replay: Partial<ReplayOptions> | undefined
   }
   for (const [key, value] of Object.entries(request?.set?.fields ?? {})) {
     const at = request!.set!.fromCall;
-    const model = key === 'model' ? word(value) : null;
+    const model = key === 'model' ? word(value, MODEL) : null;
     if (model !== null) add('--model', `${at}:${model}`, at);
     else add('--set', `${at}:${key}`, at);
   }
