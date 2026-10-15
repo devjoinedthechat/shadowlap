@@ -6,6 +6,7 @@ import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget 
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
 import { askRepairer, buildRepairPrompt, RepairerError, type RepairCase, type Repairer } from './repairer.js';
+import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 import { runVerify } from './verify.js';
@@ -123,7 +124,9 @@ function gitRoot(cwd: string): string {
  * the one repair runs in, relative to the repository's root. A folder outside it can't be committed.
  */
 function goldensInRepo(root: string, cwd: string, goldens: string): string {
-  const rel = relative(root, resolve(cwd, goldens));
+  // Compared as the system names both: git gives the root's long name on Windows, where the folder
+  // repair runs in may have been reached by a short one (C:\Users\RUNNER~1).
+  const rel = relative(physicalPath(root), physicalPath(resolve(cwd, goldens)));
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new RepairError(`--goldens ${goldens} is outside the repository, so its recordings can't be committed to a branch: give a folder inside it`);
   return rel;
 }
@@ -520,9 +523,11 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
   const dir = join(cwd, '.shadowlap', 'repairs', id);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const out = report.output;
-  out.dir = relative(cwd, dir);
+  // Paths in the report are relative to the folder repair ran in, with forward slashes on every
+  // system: the report is kept in the store, which other machines read.
+  const rel = (f: string) => relative(cwd, f).split(sep).join('/');
+  out.dir = rel(dir);
   const accepted = report.candidates.find((c) => c.id === report.accepted) ?? null;
-  const rel = (f: string) => relative(cwd, f);
 
   if (accepted && report.patch) {
     writeFileSync(join(dir, 'fix.patch'), report.patch);

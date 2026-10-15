@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { mapArgv, physicalPath } from '../src/bisect.js';
+import { mapArgv } from '../src/bisect.js';
+import { physicalPath } from '../src/real-path.js';
 
 /**
  * `shadowlap bisect` through the CLI, on a scratch git repository with a tiny agent: one model call,
@@ -181,15 +182,18 @@ describe('shadowlap bisect', () => {
 });
 
 describe('commits bisect cannot test', () => {
+  // A build step that fails where BROKEN is, in a command line both sh and Windows' cmd.exe read alike.
+  const build = `"${process.execPath}" -e "process.exit(require('fs').existsSync('BROKEN') ? 1 : 0)"`;
+
   it('skips a commit that won\'t build and names it when the first bad commit could be it', async () => {
-    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'test ! -f BROKEN', '--json']);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', build, '--json']);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain(`replay at ${rev['Add usage']}  – skipped: could not be built`);
     const report = JSON.parse(r.stdout) as { first: { short: string }; untested: Array<{ short: string; subject: string }>; steps: Array<{ short: string; skipped: boolean }> };
     expect(report.first.short).toBe(rev['Ask for brevity']);
     expect(report.untested).toEqual([expect.objectContaining({ short: rev['Add usage'], subject: 'Add usage' })]);
     expect(report.steps.find((x) => x.short === rev['Add usage'])!.skipped).toBe(true);
-    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'test ! -f BROKEN']);
+    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', build]);
     expect(text.stdout).toContain(`or one just before it, which could not be tested: ${rev['Add usage']} (Add usage)`);
   });
 
@@ -294,7 +298,8 @@ describe('the command at each commit', () => {
       const m = { root: project, worktree, cwd: project, worktreeCwd: worktree };
       expect(mapArgv(['node', join(link, 'agent.mjs')], m)).toEqual(['node', join(worktree, 'agent.mjs')]);
       expect(mapArgv(['node', join(project, 'agent.mjs')], { ...m, root: link })).toEqual(['node', join(worktree, 'agent.mjs')]);
-      expect(physicalPath(join(link, 'not-yet', 'there.js'))).toBe(join(realpathSync(project), 'not-yet', 'there.js'));
+      // The system's real path: on Windows it writes out a short name such as RUNNER~1, as git does.
+      expect(physicalPath(join(link, 'not-yet', 'there.js'))).toBe(join(realpathSync.native(project), 'not-yet', 'there.js'));
     } finally {
       rmSync(link, { force: true });
     }

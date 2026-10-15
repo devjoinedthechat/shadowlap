@@ -82,7 +82,8 @@ export function expandRecordings(patterns: readonly string[], projectDir: string
     } catch {
       // the folder doesn't exist: nothing matches
     }
-    const found = names.filter((n) => re.test(n) && !n.startsWith('.') && isPack(join(base, n))).map((n) => (parent === '.' ? n : join(parent, n)));
+    // Named with a forward slash on every system, as goldens are named elsewhere: `goldens/refund-*` gives `goldens/refund-in-limit`.
+    const found = names.filter((n) => re.test(n) && !n.startsWith('.') && isPack(join(base, n))).map((n) => (parent === '.' ? n : `${parent.replace(/[\\/]+$/, '')}/${n}`));
     if (!found.length) unmatched.push(pattern);
     found.forEach(add);
   }
