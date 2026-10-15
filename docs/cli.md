@@ -35,7 +35,7 @@ Records a run (`--summary-json <file>` also writes its summary as JSON). Starts 
 shadowlap replay <run> [options] [-- <command> [args...]]
 ```
 
-Replays a recorded run; forks at the first changed call. Re-runs the recorded command unless one follows `--`. The runs a replay makes with intervention flags (`--fail-at`, `--inject`, `--model`, `--set`, `--override`, `--diverge-at`, `--live-tool`, `--prompt-from`, and `--writes` or `--reads` other than the default) carry them in short form (`--inject 15`, without the text), so the [dashboard](./dashboard.md) says how each fork was made.
+Replays a recorded run; forks at the first changed call. Re-runs the recorded command unless one follows `--`.
 
 A run imported with `unpack`, or a replay of one, carries a command someone else recorded. `replay` shows it and asks before running it. Without a terminal to ask on, it refuses: pass `--yes` once you have read the command, or give your own after `--`.
 

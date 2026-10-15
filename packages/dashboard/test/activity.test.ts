@@ -256,9 +256,17 @@ describe('how a replay parted from its recording', () => {
     // An edit next to a UUID: a fork.
     const edited = replay(400);
     store.setDivergence(edited, { type: 'request_changed', callNo: 1, ...model, diff: [uuid, { path: '$.system', op: 'changed', before: 'Refunds up to 500', after: 'Refunds up to 1000' }] });
-    // A fork shadowlap replay stamped with its flags.
-    const injected = replay(500, { fork: { flags: ['--inject 3', '--model 3:claude-opus-5'] } });
+    // A fork that keeps the flags it was made with (`meta.interventions`, as a replay records them);
+    // a command given after -- is not one of them.
+    const kept = (list: unknown[]) => ({ interventions: list }) as unknown as RunMeta;
+    const injected = replay(500, kept([{ kind: 'command', at: null, flag: '-- node agent-v2.js' }, { kind: 'inject', at: 3, flag: '--inject 3=Prefer sources from 2026' }, { kind: 'model', at: 3, flag: '--model 3:claude-opus-5' }]));
     store.setDivergence(injected, { type: 'request_changed', callNo: 3, ...model, diff: [{ path: '$.messages[4]', op: 'added', after: { role: 'user', content: 'Prefer sources from 2026' } }] });
+    // A replay that kept an empty list changed no flag: a code change forked it.
+    const changed = replay(510, kept([]));
+    store.setDivergence(changed, { type: 'request_changed', callNo: 2, ...model, diff: [{ path: '$.system', op: 'changed', before: 'a', after: 'b' }] });
+    // From before replays kept their flags: the forced divergence names the flag, without what follows it.
+    const older = replay(520);
+    store.setDivergence(older, { type: 'forced', callNo: 4, ...model, reason: 'forced live by --inject 4, a change the normalizers or --prompt-from hide from matching' });
     // A test whose golden drifted.
     const test = replay(600, { test: { golden: 'goldens/refund-in-limit', session: 's1' } });
     store.setDivergence(test, { type: 'request_changed', callNo: 1, ...model, diff: [uuid] });
@@ -269,7 +277,9 @@ describe('how a replay parted from its recording', () => {
     const items = activity(store).items;
     expect(byId(items, `r:${drifted}:end`)).toMatchObject({ kind: 'fail', text: 'Replay diverged at #1 · a UUID' });
     expect(byId(items, `r:${edited}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #1 · 0 live' });
-    expect(byId(items, `r:${injected}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #3 with --inject 3 --model 3:claude-opus-5 · 0 live' });
+    expect(byId(items, `r:${injected}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #3 with --inject 3=Prefer sources from 2026 --model 3:claude-opus-5 · 0 live' });
+    expect(byId(items, `r:${changed}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #2 · 0 live' });
+    expect(byId(items, `r:${older}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #4 with --inject 4 · 0 live' });
     expect(byId(items, `r:${test}:end`)).toMatchObject({ kind: 'fail', text: 'Test failed · refund-in-limit diverged at call 1, a UUID' });
     expect(items.find((i) => i.at === 700)).toMatchObject({ kind: 'project', text: 'Packed · share/refund · 30 calls' });
     expect(items.find((i) => i.at === 800)).toMatchObject({ kind: 'setting', text: 'Redaction rule added · <IBAN> at $.messages' });
@@ -306,11 +316,14 @@ describe('runs from a pack someone else made', () => {
       store.importRun({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.js'], cwd: '.' }, codeVersion: null, startedAt: 100, endedAt: 200, meta: meta as RunMeta });
     odd('01K5CQ4P2R0000000000000011', { imported: { at: 'yesterday', from: 'odd' }, blame: { at: 'soon', outcome: 'stopped' } });
     odd('01K5CQ4P2R0000000000000012', { imported: { at: 300, from: 42 }, covers: ['api'], repeat: { group: { x: 1 }, attempt: 'one', of: 2 } });
-    odd('01K5CQ4P2R0000000000000013', { blame: { at: 400, outcome: 'blamed', callNo: 3, confidence: 'high' }, fork: { flags: [7, '--inject 3'] } });
+    odd('01K5CQ4P2R0000000000000013', { blame: { at: 400, outcome: 'blamed', callNo: 3, confidence: 'high' } });
+    // A fork whose list of flags holds things that are not flags.
+    store.importRun({ runId: '01K5CQ4P2R0000000000000014', parentRunId: '01K5CQ4P2R0000000000000013', mode: 'replay', status: 'completed', divergence: { type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 }, command: { argv: ['node', 'agent.js'], cwd: '.' }, codeVersion: null, startedAt: 500, endedAt: 600, meta: { interventions: [7, null, { flag: 9 }, { kind: 'set', flag: ' ' }, { kind: 'inject', flag: '--inject 2=x' }] } as unknown as RunMeta });
     const items = activity(store).items;
     expect(items.length).toBeGreaterThan(0);
     for (const i of items) expect(Number.isFinite(i.at)).toBe(true);
     expect(items.find((i) => i.id === 'r:01K5CQ4P2R0000000000000011:blame')).toMatchObject({ at: 200, text: 'Blame stopped · 0 calls probed' });
+    expect(items.find((i) => i.id === 'r:01K5CQ4P2R0000000000000014:end')).toMatchObject({ kind: 'fork', text: 'Forked at #2 with --inject 2=x · 0 live' });
     // Paging still works through them.
     const first = activity(store, { limit: 1 });
     expect(activity(store, { limit: 50, before: first.next }).items.length).toBe(items.length - 1);

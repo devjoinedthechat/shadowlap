@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
-import { logActivity, stampNewRunsWith } from '../activity.js';
+import { logActivity } from '../activity.js';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
 import { emitJobEvent } from '../job-events.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
@@ -11,27 +11,6 @@ import { confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutco
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
-
-/**
- * The intervention flags a replay was given, short, as its runs carry them (`meta.fork`): what the
- * call was and how it was changed, but not a value that can be long (an injected text, a result).
- */
-export function forkFlags(flags: { writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; inject?: string; set: string[]; model?: string }): string[] {
-  const short = (v: string) => (v.length > 60 ? `${v.slice(0, 59)}…` : v);
-  const call = (v: string) => /^\d+/.exec(v)?.[0] ?? short(v);
-  const out: string[] = [];
-  for (const f of flags.failAt) out.push(`--fail-at ${short(f)}`);
-  if (flags.divergeAt !== undefined) out.push(`--diverge-at ${flags.divergeAt}`);
-  for (const t of flags.liveTool) out.push(`--live-tool ${short(t)}`);
-  for (const o of flags.override) out.push(`--override ${call(o)}`);
-  if (flags.promptFrom !== undefined) out.push(`--prompt-from ${flags.promptFrom}`);
-  if (flags.inject) out.push(`--inject ${call(flags.inject)}`);
-  for (const v of flags.set) out.push(`--set ${short(v)}`);
-  if (flags.model) out.push(`--model ${short(flags.model)}`);
-  if (flags.writes !== 'block') out.push(`--writes ${flags.writes}`);
-  if (flags.reads !== 'live') out.push(`--reads ${flags.reads}`);
-  return out;
-}
 
 export function register(program: Command): void {
   program.commandsGroup('Record and replay:');
@@ -116,9 +95,6 @@ export function register(program: Command): void {
         process.exitCode = 1;
         return;
       }
-      // Each run this makes says how it was forked, for the run page and the activity feed.
-      const fork = forkFlags(flags);
-      if (fork.length) stampNewRunsWith({ fork: { flags: fork } });
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       if (parent.meta?.covers?.length) replay.kinds = new Set(parent.meta.covers);

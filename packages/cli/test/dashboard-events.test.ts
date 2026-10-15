@@ -104,24 +104,15 @@ describe('a command started by a dashboard job', () => {
     });
   });
 
-  it('replay with intervention flags: every run it makes says how it was forked', async () => {
+  it('replay with an intervention flag: the fork says who made it, and the feed names the flag', async () => {
     const r = await shadowlap(['replay', recordingId, '--diverge-at', '5', '--writes', 'stub']);
     const run = r.events.find((e) => e.type === 'run');
     expect(run, r.out).toBeDefined();
     const runId = String(run!.runId);
-    withStore((s) => expect(s.getRun(runId)!.meta).toMatchObject({ author: 'maya@example.com', fork: { flags: ['--diverge-at 5', '--writes stub'] } }));
+    withStore((s) => expect(s.getRun(runId)!.meta).toMatchObject({ author: 'maya@example.com' }));
+    // The flags the replay kept on its run (meta.interventions) when it keeps them; its forced divergence otherwise.
     const entry = withStore((s) => activity(s).items.find((i) => i.runId === runId));
-    expect(entry?.text).toMatch(/^Forked at #5 with --diverge-at 5 --writes stub · /);
-    // Attempts of a forked --repeat carry the flags too; a plain replay carries none.
-    const repeated = await shadowlap(['replay', recordingId, '--repeat', '2', '--diverge-at', '5']);
-    const attempts = repeated.events.filter((e) => e.type === 'run').map((e) => String(e.runId));
-    expect(attempts, repeated.out).toHaveLength(2);
-    withStore((s) => {
-      for (const id of attempts) expect(s.getRun(id)!.meta?.fork).toEqual({ flags: ['--diverge-at 5'] });
-    });
-    const plain = await shadowlap(['replay', recordingId]);
-    const plainId = String(plain.events.find((e) => e.type === 'run')!.runId);
-    withStore((s) => expect(s.getRun(plainId)!.meta?.fork).toBeUndefined());
+    expect(entry?.text).toMatch(/^Forked at #5 with --diverge-at 5( --writes stub)? · /);
   });
 
   it('pack: names the folder it wrote and records it in the activity log, a golden apart from a pack to share', async () => {

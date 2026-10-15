@@ -9,7 +9,6 @@ import type { GlobalOpts } from './shared.js';
  */
 
 let author: string | null | undefined;
-let extra: Partial<RunMeta> = {};
 
 /** Who runs this command (SHADOWLAP_AUTHOR, `ci`, git's user.email, the OS user), worked out once. */
 export function currentAuthor(): string | null {
@@ -17,21 +16,13 @@ export function currentAuthor(): string | null {
   return author;
 }
 
-/**
- * Meta every run this command makes from now on carries besides its author: `replay` marks its
- * forks with the flags that made them before it starts one.
- */
-export function stampNewRunsWith(meta: Partial<RunMeta>): void {
-  extra = { ...extra, ...meta };
-}
-
-/** What a run this command makes is stamped with: its author, and anything `stampNewRunsWith` added. */
+/** What a run this command makes is stamped with: who made it, when that is known. */
 export function newRunMeta(): Partial<RunMeta> {
   const who = currentAuthor();
-  return { ...(who ? { author: who } : {}), ...extra };
+  return who ? { author: who } : {};
 }
 
-/** Marks a run with who made it (and, for a fork, how). Never throws: a run without an author is still a run. */
+/** Marks a run with who made it. Never throws: a run without an author is still a run. */
 export function stampAuthor(store: Store, runId: string): void {
   const meta = newRunMeta();
   if (!Object.keys(meta).length) return;

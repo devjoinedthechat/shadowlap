@@ -157,11 +157,6 @@ export interface RunMeta {
   author?: string;
   /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
   test?: { golden: string; session: string };
-  /**
-   * Set by `shadowlap replay` when it was given intervention flags: the flags, short (`--fail-at
-   * 19=529`, `--inject 15`, `--model 15:claude-opus-5`), so a fork says how it was made.
-   */
-  fork?: { flags: string[] };
 }
 
 /** What `shadowlap blame` found, kept on the run it blamed. */

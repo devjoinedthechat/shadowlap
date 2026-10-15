@@ -134,19 +134,28 @@ const command = (run: RunRecord) => {
 };
 
 /**
- * The flags a fork was made with: what `shadowlap replay` stamped on the run (`meta.fork`), or, for
- * a run without that, what its divergence and calls tell (`--fail-at 19=529`, `--diverge-at 5`,
- * `--live-tool x`, `--override 9`).
+ * The flags a fork was made with. A replay keeps them on its run (`meta.interventions`, each with its
+ * flag, short: `--inject 15=Prefer sources…`, `--model 15:claude-opus-5`, `--writes stub`), and an
+ * empty list says no flag changed it: a fork a code change made. For a run from before replays kept
+ * them, its divergence and calls tell (`--fail-at 19=529`, `--diverge-at 5`, `--live-tool x`,
+ * `--override 9`). The list is read as untrusted: a pack can carry anything.
  */
 export function forkFlag(run: RunRecord, overridden: number[] = []): string | null {
-  const stamped = run.meta?.fork?.flags;
-  if (Array.isArray(stamped)) {
-    const text = stamped.filter((f): f is string => typeof f === 'string').join(' ');
-    if (text) return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+  const listed = (run.meta as unknown as { interventions?: unknown } | undefined)?.interventions;
+  if (Array.isArray(listed)) {
+    const flags: string[] = [];
+    for (const i of listed as unknown[]) {
+      if (typeof i !== 'object' || i === null) continue;
+      const { kind, flag } = i as { kind?: unknown; flag?: unknown };
+      // A command given after `--` is not a flag: the run's own record names it.
+      if (kind !== 'command' && typeof flag === 'string' && flag.trim()) flags.push(flag.trim());
+    }
+    const text = flags.join(' ');
+    return !text ? null : text.length > 120 ? `${text.slice(0, 119)}…` : text;
   }
   const d = run.divergence;
   if (d?.type === 'forced' && d.reason) {
-    const m = /^forced live by (--[a-z-]+ [^:\s]+)/.exec(d.reason);
+    const m = /^forced live by (--[a-z-]+ [^:,\s]+)/.exec(d.reason);
     if (m) return m[1]!;
   }
   if (overridden.length) return `--override ${overridden[0]}`;
