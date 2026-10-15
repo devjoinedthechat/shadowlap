@@ -1,4 +1,4 @@
-import { createWriteStream, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync } from 'node:fs';
+import { createWriteStream, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { ulid } from '@shadowlap/engine';
@@ -192,15 +192,29 @@ export class UploadStore implements UploadSource {
   }
 
   /**
-   * Makes the uploads folder, refusing one that is a link or leads outside the project: a checkout
-   * could have planted `.shadowlap/uploads` pointing anywhere.
+   * Makes the uploads folder, refusing a `.shadowlap` or `uploads` that is a link or leads outside
+   * the project (a checkout could have planted one pointing anywhere), checked before anything is
+   * made inside it. A new `.shadowlap` is kept out of git, as the store keeps its own folder.
    */
   private ensureDir(dir: string): void {
     const project = this.o.project!;
     const parent = join(project.path, '.shadowlap');
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
     for (const d of [parent, dir]) {
-      if (!lstatSync(d).isDirectory()) throw new HttpError(500, `${relative(project.path, d)} is not a folder; remove it and try again`);
+      let made = false;
+      try {
+        if (!lstatSync(d).isDirectory()) throw new HttpError(500, `${relative(project.path, d)} is not a folder; remove it and try again`);
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        mkdirSync(d, { mode: 0o700 });
+        made = true;
+      }
+      if (made && d === parent) {
+        try {
+          writeFileSync(join(parent, '.gitignore'), '*\n', { mode: 0o600, flag: 'wx' });
+        } catch {
+          // there already
+        }
+      }
     }
     const rel = relative(realpathSync(project.path), realpathSync(dir));
     if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new HttpError(500, 'the uploads folder leads outside the project; remove .shadowlap/uploads and try again');

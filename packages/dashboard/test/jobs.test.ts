@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -300,6 +300,38 @@ describe('uploads', () => {
     } finally {
       await quick.close();
       rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!posix)('refuse a planted .shadowlap or uploads folder that leads elsewhere, and make nothing there', async () => {
+    for (const planted of ['.shadowlap', join('.shadowlap', 'uploads')]) {
+      const repo = realpathSync(mkdtempSync(join(tmpdir(), 'sl-jobs-planted-')));
+      const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-jobs-elsewhere-')));
+      if (planted !== '.shadowlap') mkdirSync(join(repo, '.shadowlap'));
+      symlinkSync(elsewhere, join(repo, planted));
+      const d = await startDashboard({ store, spawnCli: cliSpawner({ command: [process.execPath, FAKE], cwd: repo }), project: { path: repo } });
+      try {
+        const res = await upload(d, 'payload');
+        expect(res.status, planted).toBe(500);
+        expect(((await res.json()) as { error: string }).error).toMatch(/is not a folder/);
+        expect(readdirSync(elsewhere), planted).toEqual([]);
+      } finally {
+        await d.close();
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('keep a .shadowlap folder they make out of git', async () => {
+    const fresh = realpathSync(mkdtempSync(join(tmpdir(), 'sl-jobs-fresh-')));
+    const d = await startDashboard({ store, spawnCli: cliSpawner({ command: [process.execPath, FAKE], cwd: fresh }), project: { path: fresh } });
+    try {
+      expect((await upload(d, 'x')).status).toBe(201);
+      expect(readFileSync(join(fresh, '.shadowlap', '.gitignore'), 'utf8')).toBe('*\n');
+    } finally {
+      await d.close();
+      rmSync(fresh, { recursive: true, force: true });
     }
   });
 
