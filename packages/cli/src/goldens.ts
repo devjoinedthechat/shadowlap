@@ -43,14 +43,18 @@ export function expandRecordings(patterns: readonly string[], projectDir: string
     if (!dirs.some((x) => resolve(projectDir, x) === resolve(projectDir, d))) dirs.push(d);
   };
   for (const pattern of patterns) {
-    const last = basename(pattern);
     // A path that exists as given wins, even if its name has a `*` in it.
-    if (!hasWildcard(last) || existsSync(resolve(projectDir, pattern))) {
+    if (existsSync(resolve(projectDir, pattern))) {
       add(pattern);
       continue;
     }
     const parent = dirname(pattern);
     if (hasWildcard(parent)) throw new Error(`only the last part of a recordings path may contain a wildcard: ${pattern}`);
+    const last = basename(pattern);
+    if (!hasWildcard(last)) {
+      add(pattern);
+      continue;
+    }
     const re = new RegExp(`^${last.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
     const base = resolve(projectDir, parent);
     let names: string[] = [];

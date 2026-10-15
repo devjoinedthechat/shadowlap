@@ -4,7 +4,9 @@ export { actionArgs, actionsFor, callDetail, compare, listRuns, runDetail } from
 export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
-// The Settings → CI workflow steps, shared with the browser bundle and docs/ci.md.
+// Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
+export { failingTests, resultLine, shortReason, testRunBanner, testsSummary, testsView } from './tests.js';
+export type { DivergenceView, FailingTest, FailureView, GoldenRow, GoldenSource, HistoryCell, TestRunBanner, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
 export { ACTION, ALERT_FAILURES, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
 export type { AlertsSettings, FixOnFailureSettings } from './ci-yaml.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
