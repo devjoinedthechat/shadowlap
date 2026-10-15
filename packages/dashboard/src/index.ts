@@ -4,8 +4,8 @@ export { actionArgs, actionsFor, callDetail, compare, listRuns, runDetail } from
 export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
-export { exportPairsArgv, readTraining, scoreArgv, scoreNote, trainingView } from './training.js';
-export type { PairFilter, SourceFix, TrainingInput, TrainingView } from './training.js';
+export { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, trainingView } from './training.js';
+export type { ModelOptionView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingView } from './training.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';

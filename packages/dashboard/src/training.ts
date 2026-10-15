@@ -1,12 +1,14 @@
-import { countPairs, findPairs, oneSided as findOneSided, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, PAIR_FORMATS, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 
 /**
  * The Training screen's read model (`#/training`, `#/training/tasks`): preference pairs read from the
  * attempts blame, verify and --repeat left in the store, goldens as tasks, each model's scores on
  * them, and the models to score next. Plain JSON from plain inputs, no HTTP: `readTraining` gathers
- * what the store holds, the caller adds the tasks (they come from the project's goldens and config)
- * and the model listing (it asks providers, so it is fetched on its own), and `trainingView` shapes
- * it all for the screen. Copy follows the mock.
+ * what the store holds, the caller adds the tasks (they come from the project's goldens and config,
+ * which the CLI reads: see `loadTasks` in the CLI's tasks.ts) and the model listing (it asks
+ * providers, so it is fetched on its own and shaped by `scoreDialogView`), and `trainingView` shapes
+ * it all for the screen. The jobs behind Export pairs and Score a model are built here too, from what
+ * the browser names, never from a command line it sends. Copy follows the mock.
  */
 
 export type PairFilter = 'all' | 'high' | 'medium';
@@ -26,6 +28,8 @@ export interface TrainingInput {
   scores: TaskScoreRow[];
   /** Pairs exports, newest first. */
   exports: PairsExport[];
+  /** The goldens' runs the store holds: a task row opens its run only when it is here. All of them when absent. */
+  storedRuns?: Set<string>;
   /** The models to score (A7), or null while they are being listed. */
   models?: ModelListing | null;
   /** Which fix a source belongs to, when Fixes knows. */
@@ -35,7 +39,8 @@ export interface TrainingInput {
 /** What the store holds for Training; `tasks` and `models` come from the caller. */
 export function readTraining(store: Store, extra: { tasks: Task[]; models?: ModelListing | null; fixOf?: (source: PairSource) => SourceFix | null }): TrainingInput {
   const { pairs, sources } = findPairs(store);
-  return { pairs, sources, tasks: extra.tasks, scores: store.listTaskScores(), exports: store.listPairsExports(5), ...(extra.models !== undefined ? { models: extra.models } : {}), ...(extra.fixOf ? { fixOf: extra.fixOf } : {}) };
+  const storedRuns = new Set(extra.tasks.flatMap((t) => (t.runId && store.getRun(t.runId) ? [t.runId] : [])));
+  return { pairs, sources, tasks: extra.tasks, scores: store.listTaskScores(), exports: store.listPairsExports(5), storedRuns, ...(extra.models !== undefined ? { models: extra.models } : {}), ...(extra.fixOf ? { fixOf: extra.fixOf } : {}) };
 }
 
 // ---- the view ----
@@ -96,20 +101,22 @@ export interface TaskRowView {
   after: { live: string[]; stubbed: string[] } | null;
   status: { key: Task['status']; label: string; badge: 'ok' | 'y' | 'n'; short: string | null };
   rewards: string | null;
-  /** The golden's run at the takeover; Tests for a blocked task. */
+  /** The golden's run at the takeover; Tests for a blocked task; null when the store doesn't hold the run. */
   href: string | null;
 }
 
 export interface ModelCardView {
   model: string;
   baseUrl: string | null;
+  /** Where it ran: `the recorded model`, `Anthropic API`, `Ollama, on this machine`. */
   via: string;
   mean: number | null;
   /** The bar's width, 0 to 1. */
   bar: number;
   spent: number;
-  /** `$0.17 spent`, or `$0, not a paid API`. */
+  /** `≈$0.165 spent`, or `$0, not a paid API`. */
   cost: string;
+  /** When it was last scored (ms); the UI shows it after the cost. */
   at: number;
 }
 
@@ -131,9 +138,26 @@ export interface ScoreRowView {
 export interface ModelOptionView extends ModelChoice {
   /** Unique among the options: the model and its endpoint. */
   key: string;
+  /** What the dialog sends to start the job (scoreModelJob): the model as `--model` takes it, and the endpoint. */
+  request: { model: string; baseUrl: string | null };
+  /** `qwen2.5:7b · scored 0.80`, as the picker lists it. */
+  label: string;
   lastScore: number | null;
   /** The note under the picker: where it runs, what an attempt costs, and the score it replaces. */
   note: string;
+}
+
+export interface ScoreDialogView {
+  title: string;
+  options: ModelOptionView[];
+  groups: string[];
+  /** The first model not scored yet, else the first. */
+  selected: string | null;
+  attempts: number[];
+  /** "Your own endpoint…": a base URL and a model name, filled in with these. */
+  endpoint: { key: string; group: string; label: string; baseUrl: string; model: string; note: string };
+  /** Providers that couldn't be listed, and why. */
+  notes: Array<{ group: string; note: string }>;
 }
 
 export interface TrainingView {
@@ -158,17 +182,21 @@ export interface TrainingView {
     /** The first task that isn't one, for "weak checks teach the wrong thing". */
     weak: string | null;
   };
-  scores: { sub: string; empty: string | null; cards: ModelCardView[]; rows: ScoreRowView[] };
+  scores: { sub: string; empty: string | null; cards: ModelCardView[]; rows: ScoreRowView[]; footnote: string };
   serve: { command: string; request: string; response: string } | null;
-  exportDialog: { high: number; all: number; formats: Array<{ value: string; label: string }>; levels: Array<{ value: 'high' | 'medium'; label: string }> };
-  scoreDialog: { title: string; options: ModelOptionView[]; groups: string[]; selected: string | null; attempts: number[]; endpointNote: string; notes: Array<{ group: string; note: string }> } | null;
+  exportDialog: { title: string; text: string; high: number; all: number; formats: Array<{ value: PairFormat; label: string }>; levels: Array<{ value: 'high' | 'medium'; label: string }> };
+  scoreDialog: ScoreDialogView | null;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
-const usd = (n: number) => (n === 0 ? '$0' : n < 0.01 ? `$${n.toFixed(4)}` : n < 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`);
+/** An amount as the mock writes it: `$0.0041`, `$0.017`, `$1.25`, trailing zeros dropped. */
+export const money = (v: number) => (v ? `$${(v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)).replace(/0+$/, '').replace(/\.$/, '')}` : '$0');
+/** An estimate as the mock writes it: `≈$0.165`. */
+export const approx = (v: number) => (v ? `≈$${v < 1 ? v.toFixed(3) : v.toFixed(2)}` : '$0');
 const STATUS: Record<Task['status'], { label: string; badge: 'ok' | 'y' | 'n' }> = { ready: { label: 'ready', badge: 'ok' }, blocked: { label: 'blocked', badge: 'y' }, 'not-a-task': { label: 'not a task', badge: 'n' }, 'no-golden': { label: 'no golden', badge: 'n' } };
 const FROM: Record<PairSource['kind'], string> = { blame: 'from blame', verify: 'from verify', repeat: 'from --repeat' };
+const LOOPBACK = /^https?:\/\/(localhost|127\.|\[::1\])/;
 
 const modelKey = (model: string, baseUrl: string | null) => `${model}\n${baseUrl ?? ''}`;
 
@@ -183,8 +211,8 @@ function pip(row: TaskScoreRow): PipView {
   return { score: row.score, kind: row.score >= 1 ? 'all' : row.score > 0 ? 'some' : 'none', attempt: row.attempt, runId: row.runId, href: row.runId ? `#/run/${row.runId}` : null };
 }
 
-/** Each model's mean over the ready tasks' attempts. */
-function modelMeans(scores: TaskScoreRow[], ready: Set<string>): Map<string, number> {
+/** Each model's mean over the ready tasks' attempts, by model and endpoint. */
+function modelMeans(scores: readonly TaskScoreRow[], ready: Set<string>): Map<string, number> {
   const by = new Map<string, number[]>();
   for (const r of scores) {
     if (!ready.has(r.golden)) continue;
@@ -194,26 +222,38 @@ function modelMeans(scores: TaskScoreRow[], ready: Set<string>): Map<string, num
   return new Map([...by].map(([k, xs]) => [k, mean(xs)]));
 }
 
-/** The note under the model picker. */
-export function scoreNote(c: Pick<ModelChoice, 'via' | 'baseUrl' | 'perAttempt' | 'local'> | null, lastScore: number | null): string {
+/** The note under the model picker: where the model runs, what an attempt costs, and the score it replaces. */
+export function scoreNote(c: Pick<ModelChoice, 'where' | 'baseUrl' | 'perAttempt' | 'local'> | null, lastScore: number | null): string {
   const where = !c
     ? 'Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.'
     : c.local
       ? `Runs at ${c.baseUrl ?? 'this machine'} · not a paid API`
       : c.perAttempt === null
-        ? `${c.via} · no price for this model, so the cost isn't estimated`
-        : `${c.via} · about ${usd(c.perAttempt)} an attempt`;
+        ? `${c.where} · no price for this model, so the cost isn't estimated`
+        : `${c.where} · about ${money(c.perAttempt)} an attempt`;
   return lastScore === null ? where : `${where} · replaces its score of ${lastScore.toFixed(2)}`;
 }
 
-/** What `shadowlap tasks score` runs for a choice, as argv after `shadowlap`. */
-export function scoreArgv(goldens: string[], flags: string[], attempts: number): string[] {
-  return ['tasks', 'score', ...goldens, ...flags, '--attempts', String(attempts)];
-}
-
-/** What `shadowlap export pairs` runs, as argv after `shadowlap`. */
-export function exportPairsArgv(format: 'openai-preference' | 'trl', minConfidence: 'high' | 'medium', out: string): string[] {
-  return ['export', 'pairs', '--min-confidence', minConfidence, '--format', format, '--out', out];
+/** Score a model's picker: the listed models with their last scores, the one to preselect, and "Your own endpoint…". */
+export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskScoreRow[], listing: ModelListing): ScoreDialogView | null {
+  const ready = tasks.filter((t) => t.status === 'ready');
+  if (!ready.length) return null;
+  const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
+  const options: ModelOptionView[] = listing.choices.map((c) => {
+    const last = means.get(modelKey(c.id, c.baseUrl)) ?? null;
+    const flag = (name: string) => (c.flags.includes(name) ? (c.flags[c.flags.indexOf(name) + 1] ?? null) : null);
+    return { ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url') }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note: scoreNote(c, last) };
+  });
+  const first = options.find((o) => o.lastScore === null) ?? options[0] ?? null;
+  return {
+    title: `Score a model on ${plural(ready.length, 'task')}`,
+    options,
+    groups: [...new Set(options.map((o) => o.group))],
+    selected: first?.key ?? null,
+    attempts: [5, 10],
+    endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: scoreNote(null, null) },
+    notes: listing.notes,
+  };
 }
 
 export function trainingView(input: TrainingInput, options: { filter?: PairFilter } = {}): TrainingView {
@@ -223,12 +263,16 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const readySet = new Set(ready.map((t) => t.golden));
   const blocked = input.tasks.filter((t) => t.status === 'blocked').length;
   const notTask = input.tasks.filter((t) => t.status === 'not-a-task').length;
+  const stored = (runId: string | null) => !!runId && (input.storedRuns ? input.storedRuns.has(runId) : true);
 
   // ---- scores ----
+  // The model a ready task's recording asked at its takeover runs as "the recorded model".
+  const recorded = new Set(ready.flatMap((t) => (t.model ? [t.model] : [])));
   const models = new Map<string, { model: string; baseUrl: string | null; via: string; spent: number; at: number; first: number; rows: TaskScoreRow[] }>();
   for (const r of input.scores) {
     const k = modelKey(r.model, r.baseUrl);
-    const m = models.get(k) ?? { model: r.model, baseUrl: r.baseUrl, via: r.via ?? (r.baseUrl ?? 'the recorded provider'), spent: 0, at: 0, first: r.at, rows: [] };
+    const via = r.baseUrl === null && recorded.has(r.model) ? 'the recorded model' : (r.via ?? r.baseUrl ?? 'the recorded provider');
+    const m = models.get(k) ?? { model: r.model, baseUrl: r.baseUrl, via, spent: 0, at: 0, first: r.at, rows: [] };
     m.rows.push(r);
     m.spent += r.spent;
     m.at = Math.max(m.at, r.at);
@@ -239,8 +283,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const ordered = [...models.entries()].sort((a, b) => a[1].first - b[1].first || a[0].localeCompare(b[0]));
   const cards: ModelCardView[] = ordered.map(([k, m]) => {
     const value = means.get(k) ?? null;
-    const local = m.rows.every((r) => r.spent === 0) && !!m.baseUrl && /^https?:\/\/(localhost|127\.|\[::1\])/.test(m.baseUrl);
-    return { model: m.model, baseUrl: m.baseUrl, via: m.via, mean: value, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${usd(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
+    const local = !!m.baseUrl && LOOPBACK.test(m.baseUrl);
+    return { model: m.model, baseUrl: m.baseUrl, via: m.via, mean: value, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
   });
   let best: { model: string; mean: number } | null = null;
   for (const c of cards) if (c.mean !== null && (!best || c.mean > best.mean)) best = { model: c.model, mean: c.mean };
@@ -295,7 +339,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
 
   // ---- tasks ----
   const warn = findOneSided(input.tasks);
-  const opposite = warn?.opposite ? input.tasks.find((t) => t.golden === warn.opposite!.golden) ?? null : null;
+  const opposite = warn?.opposite ? (input.tasks.find((t) => t.golden === warn.opposite!.golden) ?? null) : null;
   const warning = warn
     ? {
         ...warn,
@@ -316,7 +360,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       after: k !== null ? t.after : null,
       status: { key: t.status, ...STATUS[t.status], short: t.note },
       rewards: t.rewards,
-      href: t.status === 'blocked' ? '#/tests' : t.runId ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null,
+      href: t.status === 'blocked' ? '#/tests' : stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null,
     };
   });
 
@@ -325,7 +369,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const serve = first
     ? {
         command: 'shadowlap tasks serve goldens/ --port 4779',
-        request: `POST /v1/tasks/${first.name}/attempts\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1"${first.takeover ? `,\n  "from": ${first.takeover.callNo}` : ''} }`,
+        request: `POST /v1/tasks/${first.name}/attempts\nAuthorization: Bearer <token>\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1"${first.takeover ? `,\n  "from": ${first.takeover.callNo}` : ''} }`,
         response: `200 OK\n${JSON.stringify(
           {
             task: first.name,
@@ -342,32 +386,13 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       }
     : null;
 
-  // ---- score a model ----
-  let scoreDialog: TrainingView['scoreDialog'] = null;
-  if (input.models && ready.length) {
-    const options: ModelOptionView[] = input.models.choices.map((c) => {
-      const last = means.get(modelKey(c.id, c.baseUrl)) ?? null;
-      return { ...c, key: modelKey(c.id, c.baseUrl), lastScore: last, note: scoreNote(c, last) };
-    });
-    const groupsList = [...new Set(options.map((o) => o.group))];
-    const firstUnscored = options.find((o) => o.lastScore === null) ?? options[0] ?? null;
-    scoreDialog = {
-      title: `Score a model on ${plural(ready.length, 'task')}`,
-      options,
-      groups: groupsList,
-      selected: firstUnscored?.key ?? null,
-      attempts: [5, 10],
-      endpointNote: scoreNote(null, null),
-      notes: input.models.notes,
-    };
-  }
-
   const last = input.exports[0] ?? null;
   return {
     strip: {
       pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: '#/training', high: counts.high, medium: counts.medium },
       tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
       best: { value: best ? best.mean.toFixed(2) : '—', sub: best ? `${best.model} · ${plural(cards.length, 'model')} scored` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
+      // The UI adds the export's time (`at`) after the file, as it formats every time.
       left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing until you export it', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
     },
     tabs: { pairs: counts.all, tasks: ready.length },
@@ -391,9 +416,17 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       empty: input.tasks.length ? null : { title: 'No tasks yet', text: 'A golden with outcome checks is a task: a model takes over at one call, and the checks score what it did.', command: 'shadowlap pack <run> goldens/<name>' },
       weak: input.tasks.find((t) => t.status === 'not-a-task')?.name ?? null,
     },
-    scores: { sub: `mean share of checks passed, ${plural(ready.length, 'task')}`, empty: ready.length && cards.length ? null : 'No scores yet.', cards, rows },
+    scores: {
+      sub: `mean share of checks passed, ${plural(ready.length, 'task')}`,
+      empty: ready.length && cards.length ? null : 'No scores yet.',
+      cards,
+      rows,
+      footnote: 'Each attempt replays the calls before the takeover free, so only the model being scored is paid for. Every attempt is a run in the store, so an odd score opens like any fork.',
+    },
     serve,
     exportDialog: {
+      title: 'Export preference pairs',
+      text: 'One JSON line per pair: the conversation as the model saw it at that call, the answer to prefer and the one to avoid. Redaction rules apply to the copy.',
       high: counts.high,
       all: counts.all,
       formats: [
@@ -405,6 +438,66 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         { value: 'medium', label: `High and medium (${counts.all})` },
       ],
     },
-    scoreDialog,
+    scoreDialog: input.models ? scoreDialogView(input.tasks, input.scores, input.models) : null,
   };
+}
+
+// ---- the jobs behind the dialogs ----
+
+/** Where a dashboard export of pairs is written, in the project folder (decision 5). */
+export const PAIRS_EXPORT_FILE = '.shadowlap/exports/pairs.jsonl';
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const MODEL_NAME = /^[\w.:/@+][\w.:/@+-]{0,199}$/;
+
+/**
+ * Export pairs as a job: `{ format, minConfidence }` from the dialog, checked, as argv after
+ * `shadowlap`. The file is always the project's exports folder, so a request can't name a path.
+ */
+export function exportPairsJob(body: unknown): { args: string[]; out: string } | { error: string } {
+  const b = isObject(body) ? body : {};
+  const format = b.format ?? 'openai-preference';
+  const min = b.minConfidence ?? 'high';
+  if (typeof format !== 'string' || !(PAIR_FORMATS as string[]).includes(format)) return { error: `format must be ${PAIR_FORMATS.join(' or ')}` };
+  if (min !== 'high' && min !== 'medium') return { error: 'minConfidence must be high or medium' };
+  return { args: ['export', 'pairs', '--min-confidence', min, '--format', format, '--out', PAIRS_EXPORT_FILE], out: PAIRS_EXPORT_FILE };
+}
+
+/**
+ * Score a model as a job: `{ model, baseUrl?, attempts, goldens? }` from the dialog, checked, as argv
+ * after `shadowlap`. The goldens must be ready tasks (every ready task when none are named); the model
+ * is a name, and the base URL an http or https URL, such as an OpenAI-compatible server's.
+ */
+export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: string[]; goldens: string[] } | { error: string } {
+  if (!isObject(body)) return { error: 'the request must be a JSON object' };
+  const { model, baseUrl, attempts, goldens } = body;
+  if (typeof model !== 'string' || !MODEL_NAME.test(model.trim())) return { error: 'model must be a model name, such as qwen2.5:7b' };
+  let base: string | null = null;
+  if (baseUrl !== undefined && baseUrl !== null && baseUrl !== '') {
+    if (typeof baseUrl !== 'string') return { error: 'baseUrl must be a URL' };
+    let url: URL;
+    try {
+      url = new URL(baseUrl.trim());
+    } catch {
+      return { error: 'baseUrl must be a URL, such as http://127.0.0.1:8000/v1' };
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return { error: 'baseUrl must be an http or https URL' };
+    if (url.username || url.password) return { error: 'baseUrl must not carry credentials: the key is read from the environment' };
+    base = url.toString().replace(/\/+$/, '');
+  }
+  const n = attempts ?? 5;
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100) return { error: 'attempts must be a whole number from 1 to 100' };
+  const ready = tasks.filter((t) => t.status === 'ready').map((t) => t.golden);
+  let chosen: string[];
+  if (goldens === undefined || goldens === null) chosen = ready;
+  else {
+    if (!Array.isArray(goldens) || !goldens.every((g): g is string => typeof g === 'string')) return { error: 'goldens must be a list of golden paths' };
+    const unknown = goldens.find((g) => !ready.includes(g));
+    if (unknown !== undefined) return { error: `${unknown} is not a ready task` };
+    chosen = [...new Set(goldens)];
+  }
+  if (!chosen.length) return { error: 'no task is ready to score' };
+  // A golden path that looks like an option would be read as one.
+  if (chosen.some((g) => g.startsWith('-'))) return { error: 'a golden path must not start with "-"' };
+  return { args: ['tasks', 'score', ...chosen, '--model', model.trim(), ...(base ? ['--base-url', base] : []), '--attempts', String(n)], goldens: chosen };
 }

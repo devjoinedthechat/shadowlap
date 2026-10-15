@@ -54,7 +54,7 @@ export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
 export { attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, findTask, goldenPaths, isPack, isRecordedInput, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
-export { anthropicBase, endpointVia, isLoopback, listModelChoices, ollamaBase, openAIBase, OFFICIAL } from './models.js';
+export { anthropicBase, endpointVia, isLoopback, listingInput, listModelChoices, ollamaBase, openAIBase, OFFICIAL } from './models.js';
 export type { ListModelsInput, ModelChoice, ModelListing } from './models.js';
 export { anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, chatCompletionChunks, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
 export type { AnthropicMessage, ChatCompletion, ChatShape, OpenAITool, ToOpenAIOptions, TranslatedRequest } from './translate.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
-import { exportPairsArgv, readTraining, scoreArgv, scoreNote, trainingView } from '../src/training.js';
+import { approx, exportPairsJob, money, readTraining, scoreModelJob, scoreNote, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
 /**
@@ -63,11 +63,12 @@ const SCORES: TaskScoreRow[] = [
 
 const MODELS: ModelListing = {
   choices: [
-    { group: 'Recorded with', id: 'claude-sonnet-5', via: 'the recorded model', baseUrl: null, flags: ['--model', 'claude-sonnet-5'], perAttempt: 0.03, local: false },
-    { group: 'Anthropic API', id: 'claude-haiku-4-5', via: 'Anthropic API', baseUrl: null, flags: ['--model', 'claude-haiku-4-5'], perAttempt: 0.015, local: false },
-    { group: 'Ollama, on this machine', id: 'qwen2.5:7b', via: 'Ollama, on this machine', baseUrl: 'http://127.0.0.1:11434/v1', flags: ['--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1'], perAttempt: 0, local: true },
+    { group: 'Recorded with', id: 'claude-sonnet-5', via: 'the recorded model', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'claude-sonnet-5'], perAttempt: 0.0165, local: false },
+    { group: 'Anthropic API', id: 'claude-haiku-4-5', via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'claude-haiku-4-5'], perAttempt: 0.0041, local: false },
+    { group: 'OpenAI API', id: 'gpt-5-mini', via: 'OpenAI API', where: 'OpenAI API', baseUrl: null, flags: ['--model', 'openai:gpt-5-mini'], perAttempt: null, local: false },
+    { group: 'Ollama, on this machine', id: 'qwen2.5:7b', via: 'Ollama, on this machine', where: 'Ollama, on this machine', baseUrl: 'http://127.0.0.1:11434/v1', flags: ['--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1'], perAttempt: 0, local: true },
   ],
-  notes: [{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }],
+  notes: [{ group: 'Ollama, on this machine', note: "isn't running" }],
   tokens: { inputTokens: 10_000, outputTokens: 1_000 },
 };
 
@@ -140,7 +141,8 @@ describe('the Training read model', () => {
 
   it('shows each golden as a task, warns when they all reward the same thing, and scores each model', () => {
     const s = Store.open(':memory:');
-    const view = trainingView({ ...readTraining(s, { tasks: TASKS, models: MODELS }), scores: SCORES });
+    // The store holds two goldens' runs; the budget golden was packed elsewhere and never imported.
+    const view = trainingView({ ...readTraining(s, { tasks: TASKS, models: MODELS }), scores: SCORES, storedRuns: new Set(['RUN_refund-over-limit', 'RUN_escalate-over-limit']) });
     expect(view.strip.tasks).toMatchObject({ value: '2 / 4', sub: '1 blocked · 1 not a task' });
     expect(view.tasks.warning).toMatchObject({
       rewards: 'escalate above the limit',
@@ -152,16 +154,16 @@ describe('the Training read model', () => {
       ['refund-over-limit', 'ready', 'ok', '#/run/RUN_refund-over-limit/17'],
       ['escalate-over-limit', 'ready', 'ok', '#/run/RUN_escalate-over-limit/17'],
       ['refund-in-limit', 'blocked', 'y', '#/tests'],
-      ['refund-flow-budget', 'not a task', 'n', '#/run/RUN_refund-flow-budget/17'],
+      ['refund-flow-budget', 'not a task', 'n', null],
     ]);
     expect(view.tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating', checks: ['the agent exits 0', 'issue_refund called 0 times'], after: { live: ['queue_status'], stubbed: ['send_email'] } });
     expect(view.tasks.rows[3]).toMatchObject({ checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
     expect(view.tasks.weak).toBe('refund-flow-budget');
 
     // Means count the ready tasks only: qwen's zeros on the blocked task don't.
-    expect(view.scores.cards.map((c) => [c.model, c.mean, c.cost])).toEqual([
-      ['claude-sonnet-5', 1, '$0.330 spent'],
-      ['qwen2.5:7b', 0.8, '$0, not a paid API'],
+    expect(view.scores.cards.map((c) => [c.model, c.via, c.mean, c.cost])).toEqual([
+      ['claude-sonnet-5', 'the recorded model', 1, '≈$0.330 spent'],
+      ['qwen2.5:7b', 'Ollama, on this machine', 0.8, '$0, not a paid API'],
     ]);
     expect(view.strip.best).toMatchObject({ value: '1.00', sub: 'claude-sonnet-5 · 2 models scored' });
     expect(view.scores.sub).toBe('mean share of checks passed, 2 tasks');
@@ -171,29 +173,57 @@ describe('the Training read model', () => {
     expect(first!.cells[1]!.pips[1]).toMatchObject({ attempt: 2, href: '#/run/qwen2.5:7b-goldens/refund-over-limit-2' });
     expect(second!.cells).toEqual([expect.objectContaining({ model: 'claude-sonnet-5', mean: 1 }), null]);
 
-    expect(view.serve!.request).toBe('POST /v1/tasks/refund-over-limit/attempts\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1",\n  "from": 17 }');
+    expect(view.serve!.request).toBe('POST /v1/tasks/refund-over-limit/attempts\nAuthorization: Bearer <token>\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1",\n  "from": 17 }');
     expect(view.serve!.response).toContain('"check": "issue_refund called 0 times"');
 
     const dialog = view.scoreDialog!;
     expect(dialog.title).toBe('Score a model on 2 tasks');
-    expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
-    expect(dialog.options.map((o) => [o.id, o.lastScore])).toEqual([
-      ['claude-sonnet-5', 1],
-      ['claude-haiku-4-5', null],
-      ['qwen2.5:7b', 0.8],
+    expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'OpenAI API', 'Ollama, on this machine']);
+    expect(dialog.options.map((o) => [o.label, o.lastScore, o.request])).toEqual([
+      ['claude-sonnet-5 · scored 1.00', 1, { model: 'claude-sonnet-5', baseUrl: null }],
+      ['claude-haiku-4-5', null, { model: 'claude-haiku-4-5', baseUrl: null }],
+      ['gpt-5-mini', null, { model: 'openai:gpt-5-mini', baseUrl: null }],
+      ['qwen2.5:7b · scored 0.80', 0.8, { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }],
     ]);
+    // The first model not scored yet is preselected.
     expect(dialog.selected).toBe('claude-haiku-4-5\n');
-    expect(dialog.options[0]!.note).toBe('the recorded model · about $0.030 an attempt · replaces its score of 1.00');
-    expect(dialog.options[2]!.note).toBe('Runs at http://127.0.0.1:11434/v1 · not a paid API · replaces its score of 0.80');
-    expect(dialog.endpointNote).toBe('Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.');
-    expect(dialog.notes).toEqual([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }]);
+    expect(dialog.options.map((o) => o.note)).toEqual([
+      'Anthropic API · about $0.017 an attempt · replaces its score of 1.00',
+      'Anthropic API · about $0.0041 an attempt',
+      "OpenAI API · no price for this model, so the cost isn't estimated",
+      'Runs at http://127.0.0.1:11434/v1 · not a paid API · replaces its score of 0.80',
+    ]);
+    expect(dialog.endpoint).toEqual({ key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: 'Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.' });
+    expect(dialog.notes).toEqual([{ group: 'Ollama, on this machine', note: "isn't running" }]);
     expect(dialog.attempts).toEqual([5, 10]);
     s.close();
   });
 
-  it('builds the commands the dialogs run', () => {
-    expect(scoreArgv(['goldens/a', 'goldens/b'], ['--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1'], 5)).toEqual(['tasks', 'score', 'goldens/a', 'goldens/b', '--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1', '--attempts', '5']);
-    expect(exportPairsArgv('trl', 'medium', '.shadowlap/exports/pairs.jsonl')).toEqual(['export', 'pairs', '--min-confidence', 'medium', '--format', 'trl', '--out', '.shadowlap/exports/pairs.jsonl']);
-    expect(scoreNote({ via: 'Anthropic API', baseUrl: null, perAttempt: null, local: false }, null)).toBe("Anthropic API · no price for this model, so the cost isn't estimated");
+  it('builds the jobs the dialogs start from what they name, never from a command line', () => {
+    expect(exportPairsJob({ format: 'trl', minConfidence: 'medium' })).toEqual({ args: ['export', 'pairs', '--min-confidence', 'medium', '--format', 'trl', '--out', '.shadowlap/exports/pairs.jsonl'], out: '.shadowlap/exports/pairs.jsonl' });
+    expect(exportPairsJob({})).toMatchObject({ args: ['export', 'pairs', '--min-confidence', 'high', '--format', 'openai-preference', '--out', '.shadowlap/exports/pairs.jsonl'] });
+    expect(exportPairsJob({ format: 'csv' })).toEqual({ error: 'format must be openai-preference or trl' });
+    expect(exportPairsJob({ minConfidence: 'low' })).toEqual({ error: 'minConfidence must be high or medium' });
+
+    // Every ready task when none are named; the endpoint as given, without a trailing slash.
+    expect(scoreModelJob({ model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1/', attempts: 10 }, TASKS)).toEqual({
+      args: ['tasks', 'score', 'goldens/refund-over-limit', 'goldens/escalate-over-limit', '--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1', '--attempts', '10'],
+      goldens: ['goldens/refund-over-limit', 'goldens/escalate-over-limit'],
+    });
+    expect(scoreModelJob({ model: 'anthropic:claude-haiku-4-5', goldens: ['goldens/escalate-over-limit'] }, TASKS)).toMatchObject({ args: ['tasks', 'score', 'goldens/escalate-over-limit', '--model', 'anthropic:claude-haiku-4-5', '--attempts', '5'] });
+    expect(scoreModelJob({ model: 'm', goldens: ['goldens/refund-in-limit'] }, TASKS)).toEqual({ error: 'goldens/refund-in-limit is not a ready task' });
+    expect(scoreModelJob({ model: 'm', goldens: ['../../etc'] }, TASKS)).toEqual({ error: '../../etc is not a ready task' });
+    expect(scoreModelJob({ model: '--help' }, TASKS)).toEqual({ error: 'model must be a model name, such as qwen2.5:7b' });
+    expect(scoreModelJob({ model: 'm; rm -rf /' }, TASKS)).toEqual({ error: 'model must be a model name, such as qwen2.5:7b' });
+    expect(scoreModelJob({ model: 'm', baseUrl: 'file:///etc/passwd' }, TASKS)).toEqual({ error: 'baseUrl must be an http or https URL' });
+    expect(scoreModelJob({ model: 'm', baseUrl: 'http://user:pw@127.0.0.1:8000/v1' }, TASKS)).toMatchObject({ error: expect.stringContaining('must not carry credentials') });
+    expect(scoreModelJob({ model: 'm', attempts: 0 }, TASKS)).toEqual({ error: 'attempts must be a whole number from 1 to 100' });
+    expect(scoreModelJob({ model: 'm' }, TASKS.filter((t) => t.status !== 'ready'))).toEqual({ error: 'no task is ready to score' });
+  });
+
+  it('writes amounts as the mock does', () => {
+    expect([money(0), money(0.0041), money(0.0165), money(0.03), money(1.5)]).toEqual(['$0', '$0.0041', '$0.017', '$0.03', '$1.5']);
+    expect([approx(0), approx(0.165), approx(2.5)]).toEqual(['$0', '≈$0.165', '≈$2.50']);
+    expect(scoreNote({ where: 'Anthropic API', baseUrl: null, perAttempt: null, local: false }, null)).toBe("Anthropic API · no price for this model, so the cost isn't estimated");
   });
 });

@@ -3,12 +3,12 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import {
-  averageTokens,
   countPairs,
   findPairs,
   findTask,
   formatTokens,
   formatUsd,
+  listingInput,
   listModelChoices,
   PAIR_FORMATS,
   PAIR_SHAPES,
@@ -330,10 +330,7 @@ export function register(program: Command): void {
       const config = loadConfig(process.cwd());
       const { list, scores } = withStore(opts, (store) => ({ list: loadTasks(process.cwd(), store).tasks, scores: store.listTaskScores() }));
       const ready = list.filter((t) => t.status === 'ready');
-      const recorded = [...new Map(ready.filter((t) => t.model).map((t) => [`${t.model}\n${t.provider}`, { model: t.model!, provider: t.provider }])).values()];
-      const scored = [...new Map(scores.map((s) => [`${s.model}\n${s.baseUrl}`, { model: s.model, baseUrl: s.baseUrl, via: s.via }])).values()];
-      const tokens = averageTokens(ready);
-      const listing = await listModelChoices({ recorded, scored, tokens, ...(config.prices ? { prices: config.prices } : {}), timeoutMs: flags.timeout });
+      const listing = await listModelChoices({ ...listingInput(list, scores), ...(config.prices ? { prices: config.prices } : {}), timeoutMs: flags.timeout });
       const readyGoldens = new Set(ready.map((t) => t.golden));
       const meanOf = (model: string, base: string | null) => {
         const rows = scores.filter((s) => s.model === model && s.baseUrl === base && readyGoldens.has(s.golden));

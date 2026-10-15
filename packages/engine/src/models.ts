@@ -1,4 +1,6 @@
 import { estimateCost, type Price } from './prices.js';
+import type { TaskScoreRow } from './store.js';
+import { averageTokens, type Task } from './tasks.js';
 import type { Usage } from './types.js';
 
 /**
@@ -14,8 +16,10 @@ export interface ModelChoice {
   /** `Recorded with`, `Anthropic API`, `OpenAI API`, `Ollama, on this machine`, `Endpoints scored before`. */
   group: string;
   id: string;
-  /** Where it runs, in words. */
+  /** How it was found, in words: `the recorded model`, `Anthropic API`, `Ollama, on this machine`. */
   via: string;
+  /** Where it runs, in words, for the note under the picker: `Anthropic API`, `OpenAI API`, `Ollama, on this machine`, a host. */
+  where: string;
   /** The OpenAI-compatible endpoint it is asked at, or null for a provider's own API. */
   baseUrl: string | null;
   /** What `shadowlap tasks score` takes to ask it: `--model …` and, for an endpoint, `--base-url …`. */
@@ -129,6 +133,26 @@ function reason(err: unknown): string {
   return `couldn't be listed (${[e?.message ?? String(err), e?.cause?.message].filter(Boolean).join(': ')})`;
 }
 
+/** A provider's own API, in words. */
+function providerApi(provider: string | null): string {
+  if (provider === 'anthropic') return 'Anthropic API';
+  if (provider === 'openai') return 'OpenAI API';
+  if (provider === 'gemini') return 'Gemini API';
+  return provider ? `${provider} API` : 'the recorded provider';
+}
+
+/**
+ * What a listing needs from the tasks and their scores: the models the ready tasks' recordings asked
+ * at their takeovers, each model scored before (by its endpoint), and the tokens an attempt is
+ * expected to use after its takeover.
+ */
+export function listingInput(tasks: readonly Task[], scores: readonly TaskScoreRow[]): Pick<ListModelsInput, 'recorded' | 'scored' | 'tokens'> {
+  const ready = tasks.filter((t) => t.status === 'ready');
+  const recorded = [...new Map(ready.filter((t) => t.model).map((t) => [`${t.model}\n${t.provider ?? ''}`, { model: t.model!, provider: t.provider }])).values()];
+  const scored = [...new Map(scores.map((s) => [`${s.model}\n${s.baseUrl ?? ''}`, { model: s.model, baseUrl: s.baseUrl, via: s.via }])).values()];
+  return { recorded, scored, tokens: averageTokens(ready) };
+}
+
 const recordedProvider = (input: ListModelsInput) => {
   const providers = new Set(input.recorded.map((r) => r.provider ?? ''));
   return providers.size === 1 ? [...providers][0]! : null;
@@ -148,7 +172,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
   };
   const own = recordedProvider(input);
 
-  for (const r of input.recorded) add({ group: 'Recorded with', id: r.model, via: 'the recorded model', baseUrl: null, flags: ['--model', r.model], perAttempt: price(r.model, false), local: false });
+  for (const r of input.recorded) add({ group: 'Recorded with', id: r.model, via: 'the recorded model', where: providerApi(r.provider), baseUrl: null, flags: ['--model', r.model], perAttempt: price(r.model, false), local: false });
 
   const anthropic = async (): Promise<ModelChoice[]> => {
     const key = env.ANTHROPIC_API_KEY?.trim();
@@ -156,7 +180,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     const base = anthropicBase(env);
     const body = await getJson(fetchImpl, `${base}/v1/models?limit=100`, { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, timeoutMs);
     const data = isObject(body) && Array.isArray(body.data) ? body.data : [];
-    return data.flatMap((m) => (isObject(m) && typeof m.id === 'string' ? [{ group: 'Anthropic API', id: m.id, via: 'Anthropic API', baseUrl: null, flags: ['--model', own === 'anthropic' ? m.id : `anthropic:${m.id}`], perAttempt: price(m.id, false), local: false }] : []));
+    return data.flatMap((m) => (isObject(m) && typeof m.id === 'string' ? [{ group: 'Anthropic API', id: m.id, via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', own === 'anthropic' ? m.id : `anthropic:${m.id}`], perAttempt: price(m.id, false), local: false }] : []));
   };
   const openai = async (): Promise<ModelChoice[]> => {
     const base = openAIBase(env);
@@ -169,8 +193,8 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     const local = isLoopback(base);
     return ids.map((id) =>
       official
-        ? { group: 'OpenAI API', id, via: 'OpenAI API', baseUrl: null, flags: ['--model', own === 'openai' ? id : `openai:${id}`], perAttempt: price(id, false), local: false }
-        : { group: `OpenAI-compatible, ${endpointVia(base)}`, id, via: endpointVia(base), baseUrl: base, flags: ['--model', id, '--base-url', base], perAttempt: price(id, local), local },
+        ? { group: 'OpenAI API', id, via: 'OpenAI API', where: 'OpenAI API', baseUrl: null, flags: ['--model', own === 'openai' ? id : `openai:${id}`], perAttempt: price(id, false), local: false }
+        : { group: `OpenAI-compatible, ${endpointVia(base)}`, id, via: endpointVia(base), where: endpointVia(base), baseUrl: base, flags: ['--model', id, '--base-url', base], perAttempt: price(id, local), local },
     );
   };
   const ollama = async (): Promise<ModelChoice[]> => {
@@ -180,7 +204,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     const local = isLoopback(base);
     const group = local ? 'Ollama, on this machine' : `Ollama, ${new URL(base).host}`;
     const names = models.flatMap((m) => (isObject(m) && typeof m.name === 'string' ? [m.name] : [])).sort();
-    return names.map((name) => ({ group, id: name, via: group, baseUrl: `${base}/v1`, flags: ['--model', name, '--base-url', `${base}/v1`], perAttempt: price(name, local), local }));
+    return names.map((name) => ({ group, id: name, via: group, where: group, baseUrl: `${base}/v1`, flags: ['--model', name, '--base-url', `${base}/v1`], perAttempt: price(name, local), local }));
   };
 
   const listed = await Promise.allSettled([anthropic(), openai(), ollama()]);
@@ -200,7 +224,8 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     if (has(s.model, s.baseUrl)) continue;
     const local = s.baseUrl ? isLoopback(s.baseUrl) : false;
     const flags = s.baseUrl ? ['--model', s.model, '--base-url', s.baseUrl] : ['--model', s.via === 'OpenAI API' ? `openai:${s.model}` : s.via === 'Anthropic API' ? `anthropic:${s.model}` : s.model];
-    add({ group: 'Endpoints scored before', id: s.model, via: s.via ?? (s.baseUrl ? endpointVia(s.baseUrl) : 'the recorded provider'), baseUrl: s.baseUrl, flags, perAttempt: price(s.model, local), local });
+    const via = s.via ?? (s.baseUrl ? endpointVia(s.baseUrl) : 'the recorded provider');
+    add({ group: 'Endpoints scored before', id: s.model, via, where: via, baseUrl: s.baseUrl, flags, perAttempt: price(s.model, local), local });
   }
   return { choices, notes, tokens: input.tokens };
 }
