@@ -449,7 +449,8 @@ function record(input: BisectInput, projectDir: string, report: BisectReport): v
       actor: resolveAuthor({ cwd: projectDir }),
       ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}),
       ref: report.target.name,
-      data: { good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
+      // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
+      data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
     });
   } catch {
     // the find is printed either way

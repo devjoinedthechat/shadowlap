@@ -111,7 +111,7 @@ describe('shadowlap bisect', () => {
     expect(readdirSync(join(project, '.shadowlap', 'bisect'))).toEqual([]);
     expect(sh('git', ['status', '--porcelain']), 'nothing left in the working tree').toBe('');
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
-    expect(store.listEvents({ kinds: ['bisect.found'] })[0]).toMatchObject({ ref: 'goldens/summary', data: { good: rev['Start the ticket agent'], bad: rev['Mark summaries as drafts'], first: { rev: rev['Ask for brevity'], subject: 'Ask for brevity', author: 'Ravi' }, replays: 4, tokens: 0, upstreamRequests: 0 } });
+    expect(store.listEvents({ kinds: ['bisect.found'] })[0]).toMatchObject({ ref: 'goldens/summary', data: { commit: rev['Ask for brevity'], subject: 'Ask for brevity', good: rev['Start the ticket agent'], bad: rev['Mark summaries as drafts'], first: { rev: rev['Ask for brevity'], subject: 'Ask for brevity', author: 'Ravi' }, replays: 4, tokens: 0, upstreamRequests: 0 } });
     store.close();
   });
 
