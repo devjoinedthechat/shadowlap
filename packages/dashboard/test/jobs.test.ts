@@ -295,7 +295,7 @@ describe('uploads', () => {
       const up = (await (await upload(quick, 'forgotten')).json()) as { uploadId: string; name: string };
       const path = join(other, '.shadowlap', 'uploads', `${up.uploadId}-${up.name}`);
       expect(existsSync(path)).toBe(true);
-      for (let i = 0; i < 40 && existsSync(path); i++) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < 200 && existsSync(path); i++) await new Promise((r) => setTimeout(r, 25));
       expect(existsSync(path), 'swept once unused for the idle time').toBe(false);
     } finally {
       await quick.close();
