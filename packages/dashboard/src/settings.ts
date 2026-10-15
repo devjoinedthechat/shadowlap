@@ -109,7 +109,7 @@ export interface RedactionSettings {
   config: ConfigInfo;
   rules: RuleRow[];
   form: RuleForm;
-  /** Every way a run's content leaves the machine, and which rules each applies today. */
+  /** Every way a run's content leaves the machine, which rules each applies and what it does with the run's details (decision 6). */
   where: readonly RedactionExport[];
   /**
    * Runs a preview can be made for: every run that has ended, newest first, each with the job that
