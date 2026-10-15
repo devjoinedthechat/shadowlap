@@ -171,7 +171,6 @@ export function register(program: Command): void {
         if (!rows.length) {
           // Nothing to write: a file already there keeps what an earlier export put in it, and nothing left the machine.
           say(`${p.yellow('!')} nothing exported${flags.out ? ` · ${flags.out} left as it was` : ''}`);
-          emitJobEvent({ type: 'link', label: 'Open Training', href: '#/training' });
           emitJobEvent({ type: 'result', data: { exportId: null, pairs: 0, file: null, ...data } });
           return;
         }
@@ -184,8 +183,8 @@ export function register(program: Command): void {
         say(`${p.green('✓')} ${flags.out ? `wrote ${flags.out}` : 'wrote to stdout'} · ${plural(rows.length, 'pair')}`);
         const record = store.addPairsExport({ pairs: rows.length, file, format: flags.format, minConfidence: flags.minConfidence, leftOut, actor: author(), data: { redaction: data.redaction, sources: data.sources } });
         recordEvent(store, { kind: 'pairs.exported', actor: record.actor, ref: file, data: { count: rows.length, ...data } });
+        // A dashboard job offers the file; it is started from Training, so it links nowhere else.
         if (flags.out) emitJobEvent({ type: 'file', path: resolve(flags.out), label: flags.out });
-        emitJobEvent({ type: 'link', label: 'Open Training', href: '#/training' });
         emitJobEvent({ type: 'result', data: { exportId: record.exportId, pairs: rows.length, file, ...data } });
       });
     });

@@ -204,7 +204,6 @@ describe('shadowlap export pairs', () => {
       expect(rows[0]!.non_preferred_output[0]!.tool_calls[0]!.function).toEqual({ name: 'issue_refund', arguments: '{"order_id":"<ORDER>","amount":240}' });
       expect(r.events).toEqual([
         { type: 'file', path: realpathSync(join(work, 'pairs.jsonl')), label: 'pairs.jsonl' },
-        { type: 'link', label: 'Open Training', href: '#/training' },
         { type: 'result', data: expect.objectContaining({ pairs: 1, file: 'pairs.jsonl', format: 'openai-preference', minConfidence: 'high', leftOut: 0, redaction: 1 }) },
       ]);
       withStore(db, (s) => {
@@ -240,7 +239,6 @@ describe('shadowlap export pairs, with nothing to export', () => {
       expect(r.stdout).toContain('! nothing exported · pairs.jsonl left as it was');
       expect(readFileSync(join(work, 'pairs.jsonl'), 'utf8')).toBe('{"earlier":true}\n');
       expect(r.events).toEqual([
-        { type: 'link', label: 'Open Training', href: '#/training' },
         { type: 'result', data: expect.objectContaining({ exportId: null, pairs: 0, file: null, minConfidence: 'high' }) },
       ]);
       withStore(db, (s) => {
@@ -731,7 +729,7 @@ describe('Training in the dashboard', () => {
 
       // Export pairs: written into the project's exports folder, and offered for download.
       const exported = await runJob({ kind: 'pairs', format: 'openai-preference', minConfidence: 'high' });
-      expect(exported).toMatchObject({ done: true, code: 0, title: 'Exporting pairs', result: expect.objectContaining({ pairs: 1, file: '.shadowlap/exports/pairs.jsonl' }) });
+      expect(exported).toMatchObject({ done: true, code: 0, title: 'Exporting pairs', links: [], result: expect.objectContaining({ pairs: 1, file: '.shadowlap/exports/pairs.jsonl' }) });
       expect(exported.files).toMatchObject([{ name: 'pairs.jsonl', path: '.shadowlap/exports/pairs.jsonl' }]);
       const download = await api(`files/${exported.files[0]!.fileId}`);
       expect(download.status).toBe(200);
