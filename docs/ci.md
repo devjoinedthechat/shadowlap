@@ -247,11 +247,13 @@ When a golden fails an outcome check in CI, the action can propose the fix itsel
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # and your agent's own provider keys: blame and verify run it live
 ```
 
 It needs:
 
 - a model key for the repairer: `ANTHROPIC_API_KEY` for `claude-code` and `anthropic`, `OPENAI_API_KEY` for `openai:<model>`. The `claude-code` repairer runs Claude Code in print mode, so the runner needs it installed, which the first step does; `anthropic` and `openai:<model>` need nothing installed;
+- your agent's own provider keys in the same `env`, as for `shadowlap run`: blame re-runs the failing replay live from the call it probes, and verify runs the agent with the fix. An agent on OpenAI with the `anthropic` repairer needs `OPENAI_API_KEY` as well as `ANTHROPIC_API_KEY`; without its keys, blame fails and no fix is proposed;
 - permission to push a branch (`contents: write`) and to open the pull request (`pull-requests: write`), in the job's `permissions`, and `GH_TOKEN` for `gh`;
 - a branch checked out. A pull request's own workflow checks out a detached merge commit, so check out its branch, and the fix becomes a pull request into it:
 

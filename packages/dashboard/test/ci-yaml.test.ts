@@ -37,6 +37,7 @@ describe('the Fix on failure step', () => {
         '  env:',
         '    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
         '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+        "    # and your agent's own provider keys: blame and verify run it live",
       ].join('\n'),
     );
     const openai = fixOnFailureYaml({ budget: '$5', repairer: 'openai:gpt-5' });
@@ -47,6 +48,8 @@ describe('the Fix on failure step', () => {
     expect(repairerKey('claude-code:claude-opus-5-5')).toBe('ANTHROPIC_API_KEY');
     expect(fixOnFailureNeeds('openai:gpt-5')).toEqual([
       ['a model key for the repairer', 'OPENAI_API_KEY'],
+      // Blame and verify run the agent itself live, whatever the repairer.
+      ['your agent’s provider keys: blame and verify run it live', 'env'],
       ['permission to push a branch', 'contents: write'],
       ['permission to open the pull request', 'pull-requests: write'],
     ]);

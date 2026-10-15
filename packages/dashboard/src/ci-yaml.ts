@@ -48,7 +48,14 @@ export function scalar(value: string): string {
   return /^[A-Za-z0-9_./][A-Za-z0-9_./*:@-]*$/.test(value) && !/:$/.test(value) ? value : `'${value.replace(/'/g, "''")}'`;
 }
 
-/** The Fix on failure step. Its job needs contents and pull-requests write permission, which the comment states. */
+/** Under the step's env: the keys of the agent's own providers belong there too. */
+const AGENT_KEYS_COMMENT = "# and your agent's own provider keys: blame and verify run it live";
+
+/**
+ * The Fix on failure step. Its job needs contents and pull-requests write permission, which the
+ * comment states. Blame and verify run the agent itself live, so the step's env also needs the
+ * agent's own provider keys, which the last comment says; the panel can't know which they are.
+ */
 export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   const repairer = s.repairer.trim() || 'anthropic';
   const lines = ['# the job needs: permissions: { contents: write, pull-requests: write }'];
@@ -65,6 +72,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
     '  env:',
     `    ${key}: \${{ secrets.${key} }}`,
     '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+    `    ${AGENT_KEYS_COMMENT}`,
   );
   return lines.join('\n');
 }
@@ -73,6 +81,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
 export function fixOnFailureNeeds(repairer: string): Array<[string, string]> {
   return [
     ['a model key for the repairer', repairerKey(repairer)],
+    ['your agent’s provider keys: blame and verify run it live', 'env'],
     ['permission to push a branch', 'contents: write'],
     ['permission to open the pull request', 'pull-requests: write'],
   ];
