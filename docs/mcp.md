@@ -18,6 +18,7 @@ Every message passes through unchanged except `tools/call`, which goes through t
 - **Recording**: the call is forwarded to the server and its result stored under the tool's name and arguments.
 - **Replay**: a call whose arguments match the recording is answered from the recording; the server never sees it.
 - **After a fork**: `read` tools run live (or replay, with `--reads replay`); `write` tools are refused, and the model sees the refusal as a tool result with `isError: true`, or stubbed with `--writes stub`. The run summary counts them like any other tool.
+- **A failed tool** (`replay --fail-at <call>=timeout`, `error:<message>` or a status): the server never sees the call, and the client gets a tool result with `isError: true` and the failure's message, as when a tool's handler fails. See [fail a tool](./interventions.md#fail-a-tool).
 
 Everything else (`initialize`, `tools/list`, resources, prompts, notifications) is forwarded as-is, in order.
 

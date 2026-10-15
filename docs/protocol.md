@@ -94,12 +94,13 @@ reject a bad value locally, before any request.
 `""` when there is none. These resolve in one round trip — the sidecar generates the value and
 records it, so there is no `complete` for them.
 
-**The response** is one of six shapes. `callNo` identifies the call for `complete`.
+**The response** is one of seven shapes. `callNo` identifies the call for `complete`.
 
 | `origin` | Shape | What the client does |
 |---|---|---|
 | `replayed` | `{ origin, callNo, outcome: "ok", result }` | Return `result`. **Do not run the implementation.** |
 | `replayed` | `{ origin, callNo, outcome: "error", error }` | Raise the recorded error (see below). **Do not run the implementation.** |
+| `replayed` | `{ origin, callNo, outcome: "error", error, injected }` | Raise the failure `--fail-at` asked for, as the kind `injected` names (see [Injected failures](#injected-failures)). **Do not run the implementation.** No `complete`. |
 | `live` | `{ origin, callNo, outcome: "ok", result }` | Clock and randomness only: return `result`. No `complete`. |
 | `live` | `{ origin, callNo }` | Tools: run the implementation, then `complete`. |
 | `blocked` | `{ origin, callNo, outcome: "error", error }` | Raise a write-blocked error. **Do not run the implementation.** No `complete`. |
@@ -160,6 +161,37 @@ Two error types every client SHOULD expose, because agent code catches them by n
 
 - **replayed error** — raised for `replayed` with `outcome: "error"`. Carries `name`, `message`, `code`, `data`.
 - **write-blocked error** — raised for `blocked`. Carries the tool name and the arguments it was called with, so a handler can report what was prevented.
+
+### Injected failures
+
+`shadowlap replay --fail-at <call>=timeout|error[:message]|<status>` fails a tool call instead of
+serving or running it, so the agent's handling of a failing tool runs. The sidecar answers `resolve`
+with a replayed error that also carries `injected`, and has already recorded the call:
+
+```json
+{ "origin": "replayed", "callNo": 19, "outcome": "error",
+  "error": { "name": "TimeoutError", "message": "search_web timed out", "code": "ETIMEDOUT" },
+  "injected": { "kind": "timeout" } }
+```
+
+The `error` is what a real failure of that kind would carry, and nothing more, because agents hand
+errors to the model (an MCP client passes `data` on too) and a model told it is being tested
+behaves differently. Only `injected` says otherwise, and only to the client.
+
+`injected` is `{ "kind": "timeout" }`, `{ "kind": "error", "message": "…" }` (the message is
+optional) or `{ "kind": "status", "status": 503 }`. A client SHOULD raise an **injected failure**
+that looks like the failure it stands for, because the agent's handling of the real one is what is
+being tested: for `timeout`, the language's timeout error (`TimeoutError` in Python, an error named
+`TimeoutError` with code `ETIMEDOUT` in TypeScript); for `status`, an error that carries the status
+the way the language's HTTP clients do (`status_code`, `status`); for `error`, an error with
+`error.message`. It SHOULD carry `injected = true`, the tool's name and its arguments, so a test can
+tell it from a real failure. The client MUST NOT run the implementation and MUST NOT call `complete`.
+A proxy for another protocol answers in that protocol's shape for a failing tool: `shadowlap mcp`
+sends the MCP client a tool result with `isError: true` whose text is the message.
+
+A client that does not know `injected` raises its replayed-error type with the same name and
+message. That still never runs the tool, which is why the failure travels in this shape: an older
+client keeps working, and gets the less specific error.
 
 ## Scopes
 
@@ -225,11 +257,11 @@ The same tool during a clean replay:
 1. Read `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID`; do nothing at all when the first is unset.
 2. A tool wrapper that takes a required effect and rejects a bad one locally.
 3. `resolve` before running anything, with `name`, `effect`, `args` and ideally `implHash`.
-4. Handle all six response shapes; treat an unknown `origin` as an error.
+4. Handle all seven response shapes, an injected failure included; treat an unknown `origin` as an error.
 5. `complete` every `live` and `stubbed` call, on both the success and the failure path.
 6. One round trip for clock and randomness, with no `complete`.
 7. Scope propagation through the language's implicit context, as `x-shadowlap-scope`.
-8. A replayed-error type and a write-blocked type.
+8. A replayed-error type, a write-blocked type, and an injected-failure type.
 9. Fail closed: never run the implementation because the sidecar was unreachable.
 10. Run the [conformance suite](https://github.com/devjoinedthechat/shadowlap/tree/main/testing/conformance).
 

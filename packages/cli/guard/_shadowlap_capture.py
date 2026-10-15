@@ -11,16 +11,23 @@ Patched when first imported, so an agent that never loads them pays nothing: htt
 httpx2 (the Anthropic, OpenAI and Google clients, and many vector database clients), requests,
 botocore (boto3, including bedrock-runtime), and urllib3 for clients that use it directly (Pinecone,
 Elasticsearch, OpenSearch).
+
+A replay can fail a captured HTTP call with a timeout or an error (``--fail-at <call>=timeout``). A
+request to such a host says it can take one (``x-shadowlap-failures: raise``), the sidecar answers by
+naming the failure, and the call raises what the library raises for the real thing: httpx's
+ReadTimeout or ReadError, urllib3's ReadTimeoutError or ProtocolError (which requests and botocore turn
+into their own), so the agent's error path runs.
 """
 
 import contextvars
+import errno
 import importlib.abc
 import importlib.machinery
 import json
 import os
 import re
 import sys
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 _sidecar = os.environ.get("SHADOWLAP_URL")
 _run = os.environ.get("SHADOWLAP_RUN_ID")
@@ -65,7 +72,7 @@ def _provider_for(url):
 
 
 def _rewrite(url):
-    """(sidecar URL, upstream origin), or None when the URL is not a model API Shadowlap captures."""
+    """(sidecar URL, upstream origin, provider), or None when the URL is not a host Shadowlap captures."""
     provider = _provider_for(url)
     if provider is None:
         return None
@@ -76,7 +83,29 @@ def _rewrite(url):
     target = "%s%s/%s%s" % (_sidecar.rstrip("/"), run, provider, parts.path or "/")
     if parts.query:
         target += "?" + parts.query
-    return target, origin
+    return target, origin, provider
+
+
+_FAILURES = "x-shadowlap-failures"
+
+
+def _injected(request_headers, response_headers):
+    """(kind, message) when the sidecar answered a request that asked for it with a failure --fail-at
+    named (a timeout, or an error with the message given, if any), else None."""
+    try:
+        if request_headers is None or request_headers.get(_FAILURES) != "raise":
+            return None
+        kind = response_headers.get("x-shadowlap-injected")
+        message = response_headers.get("x-shadowlap-injected-message")
+    except Exception:
+        return None
+    if kind not in ("timeout", "error"):
+        return None
+    return kind, (unquote(message) if message else None)
+
+
+def _reset(message):
+    return ConnectionResetError(errno.ECONNRESET, message or os.strerror(errno.ECONNRESET))
 
 
 def _patch_httpx(module):
@@ -88,20 +117,33 @@ def _patch_httpx(module):
         scoped = _SCOPE.get()
         rewritten = _rewrite(str(request.url))
         if rewritten is not None:
-            target, origin = rewritten
+            target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin
             request.url = module.URL(target)
             if scoped:
                 request.headers["x-shadowlap-scope"] = scoped
+            if provider == "http":
+                request.headers[_FAILURES] = "raise"
         elif scoped and _to_sidecar(str(request.url)):
             # A client already pointed at the sidecar by its base URL: only the scope needs adding.
             request.headers["x-shadowlap-scope"] = scoped
+
+    def failure(request, injected):
+        kind, message = injected
+        if kind == "timeout":
+            return module.ReadTimeout(message or "timed out", request=request)
+        return module.ReadError(message or "Connection reset by peer", request=request)
 
     sync_handle = module.HTTPTransport.handle_request
 
     def handle_request(self, request):
         redirect(request)
-        return sync_handle(self, request)
+        response = sync_handle(self, request)
+        injected = _injected(request.headers, response.headers)
+        if injected is None:
+            return response
+        response.close()
+        raise failure(request, injected)
 
     module.HTTPTransport.handle_request = handle_request
 
@@ -109,7 +151,12 @@ def _patch_httpx(module):
 
     async def handle_async_request(self, request):
         redirect(request)
-        return await async_handle(self, request)
+        response = await async_handle(self, request)
+        injected = _injected(request.headers, response.headers)
+        if injected is None:
+            return response
+        await response.aclose()
+        raise failure(request, injected)
 
     module.AsyncHTTPTransport.handle_async_request = handle_async_request
 
@@ -124,11 +171,14 @@ def _patch_botocore(module):
     def captured_send(self, request):
         rewritten = _rewrite(request.url)
         if rewritten is not None:
-            target, origin = rewritten
+            target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin
             request.url = target
             if _SCOPE.get():
                 request.headers["x-shadowlap-scope"] = _SCOPE.get()
+            if provider == "http":
+                # Raised by the urllib3 patch underneath, which botocore turns into its own error.
+                request.headers[_FAILURES] = "raise"
         return send(self, request)
 
     session.send = captured_send
@@ -147,12 +197,30 @@ def _pool_to_sidecar(module):
 
 def _patch_urllib3(module):
     """Clients that drive urllib3 themselves. A pool is bound to one host, so a captured request is
-    sent on the pool to the sidecar instead, with the path the sidecar expects."""
+    sent on the pool to the sidecar instead, with the path the sidecar expects. A failure --fail-at
+    named is raised here as urllib3 raises the real one, for urllib3's own users and for requests and
+    botocore, which turn it into theirs."""
     pool = getattr(module, "HTTPConnectionPool", None)
     if pool is None or getattr(pool, "_shadowlap_capture", False):
         return
     pool._shadowlap_capture = True
     urlopen = pool.urlopen
+
+    def fail(conn, url, headers, response):
+        injected = _injected(headers, response.headers)
+        if injected is None:
+            return response
+        try:
+            drain = getattr(response, "drain_conn", None)
+            if drain is not None:
+                drain()
+            response.release_conn()
+        except Exception:
+            pass
+        kind, message = injected
+        if kind == "timeout":
+            raise module.ReadTimeoutError(conn, url, "Read timed out.")
+        raise module.ProtocolError("Connection aborted.", _reset(message))
 
     def captured_urlopen(self, method, url, body=None, headers=None, *args, **kwargs):
         if url.startswith("http://") or url.startswith("https://"):
@@ -167,15 +235,18 @@ def _patch_urllib3(module):
             if scoped and _to_sidecar(full):
                 headers = dict(self.headers if headers is None else headers)
                 headers["x-shadowlap-scope"] = scoped
-            return urlopen(self, method, url, body, headers, *args, **kwargs)
-        target, origin = rewritten
+            return fail(self, url, headers, urlopen(self, method, url, body, headers, *args, **kwargs))
+        target, origin, provider = rewritten
         headers = dict(self.headers if headers is None else headers)
         headers["x-shadowlap-upstream"] = origin
         if scoped:
             headers["x-shadowlap-scope"] = scoped
+        if provider == "http":
+            headers[_FAILURES] = "raise"
         parts = urlsplit(target)
         path = parts.path + ("?" + parts.query if parts.query else "")
-        return urlopen(_pool_to_sidecar(module), method, path, body, headers, *args, **kwargs)
+        sidecar_pool = _pool_to_sidecar(module)
+        return fail(sidecar_pool, path, headers, urlopen(sidecar_pool, method, path, body, headers, *args, **kwargs))
 
     pool.urlopen = captured_urlopen
 
@@ -191,12 +262,23 @@ def _patch_requests(module):
         rewritten = _rewrite(request.url)
         scoped = _SCOPE.get()
         if rewritten is not None:
-            target, origin = rewritten
+            target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin
             request.url = target
+            if provider == "http":
+                request.headers[_FAILURES] = "raise"
         if scoped and (rewritten is not None or _to_sidecar(request.url)):
             request.headers["x-shadowlap-scope"] = scoped
-        return send(self, request, *args, **kwargs)
+        response = send(self, request, *args, **kwargs)
+        # The urllib3 patch underneath raises first; this covers an adapter that does not use it.
+        injected = _injected(request.headers, response.headers)
+        if injected is None:
+            return response
+        response.close()
+        kind, message = injected
+        if kind == "timeout":
+            raise module.ReadTimeout("Read timed out.", request=request)
+        raise module.ConnectionError(_reset(message), request=request)
 
     adapter.send = captured_send
 

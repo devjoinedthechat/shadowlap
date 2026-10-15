@@ -313,14 +313,17 @@ describe('actions palette', () => {
     await tick(60);
     let frame = plain(lastFrame());
     expect(frame).toContain('Actions');
-    expect(frame).toContain('Fork: inject an instruction at #3');
-    expect(frame).toContain('Fork: switch the model from #3 on');
+    expect(frame).toContain('At #3 · model call');
+    expect(frame).toContain('Inject an instruction');
+    expect(frame).toContain('--inject 3=… --inject-as user'); // each line carries its flag
+    expect(frame).toContain('Switch the model from here');
+    expect(frame).toContain('The whole run');
     expect(frame).not.toContain('--live-tool'); // not a tool call
 
     stdin.write('i'); // inject → prompt
     await tick(60);
     frame = plain(lastFrame());
-    expect(frame).toContain('Instruction to append at #3:');
+    expect(frame).toContain('Instruction to add at #3:');
     stdin.write('Be brief.');
     await tick(30);
     stdin.write('\r');
@@ -331,7 +334,7 @@ describe('actions palette', () => {
       if (frame.includes('Enter opens run')) opened = frame;
     }
     // The golden is imported with unpack; submitting the prompt is the consent, passed on as --yes.
-    expect(spawned).toEqual([['replay', runId, '--inject', '3=Be brief.', '--yes']]);
+    expect(spawned).toEqual([['replay', runId, '--inject', '3=Be brief.', '--inject-as', 'user', '--yes']]);
     expect(opened).toContain('args: ["replay"');
     expect(opened).toContain('done');
 
@@ -349,7 +352,8 @@ describe('actions palette', () => {
     // As a run recorded here: imported runs are covered in actions.test.ts.
     const run = { ...store.getRun(runId)!, meta: {} };
     const labels = (await import('../src/components/ActionsView.js')).buildActions({ ...run, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'x', replayedBefore: 2, hints: [{ message: 'date', normalizer: { kind: 'api', path: '$.system', pattern: 'iso-date', replace: '<DATE>' } }] } }, toolCall).map((a) => [a.key, a.label, a.args] as const);
-    expect(labels.map((l) => l[0])).toEqual(['r', 's', 'e', 'l', 'o', 'a', 'n', 'p']);
+    expect(toolCall.effect).toBe('read');
+    expect(labels.map((l) => l[0])).toEqual(['r', 'o', 't', 'x', 'l', 'a', 'e', 's', 'n', 'p']);
     expect(labels.find((l) => l[0] === 'l')![2]).toEqual(['replay', runId, '--live-tool', toolCall.name]);
     expect(labels.find((l) => l[0] === 'n')![2]).toEqual(['normalize', 'add', '--path', '$.system', '--replace', '<DATE>', '--pattern', 'iso-date', '--kind', 'api']);
     store.close();

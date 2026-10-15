@@ -88,6 +88,19 @@ for (const c of CASES) {
       assert.deepEqual(texts(r.stdout), recordedTexts);
     });
 
+    it('forks with --set in the provider\'s own shape, signed again where the client signs', async () => {
+      const before = { ok: mock.stats.signaturesOk, failures: mock.stats.signatureFailures.length };
+      const r = await shadowlap(db, ['replay', recordedRun, '--set', '1:temperature=0'], { [upstream]: mock.url, PROMPT: 'hello' });
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, /changed by --set 1:temperature=0/);
+      assert.deepEqual(texts(r.stdout), recordedTexts);
+      if (c.signed) {
+        // Every changed request was signed again, and the provider accepted the signature.
+        assert.deepEqual(mock.stats.signatureFailures.slice(before.failures), []);
+        assert.equal(mock.stats.signaturesOk - before.ok, c.calls);
+      }
+    });
+
     if (c.signed) {
       it('runs as a golden in shadowlap test with no AWS credentials in the environment', async () => {
         const pack = join(dir, `pack-${CASES.indexOf(c)}`);

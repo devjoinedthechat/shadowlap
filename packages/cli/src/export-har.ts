@@ -1,4 +1,4 @@
-import { loadApiRequest, type CallRecord, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, loadApiRequest, redactBytes, rewriteText, type CallRecord, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
 import { VERSION } from './shared.js';
 
@@ -10,6 +10,11 @@ import { VERSION } from './shared.js';
  *
  * Only API calls appear: a HAR describes HTTP, and tool, clock and randomness calls never crossed
  * the network. An imported HAR therefore declares itself a partial recording.
+ *
+ * A HAR leaves the machine, so the redaction rules apply to it as they do to a pack or an HTML copy:
+ * every rule to the request body (rules with a path included), and the rules without a path to the
+ * URL, the headers and the response, streamed or not. The rules travel in the log (`_shadowlap`), so
+ * a recording imported from it can be matched under them again.
  */
 
 /** The provider's canonical host. Azure, Vertex and Bedrock hosts depend on the account, so a representative one stands in. */
@@ -32,9 +37,12 @@ export interface HarExportResult {
   skipped: Array<{ callNo: number; reason: string }>;
 }
 
-export function runToHar(store: Store, run: RunRecord, calls: CallRecord[]): HarExportResult {
+export function runToHar(store: Store, run: RunRecord, calls: CallRecord[], options: { redact?: Normalizer[] } = {}): HarExportResult {
   const entries: unknown[] = [];
   const skipped: HarExportResult['skipped'] = [];
+  const rules = options.redact ?? [];
+  const text = (s: string) => (rules.length ? rewriteText(s, rules) : s);
+  const masked = (h: Record<string, string>) => Object.fromEntries(Object.entries(h).map(([k, v]) => [k, text(v)]));
 
   for (const c of calls) {
     if (c.kind !== 'api') continue;
@@ -43,15 +51,18 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[]): Har
       continue;
     }
     const host = HOSTS[String(c.meta.provider ?? '')] ?? providers.find((p) => p.id === c.meta.provider)?.upstream ?? 'api.anthropic.com';
-    const [method = 'POST', path = '/'] = c.name.split(' ');
-    const body = c.requestRef ? loadApiRequest(store, c.requestRef) : null;
-    const text = typeof body === 'string' ? body : JSON.stringify(body);
-    const bytes = c.end.responseRef ? (store.getBlob(c.end.responseRef) ?? Buffer.alloc(0)) : Buffer.alloc(0);
-    const responseHeaders = (c.end.meta.headers ?? {}) as Record<string, string>;
+    const [method = 'POST', rawPath = '/'] = c.name.split(' ');
+    const path = text(rawPath);
+    const stored = c.requestRef ? loadApiRequest(store, c.requestRef) : null;
+    const body = rules.length ? (typeof stored === 'string' ? text(stored) : applyNormalizers(stored, rules, 'api', c.name)) : stored;
+    const postText = typeof body === 'string' ? body : JSON.stringify(body);
+    const recorded = c.end.responseRef ? (store.getBlob(c.end.responseRef) ?? Buffer.alloc(0)) : Buffer.alloc(0);
+    const bytes = rules.length ? redactBytes(recorded, rules) : recorded;
+    const responseHeaders = masked((c.end.meta.headers ?? {}) as Record<string, string>);
     const mimeType = responseHeaders['content-type'] ?? 'application/json';
     const time = Math.max(0, (c.end.at ?? c.at) - c.at);
     // The headers that fingerprint have to travel, or a re-import matches nothing.
-    const requestHeaders = { 'content-type': 'application/json', ...((c.meta.fingerprintHeaders ?? {}) as Record<string, string>) };
+    const requestHeaders = masked({ 'content-type': 'application/json', ...((c.meta.fingerprintHeaders ?? {}) as Record<string, string>) });
 
     entries.push({
       startedDateTime: new Date(c.at).toISOString(),
@@ -63,9 +74,9 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[]): Har
         cookies: [],
         headers: pairs(requestHeaders),
         queryString: [],
-        postData: { mimeType: 'application/json', text: text ?? '', params: [] },
+        postData: { mimeType: 'application/json', text: postText ?? '', params: [] },
         headersSize: -1,
-        bodySize: Buffer.byteLength(text ?? ''),
+        bodySize: Buffer.byteLength(postText ?? ''),
       },
       response: {
         status: c.end.meta.status ?? (c.end.outcome === 'error' ? 500 : 200),
@@ -85,7 +96,7 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[]): Har
   }
 
   return {
-    har: { log: { version: '1.2', creator: { name: 'shadowlap', version: VERSION }, pages: [], entries } },
+    har: { log: { version: '1.2', creator: { name: 'shadowlap', version: VERSION }, pages: [], entries, ...(rules.length ? { _shadowlap: { redactions: rules } } : {}) } },
     entries: entries.length,
     skipped,
   };

@@ -1,6 +1,6 @@
 # SDK conformance suite
 
-Fourteen scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
+Seventeen scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
 No API keys, no network, no model calls: only tools, the clock and randomness.
 
 The protocol being tested is specified in [docs/protocol.md](../../docs/protocol.md).
@@ -31,6 +31,9 @@ skipped if absent.
 | `impl-hash` | A changed implementation is reported but never changes what a call matches. |
 | `reads-after-fork` | With `--reads replay` a read tool is still served from the recording after a fork. |
 | `base-scope` | `SHADOWLAP_SCOPE` names the branch of a process, so separate processes keep their own answers. |
+| `injected-timeout` | A tool that `--fail-at` times out never runs, and raises the language's timeout error, marked injected. |
+| `injected-status` | A tool that `--fail-at` answers with an HTTP status raises an error carrying that status. |
+| `injected-error` | A tool that `--fail-at` fails with a message raises an error with exactly that message. |
 
 The suite is checked against a deliberately broken client during development: a client that omits
 scope propagation passes every other scenario and fails `scope`.
@@ -56,6 +59,7 @@ diagnostic output, and a non-zero exit is fine as long as the JSON object was pr
 | `impl-hash-b` | The same, with the implementation's **source rewritten** but its behaviour unchanged. | `{ result, implRuns }` |
 | `reads` | Call the `pure` tool `ping()`, then a `read` tool `fetchit(q="x")` returning `"from-impl"`. | `{ result, implRuns }` |
 | `base-scope` | Read the current scope, call `echo(n=1)`, then inside `scope("inner")` read it again and call `echo(n=2)`. Run with `SHADOWLAP_SCOPE` set. | `{ scopes: [outer, inner] }` |
+| `fail` | Call `echo(n=1)` and catch what it raises. `timeout` is whether the error is the language's timeout error, `status` the HTTP status it carries or null. | `{ result, caught: { name, message, injected, timeout, status }, implRuns }` |
 
 `implRuns` counts how many times the step's *main* implementation actually executed — the number
 several scenarios assert is zero. `replayed` says whether the caught error was the client's
@@ -78,5 +82,5 @@ process.exitCode = report(client.name, await runConformance(client)) ? 0 : 1;
 Add it to [scenarios.mjs](./scenarios.mjs): a `record` step, an optional `replay` step, optional
 `env` for the client,
 optional `replayOptions` merged into the replay run (`divergeAt`, `writes`, `liveTools`,
-`overrides`), and a `check` that throws. Then implement the step in both reference clients, or the
+`overrides`, `toolFailures`), and a `check` that throws. Then implement the step in both reference clients, or the
 suite will fail for the one you skipped — which is the point.

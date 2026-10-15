@@ -41,7 +41,7 @@ export interface CallMeta {
   retryCount?: number;
   /** Whether an error outcome was retryable (429, 5xx, connection error). */
   retryable?: boolean;
-  /** The failure was injected by `--fail-at`, not returned by the provider. */
+  /** The failure was injected by `--fail-at`, not returned by the provider or the tool. */
   injected?: boolean;
   /** Hash of a tool implementation's source, for the changed-implementation warning. */
   implHash?: string;
@@ -157,23 +157,29 @@ export interface RunMeta {
   author?: string;
   /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
   test?: { golden: string; session: string };
-  /** What a replay was told to do differently, flag by flag, without what the flags carried in (run-facts.ts). */
+  /** What a replay changed, as the flags that change it: what made a fork, and how to make it again. */
   interventions?: RunIntervention[];
+  /**
+   * The checks a replay was judged by when they were given with `--expect` (checks from the config
+   * are found again from the recording), so making the fork again judges it the same way.
+   */
+  expect?: Record<string, unknown>;
   /** What the run did that Shadowlap did not record, so a replay runs it for real (run-facts.ts). */
   notRecorded?: NotRecorded;
 }
 
-/** One flag a replay ran with: `--fail-at 19=529`, `--override 16=@policy.json`, `--writes stub`. */
+/**
+ * One change a replay made, as its flag. `at` is the parent run's call number it applies at, or null
+ * for a policy (`--writes stub`), a tool named by name (`--live-tool`) or another command (`command`:
+ * the replay ran `-- <command>` instead of its parent's, which the run's own record holds). `flag` is
+ * for display, with long values shortened; `args` are the exact CLI arguments, left out when a value
+ * is too large to keep (and for `command`).
+ */
 export interface RunIntervention {
+  kind: 'inject' | 'set' | 'model' | 'override' | 'plant' | 'fail' | 'diverge' | 'prompt-from' | 'live-tool' | 'writes' | 'reads' | 'command';
+  at: number | null;
   flag: string;
-  /**
-   * The flag's value without its payload: `19=529`, `16=@policy.json`, `15:claude-opus-5`; for a
-   * result, an instruction or a request value given inline, only its call (`16`, `15:max_tokens`).
-   * Null for a flag without one.
-   */
-  value: string | null;
-  /** The call it applies to, when it names one. */
-  callNo: number | null;
+  args?: string[];
 }
 
 export interface NotRecorded {
@@ -250,8 +256,13 @@ export interface RunSummary {
   byKind: Record<CallKind, number>;
   /** Live API calls, i.e. requests that reached the upstream provider. */
   upstreamRequests: number;
-  /** Live API calls Shadowlap answered itself with `--fail-at`: they reached no provider. */
+  /** Live calls Shadowlap answered itself with `--fail-at`: model calls that reached no provider, tools that did not run. */
   injected: number;
+  /**
+   * Model calls answered with the reason an intervention could not be applied to them: they reached no
+   * provider either. `summarizeRun` always counts them; a summary built or saved elsewhere may not.
+   */
+  refused?: number;
   /**
    * The run came from elsewhere — a pack someone recorded, or a capture — so the calls it holds were
    * made by someone else's process. Its cost is `captured`, not `spent`, and it made no upstream requests.

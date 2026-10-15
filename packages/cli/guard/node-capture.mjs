@@ -79,6 +79,56 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return `${sidecar.pathname.replace(/\/$/, '')}${runSegment}/${provider}${url.pathname}${url.search}`;
   }
 
+  // A replay can fail a captured HTTP call with a timeout or an error (--fail-at <call>=timeout). The
+  // sidecar answers a request that says it can take one (x-shadowlap-failures: raise) by naming the
+  // failure, and the agent gets the error its HTTP client raises for the real thing: its error path runs.
+  const decodeMessage = (value) => {
+    if (typeof value !== 'string' || !value) return undefined;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+  /** The error a connection reset reaches a Node client with: `read ECONNRESET`, or the message --fail-at gave. */
+  const resetError = (message) => Object.assign(new Error(message ?? 'read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' });
+
+  /** fetch: a timeout rejects as AbortSignal.timeout() makes it; an error as undici's "fetch failed". */
+  async function failedFetch(response) {
+    const kind = response.headers.get('x-shadowlap-injected');
+    if (!kind) return response;
+    try {
+      await response.body?.cancel();
+    } catch {
+      // nothing to read
+    }
+    const message = decodeMessage(response.headers.get('x-shadowlap-injected-message'));
+    if (kind === 'timeout') throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    throw new TypeError('fetch failed', { cause: resetError(message) });
+  }
+
+  /**
+   * http.request: the response never reaches the agent. A timeout is the request's own 'timeout' event,
+   * where clients that set one raise their timeout error, then the socket's ETIMEDOUT if nothing ended
+   * the request; an error is a connection reset.
+   */
+  function failOnInjected(req) {
+    const emit = req.emit;
+    req.emit = function (event, ...args) {
+      const res = event === 'response' ? args[0] : undefined;
+      const kind = res?.headers?.['x-shadowlap-injected'];
+      if (!kind) return emit.call(this, event, ...args);
+      res.resume();
+      const message = decodeMessage(res.headers['x-shadowlap-injected-message']);
+      if (kind === 'timeout') {
+        emit.call(this, 'timeout');
+        if (!this.destroyed) this.destroy(Object.assign(new Error('read ETIMEDOUT'), { code: 'ETIMEDOUT', syscall: 'read' }));
+      } else this.destroy(resetError(message));
+      return true;
+    };
+    return req;
+  }
+
   // ---- fetch: the Anthropic, OpenAI and Google SDKs, and the Anthropic Bedrock and Vertex clients ----
   const originalFetch = globalThis.fetch;
   if (typeof originalFetch === 'function') {
@@ -103,16 +153,18 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       const headers = new Headers(init?.headers ?? request?.headers ?? undefined);
       headers.set('x-shadowlap-upstream', url.origin);
       if (scoped) headers.set('x-shadowlap-scope', scoped);
+      if (provider === 'http') headers.set('x-shadowlap-failures', 'raise');
       const target = `${sidecar.origin}${sidecarPath(provider, url)}`;
       const method = init?.method ?? request?.method ?? 'GET';
       const body = init?.body !== undefined ? init.body : request?.body ?? undefined;
-      return originalFetch(target, {
+      const sent = originalFetch(target, {
         method,
         headers,
         ...(body !== undefined && body !== null && method !== 'GET' && method !== 'HEAD' ? { body, duplex: 'half' } : {}),
         ...(init?.signal ?? request?.signal ? { signal: init?.signal ?? request?.signal } : {}),
         redirect: init?.redirect ?? request?.redirect ?? 'follow',
       });
+      return provider === 'http' ? sent.then(failedFetch) : sent;
     };
   }
 
@@ -151,11 +203,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       const headers = { ...(options.headers ?? {}) };
       headers['x-shadowlap-upstream'] = url.origin;
       if (currentScope()) headers['x-shadowlap-scope'] = currentScope();
+      if (provider === 'http') headers['x-shadowlap-failures'] = 'raise';
       const { agent: _agent, protocol: _protocol, host: _host, hostname: _hostname, port: _port, path: _path, servername: _servername, ...rest } = options;
-      return http.request(
+      const req = http.request(
         { ...rest, protocol: sidecar.protocol, hostname: sidecar.hostname, port: sidecar.port, path: sidecarPath(provider, url), headers },
         callback,
       );
+      return provider === 'http' ? failOnInjected(req) : req;
     };
   }
 

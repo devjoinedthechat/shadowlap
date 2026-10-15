@@ -48,6 +48,35 @@ export class ReplayedError extends Error {
   }
 }
 
+/** How `shadowlap replay --fail-at <call>=timeout|error[:message]|<status>` fails a tool call. */
+export type InjectedFailure = { kind: 'timeout' } | { kind: 'error'; message?: string } | { kind: 'status'; status: number };
+
+/**
+ * Thrown instead of running a tool that `shadowlap replay --fail-at` fails: the tool does not run,
+ * and the agent's error path does. It looks like the failure it stands for, because the agent's
+ * handling is what is being tested: a timeout is named `TimeoutError` with code `ETIMEDOUT`, an HTTP
+ * failure carries `status` (and `statusCode`), an error carries the message given. `injected` is
+ * always true, for code (and tests) that need to tell it from a real one.
+ */
+export class ShadowlapInjectedFailure extends Error {
+  readonly injected = true;
+  readonly code: string | undefined;
+  readonly status: number | undefined;
+  readonly statusCode: number | undefined;
+  constructor(
+    readonly tool: string,
+    readonly args: unknown,
+    readonly failure: InjectedFailure,
+    error: SerializedError,
+  ) {
+    super(error.message);
+    this.name = error.name;
+    this.code = error.code;
+    this.status = failure.kind === 'status' ? failure.status : undefined;
+    this.statusCode = this.status;
+  }
+}
+
 interface Config {
   url: string;
   runId: string | undefined;
@@ -103,7 +132,7 @@ export function currentScope(): string | undefined {
 
 type ResolveResponse =
   | { origin: 'replayed'; callNo: number; outcome: 'ok'; result: unknown }
-  | { origin: 'replayed'; callNo: number; outcome: 'error'; error: SerializedError }
+  | { origin: 'replayed'; callNo: number; outcome: 'error'; error: SerializedError; injected?: InjectedFailure }
   | { origin: 'live'; callNo: number; outcome?: 'ok'; result?: unknown }
   | { origin: 'blocked'; callNo: number; outcome: 'error'; error: SerializedError }
   | { origin: 'stubbed'; callNo: number };
@@ -157,6 +186,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
     switch (r.origin) {
       case 'replayed':
         if (r.outcome === 'ok') return r.result as R;
+        if (r.injected) throw new ShadowlapInjectedFailure(name, args, r.injected, r.error);
         throw new ReplayedError(r.error);
       case 'blocked':
         throw new ShadowlapWriteBlocked(name, args, r.error.message);
@@ -176,6 +206,9 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
           throw err;
         }
       }
+      default:
+        // Never guess: running the tool on an answer this SDK doesn't know could repeat a side effect.
+        throw new Error(`shadowlap sidecar answered ${name} with an unknown origin "${String((r as { origin?: unknown }).origin)}"; update @shadowlap/sdk`);
     }
   };
 }

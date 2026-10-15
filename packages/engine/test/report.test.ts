@@ -90,4 +90,13 @@ describe('summarizeRun: where the calls were answered and paid for', () => {
     expect(s.upstreamRequests).toBe(1);
     expect(formatSummary(s)).toContain('then 1 live, 1 injected;');
   });
+
+  it('names a call an intervention could not be applied to apart, and does not count it upstream', () => {
+    const divergence: DivergenceReport = { type: 'forced', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 };
+    const answered = call(2, 'api', 'POST /v1/messages', 'live');
+    const refused: CallRecord = { ...answered, end: { ...answered.end!, outcome: 'error', meta: { status: 400, refused: true } } };
+    const s = summarizeRun(run(divergence), [call(1, 'api', 'POST /v1/messages', 'replayed'), refused]);
+    expect([s.refused, s.injected, s.upstreamRequests, s.byOrigin.live]).toEqual([1, 0, 0, 1]);
+    expect(formatSummary(s)).toContain('then 0 live, 1 refused; 0 upstream requests');
+  });
 });

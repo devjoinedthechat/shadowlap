@@ -28,6 +28,7 @@ const requestId = await uuid();
 - `tool(name, { effect, onFork? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved.
 - `effect` is required: `pure` (depends only on the arguments), `read` (touches outside state), `write` (changes it). See [effects](./how-it-works.md#effects).
 - After a fork, a `write` tool under the default `--writes block` throws `ShadowlapWriteBlocked`. A well-behaved agent catches tool errors and returns them to the model as an error result; the run then completes and the timeline shows the blocked call.
+- A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails throws `ShadowlapInjectedFailure` without running: named `TimeoutError` with code `ETIMEDOUT` for a timeout, with `status` and `statusCode` for an HTTP status, with the given message for an error. `injected` is always `true`.
 - `now()`, `random()` and `uuid()` are asynchronous, because Node has no synchronous HTTP. Give concurrent reads a label to disambiguate them: `now('deadline')`.
 
 Node ≥ 18. Zero dependencies.
@@ -60,6 +61,7 @@ request_id = uuid()
 - Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by their annotation. `exclude=("name",)` drops any other. An argument that can't be recorded as JSON raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
 - A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns.
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
+- A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - Python ≥ 3.9. Zero dependencies (`urllib`).
 
 Install from source for now: `pip install -e sdks/python`.
@@ -122,6 +124,7 @@ In Node and Python agents, requests to those hosts are [captured in the process]
 - Request headers are never stored, so API keys and tokens stay out of recordings. Response bodies are, like any tool result: add [redaction rules](./normalizers-and-redaction.md#redaction) before sharing a pack.
 - Responses are buffered, so streamed responses from these services arrive whole.
 - `--live-tool 'POST idx-1.svc.pinecone.io/query'` and `--override` work with the tool name.
+- [`--fail-at <call>=timeout` or `error`](./interventions.md#fail-a-tool) raises what the client library raises for the real failure: a `TimeoutError` or `TypeError: fetch failed` from `fetch`, the request's own `timeout` event and then `ETIMEDOUT` or `ECONNRESET` from `http(s).request`, `ReadTimeout` or `ReadError` from httpx, and urllib3's `ReadTimeoutError` or `ProtocolError`, which requests and botocore turn into their own. A status comes back as that response.
 
 ## The wire protocol
 

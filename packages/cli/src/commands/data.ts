@@ -51,24 +51,29 @@ export function register(program: Command): void {
 
   exportCmd
     .command('har')
-    .description("A run's model API calls as a HAR, for any tool that reads one; the reverse of shadowlap import har. Tool, clock and randomness calls are left out: a HAR describes HTTP")
+    .description("A run's model API calls as a HAR, for any tool that reads one; the reverse of shadowlap import har. Redaction rules apply. Tool, clock and randomness calls are left out: a HAR describes HTTP")
     .argument('<run>', 'run id or unique prefix')
     .argument('[file]', 'output file (default: stdout)')
-    .action((runArg: string, file: string | undefined) => {
+    .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
+    .action((runArg: string, file: string | undefined, flags: { redact: boolean }) => {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
-        const result = runToHar(store, run, store.getCalls(run.runId));
+        // A HAR leaves the machine with full bodies: every redaction rule applies, as to a pack.
+        const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
+        const result = runToHar(store, run, store.getCalls(run.runId), { redact: rules });
         const body = JSON.stringify(result.har, null, 1) + '\n';
         if (!file) {
           process.stdout.write(body);
+          if (!rules.length) process.stderr.write(p.dim('no redaction rules in shadowlap.config.json: the HAR holds the prompts and responses as recorded\n'));
           return;
         }
         const out = resolve(file);
         writeFileSync(out, body);
         emitJobEvent({ type: 'file', path: out, label: 'HAR' });
         emitJobEvent({ type: 'result', data: { entries: result.entries, skipped: result.skipped.length } });
-        console.log(`${p.green('\u2713')} ${out}  ${result.entries} ${result.entries === 1 ? 'call' : 'calls'}, ${formatBytes(fileSize(out))}`);
+        console.log(`${p.green('\u2713')} ${out}  ${result.entries} ${result.entries === 1 ? 'call' : 'calls'}, ${formatBytes(fileSize(out))}${rules.length ? `, ${rules.length} redaction rule${rules.length === 1 ? '' : 's'} applied` : ''}`);
+        if (!rules.length) console.log(p.dim('  no redaction rules in shadowlap.config.json: the HAR holds the prompts and responses as recorded'));
         for (const s of result.skipped) console.log(p.dim(`  call ${s.callNo} left out: ${s.reason}`));
         if (result.entries === 0) console.log(p.dim('  this run made no model API calls'));
       } finally {

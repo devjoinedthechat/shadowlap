@@ -72,23 +72,26 @@ The same table drives the cost figures in `shadowlap run`, `replay` and `show`.
 
 ## Actions
 
-`:` opens a palette of everything the CLI can do from the selected call:
+`:` opens the fork menu for the selected call: only the actions that apply to it, one line each with its flag on the right, then the whole run's, then replaying and packing. The header names the call and its kind (`At #19 · search_web · read tool`), and the selected action's line on what it does is shown underneath.
 
-| Key | Action | Runs |
-|---|---|---|
-| `r` | Replay this run | `shadowlap replay <run>` |
-| `s` | Replay with writes stubbed | `… --writes stub` |
-| `e` | Replay several times and compare the attempts (asks how many) | `… --repeat <n>` |
-| `l` | Fork: force this tool live (tool calls) | `… --live-tool <name>` |
-| `o` | Fork: override this tool's result (asks for JSON) | `… --override <n>=<json>` |
-| `i` | Fork: inject an instruction here (model calls; asks for text) | `… --inject <n>=<text>` |
-| `g` | Fork: your changed prompt from here (model calls) | `… --prompt-from <n>` |
-| `f` | Fork: answer this call with an HTTP failure (model calls; asks for a status) | `… --fail-at <n>=<status>` |
-| `m` | Fork: switch the model from here (asks for a model) | `… --model <n>:<model>` |
-| `a` | Fork: diverge at this call | `… --diverge-at <n>` |
-| `n` | Add the divergence's suggested normalizer | `shadowlap normalize add …` |
-| `p` | Pack this run (asks for a directory) | `shadowlap pack <run> <dir>` |
+| Key | Action | At | Runs |
+|---|---|---|---|
+| `i` | Inject an instruction (asks for text) | model call | `… --inject <n>=<text> --inject-as user` |
+| `m` | Switch the model from here (asks for a model) | model call | `… --model <n>:<model>` |
+| `g` | Fork with your changed prompt | model call | `… --prompt-from <n>` |
+| `f` | Answer with an HTTP failure (asks for a status) | model call | `… --fail-at <n>=<status>` |
+| `o` | Override this tool's result (opens with the recorded result to edit) | tool call | `… --override <n>=<json>` |
+| `t` | Answer with a tool error (timeout, error or error:<message>, or a status) | tool call | `… --fail-at <n>=<failure>` |
+| `x` | Plant a prompt injection here (asks for the text) | read tool call | `… --inject-result <n>=<text> --repeat 3` |
+| `l` | Force this tool live | tool call | `… --live-tool <name>` |
+| `u` | Answer differently as the user (starts from the recorded reply) | recorded user input | `… --override <n>=<reply>` |
+| `a` | Diverge here | any call | `… --diverge-at <n>` |
+| `e` | Repeat the replay and compare (asks how many attempts) | the whole run | `… --repeat <n>`; a replay runs again from its parent with the flags that made it, its own command and its `--expect` |
+| `s` | Stub the writes | the whole run | `… --writes stub`; a replay, again from its parent |
+| `r` | Replay this run | | `shadowlap replay <run>` |
+| `n` | Add the divergence's suggested normalizer | | `shadowlap normalize add …` |
+| `p` | Pack this run (asks for a directory) | | `shadowlap pack <run> <dir>` |
 
-A run imported from a capture has no command, so its replays ask for yours, which goes after `--`; the actions that already ask for something are shown greyed out until that replay exists, since it records every kind of call and every fork works on it.
+Inject always passes `--inject-as user`, which every provider takes. What you type is passed as text: an override or a planted instruction that starts with `@` is never read as a file (from a terminal, `--inject-result <n>=@payload.txt` reads one). A recorded user input offers only a different answer and diverge: running it live or overriding it as a tool result would mean asking a person again. A run imported from a capture has no command, so its menu shows a note and one action, a replay that asks for your command, which goes after `--`; that replay records every kind of call, and every fork works on it.
 
 Each action runs the CLI against the same store, streams its output into a pane, and, when it created a run, `Enter` opens it. The TUI never reimplements engine behavior; it is a front end to the same commands you'd type.

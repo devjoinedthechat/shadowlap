@@ -43,14 +43,19 @@ export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: No
   const imported = !!run.meta?.imported && run.mode === 'record';
   let upstreamRequests = 0;
   let injected = 0;
+  let refused = 0;
   for (const c of calls) {
     byOrigin[c.origin] = (byOrigin[c.origin] ?? 0) + 1;
     byKind[c.kind] = (byKind[c.kind] ?? 0) + 1;
-    if (c.kind !== 'api') continue;
+    // Model calls and tool calls alike: Shadowlap answered them itself (--fail-at), though they count as live.
     if (c.end?.meta.injected) injected++;
+    // Answered with the reason an intervention could not be applied, instead of being sent.
+    else if (c.end?.meta.refused) refused++;
+    if (c.kind !== 'api') continue;
     // Offline refusals (`shadowlap test`) never reached the provider, and neither did an injected
-    // failure, which Shadowlap answered itself; an imported run's calls were made somewhere else.
-    if (c.origin === 'live' && !imported) upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected).length;
+    // failure or a refused intervention, which Shadowlap answered itself; an imported run's calls
+    // were made somewhere else.
+    if (c.origin === 'live' && !imported) upstreamRequests += [c.end, ...c.attempts].filter((e) => e && !e.meta.offline && !e.meta.injected && !e.meta.refused).length;
     const u = c.end?.meta.usage;
     if (!u) continue;
     if (c.origin === 'replayed') {
@@ -76,6 +81,7 @@ export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: No
     byKind,
     upstreamRequests,
     injected,
+    refused,
     imported,
     tokensNotRespent: tokens,
     cost,
@@ -122,8 +128,10 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     );
   } else {
     const d = s.divergence;
-    // An injected failure is stored as live but was answered by Shadowlap (--fail-at), so it is named apart.
-    const live = s.byOrigin.live - s.injected;
+    // An injected failure is stored as live but was answered by Shadowlap (--fail-at), and so was a
+    // call an intervention could not be applied to: each is named apart.
+    const refused = s.refused ?? 0;
+    const live = s.byOrigin.live - s.injected - refused;
     const { blocked, stubbed } = s.byOrigin;
     const writes = blocked + stubbed;
     const fenced = !writes ? '' : blocked && stubbed ? `, ${writes} writes (${blocked} blocked, ${stubbed} stubbed)` : `, ${writes} write${writes === 1 ? '' : 's'} ${blocked ? 'blocked' : 'stubbed'}`;
@@ -132,6 +140,7 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
         (s.byOrigin.overridden ? ` (${s.byOrigin.overridden} overridden)` : '') +
         `, then ${live} live` +
         (s.injected ? `, ${s.injected} injected` : '') +
+        (refused ? `, ${refused} refused` : '') +
         fenced +
         `; ${s.upstreamRequests} upstream requests` +
         (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} saved)` : ''),
@@ -190,6 +199,8 @@ export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEnt
       lines.push(p.dim(`  new call: ${safeLine(d.reason ?? 'no recorded counterpart')}`));
       break;
     case 'request_changed': {
+      // An intervention's change names its flag.
+      if (d.reason) lines.push(p.dim(`  ${safeLine(d.reason)}`));
       if (d.counterpart) lines.push(p.dim(`  compared with run ${shortId(d.counterpart.runId)}, call ${d.counterpart.callNo}`));
       const entries = d.diff ?? [];
       for (const e of entries.slice(0, maxEntries)) {

@@ -12,10 +12,13 @@ import {
   fingerprintMisc,
   fingerprintTool,
   loadApiRequest,
+  plantInToolResult,
+  refused,
   storeApiRequest,
   normalizersHash,
   storedModelResolver,
   summarizeRun,
+  toolFailureError,
   type CallKind,
   type CallRecord,
   type ClockMode,
@@ -33,12 +36,17 @@ import {
   type RunSummary,
   type SerializedError,
   type Store,
+  type ToolFailure,
 } from '@shadowlap/engine';
-// The run page: a replay's flags and the guard's hosts, kept on the run (engine run-facts.ts).
-import { describeInterventions, recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
+// The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
+import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, type HttpResult, type HttpRule } from './http.js';
+import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
+import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
+
+export type { Interventions } from './interventions.js';
 
 export interface SidecarOptions {
   store: Store;
@@ -61,6 +69,11 @@ export interface SidecarOptions {
    * through to "unknown route".
    */
   api?: (route: ApiRoute) => Promise<{ status: number; body: unknown } | undefined>;
+  /**
+   * Credentials for signing a Bedrock request again after an intervention changed it, by the access
+   * key the agent signed with. Defaults to the environment and the shared AWS files (sigv4.ts).
+   */
+  awsCredentials?: CredentialsFor;
 }
 
 export interface ApiRoute {
@@ -68,28 +81,6 @@ export interface ApiRoute {
   /** The path after the token, e.g. `v1/recordings/start`. */
   path: string;
   body: () => Promise<unknown>;
-}
-
-/**
- * Request-level interventions for a replay. Both are append-only with respect to the conversation
- * prefix thinking blocks are bound to: an injected instruction is appended at call `atCall` and
- * re-inserted at that same position in every later request; parameter patches touch fields
- * outside `system` / `tools` / `messages`, which are not bound.
- */
-export interface Interventions {
-  inject?: {
-    /** The parent run's call number of the model call to inject before. */
-    atCall: number;
-    text: string;
-    /** `system`: a `role: "system"` message (Opus 5, Opus 4.8, Fable 5.x). `user`: a text block appended to the last user message. */
-    as: 'system' | 'user';
-  };
-  set?: {
-    /** The parent run's call number of the first model call to patch. */
-    fromCall: number;
-    /** Top-level request fields to set, e.g. `{ model: "claude-opus-5", max_tokens: 2048 }`. */
-    fields: Record<string, unknown>;
-  };
 }
 
 export interface StartRunInput {
@@ -144,20 +135,12 @@ interface TrackedCall {
   done: boolean;
 }
 
-interface ActiveInterventions {
-  /** 0-based index of the model call to inject before, and the injection. */
-  inject?: { apiIndex: number; text: string; as: 'system' | 'user' };
-  /** 0-based index of the first model call to patch. */
-  set?: { apiIndex: number; fields: Record<string, unknown> };
-  /** Where the injection landed: the message index to re-insert at (system) or to extend (user). */
-  injectedAt?: number;
-}
-
 class RunContext {
   nextCallNo = 1;
-  apiCalls = 0;
   readonly calls = new Map<number, TrackedCall>();
   readonly lastByFingerprint = new Map<string, number>();
+  /** With request interventions: the last model call by scope and the fingerprint of its request before any rewrite, so a retry keeps its call's place. */
+  readonly lastByRequest = new Map<string, { callNo: number; place: CallPlace }>();
   readonly warnings: string[] = [];
   readonly providersUsed = new Set<string>();
   readonly sdksSeen = new Set<string>();
@@ -167,7 +150,7 @@ class RunContext {
   constructor(
     readonly run: RunRecord,
     readonly session: Session,
-    readonly interventions: ActiveInterventions,
+    readonly interventions: RequestInterventions | null,
     /** The sidecar's normalizers plus the rules that redacted the parent, if any. */
     readonly normalizers: Normalizer[],
     readonly offline = false,
@@ -251,6 +234,7 @@ export class Sidecar {
   /** The run each slot's traffic belongs to. */
   private readonly slots = new Map<string, string>();
   private readonly api: SidecarOptions['api'];
+  private readonly awsCredentials: CredentialsFor;
 
   /**
    * The same API over cleartext HTTP/2, for clients that only speak HTTP/2: the AWS SDK's Bedrock
@@ -277,6 +261,7 @@ export class Sidecar {
     this.httpRules = opts.http ?? [];
     this.log = opts.log ?? (() => {});
     this.api = opts.api;
+    this.awsCredentials = opts.awsCredentials ?? credentialsFromEnvironment();
   }
 
   static async start(opts: SidecarOptions): Promise<Sidecar> {
@@ -386,10 +371,14 @@ export class Sidecar {
     let parentCalls: CallRecord[] | undefined;
     let parentStartedAt: number | undefined;
     let normalizers = this.normalizers;
+    // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
+    let ownCommand: string[] | undefined;
     if (input.mode === 'replay') {
       if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
       const parent = this.store.getRun(input.parentRunId);
       if (!parent) throw new HttpError(404, `unknown run ${input.parentRunId}`);
+      const argv = input.command.argv;
+      if (argv.length && (argv.length !== parent.command.argv.length || argv.some((a, i) => a !== parent.command.argv[i]))) ownCommand = argv;
       // A redacted recording matches only if the live request is masked the same way.
       if (parent.meta?.redactions?.length) normalizers = [...normalizers, ...parent.meta.redactions];
       const stored = this.store.getCalls(input.parentRunId);
@@ -407,12 +396,23 @@ export class Sidecar {
         parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined);
       }
     }
+    // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
+    const requestInterventions = input.interventions && parentCalls ? new RequestInterventions(parentCalls, input.interventions, (message) => {
+      throw new HttpError(400, message);
+    }) : null;
+    // Every replay keeps the list, empty when it changed nothing, so a run made before replays kept
+    // their flags (no list) is never taken for one that had none.
+    const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand) : null;
     const run = this.store.createRun({
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
       command: input.command,
       codeVersion: input.codeVersion ?? null,
-      meta: { normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined), ...(input.commandFromImport ? { commandFromImport: true } : {}), ...interventionsMeta(input) },
+      meta: {
+        normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
+        ...(input.commandFromImport ? { commandFromImport: true } : {}),
+        ...(described ? { interventions: described } : {}),
+      },
     });
     const clockRef = this.clock === 'auto' ? run.startedAt : undefined;
     const session = new Session({
@@ -423,19 +423,7 @@ export class Sidecar {
       loadRequest: (rec) => this.loadRequest(rec),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: clockRef } } : {}),
     });
-    const active: ActiveInterventions = {};
-    if (input.interventions && parentCalls) {
-      const apiCalls = parentCalls.filter((c) => c.kind === 'api');
-      const apiIndexOf = (callNo: number, what: string): number => {
-        const i = apiCalls.findIndex((c) => c.callNo === callNo);
-        if (i < 0) throw new HttpError(400, `${what}: call #${callNo} is not a model call of run ${input.parentRunId}`);
-        return i;
-      };
-      const { inject, set } = input.interventions;
-      if (inject) active.inject = { apiIndex: apiIndexOf(inject.atCall, '--inject'), text: inject.text, as: inject.as };
-      if (set) active.set = { apiIndex: apiIndexOf(set.fromCall, '--set'), fields: set.fields };
-    }
-    this.runs.set(run.runId, new RunContext(run, session, active, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined));
+    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined));
     if (input.slot !== undefined) this.slots.set(input.slot, run.runId);
     this.activeRunId = run.runId;
     this.log(`run ${run.runId} started (${input.mode})`);
@@ -466,6 +454,12 @@ export class Sidecar {
       );
     }
     const calls = this.store.getCalls(runId);
+    // An intervention that never took effect leaves a run that looks like an answer to a question nobody asked.
+    warnings.push(...ctx.session.unapplied(), ...(ctx.interventions?.unapplied() ?? []), ...(ctx.interventions?.warnings ?? []));
+    for (const [callNo, status] of ctx.session.options.failAt ?? []) {
+      const call = calls.find((c) => c.callNo === callNo);
+      if (!call?.end?.meta.injected) warnings.push(`--fail-at ${callNo}=${status} changed nothing: ${call ? `call #${callNo} of this replay was ${call.kind === 'api' ? 'a model call answered otherwise' : `${call.kind} ${call.name}, not a model call: the calls before it came in another order than recorded`}` : `the replay made only ${calls.length} call${calls.length === 1 ? '' : 's'}`}`);
+    }
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api')) {
       warnings.push(
         calls.length === 0
@@ -517,13 +511,21 @@ export class Sidecar {
     if (rest === 'v1/health' && method === 'GET') return json(res, 200, { ok: true, activeRun: this.activeRunId });
 
     if (rest === 'v1/runs' && method === 'POST') {
-      const body = (await readJson(req)) as Partial<StartRunInput> & { replay?: Partial<ReplayOptions> & { liveTools?: string[]; overrides?: Record<string, unknown> }; interventions?: Interventions };
+      const body = (await readJson(req)) as Partial<StartRunInput> & {
+        replay?: Partial<ReplayOptions> & { liveTools?: string[]; overrides?: Record<string, unknown>; failAt?: Record<string, number>; toolFailures?: Record<string, ToolFailure>; plants?: Record<string, string> };
+        interventions?: Interventions;
+      };
       if (body.mode !== 'record' && body.mode !== 'replay') throw new HttpError(400, 'mode must be record or replay');
+      // Maps keyed by call number arrive as JSON objects.
+      const byCall = <T>(o: Record<string, T> | undefined) => (o && typeof o === 'object' ? new Map(Object.entries(o).map(([k, v]) => [Number(k), v] as const)) : undefined);
       const replay = body.replay
         ? {
             ...body.replay,
             ...(body.replay.liveTools ? { liveTools: new Set(body.replay.liveTools) } : {}),
-            ...(body.replay.overrides ? { overrides: new Map(Object.entries(body.replay.overrides).map(([k, v]) => [Number(k), v])) } : {}),
+            ...(body.replay.overrides ? { overrides: byCall(body.replay.overrides)! } : {}),
+            ...(body.replay.failAt ? { failAt: byCall(body.replay.failAt)! } : {}),
+            ...(body.replay.toolFailures ? { toolFailures: byCall(body.replay.toolFailures)! } : {}),
+            ...(body.replay.plants ? { plants: byCall(body.replay.plants)! } : {}),
           }
         : undefined;
       const run = this.startRun({
@@ -616,7 +618,7 @@ export class Sidecar {
     ctx.providersUsed.add(provider.id);
     const method = (req.method ?? 'GET').toUpperCase();
     let rawBody = await readBody(req);
-    const headers = lowerHeaders(req.headers);
+    let headers = lowerHeaders(req.headers);
     let body: unknown;
     if (rawBody.length === 0) body = null;
     else {
@@ -626,41 +628,56 @@ export class Sidecar {
         body = rawBody.toString('base64');
       }
     }
-
-    // Interventions rewrite the request before it is fingerprinted, stored or forwarded, so the
-    // recording of the fork holds exactly what was sent.
-    const retryHeaderEarly = provider.retryCountHeader ? headers[provider.retryCountHeader] : undefined;
-    const isFirstAttempt = retryHeaderEarly === undefined || Number.parseInt(retryHeaderEarly, 10) === 0;
-    if (isConversation(body)) {
-      const apiIndex = ctx.apiCalls;
-      const iv = ctx.interventions;
-      if (iv.inject && apiIndex >= iv.inject.apiIndex) {
-        const messages = body.messages;
-        if (iv.injectedAt === undefined) iv.injectedAt = iv.inject.as === 'system' ? messages.length : messages.length - 1;
-        if (iv.inject.as === 'system') {
-          messages.splice(Math.min(iv.injectedAt, messages.length), 0, { role: 'system', content: iv.inject.text });
-        } else {
-          const target = messages[iv.injectedAt] as { role?: string; content?: unknown } | undefined;
-          if (target) {
-            const block = { type: 'text', text: iv.inject.text };
-            target.content = typeof target.content === 'string' ? [{ type: 'text', text: target.content }, block] : Array.isArray(target.content) ? [...target.content, block] : [block];
-          }
-        }
-      }
-      if (iv.set && apiIndex >= iv.set.apiIndex) Object.assign(body, iv.set.fields);
-      if ((iv.inject && apiIndex >= iv.inject.apiIndex) || (iv.set && apiIndex >= iv.set.apiIndex)) rawBody = Buffer.from(JSON.stringify(body), 'utf8');
-      if (isFirstAttempt) ctx.apiCalls++;
-    }
-
-    const name = apiCallName(method, subpath);
-    const { fingerprint } = fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt });
-    const fingerprintHeaders: Record<string, string> = {};
-    for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
+    const scope = scopeOf(req);
     const retryHeader = provider.retryCountHeader ? headers[provider.retryCountHeader] : undefined;
     const retryCount = retryHeader === undefined ? 0 : Number.parseInt(retryHeader, 10) || 0;
 
+    // Interventions rewrite the request before it is fingerprinted, stored or forwarded, so the
+    // recording of the fork holds exactly what was sent.
+    let path = subpath;
+    let forced: { by: string; counterpart: number } | undefined;
+    let changedBy: string | undefined;
+    let refusal: string | undefined;
+    let counted: { key: string; place: CallPlace } | undefined;
+    if (ctx.interventions?.active) {
+      // A flag names a model call by its place among the recording's model calls (of its scope, when
+      // the recording has scopes), counted the way the recording counts them: every one, whatever it
+      // sends (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
+      // recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
+      // same rewrite as the attempt it repeats.
+      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt }).fingerprint}`;
+      const same = ctx.lastByRequest.get(key);
+      const repeats = same !== undefined && ctx.calls.get(same.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
+      counted = { key, place: repeats ? same!.place : ctx.interventions.next(scope) };
+      const rewrite = ctx.interventions.apply(counted.place, provider.id, subpath, body);
+      if ('refused' in rewrite) refusal = rewrite.refused;
+      else {
+        // At the call a flag named: a changed body diverges on its own, and its diff shows the
+        // change; a model switched in the path, or a setting the request already had, is forced.
+        if (rewrite.target) {
+          if (rewrite.changed && rewrite.path === subpath) changedBy = rewrite.target.by;
+          else forced = rewrite.target;
+        }
+        if (rewrite.changed) {
+          path = rewrite.path;
+          body = rewrite.body;
+          rawBody = Buffer.from(JSON.stringify(body), 'utf8');
+          // AWS signs a request's exact path and body: the changed one is signed again, or refused.
+          if (signingKeyId(headers.authorization)) {
+            const signed = this.resign(req, headers, method, path, search, rawBody);
+            if ('error' in signed) refusal = `${rewrite.target?.by ?? 'the intervention'}: ${signed.error}`;
+            else headers = signed.headers;
+          }
+        }
+      }
+    }
+
+    const name = apiCallName(method, path);
+    const { fingerprint } = fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt });
+    const fingerprintHeaders: Record<string, string> = {};
+    for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
+
     // A retry of the previous attempt of the same call, rather than a new call.
-    const scope = scopeOf(req);
     const retryKey = `api\n${scope ?? ''}\n${fingerprint}`;
     const prevNo = ctx.lastByFingerprint.get(retryKey);
     const prev = prevNo !== undefined ? ctx.calls.get(prevNo) : undefined;
@@ -673,8 +690,10 @@ export class Sidecar {
       tracked = prev;
     } else {
       callNo = ctx.nextCallNo++;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, ...(scope ? { scope } : {}) });
-      const origin: Origin = decision.origin === 'overridden' ? 'replayed' : decision.origin;
+      // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
+      const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
       ctx.lastByFingerprint.set(retryKey, callNo);
@@ -691,6 +710,8 @@ export class Sidecar {
         at: Date.now(),
       });
     }
+    if (counted) ctx.lastByRequest.set(counted.key, { callNo, place: counted.place });
+    if (refusal !== undefined) return this.serveRefusal(ctx, res, provider, callNo, tracked, refusal);
 
     // Checked after the retry branch and keyed by call number, so every attempt of an injected
     // failure fails. The interesting question is what the agent does when a call cannot succeed;
@@ -700,7 +721,45 @@ export class Sidecar {
 
     // Overrides apply to tool results only; for a model call an override decision is served as recorded.
     if (tracked.decision.origin === 'replayed' || tracked.decision.origin === 'overridden') return this.serveReplayed(ctx, res, callNo, tracked);
-    return this.forward(ctx, req, res, provider, method, subpath, search, headers, rawBody, callNo, tracked, body, requested);
+    return this.forward(ctx, req, res, provider, method, path, search, headers, rawBody, callNo, tracked, body, requested);
+  }
+
+  /**
+   * A Bedrock request an intervention changed, signed again for the host the agent signed it for:
+   * the HTTP/2 authority it arrived with, or the host in-process capture names.
+   */
+  private resign(req: IncomingMessage, headers: Record<string, string>, method: string, path: string, search: string, body: Buffer): { headers: Record<string, string> } | { error: string } {
+    let host = headers[':authority'];
+    if (!host) {
+      const raw = req.headers['x-shadowlap-upstream'];
+      try {
+        host = new URL(String(Array.isArray(raw) ? raw[0] : raw)).host;
+      } catch {
+        host = headers.host;
+      }
+    }
+    if (!host) return { error: 'the host the request was signed for is unknown' };
+    return resignSigV4({ method, path, query: search.replace(/^\?/, ''), headers, body, host }, this.awsCredentials);
+  }
+
+  /**
+   * Answers a model call an intervention could not be applied to, with the reason, instead of
+   * sending it as the agent wrote it: a fork that silently isn't one is worse than an error.
+   */
+  private serveRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, reason: string): void {
+    const message = `shadowlap could not apply ${reason}`;
+    // In the provider's own error shape, so its client shows the reason: AWS clients read a top-level
+    // message and the error type from a header; the others read error.message.
+    const aws = provider.id === 'bedrock';
+    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_intervention_refused', message } }), 'utf8');
+    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused', ...(aws ? { 'x-amzn-errortype': 'ValidationException' } : {}) });
+    res.end(bytes);
+    const error: SerializedError = { name: 'ShadowlapInterventionRefused', message };
+    this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: tracked.ends++, responseRef: this.store.putBlob(bytes), outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 }, at: Date.now() });
+    tracked.done = true;
+    tracked.retryable = false;
+    ctx.warnOnce(`refused:${reason}`, `Not applied: ${reason}. Call ${callNo} was answered with that reason instead of being sent.`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: refused ${reason}`);
   }
 
   private serveReplayed(ctx: RunContext, res: ServerResponse, callNo: number, tracked: TrackedCall): void {
@@ -923,10 +982,11 @@ export class Sidecar {
     const scope = scopeOf(req);
     const decision = ctx.session.resolve({ callNo, kind: 'tool', name, fingerprint, effect, request: { args }, ...(scope ? { scope } : {}) });
     const identity: CallIdentity = { kind: 'tool', name, fingerprint, occurrence: decision.occurrence };
-    const tracked: TrackedCall = { identity, effect, origin: decision.origin, decision, ends: 0, retryable: false, done: false };
+    const stored = storedOrigin('tool', decision);
+    const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
-    this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: decision.origin, effect, requestRef: this.store.putJson({ args }), meta: { http: origin.host, ...(scope ? { scope } : {}) }, at: Date.now() });
+    this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson({ args }), meta: { http: origin.host, ...(scope ? { scope } : {}) }, at: Date.now() });
 
     const end = (responseRef: string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => {
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef, outcome, meta, at: Date.now() });
@@ -948,6 +1008,47 @@ export class Sidecar {
       end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
       if (payload.result) return send(payload.result, 'replayed');
       return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
+    }
+    if (decision.origin === 'injected') {
+      // A captured HTTP call fails the way HTTP does: with that status; or, for a timeout or an error,
+      // the way the agent's HTTP library reports one. The capture hooks raise the library's own error
+      // (a fetch TimeoutError, httpx.ReadTimeout, requests' ReadTimeout...) from an answer that names
+      // the failure, and ask for one with x-shadowlap-failures: raise. Any other client gets the
+      // connection closed before a response, which it reports as a network error.
+      const f = decision.failure;
+      const error = toolFailureError(name, f);
+      end(this.store.putJson({ error }), 'error', { injected: true, failure: f, error, latencyMs: 0, ...(f.kind === 'status' ? { status: f.status } : {}) });
+      this.log(`run ${ctx.run.runId} call ${callNo}: injected ${f.kind === 'status' ? `HTTP ${f.status}` : f.kind}`);
+      if (f.kind === 'status') return json(res, f.status, { error: { message: error.message } });
+      if (req.headers['x-shadowlap-failures'] !== 'raise') {
+        res.destroy();
+        return;
+      }
+      const bytes = Buffer.from(JSON.stringify({ error: { message: error.message } }), 'utf8');
+      res.writeHead(f.kind === 'timeout' ? 504 : 502, {
+        'content-type': 'application/json',
+        'content-length': String(bytes.length),
+        'x-shadowlap-origin': 'injected',
+        'x-shadowlap-injected': f.kind,
+        // Only a message the flag gave: without one, each library's own wording stands.
+        ...(f.kind === 'error' && f.message ? { 'x-shadowlap-injected-message': encodeURIComponent(f.message) } : {}),
+      });
+      res.end(bytes);
+      return;
+    }
+    if (decision.origin === 'planted') {
+      const recorded = decision.record.end!;
+      const payload = (recorded.responseRef ? this.store.getJson<{ result?: HttpResult; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+      const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
+      if (refused(planted)) {
+        ctx.session.declined(decision.record.callNo);
+        ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
+        end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
+        if (payload.result) return send(payload.result, 'replayed');
+        return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
+      }
+      end(this.store.putJson({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
+      return send(planted.result as HttpResult, 'overridden');
     }
     if (decision.origin === 'overridden') {
       const value = decision.result as Partial<HttpResult> | null;
@@ -1001,14 +1102,44 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}) });
     const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
-    const tracked: TrackedCall = { identity, effect, origin: decision.origin, decision, ends: 0, retryable: false, done: false };
+    const stored = storedOrigin(kind, decision);
+    const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
 
     const meta: CallStartRow['meta'] = {};
     if (body.implHash) meta.implHash = body.implHash;
     if (scope) meta.scope = scope;
-    this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: decision.origin, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
+    this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: stored, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
+
+    if (decision.origin === 'injected') {
+      // The tool does not run. Its error is stored as Shadowlap's, and the SDK raises it as the kind
+      // of failure asked for; a client that predates this raises it as a replayed error.
+      const error = toolFailureError(body.name, decision.failure);
+      this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson({ error }), outcome: 'error', meta: { injected: true, failure: decision.failure, error, latencyMs: 0 }, at: Date.now() });
+      tracked.done = true;
+      this.log(`run ${ctx.run.runId} call ${callNo}: injected ${decision.failure.kind} into ${body.name}`);
+      return { origin: 'replayed', callNo, outcome: 'error', error, injected: decision.failure };
+    }
+
+    if (decision.origin === 'planted') {
+      const record = decision.record;
+      const end = record.end!;
+      const payload = (end.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
+      const planted = end.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
+      if (!refused(planted)) {
+        this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson({ result: planted.result }), outcome: 'ok', meta: { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 }, at: Date.now() });
+        tracked.done = true;
+        return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
+      }
+      // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
+      ctx.session.declined(record.callNo);
+      ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
+      this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: end.responseRef, outcome: end.outcome, meta: { ...end.meta, replayedFrom: record.callNo, latencyMs: 0 }, at: Date.now() });
+      tracked.done = true;
+      if (end.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
+      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+    }
 
     if (decision.origin === 'overridden') {
       // The user's substitute result stands in for the recording; the agent builds its next request from it.
@@ -1137,7 +1268,12 @@ export interface ResolveBody {
 
 export type ResolveResponse =
   | { origin: 'replayed'; callNo: number; outcome: 'ok'; result: unknown }
-  | { origin: 'replayed'; callNo: number; outcome: 'error'; error: SerializedError }
+  /**
+   * A recorded error, or (with `injected`) a failure `--fail-at` asked for: the tool doesn't run and
+   * the SDK raises a timeout, the given error, or an HTTP-shaped error with the status. A client that
+   * doesn't know `injected` raises its replayed-error type with the same name and message.
+   */
+  | { origin: 'replayed'; callNo: number; outcome: 'error'; error: SerializedError; injected?: ToolFailure }
   | { origin: 'live'; callNo: number; outcome: 'ok'; result: unknown }
   | { origin: 'live'; callNo: number }
   | { origin: 'blocked'; callNo: number; outcome: 'error'; error: SerializedError }
@@ -1161,9 +1297,15 @@ function sdkFamily(userAgent: string | undefined): string {
   return 'other';
 }
 
-function isConversation(body: unknown): body is { messages: unknown[] } & Record<string, unknown> {
-  return typeof body === 'object' && body !== null && !Array.isArray(body) && Array.isArray((body as { messages?: unknown }).messages);
+/** How a decision is stored: a planted result as overridden, a failure Shadowlap answered as live (with `injected` on its end). */
+function storedOrigin(kind: CallKind, decision: Decision): Origin {
+  if (decision.origin === 'planted') return 'overridden';
+  if (decision.origin === 'injected') return 'live';
+  // Overrides apply to tool results; a model call matched under one is a plain replay.
+  if (decision.origin === 'overridden' && kind === 'api') return 'replayed';
+  return decision.origin;
 }
+
 
 /** The SDKs' `scope()`, from x-shadowlap-scope: printable, at most 200 characters, or none. */
 function scopeOf(req: IncomingMessage): string | undefined {
@@ -1205,11 +1347,4 @@ function json(res: ServerResponse, status: number, value: unknown): void {
   const bytes = Buffer.from(JSON.stringify(value), 'utf8');
   res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length) });
   res.end(bytes);
-}
-
-/** A replay's flags, kept on the run so its page can name what made the fork (engine run-facts.ts). */
-function interventionsMeta(input: StartRunInput): { interventions?: ReturnType<typeof describeInterventions> } {
-  if (input.mode !== 'replay') return {};
-  const list = describeInterventions(input.replay, input.interventions, input.overrideSources);
-  return list.length ? { interventions: list } : {};
 }
