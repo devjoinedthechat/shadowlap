@@ -355,6 +355,13 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, refused: 0, queued: true }, at: 2020 });
     recordEvent(store, { kind: 'store.pulled', actor: 'maya@example.com', ref: 's3://northwind/agent', data: { pulled: 3, merged: 1, failed: 0, byAuthor: { 'dana@example.com': 3 } }, at: 2100 });
     recordEvent(store, { kind: 'run.shared', runId: run, ref: 'reports/01k5cq.html', data: { expiresAt: 9_999_999, redacted: true, runs: 2 }, at: 2300 });
+    recordEvent(store, { kind: 'store.set', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { provider: 's3', previous: null }, at: 2400 });
+    recordEvent(store, { kind: 'store.set', actor: 'dana@example.com', ref: 's3://northwind/agent-runs', data: { provider: 's3', previous: 's3://northwind/agent' }, at: 2410 });
+    recordEvent(store, { kind: 'store.checked', actor: 'dana@example.com', ref: 's3://northwind/agent-runs', data: { ok: true, versioning: 'on', objectLock: 'on', encryption: 'aws:kms' }, at: 2420 });
+    recordEvent(store, { kind: 'store.checked', actor: 'maya@example.com', ref: 's3://northwind/agent-runs', data: { ok: true, versioning: 'suspended', objectLock: 'off', encryption: null }, at: 2430 });
+    recordEvent(store, { kind: 'store.checked', actor: 'jonas@example.com', ref: 's3://northwind/agent-runs', data: { ok: false, versioning: 'unknown', objectLock: 'unknown', encryption: null }, at: 2440 });
+    recordEvent(store, { kind: 'store.ci', actor: 'dana@example.com', ref: 's3://northwind/agent-runs', data: { push: false, previous: true }, at: 2450 });
+    recordEvent(store, { kind: 'store.ci', actor: 'dana@example.com', data: { push: true, previous: false }, at: 2460 });
     // The fixes slice: blame, repair, verify, apply.
     recordEvent(store, { kind: 'blame.done', runId: run, ref: 'fx-double-email', data: { outcome: 'blamed', callNo: 9, confidence: 'high', title: 'confirmation email sent twice', opened: true }, at: 3000 });
     recordEvent(store, { kind: 'blame.done', ref: 'fx-refund-limit', data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: null, opened: false }, at: 3010 });
@@ -385,6 +392,9 @@ describe('events as each feature records them', () => {
     const at = (t: number) => items.find((i) => i.at === t);
     expect([2000, 2010, 2020, 2100].map((t) => at(t)?.text)).toEqual(['Pushed 3 runs to the store', 'Pushed 1 run to the store · 2 waiting · 1 refused', 'Pushed 1 run to the store', 'Pulled 3 runs from the store']);
     expect(at(2300)).toMatchObject({ kind: 'project', text: `Shared ${run.slice(0, 10)} as a link · with 1 more run · redacted`, href: `#/run/${run}` });
+    expect([2400, 2410, 2420, 2430, 2440, 2450, 2460].map((t) => at(t)?.text)).toEqual(['Store set', 'Store changed', 'Store checked', 'Store checked · versioning off · no object lock', 'Store check failed', 'Push from CI off', 'Push from CI on']);
+    expect(at(2410)).toMatchObject({ kind: 'setting', ref: 's3://northwind/agent-runs', actor: 'dana@example.com' });
+    expect(at(2440)?.kind).toBe('fail');
     expect(at(3000)).toMatchObject({ kind: 'blame', text: 'Blamed · confirmation email sent twice, lost at model call #9', href: '#/fixes/fx-double-email/blame', runId: run });
     expect(at(3010)?.text).toBe('Blamed model call #5 · confidence high');
     expect(at(3020)?.text).toBe('Blame stopped · refund over the limit');

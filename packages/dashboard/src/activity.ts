@@ -103,6 +103,16 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: '#/training/tasks' })],
   // In the projects pages' own words, so the feed and the project list say the same.
   ...(['project.added', 'project.setup', 'project.removed'] as const).map((kind): [string, Describe] => [kind, (e) => ({ kind: 'project', text: projectEventText(e) ?? kind, href: '#/' })]),
+  // The team store's set-up, as the store commands record it; the bucket is the entry's ref.
+  ['store.set', (_e, d) => ({ kind: 'setting', text: str(d.previous) ? 'Store changed' : 'Store set' })],
+  [
+    'store.checked',
+    (_e, d) => {
+      if (d.ok === false) return { kind: 'fail', text: 'Store check failed' };
+      return { kind: 'setting', text: parts('Store checked', (d.versioning === 'off' || d.versioning === 'suspended') && 'versioning off', d.objectLock === 'off' && 'no object lock') };
+    },
+  ],
+  ['store.ci', (_e, d) => ({ kind: 'setting', text: `Push from CI ${d.push === false ? 'off' : 'on'}` })],
   [
     'store.pushed',
     (_e, d) => {
