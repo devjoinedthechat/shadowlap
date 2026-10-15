@@ -80,6 +80,11 @@ function build(): { store: Store; ids: Record<string, string> } {
   const failed: RunMeta = { test: { golden: 'goldens/refund-in-limit/', session: 's1' }, checks: [{ ok: false, label: 'issue_refund called once', detail: 'it was called twice' }] };
   replayed(run('testFail', { mode: 'replay', parentRunId: root, startedAt: 6900, meta: failed }, { at: 7002 }));
   run('probe', { mode: 'replay', parentRunId: rec, startedAt: 7050, meta: { probe: { of: rec, callNo: 3, passed: true } } }, { at: 7060 });
+  // tasks score: each attempt is a run with meta.task (and a --repeat group of its own), told once by model.scored.
+  for (const attempt of [1, 2]) {
+    run(`scored${attempt}`, { mode: 'replay', parentRunId: root, startedAt: 7200 + attempt, meta: { task: { golden: 'goldens/refund', model: 'claude-haiku-4-5', takeover: 3, attempt, of: 2, score: 1, session: 's9' }, repeat: { group: 's9-refund', attempt, of: 2 } } }, { at: 7210 + attempt });
+  }
+  recordEvent(store, { kind: 'model.scored', ref: 'claude-haiku-4-5', data: { model: 'claude-haiku-4-5', tasks: 1, attempts: 2, mean: 1, spent: 0.01, session: 's9' }, at: 7250 });
   store.updateRunMeta(rec, { blame: { at: 7100, outcome: 'blamed', callNo: 3, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0.1 } });
 
   // What commands recorded.
@@ -116,6 +121,10 @@ describe('the activity feed', () => {
     expect(items.filter((i) => i.runId === ids.attempt1 || i.runId === ids.attempt2)).toEqual([]);
     expect(byId(items, 'g:g1')).toMatchObject({ kind: 'fork', at: 5200, text: 'replay --repeat 2 at #2 · 2 of 2 took the same path', runId: ids.rec, href: `#/run/${ids.rec}/2/forks` });
     expect(items.some((i) => i.runId === ids.probe)).toBe(false);
+    // A model's scoring attempts are told by its scoring, not as a replay --repeat of the golden.
+    expect(byId(items, 'g:s9-refund')).toBeUndefined();
+    expect(items.some((i) => i.runId === ids.scored1 || i.runId === ids.scored2)).toBe(false);
+    expect(items.filter((i) => i.kind === 'train').map((i) => i.text)).toEqual(['Scored claude-haiku-4-5 on 1 task · mean 1.00']);
     expect(byId(items, `r:${ids.rec}:blame`)).toMatchObject({ kind: 'blame', at: 7100, text: 'Blamed model call #3 · confidence high', href: '#/fixes' });
   });
 
