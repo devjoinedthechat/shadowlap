@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { lineTone } from '../ui/jobs.js';
 import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
@@ -134,5 +135,16 @@ describe('the palette’s Training actions', () => {
     requestTrainingDialog('export');
     expect(heard).toEqual(['score']);
     expect(takeTrainingDialog()).toBe('export');
+  });
+});
+
+describe('the drawer while a model is scored', () => {
+  it('marks an attempt that missed a check, as the mock does, and leaves one that passed every check plain', () => {
+    expect(lineTone('   4 · ✓ the agent exits 0 · ✗ issue_refund called 0 times · ✗ escalate called 1 time · 0.33 01M50X6E4Y')).toBe('y');
+    expect(lineTone('  10 · ✗ the agent exits 0 · ✗ escalate called 1 time · 0.00 01M50X6E4Y')).toBe('y');
+    expect(lineTone('   1 · ✓ the agent exits 0 · ✓ issue_refund called 0 times · ✓ escalate called 1 time · 1.00 01M50X6C3J')).toBe('');
+    // The task's line and the summary keep their own marks.
+    expect(lineTone('▸ refund-over-limit · #1–#4 replayed · claude-haiku-4-5 from #5 · writes stubbed')).toBe('');
+    expect(lineTone('✓ claude-haiku-4-5 · mean 0.87 · 10 attempts on 2 tasks · ≈$0.104 spent')).toBe('ok');
   });
 });
