@@ -335,6 +335,19 @@ describe('a conversation whose history was edited', () => {
     store.close();
   });
 
+  it('does not join an agent that hands another agent the answer', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const answer = 'The disk filled up because the logs were never rotated.';
+    b.model({ system: 'You investigate incidents.', messages: [user('Why did the API go down at 03:00?')] }, [text(answer)]);
+    // A summariser in the same scope gets the answer as a turn of its own conversation.
+    b.model({ system: 'You write status-page updates.', messages: [user('Here is the finding.'), assistant([text(answer)]), user('Write the update.')] }, [text('We have fixed the disk issue.')]);
+    b.end();
+    const { r } = conv(store, b.runId);
+    expect([1, 2].map((n) => r.byCall.get(n)!.conversation)).toEqual([1, 2]);
+    store.close();
+  });
+
   it('does not join tickets that share their examples and a short answer', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);

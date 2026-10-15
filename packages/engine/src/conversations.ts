@@ -125,6 +125,8 @@ interface Digest {
   items: ItemInfo[];
   previousResponseId: string | null;
   conversationId: string | null;
+  /** The system prompt sent beside the items (Anthropic's `system`, Gemini's `systemInstruction`, the Responses API's `instructions`), hashed. */
+  frame: string | null;
 }
 
 export interface RequestedTool {
@@ -288,7 +290,7 @@ function digest(store: Store, call: CallRecord, cache: StoreCaches): Digest | nu
       }
       items.push(info);
     }
-    return { items, previousResponseId: null, conversationId: null };
+    return { items, previousResponseId: null, conversationId: null, frame: typeof manifest.system === 'string' ? manifest.system : null };
   }
   const known = cache.wholes.get(ref);
   if (known !== undefined) return known;
@@ -297,10 +299,12 @@ function digest(store: Store, call: CallRecord, cache: StoreCaches): Digest | nu
     const body = loadApiRequest(store, ref);
     const found = isObject(body) ? listOf(body) : null;
     if (found && isObject(body)) {
+      const system = body.systemInstruction ?? body.instructions ?? body.system;
       d = {
         items: found.list.map((item) => itemInfo(item, found.shape)),
         previousResponseId: idField(body.previous_response_id),
         conversationId: idField(body.conversation),
+        frame: system === undefined || system === null ? null : createHash('sha256').update(canonical(undecorated(system))).digest('base64url').slice(0, 24),
       };
     }
   } catch {
@@ -426,6 +430,8 @@ interface Open {
   editKey: string;
   /** The last item of its latest request when that is an assistant turn (a prefill): what it says. */
   lastSig: string[] | null;
+  /** The system prompt its latest request was sent with, hashed. */
+  frame: string | null;
   lastCall: CallRecord;
   conversationId: string | null;
   first: number;
@@ -557,13 +563,13 @@ class ScopeIndex {
  * an earlier message, trims an old tool result, or replaces a prefilled answer with the whole of it,
  * so the request no longer starts with the conversation's latest one. It still carries that
  * request's answer, as the assistant turn right after the history it kept (or in place of the
- * prefill), shares its first item from two items on, and is longer. The candidate sharing the most
- * leading items wins. An answer counts only when it says something particular (a tool call, or a
- * text of some length) and the request has no other turn like it, as a few-shot example's label
- * would be. Only the request's last two assistant turns are looked at, and a bounded number of
- * conversations for each, so a run of unrelated requests stays linear.
+ * prefill); it is longer, has the same system prompt, and from two items on the same first item.
+ * The candidate sharing the most leading items wins. An answer counts only when it says something
+ * particular (a tool call, or a text of some length) and the request has no other turn like it, as
+ * a few-shot example's label would be. Only the request's last two assistant turns are looked at,
+ * and a bounded number of conversations for each, so a run of unrelated requests stays linear.
  */
-function editedLink(s: ScopeIndex, items: readonly ItemInfo[], hashes: readonly string[], answerOf: (x: Open) => string[]): Open | undefined {
+function editedLink(s: ScopeIndex, items: readonly ItemInfo[], hashes: readonly string[], frame: string | null, answerOf: (x: Open) => string[]): Open | undefined {
   const turns: number[] = [];
   for (let j = items.length - 1; j >= 1 && turns.length < 2; j--) if (items[j]!.sig?.length) turns.push(j);
   let best: { x: Open; lead: number } | undefined;
@@ -576,7 +582,7 @@ function editedLink(s: ScopeIndex, items: readonly ItemInfo[], hashes: readonly 
     ] as const) {
       if (length >= hashes.length) continue;
       for (const x of s.byEdit.under(editKey(length, hashes[0]), 16)) {
-        if (x.items.length !== length || (prefill && !x.lastSig)) continue;
+        if (x.items.length !== length || x.frame !== frame || (prefill && !x.lastSig)) continue;
         const lead = leading(x.items, hashes);
         if (lead >= length || (length >= 2 && lead < 1)) continue;
         if (!sameAnswer(turn, answerOf(x), prefill ? x.lastSig : null)) continue;
@@ -673,13 +679,13 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
             const x = s.byId.get(id);
             if (x) carried.add(x);
           }
-          chosen = recent(firstChanged) ?? recent(carried) ?? editedLink(s, items, hashes, (x) => response(x.lastCall).sig);
+          chosen = recent(firstChanged) ?? recent(carried) ?? editedLink(s, items, hashes, d.frame, (x) => response(x.lastCall).sig);
         }
       }
     }
     let conv = chosen;
     if (!conv) {
-      conv = { n: open.length + 1, scope, items: [], key: '', tailKey: null, editKey: '', lastSig: null, lastCall: c, conversationId: d.conversationId, first: c.callNo, last: c.callNo, modelCalls: 0, calls: 0, touched: 0 };
+      conv = { n: open.length + 1, scope, items: [], key: '', tailKey: null, editKey: '', lastSig: null, frame: null, lastCall: c, conversationId: d.conversationId, first: c.callNo, last: c.callNo, modelCalls: 0, calls: 0, touched: 0 };
       open.push(conv);
       s.all.push(conv);
       if (d.conversationId && !s.byConversationId.has(d.conversationId)) s.byConversationId.set(d.conversationId, conv);
@@ -689,6 +695,7 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
     conv.tailKey = tails ? tails[hashes.length]! : null;
     conv.editKey = editKey(hashes.length, hashes[0]);
     conv.lastSig = items.at(-1)?.sig ?? null;
+    conv.frame = d.frame;
     conv.lastCall = c;
     s.byKey.file(conv);
     s.byTail.file(conv);
