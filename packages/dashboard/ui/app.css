@@ -666,7 +666,7 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .tscroll { overflow-x: auto; }
 .tscroll table.t { min-width: 560px; }
 .tscroll table.t td { white-space: nowrap; }
-/* pit stops */
+/* fixes: one row per failure, and each fix's blame, repair and verify steps */
 .pslist a { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 15px 18px; border-top: 1px solid var(--line); text-decoration: none; }
 .pslist a:first-child { border-top: 0; }
 .pslist a:hover { background: var(--hover); }
