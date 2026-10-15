@@ -282,6 +282,9 @@ class ToolCalls {
     }
     switch (r.origin) {
       case 'replayed':
+        // A tool failed with --fail-at answers as an MCP server does when a tool's handler fails: a
+        // result with isError, which the client hands to the model. A recorded error stays as recorded.
+        if (r.outcome === 'error' && r.injected) return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: r.error.message }], isError: true } } };
         return { answer: r.outcome === 'ok' ? { jsonrpc: '2.0', id: m.id, result: r.result } : { jsonrpc: '2.0', id: m.id, error: rpcError(r.error) } };
       case 'blocked':
         // The model sees the refusal as a tool error and can carry on, as an SDK agent would after ShadowlapWriteBlocked.
