@@ -320,6 +320,12 @@ describe('ProjectHost: a project list it can’t use', () => {
     expect(() => host.remove('support-agent')).toThrow(expect.objectContaining({ code: 'registry', message: host.notice }));
     expect(() => host.confirmCommand('support-agent', { argv: ['python', 'agent.py'], upstream: null })).toThrow(expect.objectContaining({ code: 'registry' }));
     expect(readFileSync(registry.file, 'utf8')).toBe('{ not json');
+
+    // Fixed, and the folder added under another id by the CLI: its entry serves it from then on.
+    writeFileSync(registry.file, JSON.stringify({ version: 1, projects: [{ id: 'agent', name: 'support-agent', path: support, addedAt: 1 }] }));
+    expect(host.currentProject()).toBe('agent');
+    expect(host.list().map((p) => p.id)).toEqual(['agent']);
+    expect(host.current().path).toBe(support);
     host.close();
   });
 

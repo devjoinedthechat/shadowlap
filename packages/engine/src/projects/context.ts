@@ -220,7 +220,8 @@ export class ProjectHost<C = unknown> {
       if (standIn) return [standIn];
       throw err;
     }
-    return standIn && !listed.some((p) => p.id === standIn.id || p.path === standIn.path) ? [standIn, ...listed] : listed;
+    // Once the list has the start folder (fixed, and the folder added), its own entry serves it.
+    return standIn && !listed.some((p) => p.path === standIn.path) ? [standIn, ...listed] : listed;
   }
 
   private entry(id: string): ProjectEntry | null {
@@ -249,7 +250,9 @@ export class ProjectHost<C = unknown> {
   /** The current project's id. When it left the list (another dashboard or the CLI removed it), the first project left becomes current. */
   currentProject(): string {
     if (this.entry(this.currentId)) return this.currentId;
-    const first = this.entries()[0] ?? (this.options.startFolder ? this.options.registry.ensure(this.options.startFolder) : null);
+    const standIn = this.options.standIn;
+    const listed = standIn ? this.entries().find((p) => p.path === standIn.path) : undefined;
+    const first = listed ?? this.entries()[0] ?? (this.options.startFolder ? this.options.registry.ensure(this.options.startFolder) : null);
     if (!first) throw new ProjectError('not-found', `No project ${this.currentId}.`);
     this.currentId = first.id;
     return this.currentId;
