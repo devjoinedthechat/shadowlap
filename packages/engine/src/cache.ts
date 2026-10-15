@@ -145,6 +145,7 @@ export function cacheUse(store: Store, since: number, options: CacheUseOptions =
     const calls = store.getCalls(run.runId);
     if (!calls.some((c) => c.kind === 'api' && live(c) && c.end?.meta.usage)) continue;
     const r = runCache(store, calls);
+    if (!r.liveInput) continue;
     counted++;
     liveInput += r.liveInput;
     liveRead += r.liveRead;

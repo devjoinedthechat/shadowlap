@@ -507,7 +507,7 @@ function analyse(store: Store, calls: readonly CallRecord[], options: Conversati
           chosen = recent(same.filter((x) => x.lastCall.end?.outcome === 'error'));
         } else {
           chosen =
-            recent(candidates.filter((x) => x.items.length >= 2 && hashes.length > x.items.length && x.items.slice(1).every((h, i) => h === hashes[i + 1]))) ??
+            recent(candidates.filter((x) => x.items.length >= 2 && hashes.length > x.items.length && x.items.every((h, i) => i === 0 || h === hashes[i]))) ??
             (ids.length ? recent(candidates.filter((x) => ids.some((id) => x.ids.has(id)))) : undefined);
         }
       }
@@ -585,8 +585,9 @@ function attributeOthers(store: Store, calls: readonly CallRecord[], ofCall: Map
     } catch {
       args = undefined;
     }
+    // Its own scope first; then every scope, for a tool recorded outside the scope its model call ran in.
     const own = modelsIn.get(scopeOf(t)) ?? [];
-    for (const list of own === models ? [models] : [own, models]) {
+    for (const list of own.length === models.length ? [models] : [own, models]) {
       let byName: { model: CallRecord; tool: RequestedTool; index: number } | null = null;
       for (let i = before(list, t.callNo), seen = 0; i >= 0 && seen < LOOK_BACK; i--, seen++) {
         const m = list[i]!;

@@ -211,7 +211,6 @@ function storedNotRecorded(run: RunRecord): NotRecorded {
   return { hosts, tools };
 }
 
-
 /** Attempts run together: one `--repeat` group, or one golden in one test session, under the same parent. */
 function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
   const repeat = str(run.meta?.repeat?.group);
