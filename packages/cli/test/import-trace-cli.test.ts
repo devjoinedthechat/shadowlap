@@ -110,6 +110,14 @@ describe('shadowlap import otel', () => {
     expect(shown.out).toContain('imported, otel');
   });
 
+  it("says why a trace from Shadowlap's own export has nothing to replay", async () => {
+    const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
+    expect((await shadowlap(['export', 'otel', imported.runs[0].runId, '--out', 'exported.json'])).code).toBe(0);
+    const again = await shadowlap(['import', 'otel', 'exported.json']);
+    expect(again.code).toBe(1);
+    expect(again.err).toContain('which carries no prompt text: share the run as a pack instead');
+  });
+
   it('replays your agent against a trace that kept everything it sends, with nothing live', async () => {
     const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
     const runId = imported.runs[0].runId as string;

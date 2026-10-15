@@ -342,7 +342,9 @@ replay forks at the first model call that differs and runs live from there, whic
 A tool call replays when the trace kept its arguments (as an object) and its output, and only if
 every call of that tool was kept: such tools are listed in `meta.covers` as `tool:<name>`, and any
 other tool runs live on replay. A model call that failed where it ran, or kept no messages or
-output, is skipped and runs live. `--json` adds what the source kept:
+output, is skipped and runs live. A trace from [`export otel`](#export-otel) carries no prompt text,
+so it has nothing to replay: share the run as a [pack](#pack-unpack) instead. `--json` adds what the
+source kept:
 
 ```json
 "kept": { "traces": 1, "spans": 14, "modelCalls": 9, "modelCallsImported": 9, "withSettings": 9, "withToolDefinitions": 0, "toolCalls": 5, "toolCallsKept": 3 }

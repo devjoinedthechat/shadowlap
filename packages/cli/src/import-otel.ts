@@ -347,6 +347,10 @@ export function readOtel(payloads: unknown[]): OtelRead {
     for (const s of list) {
       if (kinds.get(s.spanId) === null && asked.has(s.name) && (s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined)) calls.push(toolCall(s));
     }
+    // `shadowlap export otel` leaves prompt text out, so its traces hold no messages to replay.
+    if (!calls.some((c) => c.kind === 'model' && c.messages.length) && list.some((s) => s.attrs['shadowlap.run.id'] !== undefined || s.attrs['shadowlap.call_no'] !== undefined)) {
+      skipped.push({ url: `trace ${id}`, reason: 'exported by shadowlap export otel, which carries no prompt text: share the run as a pack instead (shadowlap pack, then shadowlap unpack)' });
+    }
     traces.push({ id, calls, spans: list.length, skipped });
   }
   return { traces, spans: spans.length };
