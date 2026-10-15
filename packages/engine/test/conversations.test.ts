@@ -266,6 +266,40 @@ describe('what counts as continuing a conversation', () => {
   });
 });
 
+describe('tool-use ids in streamed responses', () => {
+  const sse = (events: unknown[]) => events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join('');
+
+  it('reads them from OpenAI Chat Completions and Responses streams', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const chat = sse([
+      { choices: [{ index: 0, delta: { role: 'assistant', content: 'Checking.' } }] },
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_a', function: { name: 'lookup', arguments: '{"id":' } }] } }] },
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 1, id: 'call_b', function: { name: 'policy', arguments: '{}' } }] } }] },
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '1}' } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+      '[DONE]',
+    ]);
+    const m1 = b.model({ model: 'gpt-5', messages: [{ role: 'user', content: 'Refund 1?' }] }, null, { raw: { body: chat, contentType: 'text/event-stream' }, name: 'POST /v1/chat/completions', provider: 'openai' });
+    const lookup = b.tool('lookup', { id: 1 }, { ok: true });
+    const policy = b.tool('policy', {}, { limit: 100 });
+    const responses = sse([
+      { type: 'response.created', response: { id: 'resp_9' } },
+      { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', name: 'search', call_id: 'call_r1' } },
+      { type: 'response.function_call_arguments.delta', output_index: 0, delta: '{"q":"x"}' },
+      { type: 'response.completed', response: { id: 'resp_9', status: 'completed' } },
+    ]);
+    const m2 = b.model({ model: 'gpt-5', input: 'Search x.' }, null, { raw: { body: responses, contentType: 'text/event-stream' }, name: 'POST /v1/responses', provider: 'openai' });
+    const search = b.tool('search', { q: 'x' }, []);
+    b.end();
+    const { r } = conv(store, b.runId);
+    expect(r.byCall.get(lookup)).toMatchObject({ requestedBy: m1, toolUseId: 'call_a' });
+    expect(r.byCall.get(policy)).toMatchObject({ requestedBy: m1, toolUseId: 'call_b' });
+    expect(r.byCall.get(search)).toMatchObject({ requestedBy: m2, toolUseId: 'call_r1' });
+    store.close();
+  });
+});
+
 describe('message fixtures', () => {
   it('builds Anthropic responses the read model understands', () => {
     expect(message([text('x')]).stop_reason).toBe('end_turn');
