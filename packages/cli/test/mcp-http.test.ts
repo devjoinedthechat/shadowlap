@@ -364,6 +364,23 @@ describe('shadowlap mcp --url', () => {
     expect(store.getCalls(rec.runId).map((x) => x.name)).toEqual(['read_note']);
   });
 
+  it('says at the start when the sidecar it was given does not answer, and refuses writes', async () => {
+    const child = spawn(process.execPath, [CLI, 'mcp', '--url', server.url], {
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', SHADOWLAP_URL: 'http://127.0.0.1:9/t/left-over', SHADOWLAP_RUN_ID: 'r', SHADOWLAP_TELEMETRY: '0' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+    const c = rpc(child.stdin, child.stdout);
+    await c.handshake();
+    await c.request('tools/list');
+    expect(text(await c.call('send_note', { to: 'x' }))).toMatch(/send_note was not sent/);
+    child.stdin.end();
+    await new Promise((resolve) => child.on('exit', resolve));
+    expect(stderr).toContain('does not answer, so write tools will be refused');
+    expect(server.calls).toEqual([]);
+  });
+
   it('gives only its own process the hook that allows a host past the guard', async () => {
     const probe = "console.log(typeof globalThis[Symbol.for('shadowlap.guard.allow')])";
     const seen = await new Promise<string>((resolve) => {

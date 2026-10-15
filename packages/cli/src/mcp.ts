@@ -829,8 +829,15 @@ export async function runMcp(argv: string[], flags: { url?: string; header: stri
   const url = flags.url ? mcpServerUrl(flags.url, Object.keys(headers).length > 0, flags.allowHttp === true) : null;
   const found = await findSidecar(process.env, process.cwd(), log);
   let sidecar: ProxySidecar = null;
-  if (found.kind === 'sidecar') sidecar = found.target;
-  else if (found.kind === 'unusable') {
+  if (found.kind === 'sidecar') {
+    sidecar = found.target;
+    // Said once, up front: a sidecar that doesn't answer means every write will be refused.
+    const answers = await fetch(`${found.target.url}/v1/health`, { signal: AbortSignal.timeout(2000) }).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (!answers) log(`the Shadowlap sidecar named by ${found.from === 'SHADOWLAP_URL' ? 'SHADOWLAP_URL' : found.from} does not answer, so write tools will be refused. Outside a Shadowlap run, unset SHADOWLAP_URL`);
+  } else if (found.kind === 'unusable') {
     sidecar = { unusable: found.reason };
     log(`can't record: ${found.reason}. Write tools will be refused; read tools pass through unrecorded`);
   } else log('no active run (no SHADOWLAP_URL, and no Shadowlap command started this process): passing everything through');
