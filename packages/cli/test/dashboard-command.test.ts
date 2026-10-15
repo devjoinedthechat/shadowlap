@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,6 +87,18 @@ describe('shadowlap dashboard', () => {
       expect(((await refused.json()) as { error: string }).error).toContain('--read-only');
     } finally {
       await stop(d);
+    }
+  });
+
+  it('--read-only never creates a store', () => {
+    const empty = realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-ro-empty-')));
+    try {
+      const r = spawnSync(process.execPath, [CLI, 'dashboard', '--read-only', '--no-open'], { cwd: empty, env, encoding: 'utf8', timeout: 20_000 });
+      expect(r.status, r.stderr).toBe(1);
+      expect(r.stderr).toMatch(/no store at .* never creates one/);
+      expect(existsSync(join(empty, '.shadowlap'))).toBe(false);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
     }
   });
 });

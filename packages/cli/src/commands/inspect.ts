@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
@@ -23,6 +24,8 @@ export function register(program: Command): void {
       const opts = program.opts<GlobalOpts>();
       const cwd = process.cwd();
       const dbPath = resolve(opts.db ?? defaultDbPath(cwd));
+      // A read-only dashboard shows a store; it never makes one.
+      if (flags.readOnly && !existsSync(dbPath)) throw new Error(`no store at ${dbPath}: --read-only shows an existing store and never creates one (record a run first, or point --db at a store)`);
       const store = openStore(opts);
       if (flags.call !== undefined && !runArg) throw new Error('--call needs a run: shadowlap dashboard <run> --call <n>');
       const runId = runArg ? requireRun(store, runArg).runId : undefined;
