@@ -35,9 +35,11 @@ Labels and notes are saved to the store, and, like actions, only from a dashboar
 
 ## Projects
 
+> Projects come with the dashboard's next pages: the switcher, **Add project…**, the setup and **Remove from dashboard** described here aren't in it yet. Until then `shadowlap dashboard` serves the folder it starts in, or the store `--db` names, and each setup step below is a command you can run in a terminal.
+
 A project is a folder with your agent's code. Its store is in that folder (`.shadowlap/shadowlap.db`), so each project has its own runs, fixes, tests, configuration and activity, and one dashboard serves several: switching projects switches the store it reads, and every action runs in that project's folder, against its store. The folder `shadowlap dashboard` starts in is always one of them.
 
-The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` moves the folder). It holds no recordings: for each project its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It is written atomically and readable only by you, and keys it doesn't know are kept.
+The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` moves the folder; give it as an absolute path). It holds no recordings: for each project its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It is written atomically and readable only by you, and keys it doesn't know are kept. Listing projects reads their stores without changing them, so a project pinned to an older Shadowlap keeps working. If the list can't be read, or a newer Shadowlap wrote it, the dashboard still opens on its folder and says why it can't list or add others.
 
 ### Adding a project
 
@@ -61,11 +63,15 @@ A project with no runs shows its setup on every page but Settings; one that is p
 | Make the replay clean | `shadowlap calibrate <run> --write` |
 | Keep it as a test | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
 
-Making the replay clean replays the recording offline: when it replays clean as it is, the step is done by itself; when calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`. Running `init` or recording in a terminal moves the setup on as well. **Skip the rest** appears after the first recording.
+A recording counts once it holds calls: one whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so. When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**. Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
 
-The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, so what only a shell would understand is refused rather than passed on as text: a pipe, `&&`, a redirection, `$VAR`, `~` or a wildcard outside quotes, `$VAR` or a substitution inside double quotes, and a backslash before a space or a quote. Single quotes keep text as it is. Put the rest in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again.
+Making the replay clean replays the recording offline: when it replays clean as it is, the step is done by itself; when calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`. The golden goes in a folder of its own, `goldens/<project>` unless you name another; Shadowlap never packs over a golden that is already there, and offers the next free name instead. **Skip the rest** appears after the first recording.
 
-When `init` finds that the project talks to a model server of its own (`OPENAI_BASE_URL` in its `.env`, or a local base URL in its code, as with Ollama or vLLM), recording sets `SHADOWLAP_UPSTREAM_OPENAI` to that server, as `init` tells you to in a terminal, so the calls go there and not to the provider's API. A server address with credentials in it is never stored, so such a project is recorded in a terminal.
+The same commands typed in a terminal move the setup on: `init` records what it finds, a recording counts once it holds calls, a clean replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` completes step 4. `calibrate --write` in a terminal leaves nothing behind by itself; the setup's **Calibrate** then finds the replay clean as it is.
+
+The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, so what only a shell would understand is refused rather than passed on as text: a pipe, `&&`, a redirection, `$VAR`, `~` or a wildcard outside quotes, `$VAR` or a substitution inside double quotes, and a backslash before a space or a quote. Single quotes keep text as it is. Put the rest in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again, unless its model calls would now go to another model server.
+
+When `init` finds that the project talks to a model server of its own (`OPENAI_BASE_URL` in its `.env`, or a local base URL in its code, as with Ollama or vLLM), recording sets `SHADOWLAP_UPSTREAM_OPENAI` to that server, as `init` tells you to in a terminal, so the calls go there and not to the provider's API. A server address with credentials in it (a password, or a key in its query) is never stored or shown, so such a project is recorded in a terminal.
 
 ### Removing a project
 
@@ -98,8 +104,7 @@ Recordings hold prompts and tool data, so the dashboard is built to stay local:
 - It listens on 127.0.0.1 only, and refuses requests whose `Host` is not localhost, so a web page on another name that resolves to your machine cannot read it.
 - Every data request needs the session token that `shadowlap dashboard` generates at start and puts in the link's fragment (the part after `#`, which browsers never send to servers or in a Referer). Restarting the dashboard invalidates old links.
 - Requests that change something are refused when they come from another origin.
-- The browser never sends a command line: it names an action, and the server builds the CLI arguments from the run and call. The command you give a capture's replay, or a project's first recording, is placed only after `--`, split without a shell.
-- Folder suggestions for a new project list only folder names under your home folder and the roots you add, one level at a time, never hidden or system folders ([limits](#adding-a-project)).
+- The browser never sends a command line: it names an action, and the server builds the CLI arguments from the run and call. The command you give a capture's replay is placed only after `--`; so will be a [project's](#projects) first recording, split without a shell.
 - The page loads nothing from the network (fonts are bundled) and runs under a Content-Security-Policy that allows only its own script.
 
 To use it on a remote machine, forward the port over SSH (`ssh -L 4777:127.0.0.1:4777 host`) rather than binding it to a public interface.
