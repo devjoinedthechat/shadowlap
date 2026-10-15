@@ -53,6 +53,8 @@ The replays a session makes are runs like any other, marked as made by `shadowla
 
 Ctrl-C, or a dashboard job being stopped, cuts short the replay running at that moment: its agent gets the signal, with everything the agent started. The goldens after it don't run, and the session ends with the results of the ones that finished, marked as interrupted; the golden that was cut short gets no result, since a replay stopped halfway says nothing about it. `shadowlap test` then exits 130 (143 for SIGTERM), and the next session prunes the replay that was cut short.
 
+The dashboard's **Tests** page shows this history: each golden's result at each recent revision, the newest session's verdict, and each failure as printed, with buttons that add the normalizer, update the golden or find the commit ([dashboard](./dashboard.md#actions)).
+
 A CI job's store usually goes with the job. To keep CI's runs, `shadowlap test --push` sends every test run, with the golden it replayed, and the session's report to your [team store](./team.md#push-from-ci), a bucket you own, before any replay is pruned; teammates bring the runs to their machines with `shadowlap pull`. A pull request's job writes only to [its own folder](./team.md#pull-requests) in the store.
 
 ## Outcome checks
