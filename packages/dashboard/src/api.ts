@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
-import { buildActions, notRun } from '@shadowlap/tui/actions';
+import { actionContext, actionMissing, buildActions, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { loadRunTree, modelResolver, runLabel } from '@shadowlap/tui/data';
 
 /**
@@ -96,9 +96,16 @@ export interface ActionItem {
   key: string;
   label: string;
   opensRun: boolean;
-  prompt: { label: string; placeholder?: string; initial?: string } | null;
+  /** `choices`: answers to offer as a list (a tool error's kinds); any other answer is accepted too. */
+  prompt: { label: string; placeholder?: string; initial?: string; choices?: Array<{ value: string; label: string }> } | null;
   /** Why the action cannot run on this run, shown in its place; null when it can. */
   disabled: string | null;
+  /** The flag, shown on the right of the action's line: `--fail-at 19=429`. */
+  flag: string | null;
+  /** `call`: the fork menu at the selected call; `run`: its "The whole run" part; null: offered elsewhere (Replay, Pack, a normalizer). */
+  group: 'call' | 'run' | null;
+  /** One line on what the action does and why, for its dialog. */
+  hint: string | null;
 }
 
 export interface ReadOptions {
@@ -271,17 +278,22 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
     response,
     result,
     notes: (run.meta?.notes ?? []).filter((n) => n.callNo === c.callNo),
-    actions: actionsFor(run, c),
+    actions: actionsFor(run, c, actionContext(store, c)),
   };
 }
 
-export function actionsFor(run: RunRecord, call: CallRecord | undefined): ActionItem[] {
-  return buildActions(run, call).map((a) => ({
+export function actionsFor(run: RunRecord, call: CallRecord | undefined, context: ActionContext = {}): ActionItem[] {
+  return buildActions(run, call, context).map((a) => ({
     key: a.key,
     label: a.label,
     opensRun: a.opensRun,
-    prompt: a.prompt ? { label: a.prompt.label, ...(a.prompt.placeholder !== undefined ? { placeholder: a.prompt.placeholder } : {}), ...(a.prompt.initial !== undefined ? { initial: a.prompt.initial } : {}) } : null,
+    prompt: a.prompt
+      ? { label: a.prompt.label, ...(a.prompt.placeholder !== undefined ? { placeholder: a.prompt.placeholder } : {}), ...(a.prompt.initial !== undefined ? { initial: a.prompt.initial } : {}), ...(a.prompt.choices ? { choices: a.prompt.choices } : {}) }
+      : null,
     disabled: a.disabled ?? null,
+    flag: a.flag ?? null,
+    group: a.group ?? null,
+    hint: a.hint ?? null,
   }));
 }
 
@@ -291,8 +303,8 @@ export function actionArgs(store: Store, idOrPrefix: string, callNo: number | nu
   if (!run) return { error: `unknown run ${idOrPrefix}` };
   const call = callNo === null ? undefined : store.getCalls(run.runId).find((c) => c.callNo === callNo);
   if (callNo !== null && !call) return { error: `no call #${callNo} in run ${run.runId}` };
-  const action = buildActions(run, call).find((a) => a.key === key);
-  if (!action) return { error: `no action "${key}" here` };
+  const action = buildActions(run, call, actionContext(store, call)).find((a) => a.key === key);
+  if (!action) return { error: actionMissing(run, key) };
   // The menu shows a disabled action greyed out; the server refuses it too, whatever a request says.
   if (action.disabled) return { error: action.disabled };
   if (action.args) return { args: action.args, opensRun: action.opensRun };

@@ -9,7 +9,7 @@ import { copyToClipboard } from '../clipboard.js';
 import { ago, loadRequest, loadResponseBytes, runLabel } from '../data.js';
 import { truncate } from '../render.js';
 import { displayOrigin, kindLabel, originColor } from '../theme.js';
-import { ActionsView, buildActions, notRun, type Action } from './ActionsView.js';
+import { actionContext, ActionsView, buildActions, forkMenuTitle, notRun, type Action } from './ActionsView.js';
 import { DiffView } from './DiffView.js';
 import { Inspector, TABS, type PlayState, type Tab } from './Inspector.js';
 import { OutputPane } from './OutputPane.js';
@@ -315,10 +315,11 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       {mode.kind === 'diff' ? (
         <DiffView divergence={run.divergence} width={width} height={height - 2} scroll={diffScroll} />
       ) : mode.kind === 'actions' ? (
-        <ActionsView actions={buildActions(run, current)} width={width} height={height - 2} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
+        <ActionsView actions={buildActions(run, current, actionContext(store, current))} title={forkMenuTitle(current)} width={width} height={height - 2} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
       ) : mode.kind === 'prompt' ? (
         <Box flexDirection="column" width={width} height={height - 2} borderStyle="round" borderColor="cyan" paddingX={1}>
           <Text bold>{mode.action.label}</Text>
+          {mode.action.hint ? <Text color="gray">{mode.action.hint}</Text> : null}
           <TextInput
             label={mode.action.prompt!.label}
             {...(mode.action.prompt!.initial !== undefined ? { initial: mode.action.prompt!.initial } : {})}

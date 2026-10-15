@@ -6,7 +6,7 @@ import { App, type AppProps } from './app.js';
 export { App } from './app.js';
 export type { AppProps } from './app.js';
 export type { OpenDashboard, SpawnCli } from './components/TimelineView.js';
-export { buildActions } from './components/ActionsView.js';
+export { actionContext, buildActions, forkMenuTitle } from './components/ActionsView.js';
 export type { Action } from './components/ActionsView.js';
 export { parseSse, streamView } from './sse.js';
 export { conversationLines, blockLines, wrap } from './render.js';

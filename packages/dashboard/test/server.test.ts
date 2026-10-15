@@ -263,7 +263,7 @@ describe('dashboard server: actions', () => {
     expect(started.status).toBe(202);
     const job = (await started.json()) as { id: string };
     // The golden was imported with unpack, so the replay carries consent explicitly.
-    expect(spawned.at(-1)).toEqual(['replay', runId, '--inject', '3=Prefer sources from 2026.', '--yes']);
+    expect(spawned.at(-1)).toEqual(['replay', runId, '--inject', '3=Prefer sources from 2026.', '--inject-as', 'user', '--yes']);
     let view: { done: boolean; code: number | null; newRunId: string | null; lines: string[] } = { done: false, code: null, newRunId: null, lines: [] };
     for (let i = 0; i < 50 && !view.done; i++) {
       await new Promise((r) => setTimeout(r, 50));
@@ -299,9 +299,9 @@ describe('dashboard server: actions', () => {
       const { runs } = (await (await api('runs')).json()) as { runs: Array<{ runId: string; source: string | null; imported: boolean }> };
       expect(runs.find((r) => r.runId === capture.runId)).toMatchObject({ source: 'session.har', imported: true });
 
-      const d = (await (await api(`runs/${capture.runId}/calls/1`)).json()) as { actions: Array<{ key: string; label: string; prompt: { label: string } | null; disabled: string | null }> };
-      expect(d.actions.find((a) => a.key === 'r')).toMatchObject({ label: "Replay with your agent's command", disabled: null });
-      expect(d.actions.find((a) => a.key === 'i')!.disabled).toContain('Replay it with your command first');
+      const d = (await (await api(`runs/${capture.runId}/calls/1`)).json()) as { actions: Array<{ key: string; label: string; prompt: { label: string } | null; disabled: string | null; group: string | null; hint: string | null }> };
+      // A note and one item: the forks wait for a replay with the agent's command.
+      expect(d.actions.filter((a) => a.group === 'call')).toEqual([expect.objectContaining({ key: 'r', label: 'Replay it with your command', disabled: null, hint: expect.stringContaining('A capture has no command') })]);
 
       const post = (body: unknown) => api(`runs/${capture.runId}/actions`, { method: 'POST', body: JSON.stringify(body) });
       expect((await post({ key: 'r', value: 'python agent.py "a b"' })).status).toBe(202);
@@ -309,7 +309,7 @@ describe('dashboard server: actions', () => {
       expect(spawned.at(-1)).toEqual(['replay', capture.runId, '--', 'python', 'agent.py', 'a b']);
       const refused = await post({ key: 'i', callNo: 1, value: 'Be brief.' });
       expect(refused.status).toBe(400);
-      expect(((await refused.json()) as { error: string }).error).toContain('Replay it with your command first');
+      expect(((await refused.json()) as { error: string }).error).toContain('Replay it with yours first');
       const empty = await post({ key: 'r', value: '""' });
       expect(((await empty.json()) as { error: string }).error).toBe('Not run: give the command that starts your agent');
     } finally {
