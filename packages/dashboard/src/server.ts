@@ -59,6 +59,8 @@ export interface DashboardOptions {
   uploadLimit?: number;
   /** How long an upload no job used is kept, in milliseconds (an hour). */
   uploadMaxIdleMs?: number;
+  /** How long a stopped job has to end before it is killed, in milliseconds (5 s). */
+  jobStopGraceMs?: number;
   /** Route modules registered after the built-in ones in routes/index.ts: for tests, and for embedding the server elsewhere. */
   routes?: RouteModule[];
 }
@@ -90,7 +92,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   const projectPath = opts.project ? resolve(opts.project.path) : null;
   const project = projectPath ? { name: opts.project?.name ?? basename(projectPath), path: projectPath } : null;
   const uploads = new UploadStore({ project, limit: opts.uploadLimit, maxIdleMs: opts.uploadMaxIdleMs });
-  const jobs = new JobManager({ store, spawnCli: opts.spawnCli, project, uploads, log });
+  const jobs = new JobManager({ store, spawnCli: opts.spawnCli, project, uploads, log, stopGraceMs: opts.jobStopGraceMs });
   let port = 0;
 
   const address = () => `${host === '::1' ? '[::1]' : host}:${port}`;
@@ -202,12 +204,14 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     runUrl: (runId, callNo) => `${url}/#token=${token}&open=/run/${runId}${callNo ? `/call/${callNo}` : ''}`,
     token,
     readOnly,
-    close: () =>
-      new Promise<void>((resolve) => {
-        jobs.close();
-        uploads.close();
-        server.close(() => resolve());
-        server.closeAllConnections?.();
-      }),
+    close: async () => {
+      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      server.closeAllConnections?.();
+      // Running jobs are stopped and waited for (killed after the grace time), so none outlives the
+      // dashboard and none leaves a run recording; their uploads go with them, then the rest.
+      await jobs.close();
+      uploads.close();
+      await closed;
+    },
   };
 }

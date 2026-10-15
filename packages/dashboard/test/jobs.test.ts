@@ -20,6 +20,8 @@ let outside: string;
 let store: Store;
 let dash: Dashboard;
 const spawned: Array<{ args: string[]; options: SpawnCliOptions | undefined }> = [];
+/** Stand-in agents a test started and has not yet seen gone: killed at the end, should an assertion fail first. */
+const agents = new Set<number>();
 
 /** A job kind for the tests: each `mode` builds one stand-in command, or refuses. */
 const fakeKind: RouteModule = {
@@ -34,6 +36,8 @@ const fakeKind: RouteModule = {
             return { args: ['text-only'] };
           case 'sleep':
             return { args: ['sleep', '20000'] };
+          case 'stubborn':
+            return { args: ['stubborn', typeof req.runId === 'string' ? req.runId : ''] };
           case 'lines':
             return { args: ['lines', String(req.n)] };
           case 'fail':
@@ -76,6 +80,33 @@ async function startJob(d: Dashboard, body: unknown): Promise<JobView> {
   return (await res.json()) as JobView;
 }
 
+/** Waits for a line of the job's output that matches, and returns its match. */
+async function waitLine(d: Dashboard, id: string, re: RegExp): Promise<RegExpExecArray> {
+  for (let i = 0; i < 400; i++) {
+    const view = (await (await api(d, `jobs/${id}`)).json()) as JobView;
+    for (const line of view.lines) {
+      const m = re.exec(line);
+      if (m) return m;
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`job ${id} printed nothing like ${re}`);
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+async function gone(pid: number): Promise<boolean> {
+  for (let i = 0; i < 200 && alive(pid); i++) await new Promise((r) => setTimeout(r, 25));
+  return !alive(pid);
+}
+
 function upload(d: Dashboard, body: Buffer | string, name = 'capture.har'): Promise<Response> {
   return api(d, 'uploads', { method: 'POST', body, headers: { 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
 }
@@ -96,10 +127,18 @@ beforeAll(async () => {
     },
     project: { path: project },
     uploadLimit: 4096,
+    jobStopGraceMs: 500,
     routes: [fakeKind],
   });
 });
 afterAll(async () => {
+  for (const pid of agents) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // gone, as it should be
+    }
+  }
   await dash.close();
   store.close();
   rmSync(project, { recursive: true, force: true });
@@ -220,6 +259,52 @@ describe('jobs', () => {
     expect(stopped.lines).not.toContain('woke');
     expect(((await (await post(dash, `jobs/${sleeping.id}/stop`, {})).json()) as { stopped: boolean }).stopped).toBe(false);
     expect((await post(dash, 'jobs/0123456789abcdef/stop', {})).status).toBe(404);
+  });
+
+  it.skipIf(!posix)('stop the agent too when it ignores SIGTERM, and end the run it left recording as interrupted', async () => {
+    const run = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js'], cwd: project } });
+    const started = await startJob(dash, { kind: 'fake', mode: 'stubborn', runId: run.runId });
+    const agentPid = Number((await waitLine(dash, started.id, /^agent (\d+)$/))[1]);
+    agents.add(agentPid);
+    expect(alive(agentPid)).toBe(true);
+    expect((await api(dash, `runs/${run.runId}`, { method: 'DELETE' })).status, 'a recording run cannot be deleted').toBe(409);
+
+    expect(((await (await post(dash, `jobs/${started.id}/stop`, {})).json()) as { stopped: boolean }).stopped).toBe(true);
+    const stopped = await waitJob(dash, started.id);
+    expect(stopped.lines).toEqual(expect.arrayContaining(['passing SIGTERM on', 'agent ignores SIGTERM']));
+    expect(stopped.code, 'killed by a signal').toBeNull();
+    expect(await gone(agentPid), 'the agent was killed with the CLI').toBe(true);
+    agents.delete(agentPid);
+    expect(store.getRun(run.runId)!.status).toBe('crashed');
+    expect(stopped.lines.join('\n')).toContain(`run ${run.runId} was still recording`);
+    const meta = (await (await api(dash, 'meta')).json()) as { live: unknown[] };
+    expect(meta.live).toEqual([]);
+    expect((await api(dash, `runs/${run.runId}`, { method: 'DELETE' })).status).toBe(200);
+  });
+
+  it('leave alone a recording run that a job only named in its output', async () => {
+    // The text fallback names a run, but only a run reported on fd 3 is the job's own to end.
+    const named = store.createRun({ runId: '01K5CQ4P2V0000000000000000', mode: 'record', command: { argv: ['node', 'agent.js'], cwd: project } });
+    try {
+      const view = await waitJob(dash, (await startJob(dash, { kind: 'fake', mode: 'text-only' })).id);
+      expect(view.runs).toEqual([named.runId]);
+      expect(store.getRun(named.runId)!.status).toBe('running');
+    } finally {
+      store.endRun(named.runId, 'completed');
+      store.deleteRun(named.runId);
+    }
+  });
+
+  it.skipIf(!posix)('are stopped when the dashboard closes, agents and all', async () => {
+    const run = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js'], cwd: project } });
+    const d = await startDashboard({ store, spawnCli: cliSpawner({ command: [process.execPath, FAKE], cwd: project }), project: { path: project }, jobStopGraceMs: 300, routes: [fakeKind] });
+    const started = await startJob(d, { kind: 'fake', mode: 'stubborn', runId: run.runId });
+    const agentPid = Number((await waitLine(d, started.id, /^agent (\d+)$/))[1]);
+    agents.add(agentPid);
+    await d.close();
+    expect(await gone(agentPid)).toBe(true);
+    agents.delete(agentPid);
+    expect(store.getRun(run.runId)!.status).toBe('crashed');
   });
 });
 

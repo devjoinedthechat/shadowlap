@@ -47,7 +47,9 @@ export type SpawnCli = (args: string[], options?: SpawnCliOptions) => ChildProce
 
 /**
  * The spawner `shadowlap dashboard` and `shadowlap ui` use: this CLI, against the same store,
- * without colours, with the events pipe when a job asks for it.
+ * without colours, with the events pipe when a job asks for it. On macOS and Linux each job leads a
+ * process group of its own, so stopping it reaches the agent it started too, even one that ignores
+ * the signal the CLI passes on.
  */
 export function cliSpawner(o: { command: string[]; dbPath?: string; cwd: string; env?: NodeJS.ProcessEnv }): SpawnCli {
   const [cmd, ...pre] = o.command;
@@ -56,8 +58,45 @@ export function cliSpawner(o: { command: string[]; dbPath?: string; cwd: string;
     const env: NodeJS.ProcessEnv = { ...(o.env ?? process.env), NO_COLOR: '1' };
     delete env.SHADOWLAP_EVENTS_FD;
     if (so.events) env.SHADOWLAP_EVENTS_FD = '3';
-    return spawn(cmd, [...pre, ...(o.dbPath ? ['--db', o.dbPath] : []), ...args], { cwd: so.cwd ?? o.cwd, env, stdio: so.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
+    return spawn(cmd, [...pre, ...(o.dbPath ? ['--db', o.dbPath] : []), ...args], {
+      cwd: so.cwd ?? o.cwd,
+      env,
+      stdio: so.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
+      // A group of its own (setsid). Not on Windows, where it would open a console window.
+      detached: process.platform !== 'win32',
+      windowsHide: true,
+    });
   };
+}
+
+/**
+ * Signals a job's process group (the CLI and the agent it started), or the process alone when the
+ * spawner gave it no group of its own. On Windows a kill takes the whole process tree down.
+ */
+function signalJob(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
+  const pid = child.pid;
+  if (pid && process.platform === 'win32' && signal === 'SIGKILL') {
+    try {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => undefined);
+    } catch {
+      // taskkill missing: the process alone, below
+    }
+  }
+  if (pid && process.platform !== 'win32') {
+    try {
+      // A negative pid is the group the job leads. A process group lives on, under the same id, while
+      // anything in it does, so this reaches an agent the CLI left behind and nothing else.
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // not a group leader (a spawner that made no group), or the group is gone
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // gone already
+  }
 }
 
 /** The project folder: jobs run here, and files they report must be inside it. */
@@ -119,8 +158,11 @@ const MAX_EVENT = 1024 * 1024;
 const MAX_RUNS = 10_000;
 const MAX_LINKS = 50;
 const MAX_FILES = 100;
-const KEEP_JOBS = 50;
-const MAX_RUNNING = 16;
+/** Jobs remembered (finished ones are forgotten oldest first), and jobs running at once. */
+export const KEEP_JOBS = 50;
+export const MAX_RUNNING = 16;
+/** How long a stopped job has to end before it is killed. */
+export const STOP_GRACE_MS = 5000;
 /** After the process exits, how long to wait for its pipes to close (a process it left behind may hold them). */
 const DRAIN_MS = 2000;
 
@@ -139,6 +181,11 @@ interface Job {
   newRunId: string | null;
   sawRunEvent: boolean;
   runs: string[];
+  /**
+   * Runs the command reported making on fd 3. When it is gone, one still recording has nobody left
+   * to end it. (A run only named in the output is not counted: the output could name anyone's.)
+   */
+  made: Set<string>;
   links: JobLink[];
   files: JobFile[];
   result: unknown;
@@ -146,6 +193,14 @@ interface Job {
   /** Lines dropped from the front to keep the last MAX_LINES; `after` counts from the first line ever. */
   dropped: number;
   child: ChildProcess | null;
+  /** Someone asked it to stop. */
+  stopping: boolean;
+  /** The CLI process itself has exited (its pipes may still be open). */
+  exited: boolean;
+  killTimer: NodeJS.Timeout | null;
+  /** Resolves when the job is done. */
+  ended: Promise<void>;
+  markEnded: () => void;
 }
 
 /** Splits a stream into lines, each cut at `max` characters. Returns a flush for the end. */
@@ -183,8 +238,13 @@ export class JobManager {
   private readonly jobs = new Map<string, Job>();
   private readonly files = new Map<string, { path: string; jobId: string; name: string }>();
   private projectReal: string | null | undefined;
-  /** Goes up whenever a job starts, ends, or reports a run, link, file or result: `/api/changes` reads it. */
+  /**
+   * Goes up whenever a job starts, ends, or reports a run, link, file or result: `/api/changes`
+   * reads it. Output lines do not move it; a page follows a running job's output with
+   * `GET /api/jobs/:id?after=n` until it is done.
+   */
   version = 0;
+  private readonly stopGraceMs: number;
 
   constructor(
     private readonly o: {
@@ -193,8 +253,12 @@ export class JobManager {
       project: ProjectInfo | null;
       uploads?: UploadSource | undefined;
       log?: ((line: string) => void) | undefined;
+      /** How long a stopped job has to end before it is killed (5 s). */
+      stopGraceMs?: number | undefined;
     },
-  ) {}
+  ) {
+    this.stopGraceMs = o.stopGraceMs ?? STOP_GRACE_MS;
+  }
 
   /**
    * Makes `POST /api/jobs { kind, ... }` accept a kind. A feature calls this from its route
@@ -261,6 +325,8 @@ export class JobManager {
       throw err instanceof HttpError ? err : new HttpError(500, err instanceof Error ? err.message : String(err));
     }
 
+    let markEnded: () => void = () => undefined;
+    const ended = new Promise<void>((resolve) => (markEnded = resolve));
     const job: Job = {
       id,
       kind,
@@ -276,12 +342,18 @@ export class JobManager {
       newRunId: null,
       sawRunEvent: false,
       runs: [],
+      made: new Set(),
       links: [],
       files: [],
       result: null,
       lines: [],
       dropped: 0,
       child: null,
+      stopping: false,
+      exited: false,
+      killTimer: null,
+      ended,
+      markEnded,
     };
     this.jobs.set(id, job);
     this.evict();
@@ -314,6 +386,10 @@ export class JobManager {
       end(127);
     });
     child.on('exit', (code) => {
+      job.exited = true;
+      // A job that was asked to stop takes down whatever it left in its group (an agent that ignored
+      // the signal), at once: the group's id cannot have been reused while anything is in it.
+      if (job.stopping) signalJob(child, 'SIGKILL');
       // `close` waits for every pipe; a process the job left behind may hold one open for good.
       drain = setTimeout(() => {
         for (const s of [child.stdout, child.stderr, events]) s?.destroy();
@@ -401,6 +477,7 @@ export class JobManager {
         if (typeof ev.runId !== 'string' || !RUN_ID.test(ev.runId)) return;
         const role = typeof ev.role === 'string' ? ev.role.slice(0, 32) : null;
         this.addRun(job, ev.runId);
+        if (job.made.size < MAX_RUNS) job.made.add(ev.runId);
         if (!role || !ATTEMPT_ROLES.has(role)) {
           job.sawRunEvent = true;
           job.newRunId = ev.runId;
@@ -498,9 +575,29 @@ export class JobManager {
     job.code = code;
     job.endedAt = Date.now();
     job.child = null;
+    if (job.killTimer) clearTimeout(job.killTimer);
+    job.killTimer = null;
+    this.endOrphanedRuns(job);
     this.o.uploads?.discard(job.id);
     this.version++;
     this.o.log?.(`job ${job.id} (${job.kind}: shadowlap ${job.args.join(' ')}) exited ${code}`);
+    job.markEnded();
+  }
+
+  /**
+   * The command is gone, so a run it made that is still recording (it was killed before it could
+   * end it) never will be: it ends as crashed, as an interrupted run does, and stops showing as live.
+   */
+  private endOrphanedRuns(job: Job): void {
+    for (const runId of job.made) {
+      try {
+        if (this.o.store.getRun(runId)?.status !== 'running') continue;
+        this.o.store.endRun(runId, 'crashed');
+        this.push(job, `(run ${runId} was still recording when the command ended; it is marked as interrupted)`);
+      } catch {
+        // the store is closing; the run stays as it is
+      }
+    }
   }
 
   /** Keeps the most recent jobs; only finished ones go. */
@@ -548,20 +645,41 @@ export class JobManager {
     return [...this.jobs.values()].reverse().map((j) => this.item(j));
   }
 
-  /** Asks a running job to stop (SIGTERM, then SIGKILL after 5 s). False when it is not running. */
+  /**
+   * Asks a running job to stop: SIGTERM to its process group (the CLI ends its run as interrupted
+   * and passes the signal on to the agent), then SIGKILL to the group if it has not ended within
+   * the grace time (5 s). False when it is not running.
+   */
   stop(id: string): boolean {
     const job = this.jobs.get(id);
     if (!job || job.done || !job.child) return false;
-    const child = job.child;
-    child.kill('SIGTERM');
-    setTimeout(() => {
-      if (!job.done) child.kill('SIGKILL');
-    }, 5000).unref();
+    this.terminate(job);
     return true;
   }
 
-  /** Stops every running job: the server is closing. */
-  close(): void {
-    for (const j of this.jobs.values()) if (!j.done) j.child?.kill('SIGTERM');
+  private terminate(job: Job): void {
+    const child = job.child;
+    if (!child || job.stopping) return;
+    job.stopping = true;
+    signalJob(child, 'SIGTERM');
+    job.killTimer = setTimeout(() => {
+      job.killTimer = null;
+      // Only while the CLI is alive: its group surely exists then. After it exited, its exit handler killed what was left.
+      if (!job.exited && !job.done) signalJob(child, 'SIGKILL');
+    }, this.stopGraceMs);
+    job.killTimer.unref();
+  }
+
+  /**
+   * Stops every running job, the server is closing: each gets the grace time to end, then is
+   * killed, and its runs still recording are marked as interrupted. Resolves when they are done.
+   */
+  async close(): Promise<void> {
+    const running = [...this.jobs.values()].filter((j) => !j.done && j.child);
+    for (const j of running) this.terminate(j);
+    if (!running.length) return;
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([Promise.all(running.map((j) => j.ended)), new Promise<void>((resolve) => (timer = setTimeout(resolve, this.stopGraceMs + DRAIN_MS + 1000)))]);
+    clearTimeout(timer);
   }
 }

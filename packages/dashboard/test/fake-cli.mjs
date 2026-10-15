@@ -1,5 +1,6 @@
 // Stands in for the shadowlap CLI in the dashboard's job tests. It reports on fd 3 the way
 // emitJobEvent does when SHADOWLAP_EVENTS_FD is set, and prints what a person would read.
+import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -42,6 +43,21 @@ switch (args[0]) {
   case 'sleep':
     setTimeout(() => console.log('woke'), Number(args[1] ?? 10_000));
     break;
+  case 'stubborn': {
+    // `shadowlap replay` with an agent that ignores SIGTERM: the CLI reports its run, passes a
+    // SIGTERM on to the agent and waits for it, as runUnderSidecar does.
+    if (args[1]) emit({ type: 'run', runId: args[1], role: 'new' });
+    const agent = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => console.log('agent ignores SIGTERM')); setInterval(() => {}, 1000); console.log('agent ' + process.pid);"], { stdio: 'inherit' });
+    process.on('SIGTERM', () => {
+      console.log('passing SIGTERM on');
+      agent.kill('SIGTERM');
+    });
+    agent.on('exit', (code, signal) => {
+      console.log(`agent exited ${signal ?? code}`);
+      process.exit(1);
+    });
+    break;
+  }
   case 'lines':
     for (let i = 1; i <= Number(args[1] ?? 10); i++) console.log(`line ${i}`);
     break;
