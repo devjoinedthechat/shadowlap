@@ -1,6 +1,6 @@
 import { formatUsd, safeLine, type Palette } from '@shadowlap/engine';
 import type { FixDetail, FixList, FixStep } from '@shadowlap/dashboard';
-import { table } from './ui.js';
+import { quoteArgv, table } from './ui.js';
 
 /** `shadowlap fix ls` and `fix show` in a terminal, from the read model `--json` prints. */
 
@@ -33,7 +33,15 @@ export function formatFixList(list: FixList, p: Palette): string {
   return out.join('\n');
 }
 
-export function formatFixDetail(d: FixDetail, p: Palette): string {
+/**
+ * The repair to run next for an open fix. A repairer set in shadowlap.config.json applies by itself;
+ * otherwise the user's own Claude Code, as the dashboard asks.
+ */
+export function repairLine(argv: readonly string[], configured: string | null | undefined): string {
+  return quoteArgv(['shadowlap', ...argv, ...(configured ? [] : ['--repairer', 'claude-code'])]);
+}
+
+export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string | null } = {}): string {
   const out: string[] = [];
   out.push(`${p.bold(d.fixId)}  ${p.bold(one(d.title, 120))}`);
   const meta = [status(d.status, p), ...(d.label ? [one(d.label, 40)] : []), `${d.failing} failing run${s(d.failing)}`, `${d.good} good`, `opened ${when(d.openedAt)}`, ...(d.verifiedAt ? [`verified ${when(d.verifiedAt)}`] : []), ...(d.appliedAt ? [`applied ${when(d.appliedAt)}`] : [])];
@@ -98,7 +106,7 @@ export function formatFixDetail(d: FixDetail, p: Palette): string {
   }
 
   out.push('', p.dim(`  ${d.attempts} attempt${s(d.attempts)} behind this fix · ≈${formatUsd(d.spent)} spent live; everything before each fork replayed free`));
-  if (d.actions.repair) out.push(`  next: ${d.actions.repair.command}`);
+  if (d.actions.repair) out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
   else if (d.actions.apply?.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${d.actions.apply.gitApply ? p.dim(`   (or by hand: ${d.actions.apply.gitApply})`) : ''}`);
   else if (d.actions.apply?.kind === 'mark') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
   else if (d.applied) out.push(p.dim(`  applied: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? 'none (verified on the working tree)' : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));

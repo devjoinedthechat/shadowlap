@@ -354,6 +354,11 @@ describe('shadowlap fix', () => {
     expect(shown.actions.repair.argv).toEqual(['repair', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE]);
     expect(shown.actions.repair.command).toBe(`shadowlap repair --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}' --repairer claude-code`);
 
+    // What to run next, with the repairer the config names, else the user's own Claude Code.
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}' --repairer claude-code\n`);
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ repair: { repairer: 'anthropic' } }));
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}'\n`);
+
     // Nothing verified, nothing to apply: it says how to get there.
     const refused = await shadowlap(['fix', 'apply', fixId]);
     expect(refused.code).toBe(1);

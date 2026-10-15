@@ -6,7 +6,7 @@ import { formatBudget } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
 import { ApplyError, applyFix } from '../fix-apply.js';
-import { formatFixDetail, formatFixList, shortFixId } from '../fix-format.js';
+import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
 import { recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
@@ -439,6 +439,15 @@ export function register(program: Command): void {
   registerFixes(program);
 }
 
+/** The repairer shadowlap.config.json names, if it names one and can be read. */
+function configuredRepairer(): string | null {
+  try {
+    return loadConfig(process.cwd()).repair?.repairer ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A fix by its id or a unique prefix, or an error that says where to find one. */
 function requireFix(store: Store, idOrPrefix: string): StoredFix {
   const fix = resolveFix(store, idOrPrefix);
@@ -476,7 +485,7 @@ function registerFixes(program: Command): void {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const detail = fixDetail(store, requireFix(store, arg).fixId)!;
-        process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p)) + '\n');
+        process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer: configuredRepairer() })) + '\n');
       } finally {
         store.close();
       }
@@ -512,8 +521,8 @@ function registerFixes(program: Command): void {
       try {
         const found = requireFix(store, arg);
         if (found.status === 'open') {
-          const next = fixDetail(store, found.fixId)?.actions.repair?.command;
-          throw new ApplyError(`${shortFixId(found.fixId)} is open: no change has been verified for it yet, so there is nothing to apply.${next ? ` Repair it first:\n  ${next}` : ''}`);
+          const next = fixDetail(store, found.fixId)?.actions.repair?.argv;
+          throw new ApplyError(`${shortFixId(found.fixId)} is open: no change has been verified for it yet, so there is nothing to apply.${next ? ` Repair it first:\n  ${repairLine(next, configuredRepairer())}` : ''}`);
         }
         if (found.status !== 'applied') log(`${p.yellow('⑂')} Applying ${shortFixId(found.fixId)} · ${safe(found.title)}`);
         const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, test: flags.test, build: flags.build ?? null, db: opts.db, log });
