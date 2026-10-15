@@ -409,7 +409,7 @@ describe('reading pairs', () => {
     const first = new Set(read.mock.calls.map((c) => c[0]));
     const isManifest = (v: unknown) => (v as { kind?: unknown } | null)?.kind === 'chunked';
 
-    // Another run starts: the store is read again, but what was keyed is kept, so only the requests compared are read.
+    // Another run starts: the runs are listed again, but every key is kept for the store, so no request or message is read.
     const live = store.createRun({ runId: testRunId(), mode: 'record', command: { argv: ['node', 'other.mjs'], cwd: '/work' }, codeVersion: 'c5' });
     const liveCall = (i: number) => {
       const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`live${i}`), occurrence: 1 };
@@ -418,8 +418,7 @@ describe('reading pairs', () => {
     liveCall(1);
     read.mockClear();
     expect(findPairs(store).pairs).toHaveLength(1);
-    expect(read.mock.results.every((r) => isManifest(r.value))).toBe(true);
-    expect(read.mock.calls.length).toBeLessThan(30);
+    expect(read).not.toHaveBeenCalled();
     // While it records, nothing pairs are read from changes, so nothing is read at all.
     read.mockClear();
     for (let i = 2; i <= 4; i++) {

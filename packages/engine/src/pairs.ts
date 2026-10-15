@@ -193,13 +193,16 @@ interface KeyCache {
   answers: Map<string, string>;
   /** A pair's conversation in one line, by its request's hash. */
   contexts: Map<string, string | null>;
+  /** The turn keys of the requests halving read last, by their hash: a long run's are long, so only TURN_LISTS of them are kept. */
+  turns: Map<string, string[] | null>;
 }
 const KEY_LIMIT = 50_000;
+const TURN_LISTS = 512;
 const keyCaches = new WeakMap<Store, KeyCache>();
 
 function keyCache(store: Store): KeyCache {
   let cache = keyCaches.get(store);
-  if (!cache) keyCaches.set(store, (cache = { conversations: new Map(), messages: new Map(), parts: new Map(), answers: new Map(), contexts: new Map() }));
+  if (!cache) keyCaches.set(store, (cache = { conversations: new Map(), messages: new Map(), parts: new Map(), answers: new Map(), contexts: new Map(), turns: new Map() }));
   for (const map of [cache.conversations, cache.messages, cache.parts, cache.answers, cache.contexts]) if (map.size > KEY_LIMIT) map.clear();
   return cache;
 }
@@ -214,8 +217,6 @@ class Reader {
   private readonly calls = new Map<string, CallRecord[]>();
   private readonly models = new Map<string, ModelCall[]>();
   private readonly keys: KeyCache;
-  /** The turn keys of the requests halving compared, to check they are one conversation growing. */
-  private readonly turnLists = new Map<string, string[] | null>();
   private readonly answers = new Map<string, Block[]>();
   constructor(readonly store: Store) {
     this.keys = keyCache(store);
@@ -263,8 +264,16 @@ class Reader {
    */
   turnKeys(call: ModelCall): string[] | null {
     const ref = call.requestRef!;
-    let turns = this.turnLists.get(ref);
-    if (turns === undefined) this.turnLists.set(ref, (turns = this.read(ref)?.turns ?? null));
+    const lists = this.keys.turns;
+    let turns = lists.get(ref);
+    if (turns !== undefined) {
+      // The most recently read stay: a list read again moves to the end.
+      lists.delete(ref);
+    } else {
+      turns = this.read(ref)?.turns ?? null;
+      if (lists.size >= TURN_LISTS) lists.delete(lists.keys().next().value!);
+    }
+    lists.set(ref, turns);
     return turns;
   }
 
