@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { SCHEMA_VERSION, Store } from '../src/store.js';
 
@@ -29,6 +29,27 @@ describe('Store', () => {
     const store = Store.open(db);
     expect(store.allRuns()).toHaveLength(16);
     store.close();
+  });
+
+  it('keeps ids made in a burst in creation order when the clock moves on mid-burst', () => {
+    const store = Store.open(':memory:');
+    // Three ids in one millisecond take the next milliseconds along; when the clock then ticks once,
+    // the next id must still sort after them, not land among them.
+    const base = Date.now() + 60_000;
+    const clock = vi.spyOn(Date, 'now');
+    try {
+      const ids: string[] = [];
+      for (const now of [base, base, base, base + 1, base + 1, base + 5]) {
+        clock.mockReturnValue(now);
+        ids.push(store.addEvent({ kind: 'test.tick', at: now }).eventId);
+      }
+      ids.push(store.createRun({ mode: 'record', command: cmd }).runId);
+      expect([...ids].sort()).toEqual(ids);
+      expect(new Set(ids.map((id) => id.slice(0, 10))).size).toBe(ids.length);
+    } finally {
+      clock.mockRestore();
+      store.close();
+    }
   });
 
   it('creates the directory and a .gitignore that hides recordings', () => {

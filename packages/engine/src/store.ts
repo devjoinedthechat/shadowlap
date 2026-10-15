@@ -679,16 +679,15 @@ function rowToRun(row: Record<string, unknown>): RunRecord {
   };
 }
 
-let lastUlidMs = 0;
-let ulidSeq = 0;
-/** Monotonic within a process so runs created in the same millisecond still sort by creation order. */
+let lastUlidTime = 0;
+/**
+ * Monotonic within a process so runs and events created in the same millisecond still sort by
+ * creation order. An id made in a burst takes the next millisecond along, and the clock catching up
+ * continues after the last one issued rather than from itself, which could sort an id before one
+ * made earlier. 80 random bits keep ids unique across processes.
+ */
 function ulidNow(): string {
   const now = Date.now();
-  if (now === lastUlidMs) ulidSeq++;
-  else {
-    lastUlidMs = now;
-    ulidSeq = 0;
-  }
-  // Bumping the millisecond keeps same-ms ids ordered; 80 random bits keep them unique across processes.
-  return ulid(now + ulidSeq);
+  lastUlidTime = now > lastUlidTime ? now : lastUlidTime + 1;
+  return ulid(lastUlidTime);
 }
