@@ -10,6 +10,7 @@ import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type SpawnCli } from './jobs.js';
 import { Router, routeRequest } from './router.js';
 import { registerRoutes, type RouteModule } from './routes/index.js';
+import type { TrainingOptions } from './training.js';
 import { UploadStore } from './uploads.js';
 
 export type { SpawnCli, SpawnCliOptions } from './jobs.js';
@@ -63,6 +64,8 @@ export interface DashboardOptions {
   jobStopGraceMs?: number;
   /** Route modules registered after the built-in ones in routes/index.ts: for tests, and for embedding the server elsewhere. */
   routes?: RouteModule[];
+  /** Training (#/training): the CLI's tasks loader, and how Score a model lists models (training.ts). */
+  training?: TrainingOptions;
 }
 
 export interface Dashboard {

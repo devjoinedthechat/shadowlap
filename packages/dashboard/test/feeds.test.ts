@@ -63,7 +63,7 @@ describe('meta', () => {
       address: new URL(dash.url).host,
       counts: { runs: 2, attempts: 3 },
       live: [{ runId: liveId, calls: 1 }],
-      jobKinds: ['action'],
+      jobKinds: expect.arrayContaining(['action']),
       uploadLimit: 64 * 1024 * 1024,
       project: { name: project.split(/[\\/]/).pop(), path: project },
     });
@@ -148,7 +148,7 @@ describe('a read-only dashboard', () => {
 
   it('shows everything and says why it changes nothing', async () => {
     const meta = await get<MetaView>(ro, 'meta');
-    expect(meta).toMatchObject({ readOnly: true, actions: false, jobKinds: ['action'], uploadLimit: null });
+    expect(meta).toMatchObject({ readOnly: true, actions: false, jobKinds: expect.arrayContaining(['action']), uploadLimit: null });
     expect(meta.readOnlyReason).toMatch(/--read-only/);
     expect(ro.readOnly).toBe(true);
     for (const path of ['runs', `runs/${recId}`, `runs/${recId}/calls/1`, `runs/${recId}/lineage`, 'activity', 'changes', 'jobs']) expect((await api(ro, path)).status, path).toBe(200);

@@ -1,4 +1,5 @@
 import { countPairs, findPairs, oneSided as findOneSided, PAIR_FORMATS, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { fixForRun } from './fixes.js';
 
 /**
  * The Training screen's read model (`#/training`, `#/training/tasks`): preference pairs read from the
@@ -25,6 +26,8 @@ export interface TrainingInput {
   pairs: Pair[];
   sources: PairSource[];
   tasks: Task[];
+  /** Why the tasks couldn't be read (a mistake in the config's `tests`), shown in their place. */
+  tasksError?: string | null;
   scores: TaskScoreRow[];
   /** Pairs exports, newest first. */
   exports: PairsExport[];
@@ -37,10 +40,57 @@ export interface TrainingInput {
 }
 
 /** What the store holds for Training; `tasks` and `models` come from the caller. */
-export function readTraining(store: Store, extra: { tasks: Task[]; models?: ModelListing | null; fixOf?: (source: PairSource) => SourceFix | null }): TrainingInput {
+export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: (source: PairSource) => SourceFix | null }): TrainingInput {
   const { pairs, sources } = findPairs(store);
   const storedRuns = new Set(extra.tasks.flatMap((t) => (t.runId && store.getRun(t.runId) ? [t.runId] : [])));
-  return { pairs, sources, tasks: extra.tasks, scores: store.listTaskScores(), exports: store.listPairsExports(5), storedRuns, ...(extra.models !== undefined ? { models: extra.models } : {}), ...(extra.fixOf ? { fixOf: extra.fixOf } : {}) };
+  return {
+    pairs,
+    sources,
+    tasks: extra.tasks,
+    ...(extra.tasksError ? { tasksError: extra.tasksError } : {}),
+    scores: store.listTaskScores(),
+    exports: store.listPairsExports(5),
+    storedRuns,
+    ...(extra.models !== undefined ? { models: extra.models } : {}),
+    ...(extra.fixOf ? { fixOf: extra.fixOf } : {}),
+  };
+}
+
+/**
+ * The fix each pair source belongs to, read from the store's fixes (E1), for `readTraining`'s
+ * `fixOf`: a blame's is the fix its blamed run fails in, opened at its Blame step; a verify's is the
+ * fix its verdict counted for, opened at that verify. A `--repeat` belongs to none.
+ */
+export function sourceFixes(store: Store): (source: PairSource) => SourceFix | null {
+  const label = (f: { label: string | null; title: string }) => f.label ?? f.title;
+  return (s) => {
+    if (s.kind === 'blame') {
+      const f = fixForRun(store, s.runId);
+      return f?.role === 'failing' && f.fix ? { id: f.fix.fixId, label: label(f.fix) } : null;
+    }
+    if (s.kind !== 'verify') return null;
+    // The verify's first attempt (the source starts when it did) names the verdict, and so the fix.
+    const attempts = store.childRuns(s.runId).filter((r) => r.meta?.verify);
+    const first = attempts.find((r) => r.startedAt === s.at) ?? attempts[0];
+    const f = first ? fixForRun(store, first.runId) : null;
+    if (!f?.fix) return null;
+    return { id: f.fix.fixId, label: label(f.fix), ...(f.verify?.verifyId ? { verifyId: f.verify.verifyId } : {}) };
+  };
+}
+
+/**
+ * What `shadowlap dashboard` gives the Training screen (`DashboardOptions.training`). The dashboard
+ * can't read goldens as tasks itself, since their checks are the CLI's, so the CLI hands it its loader.
+ */
+export interface TrainingOptions {
+  /** The project's goldens as tasks (`loadTasks` in the CLI's tasks.ts). Without it, Training lists none and Score a model can't run. */
+  loadTasks?: (store: Store) => Task[];
+  /** Where the model listing reads keys and provider addresses (default `process.env`). */
+  env?: NodeJS.ProcessEnv;
+  /** How the listing asks providers for their models (default `fetch`); tests pass a fake. */
+  fetch?: typeof fetch;
+  /** How long each provider's list is waited for (1500 ms). */
+  timeoutMs?: number;
 }
 
 // ---- the view ----
@@ -177,8 +227,14 @@ export interface TrainingView {
   };
   tasks: {
     rows: TaskRowView[];
-    warning: (OneSided & { text: string; fix: { label: string; href: string } | null }) | null;
+    /**
+     * Every ready task rewards the same thing. `text` says it in one line; `name` is the task that
+     * rewards the opposite (shown as code) and `once` what it needs first, for a view that marks it up.
+     */
+    warning: (OneSided & { text: string; name: string | null; once: string | null; fix: { label: string; href: string } | null }) | null;
     empty: { title: string; text: string; command: string } | null;
+    /** Why the tasks couldn't be read, such as a mistake in the config's `tests`; null when they could. */
+    error: string | null;
     /** The first task that isn't one, for "weak checks teach the wrong thing". */
     weak: string | null;
   };
@@ -253,6 +309,53 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     attempts: [5, 10],
     endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: scoreNote(null, null) },
     notes: listing.notes,
+  };
+}
+
+/** `GET /api/models` (A7): every model to score, with its price per attempt and its last score, and Score a model's picker. */
+export interface ModelsView {
+  /** Ready tasks: the ones a model is scored on, whose tokens price an attempt. */
+  ready: number;
+  choices: Array<ModelChoice & { lastScore: number | null }>;
+  /** Providers that couldn't be listed, and why. */
+  notes: ModelListing['notes'];
+  /** The tokens an attempt is expected to use after its takeover, which the prices are estimated from. */
+  tokens: ModelListing['tokens'];
+  /** The picker; null when no task is ready. */
+  dialog: ScoreDialogView | null;
+}
+
+export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow[], listing: ModelListing): ModelsView {
+  const ready = tasks.filter((t) => t.status === 'ready');
+  const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
+  return {
+    ready: ready.length,
+    choices: listing.choices.map((c) => ({ ...c, lastScore: means.get(modelKey(c.id, c.baseUrl)) ?? null })),
+    notes: listing.notes,
+    tokens: listing.tokens,
+    dialog: scoreDialogView(tasks, scores, listing),
+  };
+}
+
+/**
+ * From a training loop: one `tasks serve` request for a ready task and its response, in the shape
+ * the endpoint answers with (serve-tasks.ts in the CLI). The model, run id and timing are samples.
+ */
+function serveSample(t: Task): { command: string; request: string; response: string } {
+  const q = JSON.stringify;
+  const checks = ['the agent exits 0', ...t.checks.filter((c) => !c.cap).map((c) => c.label)];
+  const from = t.takeover?.callNo ?? null;
+  return {
+    command: 'shadowlap tasks serve goldens/ --port 4779',
+    request: [`POST /v1/tasks/${t.name}/attempts`, 'Authorization: Bearer <token>', `{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1"${from !== null ? `,\n  "from": ${from}` : ''} }`].join('\n'),
+    response: [
+      '200 OK',
+      `{ "task": ${q(t.name)}, "model": "my-finetune", "takeover": ${from ?? 'null'},`,
+      '  "score": 1,',
+      '  "checks": [',
+      ...checks.map((c, i) => `    { "check": ${q(c)}, "pass": true, "detail": null }${i < checks.length - 1 ? ',' : ' ],'}`),
+      '  "run": "01K5CR2M8Q…", "spent": 0, "exitCode": 0, "ms": 5130 }',
+    ].join('\n'),
   };
 }
 
@@ -344,6 +447,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     ? {
         ...warn,
         text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${opposite.status === 'blocked' ? 'its test passes' : 'it is a task'}.` : ''}`,
+        name: opposite?.name ?? null,
+        once: opposite ? (opposite.status === 'blocked' ? 'its test passes' : 'it is a task') : null,
         fix: opposite?.status === 'blocked' ? { label: 'Fix it on Tests', href: '#/tests' } : null,
       }
     : null;
@@ -366,25 +471,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
 
   // ---- serve: one request and its response, from the first ready task ----
   const first = ready[0] ?? null;
-  const serve = first
-    ? {
-        command: 'shadowlap tasks serve goldens/ --port 4779',
-        request: `POST /v1/tasks/${first.name}/attempts\nAuthorization: Bearer <token>\n{ "model": "my-finetune", "baseUrl": "http://127.0.0.1:8000/v1"${first.takeover ? `,\n  "from": ${first.takeover.callNo}` : ''} }`,
-        response: `200 OK\n${JSON.stringify(
-          {
-            task: first.name,
-            model: 'my-finetune',
-            takeover: first.takeover?.callNo ?? null,
-            score: 1,
-            checks: ['the agent exits 0', ...first.checks.filter((c) => !c.cap).map((c) => c.label)].map((check) => ({ check, pass: true, detail: null })),
-            run: '01K5CR2M8Q…',
-            spent: 0,
-          },
-          null,
-          2,
-        )}`,
-      }
-    : null;
+  const serve = first ? serveSample(first) : null;
 
   const last = input.exports[0] ?? null;
   return {
@@ -413,7 +500,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     tasks: {
       rows: taskRows,
       warning,
-      empty: input.tasks.length ? null : { title: 'No tasks yet', text: 'A golden with outcome checks is a task: a model takes over at one call, and the checks score what it did.', command: 'shadowlap pack <run> goldens/<name>' },
+      empty: input.tasks.length || input.tasksError ? null : { title: 'No tasks yet', text: 'A golden with outcome checks is a task: a model takes over at one call, and the checks score what it did.', command: 'shadowlap pack <run> goldens/<name>' },
+      error: input.tasksError ?? null,
       weak: input.tasks.find((t) => t.status === 'not-a-task')?.name ?? null,
     },
     scores: {
