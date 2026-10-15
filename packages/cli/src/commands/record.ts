@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { overrideSources } from '@shadowlap/engine';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
@@ -62,6 +63,8 @@ export function register(program: Command): void {
       const parent = requireRun(store, runArg);
       const parentCalls = store.getCalls(parent.runId);
       const overrides = parseOverrides(flags.override, parentCalls);
+      // The run keeps the file an override came from (`16=@policy.json`), never the result itself.
+      const sources = overrideSources(flags.override);
       const failures = parseFailures(flags.failAt, parentCalls);
       const interventions = parseInterventions(flags, parentCalls);
       if (flags.promptFrom !== undefined) {
@@ -108,7 +111,7 @@ export function register(program: Command): void {
           argv,
           flags.repeat,
           flags.concurrency,
-          (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}) }),
+          (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
         );
         const reader = openStore(opts);
@@ -138,7 +141,7 @@ export function register(program: Command): void {
         const { code, summary } = await runUnderSidecar(
           opts,
           argv,
-          (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}) }),
+          (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
         );
         printOutcome(summary);

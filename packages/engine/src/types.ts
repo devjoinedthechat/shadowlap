@@ -157,16 +157,20 @@ export interface RunMeta {
   author?: string;
   /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
   test?: { golden: string; session: string };
-  /** What a replay was told to do differently, flag by flag, as `shadowlap replay` was given it (run-facts.ts). */
+  /** What a replay was told to do differently, flag by flag, without what the flags carried in (run-facts.ts). */
   interventions?: RunIntervention[];
   /** What the run did that Shadowlap did not record, so a replay runs it for real (run-facts.ts). */
   notRecorded?: NotRecorded;
 }
 
-/** One flag a replay ran with: `--fail-at 19=529`, `--override 16=…`, `--writes stub`. */
+/** One flag a replay ran with: `--fail-at 19=529`, `--override 16=@policy.json`, `--writes stub`. */
 export interface RunIntervention {
   flag: string;
-  /** The flag's value as given, shortened when long; null for a flag without one. */
+  /**
+   * The flag's value without its payload: `19=529`, `16=@policy.json`, `15:claude-opus-5`; for a
+   * result, an instruction or a request value given inline, only its call (`16`, `15:max_tokens`).
+   * Null for a flag without one.
+   */
   value: string | null;
   /** The call it applies to, when it names one. */
   callNo: number | null;

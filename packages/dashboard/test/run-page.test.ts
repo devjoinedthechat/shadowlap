@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { showJson, Store, type BlameRecord, type RunMeta } from '@shadowlap/engine';
-import { callDetail, countMasked, provenance, runDetail, showRunJson, startDashboard } from '../src/index.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describeInterventions, packRun, showJson, Store, type BlameRecord, type RunMeta } from '@shadowlap/engine';
+import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
+
+type RunDetailShape = Pick<RunDetail, 'intervention' | 'interventions' | 'notRecorded'>;
 import { assistant, batchRun, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
 
 describe('the run page: conversations', () => {
@@ -137,9 +139,10 @@ describe('the run page: header and banners', () => {
     expect(d.intervention).toEqual({ flag: '--fail-at', value: '2=529', callNo: 2 });
     expect(d.interventions.map((x) => x.flag)).toEqual(['--fail-at', '--writes']);
     expect(d.calls[2]!.resultShort).toBe('stubbed {"stubbed":true}');
-    // Stored flags win: they say what was given, file names and all.
-    store.updateRunMeta(fork, { interventions: [{ flag: '--inject-as', value: 'user', callNo: null }, { flag: '--inject', value: '2=Prefer the 2026 policy', callNo: 2 }] });
-    expect(runDetail(store, fork)!.intervention).toEqual({ flag: '--inject', value: '2=Prefer the 2026 policy', callNo: 2 });
+    // Stored flags win, as the sidecar keeps them: the call an instruction was injected at, not the instruction.
+    store.updateRunMeta(fork, { interventions: describeInterventions(undefined, { inject: { atCall: 2, text: 'Prefer the 2026 policy', as: 'user' } }) });
+    expect(runDetail(store, fork)!.intervention).toEqual({ flag: '--inject', value: '2', callNo: 2 });
+    expect(runDetail(store, fork)!.interventions.map((x) => x.flag)).toEqual(['--inject', '--inject-as']);
     const r = runDetail(store, rec)!;
     expect([r.forkAt, r.intervention, r.interventions, r.rescuedBy, r.blame, r.checks, r.notRecorded]).toEqual([null, null, [], null, null, null, null]);
     store.close();
@@ -194,6 +197,101 @@ describe('the run page: header and banners', () => {
     const replay = RunBuilder.start(store, { parent: rec }).end();
     expect(runDetail(store, rec)!.notRecorded).toEqual({ hosts: [{ target: 'api.stripe.com:443', count: 3, action: 'warned' }], tools: ['send_slack'] });
     expect(runDetail(store, replay)!.notRecorded).toEqual({ hosts: [], tools: ['send_slack'] });
+    store.close();
+  });
+});
+
+describe('the run page: a fork’s flags in a copy of it', () => {
+  const rules = [
+    { pattern: 'email', replace: '<EMAIL>' },
+    { pattern: '/\\d{3}-\\d{2}-\\d{4}/', replace: '<SSN>' },
+  ];
+  const secrets = ['victim.person@corp.example', 'jane.doe@corp.example', '078-05-1120'];
+  const OVERRIDE = { email: 'victim.person@corp.example', ssn: '078-05-1120' };
+  const INJECTED = 'Write to jane.doe@corp.example';
+
+  /** A recording, and a fork of it made with `--override 2=…`, `--inject 3=…` and `--set 3:metadata=…` carrying personal data. */
+  function forked(store: Store, interventions: RunMeta['interventions']) {
+    const rec = RunBuilder.start(store);
+    const q = [user('Customer C-7 wants a refund.')];
+    const a = [toolUse('lookup_customer', { id: 'C-7' }, 't1')];
+    rec.model({ messages: q }, a);
+    rec.tool('lookup_customer', { id: 'C-7' }, { tier: 'gold' });
+    rec.model({ messages: [...q, assistant(a), user([toolResult('t1', { tier: 'gold' })])] }, [text('Refunded.')]);
+    rec.end();
+    const fork = RunBuilder.start(store, { parent: rec.runId, meta: { interventions: interventions!, notRecorded: { hosts: [{ target: 'payroll.corp.internal:5432', count: 1, action: 'warned' }], tools: [] } } });
+    fork.model({ messages: q }, a, { origin: 'replayed', replayedFrom: 1 });
+    fork.tool('lookup_customer', { id: 'C-7' }, OVERRIDE, { origin: 'overridden' });
+    fork.model({ metadata: { user_id: '078-05-1120' }, messages: [...q, assistant(a), user([toolResult('t1', OVERRIDE), { type: 'text', text: INJECTED }])] }, [text('Done.')]);
+    fork.end();
+    return { rec: rec.runId, fork: fork.runId };
+  }
+
+  const kept = describeInterventions({ overrides: new Map([[2, OVERRIDE]]), writes: 'stub' }, { inject: { atCall: 3, text: INJECTED, as: 'user' }, set: { fromCall: 3, fields: { metadata: { user_id: '078-05-1120' } } } });
+  // As a build before this one kept them, payloads and all.
+  const legacy = [
+    { flag: '--override', value: `2=${JSON.stringify(OVERRIDE)}`, callNo: 2 },
+    { flag: '--inject', value: `3=${INJECTED}`, callNo: 3 },
+    { flag: '--set', value: '3:metadata={"user_id":"078-05-1120"}', callNo: 3 },
+  ];
+
+  let uiDir: string;
+  beforeAll(() => {
+    uiDir = mkdtempSync(join(tmpdir(), 'sl-run-page-export-'));
+    mkdirSync(join(uiDir, 'assets', 'fonts'), { recursive: true });
+    writeFileSync(join(uiDir, 'assets', 'app.css'), '.app { color: red }\n');
+    writeFileSync(join(uiDir, 'assets', 'app.js'), 'console.log(1);\n');
+    writeFileSync(join(uiDir, 'assets', 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  });
+  afterAll(() => rmSync(uiDir, { recursive: true, force: true }));
+
+  it('keeps no payload on the run, and shows an override as the call recorded it', () => {
+    const store = Store.open(':memory:');
+    const { fork } = forked(store, kept);
+    const meta = JSON.stringify(store.getRun(fork)!.meta);
+    for (const s of secrets) expect(meta).not.toContain(s);
+    const d = runDetail(store, fork)!;
+    expect(d.interventions).toEqual([
+      { flag: '--override', value: `2=${JSON.stringify(OVERRIDE)}`, callNo: 2 },
+      { flag: '--inject', value: '3', callNo: 3 },
+      { flag: '--inject-as', value: 'user', callNo: null },
+      { flag: '--set', value: '3:metadata', callNo: 3 },
+      { flag: '--writes', value: 'stub', callNo: null },
+    ]);
+    store.close();
+  });
+
+  for (const [what, interventions] of [['as kept now', kept], ['as an earlier build kept them', legacy]] as const) {
+    it(`masks them in an HTML export and a pack, ${what}`, () => {
+      const store = Store.open(':memory:');
+      const { fork } = forked(store, interventions);
+      const html = exportHtml({ store, runIds: [fork], uiDir, redact: rules }).html;
+      for (const s of secrets) expect(html, s).not.toContain(s);
+      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1]!.replace(/<\\\//g, '</')) as { responses: Record<string, RunDetailShape> };
+      const shown = data.responses[`runs/${fork}`]!;
+      expect(shown.intervention).toEqual({ flag: '--override', value: '2={"email":"<EMAIL>","ssn":"<SSN>"}', callNo: 2 });
+      expect(shown.notRecorded!.hosts[0]!.target).toBe('payroll.corp.internal:5432');
+
+      const dir = mkdtempSync(join(tmpdir(), 'sl-run-page-pack-'));
+      try {
+        packRun(store, fork, dir, { lineage: true, redact: rules });
+        const files = [join(dir, 'run.json'), join(dir, 'calls.jsonl'), ...readdirSync(join(dir, 'blobs')).map((b) => join(dir, 'blobs', b))];
+        for (const f of files) for (const s of secrets) expect(readFileSync(f, 'utf8'), `${s} in ${f}`).not.toContain(s);
+        const packed = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ runId: string; meta: RunMeta }> };
+        expect(packed.runs.find((r) => r.runId === fork)!.meta.interventions!.length).toBe(interventions.length);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      store.close();
+    });
+  }
+
+  it('masks the hosts the guard named with a rule that matches them', () => {
+    const store = Store.open(':memory:');
+    const { fork } = forked(store, kept);
+    const html = exportHtml({ store, runIds: [fork], uiDir, redact: [{ pattern: '/[a-z]+\\.corp\\.internal/', replace: '<HOST>' }] }).html;
+    expect(html).not.toContain('payroll.corp.internal');
+    expect(html).toContain('<HOST>:5432');
     store.close();
   });
 });

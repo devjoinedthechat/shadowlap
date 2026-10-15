@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -122,6 +122,35 @@ describe('the run page on a recorded batch', () => {
       { flag: '--writes', value: 'stub', callNo: null },
     ]);
     expect(d.calls.find((c) => c.callNo === 6)!.origin).toBe('injected');
+  });
+
+  it('keeps the file an override came from, and none of what a flag carried in', async () => {
+    // Ticket 1's lookup_order (#3) answered from a file holding personal data, and an instruction injected at #4.
+    writeFileSync(join(cwd, 'policy.json'), JSON.stringify({ order_id: 'A-2001', amount: 240, status: 'delivered', contact: 'victim.person@corp.example' }));
+    const fork = await shadowlap(['replay', recording, '--override', '3=@policy.json', '--inject', '4=Write to jane.doe@corp.example', '--inject-as', 'user'], { EXTERNAL: '' });
+    expect(fork.code, fork.out).toBe(0);
+    const id = /replaying run (\w{26})/.exec(fork.out)![1]!;
+    const [meta, d] = open((store) => [store.getRun(id)!.meta, runDetail(store, id)!] as const);
+    expect(meta?.interventions).toEqual([
+      { flag: '--override', value: '3=@policy.json', callNo: 3 },
+      { flag: '--inject', value: '4', callNo: 4 },
+      { flag: '--inject-as', value: 'user', callNo: null },
+    ]);
+    expect(JSON.stringify(meta)).not.toMatch(/victim\.person|jane\.doe/);
+    expect(d.intervention).toEqual({ flag: '--override', value: '3=@policy.json', callNo: 3 });
+    expect(d.calls.find((c) => c.callNo === 3)!.origin).toBe('overridden');
+
+    // A pack under the project's redaction rules carries neither address.
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    try {
+      const pack = await shadowlap(['pack', id, join(cwd, 'packed')]);
+      expect(pack.code, pack.out).toBe(0);
+      const files = [join(cwd, 'packed', 'run.json'), join(cwd, 'packed', 'calls.jsonl'), ...readdirSync(join(cwd, 'packed', 'blobs')).map((b) => join(cwd, 'packed', 'blobs', b))];
+      for (const f of files) expect(readFileSync(f, 'utf8'), f).not.toMatch(/victim\.person|jane\.doe/);
+    } finally {
+      rmSync(join(cwd, 'shadowlap.config.json'), { force: true });
+      rmSync(join(cwd, 'packed'), { recursive: true, force: true });
+    }
   });
 
   it('serves show --json as the CLI prints it', async () => {

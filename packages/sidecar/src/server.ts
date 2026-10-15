@@ -35,7 +35,7 @@ import {
   type Store,
 } from '@shadowlap/engine';
 // The run page: a replay's flags and the guard's hosts, kept on the run (engine run-facts.ts).
-import { describeInterventions, recordNotRecorded } from '@shadowlap/engine';
+import { describeInterventions, recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, type HttpResult, type HttpRule } from './http.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
 import { SseTimer } from './sse.js';
@@ -101,6 +101,8 @@ export interface StartRunInput {
   interventions?: Interventions;
   /** The command being run came from an imported pack (recorded on the run so later replays ask again). */
   commandFromImport?: boolean;
+  /** Where each `--override` result was read from, as typed (`{ 16: '@policy.json' }`): the run keeps the file's name, never the result. */
+  overrideSources?: OverrideSources;
   /**
    * A stable name the run's traffic arrives under, as `/s/<slot>/…` in the base URLs from
    * `envForSlot`. A test worker creates its model clients once, and each test's run takes the slot
@@ -1208,6 +1210,6 @@ function json(res: ServerResponse, status: number, value: unknown): void {
 /** A replay's flags, kept on the run so its page can name what made the fork (engine run-facts.ts). */
 function interventionsMeta(input: StartRunInput): { interventions?: ReturnType<typeof describeInterventions> } {
   if (input.mode !== 'replay') return {};
-  const list = describeInterventions(input.replay, input.interventions);
+  const list = describeInterventions(input.replay, input.interventions, input.overrideSources);
   return list.length ? { interventions: list } : {};
 }

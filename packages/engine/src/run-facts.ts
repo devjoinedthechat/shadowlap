@@ -1,6 +1,7 @@
+import { rewriteText } from './normalize.js';
 import type { ReplayOptions } from './session.js';
 import type { Store } from './store.js';
-import type { CallRecord, NotRecorded, RunIntervention, RunRecord } from './types.js';
+import type { CallRecord, Normalizer, NotRecorded, RunIntervention, RunMeta, RunRecord } from './types.js';
 
 /**
  * Facts a run page states about a run that its calls don't show by themselves: what a replay was
@@ -21,36 +22,71 @@ export interface RequestInterventions {
   set?: { fromCall: number; fields: Record<string, unknown> };
 }
 
+/** Where each `--override` result was read from, by call, as it was typed: `{ 16: '@policy.json' }`. */
+export type OverrideSources = Readonly<Record<number, string>>;
+
+/** The files `--override <call>=@<file>` specs read their results from; a result given inline has none. */
+export function overrideSources(specs: readonly string[]): Record<number, string> {
+  const out: Record<number, string> = {};
+  // As `shadowlap replay` reads them: `<call>=@<file>`, the rest of the spec after the `@` naming the file.
+  for (const spec of specs) {
+    const m = /^(\d+)=(@[\s\S]+)$/.exec(spec);
+    if (m) out[Number(m[1])] = m[2]!;
+  }
+  return out;
+}
+
+/** A short word a flag takes (a status such as `529` or `timeout`, a model or tool name): never a payload. */
+const WORD = /^[A-Za-z0-9][\w.:/-]{0,79}$/;
+const word = (v: unknown): string | null => {
+  const s = typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' ? v : null;
+  return s !== null && WORD.test(s) ? s : null;
+};
+
 /**
  * A replay's options as the flags that set them, for `RunMeta.interventions`: what the run page's
  * banner names. Defaults (`--writes block`, `--reads live`) are left out.
+ *
+ * What a flag carried in is not kept: an overridden result, an injected instruction and a request
+ * value can hold anything, and the run's metadata is copied as it is wherever the run goes. The
+ * replay's own calls hold them, and a redacted copy masks them there. So an override is kept as its
+ * call and the file it was read from (`16=@policy.json`, given as `sources`), or its call alone;
+ * `--inject` as its call, `--set` as its call and key. A status, a model or a tool name is kept.
  */
-export function describeInterventions(replay: Partial<ReplayOptions> | undefined, request?: RequestInterventions): RunIntervention[] {
+export function describeInterventions(replay: Partial<ReplayOptions> | undefined, request?: RequestInterventions, sources?: OverrideSources): RunIntervention[] {
   const out: RunIntervention[] = [];
   const add = (flag: string, value: string | null, callNo: number | null) => out.push({ flag, value: value === null ? null : oneLine(value, VALUE_MAX), callNo });
-  for (const [callNo, status] of replay?.failAt ?? []) add('--fail-at', `${callNo}=${status}`, callNo);
-  for (const [callNo, result] of replay?.overrides ?? []) add('--override', `${callNo}=${oneLine(result, VALUE_MAX)}`, callNo);
+  for (const [callNo, status] of replay?.failAt ?? []) {
+    const w = word(status);
+    add('--fail-at', w === null ? String(callNo) : `${callNo}=${w}`, callNo);
+  }
+  for (const [callNo] of replay?.overrides ?? []) {
+    const file = sources?.[callNo];
+    add('--override', typeof file === 'string' && file.startsWith('@') ? `${callNo}=${file}` : String(callNo), callNo);
+  }
   if (request?.inject) {
-    add('--inject', `${request.inject.atCall}=${request.inject.text}`, request.inject.atCall);
+    add('--inject', String(request.inject.atCall), request.inject.atCall);
     add('--inject-as', request.inject.as, null);
   }
   for (const [key, value] of Object.entries(request?.set?.fields ?? {})) {
     const at = request!.set!.fromCall;
-    if (key === 'model' && typeof value === 'string') add('--model', `${at}:${value}`, at);
-    else add('--set', `${at}:${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`, at);
+    const model = key === 'model' ? word(value) : null;
+    if (model !== null) add('--model', `${at}:${model}`, at);
+    else add('--set', `${at}:${key}`, at);
   }
   if (replay?.promptFrom !== undefined) add('--prompt-from', String(replay.promptFrom), replay.promptFrom);
   if (replay?.divergeAt !== undefined) add('--diverge-at', String(replay.divergeAt), replay.divergeAt);
-  for (const name of replay?.liveTools ?? []) add('--live-tool', name, null);
+  for (const name of replay?.liveTools ?? []) add('--live-tool', word(name), null);
   if (replay?.writes && replay.writes !== 'block') add('--writes', replay.writes, null);
   if (replay?.reads && replay.reads !== 'live') add('--reads', replay.reads, null);
-  // An option added since this list was written is named after its key, so the page still says it.
-  for (const [key, value] of Object.entries(replay ?? {})) {
-    if (KNOWN_OPTIONS.has(key) || value === undefined || value === null) continue;
+  // An option added since this list was written is named after its key, so the page still says
+  // it; only its calls and short words are kept, since it may carry a payload as well.
+  for (const [key, value] of Object.entries(replay ?? {}) as Array<[string, unknown]>) {
+    if (KNOWN_OPTIONS.has(key) || value === undefined || value === null || value === false) continue;
     const flag = `--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
-    if (value instanceof Map) for (const [k, v] of value) add(flag, `${String(k)}=${oneLine(v, VALUE_MAX)}`, typeof k === 'number' ? k : null);
-    else if (value instanceof Set) for (const v of value) add(flag, String(v), null);
-    else add(flag, typeof value === 'object' ? JSON.stringify(value) : String(value), typeof value === 'number' ? value : null);
+    if (value instanceof Map) for (const [k] of value) add(flag, word(k), Number.isInteger(k) ? (k as number) : null);
+    else if (value instanceof Set) for (const v of value) add(flag, word(v), Number.isInteger(v) ? (v as number) : null);
+    else add(flag, word(value), Number.isInteger(value) ? (value as number) : null);
   }
   return out;
 }
@@ -59,6 +95,19 @@ export function describeInterventions(replay: Partial<ReplayOptions> | undefined
 const KNOWN_OPTIONS = new Set(['failAt', 'overrides', 'promptFrom', 'divergeAt', 'liveTools', 'writes', 'reads', 'kinds']);
 
 const FORCED = /^forced live by (--fail-at|--diverge-at|--prompt-from|--live-tool) (\S+)/;
+
+/** The result an overridden call of the replay recorded, in one line: the override as the run kept it. */
+function overriddenResult(store: Store, c: CallRecord): string {
+  let result: unknown = null;
+  try {
+    result = c.end?.responseRef ? store.getJson<{ result?: unknown }>(c.end.responseRef)?.result : null;
+  } catch {
+    result = null;
+  }
+  return oneLine(result, VALUE_MAX);
+}
+
+const overriddenFrom = (c: CallRecord): number => (typeof c.end?.meta.overriddenFrom === 'number' ? c.end.meta.overriddenFrom : c.callNo);
 
 /**
  * The interventions of a replay made before they were stored on the run, read back from what the
@@ -72,16 +121,7 @@ export function inferInterventions(store: Store, run: RunRecord, calls: readonly
   const has = (flag: string, callNo: number | null) => out.some((x) => x.flag === flag && x.callNo === callNo);
   for (const c of calls) {
     if (c.kind === 'api' && c.end?.meta.injected && typeof c.end.meta.status === 'number' && !has('--fail-at', c.callNo)) out.push({ flag: '--fail-at', value: `${c.callNo}=${c.end.meta.status}`, callNo: c.callNo });
-    if (c.origin === 'overridden') {
-      let result: unknown = null;
-      try {
-        result = c.end?.responseRef ? store.getJson<{ result?: unknown }>(c.end.responseRef)?.result : null;
-      } catch {
-        result = null;
-      }
-      const from = typeof c.end?.meta.overriddenFrom === 'number' ? c.end.meta.overriddenFrom : c.callNo;
-      out.push({ flag: '--override', value: `${from}=${oneLine(result, VALUE_MAX)}`, callNo: c.callNo });
-    }
+    if (c.origin === 'overridden') out.push({ flag: '--override', value: `${overriddenFrom(c)}=${overriddenResult(store, c)}`, callNo: c.callNo });
   }
   const d = run.divergence;
   const m = d?.type === 'forced' && d.reason ? FORCED.exec(d.reason) : null;
@@ -92,7 +132,8 @@ export function inferInterventions(store: Store, run: RunRecord, calls: readonly
 
 /**
  * A replay's interventions: as stored when it ran, else as its calls show them. A run can come
- * from someone else's pack, so only well-formed entries are kept.
+ * from someone else's pack, so only well-formed entries are kept. An override kept as its call
+ * alone shows the result the overridden call recorded, which a redacted copy has masked.
  */
 export function runInterventions(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunIntervention[] {
   const stored: unknown = run.meta?.interventions;
@@ -100,7 +141,32 @@ export function runInterventions(store: Store, run: RunRecord, calls: readonly C
   if (!Array.isArray(stored)) return [];
   return stored
     .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && typeof (x as { flag?: unknown }).flag === 'string')
-    .map((x) => ({ flag: x.flag as string, value: typeof x.value === 'string' ? x.value : null, callNo: Number.isInteger(x.callNo) ? (x.callNo as number) : null }));
+    .map((x) => {
+      const callNo = Number.isInteger(x.callNo) ? (x.callNo as number) : null;
+      let value = typeof x.value === 'string' ? x.value : null;
+      if (x.flag === '--override' && callNo !== null && value === String(callNo)) {
+        const c = calls.find((y) => y.origin === 'overridden' && overriddenFrom(y) === callNo);
+        if (c) value = `${callNo}=${overriddenResult(store, c)}`;
+      }
+      return { flag: x.flag as string, value, callNo };
+    });
+}
+
+/**
+ * Run metadata with redaction rules applied to what this module keeps on a run: the flags' values
+ * and the hosts the guard named. A second layer for a copy (pack, export html): flags are stored
+ * without their payloads, and hosts can name internal systems.
+ */
+export function redactRunFacts(meta: RunMeta, rules: readonly Normalizer[]): RunMeta {
+  if (!rules.length) return meta;
+  const text = (s: string) => rewriteText(s, rules as Normalizer[]);
+  const out: RunMeta = { ...meta };
+  if (Array.isArray(meta.interventions)) out.interventions = meta.interventions.map((x) => (typeof x === 'object' && x !== null && typeof x.value === 'string' ? { ...x, value: text(x.value) } : x));
+  const nr: unknown = meta.notRecorded;
+  if (typeof nr === 'object' && nr !== null && Array.isArray((nr as NotRecorded).hosts)) {
+    out.notRecorded = { ...(nr as NotRecorded), hosts: (nr as NotRecorded).hosts.map((h) => (typeof h === 'object' && h !== null && typeof h.target === 'string' ? { ...h, target: text(h.target) } : h)) };
+  }
+  return out;
 }
 
 const RESULT_MAX = 72;
