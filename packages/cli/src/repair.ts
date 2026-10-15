@@ -75,6 +75,21 @@ export class RepairError extends Error {
   }
 }
 
+/**
+ * The repair ran, and handing it over (`--apply`, `--branch`, `--pr`) failed part way. Its directory,
+ * patch and report.json are written, and `report` says what was handed over before the failure, so
+ * the repair and its verdict are still kept.
+ */
+export class HandOverError extends RepairError {
+  constructor(
+    message: string,
+    readonly report: RepairReport,
+  ) {
+    super(message);
+    this.name = 'HandOverError';
+  }
+}
+
 const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
 
 /** Puts back whatever an interrupted repair left in the working tree. Returns the files it restored. */
@@ -481,7 +496,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
 /**
  * Writes what a repair produced: always a directory with the report (JSON and Markdown) and, for a
  * fix, the patch and a recording of every fixed run; then, on request, the change applied to the
- * working tree, committed to a branch, and opened as a pull request.
+ * working tree, committed to a branch, and opened as a pull request. When one of those requests
+ * fails, report.json is still written and a HandOverError carries the report as far as it got.
  */
 export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
   const cwd = process.cwd();
@@ -519,27 +535,35 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
   writeFileSync(join(dir, 'report.md'), md);
   out.report = rel(join(dir, 'report.md'));
 
+  let failed: RepairError | null = null;
   if (accepted && report.patch) {
     const goldensInTree = input.outputs.goldens;
-    if (input.outputs.apply) {
-      const abs = join(root, accepted.file);
-      const now = readFileSync(abs, 'utf8');
-      if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${out.patch} by hand`);
-      writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
-      if (goldensInTree) for (const g of out.goldens) cpSync(join(cwd, g), join(cwd, goldensInTree, g.split(/[\\/]/).at(-1)!), { recursive: true });
-      if (input.settings.build) {
-        const b = runBuild(input.settings.build, cwd);
-        if (!b.ok) report.warnings.push(`${input.settings.build} failed after the fix was applied: ${b.tail}`);
+    try {
+      if (input.outputs.apply) {
+        const abs = join(root, accepted.file);
+        const now = readFileSync(abs, 'utf8');
+        if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${out.patch} by hand`);
+        writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
+        if (goldensInTree) for (const g of out.goldens) cpSync(join(cwd, g), join(cwd, goldensInTree, g.split(/[\\/]/).at(-1)!), { recursive: true });
+        if (input.settings.build) {
+          const b = runBuild(input.settings.build, cwd);
+          if (!b.ok) report.warnings.push(`${input.settings.build} failed after the fix was applied: ${b.tail}`);
+        }
+        out.applied = true;
       }
-      out.applied = true;
-    }
-    if (input.outputs.branch) {
-      out.branch = commitBranch(root, input.outputs.branch, accepted, goldensInTree ? out.goldens.map((g) => ({ from: join(cwd, g), to: join(relative(root, join(cwd, goldensInTree)), g.split(/[\\/]/).at(-1)!) })) : [], commitMessage(report, accepted), dir);
-      input.log(`  committed to ${out.branch}`);
-      if (input.outputs.pr) out.pr = openPullRequest(root, out.branch, commitTitle(accepted), join(dir, 'report.md'));
+      if (input.outputs.branch) {
+        out.branch = commitBranch(root, input.outputs.branch, accepted, goldensInTree ? out.goldens.map((g) => ({ from: join(cwd, g), to: join(relative(root, join(cwd, goldensInTree)), g.split(/[\\/]/).at(-1)!) })) : [], commitMessage(report, accepted), dir);
+        input.log(`  committed to ${out.branch}`);
+        if (input.outputs.pr) out.pr = openPullRequest(root, out.branch, commitTitle(accepted), join(dir, 'report.md'));
+      }
+    } catch (err) {
+      if (!(err instanceof RepairError)) throw err;
+      failed = err;
+      report.warnings.push(`handing the fix over stopped: ${err.message}`);
     }
   }
   writeFileSync(join(dir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
+  if (failed) throw new HandOverError(failed.message, report);
   return report;
 }
 

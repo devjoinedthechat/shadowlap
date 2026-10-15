@@ -2,7 +2,7 @@ import type { BlameReport } from './blame.js';
 import { canonicalize } from './canonical.js';
 import { ulid } from './ids.js';
 import type { RepairReport } from './repair.js';
-import type { FixData, FixStatus, Store, StoredBlame, StoredFix, StoredRepair, StoredVerdict } from './store.js';
+import type { FixData, FixStatus, Store, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 import type { RunRecord } from './types.js';
 import type { VerifyReport } from './verify.js';
 
@@ -11,13 +11,14 @@ import type { VerifyReport } from './verify.js';
  * do the work record it here, so the dashboard and `shadowlap fix` can show a failure's whole
  * story without re-running anything:
  *
- * - **blame** creates a fix or joins one. A run that already fails in a fix stays in it; otherwise
- *   it joins the fix of another run with the same label (`refund-over-limit`), or, when it has no
- *   label, the fix with the same check. A fix starts from a blame, so every fix has one.
- * - **verify** links to the fix of the failing runs it was given, and the good runs it kept become
- *   the fix's good runs. An accepted verdict turns an open fix verified; a rejected one is kept.
+ * - **blame** creates a fix or joins one (`joinableFix` says which). A run already in a fix keeps
+ *   its blames there. A fix starts from a blame, so every fix has one.
+ * - **verify** links to the fix of the failing runs it was given. Its verdict counts for that fix
+ *   when it checked everything the fix's check asks, on at least one of the fix's runs that failed
+ *   it as recorded: only then do its runs join the fix, and an accepted one turns the fix
+ *   verified. A verdict that doesn't count is kept and shown, and changes nothing.
  * - **repair** links the same way, and the verify it ran on the candidate it accepted is kept as a
- *   verdict of its own, so a repair that fixes the runs turns the fix verified.
+ *   verdict of its own, so a repair that fixes the runs under the fix's check turns it verified.
  * - **fix apply** marks it applied.
  *
  * Every blame, verdict and repair report is kept whole, so a later run of the same command never
@@ -40,9 +41,7 @@ export function fixLabels(run: Pick<RunRecord, 'meta'> | null | undefined): stri
   return (run?.meta?.labels ?? []).filter((l) => typeof l === 'string' && l && l !== GOOD_LABEL);
 }
 
-export const labelKey = (label: string): string => `label:${label}`;
-
-/** The group key of a check: its canonical JSON, so the same check written another way is the same failure. */
+/** The key of a check: its canonical JSON, so the same check written another way is the same failure. */
 export function checkKey(expect: unknown): string {
   return `check:${expect === null || expect === undefined ? 'exit' : canonicalize(expect)}`;
 }
@@ -51,6 +50,62 @@ export function checkKey(expect: unknown): string {
 export function cleanTitle(title: string): string {
   const one = title.replace(/\s+/g, ' ').trim();
   return one.length > MAX_TITLE ? `${one.slice(0, MAX_TITLE - 1)}…` : one;
+}
+
+/** A pull or merge request's number, from its URL on GitHub, GitLab or Bitbucket. */
+export function prNumber(url: string): number | null {
+  const m = /\/(?:pull|merge_requests|pull-requests)\/(\d+)(?:[/?#]|$)/.exec(url);
+  return m ? Number(m[1]) : null;
+}
+
+/** A fix id that matches no fix (`unknown`), or more than one (`ambiguous`). */
+export class FixIdError extends Error {
+  constructor(
+    message: string,
+    readonly reason: 'unknown' | 'ambiguous',
+  ) {
+    super(message);
+    this.name = 'FixIdError';
+  }
+}
+
+/**
+ * Finds a fix by its id or a unique prefix of it, with or without `fx-`, in any case. Null when
+ * nothing matches, or when no id characters are given (`fx-` alone); a prefix that matches several
+ * fixes throws a FixIdError.
+ */
+export function resolveFix(store: Store, idOrPrefix: string): StoredFix | null {
+  const q = idOrPrefix.trim().replace(/^fx-/i, '');
+  if (!/^[0-9a-z]+$/i.test(q)) return null;
+  const id = `fx-${q.toUpperCase()}`;
+  const exact = store.getFix(id);
+  if (exact) return exact;
+  const found = store.listFixes().filter((f) => f.fixId.startsWith(id));
+  if (found.length > 1) throw new FixIdError(`fix id prefix "${idOrPrefix.trim()}" is ambiguous: it matches ${found.length} fixes`, 'ambiguous');
+  return found[0] ?? null;
+}
+
+// ---- Grouping ------------------------------------------------------------------------------------
+
+/**
+ * The labels a fix groups runs by: the ones its failing runs carry now, so a fix picks up a label
+ * its runs are given later and drops one taken off them; when none of its runs is left in the
+ * store, the ones they carried when they joined. `label` is the one it goes by: the label most of
+ * its runs carry, the first given on a tie.
+ */
+export function fixLabelInfo(store: Store, fix: StoredFix): { labels: string[]; label: string | null } {
+  const count = new Map<string, number>();
+  let found = false;
+  for (const link of store.fixLinks(fix.fixId, 'failing')) {
+    const run = store.getRun(link.ref);
+    if (!run) continue;
+    found = true;
+    for (const l of fixLabels(run)) count.set(l, (count.get(l) ?? 0) + 1);
+  }
+  if (!found) return { labels: [...fix.labels], label: fix.labels[0] ?? null };
+  let label: string | null = null;
+  for (const [l, n] of count) if (label === null || n > count.get(label)!) label = l;
+  return { labels: [...count.keys()], label };
 }
 
 /** The fix a run fails in: one not yet applied (the latest opened), else the latest applied one. */
@@ -64,30 +119,82 @@ export function fixOfRun(store: Store, runId: string): StoredFix | null {
 }
 
 /**
- * A fix not yet applied that a run's failure belongs to: one grouped by a label of the run, else,
- * for a run with no label and when `byCheck`, one grouped by the same check. An applied fix is
- * finished: the same failure coming back after it shipped is a new one.
+ * The fix not yet applied that a failing run joins, or null for a failure of its own. Labels are
+ * how people group runs, so they come first, and the check (`--expect`, compared canonically)
+ * decides where they can't:
+ *
+ * 1. a fix that shares a label with the run and has the same check;
+ * 2. else a fix that holds every label the run has, whatever its check: the label decides;
+ * 3. else, with `byCheck`, a fix with no labels and the same check.
+ *
+ * A run with a label the fix doesn't hold, and another check, is likely another failure, so it
+ * opens a fix of its own rather than hide in that one. A run with no labels joins (`byCheck`) the
+ * unlabelled fix with its check, else the one labelled fix with it when there is only one. Ties go
+ * to the fix sharing more labels, then to the first opened. An applied fix is finished: the same
+ * failure seen again in a new run is a new one.
  */
-export function joinableFix(store: Store, run: Pick<RunRecord, 'meta'> | null, expect: unknown, byCheck = true): StoredFix | null {
+export function joinableFix(store: Store, run: Pick<RunRecord, 'meta'> | null, expect: unknown, o: { byCheck?: boolean } = {}): StoredFix | null {
+  const byCheck = o.byCheck ?? true;
   const labels = fixLabels(run);
-  for (const label of labels) {
-    const fix = store.fixesByGroup(labelKey(label)).find((f) => f.status !== 'applied');
-    if (fix) return fix;
+  const key = checkKey(expect);
+  const candidates = store
+    .listFixes()
+    .filter((f) => f.status !== 'applied')
+    .reverse()
+    .map((fix) => {
+      const held = fixLabelInfo(store, fix).labels;
+      return { fix, held, shared: labels.filter((l) => held.includes(l)).length, sameCheck: fix.check.key === key };
+    });
+  // A stable sort: on a tie, the first opened stays first.
+  const best = (xs: typeof candidates) => [...xs].sort((a, b) => b.shared - a.shared)[0]?.fix ?? null;
+  if (labels.length) {
+    const found = best(candidates.filter((x) => x.shared > 0 && x.sameCheck)) ?? best(candidates.filter((x) => x.shared === labels.length));
+    if (found || !byCheck) return found;
+    return candidates.find((x) => x.sameCheck && !x.held.length)?.fix ?? null;
   }
-  if (labels.length || !byCheck) return null;
-  return store.fixesByGroup(checkKey(expect)).find((f) => f.status !== 'applied') ?? null;
+  if (!byCheck) return null;
+  const same = candidates.filter((x) => x.sameCheck);
+  return same.find((x) => !x.held.length)?.fix ?? (same.length === 1 ? same[0]!.fix : null);
 }
 
-/** Finds a fix by its id or a unique prefix of it, with or without `fx-`, in any case. */
-export function resolveFix(store: Store, idOrPrefix: string): StoredFix | null {
-  const q = idOrPrefix.trim();
-  if (!q) return null;
-  const id = `fx-${q.replace(/^fx-/i, '').toUpperCase()}`;
-  const exact = store.getFix(id);
-  if (exact) return exact;
-  const found = store.listFixes().filter((f) => f.fixId.startsWith(id));
-  if (found.length > 1) throw new Error(`fix id prefix "${idOrPrefix}" is ambiguous`);
-  return found[0] ?? null;
+/**
+ * Whether an oracle checks everything a fix's check asks: the same check however it is written,
+ * or one that asks for more. Each label of an oracle is one thing a passing run does, so every
+ * label of the fix's oracle must be among them; `missing` lists those left out.
+ */
+export function coversCheck(fix: Pick<StoredFix, 'check'>, oracle: readonly string[], expect: unknown): { covers: boolean; missing: string[] } {
+  if (checkKey(expect) === fix.check.key) return { covers: true, missing: [] };
+  const missing = fix.check.oracle.filter((l) => !oracle.includes(l));
+  return { covers: missing.length === 0, missing };
+}
+
+/** Links failing runs to a fix and keeps their labels with it. A run that fails in another fix not yet applied stays there. */
+function joinRuns(store: Store, fix: StoredFix, runIds: readonly string[], at: number): void {
+  const before = store.getFix(fix.fixId)?.labels ?? fix.labels;
+  const labels = [...before];
+  for (const id of runIds) {
+    const other = fixOfRun(store, id);
+    if (other && other.fixId !== fix.fixId && other.status !== 'applied') continue;
+    store.addFixLink(fix.fixId, 'failing', id, at);
+    for (const l of fixLabels(store.getRun(id))) if (!labels.includes(l)) labels.push(l);
+  }
+  if (labels.length !== before.length) store.updateFix(fix.fixId, { labels });
+}
+
+/** The fixes failing runs belong to: the ones they fail in, else the ones their labels join. */
+function fixesOfRuns(store: Store, runIds: readonly string[], expect: unknown): StoredFix[] {
+  const found = new Map<string, StoredFix>();
+  for (const id of runIds) {
+    const fix = fixOfRun(store, id);
+    if (fix) found.set(fix.fixId, fix);
+  }
+  if (!found.size) {
+    for (const id of runIds) {
+      const fix = joinableFix(store, store.getRun(id), expect, { byCheck: false });
+      if (fix) found.set(fix.fixId, fix);
+    }
+  }
+  return [...found.values()];
 }
 
 // ---- Recording what the commands did ---------------------------------------------------------
@@ -119,31 +226,31 @@ export interface RecordedBlame {
 }
 
 /**
- * Keeps a blame and puts its run in a fix: the fix it already fails in, else the one its label or
- * check joins, else a new open fix. Every outcome counts: blame replayed the run and saw it fail
- * before it probed anything, so even a search that stopped early reproduced the failure.
+ * Keeps a blame and puts its run in a fix: the fix it already fails in, else the one its labels or
+ * check join (`joinableFix`), else a new open fix. A run already in a fix keeps its blames there,
+ * applied or not: its recording can't show the failure coming back after the fix shipped, and a
+ * new run that fails again opens a new fix. Every outcome counts: blame replayed the run and saw
+ * it fail before it probed anything, so even a search that stopped early reproduced the failure.
  */
 export function recordBlame(store: Store, input: BlameToRecord): RecordedBlame {
   const at = input.at ?? Date.now();
   const expect = input.expect ?? null;
   const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: input.command };
-  // Immediate: two blames finishing at once must not both open a fix for the same label.
+  // Immediate: two blames finishing at once must not both open a fix for the same failure.
   return store.transaction(() => {
     store.putBlame(blame);
     const run = store.getRun(input.runId);
     let fix = fixOfRun(store, input.runId) ?? joinableFix(store, run, expect);
     let created = false;
     if (!fix) {
-      const label = fixLabels(run)[0] ?? null;
       const data: FixData = {};
       if (input.ci) data.source = { ci: input.ci };
       if (input.actor) data.openedBy = input.actor;
       fix = {
         fixId: newFixId(at),
         title: cleanTitle(input.title) || 'A run failed',
-        groupKey: label ? labelKey(label) : checkKey(expect),
-        label,
-        check: { expect, text: input.checkText },
+        labels: [],
+        check: { expect, key: checkKey(expect), oracle: [...input.report.oracle], text: input.checkText },
         status: 'open',
         openedAt: at,
         verifiedAt: null,
@@ -153,9 +260,9 @@ export function recordBlame(store: Store, input: BlameToRecord): RecordedBlame {
       store.insertFix(fix);
       created = true;
     }
-    store.addFixLink(fix.fixId, 'failing', input.runId, at);
     store.addFixLink(fix.fixId, 'blame', blame.blameId, at);
-    return { blame, fix, created };
+    joinRuns(store, fix, [input.runId], at);
+    return { blame, fix: store.getFix(fix.fixId)!, created };
   }, 'immediate');
 }
 
@@ -173,14 +280,16 @@ export interface VerdictToRecord {
 
 export interface RecordedVerdict {
   verdict: StoredVerdict;
-  /** The fixes it was linked to, as they are now. */
-  fixes: StoredFix[];
+  /** The fixes it was linked to, as they are now, and whether it counts for each. */
+  fixes: Array<{ fix: StoredFix; standing: VerdictStanding }>;
 }
 
 /**
- * Keeps a verdict, whatever it was, and links it to the fix of its failing runs (the fixes they fail
- * in, else the ones their labels join). Its good runs become the fix's good runs. An accepted
- * verdict turns an open fix verified; a fix stays verified whatever a later verdict says.
+ * Keeps a verdict, whatever it was, and links it to the fix of its failing runs (the fixes they
+ * fail in, else the ones their labels join). For each fix it says whether the verdict counts there
+ * (`VerdictStanding`). One that counts brings its runs to the fix: failing runs that didn't pass as
+ * recorded, and good runs that did. An accepted verdict that counts turns an open fix verified; a
+ * fix stays verified whatever a later verdict says.
  */
 export function recordVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
   return store.transaction(() => keepVerdict(store, input), 'immediate');
@@ -189,17 +298,33 @@ export function recordVerdict(store: Store, input: VerdictToRecord): RecordedVer
 function keepVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
   const at = input.at ?? Date.now();
   const r = input.report;
-  const verdict: StoredVerdict = { verifyId: newVerdictId(at), at, verdict: r.verdict, repairId: input.repairId ?? null, candidate: input.candidate ?? null, report: r, expect: input.expect ?? null, command: input.command };
+  const expect = input.expect ?? null;
+  const verdict: StoredVerdict = { verifyId: newVerdictId(at), at, verdict: r.verdict, repairId: input.repairId ?? null, candidate: input.candidate ?? null, report: r, expect, command: input.command };
   store.putVerdict(verdict);
-  const failing = r.runs.filter((x) => x.role !== 'good').map((x) => x.runId);
-  const good = r.runs.filter((x) => x.role === 'good').map((x) => x.runId);
-  const fixes = input.fixIds ? input.fixIds.map((id) => store.getFix(id)).filter((f): f is StoredFix => f !== null) : fixesOfRuns(store, failing);
+  const failing = r.runs.filter((x) => x.role !== 'good');
+  const fixes = input.fixIds ? input.fixIds.map((id) => store.getFix(id)).filter((f): f is StoredFix => f !== null) : fixesOfRuns(store, failing.map((x) => x.runId), expect);
+  const kept: RecordedVerdict['fixes'] = [];
   for (const fix of fixes) {
-    store.addFixLink(fix.fixId, 'verify', verdict.verifyId, at);
-    linkRuns(store, fix, failing, good, at);
-    if (r.verdict === 'accepted' && fix.status === 'open') store.updateFix(fix.fixId, { status: 'verified', verifiedAt: at });
+    const { covers, missing } = coversCheck(fix, r.oracle, expect);
+    // Only a verdict on the fix's own check says anything about which runs fail or pass it.
+    if (covers) {
+      joinRuns(store, fix, failing.filter((x) => x.recorded.passed !== true).map((x) => x.runId), at);
+      for (const x of r.runs) if (x.role === 'good' && x.recorded.passed !== false) store.addFixLink(fix.fixId, 'good', x.runId, at);
+    }
+    const mine = new Set(store.fixLinks(fix.fixId, 'failing').map((l) => l.ref));
+    const ofFix = failing.filter((x) => mine.has(x.runId));
+    const standing: VerdictStanding = !covers
+      ? { counts: false, why: 'another-check', missing }
+      : !ofFix.length
+        ? { counts: false, why: 'no-runs' }
+        : ofFix.every((x) => x.recorded.passed === true)
+          ? { counts: false, why: 'already-passing' }
+          : { counts: true, why: null };
+    store.addFixLink(fix.fixId, 'verify', verdict.verifyId, at, standing);
+    if (standing.counts && r.verdict === 'accepted' && fix.status === 'open') store.updateFix(fix.fixId, { status: 'verified', verifiedAt: at });
+    kept.push({ fix: store.getFix(fix.fixId)!, standing });
   }
-  return { verdict, fixes: fixes.map((f) => store.getFix(f.fixId)!) };
+  return { verdict, fixes: kept };
 }
 
 export interface RepairToRecord {
@@ -211,11 +336,14 @@ export interface RepairToRecord {
   expect: unknown;
   command: string;
   at?: number;
+  /** With `--apply --goldens <dir>`: where the recordings of the fixed runs were copied in the project. */
+  goldensCopied?: string[];
 }
 
 export interface RecordedRepair {
   repair: StoredRepair;
-  fixes: StoredFix[];
+  /** The fixes it was linked to, as they are now, and whether the verdict it kept counts for each (null without one). */
+  fixes: Array<{ fix: StoredFix; standing: VerdictStanding | null }>;
   /** The verdict kept for the candidate it accepted, or null when it accepted none. */
   verdict: StoredVerdict | null;
 }
@@ -223,81 +351,70 @@ export interface RecordedRepair {
 /**
  * Keeps a repair's report and links it to the fix of the runs it repaired, which its own blames
  * opened or joined. A repair that accepted a candidate also keeps that candidate's verification as
- * a verdict, so the fix turns verified, or applied when `--apply` left the change in the working
- * tree; one that accepted none leaves the fix open, with every candidate it tried and why each was
- * dropped. A pull request it opened becomes where the fix came from.
+ * a verdict, so a fix it counts for turns verified, or applied when `--apply` left the change in
+ * the working tree; one that accepted none leaves the fix open, with every candidate it tried and
+ * why each was dropped. A pull request it opened becomes where the fix came from.
  */
 export function recordRepair(store: Store, input: RepairToRecord): RecordedRepair {
   const at = input.at ?? Date.now();
   const r = input.report;
+  const expect = input.expect ?? null;
   const accepted = r.outcome === 'fixed' ? (r.candidates.find((c) => c.id === r.accepted) ?? null) : null;
-  const repair: StoredRepair = { repairId: input.repairId, at, dir: input.dir, outcome: r.outcome, accepted: accepted !== null, report: r, expect: input.expect ?? null, command: input.command };
+  const repair: StoredRepair = { repairId: input.repairId, at, dir: input.dir, outcome: r.outcome, accepted: accepted !== null, report: r, expect, command: input.command };
   return store.transaction(() => {
     store.putRepair(repair);
-    const failing = [...r.targets.map((t) => t.runId), ...r.holdout];
-    const fixes = fixesOfRuns(store, failing);
+    const failing = [...new Set([...r.targets.map((t) => t.runId), ...r.holdout])];
+    const fixes = fixesOfRuns(store, failing, expect);
+    // How each recording fares against the repair's oracle, from any candidate it verified: the recording is the same for all.
+    const recorded = new Map<string, boolean | null>();
+    for (const c of r.candidates) for (const x of c.verify?.runs ?? []) if (!recorded.has(x.runId)) recorded.set(x.runId, x.recorded.passed);
     for (const fix of fixes) {
       store.addFixLink(fix.fixId, 'repair', repair.repairId, at);
-      linkRuns(store, fix, failing, r.good, at);
-      if (r.output.pr) {
-        const number = Number(/\/pull\/(\d+)/.exec(r.output.pr)?.[1]);
-        store.updateFix(fix.fixId, { data: { ...fix.data, source: { ...fix.data.source, pr: { url: r.output.pr, number: Number.isInteger(number) ? number : null } } } });
+      if (coversCheck(fix, r.oracle, expect).covers) {
+        joinRuns(store, fix, failing.filter((id) => recorded.get(id) !== true), at);
+        for (const id of r.good) if (recorded.get(id) !== false) store.addFixLink(fix.fixId, 'good', id, at);
+      }
+      if (r.output.pr) store.mergeFixData(fix.fixId, { source: { pr: { url: r.output.pr, number: prNumber(r.output.pr), state: 'open', at } } });
+    }
+    const kept = accepted?.verify ? keepVerdict(store, { report: accepted.verify, expect, command: input.command, repairId: repair.repairId, candidate: accepted.id, at, fixIds: fixes.map((f) => f.fixId) }) : null;
+    // `repair --apply` left the change in the working tree: a fix it verified is applied already.
+    if (kept && r.output.applied) {
+      for (const { fix, standing } of kept.fixes) {
+        if (standing.counts && fix.status !== 'applied') applyMark(store, fix.fixId, { patch: 'applied', repairId: repair.repairId, goldens: input.goldensCopied ?? [], tests: 'skipped', via: 'repair --apply' }, at);
       }
     }
-    const verdict = accepted?.verify ? keepVerdict(store, { report: accepted.verify, expect: input.expect, command: input.command, repairId: repair.repairId, candidate: accepted.id, at, fixIds: fixes.map((f) => f.fixId) }).verdict : null;
-    // `repair --apply` left the change in the working tree: the fix is applied already.
-    if (accepted && r.output.applied) {
-      for (const fix of fixes) {
-        const now = store.getFix(fix.fixId)!;
-        if (now.status !== 'applied') store.updateFix(fix.fixId, { status: 'applied', appliedAt: at, data: { ...now.data, applied: { patch: 'applied', repairId: repair.repairId, goldens: [], tests: 'skipped' } } });
-      }
-    }
-    return { repair, fixes: fixes.map((f) => store.getFix(f.fixId)!), verdict };
+    const standing = new Map((kept?.fixes ?? []).map((x) => [x.fix.fixId, x.standing]));
+    return { repair, fixes: fixes.map((f) => ({ fix: store.getFix(f.fixId)!, standing: standing.get(f.fixId) ?? null })), verdict: kept?.verdict ?? null };
   }, 'immediate');
 }
 
-/** The fixes failing runs belong to: the ones they fail in, else the ones their labels join. */
-function fixesOfRuns(store: Store, runIds: readonly string[]): StoredFix[] {
-  const found = new Map<string, StoredFix>();
-  for (const id of runIds) {
-    const fix = fixOfRun(store, id);
-    if (fix) found.set(fix.fixId, fix);
-  }
-  if (!found.size) {
-    for (const id of runIds) {
-      const fix = joinableFix(store, store.getRun(id), null, false);
-      if (fix) found.set(fix.fixId, fix);
-    }
-  }
-  return [...found.values()];
-}
-
-/** Links failing and good runs to a fix. A run that fails in another fix not yet applied stays there. */
-function linkRuns(store: Store, fix: StoredFix, failing: readonly string[], good: readonly string[], at: number): void {
-  for (const id of failing) {
-    const other = fixOfRun(store, id);
-    if (other && other.fixId !== fix.fixId && other.status !== 'applied') continue;
-    store.addFixLink(fix.fixId, 'failing', id, at);
-  }
-  for (const id of good) store.addFixLink(fix.fixId, 'good', id, at);
-}
-
-/** Marks a fix applied, with what `shadowlap fix apply` did. */
-export function markFixApplied(store: Store, fixId: string, applied: NonNullable<FixData['applied']>, at: number = Date.now()): StoredFix {
+/** Marks a fix applied, inside a transaction the caller holds. A fix applied before keeps when it was applied; what was done is replaced. */
+function applyMark(store: Store, fixId: string, applied: NonNullable<FixData['applied']>, at: number): void {
   const fix = store.getFix(fixId);
   if (!fix) throw new Error(`unknown fix ${fixId}`);
-  store.updateFix(fixId, { status: 'applied', appliedAt: at, data: { ...fix.data, applied } });
-  return store.getFix(fixId)!;
+  if (fix.status !== 'applied') store.updateFix(fixId, { status: 'applied', appliedAt: at });
+  store.mergeFixData(fixId, { applied: null });
+  store.mergeFixData(fixId, { applied });
+}
+
+/** Marks a fix applied, with what `shadowlap fix apply` did. Applied before, it keeps when, and takes what was done now. */
+export function markFixApplied(store: Store, fixId: string, applied: NonNullable<FixData['applied']>, at: number = Date.now()): StoredFix {
+  return store.transaction(() => {
+    applyMark(store, fixId, applied, at);
+    return store.getFix(fixId)!;
+  }, 'immediate');
 }
 
 /** Gives a fix a title of its own; blames that join it later keep it. */
 export function setFixTitle(store: Store, fixId: string, title: string): StoredFix {
-  const fix = store.getFix(fixId);
-  if (!fix) throw new Error(`unknown fix ${fixId}`);
   const clean = cleanTitle(title);
   if (!clean) throw new Error('a title needs some text');
-  store.updateFix(fixId, { title: clean, data: { ...fix.data, titleEdited: true } });
-  return store.getFix(fixId)!;
+  return store.transaction(() => {
+    if (!store.getFix(fixId)) throw new Error(`unknown fix ${fixId}`);
+    store.updateFix(fixId, { title: clean });
+    store.mergeFixData(fixId, { titleEdited: true });
+    return store.getFix(fixId)!;
+  }, 'immediate');
 }
 
 // ---- Reading a fix back -----------------------------------------------------------------------
@@ -311,7 +428,11 @@ export interface FixRecords {
   blames: StoredBlame[];
   repairs: StoredRepair[];
   verdicts: StoredVerdict[];
+  /** Whether each verdict counts for the fix, by its id. */
+  standing: Map<string, VerdictStanding>;
 }
+
+const COUNTS: VerdictStanding = { counts: true, why: null };
 
 export function fixRecords(store: Store, fix: StoredFix): FixRecords {
   const links = store.fixLinks(fix.fixId);
@@ -324,7 +445,35 @@ export function fixRecords(store: Store, fix: StoredFix): FixRecords {
     blames: byAt(refs('blame').map((id) => store.getBlame(id))),
     repairs: byAt(refs('repair').map((id) => store.getRepair(id))),
     verdicts: byAt(refs('verify').map((id) => store.getVerdict(id))),
+    standing: new Map(links.filter((l) => l.kind === 'verify').map((l) => [l.ref, l.data ?? COUNTS])),
   };
+}
+
+/** Whether a verdict counts for the fix these records are of. */
+export const verdictCounts = (rec: Pick<FixRecords, 'standing'>, v: Pick<StoredVerdict, 'verifyId'>): boolean => (rec.standing.get(v.verifyId) ?? COUNTS).counts;
+
+/**
+ * The repair whose change a fix is applied with: the one it was applied with, else the latest that
+ * accepted a candidate with a patch whose verdict counts for the fix. Null for a fix verified on the
+ * working tree, which has no patch.
+ */
+export function repairToApply(rec: FixRecords): StoredRepair | null {
+  const applied = rec.fix.data.applied;
+  if (applied) return applied.repairId ? (rec.repairs.find((r) => r.repairId === applied.repairId) ?? null) : null;
+  return [...rec.repairs].reverse().find((r) => r.accepted && r.report.patch && rec.verdicts.some((v) => v.repairId === r.repairId && verdictCounts(rec, v))) ?? null;
+}
+
+/**
+ * What applying a fix left undone, for one applied with a repair's patch: recordings of the fixed
+ * runs not copied into the project (`repair --apply` without `--goldens`), or a test of them that
+ * hasn't passed (it failed, or was skipped). Null when nothing is left.
+ */
+export function applyLeft(fix: StoredFix, repair: StoredRepair | null): { goldens: boolean; test: boolean } | null {
+  const applied = fix.data.applied;
+  if (fix.status !== 'applied' || !applied || applied.patch === 'none' || !repair) return null;
+  const wanted = repair.report.output.goldens.length;
+  const left = { goldens: applied.goldens.length < wanted, test: wanted > 0 && applied.tests !== 'passed' };
+  return left.goldens || left.test ? left : null;
 }
 
 export interface FixCost {

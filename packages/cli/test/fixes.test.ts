@@ -185,7 +185,7 @@ describe('shadowlap fix', () => {
     expect(listed.fixes[0]!.steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
     expect(listed.fixes[0]!.attempts).toBeGreaterThan(0);
     const table = (await shadowlap(['fix', 'ls'])).stdout;
-    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified`));
+    expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +check: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
 
     // The code as it is fixes nothing: the verdict is kept, rejected, and the fix stays open.
     const rejected = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE, '--json']);
@@ -227,7 +227,7 @@ describe('shadowlap fix', () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null }, applied: false });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null }, applied: false });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
@@ -239,7 +239,7 @@ describe('shadowlap fix', () => {
 
     const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
     expect(applied.code, applied.out).toBe(0);
-    expect(json(applied)).toEqual({ fixId, status: 'applied', patch: 'none', repairId: null, goldens: [], tests: 'skipped' });
+    expect(json(applied)).toEqual({ fixId, status: 'applied', again: false, patch: 'none', repairId: null, goldens: [], tests: 'skipped' });
     expect(applied.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}` });
 
     const s = store();
@@ -308,7 +308,7 @@ describe('shadowlap fix', () => {
     expect(shown.repair.lost).toEqual([{ runId: report.targets[0].runId, at: `model call #${decision} (3 of 4)`, href: `#/fixes/${fixId}/blame` }]);
     expect(shown.verify).toHaveLength(1);
     expect(shown.verify[0]).toMatchObject({ verifyId: report.verifyId, verdict: 'accepted', code: 'repair candidate 3', label: 'repair candidate 3 · accepted', candidate: 3, repairId: report.repairId });
-    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git apply ${report.output.dir}/fix.patch` });
+    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git apply ${report.output.dir}/fix.patch`, pending: null });
 
     const applied = await shadowlap(['fix', 'apply', fixId.slice(0, 13), '--json']);
     expect(applied.code, applied.out).toBe(0);
@@ -392,7 +392,15 @@ describe('shadowlap fix', () => {
     expect(agentText()).toContain('Be kind.');
     expect(existsSync(join(project, 'goldens'))).toBe(false);
 
-    sh(project, 'git', ['checkout', '--', 'agent.mjs']);
+    // Committed, the same change leaves a clean tree the patch no longer applies to.
+    sh(project, 'git', ['commit', '-qam', 'Be kind']);
+    const stale = await shadowlap(['fix', 'apply', fixId, '--json']);
+    expect(stale.code).toBe(1);
+    expect(json(stale)).toMatchObject({ fixId, status: 'error', error: { message: expect.stringContaining('the patch no longer applies: agent.mjs changed since the repair') } });
+    expect(json(stale).error.message).toContain('apply it by hand with git apply --3way');
+    expect(json(await shadowlap(['fix', 'show', fixId, '--json'])).status).toBe('verified');
+
+    sh(project, 'git', ['reset', '-q', '--hard', 'HEAD~1']);
     sh(project, 'git', ['apply', repaired.output.patch]);
     const applied = await shadowlap(['fix', 'apply', fixId, '--no-test', '--goldens', 'tests/goldens', '--json']);
     expect(applied.code, applied.out).toBe(0);
@@ -401,9 +409,99 @@ describe('shadowlap fix', () => {
     expect(agentText().split(FIX)).toHaveLength(2);
   });
 
-  it('says which fix it could not find', async () => {
+  it('says which fix it could not find, as JSON with --json', async () => {
     expect((await shadowlap(['fix', 'show', 'fx-NOPE'])).out).toContain('no fix matches "fx-NOPE" (see: shadowlap fix ls)');
     expect((await shadowlap(['fix', 'apply', 'NOPE'])).out).toContain('no fix matches "NOPE"');
+    for (const args of [['fix', 'show', 'NOPE', '--json'], ['fix', 'apply', 'NOPE', '--json'], ['fix', 'show', 'fx-', '--json']]) {
+      const r = await shadowlap(args);
+      expect(r.code).toBe(1);
+      expect(json(r)).toEqual({ fixId: args[2], status: 'error', error: { reason: 'unknown', message: `no fix matches "${args[2]}" (see: shadowlap fix ls)` } });
+    }
     expect((await shadowlap(['fix', 'ls'])).stdout).toContain("No fixes here. A fix starts from a blame: shadowlap blame <run> --expect '<check>'");
+  });
+
+  it('keeps a verdict under another check without turning the fix verified', async () => {
+    const { failed } = await runs('refund-over-limit');
+    mode = 'alternate';
+    const blamed = await shadowlap(['blame', failed[0], '--expect', ORACLE, '--json']);
+    expect(blamed.code, blamed.out).toBe(0);
+    const fixId = json(blamed).fix.fixId as string;
+
+    // No --expect: the recordings already exit 0, so each replays clean and passes. That proves nothing about refunds.
+    const exitOnly = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--json']);
+    expect(exitOnly.code, exitOnly.out).toBe(0);
+    expect(json(exitOnly)).toMatchObject({ verdict: 'accepted', fixes: [{ fixId, status: 'open', counts: false, why: 'another-check' }] });
+    const unrelated = await shadowlap(['verify', '--fixes', 'label:refund-over-limit', '--expect', '{"tools":{"send_email":0}}']);
+    expect(unrelated.code, unrelated.out).toBe(0);
+    expect(unrelated.stdout).toContain(`fix ${fixId.slice(0, 13)} · issue_refund called with amount 240 · accepted verdict kept, not counted (checked under another check); still open`);
+
+    const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
+    expect(shown).toMatchObject({ status: 'open', verifiedAt: null, failing: 1, good: 0 });
+    expect(shown.steps[2]).toMatchObject({ state: 'todo', short: 'not verified', meta: 'verified only under another check' });
+    expect(shown.verify.map((v: { verdict: string; counts: boolean }) => [v.verdict, v.counts])).toEqual([
+      ['accepted', false],
+      ['accepted', false],
+    ]);
+    expect(shown.verify[1].note).toBe(`Checked under another check, so it doesn't count for this fix: it doesn't check issue_refund with {"amount":240} called 0 times.`);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`✓ accepted  `);
+
+    const refused = await shadowlap(['fix', 'apply', fixId]);
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain(`${fixId.slice(0, 13)} is open: a change was accepted, but under another check than this fix's (issue_refund never called with {"amount":240}), so it doesn't count. Verify it under this fix's check:`);
+    expect(refused.out).toContain(`shadowlap verify --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}'`);
+    const s = store();
+    try {
+      expect(s.listEvents({ kinds: ['verify.accepted'] }).map((e) => e.data)).toEqual([expect.objectContaining({ fixes: [fixId], counts: [] }), expect.objectContaining({ fixes: [fixId], counts: [] })]);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('keeps a repair whose pull request could not be opened, applied by --apply, and lets fix apply finish it', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    // No remote to push to: the change is applied and committed to the branch, and the pull request fails.
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--apply', '--branch', 'fix-refunds', '--pr', '--json']);
+    expect(r.code, r.out).toBe(1);
+    const report = json(r);
+    expect(report).toMatchObject({ outcome: 'fixed', error: { message: expect.stringContaining('git push origin fix-refunds failed') }, output: { applied: true, branch: 'fix-refunds', pr: null } });
+    expect(report.warnings).toContainEqual(expect.stringContaining('handing the fix over stopped: git push origin fix-refunds failed'));
+    expect(JSON.parse(readFileSync(join(project, report.output.dir, 'report.json'), 'utf8'))).toMatchObject({ outcome: 'fixed', output: { applied: true } });
+    const fixId = report.fixes[0].fixId as string;
+    expect(report.fixes[0]).toMatchObject({ status: 'applied', counts: true });
+    expect(agentText()).toContain(FIX);
+
+    let shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
+    expect(shown).toMatchObject({ status: 'applied', applied: { patch: 'applied', via: 'repair --apply', goldens: [], tests: 'skipped', repairId: report.repairId }, repair: { output: { branch: 'fix-refunds' } } });
+    expect(shown.actions).toMatchObject({ applied: true, apply: { kind: 'patch', pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them' } });
+
+    // fix apply finishes it; a build that breaks the agent makes the test fail, and the fix shows it.
+    const broken = await shadowlap(['fix', 'apply', fixId, '--build', `node -e "require('fs').writeFileSync('agent.mjs', 'process.exit(3)')"`]);
+    expect(broken.code, broken.out).toBe(1);
+    expect(broken.stdout).toContain(`✗ ${fixId.slice(0, 13)} finished applying: the patch was already in the working tree, 2 of 2 goldens copied to goldens, shadowlap test failed`);
+    expect(broken.stdout).toContain(`once the test passes, run shadowlap fix apply ${fixId.slice(0, 13)} again`);
+    expect(broken.out).toContain('rebuilt: node -e');
+    expect((await shadowlap(['fix', 'ls'])).stdout).toContain('! shadowlap test failed on its goldens');
+    shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
+    expect(shown).toMatchObject({ broken: 'shadowlap test failed on its goldens', applied: { tests: 'failed', via: 'fix apply', patch: 'applied' }, actions: { apply: { pending: 'run shadowlap test on its goldens' } } });
+
+    sh(project, 'git', ['checkout', '--', 'agent.mjs']);
+    sh(project, 'git', ['apply', report.output.patch]);
+    const fixed = await shadowlap(['fix', 'apply', fixId, '--json']);
+    expect(fixed.code, fixed.out).toBe(0);
+    expect(json(fixed)).toMatchObject({ status: 'applied', again: true, patch: 'already', tests: 'passed', goldens: [expect.objectContaining({ copied: false }), expect.objectContaining({ copied: false })] });
+    expect(json(await shadowlap(['fix', 'show', fixId, '--json']))).toMatchObject({ broken: null, applied: { tests: 'passed', goldens: [expect.stringMatching(/^goldens\//), expect.stringMatching(/^goldens\//)] }, actions: { apply: { pending: null } } });
+    expect((await shadowlap(['fix', 'apply', fixId])).stdout).toMatch(new RegExp(`${fixId.slice(0, 13)} is already applied \\(\\d+s ago\\); nothing is left to do`));
+
+    const s = store();
+    try {
+      expect(s.listEvents({ kinds: ['fix.applied'] }).map((e) => e.data)).toEqual([
+        expect.objectContaining({ tests: 'passed', again: true }),
+        expect.objectContaining({ tests: 'failed', again: true }),
+        expect.objectContaining({ via: 'repair --apply', tests: 'skipped' }),
+      ]);
+    } finally {
+      s.close();
+    }
   });
 });

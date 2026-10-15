@@ -37,6 +37,8 @@ export interface BlameInput {
   argv: string[];
   commandFromImport: boolean;
   settings: BlameSettings;
+  /** The blame as it was typed, kept with its fix; made from the settings when not given (a blame a repair ran). */
+  command?: string;
   /** Progress, a line at a time. */
   log: (line: string) => void;
 }
@@ -175,7 +177,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       },
     });
     // Kept whole, with the fix it opens or joins: the blame on the run is only the latest one.
-    const kept = recordBlameFix(store, { runId: parent.runId, report, settings: s, recording: { checks: baseline.checks, failures: baseline.failures } });
+    // The command after `--`, when it replaced the recorded one, is part of blaming the run the same way again.
+    const override = input.argv.length === parent.command.argv.length && input.argv.every((a, i) => a === parent.command.argv[i]) ? null : input.argv;
+    const kept = recordBlameFix(store, { runId: parent.runId, report, settings: { ...s, argv: override }, recording: { checks: baseline.checks, failures: baseline.failures }, command: input.command });
     return { ...report, fix: kept ? { fixId: kept.fix.fixId, title: kept.fix.title, status: kept.fix.status, opened: kept.created, blameId: kept.blame.blameId } : null };
   } finally {
     await runner.close();

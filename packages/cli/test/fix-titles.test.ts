@@ -56,4 +56,16 @@ describe('commands that run a step again', () => {
     expect(verifyCommand({ fixes: ['01M3RXQ4VB'], holdout: ['01M3RXQ51B'], keeps: ['label:good'] }, { expect: expect_, attempts: 5, fields: {}, liveTools: ['read_policy'] })).toBe(`shadowlap verify --fixes 01M3RXQ4VB --holdout 01M3RXQ51B --keeps label:good --expect '{"tools":{"issue_refund":0}}' --live-tool read_policy`);
     expect(repairCommand({ fixes: ['label:refund-bug'], keeps: ['label:good'] }, { expect: expect_, repairer: 'claude-code', attempts: 5 })).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '{"tools":{"issue_refund":0}}' --repairer claude-code`);
   });
+
+  it('keep every flag that changes what a step finds, and the command given after --', () => {
+    const flags = { writes: 'block' as const, reads: 'replay' as const, budget: 0.5, timeoutMs: 30_000, argv: ['python', 'agent.py', '--order', 'A 1042'] };
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 5, needed: 2, scan: 4, ...flags })).toBe(`shadowlap blame 01M3RZ4XKN --scan 4 --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
+    // Defaults are left out.
+    expect(blameCommand('01M3RZ4XKN0000000000000000', { expect: null, fields: {}, attempts: 5, needed: 2, scan: 2, writes: 'stub', reads: 'live', budget: null, timeoutMs: null, argv: null })).toBe('shadowlap blame 01M3RZ4XKN');
+    expect(verifyCommand({ fixes: ['label:refund-bug'] }, { attempts: 3, passes: 2, fields: { temperature: 1 }, liveTools: [], failFast: true, ...flags })).toBe(`shadowlap verify --fixes label:refund-bug --set temperature=1 --attempts 3 --passes 2 --fail-fast --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
+    expect(
+      repairCommand({ fixes: ['label:refund-bug'], holdout: ['01M3RXQ51B'] }, { expect: expect_, repairer: 'anthropic', candidates: 5, stronger: 'claude-opus-5-5', scope: 'agent', set: { temperature: 1 }, attempts: 5, maxGrowth: 0.125, build: 'npm run build', ...flags }),
+    ).toBe(`shadowlap repair --fixes label:refund-bug --holdout 01M3RXQ51B --expect '{"tools":{"issue_refund":0}}' --repairer anthropic --candidates 5 --stronger claude-opus-5-5 --scope agent --set temperature=1 --max-growth 12.5 --build 'npm run build' --writes block --reads replay --budget 0.5 --timeout 30 -- python agent.py --order 'A 1042'`);
+    expect(repairCommand({ fixes: ['label:refund-bug'] }, { attempts: 5, candidates: 3, maxGrowth: 0.25, build: null })).toBe('shadowlap repair --fixes label:refund-bug');
+  });
 });

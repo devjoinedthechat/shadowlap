@@ -162,11 +162,33 @@ export function failureTitle(spec: TestSpec | null, recording: { checks: readonl
 /** `--expect '<json>'`, or nothing for the exit code alone. */
 const expectArgs = (expect: unknown): string[] => (expect === null || expect === undefined ? [] : ['--expect', JSON.stringify(expect)]);
 
+const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
+
 const fieldArgs = (fields: Record<string, unknown>): string[] =>
-  Object.entries(fields).flatMap(([k, v]) => (k === 'model' && typeof v === 'string' ? ['--model', v] : ['--set', `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`]));
+  Object.entries(fields).flatMap(([k, v]) => (k === 'model' && typeof v === 'string' ? ['--model', v] : ['--set', `${k}=${fieldValue(v)}`]));
+
+/** What every step takes that changes what it finds, when it differs from the default. */
+export interface StepFlags {
+  writes?: 'stub' | 'block';
+  reads?: 'live' | 'replay';
+  budget?: number | null;
+  timeoutMs?: number | null;
+  /** The command given after `--`, when it replaced each run's recorded one. */
+  argv?: readonly string[] | null;
+}
+
+const stepArgs = (f: StepFlags): string[] => [
+  ...(f.writes === 'block' ? ['--writes', 'block'] : []),
+  ...(f.reads === 'replay' ? ['--reads', 'replay'] : []),
+  ...(f.budget !== null && f.budget !== undefined ? ['--budget', String(f.budget)] : []),
+  ...(f.timeoutMs !== null && f.timeoutMs !== undefined ? ['--timeout', String(Math.round(f.timeoutMs / 1000))] : []),
+];
+
+/** The command after `--` goes last, as it was typed. */
+const commandArgs = (f: StepFlags): string[] => (f.argv?.length ? ['--', ...f.argv] : []);
 
 /** A blame command that blames the run the same way again. */
-export function blameCommand(runId: string, s: { expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number }): string {
+export function blameCommand(runId: string, s: StepFlags & { expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; scan?: number }): string {
   return quoteArgv([
     'shadowlap',
     'blame',
@@ -176,6 +198,9 @@ export function blameCommand(runId: string, s: { expect?: unknown; scope?: strin
     ...fieldArgs(s.fields),
     ...(s.attempts !== 5 ? ['--attempts', String(s.attempts)] : []),
     ...(s.needed !== Math.min(2, s.attempts) ? ['--passes', String(s.needed)] : []),
+    ...(s.scan !== undefined && s.scan !== 2 ? ['--scan', String(s.scan)] : []),
+    ...stepArgs(s),
+    ...commandArgs(s),
   ]);
 }
 
@@ -190,20 +215,41 @@ const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ..
 
 const gateArgs = (attempts: number, passes: number | undefined) => [...(attempts !== 5 ? ['--attempts', String(attempts)] : []), ...(passes !== undefined ? ['--passes', String(passes)] : [])];
 
-export function verifyCommand(runs: RunSpecs, f: { expect?: unknown; attempts: number; passes?: number | undefined; fields: Record<string, unknown>; liveTools: string[] }): string {
-  return quoteArgv(['shadowlap', 'verify', ...runArgs(runs), ...expectArgs(f.expect), ...fieldArgs(f.fields), ...f.liveTools.flatMap((t) => ['--live-tool', t]), ...gateArgs(f.attempts, f.passes)]);
+export function verifyCommand(runs: RunSpecs, f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; fields: Record<string, unknown>; liveTools: string[]; failFast?: boolean }): string {
+  return quoteArgv([
+    'shadowlap',
+    'verify',
+    ...runArgs(runs),
+    ...expectArgs(f.expect),
+    ...fieldArgs(f.fields),
+    ...f.liveTools.flatMap((t) => ['--live-tool', t]),
+    ...gateArgs(f.attempts, f.passes),
+    ...(f.failFast ? ['--fail-fast'] : []),
+    ...stepArgs(f),
+    ...commandArgs(f),
+  ]);
 }
 
-export function repairCommand(runs: RunSpecs, f: { expect?: unknown; repairer?: string; stronger?: string; scope?: string; attempts: number; passes?: number }): string {
+/** A repair command that repairs the same way again; how it hands over (`--apply`, `--branch`, `--pr`) is left out. */
+export function repairCommand(
+  runs: RunSpecs,
+  f: StepFlags & { expect?: unknown; repairer?: string; candidates?: number; stronger?: string; scope?: string; set?: Record<string, unknown>; attempts: number; passes?: number; maxGrowth?: number; build?: string | null },
+): string {
   return quoteArgv([
     'shadowlap',
     'repair',
     ...runArgs(runs),
     ...expectArgs(f.expect),
     ...(f.repairer ? ['--repairer', f.repairer] : []),
+    ...(f.candidates !== undefined && f.candidates !== 3 ? ['--candidates', String(f.candidates)] : []),
     ...(f.stronger ? ['--stronger', f.stronger] : []),
     ...(f.scope ? ['--scope', f.scope] : []),
+    ...Object.entries(f.set ?? {}).flatMap(([k, v]) => ['--set', `${k}=${fieldValue(v)}`]),
     ...gateArgs(f.attempts, f.passes),
+    ...(f.maxGrowth !== undefined && f.maxGrowth !== 0.25 ? ['--max-growth', String(+(f.maxGrowth * 100).toFixed(4))] : []),
+    ...(f.build ? ['--build', f.build] : []),
+    ...stepArgs(f),
+    ...commandArgs(f),
   ]);
 }
 
@@ -213,11 +259,18 @@ const actor = () => resolveAuthor({ cwd: process.cwd() });
 
 /**
  * Keeps a blame and opens or joins its fix, in the store the blame used. Returns null, and adds a
- * warning to the report, when the store refuses: the blame itself still stands.
+ * warning to the report, when the store refuses: the blame itself still stands. `command` is the
+ * blame as it was typed; without one (a blame a repair ran) it is made from the settings.
  */
 export function recordBlameFix(
   store: Store,
-  input: { runId: string; report: BlameReport; settings: { spec: TestSpec | null; expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number }; recording: { checks: readonly CheckResult[]; failures: readonly string[] } },
+  input: {
+    runId: string;
+    report: BlameReport;
+    settings: StepFlags & { spec: TestSpec | null; expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; scan?: number };
+    recording: { checks: readonly CheckResult[]; failures: readonly string[] };
+    command?: string | undefined;
+  },
 ): RecordedBlame | null {
   const s = input.settings;
   try {
@@ -227,7 +280,8 @@ export function recordBlameFix(
       report: input.report,
       expect: s.expect ?? null,
       scope: s.scope ?? null,
-      command: blameCommand(input.runId, s),
+      // A repair's budget for its blames is what it had left, not something to type again.
+      command: input.command ?? blameCommand(input.runId, { ...s, budget: null }),
       title: failureTitle(s.spec, input.recording),
       checkText: checkText(s.spec),
       actor: who,
@@ -254,11 +308,12 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
     store = openStore(opts);
     const recorded = recordVerdict(store, { report, expect: input.expect ?? null, command: input.command });
     if (report.verdict !== 'incomplete') {
+      const counted = recorded.fixes.filter((x) => x.standing.counts).map((x) => x.fix.fixId);
       recordEvent(store, {
         kind: `verify.${report.verdict}`,
         actor: actor(),
-        ref: recorded.fixes[0]?.fixId ?? recorded.verdict.verifyId,
-        data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((f) => f.fixId), code: report.codeVersion, reasons: report.reasons.slice(0, 3) },
+        ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
+        data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3) },
       });
     }
     return recorded;
@@ -270,28 +325,42 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
   }
 }
 
-/** Keeps a repair's report and links it to the fix of its runs; an accepted candidate's verification becomes a verdict. */
-export function recordRepairFix(opts: GlobalOpts, report: RepairReport, input: { expect?: unknown; command: string }): RecordedRepair | null {
+/**
+ * Keeps a repair's report and links it to the fix of its runs; an accepted candidate's verification
+ * becomes a verdict. `goldensCopied` are the recordings `--apply --goldens` put in the project.
+ */
+export function recordRepairFix(opts: GlobalOpts, report: RepairReport, input: { expect?: unknown; command: string; goldensCopied?: string[] }): RecordedRepair | null {
   if (!report.output.dir) return null;
   let store: Store | null = null;
   try {
     store = openStore(opts);
-    const recorded = recordRepair(store, { repairId: basename(report.output.dir), dir: report.output.dir.split(/[\\/]+/).join('/'), report, expect: input.expect ?? null, command: input.command });
+    const recorded = recordRepair(store, {
+      repairId: basename(report.output.dir),
+      dir: report.output.dir.split(/[\\/]+/).join('/'),
+      report,
+      expect: input.expect ?? null,
+      command: input.command,
+      ...(input.goldensCopied ? { goldensCopied: input.goldensCopied.map((g) => g.split(/[\\/]+/).join('/')) } : {}),
+    });
     const accepted = report.candidates.find((c) => c.id === report.accepted);
+    const who = actor();
     recordEvent(store, {
       kind: recorded.repair.accepted ? 'repair.accepted' : 'repair.empty',
-      actor: actor(),
-      ref: recorded.fixes[0]?.fixId ?? recorded.repair.repairId,
+      actor: who,
+      ref: recorded.fixes[0]?.fix.fixId ?? recorded.repair.repairId,
       data: {
         repairId: recorded.repair.repairId,
         outcome: report.outcome,
-        fixes: recorded.fixes.map((f) => f.fixId),
-        ...(accepted && recorded.repair.accepted ? { title: commitTitle(accepted), verifyId: recorded.verdict?.verifyId ?? null } : { why: report.why }),
+        fixes: recorded.fixes.map((x) => x.fix.fixId),
+        ...(accepted && recorded.repair.accepted ? { title: commitTitle(accepted), verifyId: recorded.verdict?.verifyId ?? null, counts: recorded.fixes.filter((x) => x.standing?.counts).map((x) => x.fix.fixId) } : { why: report.why }),
         candidates: report.candidates.length,
       },
     });
-    if (recorded.repair.accepted && report.output.applied) {
-      for (const fix of recorded.fixes) recordEvent(store, { kind: 'fix.applied', actor: actor(), ref: fix.fixId, data: { title: fix.title, repairId: recorded.repair.repairId, patch: 'applied', goldens: 0, tests: 'skipped' } });
+    for (const { fix } of recorded.fixes) {
+      const applied = fix.data.applied;
+      if (fix.status === 'applied' && applied?.via === 'repair --apply' && applied.repairId === recorded.repair.repairId) {
+        recordEvent(store, { kind: 'fix.applied', actor: who, ref: fix.fixId, data: { title: fix.title, repairId: recorded.repair.repairId, patch: 'applied', goldens: applied.goldens.length, tests: 'skipped', via: 'repair --apply' } });
+      }
     }
     return recorded;
   } catch (err) {

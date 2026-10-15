@@ -112,16 +112,19 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
 
 -- v4: Fixes. A fix is one failure, from the blame that reproduced it to a change that held: its
--- title, how runs are grouped into it (the failing run's label, else the check), the check, and
--- whether it is open, verified or applied. A blame creates or joins one; repair and verify link
--- to the fix of the runs they were given. Every blame, verdict and repair report is kept whole.
--- Links and reports name runs by id with no foreign key: a fix outlives a run deleted from the store.
+-- title, the labels its failing runs carried when they joined, the check it was blamed under (the
+-- --expect as given, its canonical key, and its oracle as labels and in words), and whether it is
+-- open, verified or applied. A blame creates or joins one, by label, else by check; repair and
+-- verify link to the fix of the runs they were given, and a verify link says whether its verdict
+-- counts for the fix. Every blame, verdict and repair report is kept whole. Links and reports name
+-- runs by id with no foreign key: a fix outlives a run deleted from the store.
 CREATE TABLE IF NOT EXISTS fixes (
   fix_id       TEXT    PRIMARY KEY,
   title        TEXT    NOT NULL,
-  group_key    TEXT    NOT NULL,
-  label        TEXT,
+  labels       TEXT    NOT NULL,
+  check_key    TEXT    NOT NULL,
   check_expect TEXT,
+  check_oracle TEXT    NOT NULL,
   check_text   TEXT    NOT NULL,
   status       TEXT    NOT NULL CHECK (status IN ('open', 'verified', 'applied')),
   opened_at    INTEGER NOT NULL,
@@ -129,12 +132,13 @@ CREATE TABLE IF NOT EXISTS fixes (
   applied_at   INTEGER,
   data         TEXT
 );
-CREATE INDEX IF NOT EXISTS fixes_group ON fixes (group_key);
+CREATE INDEX IF NOT EXISTS fixes_check ON fixes (check_key);
 CREATE TABLE IF NOT EXISTS fix_links (
   fix_id  TEXT    NOT NULL REFERENCES fixes(fix_id) ON DELETE CASCADE,
   kind    TEXT    NOT NULL CHECK (kind IN ('failing', 'good', 'blame', 'repair', 'verify')),
   ref     TEXT    NOT NULL,
   at      INTEGER NOT NULL,
+  data    TEXT,
   PRIMARY KEY (fix_id, kind, ref)
 );
 CREATE INDEX IF NOT EXISTS fix_links_ref ON fix_links (ref, kind);
@@ -191,12 +195,14 @@ export interface StoredFix {
   /** `fx-<ulid>`. */
   fixId: string;
   title: string;
-  /** What groups runs into it: `label:<name>` (the failing run's label) or `check:<canonical --expect>`. */
-  groupKey: string;
-  /** The label it groups by, or null when it groups by its check. */
-  label: string | null;
-  /** The check a run passes: the `--expect` JSON as given (null for the exit code alone), and in words. */
-  check: { expect: unknown; text: string };
+  /** Every label but `good` its failing runs carried when they joined it, in the order they came. */
+  labels: string[];
+  /**
+   * The check its first blame was made under: the `--expect` JSON as given (null for the exit code
+   * alone), its canonical key (`check:<canonical JSON>`, `check:exit`), the oracle as the labels of
+   * what a passing run does, and in words.
+   */
+  check: { expect: unknown; key: string; oracle: string[]; text: string };
   status: FixStatus;
   openedAt: number;
   verifiedAt: number | null;
@@ -206,14 +212,22 @@ export interface StoredFix {
 
 export interface FixData {
   /** Where it came from: a CI provider it was opened under, the pull request a repair opened for it. */
-  source?: { ci?: string; pr?: { url: string; number: number | null } };
+  source?: { ci?: string; pr?: { url: string; number: number | null; state?: 'open' | 'merged' | 'closed'; at?: number } };
   /** Who opened it (resolveAuthor). */
   openedBy?: string | null;
   /** Someone gave it a title of their own (`shadowlap fix title`). */
   titleEdited?: boolean;
-  /** What `shadowlap fix apply` did. */
-  applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null };
+  /** How it was applied: by `shadowlap fix apply`, or by `repair --apply`, which copies no goldens unless asked and runs no test. */
+  applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null; via?: 'fix apply' | 'repair --apply' };
 }
+
+/**
+ * Whether a verdict counts for a fix: it checked everything the fix's check asks, on at least one
+ * of the fix's failing runs that failed it as recorded. One that doesn't is kept and shown, and
+ * changes nothing: `another-check` (it left out `missing`), `already-passing` (every failing run
+ * of the fix it replayed already passed as recorded), `no-runs` (none of its runs fails in the fix).
+ */
+export type VerdictStanding = { counts: true; why: null } | { counts: false; why: 'another-check' | 'already-passing' | 'no-runs'; missing?: string[] };
 
 export interface FixLink {
   fixId: string;
@@ -221,6 +235,8 @@ export interface FixLink {
   /** A run id (failing, good), a blame id, a repair id or a verdict id. */
   ref: string;
   at: number;
+  /** For a verdict, whether it counts for the fix; null otherwise. */
+  data: VerdictStanding | null;
 }
 
 /** One `shadowlap blame`, kept whole: a later blame of the same run doesn't overwrite it, as `meta.blame` is. */
@@ -493,10 +509,23 @@ export class Store {
   insertFix(fix: StoredFix): void {
     this.db
       .prepare(
-        `INSERT INTO fixes (fix_id, title, group_key, label, check_expect, check_text, status, opened_at, verified_at, applied_at, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO fixes (fix_id, title, labels, check_key, check_expect, check_oracle, check_text, status, opened_at, verified_at, applied_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(fix.fixId, fix.title, fix.groupKey, fix.label, fix.check.expect === null || fix.check.expect === undefined ? null : JSON.stringify(fix.check.expect), fix.check.text, fix.status, fix.openedAt, fix.verifiedAt, fix.appliedAt, JSON.stringify(fix.data));
+      .run(
+        fix.fixId,
+        fix.title,
+        JSON.stringify(fix.labels),
+        fix.check.key,
+        fix.check.expect === null || fix.check.expect === undefined ? null : JSON.stringify(fix.check.expect),
+        JSON.stringify(fix.check.oracle),
+        fix.check.text,
+        fix.status,
+        fix.openedAt,
+        fix.verifiedAt,
+        fix.appliedAt,
+        JSON.stringify(fix.data),
+      );
   }
 
   getFix(fixId: string): StoredFix | null {
@@ -509,23 +538,34 @@ export class Store {
     return this.db.prepare(`SELECT * FROM fixes ORDER BY opened_at DESC, fix_id DESC`).all().map(rowToFix);
   }
 
-  /** The fixes that group runs by `groupKey`, the first opened first. */
-  fixesByGroup(groupKey: string): StoredFix[] {
-    return this.db.prepare(`SELECT * FROM fixes WHERE group_key = ? ORDER BY opened_at ASC, fix_id ASC`).all(groupKey).map(rowToFix);
+  /**
+   * Sets the columns given, and only those, so two commands changing different things about one fix
+   * at once don't undo each other. `data` goes through `mergeFixData`.
+   */
+  updateFix(fixId: string, patch: Partial<Pick<StoredFix, 'title' | 'labels' | 'status' | 'verifiedAt' | 'appliedAt'>>): void {
+    const columns: Array<[string, string | number | null]> = [];
+    if (patch.title !== undefined) columns.push(['title', patch.title]);
+    if (patch.labels !== undefined) columns.push(['labels', JSON.stringify(patch.labels)]);
+    if (patch.status !== undefined) columns.push(['status', patch.status]);
+    if (patch.verifiedAt !== undefined) columns.push(['verified_at', patch.verifiedAt]);
+    if (patch.appliedAt !== undefined) columns.push(['applied_at', patch.appliedAt]);
+    if (!columns.length) return;
+    const done = this.db.prepare(`UPDATE fixes SET ${columns.map(([c]) => `${c} = ?`).join(', ')} WHERE fix_id = ?`).run(...columns.map(([, v]) => v), fixId);
+    if (Number(done.changes) === 0) throw new Error(`unknown fix ${fixId}`);
   }
 
-  updateFix(fixId: string, patch: Partial<Pick<StoredFix, 'title' | 'status' | 'verifiedAt' | 'appliedAt' | 'data'>>): void {
-    const fix = this.getFix(fixId);
-    if (!fix) throw new Error(`unknown fix ${fixId}`);
-    const next = { ...fix, ...patch };
-    this.db
-      .prepare(`UPDATE fixes SET title = ?, status = ?, verified_at = ?, applied_at = ?, data = ? WHERE fix_id = ?`)
-      .run(next.title, next.status, next.verifiedAt, next.appliedAt, JSON.stringify(next.data), fixId);
+  /**
+   * Merges `patch` into a fix's data in one statement (a JSON merge patch: objects merge, anything
+   * else replaces, null removes), so it never writes back data another command changed meanwhile.
+   */
+  mergeFixData(fixId: string, patch: Record<string, unknown>): void {
+    const done = this.db.prepare(`UPDATE fixes SET data = json_patch(coalesce(data, '{}'), ?) WHERE fix_id = ?`).run(JSON.stringify(patch), fixId);
+    if (Number(done.changes) === 0) throw new Error(`unknown fix ${fixId}`);
   }
 
   /** Links a run or a report to a fix; linking it again keeps the first link. */
-  addFixLink(fixId: string, kind: FixLinkKind, ref: string, at: number = Date.now()): void {
-    this.db.prepare(`INSERT OR IGNORE INTO fix_links (fix_id, kind, ref, at) VALUES (?, ?, ?, ?)`).run(fixId, kind, ref, at);
+  addFixLink(fixId: string, kind: FixLinkKind, ref: string, at: number = Date.now(), data: FixLink['data'] = null): void {
+    this.db.prepare(`INSERT OR IGNORE INTO fix_links (fix_id, kind, ref, at, data) VALUES (?, ?, ?, ?, ?)`).run(fixId, kind, ref, at, data === null ? null : JSON.stringify(data));
   }
 
   /** A fix's links, in the order they were made. */
@@ -886,13 +926,17 @@ const record = (v: unknown): Record<string, unknown> => {
   return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
 };
 
+const strings = (v: unknown): string[] => {
+  const parsed = typeof v === 'string' ? (JSON.parse(v) as unknown) : [];
+  return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+};
+
 function rowToFix(row: Record<string, unknown>): StoredFix {
   return {
     fixId: String(row.fix_id),
     title: String(row.title),
-    groupKey: String(row.group_key),
-    label: row.label === null || row.label === undefined ? null : String(row.label),
-    check: { expect: typeof row.check_expect === 'string' ? (JSON.parse(row.check_expect) as unknown) : null, text: String(row.check_text) },
+    labels: strings(row.labels),
+    check: { expect: typeof row.check_expect === 'string' ? (JSON.parse(row.check_expect) as unknown) : null, key: String(row.check_key), oracle: strings(row.check_oracle), text: String(row.check_text) },
     status: row.status as FixStatus,
     openedAt: Number(row.opened_at),
     verifiedAt: nullableNumber(row.verified_at),
@@ -902,7 +946,7 @@ function rowToFix(row: Record<string, unknown>): StoredFix {
 }
 
 function rowToFixLink(row: Record<string, unknown>): FixLink {
-  return { fixId: String(row.fix_id), kind: row.kind as FixLinkKind, ref: String(row.ref), at: Number(row.at) };
+  return { fixId: String(row.fix_id), kind: row.kind as FixLinkKind, ref: String(row.ref), at: Number(row.at), data: typeof row.data === 'string' ? (record(row.data) as unknown as VerdictStanding) : null };
 }
 
 function rowToBlame(row: Record<string, unknown>): StoredBlame {

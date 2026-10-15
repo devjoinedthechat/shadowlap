@@ -1,13 +1,12 @@
 import { formatUsd, safeLine, type Palette } from '@shadowlap/engine';
 import type { FixDetail, FixList, FixStep } from '@shadowlap/dashboard';
-import { quoteArgv, table } from './ui.js';
+import { ago, quoteArgv, table } from './ui.js';
 
-/** `shadowlap fix ls` and `fix show` in a terminal, from the read model `--json` prints. */
+/** `shadowlap fix ls` and `fix show` in a terminal, from the read model `--json` prints. Times read as `ls` prints them: 3h ago. */
 
 /** A fix id as the list shows it: `fx-` and the first ten characters, which `fix show` takes as a prefix. */
 export const shortFixId = (fixId: string): string => fixId.slice(0, 13);
 
-const when = (ms: number) => new Date(ms).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const s = (n: number) => (n === 1 ? '' : 's');
 const one = (text: string, n = 100) => {
   const line = safeLine(text).replace(/\s+/g, ' ').trim();
@@ -28,7 +27,14 @@ export function formatFixList(list: FixList, p: Palette): string {
   const rows = list.fixes.map((f) => [f.status, shortFixId(f.fixId), one(f.title, 60), `${f.label ? `${one(f.label, 30)} · ` : ''}${f.failing} failing`, f.steps.map((x) => x.short).join(' · ')]);
   const lines = table(rows).split('\n');
   const width = Math.max(...list.fixes.map((f) => f.status.length));
-  const out = lines.map((line, i) => status(list.fixes[i]!.status, p, width) + line.slice(width));
+  const indent = ' '.repeat(width + 2);
+  const out: string[] = [];
+  list.fixes.forEach((f, i) => {
+    out.push(status(f.status, p, width) + lines[i]!.slice(width));
+    // What it checks, where it came from and when it was opened, under its row.
+    out.push(p.dim(`${indent}${[`check: ${one(f.check, 90)}`, ...(f.source ? [one(f.source, 40)] : []), `opened ${ago(f.openedAt)}`].join(' · ')}`));
+    if (f.broken) out.push(`${indent}${p.red(`! ${f.broken}`)}`);
+  });
   out.push('', p.dim(`${list.counts.all} fix${list.counts.all === 1 ? '' : 'es'}, ${list.counts.open} open · shadowlap fix show <fix>`));
   return out.join('\n');
 }
@@ -44,10 +50,11 @@ export function repairLine(argv: readonly string[], configured: string | null | 
 export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string | null } = {}): string {
   const out: string[] = [];
   out.push(`${p.bold(d.fixId)}  ${p.bold(one(d.title, 120))}`);
-  const meta = [status(d.status, p), ...(d.label ? [one(d.label, 40)] : []), `${d.failing} failing run${s(d.failing)}`, `${d.good} good`, `opened ${when(d.openedAt)}`, ...(d.verifiedAt ? [`verified ${when(d.verifiedAt)}`] : []), ...(d.appliedAt ? [`applied ${when(d.appliedAt)}`] : [])];
+  const meta = [status(d.status, p), ...(d.label ? [one(d.label, 40)] : []), `${d.failing} failing run${s(d.failing)}`, `${d.good} good`, `opened ${ago(d.openedAt)}`, ...(d.verifiedAt ? [`verified ${ago(d.verifiedAt)}`] : []), ...(d.appliedAt ? [`applied ${ago(d.appliedAt)}`] : [])];
   out.push(`  ${meta.join(' · ')}`);
   out.push(`  check: ${one(d.check, 200)}`);
   if (d.source) out.push(`  ${p.dim(d.source)}`);
+  if (d.broken) out.push(`  ${p.red(`! ${d.broken}`)}`);
   out.push('');
   const stepRows = d.steps.map((x) => [`${x.n} ${x.key}`, x.title, x.meta]);
   const stepLines = table(stepRows.map((r) => [r[0]!, one(r[1]!, 60), one(r[2]!, 80)])).split('\n');
@@ -73,11 +80,12 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
 
   const r = d.repair;
   if (r) {
-    out.push('', p.bold(`Repair · ${r.repairId}, ${r.accepted ? `accepted ${when(r.at)}` : `${r.outcome} ${when(r.at)}`}${r.repairer ? ` · proposed by ${r.repairer}` : ''}`));
+    out.push('', p.bold(`Repair · ${r.repairId}, ${r.accepted ? `accepted ${ago(r.at)}` : `${r.outcome} ${ago(r.at)}`}${r.repairer ? ` · proposed by ${r.repairer}` : ''}`));
     if (r.change) {
       out.push(`  ${p.dim(`${one(r.change.file, 80)} · ${one(r.change.anchor, 60)}`)}`);
       out.push(`  ${p.red(`- ${one(r.change.before, 200)}`)}`, `  ${p.green(`+ ${one(r.change.after, 200)}`)}`);
       if (r.roles.length) out.push(`  ${r.roles.map((x) => `${x.role} ${x.held} of ${x.of}`).join(' · ')}${r.needed !== null ? `, each on ${r.needed} of ${r.attemptsPerRun} attempts` : ''}`);
+      if (r.verify && !r.verify.counts) out.push(`  ${p.yellow('!')} verified under another check than this fix's, so it doesn't count for it`);
     } else if (r.why) out.push(`  ${one(r.why, 200)}`);
     if (r.diagnosis) out.push(`  ${p.dim('diagnosis:')} ${one(r.diagnosis, 200)}`);
     if (r.candidates.length) {
@@ -96,7 +104,8 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     out.push('', p.bold(`Verify · ${d.verify.length} change${s(d.verify.length)} verified`));
     for (const v of d.verify) {
       const badge = v.verdict === 'accepted' ? p.green('✓ accepted') : v.verdict === 'rejected' ? p.red('✗ rejected') : p.yellow('! incomplete');
-      out.push(`  ${badge}  ${one(v.code, 40)}  ${v.headline}`);
+      out.push(`  ${badge}  ${one(v.code, 40)}  ${v.headline}${v.counts ? '' : p.dim(" (doesn't count)")}`);
+      if (v.note) out.push(`    ${v.counts ? p.red(one(v.note, 200)) : p.yellow(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
       const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic ? 'clean replay' : `${x.passes} of ${x.attempts}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
       if (rows.length) out.push(table(rows, '    '));
@@ -106,9 +115,15 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
   }
 
   out.push('', p.dim(`  ${d.attempts} attempt${s(d.attempts)} behind this fix · ≈${formatUsd(d.spent)} spent live; everything before each fork replayed free`));
+  const apply = d.actions.apply;
   if (d.actions.repair) out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
-  else if (d.actions.apply?.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${d.actions.apply.gitApply ? p.dim(`   (or by hand: ${d.actions.apply.gitApply})`) : ''}`);
-  else if (d.actions.apply?.kind === 'mark') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
-  else if (d.applied) out.push(p.dim(`  applied: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? 'none (verified on the working tree)' : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));
+  else if (apply && !d.actions.applied) {
+    if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
+    else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
+  }
+  if (d.applied) {
+    out.push(p.dim(`  applied${d.applied.via === 'repair --apply' ? ' by repair --apply' : ''}: patch ${d.applied.patch === 'already' ? 'was already in the tree' : d.applied.patch === 'none' ? 'none (verified on the working tree)' : 'applied'}${d.applied.goldens.length ? ` · ${d.applied.goldens.length} golden${s(d.applied.goldens.length)} copied` : ''} · tests ${d.applied.tests}`));
+    if (apply?.pending) out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim(`(to ${apply.pending})`)}`);
+  }
   return out.join('\n');
 }
