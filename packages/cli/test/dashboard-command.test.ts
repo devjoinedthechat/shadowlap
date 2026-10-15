@@ -103,7 +103,7 @@ describe('shadowlap dashboard', () => {
     const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
     try {
       const meta = (await (await api('meta')).json()) as { actions: boolean; readOnly: boolean; project: { name: string; path: string }; jobKinds: string[] };
-      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: ['action'] });
+      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: expect.arrayContaining(['action']) });
       let job = (await (await api(`runs/${runId}/actions`, { method: 'POST', body: JSON.stringify({ key: 'r' }) })).json()) as { id: string; done: boolean; code: number | null; newRunId: string | null; links: Array<{ href: string }>; result: { exitCode?: number } | null; title: string };
       expect(job.title).toBe('Replaying');
       for (let i = 0; i < 400 && !job.done; i++) {
@@ -117,6 +117,25 @@ describe('shadowlap dashboard', () => {
       expect(activity.items.find((i) => i.runId === job.newRunId)?.actor).toBe('priya@example.com');
     } finally {
       await stop(d);
+    }
+  });
+
+  it('reads the project’s goldens as tasks for Training, as shadowlap tasks does', async () => {
+    const pack = spawnSync(process.execPath, [CLI, 'pack', runId, 'goldens/hello'], { cwd, env, encoding: 'utf8' });
+    expect(pack.status, pack.stderr).toBe(0);
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/hello': { expect: { output: { includes: 'agent ran' } } } } }));
+    const d = await dashboard([]);
+    try {
+      const headers = { 'x-shadowlap-token': d.token };
+      const view = (await (await fetch(`${d.url}/api/training`, { headers })).json()) as { tasks: { rows: Array<{ golden: string; checks: string[] }>; error: string | null } };
+      expect(view.tasks.error).toBeNull();
+      expect(view.tasks.rows.map((r) => r.golden)).toEqual(['goldens/hello']);
+      const meta = (await (await fetch(`${d.url}/api/meta`, { headers })).json()) as { jobKinds: string[] };
+      expect(meta.jobKinds).toEqual(expect.arrayContaining(['pairs', 'score']));
+    } finally {
+      await stop(d);
+      rmSync(join(cwd, 'shadowlap.config.json'), { force: true });
+      rmSync(join(cwd, 'goldens'), { recursive: true, force: true });
     }
   });
 
