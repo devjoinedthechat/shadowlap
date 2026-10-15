@@ -298,7 +298,8 @@ export function register(program: Command): void {
         if (line) log(p.dim(`  ${line}`));
       }
       const unpriced = report.unknownModels.length ? p.dim(` (no price for ${report.unknownModels.map(safeLine).join(', ')}: add it under "prices" in shadowlap.config.json)`) : '';
-      const cost = target.local ? '$0, on this machine' : `≈${formatUsd(report.spent)} spent${unpriced}`;
+      // A model on this machine answers for nothing; the provider's own calls after a takeover (an embedding) still cost what they cost.
+      const cost = target.local ? `$0, on this machine${report.spent > 0 ? ` · ≈${formatUsd(report.spent)} on the provider's own calls` : ''}${unpriced}` : `≈${formatUsd(report.spent)} spent${unpriced}`;
       if (report.mean !== null) {
         const line = `${p.green('✓')} ${safeLine(target.model)} · mean ${report.mean.toFixed(2)} · ${plural(report.attempts, 'attempt')} on ${plural(done.length, 'task')} · ${cost} · every call before a takeover replayed`;
         if (flags.json) log(line);

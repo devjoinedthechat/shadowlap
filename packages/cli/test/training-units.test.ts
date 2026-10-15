@@ -1,42 +1,78 @@
 import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { normalizeResponse, Store, storeApiRequest, type CallRecord, type RunMeta, type TaskScoreRow } from '@shadowlap/engine';
+import { normalizeResponse, Store, type CallRecord, type RunMeta, type TaskScoreRow } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { functionCall, startMockGemini, turn as geminiTurn, type MockServer as GeminiServer } from '@shadowlap-testing/mock-gemini';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from '@shadowlap-testing/mock-openai';
 import { parseTests } from '../src/checks.js';
-import { needsTakeover, resolveTarget, startTakeover, targetVia } from '../src/takeover.js';
-import { askedModel, cannotScore, keepScores, lastTests, taskChecks, testFailed, type LoadedTask, type TaskScore } from '../src/tasks.js';
+import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
+import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
 /**
  * The CLI's training parts on their own: the task block under tests, the model under test and how a
- * recorded conversation reaches it (what --model, --base-url and --key-env ask for, when a takeover
- * upstream translates, the upstream itself against the mock providers in both directions), and how a
- * score checks which model the takeover call asked.
+ * recorded conversation reaches it (what --model, --base-url and --key-env ask for, how a takeover
+ * upstream asks it, the upstream itself against the mock providers: another model of the same
+ * provider, and a translation in both directions), and how a score knows the model under test
+ * answered and what it cost.
  */
 
 let anthropic: MockServer;
 let openai: OpenAIServer;
+let gemini: GeminiServer;
 
 beforeAll(async () => {
   anthropic = await startMockAnthropic({ script: () => ({ message: message([text('Above the limit.'), toolUse('escalate', { reason: 'over $100' }, 'toolu_9')]) }), eventDelayMs: () => 0 });
   openai = await startMockOpenAI({ script: () => ({ turn: turn('Above the limit.', { tool_calls: [toolCall('escalate', { reason: 'over $100' })] }) }) });
+  gemini = await startMockGemini({ script: () => ({ turn: geminiTurn('Above the limit.', { functionCalls: [functionCall('escalate', { reason: 'over $100' })] }) }) });
 });
 afterAll(async () => {
   await anthropic.close();
   await openai.close();
+  await gemini.close();
 });
 
-function post(url: string, body: unknown, headers: Record<string, string> = {}, method = 'POST'): Promise<{ status: number; type: string; body: string }> {
+interface Reply {
+  status: number;
+  type: string;
+  body: string;
+  headers: IncomingHttpHeaders;
+}
+
+function post(url: string, body: unknown, headers: Record<string, string> = {}, method = 'POST'): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(url, { method, headers: { 'content-type': 'application/json', ...headers } }, (res) => {
       let data = '';
       res.on('data', (d: Buffer) => (data += d.toString()));
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, type: String(res.headers['content-type'] ?? ''), body: data }));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, type: String(res.headers['content-type'] ?? ''), body: data, headers: res.headers }));
     });
     req.on('error', reject);
     req.end(method === 'GET' ? undefined : JSON.stringify(body));
   });
+}
+
+/** A provider, as a fake that says what it was sent and answers each path as that provider would. */
+async function fakeProvider(): Promise<{ url: string; seen: Array<{ method: string; url: string; headers: IncomingHttpHeaders; body: string }>; close: () => Promise<void> }> {
+  const seen: Array<{ method: string; url: string; headers: IncomingHttpHeaders; body: string }> = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (d: Buffer) => (body += d.toString()));
+    req.on('end', () => {
+      seen.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body });
+      const asked = (() => {
+        try {
+          return (JSON.parse(body) as { model?: string }).model;
+        } catch {
+          return undefined;
+        }
+      })();
+      const answer = req.url?.includes('count_tokens') ? { input_tokens: 42 } : req.url?.includes('embeddings') ? { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }] } : req.url?.includes('/responses') ? { id: 'resp_1', object: 'response', model: asked, output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Escalating.' }] }], usage: { input_tokens: 900, output_tokens: 20 } } : { data: [{ id: 'gpt-5-mini' }] };
+      res.writeHead(200, { 'content-type': 'application/json', 'x-request-id': 'req_1' });
+      res.end(JSON.stringify(answer));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
 
 const ANTHROPIC_REQUEST = {
@@ -101,27 +137,49 @@ describe('the model under test', () => {
     expect(targetVia(resolveTarget({ model: 'm' }, {}), 'anthropic')).toBe('Anthropic API');
   });
 
-  it('needs a takeover upstream only when the model speaks another API than the recording, or lives elsewhere', () => {
+  it('is asked the recording\'s own way when it is the same provider, and through a translation when it isn\'t', () => {
     const same = resolveTarget({ model: 'claude-haiku-4-5' }, {});
     const claude = resolveTarget({ model: 'anthropic:claude-haiku-4-5' }, {});
     const gpt = resolveTarget({ model: 'openai:gpt-5-mini' }, {});
     const local = resolveTarget({ model: 'qwen', baseUrl: 'http://127.0.0.1:11434/v1' });
-    expect(needsTakeover('anthropic', same, 'anthropic')).toBe(false);
-    expect(needsTakeover('anthropic', claude, 'anthropic')).toBe(false);
-    expect(needsTakeover('openai-chat', claude, 'openai')).toBe(true);
-    expect(needsTakeover('openai-chat', gpt, 'openai')).toBe(false);
-    expect(needsTakeover('openai-chat', local, 'openai')).toBe(true);
-    expect(needsTakeover('anthropic', local, 'anthropic')).toBe(true);
+    expect(takeoverMode('anthropic', 'anthropic', same)).toBe('same');
+    expect(takeoverMode('gemini', null, same)).toBe('same');
+    expect(takeoverMode('anthropic', 'anthropic', claude)).toBe('same');
+    expect(takeoverMode('openai', 'openai-chat', claude)).toBe('to-anthropic');
+    expect(takeoverMode('openai', 'openai-chat', gpt)).toBe('same');
+    expect(takeoverMode('openai', null, gpt)).toBe('same'); // the Responses API, asked for another model of OpenAI's
+    expect(takeoverMode('openai', 'openai-chat', local)).toBe('endpoint');
+    expect(takeoverMode('anthropic', 'anthropic', local)).toBe('to-openai');
+    expect(takeoverMode('anthropic', 'anthropic', gpt)).toBe('to-openai');
+    expect(takeoverMode('gemini', null, local)).toBeNull();
+    expect(takeoverMode('openai', null, claude)).toBeNull();
+  });
+
+  it('is named in the request of the recording\'s own API: its model field, or its URL', () => {
+    expect(switchModel('anthropic', 'POST', '/v1/messages', 'm')).toEqual({ path: '/v1/messages', field: true });
+    expect(switchModel('anthropic', 'POST', '/v1/messages/count_tokens', 'm')).toBeNull();
+    expect(switchModel('anthropic', 'GET', '/v1/models', 'm')).toBeNull();
+    expect(switchModel('openai', 'POST', '/v1/responses', 'm')).toEqual({ path: '/v1/responses', field: true });
+    expect(switchModel('openai', 'POST', '/v1/embeddings', 'm')).toBeNull();
+    expect(switchModel('gemini', 'POST', '/v1beta/models/gemini-2.5-flash:streamGenerateContent', 'gemini-2.5-pro')).toEqual({ path: '/v1beta/models/gemini-2.5-pro:streamGenerateContent', field: false });
+    expect(switchModel('gemini', 'POST', '/v1beta/models/gemini-2.5-flash:generateContent', 'tunedModels/refunds-7')).toEqual({ path: '/v1beta/tunedModels/refunds-7:generateContent', field: false });
+    expect(switchModel('gemini', 'POST', '/v1beta/models/text-embedding-004:embedContent', 'm')).toBeNull();
+    expect(modelUnswitchable('bedrock', 'POST /model/anthropic.claude-sonnet-5-v1%3A0/converse')).toContain('Amazon Bedrock');
+    expect(modelUnswitchable('vertex', 'POST /v1/projects/p/locations/l/publishers/google/models/gemini-2.5-flash:generateContent')).toContain('Vertex AI');
+    expect(modelUnswitchable('azure', 'POST /openai/deployments/gpt-prod/chat/completions')).toContain('the deployment in the URL picks the model');
+    expect(modelUnswitchable('anthropic', 'POST /v1/messages')).toBeNull();
+    expect(modelUnswitchable('openai', 'POST /v1/responses')).toBeNull();
   });
 });
 
 describe('the takeover upstream', () => {
   it('asks an OpenAI-compatible model an Anthropic conversation, and answers as Anthropic, streamed or not', async () => {
     const before = openai.requests.length;
-    const t = await startTakeover('anthropic', resolveTarget({ model: 'my-finetune', baseUrl: `${openai.url}/v1` }), { env: {} });
+    const t = await startTakeover({ provider: 'anthropic', shape: 'anthropic', mode: 'to-openai' }, resolveTarget({ model: 'my-finetune', baseUrl: `${openai.url}/v1` }), { env: {} });
     try {
       const plain = await post(`${t.url}/v1/messages`, ANTHROPIC_REQUEST);
       expect(plain.status).toBe(200);
+      expect(plain.headers[ANSWERED_BY]).toBe('my-finetune');
       expect(JSON.parse(plain.body)).toMatchObject({ type: 'message', role: 'assistant', model: 'my-finetune', stop_reason: 'tool_use', content: [{ type: 'text', text: 'Above the limit.' }, { type: 'tool_use', name: 'escalate', input: { reason: 'over $100' } }] });
       const streamed = await post(`${t.url}/v1/messages`, { ...ANTHROPIC_REQUEST, stream: true });
       expect(streamed.type).toContain('text/event-stream');
@@ -145,10 +203,11 @@ describe('the takeover upstream', () => {
 
   it('asks an Anthropic model an OpenAI conversation, and answers as a chat completion, streamed or not', async () => {
     const before = anthropic.requests.length;
-    const t = await startTakeover('openai-chat', resolveTarget({ model: 'anthropic:claude-good' }, { SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url }), { env: { ANTHROPIC_API_KEY: 'test-key' } });
+    const t = await startTakeover({ provider: 'openai', shape: 'openai-chat', mode: 'to-anthropic' }, resolveTarget({ model: 'anthropic:claude-good' }, { SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url }), { env: { ANTHROPIC_API_KEY: 'test-key' } });
     try {
       const plain = await post(`${t.url}/v1/chat/completions`, OPENAI_REQUEST);
       expect(plain.status).toBe(200);
+      expect(plain.headers[ANSWERED_BY]).toBe('claude-good');
       const completion = JSON.parse(plain.body) as { choices: Array<{ message: { content: string; tool_calls: Array<{ function: { name: string; arguments: string } }> }; finish_reason: string }>; usage: { prompt_tokens: number } };
       expect(completion.choices[0]!.message.content).toBe('Above the limit.');
       expect(completion.choices[0]!.message.tool_calls[0]!.function).toEqual({ name: 'escalate', arguments: '{"reason":"over $100"}' });
@@ -175,10 +234,12 @@ describe('the takeover upstream', () => {
     await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
     const port = (closed.address() as AddressInfo).port;
     await new Promise<void>((resolve) => closed.close(() => resolve()));
-    const t = await startTakeover('anthropic', resolveTarget({ model: 'my-finetune', baseUrl: `http://127.0.0.1:${port}/v1` }), { env: {} });
+    const t = await startTakeover({ provider: 'anthropic', shape: 'anthropic', mode: 'to-openai' }, resolveTarget({ model: 'my-finetune', baseUrl: `http://127.0.0.1:${port}/v1` }), { env: {} });
     try {
       const down = await post(`${t.url}/v1/messages`, ANTHROPIC_REQUEST);
       expect(down.status).toBe(502);
+      // Asked, and unanswered: the store records the model that was asked.
+      expect(down.headers[ANSWERED_BY]).toBe('my-finetune');
       expect(JSON.parse(down.body)).toMatchObject({ type: 'error', error: { type: 'api_error', message: expect.stringContaining("isn't reachable") } });
       const elsewhere = await post(t.url.replace(/\/t\/[0-9a-f]+$/, '/t/0000/v1/messages'), ANTHROPIC_REQUEST);
       expect(elsewhere.status).toBe(404);
@@ -186,28 +247,66 @@ describe('the takeover upstream', () => {
       await t.close();
     }
     // A paid API without its key is refused before anything is sent.
-    await expect(startTakeover('openai-chat', resolveTarget({ model: 'anthropic:claude-good' }, {}), { env: {} })).rejects.toThrow('ANTHROPIC_API_KEY is not set');
+    await expect(startTakeover({ provider: 'openai', shape: 'openai-chat', mode: 'to-anthropic' }, resolveTarget({ model: 'anthropic:claude-good' }, {}), { env: {} })).rejects.toThrow('ANTHROPIC_API_KEY is not set');
+    // Another model of the recording's provider needs somewhere to send it.
+    await expect(startTakeover({ provider: 'anthropic', shape: 'anthropic', mode: 'same' }, resolveTarget({ model: 'claude-haiku-4-5' }, {}), { env: {} })).rejects.toThrow("there is nowhere to send anthropic's calls to claude-haiku-4-5");
+  });
+
+  it('asks another model of the recording\'s provider: the request names it, the agent\'s own key goes with it, and the answer streams back as it came', async () => {
+    const before = anthropic.requests.length;
+    const t = await startTakeover({ provider: 'anthropic', shape: 'anthropic', mode: 'same' }, resolveTarget({ model: 'claude-haiku-4-5' }, {}), { env: {}, upstream: anthropic.url });
+    try {
+      const plain = await post(`${t.url}/v1/messages`, ANTHROPIC_REQUEST, { 'x-api-key': 'agent-key', 'anthropic-version': '2023-06-01' });
+      expect(plain.status).toBe(200);
+      expect(plain.headers[ANSWERED_BY]).toBe('claude-haiku-4-5');
+      const streamed = await post(`${t.url}/v1/messages`, { ...ANTHROPIC_REQUEST, stream: true }, { 'x-api-key': 'agent-key' });
+      expect(streamed.type).toContain('text/event-stream');
+      expect(normalizeResponse(Buffer.from(streamed.body), streamed.type, [], 'anthropic').blocks).toEqual([{ type: 'text', text: 'Above the limit.' }, { type: 'tool_call', name: 'escalate', input: { reason: 'over $100' } }]);
+      const asked = anthropic.requests.slice(before);
+      expect(asked.map((r) => [r.body.model, r.headers['x-api-key']])).toEqual([
+        ['claude-haiku-4-5', 'agent-key'],
+        ['claude-haiku-4-5', 'agent-key'],
+      ]);
+      // Nothing else in the request changes: thinking stays, since the provider reads it.
+      expect(JSON.stringify(asked[0]!.body.messages)).toContain('Policy first.');
+      expect(t.answered).toBe(2);
+      expect(t.dropped.size).toBe(0);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('asks another OpenAI model through the Responses API, and another Gemini model by its URL', async () => {
+    const provider = await fakeProvider();
+    const responses = await startTakeover({ provider: 'openai', shape: null, mode: 'same' }, resolveTarget({ model: 'gpt-5-mini' }, {}), { env: {}, upstream: provider.url });
+    const before = gemini.requests.length;
+    const g = await startTakeover({ provider: 'gemini', shape: null, mode: 'same' }, resolveTarget({ model: 'gemini-2.5-pro' }, {}), { env: {}, upstream: gemini.url });
+    try {
+      const r = await post(`${responses.url}/v1/responses`, { model: 'gpt-5', input: [{ role: 'user', content: 'Refund A-1042: $240.' }] }, { authorization: 'Bearer agent-key' });
+      expect(r.status).toBe(200);
+      expect(r.headers[ANSWERED_BY]).toBe('gpt-5-mini');
+      expect(provider.seen[0]).toMatchObject({ method: 'POST', url: '/v1/responses', headers: { authorization: 'Bearer agent-key' } });
+      expect(JSON.parse(provider.seen[0]!.body)).toEqual({ model: 'gpt-5-mini', input: [{ role: 'user', content: 'Refund A-1042: $240.' }] });
+
+      const answer = await post(`${g.url}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`, { contents: [{ role: 'user', parts: [{ text: 'Refund A-1042: $240.' }] }] }, { 'x-goog-api-key': 'agent-key' });
+      expect(answer.status).toBe(200);
+      expect(answer.headers[ANSWERED_BY]).toBe('gemini-2.5-pro');
+      expect(normalizeResponse(Buffer.from(answer.body), answer.type, [], 'gemini').blocks).toEqual([{ type: 'text', text: 'Above the limit.' }, { type: 'tool_call', name: 'escalate', input: { reason: 'over $100' } }]);
+      expect(gemini.requests.slice(before).map((x) => [x.path, x.headers['x-goog-api-key']])).toEqual([['/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse', 'agent-key']]);
+    } finally {
+      await Promise.all([responses.close(), g.close(), provider.close()]);
+    }
   });
 
   it('passes what isn\'t the model call to the provider as the agent sent it: embeddings, token counts, a model list', async () => {
-    // The provider, as a fake that says what it was sent.
-    const seen: Array<{ method: string; url: string; headers: IncomingHttpHeaders; body: string }> = [];
-    const provider = createServer((req, res) => {
-      let body = '';
-      req.on('data', (d: Buffer) => (body += d.toString()));
-      req.on('end', () => {
-        seen.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body });
-        const answer = req.url?.includes('count_tokens') ? { input_tokens: 42 } : req.url?.includes('embeddings') ? { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }] } : { data: [{ id: 'gpt-5-mini' }] };
-        res.writeHead(200, { 'content-type': 'application/json', 'x-request-id': 'req_1' });
-        res.end(JSON.stringify(answer));
-      });
-    });
-    await new Promise<void>((resolve) => provider.listen(0, '127.0.0.1', resolve));
-    const upstream = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+    const provider = await fakeProvider();
+    const { seen } = provider;
+    const upstream = provider.url;
     const local = resolveTarget({ model: 'my-finetune', baseUrl: `${openai.url}/v1` });
-    const chat = await startTakeover('openai-chat', local, { env: {}, upstream });
-    const messages = await startTakeover('anthropic', local, { env: {}, upstream });
-    const nowhere = await startTakeover('openai-chat', local, { env: {} });
+    const chat = await startTakeover({ provider: 'openai', shape: 'openai-chat', mode: 'endpoint' }, local, { env: {}, upstream });
+    const messages = await startTakeover({ provider: 'anthropic', shape: 'anthropic', mode: 'to-openai' }, local, { env: {}, upstream });
+    const same = await startTakeover({ provider: 'anthropic', shape: 'anthropic', mode: 'same' }, resolveTarget({ model: 'claude-haiku-4-5' }, {}), { env: {}, upstream });
+    const nowhere = await startTakeover({ provider: 'openai', shape: 'openai-chat', mode: 'endpoint' }, local, { env: {} });
     const before = openai.requests.length;
     try {
       const embedded = await post(`${chat.url}/v1/embeddings`, { model: 'text-embedding-3-small', input: 'refund policy' }, { authorization: 'Bearer agent-key' });
@@ -222,17 +321,23 @@ describe('the takeover upstream', () => {
       const listed = await post(`${chat.url}/v1/models?limit=5`, null, {}, 'GET');
       expect(listed.status).toBe(200);
       expect(seen[2]).toMatchObject({ method: 'GET', url: '/v1/models?limit=5' });
+      expect(listed.headers[ANSWERED_BY]).toBeUndefined();
+      // Another model of the provider: its token counts still name the model the agent asked, which the provider knows.
+      const sameCount = await post(`${same.url}/v1/messages/count_tokens`, ANTHROPIC_REQUEST, { 'x-api-key': 'agent-key' });
+      expect(JSON.parse(sameCount.body)).toEqual({ input_tokens: 42 });
+      expect(sameCount.headers[ANSWERED_BY]).toBeUndefined();
+      expect(JSON.parse(seen[3]!.body).model).toBe('claude-sonnet-5');
       // None of it went to the model under test, and nothing counts as its answer.
       expect(openai.requests.length).toBe(before);
-      expect(chat.answered + messages.answered).toBe(0);
+      expect(chat.answered + messages.answered + same.answered).toBe(0);
       // With nowhere to pass it to, it is refused, naming the endpoint, rather than sent to the model.
       const refused = await post(`${nowhere.url}/v1/embeddings`, { model: 'text-embedding-3-small', input: 'x' });
       expect(refused.status).toBe(501);
       expect(JSON.parse(refused.body).error.message).toContain("POST /v1/embeddings isn't sent anywhere while my-finetune takes over");
       expect(openai.requests.length).toBe(before);
     } finally {
-      await Promise.all([chat.close(), messages.close(), nowhere.close()]);
-      await new Promise<void>((resolve) => provider.close(() => resolve()));
+      await Promise.all([chat.close(), messages.close(), same.close(), nowhere.close()]);
+      await provider.close();
     }
   });
 });
@@ -269,20 +374,31 @@ describe('a golden\'s last test', () => {
 });
 
 describe('what a score refuses before anything runs', () => {
-  const task = (name: string, provider: string): LoadedTask => {
-    const call = { runId: 'r', callNo: 3, kind: 'api', name, fingerprint: 'f', occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: { provider }, at: 1, end: { runId: 'r', callNo: 3, attempt: 0, responseRef: null, outcome: 'ok', meta: { provider }, at: 2 }, attempts: [] } as unknown as CallRecord;
-    return { golden: 'goldens/g', name: 'g', status: 'ready', note: null, runId: 'r', takeover: { callNo: 3, why: 'w', from: 'config' }, scope: null, scopes: [null], rewards: null, checks: [], after: { live: [], stubbed: [] }, prefix: 2, model: 'm', provider, callName: name, tokensAfter: null, spec: null, dir: '/g', pack: { path: 'goldens/g', dir: '/g', run: {} as never, lineage: [], calls: [call] } };
+  const call = (callNo: number, name: string, provider: string) => ({ runId: 'r', callNo, kind: 'api', name, fingerprint: 'f', occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: { provider }, at: 1, end: { runId: 'r', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: { provider }, at: 2 }, attempts: [] }) as unknown as CallRecord;
+  const task = (name: string, provider: string, before: CallRecord[] = []): LoadedTask => {
+    return { golden: 'goldens/g', name: 'g', status: 'ready', note: null, runId: 'r', takeover: { callNo: 3, why: 'w', from: 'config' }, scope: null, scopes: [null], rewards: null, checks: [], after: { live: [], stubbed: [] }, prefix: 2, model: 'm', provider, callName: name, tokensAfter: null, spec: null, dir: '/g', pack: { path: 'goldens/g', dir: '/g', run: {} as never, lineage: [], calls: [...before, call(3, name, provider)] } };
   };
 
-  it('a model --model can\'t change: one named in the URL, or a request with no messages', () => {
+  it('a model scoring can\'t switch: Bedrock, Vertex AI and Azure deployments', () => {
     const same = (m: string) => resolveTarget({ model: m }, {});
-    expect(cannotScore(task('POST /v1beta/models/gemini-2.5-flash:generateContent', 'gemini'), same('gemini-2.5-pro'))).toBe("goldens/g can't be scored with gemini-2.5-pro: its takeover call names its model in the URL (gemini-2.5-flash), and --model can't change that model yet");
-    expect(cannotScore(task('POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'bedrock'), same('anthropic.claude-haiku-4-5-v1:0'))).toContain('names its model in the URL (anthropic.claude-sonnet-5-v1:0)');
-    expect(cannotScore(task('POST /v1/responses', 'openai'), same('gpt-5'))).toContain('uses the OpenAI Responses API');
+    expect(cannotScore(task('POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'bedrock'), same('anthropic.claude-haiku-4-5-v1:0'))).toBe("goldens/g can't be scored with anthropic.claude-haiku-4-5-v1:0: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(cannotScore(task('POST /openai/deployments/gpt-prod/chat/completions', 'azure'), same('gpt-test'))).toContain('Azure OpenAI');
+    // Within their own provider, Anthropic, OpenAI (the Responses API too) and Gemini switch.
+    expect(cannotScore(task('POST /v1beta/models/gemini-2.5-flash:generateContent', 'gemini'), same('gemini-2.5-pro'))).toBeNull();
+    expect(cannotScore(task('POST /v1/responses', 'openai'), same('gpt-5'))).toBeNull();
     expect(cannotScore(task('POST /v1/messages', 'anthropic'), same('claude-haiku-4-5'))).toBeNull();
     expect(cannotScore(task('POST /v1/chat/completions', 'openai'), same('gpt-5'))).toBeNull();
-    // Another provider's model is refused for these anyway: they don't translate.
+    // Another provider's model is refused for these: they don't translate.
     expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toContain('only Anthropic Messages and OpenAI Chat Completions are translated');
+  });
+
+  it('a takeover asked at a call that asks a model nothing', () => {
+    const t = task('POST /v1/messages', 'anthropic', [call(1, 'GET /v1/models', 'anthropic'), call(2, 'POST /v1/embeddings', 'openai')]);
+    const weak = resolveTarget({ model: 'weak-model' }, {});
+    expect(cannotScore(t, weak)).toBeNull();
+    expect(cannotScore(t, weak, 1)).toBe("#1 is not a model call of goldens/g's run (GET /v1/models)");
+    expect(cannotScore(t, weak, 2)).toBe("#2 is not a model call of goldens/g's run (POST /v1/embeddings)");
+    expect(cannotScore(t, weak, 9)).toBe("#9 is not a model call of goldens/g's run");
   });
 });
 
@@ -305,18 +421,28 @@ describe('keeping a model\'s scores', () => {
   });
 });
 
-describe('which model a takeover call asked', () => {
-  it('reads the model a request named, in its URL first and else in its body', () => {
-    const store = Store.open(':memory:');
-    const ref = storeApiRequest(store, { model: 'claude-haiku-4-5', messages: [] });
-    expect(askedModel(store, { name: 'POST /v1/messages', requestRef: ref })).toBe('claude-haiku-4-5');
-    const gemini = storeApiRequest(store, { contents: [] });
-    expect(askedModel(store, { name: 'POST /v1beta/models/gemini-2.5-flash:generateContent', requestRef: gemini })).toBe('gemini-2.5-flash');
-    expect(askedModel(store, { name: 'POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', requestRef: gemini })).toBe('anthropic.claude-sonnet-5-v1:0');
-    // Azure's deployment decides the model, whatever the body says.
-    expect(askedModel(store, { name: 'POST /openai/deployments/gpt-prod/chat/completions', requestRef: ref })).toBe('gpt-prod');
-    expect(askedModel(store, { name: 'POST /v1/messages', requestRef: gemini })).toBeNull();
-    expect(askedModel(store, { name: 'POST /v1/messages', requestRef: null })).toBeNull();
-    store.close();
+describe('which model answered, and what it cost', () => {
+  const live = (callNo: number, o: { model?: string; answered?: string; usage?: { inputTokens: number; outputTokens: number }; origin?: string; name?: string }) =>
+    ({ runId: 'r', callNo, kind: 'api', name: o.name ?? 'POST /v1/messages', fingerprint: 'f', occurrence: 1, origin: o.origin ?? 'live', effect: null, requestRef: null, meta: { provider: 'anthropic' }, at: 1, end: { runId: 'r', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: { provider: 'anthropic', ...(o.model ? { model: o.model } : {}), ...(o.usage ? { usage: o.usage } : {}), headers: o.answered ? { [ANSWERED_BY]: o.answered } : {} }, at: 2 }, attempts: [] }) as unknown as CallRecord;
+  const usage = { inputTokens: 1_000_000, outputTokens: 0 };
+
+  it('is the model the takeover upstream says answered, else the model the request named', () => {
+    expect(answeredBy(live(5, { model: 'small-model', answered: 'claude-haiku-4-5' }))).toBe('claude-haiku-4-5');
+    expect(answeredBy(live(5, { model: 'small-model' }))).toBe('small-model');
+    expect(answeredBy(live(5, {}))).toBeNull();
+  });
+
+  it('prices each live call as the model that answered it, and a model on this machine at nothing', () => {
+    const calls = [
+      live(3, { model: 'claude-sonnet-5', usage, origin: 'replayed' }), // before the takeover: replayed, free
+      live(5, { model: 'small-model', answered: 'claude-haiku-4-5', usage }),
+      live(6, { model: 'text-embedding-3-small', usage, name: 'POST /v1/embeddings' }),
+    ];
+    const unknown = new Set<string>();
+    expect(attemptCost(calls, resolveTarget({ model: 'claude-haiku-4-5' }, {}), undefined, unknown)).toBeCloseTo(1);
+    expect([...unknown]).toEqual(['text-embedding-3-small']);
+    const local = new Set<string>();
+    expect(attemptCost([live(5, { model: 'small-model', answered: 'my-finetune', usage })], resolveTarget({ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1' }), undefined, local)).toBe(0);
+    expect(local.size).toBe(0);
   });
 });

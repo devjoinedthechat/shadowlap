@@ -7,9 +7,10 @@ import {
   describeTask,
   entryFor,
   errorMessage,
+  estimateCost,
   formatDivergence,
   goldenPaths,
-  loadApiRequest,
+  isModelRequest,
   oneSided,
   parseTaskFields,
   projectPath,
@@ -19,6 +20,7 @@ import {
   type CallRecord,
   type Golden,
   type OneSided,
+  type Price,
   type ReadPolicy,
   type RunRecord,
   type Store,
@@ -33,7 +35,7 @@ import { evaluateChecks, parseTests, type CheckResult, type TestSpec } from './c
 import { configPath, upstreamOverrides } from './config.js';
 import { type GuardMode } from './run-agent.js';
 import { type GlobalOpts } from './shared.js';
-import { needsTakeover, startTakeover, targetVia, type ModelTarget, type Takeover } from './takeover.js';
+import { ANSWERED_BY, modelUnswitchable, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';
 
 /**
  * `shadowlap tasks`: the project's goldens as tasks a model can be scored on, and the attempts that
@@ -164,7 +166,7 @@ export interface ScoredAttempt {
   runId: string;
   score: number;
   checks: ScoredCheck[];
-  /** USD spent on the attempt's live model calls; 0 for a model on this machine. */
+  /** USD spent on the attempt's live model calls, priced as the model that answered each; the model under test's answers cost 0 on this machine. */
   spent: number;
   exitCode: number;
   ms: number;
@@ -179,6 +181,7 @@ export interface TaskScore {
   via: string;
   attempts: ScoredAttempt[];
   mean: number | null;
+  /** What every attempt of the task cost, one that stopped before it was scored included. */
   spent: number;
   /** Why it stopped short: the golden didn't replay up to the takeover, the budget, an interrupt. */
   stopped: string | null;
@@ -188,62 +191,24 @@ export interface TaskScore {
   unknownModels: string[];
 }
 
-/** The model a request's URL names: Gemini and Vertex `…/models/<m>:…`, Bedrock `…/model/<m>/…`, an Azure deployment. */
-export function urlModel(callName: string): string | null {
-  const path = callName.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '';
-  const named = /\/models\/([^/:]+)[:/]/.exec(path) ?? /\/model\/([^/]+)\//.exec(path) ?? /\/deployments\/([^/]+)\//.exec(path);
-  if (!named) return null;
-  try {
-    return decodeURIComponent(named[1]!);
-  } catch {
-    return named[1]!;
-  }
-}
-
-/**
- * The model a recorded model request asked for: the one its URL names, else its `model` field. Null
- * when neither says.
- */
-export function askedModel(store: Store, call: Pick<CallRecord, 'name' | 'requestRef'>): string | null {
-  const named = urlModel(call.name);
-  if (named !== null) return named;
-  if (!call.requestRef) return null;
-  try {
-    const body = loadApiRequest(store, call.requestRef) as { model?: unknown } | null;
-    return typeof body?.model === 'string' ? body.model : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Why `--model <name>` (the recording's own provider) can't change the model a recorded model call
- * asks for, or null when it can. A replay's request patch sets the `model` field of a body that holds
- * messages: a model named in the URL (Gemini, Vertex, Bedrock, an Azure deployment) or a body without
- * messages (OpenAI's Responses API) keeps the recorded model, and an attempt would score it.
- */
-export function modelUnswitchable(call: Pick<CallRecord, 'name'>): string | null {
-  const named = urlModel(call.name);
-  if (named !== null) return `its takeover call names its model in the URL (${named})`;
-  if (/\/responses$/.test(call.name.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '')) return 'its takeover call uses the OpenAI Responses API, whose request has no messages to change the model of';
-  return null;
-}
-
 /** Why a task can't be scored with this target, or null when it can. */
 export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: number): string | null {
   if (task.status !== 'ready') return `${task.golden} is ${task.status === 'not-a-task' ? 'not a task' : task.status === 'no-golden' ? 'gone' : 'blocked'}: ${task.note ?? task.status}`;
   if (!task.takeover || !task.pack) return `${task.golden} has no call to take over`;
   const k = takeover ?? task.takeover.callNo;
   const call = task.pack.calls.find((c) => c.callNo === k);
-  if (!call || call.kind !== 'api') return `#${k} is not a model call of ${task.golden}'s run`;
+  // A model list, an embedding or a token count asks a model nothing: nothing takes over there.
+  if (!call || call.kind !== 'api' || !isModelRequest(call.name)) return `#${k} is not a model call of ${task.golden}'s run${call ? ` (${call.name})` : ''}`;
   if (task.scope !== null && takeover !== undefined && (typeof call.meta.scope === 'string' ? call.meta.scope : null) !== task.scope) return `#${k} is not made in the agent's scope (${task.scope})`;
   const provider = (call.end?.meta.provider ?? call.meta.provider) as string | undefined;
+  if (!provider) return `${task.golden} can't be scored: its recording doesn't say which provider #${k} went to`;
   const shape = chatShapeOf(provider, call.name);
-  if (target.route !== 'same' && !shape) return `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${untranslatable(provider, call.name)}, and only Anthropic Messages and OpenAI Chat Completions are translated`;
-  if (target.route === 'same') {
+  const mode = takeoverMode(provider, shape, target);
+  if (!mode) return `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${untranslatable(provider, call.name)}, and only Anthropic Messages and OpenAI Chat Completions are translated`;
+  if (mode === 'same') {
     // Found before anything runs: an attempt would ask the recorded model, and be paid for.
-    const why = modelUnswitchable(call);
-    if (why) return `${task.golden} can't be scored with ${target.model}: ${why}, and --model can't change that model yet`;
+    const why = modelUnswitchable(provider, call.name);
+    if (why) return `${task.golden} can't be scored with ${target.model}: ${why}`;
   }
   return null;
 }
@@ -251,6 +216,35 @@ export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: nu
 /** Where a provider's calls go without a takeover: the environment's upstream for it, else its own API. */
 function providerUpstream(provider: string): string | null {
   return upstreamOverrides(process.env)[provider] || providers.find((x) => x.id === provider)?.upstream || null;
+}
+
+/** The model that answered a call: the takeover upstream's word for its answers, else the model the request named. */
+export function answeredBy(c: CallRecord): string | null {
+  const said = c.end?.meta.headers?.[ANSWERED_BY];
+  if (typeof said === 'string' && said) return said;
+  const m = c.end?.meta.model ?? c.meta.model;
+  return typeof m === 'string' ? m : null;
+}
+
+/**
+ * What an attempt's live model calls cost, priced as the model that answered each. A model on this
+ * machine answers for nothing; the provider's own calls (an embedding, a token count) are priced as
+ * any other. `unknown` collects the models with no price.
+ */
+export function attemptCost(calls: readonly CallRecord[], target: ModelTarget, prices: Record<string, Price> | undefined, unknown: Set<string>): number {
+  let spent = 0;
+  for (const c of calls) {
+    const usage = c.end?.meta.usage;
+    if (c.kind !== 'api' || c.origin !== 'live' || !usage) continue;
+    const fromTakeover = typeof c.end?.meta.headers?.[ANSWERED_BY] === 'string';
+    if (fromTakeover && target.local) continue;
+    const model = answeredBy(c);
+    const usd = estimateCost(model, usage, prices);
+    if (usd === null) {
+      if (model) unknown.add(model);
+    } else spent += usd;
+  }
+  return spent;
 }
 
 /**
@@ -272,30 +266,32 @@ export async function scoreTask(
   if (refused) throw new Error(refused);
   const k = settings.takeover ?? task.takeover!.callNo;
   const call = task.pack!.calls.find((c) => c.callNo === k)!;
-  const provider = (call.end?.meta.provider ?? call.meta.provider) as string | undefined;
+  const provider = (call.end?.meta.provider ?? call.meta.provider) as string;
   const shape = chatShapeOf(provider, call.name);
-  const via = targetVia(target, provider ?? null);
-  let takeover: Takeover | null = null;
-  if (shape && provider && needsTakeover(shape, target, provider)) takeover = await startTakeover(shape, target, { upstream: providerUpstream(provider) });
-  const budget = settings.budget === null ? null : Math.max(0, settings.budget - session.spentBefore);
+  const via = targetVia(target, provider);
+  // Every call before the takeover replays from the recording, so the first request the upstream
+  // gets is the takeover call: nothing is counted to find it, whatever the agent asked before.
+  const takeover: Takeover = await startTakeover({ provider, shape, mode: takeoverMode(provider, shape, target)! }, target, { upstream: providerUpstream(provider) });
   const spec = task.spec ? scoringSpec(task.spec) : null;
   let runner: AttemptRunner;
   try {
-    runner = await AttemptRunner.start(opts, { writes: 'stub', reads: settings.reads, liveTools: [], spec, budget, timeoutMs: settings.timeoutMs, guard: settings.guard, ...(takeover && provider ? { upstreams: { [provider]: takeover.url } } : {}) });
+    // The budget is kept here, at the prices of the models that answered.
+    runner = await AttemptRunner.start(opts, { writes: 'stub', reads: settings.reads, liveTools: [], spec, budget: null, timeoutMs: settings.timeoutMs, guard: settings.guard, upstreams: { [provider]: takeover.url } });
   } catch (err) {
-    await takeover?.close();
+    await takeover.close();
     throw err;
   }
   const result: TaskScore = { task: task.golden, takeover: k, why: settings.takeover !== undefined ? 'asked for' : task.takeover!.why, prefix: task.pack!.calls.filter((c) => c.callNo < k).length, via, attempts: [], mean: null, spent: 0, stopped: null, dropped: [], unknownModels: [] };
   const unknown = new Set<string>();
   const of = settings.of ?? settings.attempts;
+  let spent = 0;
+  let budgetSpent = false;
   try {
     const { store } = runner;
     if (!store.getRun(task.runId!)) unpackRun(store, task.dir);
     const parent = store.getRun(task.runId!);
     if (!parent) throw new Error(`${task.golden}'s run could not be imported`);
     const target_ = { parent, argv: parent.command.argv, commandFromImport: commandIsImported(parent) };
-    const interventions = { set: { fromCall: k, fields: { model: target.model } } };
     // Every attempt is marked as one, scored or not, so nothing reads it as another kind of attempt (a --repeat).
     const mark = (runId: string, n: number, outcome: { score: number } | { stopped: string }, extra: Partial<RunRecord['meta']> = {}) =>
       store.updateRunMeta(runId, {
@@ -307,7 +303,9 @@ export async function scoreTask(
     /** One attempt; false when the task must stop. */
     const one = async (): Promise<boolean> => {
       const n = (settings.first ?? 1) + launched++;
-      const a = await runner.attempt(target_, { divergeAt: k, interventions });
+      const a = await runner.attempt(target_, { divergeAt: k });
+      const cost = attemptCost(a.calls, target, runner.config.prices, unknown);
+      if (!runner.interrupted) spent += cost;
       const stop = (reason: string) => {
         result.stopped ??= reason;
         mark(a.run.runId, n, { stopped: reason });
@@ -326,9 +324,6 @@ export async function scoreTask(
         );
       }
       const at = a.calls.find((c) => c.callNo === k);
-      // The score must be the model under test's: a request whose model --model can't change asked the recorded one.
-      const asked = at ? askedModel(store, at) : null;
-      if (asked !== null && asked !== target.model) return stop(`${target.model} wasn't asked at #${k}: the request still named ${asked}, because --model can't change the model of ${provider ? `a ${provider}` : 'this'} request yet (run ${a.run.runId})`);
       if (at?.end?.outcome === 'error') {
         // The model never answered the takeover: a score would grade the endpoint, not the model.
         const body = at.end.responseRef ? store.getBlob(at.end.responseRef)?.toString('utf8') : undefined;
@@ -340,43 +335,44 @@ export async function scoreTask(
         }
         return stop(`${target.model} didn't answer #${k}: ${message} (run ${a.run.runId})`);
       }
+      // The score must be the model under test's: the takeover upstream says so on every answer it gives.
+      if (at?.end?.meta.headers?.[ANSWERED_BY] !== target.model) {
+        const went = at ? ((at.end?.meta.provider ?? at.meta.provider) as string | undefined) : undefined;
+        return stop(`${target.model} didn't answer #${k}: ${!at ? `the agent made no call #${k}` : went && went !== provider ? `the agent sent it to ${went}, not ${provider}` : 'its answer came from somewhere else'} (run ${a.run.runId})`);
+      }
       const exit: ScoredCheck = { check: EXIT_LABEL, pass: a.code === 0, detail: a.code === 0 ? null : a.failures.find((f) => /exited|timed out/.test(f)) ?? `the agent exited with code ${a.code}` };
       const checks: ScoredCheck[] = [exit, ...a.checks.map((c: CheckResult) => ({ check: c.label, pass: c.ok, detail: c.detail }))];
       const score = attemptScore(checks.map((c) => ({ ok: c.pass })));
-      const spent = target.local ? 0 : a.summary.cost.spent;
-      // Only what ran live is paid for: the prefix's model, replayed, costs nothing here.
-      if (!target.local) {
-        for (const c of a.calls) {
-          if (c.kind !== 'api' || c.origin !== 'live' || !c.end?.meta.usage || runner.costOf(c) !== null) continue;
-          const m = c.end.meta.model ?? c.meta.model;
-          if (typeof m === 'string') unknown.add(m);
-        }
-      }
-      const scored: ScoredAttempt = { attempt: n, runId: a.run.runId, score, checks, spent, exitCode: a.code, ms: a.ms };
+      const scored: ScoredAttempt = { attempt: n, runId: a.run.runId, score, checks, spent: cost, exitCode: a.code, ms: a.ms };
       result.attempts.push(scored);
       mark(a.run.runId, n, { score }, a.checks.length ? { checks: a.checks } : {});
       onAttempt(scored, task);
       return true;
     };
-    const more = () => !result.stopped && launched < settings.attempts && runner.canStart();
+    const canStart = () => {
+      if (!runner.canStart()) return false;
+      if (settings.budget !== null && session.spentBefore + spent >= settings.budget) {
+        budgetSpent = true;
+        return false;
+      }
+      return true;
+    };
+    const more = () => !result.stopped && launched < settings.attempts && canStart();
     const worker = async () => {
       while (more() && (await one()));
     };
     if (more() && (await one())) await Promise.all(Array.from({ length: Math.max(1, Math.min(settings.concurrency, settings.attempts - launched)) }, worker));
-    if (!result.stopped && result.attempts.length < settings.attempts) {
-      const reason = runner.stopReason ?? 'stopped';
-      // The runner counts what is left of the budget; the reader set the whole of it.
-      result.stopped = /^the budget of /.test(reason) && settings.budget !== null ? `the budget of ${formatBudget(settings.budget)} is spent` : reason;
-    }
+    if (!result.stopped && result.attempts.length < settings.attempts) result.stopped = budgetSpent ? `the budget of ${formatBudget(settings.budget!)} is spent` : (runner.stopReason ?? 'stopped');
     result.attempts.sort((x, y) => x.attempt - y.attempt);
-    result.spent = result.attempts.reduce((s, a) => s + a.spent, 0);
+    // What the task's attempts cost, a stopped one's included: it was spent all the same.
+    result.spent = spent;
     result.mean = result.attempts.length ? result.attempts.reduce((s, a) => s + a.score, 0) / result.attempts.length : null;
-    result.dropped = takeover ? [...takeover.dropped] : [];
+    result.dropped = [...takeover.dropped];
     result.unknownModels = [...unknown];
     return result;
   } finally {
     await runner.close();
-    await takeover?.close();
+    await takeover.close();
   }
 }
 

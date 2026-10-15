@@ -135,6 +135,46 @@ function withStore<T>(db: string, fn: (s: Store) => T): T {
   }
 }
 
+/**
+ * The providers' other endpoints, in front of the mocks: Anthropic's model list and token counts and
+ * OpenAI's embeddings are answered here, and the model calls go on to the mocks. It notes the model
+ * each token count named.
+ */
+async function startFront(): Promise<{ url: string; counted: string[]; close: () => Promise<void> }> {
+  const counted: string[] = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks);
+      const path = (req.url ?? '/').split('?')[0]!;
+      const json = (value: unknown) => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(value));
+      };
+      if (req.method === 'GET' && path === '/v1/models') return json({ data: [{ id: 'small-model', type: 'model', display_name: 'Small', created_at: '2026-01-01T00:00:00Z' }], has_more: false, first_id: 'small-model', last_id: 'small-model' });
+      if (path === '/v1/messages/count_tokens') {
+        counted.push((JSON.parse(body.toString('utf8')) as { model: string }).model);
+        return json({ input_tokens: 42 });
+      }
+      if (path === '/v1/embeddings') return json({ object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }], model: 'text-embedding-3-small', usage: { prompt_tokens: 9, total_tokens: 9 } });
+      const headers = { ...req.headers };
+      delete headers.host;
+      const out = httpRequest(new URL(req.url ?? '/', path.endsWith('/chat/completions') ? openai.url : anthropic.url), { method: req.method, headers }, (up) => {
+        res.writeHead(up.statusCode ?? 502, up.headers);
+        up.pipe(res);
+      });
+      out.on('error', () => {
+        res.writeHead(502);
+        res.end();
+      });
+      out.end(body);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, counted, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
 describe('shadowlap export pairs', () => {
   it('writes the answer blame proved lost the run next to one that passed, and keeps a record of the export', async () => {
     policy = 'alternate';
@@ -358,12 +398,8 @@ describe('shadowlap tasks', () => {
   }, 120_000);
 
   it('lists models to score with a price per attempt, and the scores they have', async () => {
-    // A port nothing listens on: the OpenAI-compatible server isn't running.
-    const closed = createServer();
-    await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
-    const nobody = `http://127.0.0.1:${(closed.address() as AddressInfo).port}`;
-    await new Promise<void>((resolve) => closed.close(() => resolve()));
-    const r = await shadowlap(work, ['tasks', 'models', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: listsUrl, OLLAMA_HOST: listsUrl, SHADOWLAP_UPSTREAM_OPENAI: nobody, OPENAI_API_KEY: '' });
+    // A port below any the system hands out, which nothing listens on and fetch doesn't block: the OpenAI-compatible server isn't running.
+    const r = await shadowlap(work, ['tasks', 'models', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: listsUrl, OLLAMA_HOST: listsUrl, SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:2', OPENAI_API_KEY: '' });
     expect(r.code, r.out).toBe(0);
     const { choices, notes } = JSON.parse(r.stdout) as { choices: Array<{ group: string; id: string; flags: string[]; perAttempt: number | null; lastScore: number | null }>; notes: Array<{ group: string; note: string }> };
     expect(choices.map((c) => [c.group, c.id])).toEqual([
@@ -394,10 +430,10 @@ describe('shadowlap tasks', () => {
         });
         child.on('exit', () => reject(new Error(`tasks serve exited: ${out}`)));
       });
-      const call = (path: string, init: { method?: string; body?: unknown; token?: string | null; host?: string } = {}) =>
+      const call = (path: string, init: { method?: string; body?: unknown; token?: string | null; host?: string; origin?: string } = {}) =>
         new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
           const u = new URL(path, url);
-          const req = httpRequest(u, { method: init.method ?? 'GET', headers: { host: init.host ?? u.host, 'content-type': 'application/json', ...(init.token === null ? {} : { authorization: `Bearer ${init.token ?? token}` }) } }, (res) => {
+          const req = httpRequest(u, { method: init.method ?? 'GET', headers: { host: init.host ?? u.host, 'content-type': 'application/json', ...(init.token === null ? {} : { authorization: `Bearer ${init.token ?? token}` }), ...(init.origin ? { origin: init.origin } : {}) } }, (res) => {
             let data = '';
             res.on('data', (d: Buffer) => (data += d.toString()));
             res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) as Record<string, unknown> }));
@@ -428,6 +464,12 @@ describe('shadowlap tasks', () => {
       expect((await call('/v1/tasks', { token: null })).status).toBe(401);
       expect((await call('/v1/tasks', { token: 'wrong' })).status).toBe(401);
       expect((await call('/v1/tasks', { host: 'evil.example:80' })).status).toBe(403);
+      // Only the health check answers without the token; nothing answers a web page, token or not.
+      expect(await call('/v1/health', { token: null })).toEqual({ status: 200, body: { ok: true } });
+      expect(await call('/v1/tasks', { origin: 'https://evil.example' })).toEqual({ status: 403, body: { error: 'requests from web pages are refused' } });
+      expect((await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'weak-model' }, origin: `${url}` })).status).toBe(403);
+      // A takeover asked at a call that isn't a model call is refused before anything runs.
+      expect(await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'weak-model', from: 2 } })).toMatchObject({ status: 409, body: { error: "#2 is not a model call of goldens/refund-over-limit's run (lookup_order)" } });
       expect((await call('/v1/tasks/nope/attempts', { method: 'POST', body: { model: 'm' } })).status).toBe(404);
       expect(await call('/v1/tasks/budget/attempts', { method: 'POST', body: { model: 'm' } })).toMatchObject({ status: 409, body: { status: 'not-a-task' } });
       expect((await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { baseUrl: 'x' } })).status).toBe(400);
@@ -501,6 +543,51 @@ describe('shadowlap tasks serve, started with an endpoint', () => {
         child.kill('SIGTERM');
       }
     } finally {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }, 120_000);
+});
+
+describe('a golden that asks its providers more than its model', () => {
+  it('scores the model under test from the takeover, whatever the agent asked first: a model list, an embedding, token counts', async () => {
+    policy = 'models';
+    const { work, db } = workdir('sl-rag-');
+    const front = await startFront();
+    const env = { SHADOWLAP_UPSTREAM_ANTHROPIC: front.url, SHADOWLAP_UPSTREAM_OPENAI: front.url };
+    try {
+      const runId = await record(work, [AGENT, '--list-models', '--embed', '--count-tokens'], env);
+      expect((await shadowlap(work, ['pack', runId, 'goldens/rag'], env)).code).toBe(0);
+      const recorded = withStore(db, (s) => s.getCalls(runId));
+      expect(recorded.slice(0, 4).map((c) => c.name)).toEqual(['GET /v1/models', 'POST /v1/embeddings', 'POST /v1/messages/count_tokens', 'POST /v1/messages']);
+      // The decision is the third message; its number counts the calls that asked no model too.
+      const decision = recorded.filter((c) => c.name === 'POST /v1/messages')[2]!.callNo;
+      expect(decision).toBe(10);
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/rag': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: decision } } } }));
+
+      // Another model of the recording's provider answers the decision, and refunds.
+      front.counted.length = 0;
+      const same = await shadowlap(work, ['tasks', 'score', '--model', 'weak-model', '--attempts', '1'], env);
+      expect(same.code, same.out).toBe(0);
+      expect(same.out).toContain('▸ rag · #1–#9 replayed · weak-model from #10');
+      expect(same.out).toMatch(/ 1 · ✓ the agent exits 0 · ✗ issue_refund called 0 times · ✗ escalate called 1 time · 0\.33/);
+      // The token count after the takeover still named the model the agent asked, which the provider knows.
+      expect(front.counted).toEqual(['small-model']);
+      withStore(db, (s) => {
+        const [row] = s.listTaskScores();
+        const calls = s.getCalls(row!.runId!);
+        expect(calls.find((c) => c.callNo === decision)!.end!.meta).toMatchObject({ model: 'weak-model', headers: expect.objectContaining({ 'x-shadowlap-model': 'weak-model' }) });
+        expect(calls.filter((c) => c.callNo < decision).every((c) => c.origin === 'replayed')).toBe(true);
+        expect(calls.find((c) => c.name === 'POST /v1/messages/count_tokens' && c.callNo > decision)!.end!.meta.model).toBe('small-model');
+      });
+
+      // A model at an OpenAI-compatible endpoint: the decision is translated for it, the token count goes to Anthropic as it was.
+      front.counted.length = 0;
+      const translated = await shadowlap(work, ['tasks', 'score', '--model', 'my-finetune', '--base-url', `${openai.url}/v1`, '--attempts', '1', '--json'], env);
+      expect(translated.code, translated.out).toBe(0);
+      expect(JSON.parse(translated.stdout)).toMatchObject({ mean: 1, spent: 0, tasks: [{ task: 'goldens/rag', takeover: decision, replayed: 9, stopped: null }] });
+      expect(front.counted).toEqual(['small-model']);
+    } finally {
+      await front.close();
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }, 120_000);
