@@ -39,20 +39,21 @@ Done: a replacement ships today as S-5531. Anything else?
 Glad I could help. Have a good day.
 >
 
-● Recorded 01K5CQ9C4H…: 11 calls (5 api, 6 tool), 5 upstream requests
+● Recorded 01M4YEFP8T…: 11 calls (5 api, 6 tool), 5 upstream requests, ≈$0.0069
 ```
 
 `shadowlap show <run>` lists each answer as a call: `user_input`, a read, with the prompt as its
-argument and what was typed as its result. The empty answer at the end, or Ctrl-D, is recorded too:
-it is where the chat ended.
+argument and what was typed as its result. Ending the chat with Ctrl-D is recorded too, as #11's
+error: the end of the input. (An empty line ends it as well, recorded as an empty answer.)
 
 ```
-  #1   tool  user_input          live  ok     {"prompt":"How can I help? "}
-  #2   api   POST /v1/messages   live  ok     tool_use
-  #3   tool  lookup_order        live  ok     {"order_id":"A-1042"}
-  #4   api   POST /v1/messages   live  ok     end_turn
-  #5   tool  user_input          live  ok     {"prompt":"> "}
+  #1   tool  user_input          live  ok     0ms  {"prompt":"How can I help? "}
+  #2   api   POST /v1/messages   live  ok     4ms  1k→40 tok · haiku-4-5 · tool_use
+  #3   tool  lookup_order        live  ok     0ms  {"order_id":"A-1042"}
+  #4   api   POST /v1/messages   live  ok     1ms  1k→40 tok · haiku-4-5 · end_turn
+  #5   tool  user_input          live  ok     0ms  {"prompt":"> "}
   …
+  #11  tool  user_input          live  error  0ms  {"prompt":"> "}
 ```
 
 ## Replay with no one typing
@@ -62,7 +63,7 @@ shadowlap replay <run> < /dev/null
 ```
 
 ```
-✓ Replay clean: 11/11 calls replayed (5 api, 6 tool), 0 upstream requests
+✓ Replay clean: 11/11 calls replayed (5 api, 6 tool), 0 upstream requests, 6k input tokens not re-spent (≈$0.0069)
 ```
 
 Every answer came from the recording, so the chat ran to the end without anyone at the keyboard. In
@@ -78,7 +79,8 @@ shadowlap replay <run> --override 5=@reply.json
 ```
 
 ```
-⑂ Forked at call 6: 5 calls replayed (1 overridden), then 3 live, 1 write blocked
+⑂ Forked at call 6: 5 calls replayed (1 overridden), then 3 live, 1 write blocked; 3 upstream requests (≈$0.0043 spent, $0.0027 saved)
+✗ Diverged at call 6 (api POST /v1/messages): 5 calls replayed before divergence
   ~ $.messages[4].content
       - "A replacement, please."
       + "A refund, please."
