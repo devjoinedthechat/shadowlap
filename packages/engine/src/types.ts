@@ -61,6 +61,8 @@ export interface CallMeta {
   error?: SerializedError;
   /** The logical branch the call was made in (`scope()` in the SDKs). */
   scope?: string;
+  /** A person's input: a `user_input` tool call whose argument is the prompt and whose result is `{ text }`. */
+  input?: boolean;
   [key: string]: unknown;
 }
 

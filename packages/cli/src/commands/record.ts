@@ -42,6 +42,7 @@ export function register(program: Command): void {
     .option('--writes <policy>', 'what write tools do after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--reads <policy>', 'what read tools do after divergence: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
     .option('--live-tool <name>', 'force this tool\'s first call live (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--live-input', 'after the fork, ask for what a person types instead of serving the recorded answers in order')
     .option('--diverge-at <call>', 'force call number <call> live', parseIntArg)
     .option('--prompt-from <call>', 'apply your changed system prompt and tool definitions only from model call <call>: earlier model calls replay from the recording', parseIntArg)
     .option('--override <call=result>', 'substitute a recorded tool result: 9=\'{"ok":true}\' or 9=@file.json (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
@@ -56,7 +57,7 @@ export function register(program: Command): void {
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
     .option('--summary-json <file>', 'also write the replay\'s summary (or, with --repeat, every attempt and the report) as JSON to <file>')
-    .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string }) => {
+    .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const store = openStore(opts);
       const parent = requireRun(store, runArg);
@@ -96,6 +97,7 @@ export function register(program: Command): void {
       const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       if (parent.meta?.covers?.length) replay.kinds = new Set(parent.meta.covers);
+      if (flags.liveInput) replay.liveInput = true;
       if (flags.divergeAt !== undefined) replay.divergeAt = flags.divergeAt;
       if (flags.promptFrom !== undefined) replay.promptFrom = flags.promptFrom;
       if (overrides.size) replay.overrides = overrides;

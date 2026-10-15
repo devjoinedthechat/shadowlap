@@ -33,6 +33,11 @@ export interface ReplayOptions {
   promptFrom?: number;
   /** Tool results to substitute, by the parent run's call number (tool-result override). */
   overrides?: ReadonlyMap<number, unknown>;
+  /**
+   * Ask for a person's input live after the fork (`--live-input`). By default there is no one to
+   * type there, so recorded input is served in the order it was given.
+   */
+  liveInput?: boolean;
 }
 
 export const DEFAULT_REPLAY_OPTIONS: ReplayOptions = { writes: 'block', reads: 'live', liveTools: new Set() };
@@ -53,6 +58,8 @@ export interface ResolveInput {
    * recorded answers whatever order they arrive in.
    */
   scope?: string;
+  /** A person's input (a `user_input` tool call, recorded with `meta.input`). */
+  input?: boolean;
 }
 
 export type Decision =
@@ -147,6 +154,13 @@ export class Session {
       // After divergence only declared-pure results (and reads, on request) may come from the recording.
       const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       if (record && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
+    }
+
+    // After the fork there is no one to type: a person's input comes from the recording, in the
+    // order it was given, whatever the prompt now says.
+    if (input.input && !this.options.liveInput) {
+      const next = this.parentCalls.find((c) => c.meta.input === true && c.end && !this.consumed.has(c.callNo));
+      if (next) return this.serve(input, next, occurrence);
     }
 
     // Live region.

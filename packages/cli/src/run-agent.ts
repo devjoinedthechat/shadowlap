@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -44,17 +44,35 @@ export function captureConfig(upstreams: Record<string, string>, http: readonly 
 }
 
 /**
- * The environment that loads Shadowlap into a Node or Python agent: in-process capture, and the
- * network guard in `mode`. Capture is on unless SHADOWLAP_CAPTURE=off.
+ * Which input this process was given (`dev:ino` of fd 0), so the preloads record what a person
+ * types on it and on nothing else: an agent's own pipe to a child process is not user input.
+ */
+function stdinIdentity(): string | null {
+  try {
+    // Exact and unsigned, as Python reads them: a pipe's inode on macOS is beyond a double's
+    // precision, and Node's big integers for it are signed.
+    const st = fstatSync(0, { bigint: true });
+    const unsigned = (n: bigint) => (n < 0n ? n + (1n << 64n) : n);
+    return st.ino ? `${unsigned(st.dev)}:${unsigned(st.ino)}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The environment that loads Shadowlap into a Node or Python agent: in-process capture, the
+ * network guard in `mode`, and recorded user input. Capture is on unless SHADOWLAP_CAPTURE=off.
  */
 export function guardEnv(mode: GuardMode, base: NodeJS.ProcessEnv = process.env, upstreams: Record<string, string> = {}, http: readonly HttpRule[] = []): Record<string, string> {
   const dir = fileURLToPath(new URL('../guard/', import.meta.url));
   const nodeImport = `--import=${pathToFileURL(resolve(dir, 'node-preload.mjs')).href}`;
+  const stdin = stdinIdentity();
   return {
     SHADOWLAP_GUARD: mode,
     SHADOWLAP_CAPTURE: base.SHADOWLAP_CAPTURE === 'off' ? 'off' : captureConfig(upstreams, http),
     NODE_OPTIONS: [base.NODE_OPTIONS, nodeImport].filter(Boolean).join(' '),
     PYTHONPATH: [dir, base.PYTHONPATH].filter(Boolean).join(delimiter),
+    ...(stdin ? { SHADOWLAP_STDIN: stdin } : {}),
   };
 }
 

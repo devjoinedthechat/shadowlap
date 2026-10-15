@@ -993,7 +993,9 @@ export class Sidecar {
     const request = kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' };
     const { fingerprint } = kind === 'tool' ? fingerprintTool(body.name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind, body.label ?? '');
     const callNo = ctx.nextCallNo++;
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}) });
+    // A person's answer (`user_input`): after a fork it is served from the recording in order.
+    const input = kind === 'tool' && body.input === true;
+    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
     const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
     const tracked: TrackedCall = { identity, effect, origin: decision.origin, decision, ends: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
@@ -1002,6 +1004,7 @@ export class Sidecar {
     const meta: CallStartRow['meta'] = {};
     if (body.implHash) meta.implHash = body.implHash;
     if (scope) meta.scope = scope;
+    if (input) meta.input = true;
     this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...identity, origin: decision.origin, effect, requestRef: this.store.putJson(request), meta, at: Date.now() });
 
     if (decision.origin === 'overridden') {
@@ -1127,6 +1130,8 @@ export interface ResolveBody {
   args?: unknown;
   label?: string;
   implHash?: string;
+  /** The call is a person's input, recorded as the `user_input` tool (see docs/protocol.md). */
+  input?: boolean;
 }
 
 export type ResolveResponse =

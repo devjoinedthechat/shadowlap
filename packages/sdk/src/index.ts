@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
 /**
- * The Shadowlap SDK for TypeScript: an effect-typed tool wrapper and clock/random helpers.
+ * The Shadowlap SDK for TypeScript: an effect-typed tool wrapper, clock/random helpers, and
+ * recorded user input.
  * Everything here is a thin client of the sidecar's call resolution API; no hashing or matching
  * logic lives in the SDK. When Shadowlap is not active (no SHADOWLAP_URL), every function is a
  * direct passthrough, so wrapped tools ship to production unchanged.
@@ -178,6 +179,52 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
       }
     }
   };
+}
+
+// While the SDK reads an answer for userInput(), Shadowlap's readline preload leaves that read
+// alone, so an answer typed at the terminal is recorded once. Shared through a global symbol, as the
+// scope store is.
+const DIRECT_INPUT = Symbol.for('shadowlap.input.direct');
+function directInput(): AsyncLocalStorage<boolean> {
+  const g = globalThis as { [DIRECT_INPUT]?: AsyncLocalStorage<boolean> };
+  return (g[DIRECT_INPUT] ??= new AsyncLocalStorage<boolean>());
+}
+
+/** The text of a recorded answer: `{ text }`, or a bare string from an override. */
+function answerText(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (typeof result === 'object' && result !== null && typeof (result as { text?: unknown }).text === 'string') return (result as { text: string }).text;
+  return result === null || result === undefined ? '' : JSON.stringify(result);
+}
+
+/**
+ * Asks the person running the agent, and records the answer as a `user_input` call (effect read,
+ * the prompt as its argument, `{ text }` as its result). A replay serves the answer from the
+ * recording, and after a fork the recorded answers are served in order, so `shadowlap test`,
+ * `blame` and `verify` run the agent with no one there to type. `read` gets the answer however the
+ * agent does — a chat window, a message from a queue, the terminal — and returns its text.
+ *
+ * What an agent reads through Node's readline (`rl.question()`, `for await (const line of rl)`) is
+ * recorded without this, by the preload `shadowlap run` adds. Outside Shadowlap this calls `read`.
+ */
+export async function userInput(prompt: string, read: (prompt: string) => string | Promise<string>): Promise<string> {
+  const cfg = config();
+  if (!cfg) return read(prompt);
+  const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name: 'user_input', effect: 'read', args: { prompt }, input: true });
+  if (r.origin === 'replayed') {
+    if (r.outcome === 'ok') return answerText(r.result);
+    throw new ReplayedError(r.error);
+  }
+  if (r.origin !== 'live') throw new Error(`unexpected origin ${r.origin} for user input`);
+  const started = Date.now();
+  try {
+    const text = await directInput().run(true, () => read(prompt));
+    await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: { text }, latencyMs: Date.now() - started });
+    return text;
+  } catch (err) {
+    await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'error', error: serializeError(err), latencyMs: Date.now() - started });
+    throw err;
+  }
 }
 
 async function misc<T>(kind: 'clock' | 'random', name: string, label: string | undefined, fallback: () => T): Promise<T> {

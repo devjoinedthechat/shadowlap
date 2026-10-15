@@ -1,13 +1,13 @@
 # SDKs
 
-API calls need no SDK: the sidecar records them through the provider base URL. The SDKs do two things: wrap **tools** so Shadowlap knows what they do to the world, and record **clock and randomness** so replays see the recorded values.
+API calls need no SDK: the sidecar records them through the provider base URL. The SDKs wrap **tools** so Shadowlap knows what they do to the world, record **clock and randomness** so replays see the recorded values, and record [what a person types](#what-a-person-types) when it doesn't come from the terminal.
 
 Without `SHADOWLAP_URL` in the environment (that is, outside `shadowlap run`), every function is a direct passthrough. Wrapped tools ship to production unchanged.
 
 ## TypeScript
 
 ```ts
-import { tool, now, random, uuid, scope, ShadowlapWriteBlocked, ReplayedError } from '@shadowlap/sdk';
+import { tool, now, random, uuid, scope, userInput, ShadowlapWriteBlocked, ReplayedError } from '@shadowlap/sdk';
 
 export const searchWeb = tool('search_web', { effect: 'read' },
   async ({ query }: { query: string }) => search(query));
@@ -63,6 +63,46 @@ request_id = uuid()
 - Python ≥ 3.9. Zero dependencies (`urllib`).
 
 Install from source for now: `pip install -e sdks/python`.
+
+## What a person types
+
+An agent that waits for a person can't be replayed by itself: no one is there to type. Shadowlap
+records each answer as a `user_input` call (a read, with the prompt as its argument and
+`{ "text": … }` as its result), so the run replays, tests and blames with no one at the keyboard.
+`shadowlap test`, `blame` and `verify` start agents with their input ignored, and the recorded
+answers carry them through.
+
+Input from the terminal is recorded with no code change, by the preloads `shadowlap run` adds:
+
+- **Python:** `input()`, and `sys.stdin.readline()`, `read()`, `readlines()` and `for line in sys.stdin`.
+- **Node:** readline's `rl.question()` (callback, `readline/promises` and `util.promisify`) and `for await (const line of rl)`. Lines read through `'line'` events are not recorded.
+
+Only the input `shadowlap` gave the agent counts: a terminal, the null device, or the pipe or file
+`shadowlap` itself was given. A child process reading a pipe from its parent, an MCP server for one,
+is left alone. Python's `getpass` is never recorded.
+
+For input that arrives some other way (a chat window, a message from a queue), wrap the read:
+
+```ts
+import { userInput } from '@shadowlap/sdk';
+
+const reply = await userInput('How can I help?', () => chatWindow.nextMessage());
+```
+
+```python
+from shadowlap import user_input, user_input_async
+
+reply = user_input("How can I help? ")                                  # input() by default
+reply = user_input("How can I help? ", read=lambda p: queue.get())
+reply = await user_input_async("How can I help? ", lambda p: websocket.recv())
+```
+
+On replay the answers come from the recording; `read` isn't called. After a fork there is still no
+one to type, so the recorded answers are served in the order they were given, whatever the prompt
+now says, and `replay --live-input` asks for them instead. To try a different answer, override the
+call: `shadowlap replay <run> --override 5='{"text": "A refund, please."}'`. When the input ended
+(Ctrl-D, an empty pipe), that is recorded too, and a replay ends the input at the same place. See
+[examples/support-chat](https://github.com/devjoinedthechat/shadowlap/tree/main/examples/support-chat).
 
 ## Scopes
 

@@ -7,6 +7,7 @@ logic lives here. When Shadowlap is not active (no SHADOWLAP_URL), everything is
 from __future__ import annotations
 
 import asyncio
+import builtins
 import contextlib
 import contextvars
 import functools
@@ -35,6 +36,8 @@ __all__ = [
     "context_params",
     "scope",
     "current_scope",
+    "user_input",
+    "user_input_async",
 ]
 
 __version__ = "0.1.0"
@@ -385,3 +388,87 @@ def random(label: Optional[str] = None) -> float:
 def uuid(label: Optional[str] = None) -> str:
     """A UUID v4 string, recorded."""
     return str(_misc("random", "uuid", label, lambda: str(_uuid.uuid4())))
+
+
+def _input_preload():
+    """Shadowlap's recorded-input preload, when `shadowlap run` loaded it into this process."""
+    module = sys.modules.get("_shadowlap_input")
+    return module if getattr(module, "active", False) else None
+
+
+def _answer_text(result: Any) -> str:
+    """The text of a recorded answer: ``{"text": ...}``, or a bare string from an override."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict) and isinstance(result.get("text"), str):
+        return result["text"]
+    return "" if result is None else json.dumps(result)
+
+
+def _resolve_input(cfg: tuple, prompt: str) -> dict:
+    return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": "user_input", "effect": "read", "args": {"prompt": prompt}, "input": True})
+
+
+def _replayed_answer(r: dict) -> str:
+    if r["outcome"] == "ok":
+        return _answer_text(r.get("result"))
+    if (r.get("error") or {}).get("name") == "EOFError":
+        raise EOFError((r.get("error") or {}).get("message") or "end of input")
+    raise ReplayedError(r["error"])
+
+
+def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) -> str:
+    """Asks the person running the agent and records the answer as a ``user_input`` call.
+
+    The call has effect read, the prompt as its argument and ``{"text": answer}`` as its result. A
+    replay serves the answer from the recording, and after a fork the recorded answers are served
+    in order, so ``shadowlap test``, ``blame`` and ``verify`` run the agent with no one there to type.
+    ``read(prompt)`` gets the answer however the agent does (a chat window, a message from a queue);
+    by default it is ``input()``. Outside Shadowlap this just calls ``read``.
+
+    ``input()`` and reads of ``sys.stdin`` are recorded without this, by the preload ``shadowlap run``
+    adds; use it for input that arrives any other way.
+    """
+    preload = _input_preload()
+    reader = read or (preload.original_input if preload else builtins.input)
+    cfg = _config()
+    if cfg is None:
+        return reader(prompt)
+    r = _resolve_input(cfg, prompt)
+    if r["origin"] == "replayed":
+        return _replayed_answer(r)
+    if r["origin"] != "live":
+        raise RuntimeError(f"unexpected origin {r['origin']} for user input")
+    started = time.time()
+    try:
+        # A read through input() inside is not recorded a second time.
+        with preload.passthrough() if preload else contextlib.nullcontext():
+            text = reader(prompt)
+    except BaseException as err:
+        _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
+        raise
+    _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": int((time.time() - started) * 1000)})
+    return text
+
+
+async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
+    """``user_input`` for an asyncio agent: ``read(prompt)`` may be a coroutine function, such as
+    ``websocket.recv`` behind a lambda. The sidecar is asked off the event loop."""
+    cfg = _config()
+    if cfg is None:
+        answer = read(prompt)
+        return await answer if inspect.isawaitable(answer) else answer
+    r = await asyncio.to_thread(_resolve_input, cfg, prompt)
+    if r["origin"] == "replayed":
+        return _replayed_answer(r)
+    if r["origin"] != "live":
+        raise RuntimeError(f"unexpected origin {r['origin']} for user input")
+    started = time.time()
+    try:
+        answer = read(prompt)
+        text = await answer if inspect.isawaitable(answer) else answer
+    except BaseException as err:
+        await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
+        raise
+    await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": int((time.time() - started) * 1000)})
+    return text

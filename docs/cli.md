@@ -27,7 +27,7 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 shadowlap run -- <command> [args...]
 ```
 
-Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture) and the network guard into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted).
+Records a run (`--summary-json <file>` also writes its summary as JSON). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture), the network guard and [recorded user input](./sdk.md#what-a-person-types) into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted).
 
 ## replay
 
@@ -45,6 +45,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--writes block\|stub\|allow` | What `write` tools do after divergence. Default `block` |
 | `--reads live\|replay` | What `read` tools do after divergence. Default `live` |
 | `--live-tool <name>` | Force this tool's first call live (repeatable); use after fixing a tool |
+| `--live-input` | After the fork, ask for what a person types instead of serving the recorded answers in order ([recorded input](./sdk.md#what-a-person-types)) |
 | `--diverge-at <call>` | Force call *n* live |
 | `--fail-at <call>=<status>` | Answer model call *n* with an HTTP failure instead of the recording, so the agent's own error path runs: `--fail-at 12=429` (repeatable, [details](./interventions.md#inject-a-failure)) |
 | `--watch` | Replay again whenever a file in the project changes. Ctrl-C to stop |
