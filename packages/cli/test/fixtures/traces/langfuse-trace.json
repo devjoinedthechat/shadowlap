@@ -1,0 +1,497 @@
+{
+ "id": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+ "projectId": "cm1shopproject",
+ "name": "support-chat",
+ "timestamp": "2026-10-01T10:36:40.120Z",
+ "environment": "default",
+ "tags": [
+  "support"
+ ],
+ "bookmarked": false,
+ "release": null,
+ "version": null,
+ "userId": "u_381",
+ "sessionId": "s_77",
+ "public": false,
+ "input": {
+  "question": "My blender arrived broken. Order A-1042."
+ },
+ "output": "A replacement ships today as S-5531.",
+ "metadata": {},
+ "createdAt": "2026-10-01T10:36:43.400Z",
+ "updatedAt": "2026-10-01T10:36:44.000Z",
+ "externalId": null,
+ "htmlPath": "/project/cm1shopproject/traces/7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+ "latency": 3.21,
+ "totalCost": 0.00187,
+ "scores": [],
+ "observations": [
+  {
+   "id": "obs-agent-span",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "type": "SPAN",
+   "name": "support-agent",
+   "startTime": "2026-10-01T10:36:40.120Z",
+   "endTime": "2026-10-01T10:36:43.330Z",
+   "input": {
+    "question": "My blender arrived broken. Order A-1042."
+   },
+   "output": "A replacement ships today as S-5531.",
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": null,
+   "metadata": {}
+  },
+  {
+   "id": "obs-gen-1",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "projectId": "cm1shopproject",
+   "type": "GENERATION",
+   "name": "OpenAI-generation",
+   "startTime": "2026-10-01T10:36:40.200Z",
+   "endTime": "2026-10-01T10:36:41.100Z",
+   "completionStartTime": "2026-10-01T10:36:41.100Z",
+   "environment": "default",
+   "model": "gpt-4.1-mini",
+   "modelParameters": {
+    "temperature": 0,
+    "max_tokens": 512
+   },
+   "input": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are the support agent for a kitchen appliance shop. Look orders up before you answer."
+     },
+     {
+      "role": "user",
+      "content": "My blender arrived broken. Order A-1042."
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "lookup_order",
+       "description": "Look an order up by its id.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "order_id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "order_id"
+        ]
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "create_replacement",
+       "description": "Ship a replacement for an order.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "order_id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "order_id"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "output": {
+    "role": "assistant",
+    "content": null,
+    "tool_calls": [
+     {
+      "id": "call_Q1lookup",
+      "type": "function",
+      "function": {
+       "name": "lookup_order",
+       "arguments": "{\"order_id\":\"A-1042\"}"
+      }
+     }
+    ],
+    "refusal": null,
+    "function_call": null,
+    "audio": null
+   },
+   "usage": {
+    "input": 812,
+    "output": 25,
+    "total": 837,
+    "unit": "TOKENS"
+   },
+   "usageDetails": {
+    "input": 812,
+    "output": 25,
+    "total": 837
+   },
+   "costDetails": {
+    "input": 0.0003248,
+    "output": 3.9999999999999996e-05
+   },
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": "obs-agent-span",
+   "version": null,
+   "metadata": {},
+   "promptId": null,
+   "promptName": null,
+   "promptVersion": null,
+   "modelId": "cm1modelgpt41mini",
+   "inputPrice": 4e-07,
+   "outputPrice": 1.6e-06,
+   "totalPrice": null,
+   "calculatedInputCost": null,
+   "calculatedOutputCost": null,
+   "calculatedTotalCost": 0.0003648,
+   "latency": 0.9,
+   "timeToFirstToken": 0.4,
+   "promptTokens": 812,
+   "completionTokens": 25,
+   "totalTokens": 837,
+   "unit": "TOKENS"
+  },
+  {
+   "id": "obs-tool-1",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "type": "TOOL",
+   "name": "lookup_order",
+   "startTime": "2026-10-01T10:36:41.110Z",
+   "endTime": "2026-10-01T10:36:41.180Z",
+   "input": {
+    "order_id": "A-1042"
+   },
+   "output": {
+    "order_id": "A-1042",
+    "status": "delivered",
+    "item": "blender",
+    "amount": 240
+   },
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": "obs-agent-span",
+   "metadata": {}
+  },
+  {
+   "id": "obs-gen-2",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "projectId": "cm1shopproject",
+   "type": "GENERATION",
+   "name": "OpenAI-generation",
+   "startTime": "2026-10-01T10:36:41.200Z",
+   "endTime": "2026-10-01T10:36:42.050Z",
+   "completionStartTime": "2026-10-01T10:36:42.050Z",
+   "environment": "default",
+   "model": "gpt-4.1-mini",
+   "modelParameters": {
+    "temperature": 0,
+    "max_tokens": 512
+   },
+   "input": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are the support agent for a kitchen appliance shop. Look orders up before you answer."
+     },
+     {
+      "role": "user",
+      "content": "My blender arrived broken. Order A-1042."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_Q1lookup",
+        "type": "function",
+        "function": {
+         "name": "lookup_order",
+         "arguments": "{\"order_id\":\"A-1042\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "tool_call_id": "call_Q1lookup",
+      "content": "{\"order_id\":\"A-1042\",\"status\":\"delivered\",\"item\":\"blender\",\"amount\":240}"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "lookup_order",
+       "description": "Look an order up by its id.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "order_id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "order_id"
+        ]
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "create_replacement",
+       "description": "Ship a replacement for an order.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "order_id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "order_id"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "output": {
+    "role": "assistant",
+    "content": null,
+    "tool_calls": [
+     {
+      "id": "call_Q2replace",
+      "type": "function",
+      "function": {
+       "name": "create_replacement",
+       "arguments": "{\"order_id\":\"A-1042\"}"
+      }
+     }
+    ],
+    "refusal": null
+   },
+   "usage": {
+    "input": 871,
+    "output": 24,
+    "total": 895,
+    "unit": "TOKENS"
+   },
+   "usageDetails": {
+    "input": 871,
+    "output": 24,
+    "total": 895
+   },
+   "costDetails": {
+    "input": 0.00034839999999999996,
+    "output": 3.84e-05
+   },
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": "obs-agent-span",
+   "version": null,
+   "metadata": {},
+   "promptId": null,
+   "promptName": null,
+   "promptVersion": null,
+   "modelId": "cm1modelgpt41mini",
+   "inputPrice": 4e-07,
+   "outputPrice": 1.6e-06,
+   "totalPrice": null,
+   "calculatedInputCost": null,
+   "calculatedOutputCost": null,
+   "calculatedTotalCost": 0.00038679999999999997,
+   "latency": 0.9,
+   "timeToFirstToken": 0.4,
+   "promptTokens": 871,
+   "completionTokens": 24,
+   "totalTokens": 895,
+   "unit": "TOKENS"
+  },
+  {
+   "id": "obs-span-replace",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "type": "SPAN",
+   "name": "create_replacement",
+   "startTime": "2026-10-01T10:36:42.060Z",
+   "endTime": "2026-10-01T10:36:42.400Z",
+   "input": "{\"order_id\": \"A-1042\"}",
+   "output": null,
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": "obs-agent-span",
+   "metadata": {}
+  },
+  {
+   "id": "obs-event-guard",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "type": "EVENT",
+   "name": "guardrail-passed",
+   "startTime": "2026-10-01T10:36:42.410Z",
+   "endTime": null,
+   "input": null,
+   "output": null,
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": "obs-agent-span",
+   "metadata": {
+    "policy": "refunds-v3"
+   }
+  },
+  {
+   "id": "obs-gen-3",
+   "traceId": "7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07",
+   "projectId": "cm1shopproject",
+   "type": "GENERATION",
+   "name": "OpenAI-generation",
+   "startTime": "2026-10-01T10:36:42.420Z",
+   "endTime": "2026-10-01T10:36:43.300Z",
+   "completionStartTime": "2026-10-01T10:36:43.300Z",
+   "environment": "default",
+   "model": "gpt-4.1-mini",
+   "modelParameters": {
+    "temperature": 0,
+    "max_tokens": 512
+   },
+   "input": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are the support agent for a kitchen appliance shop. Look orders up before you answer."
+     },
+     {
+      "role": "user",
+      "content": "My blender arrived broken. Order A-1042."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_Q1lookup",
+        "type": "function",
+        "function": {
+         "name": "lookup_order",
+         "arguments": "{\"order_id\":\"A-1042\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "tool_call_id": "call_Q1lookup",
+      "content": "{\"order_id\":\"A-1042\",\"status\":\"delivered\",\"item\":\"blender\",\"amount\":240}"
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_Q2replace",
+        "type": "function",
+        "function": {
+         "name": "create_replacement",
+         "arguments": "{\"order_id\":\"A-1042\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "tool_call_id": "call_Q2replace",
+      "content": "{\"ok\":true,\"shipment\":\"S-5531\"}"
+     }
+    ],
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "lookup_order",
+       "description": "Look an order up by its id.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "order_id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "order_id"
+        ]
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "create_replacement",
+       "description": "Ship a replacement for an order.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "order_id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "order_id"
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "output": {
+    "role": "assistant",
+    "content": "I'm sorry it arrived broken. A replacement ships today as S-5531.",
+    "refusal": null
+   },
+   "usage": {
+    "input": 902,
+    "output": 19,
+    "total": 921,
+    "unit": "TOKENS"
+   },
+   "usageDetails": {
+    "input": 902,
+    "output": 19,
+    "total": 921
+   },
+   "costDetails": {
+    "input": 0.0003608,
+    "output": 3.04e-05
+   },
+   "level": "DEFAULT",
+   "statusMessage": null,
+   "parentObservationId": "obs-agent-span",
+   "version": null,
+   "metadata": {},
+   "promptId": null,
+   "promptName": null,
+   "promptVersion": null,
+   "modelId": "cm1modelgpt41mini",
+   "inputPrice": 4e-07,
+   "outputPrice": 1.6e-06,
+   "totalPrice": null,
+   "calculatedInputCost": null,
+   "calculatedOutputCost": null,
+   "calculatedTotalCost": 0.00039119999999999997,
+   "latency": 0.9,
+   "timeToFirstToken": 0.4,
+   "promptTokens": 902,
+   "completionTokens": 19,
+   "totalTokens": 921,
+   "unit": "TOKENS"
+  }
+ ]
+}

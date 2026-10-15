@@ -34,7 +34,7 @@ export interface ImportJsonRun {
   runId: string;
   /** The run's source as stored (`meta.imported.from`): the file's path, or `langfuse:7f3a9c2e`. */
   source: string;
-  /** LiteLLM: the correlation id the calls shared. OpenTelemetry: the trace id. Otherwise null. */
+  /** LiteLLM: the correlation id the calls shared. A trace: its id where it came from. Otherwise null. */
   key: string | null;
   calls: { model: number; tool: number };
   labels: string[];
@@ -54,7 +54,7 @@ export interface ImportJson {
 }
 
 export interface ImportedRun {
-  /** LiteLLM: the correlation id; OpenTelemetry: the trace id. */
+  /** LiteLLM: the correlation id; a trace: its id. */
   key: string | null;
   result: ImportResult;
 }

@@ -10,6 +10,8 @@ export type RunStatus = 'running' | 'completed' | 'failed' | 'crashed';
 export type Outcome = 'ok' | 'error';
 export type WritePolicy = 'block' | 'stub' | 'allow';
 export type ReadPolicy = 'live' | 'replay';
+/** What a partial recording holds: a call kind, or one tool's calls (`tool:<name>`). See `RunMeta.covers`. */
+export type Coverage = CallKind | `tool:${string}`;
 
 export interface RunCommand {
   argv: string[];
@@ -133,10 +135,11 @@ export interface RunMeta {
   imported?: { at: number; from: string };
   /**
    * A partial recording: the call kinds it actually contains. An import that only saw the network
-   * covers `['api']`. A replay runs every other kind live instead of diverging on its absence.
-   * Absent means the recording covers everything, which is what a `shadowlap run` produces.
+   * covers `['api']`; a trace that kept some tools' outputs adds `tool:<name>` for each of those
+   * tools. A replay runs every other call live instead of diverging on its absence. Absent means
+   * the recording covers everything, which is what a `shadowlap run` produces.
    */
-  covers?: CallKind[];
+  covers?: Coverage[];
   /** The run replayed a command that came from an imported pack. */
   commandFromImport?: boolean;
   /** One attempt of `shadowlap replay --repeat`: attempts of one invocation share the group. */

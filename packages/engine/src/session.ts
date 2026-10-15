@@ -1,7 +1,7 @@
 import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
 import { withoutPrompt } from './prompt.js';
 import { hintsFor, structuralDiff } from './diff.js';
-import type { CallKind, CallRecord, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
+import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
 
 /**
  * The per-run state machine: REPLAYING → DIVERGED, with call-key matching on
@@ -15,11 +15,12 @@ export interface ReplayOptions {
   /** Tools whose first call is forced live: a fixed tool's call key doesn't change with its code, so it must be forced. */
   liveTools: ReadonlySet<string>;
   /**
-   * The call kinds the recording covers, when it is partial (see `RunMeta.covers`). A call of any
-   * other kind runs live and never ends the replay, because its absence is expected rather than a
+   * The calls the recording covers, when it is partial (see `RunMeta.covers`): call kinds, and
+   * `tool:<name>` for a tool whose calls it holds when it doesn't hold every tool's. A call it
+   * doesn't cover runs live and never ends the replay, because its absence is expected rather than a
    * divergence. Undefined means the recording covers every kind.
    */
-  kinds?: ReadonlySet<CallKind>;
+  kinds?: ReadonlySet<Coverage>;
   /**
    * Model calls to answer with an HTTP failure instead of the recording, by call number.
    * Error handling is the part of an agent a replay exercises for free, and the part no
@@ -128,7 +129,7 @@ export class Session {
 
     // A partial recording never saw this kind of call, so its absence is not a divergence: run it
     // live, but keep the write policy, because a live write is still a real side effect.
-    if (this.options.kinds && !this.options.kinds.has(input.kind)) {
+    if (this.options.kinds && !this.covers(input)) {
       if (input.kind === 'tool' && effect === 'write') {
         if (this.options.writes === 'block') return { origin: 'blocked', occurrence };
         if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
@@ -154,6 +155,12 @@ export class Session {
       if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
     }
     return { origin: 'live', occurrence };
+  }
+
+  /** Whether a partial recording holds calls like this one: their kind, or for a tool, its name. */
+  private covers(input: ResolveInput): boolean {
+    const kinds = this.options.kinds!;
+    return kinds.has(input.kind) || (input.kind === 'tool' && kinds.has(`tool:${input.name}`));
   }
 
   /** Serves a matched record, substituting an override for a tool result when one was given. */
