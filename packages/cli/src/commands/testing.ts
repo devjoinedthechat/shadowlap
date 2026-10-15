@@ -157,8 +157,15 @@ export function register(program: Command): void {
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
           };
-          let outcome = await testGolden(packDir, golden, spec, ctx);
-          for (const a of outcome.result?.attempts ?? []) telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
+          // Every replay counts towards the session's upstream requests, an updated golden's first one too.
+          const replayed = (o: GoldenOutcome) => {
+            for (const a of o.result?.attempts ?? []) {
+              telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
+              upstreamRequests += a.ended.summary.upstreamRequests;
+            }
+            return o;
+          };
+          let outcome = replayed(await testGolden(packDir, golden, spec, ctx));
           printGolden(outcome);
 
           let updated: PackResult['updated'] = null;
@@ -192,18 +199,14 @@ export function register(program: Command): void {
                 recordEvent(store, { kind: 'golden.updated', actor, runId: u.run.runId, ref: golden, data: { session: session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0 } });
                 updated = { from: before.runId, to: u.run.runId, calls: u.after!.total };
                 // The new golden, replayed as the next test will replay it.
-                outcome = await testGolden(packDir, golden, spec, ctx);
-                for (const a of outcome.result?.attempts ?? []) telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
+                outcome = replayed(await testGolden(packDir, golden, spec, ctx));
                 printGolden(outcome, ' (updated)');
               }
             }
           }
 
           if (outcome.failure) failed++;
-          for (const a of outcome.result?.attempts ?? []) {
-            upstreamRequests += a.ended.summary.upstreamRequests;
-            emitJobEvent({ type: 'run', runId: a.ended.summary.runId, role: a.failure ? 'failing' : 'passing' });
-          }
+          for (const a of outcome.result?.attempts ?? []) emitJobEvent({ type: 'run', runId: a.ended.summary.runId, role: a.failure ? 'failing' : 'passing' });
           store.addTestResult({
             sessionId: session.sessionId,
             golden,
