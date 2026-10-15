@@ -209,6 +209,14 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   /** Each kind the job manager knows hands the build to the instance of the project the job runs in. */
   const dispatching = new Set<string>();
   const served = new Map<string, Served>();
+  const ownKind = (projectId: string | null, kind: string): JobKind | undefined => (projectId === null ? undefined : served.get(projectId)?.kinds.get(kind));
+  const currentId = (): string | null => {
+    try {
+      return projects?.currentProject() ?? null;
+    } catch {
+      return null;
+    }
+  };
   const jobsFor = (projectId: string, kinds: Map<string, JobKind>): JobManager =>
     new Proxy(jobs, {
       get(target, prop) {
@@ -217,9 +225,10 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
             if (kinds.has(kind)) throw new Error(`job kind "${kind}" is registered twice`);
             if (!dispatching.has(kind)) {
               target.registerJobKind(kind, {
-                title: (req) => def.title(req),
+                // Asked as the job starts, in the project current then: the one its build runs in.
+                title: (req) => (ownKind(currentId(), kind) ?? def).title(req),
                 build: (req, b) => {
-                  const own = b.projectId === null ? undefined : served.get(b.projectId)?.kinds.get(kind);
+                  const own = ownKind(b.projectId, kind);
                   return own ? own.build(req, b) : { error: `this project has no job kind "${kind}"`, status: 409 };
                 },
               });
