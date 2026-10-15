@@ -43,7 +43,7 @@ export type ProjectLanguage = 'python' | 'node' | 'deno' | 'go' | 'rust' | 'ruby
 export interface FolderKind {
   /** `Python · uv`, `Node · npm`, `Python · Node`; null when the folder has no project files. */
   kind: string | null;
-  /** The kind with its project files, as a folder list shows it (`Python · uv · pyproject.toml`), or `No project files`. */
+  /** The kind with its project files, as a folder list shows it (`Python · uv · pyproject.toml · uv.lock`), or `No project files`. */
   label: string;
   languages: ProjectLanguage[];
   /** Package managers, one per language where one can be told: uv, poetry, pip, npm, pnpm, cargo… */
@@ -184,13 +184,14 @@ export function describeFolder(folder: string, options: { home?: string } = {}):
   // One language shows its manager (`Python · uv`); two show the languages (`Python · Node`), as a
   // manager no longer says which side it belongs to.
   const kind = languages.length === 1 && managers.length ? `${names[0]} · ${managers[0]}` : names.join(' · ');
-  const manifestNames = manifests.map(([name]) => name);
+  // The files that tell it, manifests then lockfiles, as the folder list shows them: `Python · uv · pyproject.toml · uv.lock`.
+  const files = [...manifests.map(([name]) => name), ...locks.map(([name]) => name)];
   return {
     kind,
-    label: `${kind} · ${manifestNames.join(' · ')}`,
+    label: `${kind} · ${files.join(' · ')}`,
     languages,
     managers,
-    files: [...manifestNames, ...locks.map(([name]) => name)],
+    files,
     why: null,
   };
 }

@@ -246,8 +246,8 @@ describe('adding a project', () => {
     expect(page.body.title).toBe('Add a project');
     const shown = Object.fromEntries(page.body.folders.map((f) => [f.display, [f.note, f.disabled]]));
     expect(shown).toMatchObject({
-      '~/research-agent': ['Python · uv · pyproject.toml', false],
-      '~/triage-bot': ['Node · npm · package.json', false],
+      '~/research-agent': ['Python · uv · pyproject.toml · uv.lock', false],
+      '~/triage-bot': ['Node · npm · package.json · package-lock.json', false],
       '~/support-agent': ['already added', true],
       '~/Downloads': ['no project files found', false],
     });
