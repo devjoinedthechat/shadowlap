@@ -248,6 +248,7 @@ describe('mcpServers', () => {
 describe('secrets in commands and URLs', () => {
   it('hides a flag value, a --flag=value and a token by its shape', () => {
     expect(hideSecrets(['server', '--api-key', 'abc', '--name', 'x', '--token=t0k', 'sk-ant-123', 'xoxb-1-2', 'plain'])).toEqual(['server', '--api-key', '•••', '--name', 'x', '--token=•••', '•••', '•••', 'plain']);
+    expect(hideSecrets(['docker', 'run', '-e', 'GITHUB_TOKEN=abc', '-e', 'LOG_LEVEL=debug', '--header', 'Authorization: Basic eHl6', 'C:\\notes', 'https://x.io/a'])).toEqual(['docker', 'run', '-e', 'GITHUB_TOKEN=•••', '-e', 'LOG_LEVEL=debug', '--header', 'Authorization: •••', 'C:\\notes', 'https://x.io/a']);
     expect(hideUrlSecrets('https://user:pw@mcp.example.com/mcp?token=abc&x=1')).toBe('https://mcp.example.com/mcp?token=•••&x=•••');
     expect(hideUrlSecrets('https://mcp.example.com')).toBe('https://mcp.example.com');
   });

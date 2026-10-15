@@ -521,11 +521,16 @@ const SECRET_FLAG = /(token|key|secret|password|passwd|auth|credential|bearer)/i
 const SECRET_VALUE = /^(sk-|sk_|rk_|pk_live|ghp_|gho_|ghs_|github_pat_|glpat-|xox[abpr]-|AKIA|ASIA|AIza|ya29\.|eyJ)/;
 const HIDDEN = '•••';
 
-/** Arguments with anything that looks like a credential hidden: a flag's value, or a token by its shape. */
+/**
+ * Arguments with anything that looks like a credential hidden: the value of a flag, a `NAME=value`
+ * or a `Header: value` whose name says it is one, and a token recognisable by its shape.
+ */
 export function hideSecrets(argv: readonly string[]): string[] {
   return argv.map((a, i) => {
-    const eq = /^(--?[\w.-]+)=(.*)$/.exec(a);
-    if (eq && SECRET_FLAG.test(eq[1]!)) return `${eq[1]}=${HIDDEN}`;
+    const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=(.+)$/.exec(a);
+    if (assigned && SECRET_FLAG.test(assigned[1]!)) return `${assigned[1]}=${HIDDEN}`;
+    const header = /^([\w-]+)\s*:\s*\S/.exec(a);
+    if (header && SECRET_FLAG.test(header[1]!)) return `${header[1]}: ${HIDDEN}`;
     const prev = argv[i - 1];
     if (prev && /^--?[\w.-]+$/.test(prev) && SECRET_FLAG.test(prev) && !a.startsWith('-')) return HIDDEN;
     if (SECRET_VALUE.test(a) || /^Bearer\s/i.test(a)) return HIDDEN;
