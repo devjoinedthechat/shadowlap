@@ -328,7 +328,9 @@ describe('shadowlap fix', () => {
 
     const s = store();
     try {
-      expect(s.listEvents().map((e) => e.kind).filter((k) => k !== 'blame.done')).toEqual(['fix.applied', 'repair.accepted']);
+      // fix apply tests the goldens it copied, and that test session is kept like any other.
+      expect(s.listEvents().map((e) => e.kind).filter((k) => k !== 'blame.done')).toEqual(['fix.applied', 'test.session', 'repair.accepted']);
+      expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ data: { passed: 2, failed: 0 } });
       expect(s.listEvents({ kinds: ['repair.accepted'] })[0]).toMatchObject({ ref: fixId, data: { repairId: report.repairId, title: 'Escalate refunds above the policy limit', verifyId: report.verifyId } });
     } finally {
       s.close();
