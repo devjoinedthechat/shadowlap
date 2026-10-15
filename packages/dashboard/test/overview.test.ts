@@ -120,6 +120,26 @@ describe('the Overview: today', () => {
   });
 });
 
+describe('the Overview: recordings in progress', () => {
+  it('counts only runs something is recording: one its recorder stopped without ending reads as interrupted', () => {
+    const s = Store.open(':memory:');
+    try {
+      const live = addRun(s, { startedAt: NOW - 10 * 60_000, status: 'running', calls: 'll' });
+      // Killed two days ago, never ended: still marked running, with no recorder left (as a run its
+      // process lost reads once that process is gone).
+      const left = '01K4ZZ0000000000000000LEFT';
+      s.importRun({ runId: left, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['python', 'refund_agent.py'], cwd: '/work' }, codeVersion: null, startedAt: NOW - 2 * DAY, endedAt: null });
+      const out = overviewSummary(s, { tz: 'UTC', now: NOW });
+      expect(out.today.recording.map((r) => r.runId)).toEqual([live]);
+      const rows = out.grid.families.flatMap((f) => f.rows);
+      expect(rows.find((r) => r.runId === live)?.status).toBe('running');
+      expect(rows.find((r) => r.runId === left)?.status).toBe('crashed');
+    } finally {
+      s.close();
+    }
+  });
+});
+
 describe('the Overview: this week’s runs as rows of calls', () => {
   it('groups runs under the recording they came from, newest family first', () => {
     const g = o.grid;

@@ -287,6 +287,9 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   }
 
   const thisWeek = inWindow.filter((r) => r.startedAt >= week.from && !r.bundled);
+  // Recordings in progress, as the top bar's chip counts them: a run whose recorder stopped without
+  // ending it (killed, out of memory) is still marked running, but nothing is recording it.
+  const recording = new Set(store.recordingRuns(now).live.map((x) => x.run.runId));
   const fixes = fixesSummary(store, now);
   const goldens = options.goldens ?? [];
   const tests = goldens.length ? overviewTests(store, { now, weekStart: week.from }, { goldens }) : null;
@@ -298,8 +301,8 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     sums,
     daily,
     counts: index.counts,
-    today: todayPanel(store, index, inWindow, stats, today),
-    grid: runGrid(store, index, thisWeek, stats, Math.max(1, Math.min(500, Math.floor(options.gridRows ?? 40) || 40))),
+    today: todayPanel(store, index, inWindow, stats, today, recording),
+    grid: runGrid(store, index, thisWeek, stats, Math.max(1, Math.min(500, Math.floor(options.gridRows ?? 40) || 40)), recording),
     outcomes: {
       reproduced: { value: fixes.reproduced.thisWeek, lastWeek: fixes.reproduced.lastWeek, open: fixes.open },
       fixesVerified: { value: fixes.verified.thisWeek, lastWeek: fixes.verified.lastWeek, rejected: fixes.rejected.thisWeek },
@@ -312,7 +315,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   };
 }
 
-function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats: Map<string, RunStats>, today: LocalDay): TodayPanel {
+function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats: Map<string, RunStats>, today: LocalDay, recordingNow: ReadonlySet<string>): TodayPanel {
   const runs = inWindow.filter((r) => r.startedAt >= today.start && r.startedAt < today.end);
   const shown = runs.filter((r) => !r.bundled);
   const of = (kind: RunKind) => shown.filter((r) => r.kind === kind);
@@ -327,7 +330,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
     day: today.key,
     served: sum(shown, (s) => s.origins.r),
     notRespent: sum(shown, (s) => s.saved),
-    recording: index.runs.filter((r) => r.status === 'running' && r.mode === 'record' && !r.bundled).map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt })),
+    recording: index.runs.filter((r) => recordingNow.has(r.runId) && r.mode === 'record' && !r.bundled).map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt })),
     replays: of('clean').length,
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
     tests: { count: tests.length, failed: failedTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
@@ -349,7 +352,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
  * it and the week's runs. Families come newest first (by their newest run of the week) and are
  * added whole while they fit; one family too large for the grid shows its first rows.
  */
-function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>, maxRows: number): RunGrid {
+function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>, maxRows: number, recordingNow: ReadonlySet<string>): RunGrid {
   const week = new Set(runs.map((r) => r.runId));
   // The run each row hangs under: its parent, or past an attempt (attempts are not rows), the run that attempt came from.
   const shownParent = (r: IndexedRun): IndexedRun | null => {
@@ -425,7 +428,8 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
           depth,
           context: !week.has(run.runId),
           kind: run.kind,
-          status: run.status,
+          // Only a run something is recording grows in place; one its recorder left reads as interrupted.
+          status: run.status === 'running' && !recordingNow.has(run.runId) ? 'crashed' : run.status,
           outcome: run.outcome,
           failed: run.failed,
           label: run.label,
