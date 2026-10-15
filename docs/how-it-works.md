@@ -77,7 +77,9 @@ Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped 
 - `--guard block` (default for `shadowlap test`): the connection is refused before any bytes leave, with an error the agent can catch (`ESHADOWLAP` in Node, `OSError` in Python).
 - `--guard off`: nothing is intercepted.
 
-`SHADOWLAP_GUARD_ALLOW=host:port,host:port` whitelists targets you accept (a local database in development, for example). Unix sockets and pipes are local IPC and always allowed. The guard also runs during recording, so a recording's summary already tells you which hosts your agent talks to outside Shadowlap, before you ever replay. The run keeps the list too, and its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from) shows it. Targets are named by the host the agent asked for, in Python as in Node (`api.stripe.com:443`, not the address it resolved to), and an allowed host name matches in both.
+`SHADOWLAP_GUARD_ALLOW=host:port,host:port` whitelists targets you accept (a local database in development, for example). Unix sockets and pipes are local IPC and always allowed. The guard also runs during recording, so a recording's summary already tells you which hosts your agent talks to outside Shadowlap, before you ever replay. The run keeps the list too, for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from).
+
+Node names a target by the host the agent asked for. Python connects to the address a name resolved to, so its guard names a target by the names that resolved to that address (`api.stripe.com:443`, not the address); when several did, as behind a CDN or a shared load balancer, the address is shown with all of them (`104.18.7.1:443 (api.example.com, cdn.example.com)`). Since those hosts can't be told apart when the connection opens, an allowed host name lets a Python connection through only while every name that resolved to its address is allowed. Allow the address itself (`104.18.7.1:443`) to let them all through.
 
 ## Where forks happen
 

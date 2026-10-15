@@ -59,8 +59,11 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
         threading.Thread(target=send, daemon=True).start()
 
-    # Python connects to the address a name resolved to. The names are remembered, so the run says
-    # which host it reached (api.stripe.com:443, not an IP), and an allowed name matches.
+    # Python connects to the address a name resolved to, so the guard remembers every name that
+    # resolved to each address: the run then says which host it reached (api.stripe.com:443, not
+    # an IP). Two hosts behind one address (a CDN, a shared load balancer) can't be told apart when
+    # the socket connects, so an allowed name lets a connection through only while every name seen
+    # for its address is allowed, and an address with several names is reported with all of them.
     _names = {}
     _orig_getaddrinfo = socket.getaddrinfo
 
@@ -68,10 +71,12 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         infos = _orig_getaddrinfo(host, *args, **kwargs)
         try:
             name = host.decode("idna") if isinstance(host, bytes) else host
-            if isinstance(name, str):
+            if isinstance(name, str) and name:
                 for info in infos:
                     if info[4][0] != name:
-                        _names[info[4][0]] = name
+                        seen = _names.setdefault(info[4][0], [])
+                        if name not in seen:
+                            seen.append(name)
         except Exception:
             pass
         return infos
@@ -89,15 +94,21 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         key = _target(sock, address)
         if key is None or key in _allowed:
             return
-        key = "%s:%s" % (_names.get(address[0], address[0]), address[1])
-        if key in _allowed:
+        allow = key
+        names = list(_names.get(address[0], ()))
+        named = ["%s:%s" % (name, address[1]) for name in names]
+        if named and all(k in _allowed for k in named):
             return
+        if len(named) == 1:
+            key = allow = named[0]
+        elif named:
+            key = "%s (%s)" % (key, ", ".join(names))
         n = _seen.get(key, 0) + 1
         _seen[key] = n
         action = "blocked" if _mode == "block" else "warned"
         if n == 1:
             if _mode == "block":
-                sys.stderr.write("[shadowlap] blocked an outbound connection to %s: it bypasses Shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=%s.\n" % (key, key))
+                sys.stderr.write("[shadowlap] blocked an outbound connection to %s: it bypasses Shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=%s.\n" % (key, allow))
             else:
                 sys.stderr.write("[shadowlap] warning: outbound connection to %s bypasses Shadowlap and is not recorded; it will run again on every replay. Wrap the call as a tool.\n" % key)
         _report(key, action)
