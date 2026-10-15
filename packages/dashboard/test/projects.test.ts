@@ -259,9 +259,31 @@ describe('setupView', () => {
     expect(v.done).toBeNull();
     expect(v.skip).toBeNull();
     expect(v.shows).toBe('none');
-    // Calibrated, then skipped: the calibration still counts.
+    // Calibrated, then skipped: the calibration still counts. It never ran init, so step 1 was skipped too.
     const calibrated = entry('research-agent', { stage: 'done', skipped: true, runId: RUN, calibration: { added: [] } });
-    expect(view(calibrated, facts({ runs: 1, recordings: [run()] })).steps.map((x) => x.state)).toEqual(['done', 'done', 'done', 'skipped']);
+    expect(view(calibrated, facts({ runs: 1, recordings: [run()] })).steps.map((x) => x.state)).toEqual(['skipped', 'done', 'done', 'skipped']);
+  });
+
+  it('calls step 1 done only once init ran, and skipped when a recording came first', () => {
+    // Recorded in a terminal before init: step 1 can still be done, and says so.
+    const terminal = view(entry('triage-bot', { stage: 'recorded', runId: RUN }), facts({ runs: 1, recordings: [run()] }));
+    expect(terminal.inspect).toMatchObject({
+      state: 'skipped',
+      text: 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.',
+      button: { label: 'Inspect the folder', action: 'init' },
+      cli: ['shadowlap init'],
+      findings: null,
+    });
+    expect(terminal.record.state).toBe('done');
+    // A folder counted as set up when the dashboard started there, its runs since deleted, never inspected:
+    // the setup starts from step 1, not from a step 1 marked done with nothing to show for it.
+    const restarted = view(entry('agent', { stage: 'done' }), facts());
+    expect(restarted).toMatchObject({ title: 'No runs yet', shows: 'everywhere' });
+    expect(restarted.steps.map((x) => x.state)).toEqual(['current', 'todo', 'todo', 'todo']);
+    expect(restarted.inspect).toMatchObject({ text: expect.stringMatching(/^Finds the model SDKs/), button: { action: 'init' } });
+    // Inspected before its runs were deleted: it starts again from recording.
+    const inspected = view(entry('agent', { stage: 'done', findings: findings() }), facts());
+    expect(inspected.steps.map((x) => x.state)).toEqual(['done', 'current', 'todo', 'todo']);
   });
 
   it('words one tool that isn’t wrapped in the singular', () => {

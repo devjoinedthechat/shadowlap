@@ -57,6 +57,10 @@ describe('deriveSetup', () => {
     expect(deriveSetup({ stage: 'added', runId: null }, facts())).toMatchObject({ stage: 'added', run: null, live: false, shows: 'everywhere', steps: { recorded: false, clean: false, tested: false }, empty: null });
     // A project set up whose runs are all gone starts again from its first steps.
     expect(deriveSetup({ stage: 'done', runId: 'GONE' }, facts())).toMatchObject({ stage: 'inspected', run: null, live: false, shows: 'everywhere' });
+    // From inspecting, unless init ran there: a folder counted as set up when a dashboard started in it never was.
+    expect(deriveSetup({ stage: 'done', runId: null, findings: null }, facts())).toMatchObject({ stage: 'added', shows: 'everywhere' });
+    expect(deriveSetup({ stage: 'done', runId: null, findings: findings(1, []) }, facts())).toMatchObject({ stage: 'inspected', shows: 'everywhere' });
+    expect(deriveSetup({ stage: 'inspected', runId: null, findings: null }, facts())).toMatchObject({ stage: 'added' });
   });
 
   it('counts a recording made in a terminal as the setup’s', () => {

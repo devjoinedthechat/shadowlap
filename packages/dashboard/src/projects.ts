@@ -370,23 +370,25 @@ export function setupView(input: SetupInput): SetupView {
   const commands = setupCommands({ argv, runId: run?.runId ?? null, golden, modelServer: server });
   const totals = run && input.run?.runId === run.runId ? input.run : null;
 
-  // 1 · Inspect the folder
+  // 1 · Inspect the folder: done once `init` ran and its findings are kept; skipped when a later
+  // step was reached without it (a recording made in a terminal first), which can still be done.
   const unwrapped = unwrappedTools(findings);
   const writes = unwrapped.filter((t) => t.effect === 'write');
   const one = unwrapped.length === 1;
+  const passedInspect = !findings && (stageAtLeast(stage, 'recorded') || live);
   const inspect: InspectStep = {
     key: 'inspect',
     n: 1,
     title: 'Inspect the folder',
-    state: state(inspected, true),
-    cli: inspected ? [] : commands.inspect,
-    text: inspected ? (findings ? null : 'Inspect it again to see what it finds.') : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
-    button: inspected && findings ? null : { label: 'Inspect the folder', action: 'init' },
-    findings: inspected && findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
+    state: state(!!findings, true, passedInspect),
+    cli: findings ? [] : commands.inspect,
+    text: findings ? null : passedInspect ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
+    button: findings ? null : { label: 'Inspect the folder', action: 'init' },
+    findings: findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
     summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(findings.command ? [quoteArgv(findings.command)] : [])].join(' · ') : null,
-    folded: inspected && !!findings && recorded && unwrapped.length === 0,
+    folded: !!findings && recorded && unwrapped.length === 0,
     warning:
-      inspected && unwrapped.length
+      findings && unwrapped.length
         ? {
             title: `${unwrapped.length === writes.length ? plural(unwrapped.length, 'write tool') : plural(unwrapped.length, 'tool')} ${one ? 'isn’t' : 'aren’t'} wrapped.`,
             text: `${one ? 'Its' : 'Their'} calls won’t be recorded, so a replay runs ${one ? 'it' : 'them'} for real${writes.length ? `: ${listed(writes.map((t) => t.name))} would act again` : ''}. Wrap ${one ? 'it' : 'them'}, with the effect declared:`,

@@ -64,7 +64,7 @@ A project with no runs shows its setup on every page but Settings; one that is p
 | Make the replay clean | `shadowlap calibrate <run> --write` |
 | Keep it as a test | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
 
-A recording counts once it holds calls: one whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so. When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**. Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
+Inspecting is done once `init` has run in the folder; a project recorded in a terminal first shows it as skipped, and can still be inspected. A recording counts once it holds calls: one whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so. When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**. Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
 
 Making the replay clean replays the recording offline: when it replays clean as it is, the step is done by itself; when calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`. The golden goes in a folder of its own, `goldens/<project>` unless you name another; Shadowlap never packs over a golden that is already there, and offers the next free name instead. **Skip the rest** appears after the first recording.
 

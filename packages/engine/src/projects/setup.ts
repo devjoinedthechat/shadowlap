@@ -315,9 +315,10 @@ function unwrappedWhen(state: SetupState, run: RunFact, own: boolean): string[] 
 /**
  * Where a project's setup is, from what the project list remembers, what its store holds and the
  * packs in its repository. Without a recording that holds calls the setup is at most inspected (the
- * recording may have been deleted, still be running, or have recorded nothing); one made in a
- * terminal counts. The list's own progress (calibrated, tested) counts only for the recording it
- * names. A project finished with no runs left shows the steps from the start again.
+ * recording may have been deleted, still be running, or have recorded nothing), and inspected only
+ * once `init` ran there; one made in a terminal counts. The list's own progress (calibrated,
+ * tested) counts only for the recording it names. A project finished with no runs left shows the
+ * steps from the start again.
  */
 export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?: readonly PackFact[] } = {}): EffectiveSetup {
   const hasRuns = facts.runs > 0;
@@ -342,7 +343,10 @@ export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?
     return { ...base, stage: 'done', live: !!run?.live, shows: 'none', steps: { recorded, clean, tested }, ...kept(tested) };
   }
   if (!run || run.live) {
-    const stage = earlierStage(state.stage, 'inspected');
+    // Inspected only when `init` ran (its findings are kept), whatever stage the list reached without
+    // it: a folder counted as set up when the dashboard started there, its runs since deleted.
+    const inspected = state.findings !== undefined ? !!state.findings : stageAtLeast(state.stage, 'inspected');
+    const stage: SetupStage = inspected ? 'inspected' : 'added';
     return { ...base, stage, live: !!run, shows: shows(stage), steps: { recorded: false, clean: false, tested: false }, ...kept(false) };
   }
   const listed = own ? state.stage : 'recorded';
