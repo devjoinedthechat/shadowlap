@@ -445,9 +445,10 @@ Starts a sidecar with one recording run for a process you launch yourself and pr
 
 ```sh
 shadowlap mcp [--effect <tool=effect>]... -- <server command>
+shadowlap mcp --url <server> [--header "Name: value"]... [--effect <tool=effect>]...
 ```
 
-A stdio proxy for an MCP server: put it in the client's server configuration in place of the server itself. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. See [MCP servers](./mcp.md).
+A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`${VAR}` read from the environment) with every request. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. See [MCP servers](./mcp.md).
 
 ## diff
 

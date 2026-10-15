@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
-import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
+import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
 import { confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, requireRun, type GlobalOpts } from '../shared.js';
@@ -259,21 +259,20 @@ export function register(program: Command): void {
 
   program
     .command('mcp')
-    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>. tools/call is recorded and replayed; everything else passes through')
-    .argument('<command...>', 'the MCP server command, as the client would start it')
+    .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP. tools/call is recorded and replayed; everything else passes through')
+    .argument('[command...]', 'the MCP server command, as the client would start it')
+    .option('--url <server>', "a remote MCP server's endpoint, reached over Streamable HTTP")
+    .option('--header <header>', 'a header for every request to the --url server, such as "Authorization: Bearer ${TOKEN}" (repeatable; ${VAR} is read from the environment)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--effect <tool=effect>', 'pure | read | write for a tool, overriding the server\'s annotations (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .passThroughOptions()
-    .action(async (argv: string[], flags: { effect: string[] }) => {
-      const config = loadConfig(process.cwd());
-      const effects = { ...config.mcp?.effects, ...parseEffectFlags(flags.effect) };
-      const log = (line: string) => process.stderr.write(`[shadowlap mcp] ${line}\n`);
-      const target = discoverSidecar(process.env, process.cwd(), log);
-      if (!target) log('no active run (SHADOWLAP_URL unset and no .shadowlap/active.json): passing everything through');
-      const { child, done } = startMcpProxy({ clientIn: process.stdin, clientOut: process.stdout, server: { command: argv[0]!, args: argv.slice(1) }, sidecar: target, effects, log });
-      const onSignal = (sig: NodeJS.Signals) => child.kill(sig);
-      process.on('SIGINT', onSignal);
-      process.on('SIGTERM', onSignal);
-      process.exitCode = await done;
+    .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[] }) => {
+      let code: number;
+      try {
+        code = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
+      } catch (err) {
+        throw new InvalidArgumentError((err as Error).message);
+      }
+      process.exitCode = code;
     });
 
 }

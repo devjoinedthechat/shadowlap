@@ -19,6 +19,9 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
     allowed.add(`${h2.hostname}:${h2.port}`);
   }
   for (const item of (process.env.SHADOWLAP_GUARD_ALLOW ?? '').split(',')) if (item.trim()) allowed.add(item.trim());
+  // `shadowlap mcp --url` talks to its server for the agent and records the tool calls itself, so
+  // its connections are not traffic that bypasses Shadowlap. It allows its server's host:port here.
+  globalThis[Symbol.for('shadowlap.guard.allow')] = (key) => allowed.add(String(key));
   const seen = new Map();
 
   function target(args) {
