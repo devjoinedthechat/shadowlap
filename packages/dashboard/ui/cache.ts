@@ -56,3 +56,14 @@ export function cacheReadShare(calls: readonly UsageCall[]): number {
   }
   return all ? read / all : 0;
 }
+
+/**
+ * What the Context view says under the chart when the cache never stopped hitting: that the calls
+ * read the previous prompt from it, or, for calls that never wrote to it or read from it, that there
+ * was nothing to miss.
+ */
+export function steadyCacheNote(calls: readonly UsageCall[]): string {
+  const used = calls.some((c) => c.kind === 'api' && c.usage && c.usage.cacheRead + c.usage.cacheWrite > 0);
+  if (!used) return 'No model call here wrote to the prompt cache or read from it, so there was nothing to miss.';
+  return calls.some((c) => c.conversation) ? 'Each conversation starts its own context; within each, every model call read the previous prompt from the cache.' : 'Every model call read the previous prompt from the cache.';
+}

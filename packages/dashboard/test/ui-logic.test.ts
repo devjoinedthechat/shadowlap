@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
-import { cacheMisses, cacheReadShare, type UsageCall } from '../ui/cache.js';
+import { cacheMisses, cacheReadShare, steadyCacheNote, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, tildePath, whenShort } from '../ui/format.js';
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
@@ -210,6 +210,12 @@ describe('cache misses', () => {
 
   it('does not judge a conversation that never used the cache', () => {
     expect(cacheMisses([m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)])).toEqual([]);
+  });
+
+  it('says calls that never used the cache had nothing to miss, rather than that they read from it', () => {
+    expect(steadyCacheNote([m(1, 0, 2000), m(2, 0, 2400)])).toBe('No model call here wrote to the prompt cache or read from it, so there was nothing to miss.');
+    expect(steadyCacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)])).toBe('Every model call read the previous prompt from the cache.');
+    expect(steadyCacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)])).toMatch(/^Each conversation starts its own context/);
   });
 });
 

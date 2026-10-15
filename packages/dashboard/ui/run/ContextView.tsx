@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { CallRow, RunDetail } from '../api.js';
 import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
-import { cacheMisses, cacheReadShare, wholeInput } from '../cache.js';
+import { cacheMisses, cacheReadShare, steadyCacheNote, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
 
 /**
@@ -149,7 +149,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
             <b>The cache stopped hitting at {missList.slice(0, 8).map((n) => `#${n}`).join(', ')}.</b> {num([...misses.values()].reduce((s, n) => s + n, 0))} tokens were sent again. A change early in the prompt does this to every call after it.
           </p>
         ) : (
-          <p className="cnote">{ms.some((c) => c.conversation) ? 'Each conversation starts its own context; within each, every model call read the previous prompt from the cache.' : 'Every model call read the previous prompt from the cache.'}</p>
+          <p className="cnote">{steadyCacheNote(ms)}</p>
         )}
       </div>
     </>
