@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
-import { runsRead } from '../src/run-stats.js';
+import { runsRead, warmRunStats } from '../src/run-stats.js';
 import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
 
 /**
@@ -149,5 +150,33 @@ describe('read models at scale', () => {
       // Alone, each takes 60 to 130 ms of CPU time; the bound leaves room for a slower machine.
       expect(t.cpu, `${name} took ${ms(t)}`).toBeLessThan(1000);
     }
+  });
+
+  it('works the totals out ahead in short slices, so the first look reads no calls either', () => {
+    // As a store no dashboard has opened: no run's totals kept yet.
+    const raw = new DatabaseSync(path);
+    raw.exec('DELETE FROM run_stats');
+    raw.close();
+    const store = Store.open(path);
+    try {
+      let slices = 0;
+      let longest = 0;
+      for (let done = false; !done; slices++) {
+        const c0 = process.cpuUsage();
+        done = warmRunStats(store, { budgetMs: 50 });
+        const c = process.cpuUsage(c0);
+        longest = Math.max(longest, (c.user + c.system) / 1000);
+      }
+      expect(runsRead(store)).toBe(RUNS);
+      process.stdout.write(`warmed ${RUNS} runs in ${slices} slices, the longest ${Math.round(longest)} ms CPU\n`);
+      // A slice stops soon after its 50 ms, so requests between slices never wait for the whole
+      // second of work: about 20 slices of 50 to 130 ms alone; the bound leaves room for a slower machine.
+      expect(slices).toBeGreaterThanOrEqual(5);
+      expect(longest, `a slice took ${Math.round(longest)} ms of CPU time`).toBeLessThan(1000);
+    } finally {
+      store.close();
+    }
+    const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
+    expect(summary.read).toBe(0);
   });
 });

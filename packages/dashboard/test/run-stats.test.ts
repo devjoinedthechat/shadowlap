@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateCost, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
-import { loadRunIndex } from '../src/run-index.js';
-import { cacheMisses, callTotals, originStrings, runsRead, runStats, spentOf, sumStats } from '../src/run-stats.js';
+import { overviewSummary } from '../src/overview.js';
+import { keepingIndex, loadRunIndex } from '../src/run-index.js';
+import { cacheMisses, callTotals, originStrings, runsRead, runStats, spentOf, sumStats, warmRunStats } from '../src/run-stats.js';
 import { addRun, capture, DAY, MODEL, usageAt } from './read-model-store.js';
 
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -81,9 +82,12 @@ describe('run statistics', () => {
     expect(sumStats([s, s]).origins.l).toBe(4);
   });
 
-  it('reads a finished run’s calls once, and a running one’s every time', () => {
+  it('reads a finished run’s calls once, and a running one’s once per look at the store', () => {
     const live = addRun(store, { startedAt: NOW, calls: 'll', status: 'running' });
     expect(statsOf(live).get(live)!.calls).toBe(2);
+    // Parts of one read model asking again, with nothing written meanwhile, read its calls once.
+    expect(statsOf(live).get(live)!.calls).toBe(2);
+    expect(runsRead(store)).toBe(1);
     store.appendCallStart({ runId: live, callNo: 3, kind: 'tool', name: 't', fingerprint: 'f', occurrence: 1, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: NOW });
     expect(statsOf(live).get(live)!.calls).toBe(3);
     expect(runsRead(store)).toBe(2);
@@ -199,5 +203,73 @@ describe('run statistics', () => {
     // Call 2's whole input was 40 + 1200 + 100; call 3 read nothing from the cache.
     expect(misses).toEqual([{ runId: rec, kind: 'recording', callNo: 3, scope: null, tokens: 1340 }]);
     expect(callTotals(store, index, [index.byId.get(rec)!]).get(rec)!.misses).toEqual([[3, null, 1340]]);
+  });
+});
+
+describe('kept totals', () => {
+  it('keep the run index current: keeping a run’s totals changes no run', () => {
+    const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llll' });
+    const index = loadRunIndex(store);
+    // The first read works out the run's totals and keeps them in the store.
+    runStats(store, index, [index.byId.get(rec)!]);
+    expect(store.query(`SELECT COUNT(*) AS n FROM run_stats`)).toEqual([{ n: 1 }]);
+    expect(loadRunIndex(store)).toBe(index);
+    // Any other write still makes the next read classify the runs again.
+    store.updateRunMeta(rec, { labels: ['bug'] });
+    expect(loadRunIndex(store)).not.toBe(index);
+  });
+
+  it('read the index again when another process wrote while they were kept', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shadowlap-kept-index-'));
+    const here = Store.open(join(dir, 'shadowlap.db'));
+    const other = Store.open(join(dir, 'shadowlap.db'));
+    try {
+      addRun(here, { startedAt: NOW - DAY, calls: 'll' });
+      const index = loadRunIndex(here);
+      let theirs = '';
+      keepingIndex(here, () => {
+        theirs = addRun(other, { startedAt: NOW, calls: 'l' });
+        return here.saveRunStats([]);
+      });
+      expect(loadRunIndex(here)).not.toBe(index);
+      expect(loadRunIndex(here).byId.has(theirs)).toBe(true);
+    } finally {
+      here.close();
+      other.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('are worked out ahead, a slice at a time, so a dashboard’s first look reads no calls', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shadowlap-warm-'));
+    const path = join(dir, 'shadowlap.db');
+    try {
+      const first = Store.open(path);
+      const recs: string[] = [];
+      for (let i = 0; i < 250; i++) recs.push(addRun(first, { startedAt: NOW - (i + 1) * 60_000, calls: 'lll' }));
+      for (const r of recs.slice(0, 20)) addRun(first, { parent: r, startedAt: NOW - 1000, divergence: 2, calls: 'rl' });
+      addRun(first, { startedAt: NOW, calls: 'l', status: 'running' });
+      // Each slice does at least one batch of runs, however small its budget.
+      let slices = 0;
+      while (!warmRunStats(first, { budgetMs: 0 })) slices++;
+      expect(slices).toBeGreaterThan(0);
+      expect(runsRead(first)).toBe(270);
+      // Done: another slice finds nothing left to work out.
+      expect(warmRunStats(first, { budgetMs: 0 })).toBe(true);
+      expect(runsRead(first)).toBe(270);
+      first.close();
+
+      const next = Store.open(path);
+      try {
+        const summary = overviewSummary(next, { tz: 'UTC', now: NOW });
+        expect(summary.sums.week.runs).toBe(271);
+        // Only the run still recording had its calls read.
+        expect(runsRead(next)).toBe(1);
+      } finally {
+        next.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

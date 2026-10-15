@@ -1,6 +1,6 @@
 import { countOrigins, displayOrigin, estimateCost, ORIGIN_CODE, type CallRecord, type Origin, type OriginCounts, type Outcome, type Price, type RunKind, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/tui/data';
-import type { IndexedRun, RunIndex } from './run-index.js';
+import { keepingIndex, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
 /**
  * What a run's calls add up to: where each answer came from, the tokens each model used live,
@@ -106,6 +106,12 @@ const int = (v: unknown): number | null => (typeof v === 'number' && Number.isIn
 
 interface Kept {
   memory: Map<string, { key: string; totals: CallTotals }>;
+  /**
+   * Runs in progress, as one look at the store (one run index) found them: they change with every
+   * call they record, but not while the store does not, so the parts of one read model that ask
+   * for them again read their calls once.
+   */
+  running: { index: RunIndex | null; totals: Map<string, CallTotals> };
   /** Runs whose calls were read to work out their totals, for tests that check how much a read model reads. */
   runsRead: number;
 }
@@ -115,7 +121,7 @@ const kept = new WeakMap<Store, Kept>();
 function keptFor(store: Store): Kept {
   let k = kept.get(store);
   if (!k) {
-    k = { memory: new Map(), runsRead: 0 };
+    k = { memory: new Map(), running: { index: null, totals: new Map() }, runsRead: 0 };
     kept.set(store, k);
   }
   return k;
@@ -150,10 +156,11 @@ export function callTotals(store: Store, index: RunIndex, runs: Iterable<Indexed
   const k = keptFor(store);
   const out = new Map<string, CallTotals>();
   const unknown: IndexedRun[] = [];
+  if (k.running.index !== index) k.running = { index, totals: new Map() };
   for (const r of runs) {
     if (out.has(r.runId)) continue;
-    const hit = k.memory.get(r.runId);
-    if (hit && hit.key === keyOf(r)) out.set(r.runId, hit.totals);
+    const hit = r.status === 'running' ? { key: keyOf(r), totals: k.running.totals.get(r.runId) } : k.memory.get(r.runId);
+    if (hit?.totals && hit.key === keyOf(r)) out.set(r.runId, hit.totals);
     else if (r.calls === 0) out.set(r.runId, EMPTY);
     else unknown.push(r);
   }
@@ -181,13 +188,46 @@ export function callTotals(store: Store, index: RunIndex, runs: Iterable<Indexed
   for (const r of todo) {
     const totals = fresh.get(r.runId) ?? EMPTY;
     out.set(r.runId, totals);
-    if (r.status === 'running') continue;
+    if (r.status === 'running') {
+      k.running.totals.set(r.runId, totals);
+      continue;
+    }
     remember(k, r, totals);
     keep.push({ runId: r.runId, key: keyOf(r), stats: JSON.stringify(totals) });
   }
-  // A store that can't be written just now keeps them in memory only.
-  store.saveRunStats(keep);
+  // A store that can't be written just now keeps them in memory only. Keeping them changes no run,
+  // so the run index read before stays current.
+  if (keep.length) keepingIndex(store, () => store.saveRunStats(keep));
   return out;
+}
+
+const warming = new WeakMap<Store, { index: RunIndex; next: number }>();
+
+/**
+ * Works out and keeps the totals of finished runs whose totals are not known yet, newest first, for
+ * about `budgetMs` (50 unless asked) per call. A dashboard calls it when it starts and while it is
+ * idle, a slice at a time, so the first look at the Overview or the Runs page reads kept totals
+ * instead of every call of every run. True once it has been through every run in the store.
+ */
+export function warmRunStats(store: Store, options: { budgetMs?: number } = {}): boolean {
+  const budget = options.budgetMs ?? 50;
+  const started = performance.now();
+  const index = loadRunIndex(store);
+  const k = keptFor(store);
+  let w = warming.get(store);
+  // Runs came or went since the last slice: go through the new list (what is known is skipped fast).
+  if (!w || w.index !== index) warming.set(store, (w = { index, next: 0 }));
+  while (w.next < index.runs.length) {
+    const batch: IndexedRun[] = [];
+    while (w.next < index.runs.length && batch.length < 100) {
+      const r = index.runs[w.next++]!;
+      if (r.status !== 'running' && r.calls > 0 && k.memory.get(r.runId)?.key !== keyOf(r)) batch.push(r);
+    }
+    if (batch.length) callTotals(store, index, batch);
+    // At least one batch a call, however small the budget.
+    if (w.next < index.runs.length && performance.now() - started >= budget) return false;
+  }
+  return true;
 }
 
 function remember(k: Kept, r: IndexedRun, totals: CallTotals): void {

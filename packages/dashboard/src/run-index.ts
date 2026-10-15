@@ -160,15 +160,36 @@ export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode
 
 const kept = new WeakMap<Store, { version: string; index: RunIndex }>();
 
+/** Where the store's writes stand: by other connections (data_version) and by this one (total_changes). */
+function versionOf(store: Store): { others: string; key: string } {
+  const v = store.query(VERSION_SQL)[0];
+  return { others: String(v?.dv), key: `${String(v?.dv)}|${String(v?.tc)}` };
+}
+
 /** Reads and classifies every run in the store, or returns the index read before when nothing was written since. */
 export function loadRunIndex(store: Store): RunIndex {
-  const v = store.query(VERSION_SQL)[0];
-  const version = `${String(v?.dv)}|${String(v?.tc)}`;
+  const { key } = versionOf(store);
   const hit = kept.get(store);
-  if (hit && hit.version === version) return hit.index;
+  if (hit && hit.version === key) return hit.index;
   const index = readRunIndex(store);
-  kept.set(store, { version, index });
+  kept.set(store, { version: key, index });
   return index;
+}
+
+/**
+ * Runs `write`, which changes nothing the index reads (the run totals kept in `run_stats`), and keeps
+ * the index read before as current when no other connection wrote meanwhile: keeping a run's
+ * totals must not make the next request read and classify every run again.
+ */
+export function keepingIndex<T>(store: Store, write: () => T): T {
+  const before = versionOf(store);
+  const out = write();
+  const hit = kept.get(store);
+  if (hit && hit.version === before.key) {
+    const after = versionOf(store);
+    if (after.others === before.others) kept.set(store, { version: after.key, index: hit.index });
+  }
+  return out;
 }
 
 function readRunIndex(store: Store): RunIndex {
