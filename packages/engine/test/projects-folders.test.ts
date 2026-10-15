@@ -197,7 +197,46 @@ describe('suggestFolders', () => {
     expect(suggestFolders('~/Library/', { home })).toMatchObject({ folders: [], note: '~/Library holds system files, not projects.' });
     expect(suggestFolders('~/node_modules/', { home }).folders).toEqual([]);
     expect(suggestFolders('~/.s', { home }).folders).toEqual([]);
-    expect(suggestFolders('~/nowhere/', { home })).toMatchObject({ folders: [], note: '~/nowhere doesn’t exist.' });
+    expect(suggestFolders('~/nowhere/', { home })).toMatchObject({ folders: [], note: 'There’s no folder at ~/nowhere.' });
+  });
+
+  it('says nothing about what a hidden folder holds, or whether a file is there', () => {
+    const same = (a: string, b: string) => {
+      const x = suggestFolders(a, { home });
+      expect(x.folders, a).toEqual([]);
+      expect(suggestFolders(b, { home }), `${a} and ${b}`).toEqual({ ...x, query: b, note: x.note?.replace(a.replace(/\/$/, ''), b.replace(/\/$/, '')) ?? null, listed: x.listed?.replace(a, b) ?? null });
+      return x;
+    };
+    // A key that is there, and one that isn't: the same answer, without looking.
+    expect(same('~/.ssh/id_ed25519/', '~/.ssh/id_rsa/').note).toBe('Hidden folders aren’t listed.');
+    expect(same('~/.ssh/id_ed25519', '~/.ssh/id_rsa').note).toBe('Hidden folders aren’t listed.');
+    // Through a link into a hidden folder, too.
+    expect(same('~/link-hidden/package.json/', '~/link-hidden/nothing/').note).toBe('Hidden folders aren’t listed.');
+    expect(same('~/Library/Preferences/x.plist/', '~/Library/Preferences/y.plist/').note).toBe('~/Library/Preferences/x.plist holds system files, not projects.');
+    // A file in a folder that is listed gets the answer nothing there gets.
+    expect(same('~/Downloads/report.pdf/', '~/Downloads/taxes-2025.pdf/').note).toBe('There’s no folder at ~/Downloads/report.pdf.');
+    expect(same('~/notes.txt/', '~/notes.md/').note).toBe('There’s no folder at ~/notes.txt.');
+    const check = (typed: string) => checkFolder(typed, { home });
+    for (const [there, notThere] of [
+      ['~/.ssh/id_ed25519', '~/.ssh/id_rsa'],
+      ['~/link-hidden/package.json', '~/link-hidden/nothing'],
+      ['~/Downloads/report.pdf', '~/Downloads/taxes-2025.pdf'],
+      ['~/notes.txt', '~/notes.md'],
+    ] as const) {
+      const a = check(there);
+      expect(a.ok, there).toBe(false);
+      expect(check(notThere), there).toEqual(a.ok ? a : { ...a, why: a.why.replace(there, notThere) });
+    }
+    expect(check('~/.ssh/id_ed25519')).toMatchObject({ code: 'hidden' });
+    expect(check('~/Downloads/report.pdf')).toEqual({ ok: false, code: 'missing', why: 'There’s no folder at ~/Downloads/report.pdf.' });
+  });
+
+  it('matches a name typed on a keyboard to one macOS keeps decomposed', () => {
+    const accents = files(tempDir('sl-nfd-'), { 'Bu\u0308cher-agent/package.json': '{}', 'other/package.json': '{}' });
+    const s = suggestFolders('~/Bü', { home: accents });
+    expect(s.folders.map((f) => f.name.normalize('NFC'))).toEqual(['Bücher-agent']);
+    expect(suggestFolders('~/bu\u0308', { home: accents }).folders).toHaveLength(1);
+    expect(checkFolder(s.folders[0]!.path, { home: accents })).toMatchObject({ ok: true });
   });
 
   it('marks folders already added, and caps what it returns', () => {
@@ -252,8 +291,8 @@ describe('checkFolder', () => {
   it('refuses what the dashboard may not add, saying why', () => {
     const outside = files(tempDir('sl-check-out-'), { 'package.json': '{}' });
     expect(checkFolder('~/Downloads', { home })).toEqual({ ok: false, code: 'no-project-files', why: 'No pyproject.toml, package.json or requirements file in ~/Downloads. Pick the folder your agent’s code is in.' });
-    expect(checkFolder('~/nowhere', { home })).toEqual({ ok: false, code: 'missing', why: '~/nowhere doesn’t exist.' });
-    expect(checkFolder('~/notes.txt', { home })).toMatchObject({ ok: false, code: 'not-a-folder' });
+    expect(checkFolder('~/nowhere', { home })).toEqual({ ok: false, code: 'missing', why: 'There’s no folder at ~/nowhere.' });
+    expect(checkFolder('~/notes.txt', { home })).toEqual({ ok: false, code: 'missing', why: 'There’s no folder at ~/notes.txt.' });
     expect(checkFolder(outside, { home })).toMatchObject({ ok: false, code: 'outside' });
     expect(checkFolder('~/../', { home })).toMatchObject({ ok: false, code: 'outside' });
     expect(checkFolder('~/.config/agent', { home })).toMatchObject({ ok: false, code: 'hidden' });

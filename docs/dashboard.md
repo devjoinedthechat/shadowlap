@@ -49,7 +49,8 @@ Suggesting folders means the dashboard lists directories, so it does that within
 
 - Like every request, suggestions need the session token; adding a project, like every change, is also refused from another origin.
 - They reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`). A root can't be `/`, a system folder, or a folder that holds your home folder. A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
-- They list one folder level at a time, folder names and what kind of project each is; never files. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `~/AppData` and `~/snap` in your home folder, `node_modules` anywhere) are never listed or entered, unless you add a root inside one, such as your iCloud Drive folder under `~/Library`.
+- They list one folder level at a time, folder names and what kind of project each is; never files, and a file gets the same answer as a path where nothing is. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `~/AppData` and `~/snap` in your home folder, `node_modules` anywhere) are never listed or entered, unless you add a root inside one, such as your iCloud Drive folder under `~/Library`.
+- A typed path is checked as typed before anything is looked up, then where it really leads, and only then whether it is a folder: a path into a hidden folder gets the same answer whether or not something is there.
 - At most 2,000 entries are read from a folder, and 100 suggestions returned.
 
 ### Setting it up

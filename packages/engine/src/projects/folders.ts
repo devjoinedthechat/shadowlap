@@ -15,7 +15,8 @@ import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
  *   CORS preflight), so such a page can neither call it nor read its answer; adding a project is a
  *   change, and changes are also refused from another origin.
  * - It lists one directory level per request (the folder the typed path is in), directories only,
- *   by name and project kind. It never returns a file's name or contents.
+ *   by name and project kind. It never returns a file's name or contents, and says nothing about
+ *   whether a file is there: a file and a path where nothing is get the same answer.
  * - Only under the user's home folder, or roots they configured (`roots` in the project list, or
  *   `SHADOWLAP_PROJECT_ROOTS`). A path that resolves elsewhere, through `..` or a symbolic link,
  *   lists nothing. A configured root can't be a filesystem root, a system folder, or a folder
@@ -24,6 +25,10 @@ import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
  *   (`~/Library`, `~/AppData` and `~/snap` at the top of the home folder or a root;
  *   `node_modules`, `__pycache__` and `site-packages` anywhere), and nothing inside them. Only a
  *   root the user configured there, such as iCloud Drive's folder under `~/Library`, reaches in.
+ * - A typed path is checked as typed before anything is looked up on disk, then where it really
+ *   is (links followed, or the deepest folder above it that exists), and only then whether it is a
+ *   folder. So a path elsewhere, or in a hidden or system folder, gets the same answer whether or
+ *   not something is there: `~/.ssh/id_rsa/` can't be told from `~/.ssh/nothing/`.
  * - Capped: at most {@link SUGGEST_LIMITS.scanned} entries read from a directory, at most
  *   {@link SUGGEST_LIMITS.described} of them looked into for project files, and at most
  *   {@link SUGGEST_LIMITS.maxResults} returned.
@@ -321,11 +326,12 @@ export interface ProjectRoots {
   /** Real paths that suggestions and adds may reach: the home folder first, then configured roots. */
   roots: string[];
   /**
-   * The same roots as they were given as well, when a link makes that differ (`/work` for
-   * `/Volumes/work`): a typed path is checked against these before anything is looked up, so the
-   * answer never says whether a path elsewhere exists.
+   * Each root by every path it is reached by, as given and as its real path when a link makes
+   * them differ (`/work` for `/Volumes/work`), with the root it stands for. A typed path is checked
+   * against these as typed, before anything is looked up on disk, so the answer for a path
+   * elsewhere, or inside a hidden or system folder, never says whether something is there.
    */
-  reach: string[];
+  aliases: Array<{ path: string; root: string }>;
   /** Configured roots that were left out, and why. */
   refused: Array<{ path: string; why: string }>;
 }
@@ -341,7 +347,14 @@ export function projectRoots(options: { home?: string; configured?: readonly str
   const givenHome = options.home ?? homedir();
   const home = realpathOrNull(givenHome) ?? resolve(givenHome);
   const roots: string[] = isSystemPath(home) ? [] : [home];
-  const reach: string[] = roots.length ? [...new Set([home, resolve(givenHome)])] : [];
+  const aliases: ProjectRoots['aliases'] = [];
+  const alias = (path: string, root: string) => {
+    if (!aliases.some((a) => a.path === path)) aliases.push({ path, root });
+  };
+  if (roots.length) {
+    alias(home, home);
+    alias(resolve(givenHome), home);
+  }
   const refused: ProjectRoots['refused'] = [];
   for (const raw of options.configured ?? []) {
     const expanded = expandHome(raw, givenHome);
@@ -362,29 +375,73 @@ export function projectRoots(options: { home?: string; configured?: readonly str
       refused.push({ path: raw, why: 'it holds your home folder' });
       continue;
     }
-    if (!reach.includes(resolve(expanded))) reach.push(resolve(expanded));
-    if (!reach.includes(real)) reach.push(real);
-    // Inside a root already, it adds nothing, unless it is somewhere that root keeps out (a hidden
-    // or system folder): then it is a root of its own.
+    // Inside a root already, it adds nothing (its folders are checked from that root), unless it is
+    // somewhere that root keeps out (a hidden or system folder): then it is a root of its own.
     if (roots.some((r) => isWithin(real, r) && !blockedBetween(r, real))) continue;
     roots.push(real);
+    alias(real, real);
+    alias(resolve(expanded), real);
   }
-  return { roots, reach, refused };
+  return { roots, aliases, refused };
 }
 
-/** Whether a typed path, as typed (`..` resolved, links not followed), is under one of the roots. */
-function reachable(path: string, reach: readonly string[]): boolean {
-  return reach.some((r) => isWithin(path, r));
+/**
+ * Where a path is, as typed (`..` resolved, links not followed), without touching the disk: outside
+ * every root, inside a hidden or system folder of the root it is under, or neither (null).
+ */
+function placeAsTyped(path: string, aliases: ProjectRoots['aliases']): 'outside' | 'hidden' | 'system' | null {
+  let under: string | undefined;
+  for (const a of aliases) if (isWithin(path, a.path) && (under === undefined || a.path.length > under.length)) under = a.path;
+  return under === undefined ? 'outside' : blockedBetween(under, path);
 }
+
+/**
+ * Where a path really is: its real path when it exists, else the real path of the deepest folder
+ * above it that does, with the rest of the path after it. So a path through a link into a hidden
+ * folder is placed there whether or not its last part exists.
+ */
+function placeOnDisk(path: string): { real: string; exists: boolean } {
+  for (let p = path; ; ) {
+    const real = realpathOrNull(p);
+    if (real) return { real: p === path ? real : join(real, relative(p, path)), exists: p === path };
+    const up = dirname(p);
+    if (up === p) return { real: path, exists: false };
+    p = up;
+  }
+}
+
+type Place = { ok: true; real: string; root: string } | { ok: false; why: 'outside' | 'hidden' | 'system' | 'missing' };
+
+/**
+ * Where a typed path may be looked at, checked in an order that gives nothing away: first as typed,
+ * then where it really is (links followed), and only then whether it is a folder. A path outside
+ * the roots, or in a hidden or system folder, gets that answer whether or not anything is there,
+ * and a file gets the same answer as nothing at all.
+ */
+function place(path: string, roots: ProjectRoots): Place {
+  const typed = placeAsTyped(path, roots.aliases);
+  if (typed) return { ok: false, why: typed };
+  const { real, exists } = placeOnDisk(path);
+  const root = rootOf(real, roots.roots);
+  if (!root) return { ok: false, why: 'outside' };
+  const blocked = blockedBetween(root, real);
+  if (blocked) return { ok: false, why: blocked };
+  if (!exists || !isDirectory(real)) return { ok: false, why: 'missing' };
+  return { ok: true, real, root };
+}
+
+/** What the dashboard says about a path with nothing to show there: one answer for a file and for nothing at all. */
+const noFolder = (shown: string) => `There’s no folder at ${shown}.`;
 
 export type FolderCheck =
   | { ok: true; path: string; folder: FolderKind }
-  | { ok: false; code: 'invalid' | 'missing' | 'not-a-folder' | 'outside' | 'hidden' | 'system' | 'no-project-files'; why: string };
+  | { ok: false; code: 'invalid' | 'missing' | 'outside' | 'hidden' | 'system' | 'no-project-files'; why: string };
 
 /**
  * Whether a folder typed or picked in the dashboard may become a project there: an existing folder
- * under the home folder or a configured root (checked on its real path, so `..` and symbolic links
- * can't step out), not hidden, not a system folder, and with project files. Returns its real path.
+ * under the home folder or a configured root (checked as typed and on its real path, so `..` and
+ * symbolic links can't step out), not hidden, not a system folder, and with project files. Returns
+ * its real path. A file, and a path where nothing is, get the same answer (`missing`).
  */
 export function checkFolder(input: string, options: { home?: string; roots?: readonly string[]; requireProjectFiles?: boolean } = {}): FolderCheck {
   const home = options.home ?? homedir();
@@ -393,22 +450,17 @@ export function checkFolder(input: string, options: { home?: string; roots?: rea
   const expanded = expandHome(typed, home);
   const abs = resolve(isAbsolute(expanded) ? expanded : join(home, expanded));
   const shown = displayPath(abs, home);
-  const { roots, reach } = projectRoots({ home, configured: options.roots ?? [] });
-  const outside: FolderCheck = { ok: false, code: 'outside', why: `Only folders in your home folder${roots.length > 1 ? ' or a configured root' : ''} can be added from the dashboard. Run shadowlap dashboard in the folder to open it.` };
-  // Where it may go is settled before anything is looked up: the answer for a path elsewhere is
-  // the same whether or not it exists.
-  if (!reachable(abs, reach)) return outside;
-  const real = realpathOrNull(abs);
-  if (!real) return { ok: false, code: 'missing', why: `${shown} doesn’t exist.` };
-  const root = rootOf(real, roots);
-  if (!root) return outside;
-  if (!isDirectory(real)) return { ok: false, code: 'not-a-folder', why: `${shown} isn’t a folder.` };
-  const blocked = blockedBetween(root, real);
-  if (blocked === 'hidden') return { ok: false, code: 'hidden', why: `${shown} is in a hidden folder.` };
-  if (blocked === 'system') return { ok: false, code: 'system', why: `${shown} holds system files, not a project.` };
-  const folder = describeFolder(real, { home });
+  const roots = projectRoots({ home, configured: options.roots ?? [] });
+  const at = place(abs, roots);
+  if (!at.ok) {
+    if (at.why === 'outside') return { ok: false, code: 'outside', why: `Only folders in your home folder${roots.roots.length > 1 ? ' or a configured root' : ''} can be added from the dashboard. Run shadowlap dashboard in the folder to open it.` };
+    if (at.why === 'hidden') return { ok: false, code: 'hidden', why: `${shown} is in a hidden folder.` };
+    if (at.why === 'system') return { ok: false, code: 'system', why: `${shown} holds system files, not a project.` };
+    return { ok: false, code: 'missing', why: noFolder(shown) };
+  }
+  const folder = describeFolder(at.real, { home });
   if (options.requireProjectFiles !== false && !folder.kind) return { ok: false, code: 'no-project-files', why: folder.why ?? `${shown} has no project files.` };
-  return { ok: true, path: real, folder };
+  return { ok: true, path: at.real, folder };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -472,9 +524,9 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   const result = (listed: string | null, folders: FolderSuggestion[], truncated: boolean, note: string | null): FolderSuggestions => ({ query, listed, folders, truncated, note });
   if (query.length > SUGGEST_LIMITS.queryChars || query.includes('\0')) return result(null, [], false, 'That path is too long to look up.');
 
-  const { roots, reach } = projectRoots({ home, configured: options.roots ?? [] });
+  const vetted = projectRoots({ home, configured: options.roots ?? [] });
+  const roots = vetted.roots;
   if (!roots.length) return result(null, [], false, 'No folders to suggest: set SHADOWLAP_PROJECT_ROOTS to the folders your projects are in.');
-  const outside = () => result(null, [], false, `Only folders in your home folder${roots.length > 1 ? ' and the configured roots' : ''} are listed.`);
   let typed = query.trim();
   if (typed === '' || typed === '~') typed = '~/';
   if (typed.startsWith('~') && !/^~(?:[/\\]|$)/.test(typed)) return result(null, [], false, 'Only your own home folder is listed.');
@@ -482,21 +534,23 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   const abs = isAbsolute(expanded) ? expanded : join(home, expanded);
   const endsWithSeparator = /[/\\]$/.test(typed);
   const dir = endsWithSeparator ? resolve(abs) : dirname(resolve(abs));
-  const prefix = endsWithSeparator ? '' : basename(resolve(abs)).toLowerCase();
+  // Compared composed: a name typed on a keyboard and one macOS keeps decomposed (Finder's `Bücher`) match.
+  const prefix = endsWithSeparator ? '' : basename(resolve(abs)).normalize('NFC').toLowerCase();
   const shownDir = displayPath(dir, home);
   const separator = shownDir.startsWith('~') ? '/' : sep;
   const listed = shownDir.endsWith(separator) ? shownDir : `${shownDir}${separator}`;
 
-  // Where it may go is settled before anything is looked up: the answer for a path elsewhere is
-  // the same whether or not it exists.
-  if (!reachable(dir, reach)) return outside();
-  const realDir = realpathOrNull(dir);
-  if (!realDir) return result(listed, [], false, `${shownDir} doesn’t exist.`);
-  const root = rootOf(realDir, roots);
-  if (!root) return outside();
-  if (!isDirectory(realDir)) return result(listed, [], false, `${shownDir} isn’t a folder.`);
-  const blocked = blockedBetween(root, realDir);
-  if (blocked) return result(null, [], false, blocked === 'hidden' ? 'Hidden folders aren’t listed.' : `${shownDir} holds system files, not projects.`);
+  // Settled as typed first, then where it really is, then whether it is a folder (see `place`): a
+  // path elsewhere, or in a hidden or system folder, gets the same answer whether or not it exists.
+  const at = place(dir, vetted);
+  if (!at.ok) {
+    if (at.why === 'outside') return result(null, [], false, `Only folders in your home folder${roots.length > 1 ? ' and the configured roots' : ''} are listed.`);
+    if (at.why === 'hidden') return result(null, [], false, 'Hidden folders aren’t listed.');
+    if (at.why === 'system') return result(null, [], false, `${shownDir} holds system files, not projects.`);
+    return result(listed, [], false, noFolder(shownDir));
+  }
+  const realDir = at.real;
+  const root = at.root;
 
   const opened = new Map<string, string>();
   for (const p of options.opened ?? []) opened.set(realpathOrNull(p.path) ?? resolve(p.path), p.id);
@@ -521,7 +575,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
       }
       const name = entry.name;
       if (name.startsWith('.') || systemName(name, depth)) continue;
-      const lower = name.toLowerCase();
+      const lower = name.normalize('NFC').toLowerCase();
       const rank = !prefix || lower.startsWith(prefix) ? 0 : lower.includes(prefix) ? 1 : -1;
       if (rank < 0) continue;
       if (entry.isDirectory()) matches.push({ name, path: join(realDir, name), rank });
