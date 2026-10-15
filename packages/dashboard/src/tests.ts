@@ -119,6 +119,11 @@ export interface DivergenceView {
   /** Arguments for the CLI (after `shadowlap`): re-run this golden, update it. */
   rerun: string[];
   update: string[];
+  /**
+   * Add normalizer and re-run, as the commands to run in order: a `normalize add` for each value that
+   * changes every run, then `test` on the golden. Null when no such value diverged.
+   */
+  normalizeAndTest: string[][] | null;
   /** Find the commit: from the last revision where it passed to the one where it failed (null: HEAD). */
   bisect: { good: string; bad: string | null; args: string[] } | null;
   /** What Find the commit found, once it has run since this failure. */
@@ -168,6 +173,19 @@ export interface TestsView {
 }
 
 const RECORDINGS_NOTE = 'Recordings that pytest and Vitest keep in __recordings__/ run under their own test runner, not here.';
+
+/**
+ * What `shadowlap test` is given to run every golden: the goldens folder's pattern, which the CLI
+ * expands itself, and each golden kept elsewhere (a pack the config's `tests` names) by its path.
+ */
+export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens'): string[] {
+  const inFolder = (path: string) => path.startsWith(`${folder}/`) && !path.slice(folder.length + 1).includes('/');
+  const elsewhere = goldens.filter((g) => !inFolder(g.path)).map((g) => g.path);
+  return [...(goldens.some((g) => inFolder(g.path)) || !elsewhere.length ? [`${folder}/*`] : []), ...elsewhere];
+}
+
+/** A word as a shell reads it: `goldens/*` stays as it is, a path with a space is quoted. */
+const shellWord = (s: string) => (/^[A-Za-z0-9_./*:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
@@ -248,9 +266,19 @@ const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun
 /** A committed revision to bisect from: `abc1234+dirty` was tested with changes on top of abc1234. */
 const committed = (rev: string | null) => (rev ? rev.replace(/\+dirty$/, '') : null);
 
+/** `normalize add` for each value that changes every run, then `test` on the golden; null when there is none. */
+function normalizeSteps(volatile: VolatileValues, golden: string): string[][] | null {
+  // A value the recording never had can't be masked into a match: that golden needs updating as well.
+  const changed = volatile.values.filter((v) => v.op === 'changed');
+  const values = changed.length ? changed : volatile.values;
+  return values.length ? [...values.map((v) => normalizeAddArgs(v.normalizer)), ['test', golden]] : null;
+}
+
 function bisectFor(golden: string, history: readonly TestResult[], failed: TestResult): { good: string; bad: string | null; args: string[] } | null {
-  // The newest result that passed before this failure, at another revision.
-  const good = history.find((r) => r.ok && r.at < failed.at && r.revision && committed(r.revision) !== committed(failed.revision));
+  // The newest result that passed before this failure, at another revision: one tested as committed
+  // when there is one, since uncommitted changes are not part of what bisect checks out.
+  const passed = history.filter((r) => r.ok && r.at < failed.at && r.revision && committed(r.revision) !== committed(failed.revision));
+  const good = passed.find((r) => !r.revision!.endsWith('+dirty')) ?? passed[0];
   const goodRev = committed(good?.revision ?? null);
   if (!goodRev) return null;
   const bad = failed.revision && !failed.revision.endsWith('+dirty') ? failed.revision : null;
@@ -349,6 +377,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         normalizerFixes: volatile.explainsAll,
         rerun: ['test', row.path],
         update: ['test', row.path, '--update'],
+        normalizeAndTest: normalizeSteps(volatile, row.path),
         bisect,
         found,
       });
@@ -373,6 +402,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   }
 
   const diverged = divergences.map((d) => d.golden);
+  const patterns = testPatterns(goldens, folder);
   return {
     empty: goldens.length === 0,
     goldens: goldens.length,
@@ -383,10 +413,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     failures,
     diverged,
     commands: {
-      ci: `shadowlap test ${folder}/* --junit report.xml`,
-      inCi: `shadowlap test ${folder}/* --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`,
+      ci: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml`,
+      inCi: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`,
       pack: `shadowlap pack <run> ${folder}/<name>`,
-      run: ['test', `${folder}/*`],
+      run: ['test', ...patterns],
       updateAll: diverged.length ? ['test', ...diverged, '--update'] : null,
     },
     note: RECORDINGS_NOTE,
@@ -473,6 +503,8 @@ export interface TestRunBanner {
   /** Arguments for the CLI: re-run the golden (after adding the normalizer), or update it. */
   rerun: string[];
   update: string[];
+  /** Add normalizer and re-run, as the commands to run in order; null when no value that changes every run diverged. */
+  normalizeAndTest: string[][] | null;
 }
 
 /**
@@ -495,5 +527,6 @@ export function testRunBanner(store: Store, runId: string): TestRunBanner | null
     normalizerFixes: found.explainsAll,
     rerun: ['test', test.golden],
     update: ['test', test.golden, '--update'],
+    normalizeAndTest: normalizeSteps(found, test.golden),
   };
 }

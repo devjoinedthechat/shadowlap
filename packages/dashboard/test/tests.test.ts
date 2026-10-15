@@ -109,6 +109,8 @@ describe('the Tests screen', () => {
     expect(d!.normalizerFixes).toBe(true);
     expect(d!.rerun).toEqual(['test', 'goldens/refund-in-limit']);
     expect(d!.update).toEqual(['test', 'goldens/refund-in-limit', '--update']);
+    // Add normalizer and re-run: the rule, then the golden again.
+    expect(d!.normalizeAndTest).toEqual([d!.volatile!.args, ['test', 'goldens/refund-in-limit']]);
     expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
     expect(d!.found).toBeNull();
     expect(view.failures).toEqual([]);
@@ -129,6 +131,33 @@ describe('the Tests screen', () => {
     const [d] = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).divergences;
     expect(d!.normalizerFixes).toBe(false);
     expect(d!.volatile).toMatchObject({ looks: 'an id', args: ['normalize', 'add', '--kind', 'api', '--path', '$.messages[0].metadata.request_id', '--replace', '<ID>'] });
+    expect(d!.normalizeAndTest).toEqual([d!.volatile!.args, ['test', 'goldens/x']]);
+    store.close();
+  });
+
+  it('adds a rule for each value that changes every run before re-running, and bisects from a revision tested as committed', () => {
+    const store = Store.open(':memory:');
+    const day = (n: number, revision: string, ok: boolean, data?: TestResultData) => {
+      const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision, startedAt: T0 + n * DAY });
+      store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok, ...(ok ? {} : { failure: 'diverged' as const, reason: 'diverged at call 1 (api POST /v1/messages)' }), revision, at: T0 + n * DAY + 1, ...(data ? { data } : {}) });
+      store.finishTestSession(s.sessionId, { passed: ok ? 1 : 0, failed: ok ? 0 : 1, upstreamRequests: 0, endedAt: T0 + n * DAY + 2 });
+    };
+    day(0, 'aaa1111', true);
+    day(1, 'bbb2222+dirty', true);
+    const diff = [
+      { path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B },
+      { path: '$.metadata.sent_at', op: 'changed', before: '2026-09-20T10:00:00Z', after: '2026-09-21T11:30:00Z' },
+    ];
+    day(2, 'ccc3333', false, { divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff, text: '✗ Diverged at call 1' } });
+    const [d] = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).divergences;
+    expect(d!.normalizerFixes).toBe(true);
+    expect(d!.normalizeAndTest!.map((step) => step.slice(0, 6))).toEqual([
+      ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id'],
+      ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.sent_at'],
+      ['test', 'goldens/x'],
+    ]);
+    // The passing session at bbb2222 had uncommitted changes; aaa1111 passed as committed.
+    expect(d!.bisect).toEqual({ good: 'aaa1111', bad: 'ccc3333', args: ['bisect', 'goldens/x', '--good', 'aaa1111', '--bad', 'ccc3333'] });
     store.close();
   });
 
@@ -142,6 +171,20 @@ describe('the Tests screen', () => {
     expect(view.divergences).toEqual([]);
     expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', bisect: null, found: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
+    store.close();
+  });
+
+  it('runs the goldens the config names outside the goldens folder too', () => {
+    const store = Store.open(':memory:');
+    const pack = (path: string): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const both = testsView(store, [pack('goldens/a'), pack('goldens/b'), pack('packs/budget'), pack('goldens/team/c')]).commands;
+    expect(both.run).toEqual(['test', 'goldens/*', 'packs/budget', 'goldens/team/c']);
+    expect(both.ci).toBe('shadowlap test goldens/* packs/budget goldens/team/c --junit report.xml');
+    const elsewhere = testsView(store, [pack('my packs/budget')], { folder: 'recordings' }).commands;
+    expect(elsewhere.run).toEqual(['test', 'my packs/budget']);
+    expect(elsewhere.inCi).toBe(`shadowlap test 'my packs/budget' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`);
+    expect(elsewhere.pack).toBe('shadowlap pack <run> recordings/<name>');
+    expect(testsView(store, []).commands.run).toEqual(['test', 'goldens/*']);
     store.close();
   });
 
@@ -199,6 +242,7 @@ describe('the diverged-test banner on a run', () => {
       normalizerFixes: true,
       rerun: ['test', 'goldens/refund-in-limit'],
       update: ['test', 'goldens/refund-in-limit', '--update'],
+      normalizeAndTest: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']],
     });
     const recording = store.createRun({ mode: 'record', command: { argv: ['node'], cwd: '/p' } });
     expect(testRunBanner(store, recording.runId)).toBeNull();
