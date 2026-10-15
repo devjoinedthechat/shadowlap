@@ -1562,6 +1562,9 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .prov > .actions { margin-top: 14px; }
 /* a tool call's Conversation tab: the model call of its own conversation, under its result */
 .ibar.convlink { margin-top: 12px; }
+/* a link button the dashboard can't run (no job for it, read-only): dimmed, its reason on hover */
+.linkbtn[disabled] { opacity: .45; cursor: not-allowed; }
+.linkbtn[disabled]:hover { color: var(--dim); background: none; }
 
 /* compare */
 .pickers .arrow { color: var(--faint); }
