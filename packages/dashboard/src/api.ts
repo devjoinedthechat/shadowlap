@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
-import { actionContext, actionMissing, buildActions, notRun, type ActionContext } from '@shadowlap/tui/actions';
+import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { loadRunTree, modelResolver, runLabel } from '@shadowlap/tui/data';
 
 /**
@@ -90,6 +90,8 @@ export interface CallDetail {
   /** Notes people left on this call. */
   notes: RunNote[];
   actions: ActionItem[];
+  /** The fork menu's header for this call: `At #19 · search_web · read tool`. */
+  forkTitle: string;
 }
 
 export interface ActionItem {
@@ -279,6 +281,7 @@ export function callDetail(store: Store, idOrPrefix: string, callNo: number, opt
     result,
     notes: (run.meta?.notes ?? []).filter((n) => n.callNo === c.callNo),
     actions: actionsFor(run, c, actionContext(store, c)),
+    forkTitle: forkMenuTitle(c),
   };
 }
 
