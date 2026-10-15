@@ -738,6 +738,8 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';
+  // A test replay a signal cut short has no result: it says nothing about its golden either way.
+  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden}: find the commit from the golden on Tests`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run was imported from a capture, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Replayed with --fork, only the exit status and the checks decide; the CLI takes the checks of the
   // golden it was a replay of from the config, and has none otherwise.

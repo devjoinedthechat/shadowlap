@@ -435,6 +435,13 @@ describe('Find the commit from a run', () => {
     expect(bisectChoices(store, replay.runId, { goldens })).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', fork: false, live: false, revisions: [{ rev: 'c91d0f4', runs: 1, failed: 0 }], args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
     // Once the golden is gone, the replay is bisected as the run it is.
     expect(bisectChoices(store, replay.runId, { goldens: [] })!.target).toEqual({ kind: 'run', runId: replay.runId });
+    // A replay a signal cut short has no result, and says nothing either way.
+    const stopped = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'e3f9b20', startedAt: T0 + DAY });
+    const cut = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'e3f9b20', meta: { test: { golden: 'goldens/refund-in-limit', session: stopped.sessionId } } });
+    store.endRun(cut.runId, 'crashed');
+    store.finishTestSession(stopped.sessionId, { passed: 0, failed: 0, upstreamRequests: 0, interrupted: true });
+    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the commit from the golden on Tests', args: null });
+    expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the commit from the golden on Tests' });
     store.close();
   });
 
