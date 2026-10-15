@@ -10,8 +10,10 @@ import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
  * Suggesting folders means the dashboard's server lists directories, so it does that within limits
  * a web page could not stretch:
  *
- * - The endpoint that serves suggestions sits behind the dashboard's session token and its
- *   same-origin rule, like every other one: a page on another site can neither call it nor read it.
+ * - The endpoint that serves suggestions needs the dashboard's session token, like every other
+ *   one. The token travels in a header a page on another site can't send (the server answers no
+ *   CORS preflight), so such a page can neither call it nor read its answer; adding a project is a
+ *   change, and changes are also refused from another origin.
  * - It lists one directory level per request (the folder the typed path is in), directories only,
  *   by name and project kind. It never returns a file's name or contents.
  * - Only under the user's home folder, or roots they configured (`roots` in the project list, or

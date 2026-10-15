@@ -45,7 +45,7 @@ The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` m
 
 Suggesting folders means the dashboard lists directories, so it does that within limits a web page can't stretch:
 
-- Suggestions and adding answer only requests that carry the session token, from the dashboard's own origin, like everything else.
+- Like every request, suggestions need the session token; adding a project, like every change, is also refused from another origin.
 - They reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`). A root can't be `/`, a system folder, or a folder that holds your home folder. A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
 - They list one folder level at a time, folder names and what kind of project each is; never files. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `AppData`, `node_modules`) are never listed or entered.
 - At most 2,000 entries are read from a folder, and 100 suggestions returned.
