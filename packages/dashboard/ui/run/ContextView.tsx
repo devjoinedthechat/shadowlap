@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { CallRow, RunDetail } from '../api.js';
 import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
-import { cacheMisses, cacheNote, cacheReadShare, wholeInput } from '../cache.js';
+import { cacheMisses, cacheNote, cacheReadShare, missStat, usedCache, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
 
 /**
@@ -28,7 +28,12 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   const shownNos = new Set(ms.map((c) => c.callNo));
   const shownMisses = (judged ?? cacheMisses(ms)).filter((m) => shownNos.has(m.callNo));
   const misses = new Map(shownMisses.map((m) => [m.callNo, m.tokens]));
-  const note = cacheNote(ms, shownMisses);
+  // A fork whose change made a miss: the request path that changed.
+  const d = run.run.divergence;
+  const note = cacheNote(ms, shownMisses, d ? { callNo: d.callNo, path: d.diff?.[0]?.path ?? null } : null);
+  const stat = missStat(ms, shownMisses);
+  // Calls that never used the cache miss on every turn: the note says so once, not a label per bar.
+  const labelMisses = usedCache(ms);
   const max = Math.max(1, ...ms.map((c) => wholeInput(c.usage!)));
   const outMax = Math.max(1, ...ms.map((c) => c.usage!.output));
   const big = ms.reduce((a, b) => (wholeInput(b.usage!) > wholeInput(a.usage!) ? b : a));
@@ -36,7 +41,6 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   const many = ms.length > 80;
   const every = Math.ceil(ms.length / 12);
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
-  const missList = [...misses.keys()];
   return (
     <>
       <div className="cstats">
@@ -49,8 +53,8 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
           <span>of input read from the cache</span>
         </div>
         <div>
-          <b className={missList.length ? 'warn' : undefined}>{missList.length ? missList.slice(0, 6).map((n) => `#${n}`).join(', ') + (missList.length > 6 ? ` +${missList.length - 6}` : '') : 'none'}</b>
-          <span>where the cache stopped hitting</span>
+          <b className={stat.warn ? 'warn' : undefined}>{stat.value}</b>
+          <span>{stat.label}</span>
         </div>
       </div>
       <div className="ctx">
@@ -125,7 +129,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
                     {u.cacheRead ? <i className="seg-read" style={{ height: h(u.cacheRead) }} /> : null}
                     <i className="seg-write" style={{ height: h(u.cacheWrite) }} />
                     <i className="seg-unc" style={{ height: `max(2px, ${h(u.input)})` }} />
-                    {misses.has(c.callNo) ? (
+                    {labelMisses && misses.has(c.callNo) ? (
                       <span className="miss" style={{ bottom: `calc(${h(wholeInput(u))} + 8px)` }}>
                         cache miss
                       </span>
@@ -154,7 +158,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
               <b>{note.lead}</b>{' '}
             </>
           ) : null}
-          {note.text}
+          {note.parts.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))}
         </p>
       </div>
     </>

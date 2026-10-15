@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
-import { cacheMisses, cacheNote, cacheReadShare, type UsageCall } from '../ui/cache.js';
+import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
@@ -227,15 +227,31 @@ describe('cache misses', () => {
 
   it('says where the cache stopped hitting, and for calls that never used it that each turn sent the history again', () => {
     const cached = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500)];
-    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'The cache stopped hitting at #17.', text: '2,300 tokens were sent again. A change early in the prompt does this to every call after it.' });
+    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'The cache stopped hitting at #17.', parts: ['2,300 tokens were sent again. A change early in the prompt does this to every call after it.'] });
+    // On a fork whose change made the miss: the path that changed.
+    expect(cacheNote(cached, cacheMisses(cached), { callNo: 17, path: '$.messages[16].content' }).parts).toEqual([
+      'The prompt changed at ',
+      { code: '$.messages[16].content' },
+      ', so everything after it was written to the cache again: 2,300 tokens. A change early in the prompt does this to every call after it.',
+    ]);
+    expect(cacheNote(cached, cacheMisses(cached), { callNo: 5, path: '$.messages[3]' }).parts).toHaveLength(1);
     const never = [m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)];
-    expect(cacheNote(never, cacheMisses(never))).toEqual({ lead: 'No model call here read from the prompt cache.', text: 'Each turn sent the conversation so far again: 4,400 tokens.' });
+    expect(cacheNote(never, cacheMisses(never))).toEqual({ lead: 'No model call here read from the prompt cache.', parts: ['Each turn sent the conversation so far again: 4,400 tokens.'] });
     const many = Array.from({ length: 10 }, (_, i) => ({ callNo: i + 1, tokens: 1100 }));
     expect(cacheNote(cached, many).lead).toBe('The cache stopped hitting at #1, #2, #3, #4, #5, #6, #7, #8 and 2 more.');
     // No misses: the calls read the previous prompt from the cache, or nothing used it.
-    expect(cacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)], [])).toEqual({ lead: null, text: 'Every model call read the previous prompt from the cache.' });
-    expect(cacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)], []).text).toMatch(/^Each conversation starts its own context/);
-    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).text).toBe('No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.');
+    expect(cacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)], [])).toEqual({ lead: null, parts: ['Every model call read the previous prompt from the cache.'] });
+    expect(cacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)], []).parts[0]).toMatch(/^Each conversation starts its own context/);
+    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).parts).toEqual(['No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.']);
+  });
+
+  it('heads the misses with where they are, or for calls that never cached with the tokens sent again', () => {
+    const cached = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500)];
+    expect(missStat(cached, cacheMisses(cached))).toEqual({ value: '#17', label: 'where the cache stopped hitting', warn: true });
+    expect(missStat(cached, Array.from({ length: 9 }, (_, i) => ({ callNo: i + 1, tokens: 2000 }))).value).toBe('#1, #2, #3, #4, #5, #6 +3');
+    const never = [m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)];
+    expect(missStat(never, cacheMisses(never))).toEqual({ value: '4.4k', label: 'tokens sent again, turn after turn', warn: true });
+    expect(missStat(cached, [])).toEqual({ value: 'none', label: 'where the cache stopped hitting', warn: false });
   });
 });
 

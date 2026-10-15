@@ -1,4 +1,4 @@
-import { num } from './format.js';
+import { ktok, num } from './format.js';
 
 /**
  * Where the prompt cache stopped hitting. One rule, the Context view's and the Overview's, as the
@@ -65,22 +65,38 @@ export function usedCache(calls: readonly UsageCall[]): boolean {
 }
 
 /**
- * What the Context view says under the chart, a bold lead and the rest. Where the cache stopped
- * hitting, with the tokens sent again; for calls that never used the cache, that each turn sent the
- * conversation so far again, since no change to the prompt is to blame. Without misses, that the
- * calls read the previous prompt from the cache, or that nothing used it.
+ * What the Context view says under the chart: a bold lead, then the rest, where a request path is
+ * set in code. Where the cache stopped hitting, with the tokens sent again, and on a fork whose
+ * change made a miss, the path that changed; for calls that never used the cache, that each turn
+ * sent the conversation so far again, since no change to the prompt is to blame. Without misses,
+ * that the calls read the previous prompt from the cache, or that nothing used it.
  */
-export function cacheNote(calls: readonly UsageCall[], misses: readonly CacheMiss[]): { lead: string | null; text: string } {
+export function cacheNote(calls: readonly UsageCall[], misses: readonly CacheMiss[], changed: { callNo: number; path: string | null } | null = null): { lead: string | null; parts: Array<string | { code: string }> } {
   const used = usedCache(calls);
   if (misses.length) {
     const tokens = num(misses.reduce((s, m) => s + m.tokens, 0));
-    if (!used) return { lead: 'No model call here read from the prompt cache.', text: `Each turn sent the conversation so far again: ${tokens} tokens.` };
+    if (!used) return { lead: 'No model call here read from the prompt cache.', parts: [`Each turn sent the conversation so far again: ${tokens} tokens.`] };
     const at = misses
       .slice(0, 8)
       .map((m) => `#${m.callNo}`)
       .join(', ');
-    return { lead: `The cache stopped hitting at ${at}${misses.length > 8 ? ` and ${misses.length - 8} more` : ''}.`, text: `${tokens} tokens were sent again. A change early in the prompt does this to every call after it.` };
+    const lead = `The cache stopped hitting at ${at}${misses.length > 8 ? ` and ${misses.length - 8} more` : ''}.`;
+    const tail = 'A change early in the prompt does this to every call after it.';
+    if (changed?.path && misses.some((m) => m.callNo === changed.callNo)) return { lead, parts: ['The prompt changed at ', { code: changed.path }, `, so everything after it was written to the cache again: ${tokens} tokens. ${tail}`] };
+    return { lead, parts: [`${tokens} tokens were sent again. ${tail}`] };
   }
-  if (!used) return { lead: null, text: 'No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.' };
-  return { lead: null, text: calls.some((c) => c.conversation) ? 'Each conversation starts its own context; within each, every model call read the previous prompt from the cache.' : 'Every model call read the previous prompt from the cache.' };
+  if (!used) return { lead: null, parts: ['No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.'] };
+  return { lead: null, parts: [calls.some((c) => c.conversation) ? 'Each conversation starts its own context; within each, every model call read the previous prompt from the cache.' : 'Every model call read the previous prompt from the cache.'] };
+}
+
+/**
+ * The Context view's third number: where the cache stopped hitting (the first six, then how many
+ * more), or, for calls that never used the cache, the tokens sent again in all, since every turn
+ * after the first would be listed.
+ */
+export function missStat(calls: readonly UsageCall[], misses: readonly CacheMiss[]): { value: string; label: string; warn: boolean } {
+  if (!misses.length) return { value: 'none', label: 'where the cache stopped hitting', warn: false };
+  if (!usedCache(calls)) return { value: ktok(misses.reduce((s, m) => s + m.tokens, 0)), label: 'tokens sent again, turn after turn', warn: true };
+  const shown = misses.slice(0, 6).map((m) => `#${m.callNo}`).join(', ');
+  return { value: `${shown}${misses.length > 6 ? ` +${misses.length - 6}` : ''}`, label: 'where the cache stopped hitting', warn: true };
 }
