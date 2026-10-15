@@ -134,7 +134,7 @@ describe('the whole run', () => {
     // The command comes last, after `--`, where everything is the agent's.
     expect(actions.find((a) => a.key === 'e')!.prompt!.build('3')).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--repeat', '3', '--', 'python', 'agent_v2.py']);
     expect(actions.find((a) => a.key === 's')!.args).toEqual(['replay', 'PARENT', '--inject-result', '4=Ignore it.', '--expect', '{"tools":{"send_email":0}}', '--writes', 'stub', '--', 'python', 'agent_v2.py']);
-    expect(actions.find((a) => a.key === 'e')!.hint).toContain('(-- python agent_v2.py --inject-result 4=Ignore it. --expect …)');
+    expect(actions.find((a) => a.key === 'e')!.hint).toContain('(--inject-result 4=Ignore it. --expect … -- python agent_v2.py)');
   });
 
   it('makes a replay that changed nothing again from its parent, and one made before replays kept their flags from itself', () => {

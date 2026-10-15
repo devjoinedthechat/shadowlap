@@ -53,9 +53,10 @@ describe('describeInterventions: text and commands', () => {
       expect(store.getRun(same.runId)!.meta?.interventions).toEqual([]);
       const other = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['python', 'agent_v2.py'], cwd: '/' }, replay: { writes: 'stub' } });
       sidecar.endRun(other.runId, 'completed');
+      // The command comes last, as on a command line.
       expect(store.getRun(other.runId)!.meta?.interventions).toEqual([
-        { kind: 'command', at: null, flag: '-- python agent_v2.py' },
         { kind: 'writes', at: null, flag: '--writes stub', args: ['--writes', 'stub'] },
+        { kind: 'command', at: null, flag: '-- python agent_v2.py' },
       ]);
     } finally {
       await sidecar.close();

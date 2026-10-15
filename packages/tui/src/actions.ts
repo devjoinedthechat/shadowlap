@@ -230,7 +230,9 @@ function baseActions(run: RunRecord, call: CallRecord | undefined, context: Acti
   const again = forkArgs(run);
   const base = again ? ['replay', run.parentRunId!, ...again] : ['replay', id];
   const tail = again ? forkCommand(run) : [];
-  const made = [...(run.meta?.interventions ?? []).map((i) => i.flag), ...(run.meta?.expect ? ['--expect …'] : [])].join(' ');
+  // The flags as a command line has them: the fork's own command, after `--`, last.
+  const recorded = run.meta?.interventions ?? [];
+  const made = [...recorded.filter((i) => i.kind !== 'command').map((i) => i.flag), ...(run.meta?.expect ? ['--expect …'] : []), ...recorded.filter((i) => i.kind === 'command').map((i) => i.flag)].join(' ');
   actions.push({
     key: 'e',
     label: 'Repeat the replay and compare',

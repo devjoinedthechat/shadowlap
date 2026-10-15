@@ -220,7 +220,6 @@ const ARG_LIMIT = 8_192;
  */
 export function describeInterventions(replay: Partial<ReplayOptions> | undefined, interventions: Interventions | undefined, command?: string[]): RunIntervention[] {
   const out: RunIntervention[] = [];
-  if (command?.length) out.push({ kind: 'command', at: null, flag: short(`-- ${command.join(' ')}`, 80) });
   const add = (kind: RunIntervention['kind'], at: number | null, args: string[], flag?: string) => {
     const display = flag ?? args.map((a) => (a.startsWith('--') ? a : short(a, 60))).join(' ');
     out.push({ kind, at, flag: display, ...(args.every((a) => a.length <= ARG_LIMIT) ? { args } : {}) });
@@ -246,5 +245,7 @@ export function describeInterventions(replay: Partial<ReplayOptions> | undefined
   for (const name of replay?.liveTools ?? []) add('live-tool', null, ['--live-tool', name]);
   if (replay?.writes && replay.writes !== 'block') add('writes', null, ['--writes', replay.writes]);
   if (replay?.reads && replay.reads !== 'live') add('reads', null, ['--reads', replay.reads]);
+  // Last, where a command line has it: everything after `--` is the agent's.
+  if (command?.length) out.push({ kind: 'command', at: null, flag: short(`-- ${command.join(' ')}`, 80) });
   return out;
 }
