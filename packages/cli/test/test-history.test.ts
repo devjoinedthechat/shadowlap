@@ -113,6 +113,24 @@ describe('shadowlap test history', () => {
   });
 });
 
+describe('a redacted golden', () => {
+  it('replays from the store\'s own copy of its run as it replays from the pack in CI', async () => {
+    // The scratch directory is masked for matching; the per-run user id is redacted in the pack, and a
+    // redacted pack applies its rules as normalizers when it replays.
+    const scratch = { path: '$.system', pattern: '/agent-[A-Za-z0-9]+/', replace: 'agent-X' };
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ kind: 'api', ...scratch }, { kind: 'tool', name: 'save_report', ...scratch, path: '$.args.path' }], redact: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] }));
+    const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    expect((await shadowlap(['pack', runId, 'goldens/redacted'])).out).toContain('with 1 redaction rule');
+    // The store has the run as recorded, with its real user id; the pack has it redacted.
+    const local = await shadowlap(['test', 'goldens/redacted']);
+    expect(local.code, local.out).toBe(0);
+    const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/redacted']);
+    expect(ci.code, ci.out).toBe(0);
+  });
+});
+
 describe('shadowlap test --update', () => {
   it('re-records a diverged golden live with writes stubbed, replaces it, and the next replay is clean', async () => {
     const outbox = join(work, 'outbox.jsonl');

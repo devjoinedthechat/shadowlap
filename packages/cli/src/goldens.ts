@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS } from '@shadowlap/engine';
+import { PACK_FORMAT, PACK_LIMITS, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath } from './config.js';
@@ -81,6 +81,8 @@ export interface PackHead {
   argv: string[];
   /** The packed run's own parent: a golden re-recorded by `test --update` names the one it replaced. */
   parentRunId: string | null;
+  /** The redaction rules the pack was written with: a replay of it applies them as normalizers. */
+  redactions: Normalizer[];
 }
 
 /** Reads a pack's run.json, or explains why it can't. Untrusted: only the fields used here, checked. */
@@ -93,15 +95,17 @@ export function readPackHead(dir: string): PackHead | { error: string } {
     const manifest = JSON.parse(readFileSync(path, 'utf8')) as { format?: unknown; createdAt?: unknown; runs?: unknown };
     if (manifest.format !== PACK_FORMAT) return { error: 'not a Shadowlap pack' };
     const runs = Array.isArray(manifest.runs) ? manifest.runs : [];
-    const run = runs.at(-1) as { runId?: unknown; startedAt?: unknown; command?: { argv?: unknown }; parentRunId?: unknown } | undefined;
+    const run = runs.at(-1) as { runId?: unknown; startedAt?: unknown; command?: { argv?: unknown }; parentRunId?: unknown; meta?: { redactions?: unknown } } | undefined;
     if (!run || typeof run.runId !== 'string') return { error: 'run.json lists no run' };
     const argv = Array.isArray(run.command?.argv) ? run.command.argv.filter((a): a is string => typeof a === 'string') : [];
+    const rules = Array.isArray(run.meta?.redactions) ? run.meta.redactions : [];
     return {
       runId: run.runId,
       packedAt: typeof manifest.createdAt === 'number' ? manifest.createdAt : null,
       recordedAt: typeof run.startedAt === 'number' ? run.startedAt : null,
       argv,
       parentRunId: typeof run.parentRunId === 'string' ? run.parentRunId : null,
+      redactions: rules.filter((r): r is Normalizer => typeof r === 'object' && r !== null && typeof (r as { replace?: unknown }).replace === 'string'),
     };
   } catch (err) {
     return { error: existsSync(path) ? `run.json can't be read: ${(err as Error).message}` : 'no run.json: not a pack' };

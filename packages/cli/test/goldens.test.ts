@@ -57,7 +57,7 @@ describe('goldens', () => {
     expect(testsKeyFor(entries, join(project, 'goldens/refund-in-limit'), project)).toBe('goldens/refund-*');
     expect(rawExpectFor(entries, join(project, 'goldens/refund-in-limit'), project)).toEqual({ tools: { send_email: 0 } });
     expect(rawExpectFor(entries, join(project, 'goldens/triage'), project)).toBeNull();
-    expect(readPackHead(join(project, 'goldens/triage'))).toEqual({ runId: 'R_TRIAGE', packedAt: 1000, recordedAt: 990, argv: ['node', 'agent.mjs'], parentRunId: 'PARENT' });
+    expect(readPackHead(join(project, 'goldens/triage'))).toEqual({ runId: 'R_TRIAGE', packedAt: 1000, recordedAt: 990, argv: ['node', 'agent.mjs'], parentRunId: 'PARENT', redactions: [] });
     expect(readPackHead(join(project, 'goldens/notes'))).toEqual({ error: 'no run.json: not a pack' });
   });
 

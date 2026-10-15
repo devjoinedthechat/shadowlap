@@ -130,7 +130,12 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
   let parent: RunRecord | null = null;
   try {
     parent = importGolden(ctx.store, dir);
-    const result = await testRecording(parent, spec, ctx);
+    // The store may hold the run as it was recorded, before the pack redacted it. Replaying the pack
+    // applies its redaction rules as normalizers, and so does replaying that copy, so a golden passes
+    // or fails here as it does in CI, where only the pack exists.
+    const head = readPackHead(dir);
+    const packed = 'error' in head || parent.meta?.redactions?.length ? [] : head.redactions;
+    const result = await testRecording(parent, spec, packed.length ? { ...ctx, config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : ctx);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000 };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
