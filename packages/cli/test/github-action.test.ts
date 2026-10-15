@@ -51,7 +51,7 @@ describe('the GitHub Action', () => {
     expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=Shadowlap%3A reference-agent::diverged at call 3');
     expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
     expect(r.summary).toContain('+ "You are a research agent. Use the tools, then email a summary. Be brief."');
-    expect(r.summary).toContain('shadowlap pack <run> <dir>');
+    expect(r.summary).toContain('update the golden: `shadowlap test testing/golden/reference-agent --update`');
   });
 
   it('reports without failing the step when fail-on-divergence is false', () => {
@@ -105,6 +105,10 @@ describe('test reports', () => {
     expect(md).toContain('| ✅ | `triage` | clean | 30/30 | 1k |');
     expect(md).toContain('| ❌ | `summarize\\|thread` | diverged at call 3 (api POST /v1/messages) | 2/5 | 1k |');
     expect(md).toContain('````text\na ``` fence');
+    // What to do about a divergence that was meant: the update, by the pack directory as given.
+    expect(md).toContain('Once you mean it, update the golden: `shadowlap test goldens/summarize --update` re-records it live with writes stubbed');
+    expect(md).not.toContain('interrupted');
+    expect(markdownReport(testReport([clean], { id: 'S', revision: null, interrupted: true }))).toContain('The session was interrupted: only the recordings above finished, and the rest did not run.');
   });
 
   it('escapes GitHub annotation properties and data', () => {

@@ -105,10 +105,12 @@ export function markdownReport(report: TestReport): string {
     lines.push('</details>');
   }
   const failures = report.results.filter((r) => !r.ok);
-  if (failures.some((r) => r.divergence && !r.checks?.some((c) => !c.ok))) {
+  const diverged = failures.filter((r) => r.failure === 'diverged' || (r.divergence && !r.checks?.some((c) => !c.ok)));
+  if (diverged.length) {
+    const dirs = diverged.map((r) => r.dir.replace(/\\/g, '/').replace(/\/+$/, '')).map((d) => (/^[\w./*@%+=:,-]+$/.test(d) ? d : `'${d.replace(/'/g, `'\\''`)}'`));
     lines.push(
       '',
-      'An intended change fails the test on purpose. Re-record the run and pack it over the old recording, then review the new recording in this pull request: `shadowlap run -- <command>`, then `shadowlap pack <run> <dir>`. A date or id in a prompt needs a normalizer instead; the report suggests one. To keep the recording and judge the change by what the agent does, mark it `fork` and give it checks under `tests` in `shadowlap.config.json`.',
+      `An intended change fails the test on purpose. Once you mean it, update the golden${diverged.length === 1 ? '' : 's'}: \`shadowlap test ${safeText(dirs.join(' '))} --update\` re-records ${diverged.length === 1 ? 'it' : 'each'} live with writes stubbed, and replaces ${diverged.length === 1 ? 'it' : 'each'} when ${diverged.length === 1 ? 'its' : 'their'} checks pass; review the new recording in this pull request. A value that changes every run, such as a date or a request id, needs a normalizer instead; the report suggests one. To keep the recording and judge the change by what the agent does, mark it \`fork\` and give it checks under \`tests\` in \`shadowlap.config.json\`.`,
     );
   }
   if (failures.some((r) => r.checks?.some((c) => !c.ok))) {
