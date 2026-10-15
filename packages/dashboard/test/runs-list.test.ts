@@ -163,6 +163,8 @@ describe('the Runs table', () => {
       if (sort === 'spent') expect(seen.map((r) => r.spent)).toEqual([...seen.map((r) => r.spent)].sort((a, b) => b - a));
     }
     expect(() => listRunsPage(store, { cursor: 'not-a-cursor' })).toThrow(RangeError);
+    expect(listRunsPage(store, { limit: Number.NaN }).runs).toHaveLength(14);
+    expect(listRunsPage(store, { limit: -5 }).runs).toHaveLength(1);
     const whenCursor = listRunsPage(store, { limit: 2 }).next!;
     expect(() => listRunsPage(store, { cursor: whenCursor, sort: 'calls' })).toThrow(RangeError);
   });

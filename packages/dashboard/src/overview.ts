@@ -303,7 +303,7 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
         for (const c of (children.get(run.runId) ?? []).sort((a, b) => a.startedAt - b.startedAt)) if (depth < 64) walk(c, depth + 1);
       };
       walk(root, 0);
-      return { rows, newest: Math.max(...rows.map((x) => x.run.startedAt)) };
+      return { rows, newest: rows.reduce((t, x) => Math.max(t, x.run.startedAt), 0) };
     })
     .sort((a, b) => b.newest - a.newest);
 
@@ -325,7 +325,7 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
     calls: total.calls,
     origins: total.origins,
     families: picked.map((rows) => {
-      const n = Math.max(GRID_MIN_CALLS, ...rows.map((x) => x.run.calls));
+      const n = rows.reduce((t, x) => Math.max(t, x.run.calls), GRID_MIN_CALLS);
       const size = n > GRID_CELLS ? Math.ceil(n / GRID_CELLS) : 1;
       return {
         size,

@@ -154,7 +154,7 @@ function decodeCursor(cursor: string, sort: RunSort): SortKey {
 export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsPage {
   const index = loadRunIndex(store);
   const sort = options.sort ?? 'when';
-  const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50)));
+  const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
   const m = matcher(options);
   const matching = index.runs.filter(m.matches);
   const spent = sort === 'spent' ? spentOf(store, index, matching, options) : null;
@@ -269,7 +269,7 @@ export interface RunsByDay {
 export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByDay {
   const tz = options.tz ?? 'UTC';
   if (!isTimeZone(tz)) throw new RangeError(`unknown time zone: ${String(tz)}`);
-  const weeks = Math.max(1, Math.min(53, Math.floor(options.weeks ?? 12)));
+  const weeks = Math.max(1, Math.min(53, Math.floor(options.weeks ?? 12) || 12));
   const today = localDay(options.now ?? Date.now(), tz);
   const days = daysFrom(addDays(today, -(today.weekday + (weeks - 1) * 7), tz), today, tz);
   const out: DayCount[] = days.map((d) => ({ day: d.key, start: d.start, end: d.end, weekday: d.weekday, runs: 0, failed: 0, all: 0, level: 0, byKind: {}, byAuthor: {} }));
