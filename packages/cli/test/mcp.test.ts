@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
-import { discoverSidecar, effectFromAnnotations, parseEffectFlags, startMcpProxy, stdioServerName, type SidecarTarget } from '../src/mcp.js';
+import { discoverSidecar, effectFromAnnotations, findSidecar, parseEffectFlags, startMcpProxy, stdioServerName, type SidecarTarget } from '../src/mcp.js';
 
 const serverScript = fileURLToPath(new URL('./fake-mcp-server.mjs', import.meta.url));
 
@@ -174,6 +174,18 @@ describe('shadowlap mcp', () => {
     await c.close();
     sidecar.endRun(rec.runId, 'completed');
     expect(store.getCalls(rec.runId).map((x) => x.name)).toEqual(['read_note']);
+  });
+
+  it("records under a test runner's host, whose URL names the run's slot instead of the run", async () => {
+    const run = sidecar.startRun({ mode: 'record', command: { argv: ['vitest'], cwd: '/' }, slot: 'worker-1' });
+    const found = await findSidecar({ SHADOWLAP_URL: sidecar.envForSlot('worker-1').SHADOWLAP_URL }, '/nonexistent');
+    expect(found).toMatchObject({ kind: 'sidecar', target: { runId: '' } });
+    const c = client((found as { target: SidecarTarget }).target);
+    await c.request('tools/list');
+    await c.call('read_note', { id: 4 });
+    await c.close();
+    sidecar.endRun(run.runId, 'completed');
+    expect(store.getCalls(run.runId).map((x) => x.name)).toEqual(['read_note']);
   });
 
   it('names a local server by its command, and the package a runner starts', () => {

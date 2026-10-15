@@ -76,8 +76,9 @@ export function discoverSidecar(env: NodeJS.ProcessEnv = process.env, cwd = proc
  * file in the working directory.
  */
 export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), skip: DiscoverySkip = () => {}, o: { home?: string | null; waitMs?: number } = {}): Promise<SidecarLookup> {
-  if (env.SHADOWLAP_URL && env.SHADOWLAP_RUN_ID) {
-    if (isLoopbackUrl(env.SHADOWLAP_URL)) return { kind: 'sidecar', target: { url: env.SHADOWLAP_URL.replace(/\/$/, ''), runId: env.SHADOWLAP_RUN_ID }, from: 'SHADOWLAP_URL' };
+  if (env.SHADOWLAP_URL) {
+    // Without a run id, as a test runner's host sets it (a slot's URL), the URL itself picks the run, as for the SDKs.
+    if (isLoopbackUrl(env.SHADOWLAP_URL)) return { kind: 'sidecar', target: { url: env.SHADOWLAP_URL.replace(/\/$/, ''), runId: env.SHADOWLAP_RUN_ID ?? '' }, from: 'SHADOWLAP_URL' };
     skip(`SHADOWLAP_URL ${env.SHADOWLAP_URL} is not a loopback address; ignoring it`);
   }
   const chain = processAncestors();
@@ -136,7 +137,7 @@ function refuseBatch(batch: unknown[]): unknown[] {
 async function post<T>(target: SidecarTarget, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${target.url}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-shadowlap-run': target.runId, 'user-agent': 'shadowlap-mcp' },
+    headers: { 'content-type': 'application/json', ...(target.runId ? { 'x-shadowlap-run': target.runId } : {}), 'user-agent': 'shadowlap-mcp' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`sidecar ${path}: ${res.status} ${await res.text()}`);
