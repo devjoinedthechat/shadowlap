@@ -200,13 +200,14 @@ Tests in your own suite work the same way: mark a test with `@pytest.mark.shadow
 
 ## Security
 
-Shadowlap runs beside your agent, on your machine. A run leaves only when you export it.
+Shadowlap runs beside your agent, on your machine. A run leaves only when you export, push or share it.
 
 - **Keys pass through.** Credentials go to the provider and are never stored. Replays need none.
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token. The dashboard checks Host and Origin, and builds every command itself: the browser only names an action.
 - **Yours to read.** Recordings stay in `.shadowlap/` in your project, readable only by you, and out of git.
-- **Masked on the way out.** Your redaction rules run on every pack, HTML file and dataset you export. The local store is never changed.
-- **Shared runs are checked.** A pack is validated and hash-checked before anything is written, and replaying its command asks first.
+- **Masked on the way out.** Your redaction rules run on every pack, HTML file, share link and dataset you export. The local store is never changed.
+- **Your bucket, your credentials.** The team store is a bucket you own, reached with each machine's own credentials; nothing is hosted and there are no accounts. Runs go there as recorded, like the store on your machine, so give the bucket the access you would give `.shadowlap/`.
+- **Shared runs are checked.** A pack, or a run pulled from the team store, is validated and hash-checked before anything is written, and replaying its command asks first. A pull request's CI job writes only to its own folder in the store.
 
 [SECURITY.md](SECURITY.md) lists every check and how to report a vulnerability.
 
@@ -229,6 +230,7 @@ On 2026-10-15: ✅ works in this repository today, ⬜ is being built.
 | ✅ | Imports from HAR, nock, VCR and LiteLLM; exports to packs, HTML, HAR, OpenTelemetry and eval datasets; labels, notes, search, `diff`, `calibrate`, normalizers and redaction |
 | ✅ | The dashboard (runs, the run page and its views, Compare, replay and fork actions, one-file HTML downloads) and the terminal UI |
 | ✅ | `init`, `doctor`, `rm` and `gc`; CI on Linux, macOS and Windows with Node 22 and 24 |
+| ✅ | The team store, free: runs in a bucket you own (S3, R2 and S3-compatible stores, Cloud Storage, Azure Blob), `push` and `pull` with each machine's own credentials, `test --push` from CI with pull requests kept to their own folders, and share links |
 | ⬜ | The new dashboard: navigation, a command palette, the Overview, Runs with a 12-week calendar and bulk actions, the run page's Share menu, Provenance and fork button on every call, what a run didn't record, Compare with run pickers and change cards, connection states and a phone layout |
 | ⬜ | Fixes as a page: each failure with its blame, repair and verify steps, stored verdicts, and applying the patch (`shadowlap fix apply`) |
 | ⬜ | Tests as a page with each golden's history; `shadowlap test --update` after an intended change; `shadowlap bisect` to find the commit that broke a golden; fix pull requests from CI |
@@ -236,7 +238,6 @@ On 2026-10-15: ✅ works in this repository today, ⬜ is being built.
 | ⬜ | Interventions on every provider's request shape; `--fail-at` on tool calls; planting an instruction in a tool result; recorded user input, so a chat agent replays without anyone typing; redacted HAR exports |
 | ⬜ | Imports from OpenTelemetry, Langfuse and LangSmith; MCP servers over Streamable HTTP |
 | ⬜ | Training: preference pairs from fixed failures (`shadowlap export pairs`), and scoring a model on your goldens (`shadowlap tasks score`, `tasks serve`) |
-| ⬜ | A team store in your own bucket: runs pushed and pulled, CI history and share links |
 | ⬜ | Published to npm and PyPI; the release workflow is ready |
 
 ## Documentation
@@ -249,6 +250,7 @@ On 2026-10-15: ✅ works in this repository today, ⬜ is being built.
 | [Blame](docs/blame.md) · [Repair](docs/repair.md) · [Verify](docs/verify.md) | Fixes |
 | [Test suites](docs/testing.md) · [CI mode](docs/ci.md) | Tests |
 | [Dashboard](docs/dashboard.md) · [Terminal UI](docs/tui.md) · [Coding agents](docs/agents.md) | Looking at runs |
+| [Team store](docs/team.md) | Your team's runs in a bucket you own: push, pull, CI's test runs, pull requests, share links |
 | [CLI](docs/cli.md) · [Telemetry](docs/telemetry.md) · [Wire protocol](docs/protocol.md) · [Recordings protocol](docs/recordings-protocol.md) · [Engine](docs/engine.md) | Reference, and building on Shadowlap |
 | [Compared with other tools](docs/compare.md) | Cassettes, tracing platforms, replay evals, framework time travel, durable execution |
 

@@ -50,6 +50,15 @@ The first release: record, replay and fork AI agent runs, find the call that los
 - **`shadowlap rm` and `gc`** delete runs, old ones by age or count, and remove the recorded data nothing references any more.
 - **JSON for scripts and coding agents** from `ls`, `show`, `search`, `diff`, `calibrate`, `label`, `blame`, `verify`, `repair` and `test`, and instructions to give Claude Code, Cursor and Codex.
 
+#### Team store
+
+- **Your team's runs in a bucket you own**, free and open source like the rest, with nothing to buy or add first. `shadowlap store set` names an Amazon S3, Cloudflare R2 or other S3-compatible bucket, a Cloud Storage bucket or an Azure Blob container in `shadowlap.config.json`, and every machine reaches it with its own credentials, found where the cloud's own tools keep them. Nothing is hosted, there are no accounts, and no cloud SDK is bundled.
+- **`shadowlap push` and `pull`** send runs with their lineage, each blob once, and a run still recording when it ends, and bring teammates' runs back, checked as strictly as a pack. Labels and notes merge both ways, and every run says who made it, and in CI which CI.
+- **`shadowlap test --push`** sends every test run and the session's report from CI; `shadowlap store ci` prints the step, with short-lived credentials wherever the CI and the cloud allow them, and `store push-from-ci off` turns it off for the whole team.
+- **Pull requests stay in their own folder.** A pull request's CI job writes only under `pr/<number>/`, a pull leaves those folders out unless given `--include-pr`, and runs from one never go back into the team's. `shadowlap store policy` prints the two policies that make the cloud hold to it.
+- **`shadowlap share`** writes a run's HTML report, with every redaction rule applied, to the bucket and prints a link that expires after 7 days.
+- **`shadowlap store check`** proves this machine can list, write, read and delete in the store, and warns when versioning or an object lock is off; `store show` says what this machine knows, without a request.
+
 #### Dashboard and terminal UI
 
 - **`shadowlap dashboard`**: runs and their forks, a strip of every call by origin, the calls, turns, context and cache use, timeline and family of a run, the conversation exactly as the model saw it at any call, streamed responses at their recorded pacing, fork diffs and Compare. Replay and every fork run from the page, and a run downloads as one redacted HTML file.

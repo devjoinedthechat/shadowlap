@@ -13,6 +13,7 @@ Use GitHub's private vulnerability reporting on this repository ("Security" → 
 - The dashboard server and the terminal UI, including the actions they run.
 - `shadowlap mcp` and how it finds a running sidecar.
 - The SDKs and the telemetry client and collector.
+- The team store: how `push`, `pull`, `share` and the store commands reach a bucket, use credentials and check what they read.
 
 ## What Shadowlap does today
 
@@ -62,6 +63,16 @@ Recorded strings are shown with control characters escaped, in the CLI, `diff`, 
 - Actions map to a fixed list of CLI commands built on the server. The browser never sends a command line.
 - A run imported from a capture has no command, so its replay asks for yours. What you type is split on the server and placed only after `--`, where `shadowlap replay` takes the agent's command; it never becomes one of Shadowlap's own arguments. It is your command, so it runs without the consent an imported pack's command needs.
 - **Download** saves a run and the runs it came from as one HTML file, with the redaction rules in `shadowlap.config.json` applied, as `shadowlap export html --lineage` does. With no rules, the button says the file was not redacted.
+
+### Team store
+
+The team store is a bucket you own. Shadowlap hosts nothing for it, and nothing calls home.
+
+- **Credentials stay on each machine.** Every machine reaches the bucket with its own credentials, found where the cloud's own tools keep them; `shadowlap.config.json` names only the bucket. Google and Azure credentials, whose signatures don't name the host, are sent only to the cloud's own addresses over https or to this machine, and an `?endpoint=` anywhere else is refused, so a committed config can't send them somewhere else.
+- **Runs go up as recorded.** A push applies no redaction rules: the bucket holds what `.shadowlap/` holds, so give it the same care. A share link's report has every redaction rule applied, and the link expires after 7 days.
+- **Pulled runs are untrusted input**, checked as strictly as a pack: every record validated, every blob checked against its hash, nothing in them that could rewrite a terminal. A pulled run is marked imported, so replaying its command asks first. A run that fails the checks is skipped.
+- **A pull request's CI job doesn't write to the team's runs.** It writes only under `pr/<number>/`; a pull leaves those folders out unless given `--include-pr`, a run brought from one is never pushed back, and nothing such a folder says about a run already here is taken. The CLI only puts those runs in their place: `shadowlap store policy` prints the pull-request policy that makes the cloud enforce it.
+- **An edit in the bucket can't change a replay here.** Anyone your cloud admin lets write to the bucket can change a run there, but not how a copy already on your machine replays or whom it names as its author. `shadowlap store check` warns when the bucket keeps no versions, which keep a run's earlier state, or no object lock, which keeps those versions from being deleted.
 
 ### MCP
 
