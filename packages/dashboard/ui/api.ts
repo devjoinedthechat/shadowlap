@@ -3,6 +3,7 @@ import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
+import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
 /**
@@ -32,6 +33,9 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // Settings → Store starts these (the overview-runs slice registers them): { all: true } and {}.
+  push: 'push',
+  pull: 'pull',
 } as const;
 
 export class ApiError extends Error {
@@ -105,6 +109,8 @@ export interface Client {
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
   changes(since: string | null): Promise<Changes | null>;
+  /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
+  settings: SettingsApi;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
@@ -225,6 +231,7 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    settings: settingsApi(request),
   };
 }
 
@@ -268,5 +275,6 @@ export function createExportedClient(data: StaticPayload): Client {
     exportHtml: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
+    settings: noSettings(readOnly),
   };
 }

@@ -1584,3 +1584,43 @@ table.t td.wrapcell { white-space: normal; }
 /* the status bar gives way from the store path, so the version stays */
 .status > span:not(.sp) { flex: none; }
 .status > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Settings: the spacing the mock wrote inline, and what the real tabs add ---- */
+.set > .kvs { padding: 4px 18px 0; }
+.set > .pbody + .kvs { padding: 0 18px 6px; }
+.set > .pbody.lead p.muted { margin: 0; }
+.set > .kvs dd.prose { word-break: normal; }
+.set > .kvs dd small.warn { color: var(--warn); }
+.set table.t tbody tr.still, .set table.ruletable tbody tr { cursor: default; }
+.set table.ruletable td.none { color: var(--faint); font-size: 12.5px; white-space: normal; }
+.set table.ruletable .rerr { color: var(--err); font-size: 12.5px; }
+.set table.ruletable td.num .linkbtn[disabled] { opacity: .45; cursor: not-allowed; }
+.set table.ruletable td.num .linkbtn[disabled]:hover { background: none; color: var(--dim); }
+.settab > .verdict + .panel { margin-top: 0 !important; }
+code.tipped { cursor: help; }
+.preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
+.preview .fieldnote { margin-top: 10px; }
+.pvrule .pvd { grid-column: 3; font-size: 12px; }
+.agentfiles .ok { color: var(--accent); }
+.egrp p.none { margin: 0; }
+.egrp.mcp p.none { margin: 0 0 12px; }
+.egrp.mcp .tscroll { margin: 4px 0 12px; }
+.egrp.mcp .tchips.mcpeffects { margin: 0 0 12px; }
+.egrp.mcp .codebox.mcpjson { margin-top: 14px; }
+.egrp.mcp td small.mnote { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; }
+.egrp.mcp td small.mnote.warn { color: var(--warn); }
+.egrp.mcp .fieldnote { margin: 0 0 12px; }
+.dialog.ruledlg { width: min(560px, 100%); }
+.dialog .advtoggle { margin: 12px 0 0 -7px; }
+.dialog .advtoggle svg { width: 10px; height: 10px; transition: transform .15s; }
+.dialog .advtoggle svg.shut { transform: rotate(-90deg); }
+.dialog .advpart { margin-top: 10px; display: grid; gap: 10px; }
+.dialog .advpart .form:empty { display: none; }
+.dialog .advpart .advnote { margin: 0; }
+.dialog .cmdline { margin-top: 14px; overflow-x: auto; white-space: pre; }
+.dialog .mcpform { margin-top: 12px; }
+.dialog .mcphow { margin: 10px 0 0; }
+.dialog .codebox { margin-bottom: 0; }
+.stepempty.nostore ol.setup { margin-top: 18px; }
+.fieldnote.storeerr { margin: 0 0 12px; }
+.stepempty.nostore ol.setup > li:last-child { padding-bottom: 0; }

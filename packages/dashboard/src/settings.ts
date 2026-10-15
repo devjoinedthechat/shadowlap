@@ -314,6 +314,27 @@ function commandOf(run: RunRecord): string {
   return argv.join(' ');
 }
 
+/** How long a run's label in a picker gets: its id and enough of its command to tell it apart. */
+const LABEL_COMMAND = 60;
+
+/**
+ * A command line short enough for a picker: an absolute path keeps its last two parts
+ * (`node …/dist/main.js`), and the whole is cut at LABEL_COMMAND characters.
+ */
+export function shortCommand(command: string): string {
+  const short = command
+    .split(' ')
+    .map((a) => {
+      const parts = a.split(/[\\/]/).filter(Boolean);
+      return /^(\/|~\/|[A-Za-z]:\\)/.test(a) && parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : a;
+    })
+    .join(' ');
+  return short.length > LABEL_COMMAND ? `${short.slice(0, LABEL_COMMAND - 1)}…` : short;
+}
+
+/** A run as a picker lists it: `01K5CQ4N7G · python refund_agent.py`. */
+const runLabel = (run: RunRecord) => `${shortRun(run.runId)} · ${shortCommand(commandOf(run))}`;
+
 // ---- Matching ----
 
 export function matchingSettings(ctx: SettingsContext): MatchingSettings {
@@ -361,7 +382,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
   // Every run but those a process is still recording: one its process abandoned can be previewed.
   const recording = new Set(ctx.store.recordingRuns().live.map((r) => r.run.runId));
   const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => !recording.has(r.runId));
-  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: `${shortRun(r.runId)} · ${commandOf(r)}`, preview: previewArgv(r.runId) }));
+  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: runLabel(r), preview: previewArgv(r.runId) }));
   let previewRunId: string | null = ended[0]?.runId ?? null;
   let previewError: string | null = null;
   if (options.runId) {
@@ -1083,7 +1104,7 @@ export function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd'>, ru
     throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
   }
   const preview = previewRedaction(ctx.store, run.runId, rules, { maxCalls: options.maxCalls ?? PREVIEW_MAX_CALLS });
-  return { run: { runId: run.runId, label: `${shortRun(run.runId)} · ${commandOf(run)}` }, preview, command: `shadowlap redact preview ${shortRun(run.runId)}` };
+  return { run: { runId: run.runId, label: runLabel(run) }, preview, command: `shadowlap redact preview ${shortRun(run.runId)}` };
 }
 
 // ---- Store ----
