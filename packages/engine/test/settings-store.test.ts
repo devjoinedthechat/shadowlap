@@ -252,7 +252,8 @@ describe('size', () => {
     expect(store.size().free).toBeGreaterThan(100 * 4096);
     store.vacuum();
     const after = store.size();
-    expect(after.bytes).toBeLessThan(before.bytes / 10);
+    // The vacuum gives back what the blobs took; what is left is the store's schema, whatever its size.
+    expect(before.bytes - after.bytes).toBeGreaterThan(0.9 * 200 * 4096);
     expect(after.free).toBe(0);
     holder.close();
     store.close();

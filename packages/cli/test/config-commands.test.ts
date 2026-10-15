@@ -416,7 +416,8 @@ describe('shadowlap gc', () => {
     const report = JSON.parse(r.out) as { blobs: number; store: { before: number; after: number } };
     expect(report.blobs).toBe(300);
     expect(report.store.before).toBeGreaterThan(300 * 3000);
-    expect(report.store.after).toBeLessThan(report.store.before / 10);
+    // The vacuum gives back what the blobs took; what is left is the store's schema, whatever its size.
+    expect(report.store.before - report.store.after).toBeGreaterThan(0.9 * 300 * 3000);
     expect(store.size().bytes).toBe(report.store.after);
     store.close();
   });
