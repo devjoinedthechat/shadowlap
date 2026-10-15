@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, runKind, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
@@ -198,7 +198,8 @@ export function register(program: Command): void {
       const row = (r: RunRecord, indent: string): string[] => {
         const state = r.status === 'running' ? p.yellow(r.status) : r.status === 'completed' ? p.green(r.status) : p.red(r.status);
         const calls = store.countCalls(r.runId);
-        const kind = r.mode !== 'replay' ? 'recording' : r.divergence ? p.yellow(`fork @${r.divergence.callNo}`) : r.status === 'completed' && calls > 0 ? p.cyan('clean replay') : 'replay';
+        const k = runKind(r, { calls });
+        const kind = k === 'fork' ? p.yellow(kindLabel(k, r.divergence)) : k === 'clean' ? p.cyan(kindLabel(k, r.divergence)) : kindLabel(k, r.divergence);
         return [indent + shortId(r.runId), kind, state, `${calls} calls`, safe(r.codeVersion ?? ''), p.dim(ago(r.startedAt)), r.meta?.labels?.length ? p.cyan(safe(r.meta.labels.join(', '))) : ''];
       };
       let rows: string[][];
