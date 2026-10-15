@@ -114,6 +114,13 @@ describe('Fixes: verdicts and repairs', () => {
     expect(store.getRepair('repair-munzln2i')?.report.candidates).toHaveLength(3);
   });
 
+  it('marks the fix applied when repair --apply left the change in the working tree', () => {
+    const a = makeRun(store, { labels: ['refund-over-limit'] });
+    const fix = blame(a).fix;
+    recordRepair(store, { repairId: 'repair-applied', dir: '.shadowlap/repairs/repair-applied', report: repairReport({ targets: [a], applied: true }), expect: EXPECT, command: 'shadowlap repair --apply', at: 7_000 });
+    expect(store.getFix(fix.fixId)).toMatchObject({ status: 'applied', verifiedAt: 7_000, appliedAt: 7_000, data: { applied: { patch: 'applied', repairId: 'repair-applied', tests: 'skipped' } } });
+  });
+
   it('leaves the fix open after a repair that accepts nothing', () => {
     const a = makeRun(store, { labels: ['refund-over-limit'] });
     const fix = blame(a).fix;

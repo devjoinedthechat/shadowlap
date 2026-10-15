@@ -222,8 +222,9 @@ export interface RecordedRepair {
 /**
  * Keeps a repair's report and links it to the fix of the runs it repaired, which its own blames
  * opened or joined. A repair that accepted a candidate also keeps that candidate's verification as
- * a verdict, so the fix turns verified; one that accepted none leaves the fix open, with every
- * candidate it tried and why each was dropped. A pull request it opened becomes where the fix came from.
+ * a verdict, so the fix turns verified, or applied when `--apply` left the change in the working
+ * tree; one that accepted none leaves the fix open, with every candidate it tried and why each was
+ * dropped. A pull request it opened becomes where the fix came from.
  */
 export function recordRepair(store: Store, input: RepairToRecord): RecordedRepair {
   const at = input.at ?? Date.now();
@@ -243,6 +244,13 @@ export function recordRepair(store: Store, input: RepairToRecord): RecordedRepai
       }
     }
     const verdict = accepted?.verify ? keepVerdict(store, { report: accepted.verify, expect: input.expect, command: input.command, repairId: repair.repairId, candidate: accepted.id, at, fixIds: fixes.map((f) => f.fixId) }).verdict : null;
+    // `repair --apply` left the change in the working tree: the fix is applied already.
+    if (accepted && r.output.applied) {
+      for (const fix of fixes) {
+        const now = store.getFix(fix.fixId)!;
+        if (now.status !== 'applied') store.updateFix(fix.fixId, { status: 'applied', appliedAt: at, data: { ...now.data, applied: { patch: 'applied', repairId: repair.repairId, goldens: [], tests: 'skipped' } } });
+      }
+    }
     return { repair, fixes: fixes.map((f) => store.getFix(f.fixId)!), verdict };
   });
 }

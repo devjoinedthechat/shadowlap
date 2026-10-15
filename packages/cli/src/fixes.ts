@@ -290,6 +290,9 @@ export function recordRepairFix(opts: GlobalOpts, report: RepairReport, input: {
         candidates: report.candidates.length,
       },
     });
+    if (recorded.repair.accepted && report.output.applied) {
+      for (const fix of recorded.fixes) recordEvent(store, { kind: 'fix.applied', actor: actor(), ref: fix.fixId, data: { title: fix.title, repairId: recorded.repair.repairId, patch: 'applied', goldens: 0, tests: 'skipped' } });
+    }
     return recorded;
   } catch (err) {
     report.warnings.push(`the repair could not be kept with its fix: ${(err as Error).message}`);

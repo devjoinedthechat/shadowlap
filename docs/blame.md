@@ -76,6 +76,25 @@ Once you have a fix, [`shadowlap verify`](./verify.md) checks it on the blamed r
 
 Every attempt is a run in the store, marked as a blame attempt and bundled per probe in the dashboard's forks view, the way `--repeat` attempts are. `shadowlap show` prints what blame found on the blamed run and on each attempt. The rescued fork is an ordinary run: `shadowlap diff <run> <fork>` compares it with the recording, and `shadowlap ui <fork> --call <n>` opens it at the blamed call.
 
+## Fixes
+
+Every blame is kept in the store whole, with the fix it opens or joins. A fix is one failure, from the blame that reproduced it to a change that held: [`shadowlap fix`](./cli.md#fix) lists them, and the dashboard's Fixes page shows each one's blame, repair and verify. The report ends with it:
+
+```
+  fix fx-01M3RZ4XKN · issue_refund called with amount 240 · opened · shadowlap fix show fx-01M3RZ4XKN
+```
+
+Which fix a blamed run goes to:
+
+- A run that already fails in a fix stays in it, so blaming it again, with `--model` say, adds a blame to the same fix.
+- Otherwise it joins the fix of another run with the same [label](./cli.md#label-note), such as `refund-over-limit`. The label `good` never names a failure.
+- A run with no label joins the fix with the same check: the same `--expect`, whatever order its keys are in. Without `--expect`, the check is the exit code.
+- Otherwise the blame opens a new fix. Its title says how the recording failed the check, in plain words: *issue_refund called with amount 240*, *send_email called twice, not once*, *Output never says "refund issued"*. `shadowlap fix title` replaces it with one of your own.
+
+A blame that stopped early opens or joins a fix too: it replayed the run and saw it fail before it probed anything, so the failure is reproduced. A blame that refused (the run passes, or doesn't replay as recorded) leaves nothing behind. An applied fix is finished: no run joins it, and the same failure coming back after it shipped opens a new one.
+
+Each blame also logs a `blame.done` event in the store's activity, and, started from the dashboard, links its job to the fix's Blame step.
+
 ## Cost
 
 Each probe replays everything before its call for free. The calls after it run live, so later probes are cheaper. A search makes at most `1 + ⌈log₂ m⌉ + scan` probes for *m* model calls, each of at most `--attempts` attempts, and usually far fewer attempts than that, because a probe stops once its verdict is settled. The header prints the bound before anything runs.
@@ -103,6 +122,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | `rescue` | `{ fields }`: the request fields a probe changed; empty when it resampled |
 | `modelCalls`, `attemptsPerProbe`, `passesNeeded`, `nonMonotone`, `cost`, `stopReason` | The search's parameters and what it spent |
 | `warnings` | What the replays warned about, such as a connection that bypassed Shadowlap |
+| `fix` | `{ fixId, title, status, opened }`: the [fix](#fixes) the blame opened (`opened: true`) or joined, or `null` when the store could not keep it |
 
 ## When blame refuses
 

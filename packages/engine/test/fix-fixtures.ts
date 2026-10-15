@@ -102,7 +102,7 @@ function candidate(id: number, state: RepairCandidate['state'], after: string, r
 }
 
 /** A repair of `targets` (each blamed at #5), held-out and good runs; accepted unless `accepted` is false. */
-export function repairReport(o: { targets: string[]; holdout?: string[]; good?: string[]; accepted?: boolean; dir?: string; pr?: string | null }): RepairReport {
+export function repairReport(o: { targets: string[]; holdout?: string[]; good?: string[]; accepted?: boolean; dir?: string; pr?: string | null; applied?: boolean }): RepairReport {
   const holdout = o.holdout ?? [];
   const good = o.good ?? [];
   const roles = [...o.targets.map((r) => ({ runId: r, role: 'target' as const })), ...holdout.map((r) => ({ runId: r, role: 'holdout' as const })), ...good.map((r) => ({ runId: r, role: 'good' as const }))];
@@ -129,7 +129,7 @@ export function repairReport(o: { targets: string[]; holdout?: string[]; good?: 
     accepted: accepted ? 3 : null,
     patch: accepted ? `diff --git a/agent.mjs b/agent.mjs\n--- a/agent.mjs\n+++ b/agent.mjs\n@@ -1,1 +1,1 @@\n-${BEFORE}\n+${AFTER}\n` : null,
     cost: { blame: 0.1, repairer: 0.004, verify: (accepted?.spent ?? 0) + rejected.spent },
-    output: { dir, patch: accepted ? `${dir}/fix.patch` : null, report: `${dir}/report.md`, goldens: accepted ? o.targets.map((r) => `${dir}/goldens/${r.slice(0, 10)}`) : [], applied: false, branch: null, pr: o.pr ?? null },
+    output: { dir, patch: accepted ? `${dir}/fix.patch` : null, report: `${dir}/report.md`, goldens: accepted ? o.targets.map((r) => `${dir}/goldens/${r.slice(0, 10)}`) : [], applied: !!o.applied && !!accepted, branch: null, pr: o.pr ?? null },
     warnings: [],
   };
 }

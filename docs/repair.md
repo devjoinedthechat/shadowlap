@@ -105,6 +105,15 @@ Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` re
 
 Without a repairer, repair still tries the fixes that need none (`--stronger`), and says it skipped the rest.
 
+## The fix it reports to
+
+Repair blames each failing run first, and each blame opens or joins a [fix](./blame.md#fixes), so a repair of runs never blamed opens one. The repair is kept with that fix: its report, its directory, and every candidate it tried with why it was dropped. Its failing runs, held-out ones included, become the fix's failing runs, and its good runs the fix's good runs.
+
+- When a candidate is accepted, its verification is kept as a verdict of its own and the fix turns verified. With `--apply` the change is already in the working tree, so the fix is applied. With `--pr`, the pull request becomes where the fix came from.
+- When none is accepted, repair exits 1 and the fix stays open. Its Repair step lists each candidate, accepted, rejected or set aside, with why.
+
+[`shadowlap fix apply <fix>`](./cli.md#fix) hands a verified fix over later: it applies `fix.patch`, copies the recordings in `goldens/` into the project's goldens folder, runs `shadowlap test` on them, and marks the fix applied. A repair logs `repair.accepted` or `repair.empty` in the store's activity and, started from the dashboard, links its job to the fix's Repair step.
+
 ## Outcomes
 
 | Outcome | Exit | Meaning |
@@ -114,7 +123,7 @@ Without a repairer, repair still tries the fixes that need none (`--stronger`), 
 | **No fix to try** | 1 | No failing run was rescued, so there is no passing path to learn from. With `--stronger`, not even a stronger model rescued them: look at the code and the tools |
 | **Stopped** | 1 | Ctrl-C or `--budget`; what was found so far is reported |
 
-`--json` prints the whole report, each candidate with its verification, for scripts and [coding agents](./agents.md).
+`--json` prints the whole report, each candidate with its verification, for scripts and [coding agents](./agents.md). It adds `repairId` (the directory name the repair is kept under), `verifyId` (the verdict kept for the accepted candidate, or `null`) and `fixes`, each fix it reported to with `fixId`, `title` and `status`.
 
 ## Options
 
