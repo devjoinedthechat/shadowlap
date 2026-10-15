@@ -92,7 +92,7 @@ const scopeOf = (c: CallRecord): string => (typeof c.meta.scope === 'string' ? c
 // ---- caches ---------------------------------------------------------------------------------------
 
 /** A Map that forgets its least recently used entries past `max`. */
-class Lru<K, V> {
+export class Lru<K, V> {
   private readonly map = new Map<K, V>();
   constructor(private readonly max: number) {}
   get(key: K): V | undefined {

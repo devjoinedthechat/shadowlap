@@ -131,6 +131,31 @@ describe('the run page: time not waited, blobs and results', () => {
     expect(recorded.calls.map((c) => c.resultShort)).toEqual([null, '["a","b"]', null]);
     store.close();
   });
+
+  it('reads each tool result once, however often the run page asks', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const big = { rows: Array.from({ length: 2000 }, (_, i) => ({ id: i, note: 'x'.repeat(40) })) };
+    for (let i = 0; i < 20; i++) b.tool('export_rows', { page: i }, { ...big, page: i });
+    b.tool('send_email', { to: 'x' }, { stubbed: true }, { origin: 'stubbed', effect: 'write' });
+    b.end();
+    const results = new Set(store.getCalls(b.runId).map((c) => c.end!.responseRef));
+    const real = store.getJson.bind(store);
+    let reads = 0;
+    store.getJson = ((hash: string) => {
+      if (results.has(hash)) reads++;
+      return real(hash);
+    }) as typeof store.getJson;
+    const first = runDetail(store, b.runId)!;
+    expect(first.calls[0]!.resultShort).toBe(`${JSON.stringify({ ...big, page: 0 }).slice(0, 71)}…`);
+    expect(first.calls[20]!.resultShort).toBe('stubbed {"stubbed":true}');
+    expect(reads).toBe(21);
+    reads = 0;
+    // Asked again, as the run page does every two seconds: no tool result is read again.
+    expect(runDetail(store, b.runId)!.calls.map((c) => c.resultShort)).toEqual(first.calls.map((c) => c.resultShort));
+    expect(reads).toBe(0);
+    store.close();
+  });
 });
 
 describe('the run page: header and banners', () => {
@@ -354,7 +379,7 @@ describe('the run page: provenance', () => {
       command: ['python', 'agent.py'],
       codeVersion: 'abc1234',
       startedUtc: '2026-10-01 09:41:07 UTC',
-      models: [{ model: 'sonnet-5', calls: 2 }],
+      models: [{ model: 'claude-sonnet-5-20260101', short: 'sonnet-5', calls: 2 }],
       providers: [{ provider: 'anthropic', calls: 2 }],
       calls: { model: 2, tool: 1, other: 0, scopes: 1 },
       origins: { live: 3, replayed: 0, blocked: 0, stubbed: 0, overridden: 0, injected: 0 },

@@ -28,26 +28,52 @@ describe('the cache-miss rule', () => {
     store.close();
   });
 
-  it('needs at least 1,024 tokens of shortfall, and a conversation that uses the cache', () => {
+  it('needs at least 1,024 tokens of shortfall', () => {
     const store = Store.open(':memory:');
-    const b = RunBuilder.start(store);
     const q = [user('Go.')];
     const a = [toolUse('step', {}, 'toolu_1')];
-    const cached = b.model({ messages: q }, a, { usage: usage(10, 0, 5000) });
-    // 1,023 short of the previous whole input: the newest turn, not a broken prefix.
-    const near = b.model({ messages: [...q, assistant(a), user([toolResult('toolu_1', 'ok')])] }, [toolUse('step', {}, 'toolu_2')], { usage: usage(1033, 5010 - CACHE_MISS_MIN_TOKENS + 1, 0) });
-    expect(near).toBe(cached + 1);
-    b.end();
-    expect(runCache(store, store.getCalls(b.runId)).misses).toEqual([]);
+    const next = [...q, assistant(a), user([toolResult('toolu_1', 'ok')])];
+    const pair = (read: number) => {
+      const b = RunBuilder.start(store);
+      b.model({ messages: q }, a, { usage: usage(10, 0, 5000) });
+      b.model({ messages: next }, [toolUse('step', {}, 'toolu_2')], { usage: usage(1033, read, 0) });
+      return runCache(store, store.getCalls(b.end())).misses.map((m) => m.sentAgain);
+    };
+    // 1,023 short of the previous whole input (5,010): the newest turn, not a broken prefix.
+    expect(pair(5010 - CACHE_MISS_MIN_TOKENS + 1)).toEqual([]);
+    expect(pair(5010 - CACHE_MISS_MIN_TOKENS)).toEqual([1024]);
+    store.close();
+  });
 
-    // An agent that never asked for caching: nothing stopped hitting, since nothing ever hit.
+  it('judges every call whose cache read is known, and none whose provider reports no cache', () => {
+    const store = Store.open(':memory:');
+    const q = [user('Go.')];
+    const a = [toolUse('step', {}, 'toolu_1')];
+    const next = [...q, assistant(a), user([toolResult('toolu_1', 'ok')])];
+
+    // An agent that never asked Anthropic to cache: each turn sends the whole history again.
     const plain = RunBuilder.start(store);
     plain.model({ messages: q }, a, { usage: usage(5000, 0, 0) });
-    plain.model({ messages: [...q, assistant(a), user([toolResult('toolu_1', 'ok')])] }, [text('done')], { usage: usage(6000, 0, 0) });
-    plain.end();
-    const r = runCache(store, store.getCalls(plain.runId));
-    expect(r.misses).toEqual([]);
+    plain.model({ messages: next }, [text('done')], { usage: usage(6000, 0, 0) });
+    const r = runCache(store, store.getCalls(plain.end()));
+    expect(r.misses.map((m) => [m.callNo, m.sentAgain])).toEqual([[2, 5000]]);
     expect(r.readShare).toBe(0);
+
+    // A local model server that reports no cache at all: nothing to compare.
+    const local = RunBuilder.start(store);
+    const name = 'POST /v1/chat/completions';
+    local.model({ model: 'qwen3', messages: q }, a, { name, provider: 'openai', usage: { inputTokens: 5000, outputTokens: 40 } });
+    local.model({ model: 'qwen3', messages: next }, [text('done')], { name, provider: 'openai', usage: { inputTokens: 6000, outputTokens: 40 } });
+    expect(runCache(store, store.getCalls(local.end())).misses).toEqual([]);
+
+    // Gemini leaves the cached count out when it read nothing: that is a read of zero.
+    const gemini = RunBuilder.start(store);
+    const g = 'POST /v1beta/models/gemini-2.5-flash:generateContent';
+    const reply = (t: string) => ({ raw: { body: JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: t }] }, finishReason: 'STOP' }] }), contentType: 'application/json' }, name: g, provider: 'gemini' });
+    const first = { role: 'user', parts: [{ text: 'Summarise the incident.' }] };
+    gemini.model({ contents: [first] }, null, { ...reply('Disk full.'), usage: { inputTokens: 4000, outputTokens: 10 } });
+    gemini.model({ contents: [first, { role: 'model', parts: [{ text: 'Disk full.' }] }, { role: 'user', parts: [{ text: 'Why?' }] }] }, null, { ...reply('No rotation.'), usage: { inputTokens: 4100, outputTokens: 10 } });
+    expect(runCache(store, store.getCalls(gemini.end())).misses.map((m) => [m.callNo, m.sentAgain])).toEqual([[2, 4000]]);
     store.close();
   });
 
@@ -106,6 +132,53 @@ describe('cache use across runs', () => {
     const last = cacheUse(store, now - 14 * day, { until: now - 7 * day });
     expect(last.runs).toBe(1);
     expect(last.largest.map((m) => [m.runId, m.callNo])).toEqual([[old, 3]]);
+    store.close();
+  });
+});
+
+describe('cache use on the Overview, asked again', () => {
+  it('reads a finished run’s calls once, and a run still recording each time', () => {
+    const store = Store.open(':memory:');
+    const now = 1_760_000_000_000;
+    const turn = (b: RunBuilder, m: number, broken = false) => {
+      const q: unknown[] = [user('Begin.')];
+      for (let i = 1; i < m; i++) q.push(assistant([toolUse('step', { i }, `toolu_${i}`)]), user([toolResult(`toolu_${i}`, 'ok')]));
+      const u = broken ? usage(10, 0, cachedUsage(m).cacheReadInputTokens! + cachedUsage(m).cacheCreationInputTokens!) : cachedUsage(m);
+      b.model({ messages: q }, [toolUse('step', { i: m }, `toolu_${m}`)], { usage: u });
+    };
+    const done: string[] = [];
+    for (let r = 0; r < 40; r++) {
+      const b = RunBuilder.start(store, { startedAt: now + r });
+      for (let m = 1; m <= 4; m++) turn(b, m, r === 7 && m === 3);
+      done.push(b.end());
+    }
+    const recording = RunBuilder.start(store, { startedAt: now + 100 });
+    turn(recording, 1);
+    turn(recording, 2);
+
+    const real = store.getCalls.bind(store);
+    const read: string[] = [];
+    store.getCalls = (runId: string) => {
+      read.push(runId);
+      return real(runId);
+    };
+    const first = cacheUse(store, now);
+    expect(first.runs).toBe(41);
+    expect(first.largest.map((m) => [m.runId, m.callNo])).toEqual([[done[7], 3]]);
+    expect(read).toHaveLength(41);
+
+    read.length = 0;
+    expect(cacheUse(store, now)).toEqual(first);
+    expect(read).toEqual([recording.runId]);
+
+    // The recording's next call is a miss: it shows at once.
+    turn(recording, 3, true);
+    const later = cacheUse(store, now);
+    expect(later.misses).toBe(2);
+    expect(later.largest.map((m) => m.runId)).toContain(recording.runId);
+    // What the Overview is given is its own: changing it changes nothing kept.
+    later.largest[0]!.sentAgain = -1;
+    expect(cacheUse(store, now).largest[0]!.sentAgain).toBeGreaterThan(0);
     store.close();
   });
 });

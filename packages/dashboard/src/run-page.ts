@@ -1,6 +1,7 @@
 import {
   applyNormalizers,
   cacheMisses,
+  Lru,
   compilePattern,
   conversationRequestFor,
   hasRecordedCommand,
@@ -102,19 +103,35 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
   return analysis;
 }
 
+/**
+ * Tool results in a line, per store, by what the line depends on: the result blob (content
+ * addressed, so an entry never goes stale), how the call came out, and whether it was an HTTP host.
+ * The run page asks for a run every two seconds; its tool results are read once.
+ */
+const resultLines = new WeakMap<Store, Lru<string, string | null>>();
+
+function resultShortOf(store: Store, c: CallRecord): string | null {
+  if (c.kind !== 'tool') return null;
+  if (c.origin === 'blocked' || !c.end) return toolResultLine(c, null);
+  let lines = resultLines.get(store);
+  if (!lines) resultLines.set(store, (lines = new Lru(20_000)));
+  const key = `${c.end.responseRef ?? ''}\n${c.origin}\n${c.end.outcome}\n${typeof c.meta.http === 'string' ? 'http' : ''}\n${c.end.meta.error?.message ?? ''}`;
+  const known = lines.get(key);
+  if (known !== undefined) return known;
+  let payload: unknown = null;
+  try {
+    payload = c.end.responseRef ? store.getJson(c.end.responseRef) : null;
+  } catch {
+    payload = null;
+  }
+  const line = toolResultLine(c, payload);
+  lines.set(key, line);
+  return line;
+}
+
 /** What a call row shows that is the call's own: its blobs, its fingerprint and a tool's result in a line. */
 export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null } {
-  let resultShort: string | null = null;
-  if (c.kind === 'tool') {
-    let payload: unknown = null;
-    try {
-      payload = c.end?.responseRef ? store.getJson(c.end.responseRef) : null;
-    } catch {
-      payload = null;
-    }
-    resultShort = toolResultLine(c, payload);
-  }
-  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort };
+  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c) };
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
@@ -281,8 +298,8 @@ export interface RunProvenance {
   /** The same times in UTC, as `2026-10-01 09:41:07 UTC`. */
   startedUtc: string;
   endedUtc: string | null;
-  /** Each model with the number of model calls made with it, most used first. */
-  models: Array<{ model: string; calls: number }>;
+  /** Each model as recorded (`claude-sonnet-5-20260101`, the dated snapshot), its short name for display, and the model calls made with it, most used first. */
+  models: Array<{ model: string; short: string; calls: number }>;
   /** The providers the model calls went to (`anthropic`, `openai`, …), most used first. */
   providers: Array<{ provider: string; calls: number }>;
   calls: { model: number; tool: number; other: number; scopes: number };
@@ -370,10 +387,7 @@ export function runProvenance(store: Store, run: RunRecord, options: ProvenanceO
     endedAt: run.endedAt,
     startedUtc: utc(run.startedAt),
     endedUtc: run.endedAt === null ? null : utc(run.endedAt),
-    models: tally(models.map((c) => {
-      const m = c.end?.meta.model ?? c.meta.model ?? modelOf(c);
-      return m ? shortModel(m) : null;
-    })).map(([model, n]) => ({ model, calls: n })),
+    models: tally(models.map((c) => c.end?.meta.model ?? c.meta.model ?? modelOf(c))).map(([model, n]) => ({ model, short: shortModel(model), calls: n })),
     providers: tally(models.map((c) => {
       const p = c.end?.meta.provider ?? c.meta.provider;
       return typeof p === 'string' ? p : null;
