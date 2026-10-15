@@ -262,7 +262,10 @@ describe('suggestFolders', () => {
 
 describe('projectRoots', () => {
   it('keeps the home folder and vetted roots, and says why the others were left out', () => {
-    const home = tempDir('sl-roots-home-');
+    // The home folder one level into a temporary folder, so the folder holding it is an ordinary
+    // one on every system: Linux's temporary folder (/tmp) is a system folder itself.
+    const home = join(tempDir('sl-roots-'), 'home');
+    mkdirSync(home);
     const work = tempDir('sl-roots-work-');
     const r = projectRoots({ home, configured: [work, '/', '/etc', 'relative/path', join(work, 'missing'), dirname(home), `${home}/sub`, work] });
     expect(r.roots).toEqual([home, work]);

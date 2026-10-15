@@ -21,6 +21,14 @@ function project(files: Record<string, string>, root = tempDir('sl-initjson-')):
   }
   return root;
 }
+/**
+ * A project in a home folder of its own, the way the dashboard adds one. Never the system's
+ * temporary folder as the home folder: Linux's (/tmp) is a system folder, which holds no projects.
+ */
+function homeProject(files: Record<string, string>): { home: string; dir: string } {
+  const home = tempDir('sl-initjson-user-');
+  return { home, dir: project(files, join(home, 'research-agent')) };
+}
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 /** The mock's research agent: Pydantic AI on uv, one tool wrapped and two write tools that aren't. */
@@ -206,8 +214,8 @@ describe('shadowlap init in a dashboard project', () => {
 
   it('marks the project inspected, with its findings, and again after the tools are wrapped', () => {
     const slHome = tempDir('sl-initjson-home-');
-    const dir = project(RESEARCH);
-    const registry = new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null });
+    const { home, dir } = homeProject(RESEARCH);
+    const registry = new ProjectRegistry({ home, dir: slHome, actor: () => null });
     registry.add(dir);
     const out = spawnSync(process.execPath, [CLI, 'init', '--json'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
     expect(out.status).toBe(0);
@@ -265,8 +273,8 @@ describe('shadowlap init in a dashboard project', () => {
 
   it('tells a dashboard job its findings, once the setup has taken them', async () => {
     const slHome = tempDir('sl-initjson-job-');
-    const dir = project(RESEARCH);
-    new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null }).add(dir);
+    const { home, dir } = homeProject(RESEARCH);
+    new ProjectRegistry({ home, dir: slHome, actor: () => null }).add(dir);
     const child = spawn(process.execPath, [CLI, 'init', '--json'], { cwd: dir, env: { ...env(slHome), SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
     const events: Buffer[] = [];
     const out: Buffer[] = [];
@@ -278,15 +286,15 @@ describe('shadowlap init in a dashboard project', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]!.type).toBe('result');
     expect(lines[0]!.data.summary.command).toBe('uv run agent.py');
-    const id = new ProjectRegistry({ home: dirname(dir), dir: slHome }).find(dir)!.id;
+    const id = new ProjectRegistry({ home, dir: slHome }).find(dir)!.id;
     expect(lines[0]!.data.project).toEqual({ id, noted: true, why: null });
     expect((JSON.parse(Buffer.concat(out).toString('utf8')) as InitJson).project).toEqual({ id, noted: true, why: null });
   });
 
   it('says when the setup couldn’t take the findings, in the result and in a terminal', () => {
     const slHome = tempDir('sl-initjson-newer-');
-    const dir = project(RESEARCH);
-    const registry = new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null });
+    const { home, dir } = homeProject(RESEARCH);
+    const registry = new ProjectRegistry({ home, dir: slHome, actor: () => null });
     const id = registry.add(dir).project.id;
     // A newer Shadowlap wrote the list since: this one can read it, not change it.
     const file = join(slHome, 'projects.json');
@@ -307,11 +315,11 @@ describe('shadowlap init in a dashboard project', () => {
 describe('noteInspected', () => {
   it('says what it did for the dashboard’s setup, and never fails init', () => {
     const slHome = tempDir('sl-note-');
-    const dir = project(RESEARCH);
+    const { home, dir } = homeProject(RESEARCH);
     const env = { SHADOWLAP_HOME: slHome };
     const j = json(dir);
     expect(noteInspected(dir, j, env)).toEqual({ id: null, noted: false, why: null });
-    const registry = new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null });
+    const registry = new ProjectRegistry({ home, dir: slHome, actor: () => null });
     const id = registry.add(dir).project.id;
     expect(noteInspected(dir, j, env)).toEqual({ id, noted: true, why: null });
     // Another process holds the list for longer than init waits.
