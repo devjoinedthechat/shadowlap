@@ -22,6 +22,15 @@ export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type Ru
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
 export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, ruleNoun, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
+// Projects: the list of folders opened in the dashboard, folder suggestions, setup and recording from it.
+export { ProjectError, ProjectHost, ProjectRegistry, emptySetup, nameConfirms, projectDbPath, setupRunOf, tildePath } from './projects/index.js';
+export { checkFolder, describeFolder, suggestFolders } from './projects/index.js';
+export { UPSTREAM_ENV, defaultGolden, freeGoldenPath, goldenPath, modelServerFinding, parseAgentCommand, planRecording, setupCommands, setupJobArgs } from './projects/index.js';
+export { SETUP_STAGES, calibrationOutcome, deriveSetup, emptyStoreFacts, readStoreFacts, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './projects/index.js';
+export type { AddedProject, ConfirmedCommand, ProjectContext, ProjectCounts, ProjectEntry, ProjectErrorCode, ProjectHostOptions, ProjectSetup, RegistryOptions, RemovedProject } from './projects/index.js';
+export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, SuggestOptions } from './projects/index.js';
+export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';
+export type { CalibrationOutcome, EffectiveSetup, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { describeChanges, type RunChanges } from './changes.js';
@@ -36,7 +45,7 @@ export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd
 export type { Price } from './prices.js';
 export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, commandIsImported, hasRecordedCommand, packRun, unpackRun } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
-export { safeLine, safeText } from './text.js';
+export { quoteArgv, safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
 export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, runKind, runOutcome } from './classify.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';

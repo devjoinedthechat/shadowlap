@@ -61,6 +61,51 @@ Some jobs take a file from your browser, such as a capture to import. The dashbo
 
 `shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. Downloading a run as HTML still works, since it changes nothing. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one, and it leaves the uploads folder alone (even files another dashboard left there); it opens that store the way every command does, which brings an older store's layout up to date and lets search build its index. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way.
 
+## Projects
+
+> Projects come with the dashboard's next pages: the switcher, **Add project…**, the setup and **Remove from dashboard** described here aren't in it yet. Until then `shadowlap dashboard` serves the folder it starts in, or the store `--db` names, and each setup step below is a command you can run in a terminal.
+
+A project is a folder with your agent's code. Its store is in that folder (`.shadowlap/shadowlap.db`), so each project has its own runs, fixes, tests, configuration and activity, and one dashboard serves several: switching projects switches the store it reads, and every action runs in that project's folder, against its store. The folder `shadowlap dashboard` starts in is always one of them.
+
+The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` moves the folder; give it as an absolute path). It holds no recordings: for each project its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there, and the same for projects you removed, so adding one again brings it back. It is written atomically and readable only by you, and keys it doesn't know are kept. Listing projects reads their stores without changing them, so a project pinned to an older Shadowlap keeps working, and a store in a folder you can't write to is still read; one that can't be read at all (a newer Shadowlap's) is listed with the reason. If the list can't be read, or a newer Shadowlap wrote it, the dashboard still opens on its folder and says why it can't list or add others.
+
+### Adding a project
+
+**Add project…** asks for the folder your agent's code is in. As you type, it suggests folders and says what each holds (`Python · uv · pyproject.toml`, `Node · npm · package.json`). A folder without a `pyproject.toml`, `package.json`, requirements file or other project file can't be added, and says so. Adding a folder that was a project before brings it back as it was: its runs, its setup where it left off, and the commands you confirmed there.
+
+Suggesting folders means the dashboard lists directories, so it does that within limits a web page can't stretch:
+
+- Like every request, suggestions need the session token; adding a project, like every change, is also refused from another origin.
+- They reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`). A root can't be `/`, a system folder, or a folder that holds your home folder. A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
+- They list one folder level at a time, folder names and what kind of project each is; never files, and a file gets the same answer as a path where nothing is. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `~/AppData` and `~/snap` in your home folder, `node_modules` anywhere) are never listed or entered, unless you add a root inside one, such as your iCloud Drive folder under `~/Library`.
+- A typed path is checked as typed before anything is looked up, then where it really leads, and only then whether it is a folder: a path into a hidden folder gets the same answer whether or not something is there.
+- At most 2,000 entries are read from a folder, and 100 suggestions returned.
+
+### Setting it up
+
+A project with no runs shows its setup on every page but Settings; one that is partway through shows it on the Overview. There are four steps, and each runs the command beside it in the project's folder, the same one you could type in a terminal:
+
+| Step | Command |
+|---|---|
+| Inspect the folder: SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged with the code to wrap them | `shadowlap init` (the dashboard reads [`init --json`](./cli.md#init)) |
+| Record a first run | `shadowlap run -- <command>` |
+| Make the replay clean | `shadowlap calibrate <run> --write` |
+| Keep it as a test | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
+
+Inspecting is done once `init` has run in the folder; a project recorded in a terminal first shows it as skipped, and can still be inspected. A recording counts once it holds calls: one whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so. When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**. Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
+
+Making the replay clean replays the recording offline: when it replays clean as it is, the step is done by itself; when calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`. The golden goes in a folder of its own, `goldens/<project>` unless you name another; Shadowlap never packs over a golden that is already there, and offers the next free name instead. **Skip the rest** appears after the first recording.
+
+The same commands typed in a terminal move the setup on: `init` records what it finds, a recording counts once it holds calls, a clean replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` completes step 4. `calibrate --write` in a terminal leaves nothing behind by itself; the setup's **Calibrate** then finds the replay clean as it is.
+
+The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, reading quotes as a terminal on macOS or Linux does, so the command the setup shows reads back as the same arguments: single quotes keep text as it is, and a backslash makes the next character text (`'it'\''s'`, `my\ file`). What only a shell would understand is refused rather than passed on as text: a pipe, `&&`, a redirection, `$VAR`, a leading `~`, a wildcard or a comment outside quotes, `$VAR` or a substitution inside double quotes, `$'…'`, and a backslash at the end of the line. So that a Windows path works, a backslash before a letter, a digit, `.`, `_` or `-` is kept (`C:\agents\run.py`), and two backslashes in a row are refused. Put the rest in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again, unless its model calls would now go to another model server.
+
+When `init` finds that the project talks to a model server of its own (`OPENAI_BASE_URL` in its `.env`, or a local base URL in its code, as with Ollama or vLLM), recording sets `SHADOWLAP_UPSTREAM_OPENAI` to that server, as `init` tells you to in a terminal, so the calls go there and not to the provider's API. A server address with credentials in it (a password, or a key in its query) is never stored or shown, so such a project is recorded in a terminal.
+
+### Removing a project
+
+**Remove from dashboard** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay, and the list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it. **Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it) once you type the project's name, and the list forgets the project: added again, its setup starts afresh. It won't while a run is recording there or when the folder can't be written to, and it never touches the goldens in your repository. Repair reports, exports and files sent to jobs, in `.shadowlap/repairs`, `.shadowlap/exports` and `.shadowlap/uploads`, are copies of their own and stay too: the dialog names the ones there, so delete them yourself if they hold what you mean to delete. The only project can't be removed.
+
 ## Keys
 
 | Key | |
@@ -94,7 +139,7 @@ Recordings hold prompts and tool data, so the dashboard is built to stay local:
 - It listens on 127.0.0.1 only, and refuses requests whose `Host` is not localhost, so a web page on another name that resolves to your machine cannot read it.
 - Every data request needs the session token that `shadowlap dashboard` generates at start and puts in the link's fragment (the part after `#`, which browsers never send to servers or in a Referer). Restarting the dashboard invalidates old links.
 - Requests that change something are refused when they come from another origin.
-- The browser never sends a command line: it names an action or a job and its fields, and the server builds the CLI arguments from the run, the call and those fields. The command you give a capture's replay is placed only after `--`.
+- The browser never sends a command line: it names an action or a job and its fields, and the server builds the CLI arguments from the run, the call and those fields. The command you give a capture's replay is placed only after `--`; so will be a [project's](#projects) first recording, split without a shell.
 - A download is only a file a job reported writing, only from inside the project folder (checked again when you download it, links followed), and always saved rather than opened. Uploaded files stay inside the project folder and are deleted as described under Actions.
 - A read-only dashboard refuses every request that would change something.
 - The page loads nothing from the network (fonts are bundled) and runs under a Content-Security-Policy that allows only its own script.

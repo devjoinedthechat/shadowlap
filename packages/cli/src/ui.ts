@@ -37,7 +37,5 @@ export function safe(s: string): string {
   return safeLine(s);
 }
 
-/** A command line as a shell would need it typed. */
-export function quoteArgv(argv: string[]): string {
-  return argv.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, "'\\''")}'`)).join(' ');
-}
+/** A command line as a shell would need it typed: the engine's, so the CLI and the dashboard quote alike. */
+export { quoteArgv } from '@shadowlap/engine';

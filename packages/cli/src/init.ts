@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
+import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -40,6 +41,8 @@ export interface FoundTool {
   effect: Effect | null;
   suggested: Effect;
   why: string;
+  /** The framework's decorator as written, where it matters to wrapping: `@agent.tool_plain` (Pydantic AI). */
+  decorator?: string;
 }
 
 export interface BaseUrlWarning {
@@ -107,6 +110,19 @@ function installedVersion(cwd: string, pkg: string): string | null {
   return typeof v === 'string' ? v : null;
 }
 
+/**
+ * The quoted requirements in pyproject.toml's arrays with these keys (`dependencies = [...]`), read
+ * a string at a time: extras (`"pydantic-ai-slim[openai]"`) put brackets inside the quotes, and a
+ * marker (`; python_version >= '3.9'`) the other kind of quote.
+ */
+function tomlRequirements(text: string, keys: readonly string[]): string[] {
+  const specs: string[] = [];
+  const array = new RegExp(`(?:^|\\n)\\s*(?:${keys.join('|')})\\s*=\\s*\\[((?:"[^"\\n]*"|'[^'\\n]*'|#[^\\n]*|[^\\]"'#])*)\\]`, 'g');
+  // A comment in the array is passed over, quotes and all.
+  for (const block of text.matchAll(array)) for (const s of block[1]!.matchAll(/"([^"\n]*)"|'([^'\n]*)'|#[^\n]*/g)) if (s[1] !== undefined || s[2] !== undefined) specs.push(s[1] ?? s[2]!);
+  return specs;
+}
+
 /** Python dependency names from pyproject.toml, requirements files and Pipfile, lowercased and normalized. */
 function pythonDependencies(cwd: string): Set<string> {
   const names = new Set<string>();
@@ -117,8 +133,7 @@ function pythonDependencies(cwd: string): Set<string> {
   const pyproject = join(cwd, 'pyproject.toml');
   if (existsSync(pyproject)) {
     const text = readFileSync(pyproject, 'utf8');
-    // An array of quoted specs; extras like "pydantic-ai-slim[openai]" put brackets inside the quotes.
-    for (const block of text.matchAll(/(?:^|\n)\s*(?:dependencies|requires)\s*=\s*\[((?:\s*(?:#[^\n]*)?\s*["'][^"']*["']\s*,?)*)\s*\]/g)) for (const s of block[1]!.matchAll(/["']([^"']+)["']/g)) add(s[1]!);
+    for (const spec of tomlRequirements(text, ['dependencies', 'requires'])) add(spec);
     for (const section of text.matchAll(/\[tool\.poetry(?:\.group\.\w+)?\.dependencies\]([\s\S]*?)(?=\n\[|$)/g)) for (const line of section[1]!.split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
   }
   for (const f of ['requirements.txt', 'requirements-dev.txt', 'requirements.in']) {
@@ -185,9 +200,9 @@ export function suggestEffect(name: string): { effect: Effect; why: string } {
 /** Tool definitions in one file, by the patterns each framework uses. */
 function scanTools(text: string, file: string): FoundTool[] {
   const found: FoundTool[] = [];
-  const push = (name: string, index: number, via: string, effect: Effect | null) => {
+  const push = (name: string, index: number, via: string, effect: Effect | null, decorator?: string) => {
     const s = suggestEffect(name);
-    const tool: FoundTool = { name, file, line: lineOf(text, index), via, effect, suggested: effect ?? s.effect, why: effect ? 'declared' : s.why };
+    const tool: FoundTool = { name, file, line: lineOf(text, index), via, effect, suggested: effect ?? s.effect, why: effect ? 'declared' : s.why, ...(decorator ? { decorator } : {}) };
     const same = found.findIndex((t) => t.name === name && t.via === via);
     if (same < 0) found.push(tool);
     else if (!found[same]!.effect && effect) found[same] = tool; // a wrapped definition wins over a mention
@@ -210,7 +225,8 @@ function scanTools(text: string, file: string): FoundTool[] {
       const adapted = /@function_tool\([^)]*effect\s*=\s*["'](pure|read|write)["']/.exec(decorators);
       if (declared) push(name, m.index!, 'shadowlap', declared[1] as Effect);
       else if (adapted) push(name, m.index!, 'openai-agents-python', adapted[1] as Effect);
-      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index!, 'pydantic-ai', null);
+      // Pydantic AI: `@agent.tool` passes a RunContext first, `@agent.tool_plain` doesn't; the wrap keeps the one found.
+      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index!, 'pydantic-ai', null, /^[ \t]*(@\w+\.tool(?:_plain)?\b[^\n]*)$/m.exec(decorators)?.[1]?.trim());
       else if (/@function_tool\b/.test(decorators)) push(name, m.index!, 'openai-agents-python', null);
       else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(decorators) && /langchain|crewai/.test(text)) push(name, m.index!, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
     }
@@ -442,14 +458,14 @@ const PROVIDER_NAMES: Record<Provider['id'], [string, string]> = {
   bedrock: ['Amazon Bedrock', 'captured in the process'],
 };
 
-const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect) => string> = {
+const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect, tool?: FoundTool) => string> = {
   'ai-sdk': (n, e) => `const tools = withEffects({ ${n}: tool({ … }) }, { ${n}: '${e}' });   // import { withEffects } from '@shadowlap/adapters/ai-sdk'`,
   'openai-agents': (n, e) => `tool(withEffect({ name: '${n}', … }, '${e}'))   // import { withEffect } from '@shadowlap/adapters/openai-agents'`,
   mastra: (n, e) => `createTool(withEffect({ id: '${n}', … }, '${e}'))   // import { withEffect } from '@shadowlap/adapters/mastra'`,
   langchain: (n, e) => `withEffect(tool(impl, { name: '${n}', … }), '${e}')   // import { withEffect } from '@shadowlap/adapters/langchain'`,
   'anthropic-tool-runner': (n, e) => `betaZodTool(withEffect({ name: '${n}', … }, '${e}'))   // import { withEffect } from '@shadowlap/adapters/anthropic'`,
   python: (n, e) => `@tool(effect="${e}") above def ${n}   # from shadowlap import tool`,
-  'pydantic-ai': (n, e) => `@agent.tool over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
+  'pydantic-ai': (n, e, t) => `${t?.decorator ?? '@agent.tool'} over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
   'openai-agents-python': (n, e) => `@function_tool(effect="${e}") on def ${n}   # from shadowlap.adapters.openai_agents import function_tool`,
   'langchain-python': (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.langchain import with_effect`,
   crewai: (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.crewai import with_effect`,
@@ -472,7 +488,10 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
   out(`  ${r.languages.map((l) => (l === 'typescript' ? 'TypeScript' : l === 'javascript' ? 'JavaScript' : 'Python')).join(' and ')}${r.packageManager ? ` · ${r.packageManager}` : ''} · ${r.scannedFiles} source file${r.scannedFiles === 1 ? '' : 's'}`);
   out(`  Model SDKs: ${r.providers.length ? r.providers.map((x) => `${PROVIDER_NAMES[x.id][0]} (${x.via})`).join(', ') : p.yellow('none found')}`);
   if (r.frameworks.length) out(`  Framework: ${r.frameworks.map((f) => `${f.name}${f.version ? ` ${f.version}` : ''}`).join(', ')}`);
-  if (r.modelServer) out(`  Model server: ${r.modelServer.url} ${p.dim(`(${r.modelServer.from})`)}`);
+  // Output gets pasted into issues and chats: an address with credentials is shown without them.
+  const shown = r.modelServer ? modelServerFinding(r.modelServer) : null;
+  const secret = !!r.modelServer && !!shown && shown.url !== r.modelServer.url;
+  if (r.modelServer) out(`  Model server: ${shown?.url ?? r.modelServer.url} ${p.dim(`(${r.modelServer.from}${secret ? '; its credentials aren’t shown' : ''})`)}`);
   if (r.command) out(`  Agent command: ${quoteArgv(r.command.argv)} ${p.dim(`(${r.command.from})`)}`);
   const unwrapped = r.tools.filter((t) => !t.effect);
   out(`  Tools: ${r.tools.length ? `${r.tools.length} found, ${r.tools.length - unwrapped.length} with an effect` : 'none found'}`);
@@ -519,7 +538,7 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
     if (unwrapped.length) {
       const example = unwrapped[0]!;
       const snippet = ADAPTER_SNIPPETS[example.via] ?? (example.file.endsWith('.py') ? ADAPTER_SNIPPETS.python : undefined);
-      if (snippet) out(`     ${p.dim('for example:')} ${snippet(example.name, example.suggested)}`);
+      if (snippet) out(`     ${p.dim('for example:')} ${snippet(example.name, example.suggested, example)}`);
       out(`     ${p.dim('read: may run again after a fork · write: never runs again after a fork · pure: depends only on its input')}`);
     }
     out();
@@ -532,10 +551,10 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
 
   // Record and replay.
   head('Record a run');
-  const upstream = r.modelServer ? `SHADOWLAP_UPSTREAM_OPENAI=${r.modelServer.upstream} ` : '';
+  const upstream = r.modelServer ? `SHADOWLAP_UPSTREAM_OPENAI=${secret ? '<your model server>' : r.modelServer.upstream} ` : '';
   const cli = ts ? 'npx shadowlap' : 'shadowlap';
   out(`     ${p.cyan(`${upstream}${cli} run -- ${r.command ? quoteArgv(r.command.argv) : '<the command that starts your agent>'}`)}`);
-  if (r.modelServer) out(`     ${p.dim('SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
+  if (r.modelServer) out(`     ${p.dim(secret ? 'SHADOWLAP_UPSTREAM_OPENAI is the model server’s address without /v1, credentials included; init doesn’t print them.' : 'SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
   out();
   head('Replay it, then change something and replay again');
   out(`     ${p.cyan(`${cli} replay <run>`)}   ${p.dim('0 upstream requests when nothing changed')}`);
@@ -543,4 +562,280 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
   out();
   out(wroteConfig ? `Created ${CONFIG_FILE} for normalizers and redaction rules.` : `${basename(r.config.path)} already exists; left as it is.`);
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------------------------
+// `init --json`: the findings as the dashboard's setup shows them
+
+/** A found tool, with whether its calls are recorded. */
+export type InitJsonTool = FoundTool & {
+  /** Wrapped with the SDK or an adapter, its effect declared: its calls are recorded, and a fork never repeats a write. */
+  wrapped: boolean;
+};
+
+/**
+ * What `shadowlap init --json` prints: everything {@link inspectProject} found, plus the lines the
+ * dashboard's setup shows (language, model SDK, framework, command, config), each tool flagged when
+ * it isn't wrapped, and the code that wraps those, per language. Running it again re-checks: the
+ * config is left as it is, and the tools are scanned afresh.
+ */
+export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelServer'> {
+  config: InitReport['config'] & { created: boolean };
+  /**
+   * The model server the project points at, never with the credentials its address holds: those
+   * are removed, and such a server has no `upstream` (record it in a terminal). This output reaches
+   * the dashboard's job drawer.
+   */
+  modelServer: ModelServer | null;
+  /** The folder as Add a project describes it. */
+  folder: FolderKind;
+  summary: {
+    /** `Python 3.12 · uv`, `Node 22 · TypeScript · pnpm`; null when nothing was recognised. */
+    language: string | null;
+    /** Model SDKs with their versions: `anthropic 0.69.0`. */
+    sdk: string | null;
+    framework: string | null;
+    command: string | null;
+    commandFrom: string | null;
+    /** What happened to shadowlap.config.json. */
+    config: string;
+  };
+  tools: InitJsonTool[];
+  /** Names of the tools that aren't wrapped: a replay runs them for real, since their calls aren't recorded. */
+  unwrapped: string[];
+  /** Code that wraps them, per language; empty when every tool is wrapped. */
+  wrap: WrapSnippet[];
+  /** What the command did for the folder's setup in the dashboard ({@link noteInspected}); `shadowlap init` always says. */
+  project?: InspectedNote;
+}
+
+function readText(path: string, limit = 2 * 1024 * 1024): string {
+  try {
+    if (statSync(path).size > limit) return '';
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/** The runtime version a project pins: `.python-version` (3.12), `.nvmrc` or `.node-version` (22). */
+function pinnedVersion(cwd: string, files: string[], minor: boolean): string | null {
+  for (const f of files) {
+    const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(readText(join(cwd, f), 4096));
+    if (m) return minor && m[2] ? `${m[1]}.${m[2]}` : m[1]!;
+  }
+  return null;
+}
+
+const cleanVersion = (v: string) => v.replace(/^[\^~>=<v\s]+/, '').split(/[\s,|]/)[0]!;
+
+/** A Python package's name as a pattern: `-`, `_` and `.` are the same to pip, in any run (PEP 503). */
+const pythonName = (name: string) => name.split(/[-_.]+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[-_.]+');
+
+/**
+ * The version a Python requirement's specifiers name with one of `ops`: an exact pin (`==0.69.0`),
+ * or the release a compatible (`~=0.69.0`) or lower bound (`>=0.69`) names. Wildcards, upper bounds
+ * and exclusions name none; an environment marker after `;` is left out.
+ */
+function specifiedVersion(specifiers: string, ops: readonly string[]): string | null {
+  const found = [...specifiers.split(';')[0]!.matchAll(/(===|==|~=|>=)\s*([0-9][\w.+!-]*)/g)];
+  for (const op of ops) {
+    const hit = found.find((m) => m[1] === op && !m[2]!.endsWith('*'));
+    if (hit) return hit[2]!;
+  }
+  return null;
+}
+
+/**
+ * Where a Python project declares a package, as specifier text: PEP 508 lines in requirements files
+ * and `[project]` dependencies in pyproject.toml (`anthropic>=0.69`), and the value Poetry and
+ * Pipfile give it (`anthropic = "^0.69.0"`, or `{ version = "^0.69.0" }`).
+ */
+function pythonDeclarations(cwd: string, name: string): { pep508: string[]; values: string[] } {
+  // The name whole: `anthropic` is not `anthropic-bedrock`.
+  const escaped = `${pythonName(name)}(?![A-Za-z0-9._-])`;
+  const requirement = new RegExp(`^\\s*${escaped}\\s*(?:\\[[^\\]]*\\])?\\s*([^#]*)`, 'i');
+  const pep508: string[] = [];
+  for (const req of ['requirements.txt', 'requirements.in', 'requirements-dev.txt']) {
+    for (const line of readText(join(cwd, req)).split('\n')) {
+      const m = requirement.exec(line);
+      if (m) pep508.push(m[1]!);
+    }
+  }
+  const pyproject = readText(join(cwd, 'pyproject.toml'));
+  for (const spec of tomlRequirements(pyproject, ['dependencies'])) {
+    const m = requirement.exec(spec);
+    if (m) pep508.push(m[1]!);
+  }
+  const values: string[] = [];
+  const assignment = new RegExp(`^\\s*["']?${escaped}["']?\\s*=\\s*(?:"([^"]*)"|'([^']*)'|\\{[^}]*\\bversion\\s*=\\s*"([^"]*)")`, 'im');
+  for (const section of pyproject.matchAll(/\[tool\.poetry(?:\.group\.[\w-]+)?\.dependencies\]([\s\S]*?)(?=\n\[|$)/g)) {
+    const m = assignment.exec(section[1]!);
+    if (m) values.push(m[1] ?? m[2] ?? m[3] ?? '');
+  }
+  const pipfile = assignment.exec(readText(join(cwd, 'Pipfile')));
+  if (pipfile) values.push(pipfile[1] ?? pipfile[2] ?? pipfile[3] ?? '');
+  return { pep508, values };
+}
+
+/**
+ * A package's version: installed (Node), pinned in a lockfile (Python), or as the project declares
+ * it: package.json's range, a requirement's pin or lower bound, Poetry's or Pipfile's value.
+ */
+function packageVersion(cwd: string, name: string): string | null {
+  const installed = installedVersion(cwd, name);
+  if (installed) return installed;
+  const pkg = readJson(join(cwd, 'package.json'));
+  const declared = ((pkg?.dependencies ?? {}) as Record<string, string>)[name] ?? ((pkg?.devDependencies ?? {}) as Record<string, string>)[name];
+  if (typeof declared === 'string' && /\d/.test(declared)) return cleanVersion(declared);
+  const escaped = pythonName(name);
+  for (const lock of ['uv.lock', 'poetry.lock', 'pdm.lock']) {
+    const m = new RegExp(`\\bname\\s*=\\s*"${escaped}"\\s*\\nversion\\s*=\\s*"([^"]+)"`, 'i').exec(readText(join(cwd, lock)));
+    if (m) return m[1]!;
+  }
+  const { pep508, values } = pythonDeclarations(cwd, name);
+  // Poetry's `^0.69.0` and `~0.69` name their lowest release, as a lower bound does.
+  const specs = [...pep508, ...values.map((v) => (/(?:===|==|~=|>=)/.test(v) ? v : `>=${cleanVersion(v)}`))];
+  // An exact pin wherever it is declared, then a bound.
+  for (const ops of [['===', '=='], ['~=', '>=']]) {
+    for (const s of specs) {
+      const version = specifiedVersion(s, ops);
+      if (version) return version;
+    }
+  }
+  return null;
+}
+
+function languageLine(cwd: string, r: InitReport, folder: FolderKind): string | null {
+  const parts: string[] = [];
+  const python = r.languages.includes('python');
+  const node = r.languages.includes('typescript') || r.languages.includes('javascript');
+  if (python) parts.push(['Python', pinnedVersion(cwd, ['.python-version'], true)].filter(Boolean).join(' '));
+  if (node) parts.push(['Node', pinnedVersion(cwd, ['.nvmrc', '.node-version'], false)].filter(Boolean).join(' '));
+  if (r.languages.includes('typescript')) parts.push('TypeScript');
+  if (!parts.length) return folder.kind;
+  // With both, the folder knows a manager for each side; the report keeps one.
+  const managers = python && node ? folder.managers : r.packageManager ? [r.packageManager] : [];
+  return [...parts, ...managers].join(' · ');
+}
+
+const jsKey = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : `'${name}'`);
+const camel = (name: string) => name.replace(/[-_.]+(\w)/g, (_, c: string) => c.toUpperCase()).replace(/^[^A-Za-z_$]+/, '') || 'myTool';
+
+/** One block per framework, each with its own import, for the tools of one language. */
+function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string {
+  const groups = new Map<string, FoundTool[]>();
+  for (const t of tools) groups.set(t.via, [...(groups.get(t.via) ?? []), t]);
+  const blocks: string[] = [];
+  for (const [via, list] of groups) {
+    if (language === 'python') {
+      const def = (decorators: string[], t: FoundTool) => `${decorators.join('\n')}\ndef ${t.name}(…):\n    …`;
+      if (via === 'openai-agents-python') blocks.push(['from shadowlap.adapters.openai_agents import function_tool', '', list.map((t) => def([`@function_tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      else if (via === 'langchain-python' || via === 'crewai') blocks.push([`from shadowlap.adapters.${via === 'crewai' ? 'crewai' : 'langchain'} import with_effect`, '', `tools = [${list.map((t) => `with_effect(${t.name}, "${t.suggested}")`).join(', ')}]`].join('\n'));
+      else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      else blocks.push(['from shadowlap import tool', '', list.map((t) => def([`@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      continue;
+    }
+    const adapter = (module: string, line: (t: FoundTool) => string) => blocks.push([`import { withEffect } from '@shadowlap/adapters/${module}';`, '', ...list.map(line)].join('\n'));
+    if (via === 'ai-sdk') blocks.push([`import { withEffects } from '@shadowlap/adapters/ai-sdk';`, '', `const tools = withEffects({ … }, { ${list.map((t) => `${jsKey(t.name)}: '${t.suggested}'`).join(', ')} });`].join('\n'));
+    else if (via === 'openai-agents') adapter('openai-agents', (t) => `tool(withEffect({ name: '${t.name}', … }, '${t.suggested}'));`);
+    else if (via === 'mastra') adapter('mastra', (t) => `createTool(withEffect({ id: '${t.name}', … }, '${t.suggested}'));`);
+    else if (via === 'langchain') adapter('langchain', (t) => `withEffect(tool(…, { name: '${t.name}', … }), '${t.suggested}');`);
+    else if (via === 'anthropic-tool-runner') adapter('anthropic', (t) => `betaZodTool(withEffect({ name: '${t.name}', … }, '${t.suggested}'));`);
+    else blocks.push([`import { tool } from '@shadowlap/sdk';`, '', ...list.map((t) => `export const ${camel(t.name)} = tool('${t.name}', { effect: '${t.suggested}' }, async (args) => { … });`)].join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
+/** Code that wraps the tools that aren't, with the suggested effect declared, per language. */
+export function wrapSnippets(tools: readonly FoundTool[]): WrapSnippet[] {
+  const byLanguage = new Map<WrapSnippet['language'], FoundTool[]>();
+  for (const t of tools) {
+    if (t.effect) continue;
+    const language: WrapSnippet['language'] = t.file.endsWith('.py') ? 'python' : /\.(ts|tsx|mts|cts)$/.test(t.file) ? 'typescript' : 'javascript';
+    byLanguage.set(language, [...(byLanguage.get(language) ?? []), t]);
+  }
+  return [...byLanguage].map(([language, list]) => ({ language, tools: list.map((t) => t.name), code: wrapCode(language, list) }));
+}
+
+export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
+  const folder = describeFolder(r.cwd);
+  const sdkNames = [...new Set(r.providers.map((p) => p.via.replace(/, imported$/, '')))];
+  const sdk = sdkNames.map((n) => {
+    const version = /^(@[\w.-]+\/)?[\w.-]+$/.test(n) ? packageVersion(r.cwd, n) : null;
+    return version ? `${n} ${version}` : n;
+  });
+  const configName = basename(r.config.path);
+  return {
+    ...r,
+    config: { ...r.config, created: wroteConfig },
+    // Addresses found in the project's files may hold a password or a key: never printed here.
+    modelServer: r.modelServer ? modelServerFinding(r.modelServer) : null,
+    hardcodedBaseUrls: r.hardcodedBaseUrls.map((w) => ({ ...w, url: modelServerFinding({ url: w.url, from: '' })?.url ?? w.url })),
+    folder,
+    summary: {
+      language: languageLine(r.cwd, r, folder),
+      sdk: sdk.length ? sdk.join(', ') : null,
+      framework: r.frameworks.length ? r.frameworks.map((f) => (f.version ? `${f.name} ${cleanVersion(f.version)}` : f.name)).join(', ') : null,
+      command: r.command ? quoteArgv(r.command.argv) : null,
+      commandFrom: r.command?.from ?? null,
+      config: wroteConfig ? `wrote an empty ${configName}` : r.config.existed ? `${configName} exists · left as it is` : `no ${configName} written: no project found here`,
+    },
+    tools: r.tools.map((t) => ({ ...t, wrapped: t.effect !== null })),
+    unwrapped: r.tools.filter((t) => !t.effect).map((t) => t.name),
+    wrap: wrapSnippets(r.tools),
+  };
+}
+
+/** The findings as the project list keeps them for the dashboard's setup. */
+export function initFindings(json: InitJson, at: number = Date.now()): SetupFindings {
+  return {
+    at,
+    language: json.summary.language,
+    files: json.folder.files,
+    sdk: json.summary.sdk,
+    framework: json.summary.framework,
+    command: json.command?.argv ?? null,
+    commandFrom: json.command?.from ?? null,
+    config: { file: basename(json.config.path), created: json.config.created, existed: json.config.existed },
+    // A wrapped tool shows the effect it declares; one that isn't, the effect suggested for it.
+    tools: json.tools.map((t) => ({ name: t.name, effect: t.effect ?? t.suggested, wrapped: t.wrapped, why: t.effect ? 'declared' : t.why, file: t.file, line: t.line })),
+    wrap: json.wrap,
+    // Recording from the dashboard forwards there, as init tells a terminal to; never with credentials.
+    modelServer: json.modelServer ? modelServerFinding({ url: json.modelServer.url, upstream: json.modelServer.upstream, from: json.modelServer.from }) : null,
+  };
+}
+
+/** What `init` did for the dashboard's setup of the folder: `project` in `init --json`, and in the result a dashboard job hears. */
+export interface InspectedNote {
+  /** The project the folder is in the dashboard; null when it isn't one, or the project list can't be read. */
+  id: string | null;
+  /** The setup's first step took these findings. */
+  noted: boolean;
+  /** Why it didn't, when the folder is a project (the list was busy, or written by a newer Shadowlap) or the list can't be read. */
+  why: string | null;
+}
+
+/**
+ * When the folder is a project in the dashboard, its setup's first step is done: the findings go
+ * into the project list, so the setup shows them, in the dashboard or after `init` in a terminal.
+ * Outside a project this reads the list and changes nothing. It never fails `init`, and says what
+ * happened, so a dashboard job can explain a step that didn't move.
+ */
+export function noteInspected(cwd: string, json: InitJson, env: NodeJS.ProcessEnv = process.env, options: Pick<RegistryOptions, 'lockTimeoutMs' | 'home'> = {}): InspectedNote {
+  let registry: ProjectRegistry;
+  let id: string | null;
+  try {
+    registry = new ProjectRegistry({ env, ...options });
+    id = registry.find(cwd)?.id ?? null;
+  } catch (err) {
+    return { id: null, noted: false, why: (err as Error).message };
+  }
+  if (!id) return { id: null, noted: false, why: null };
+  try {
+    registry.noteInspected(id, initFindings(json));
+    return { id, noted: true, why: null };
+  } catch (err) {
+    return { id, noted: false, why: (err as Error).message };
+  }
 }

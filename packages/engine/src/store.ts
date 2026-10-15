@@ -1588,7 +1588,8 @@ function rowToRepair(row: Record<string, unknown>): StoredRepair {
   };
 }
 
-function rowToRun(row: Record<string, unknown>): RunRecord {
+/** A `runs` row as a run. Exported for readers that open a store read-only (projects/store-reader.ts). */
+export function rowToRun(row: Record<string, unknown>): RunRecord {
   return {
     runId: String(row.run_id),
     parentRunId: (row.parent_run_id as string | null) ?? null,
