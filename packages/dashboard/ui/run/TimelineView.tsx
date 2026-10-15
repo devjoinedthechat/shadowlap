@@ -12,7 +12,7 @@ import { originOf, ticksFor, timelineOf, type TimelineRow } from './model.js';
  */
 export function TimelineView({ calls, selected, scoped, onSelect }: { calls: CallRow[]; selected: number | null; scoped: boolean; onSelect: (n: number) => void }) {
   const { rows, end, parallel } = timelineOf(calls);
-  if (!rows.length) return <div className="empty">No calls yet.</div>;
+  if (!rows.length) return <div className="empty">{calls.length ? 'These calls carry no timing, so they have no place on a clock.' : 'No calls yet.'}</div>;
   const pct = (ms: number) => `${(ms / end) * 100}%`;
   const row = (r: TimelineRow) => {
     const c = r.call;
