@@ -156,7 +156,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const [showDiff, setShowDiff] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
   const forkMenu = useMenu();
-  const actions = useActionRunner(runId);
+  const actions = useActionRunner(runId, !!run.source);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${selected}:${selectedRow?.outcome ?? 'pending'}`;

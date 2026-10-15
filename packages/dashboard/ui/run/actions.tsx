@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { ActionItem, CallDetail, RunDetail } from '../api.js';
-import { forkMenu, forkMenuTitle, isInject, isOverride, menuLabel } from '../actions.js';
+import { dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
 import { PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
-import { callName, jsonText, shortId } from '../format.js';
+import { callName, shortId } from '../format.js';
 import { useApp } from '../state.js';
 
 /**
@@ -20,7 +20,7 @@ export interface PendingAction {
 }
 
 /** Starts an action, or opens its dialog when it asks for something first. */
-export function useActionRunner(runId: string) {
+export function useActionRunner(runId: string, capture = false) {
   const app = useApp();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const start = (p: PendingAction, value?: string) => {
@@ -37,6 +37,7 @@ export function useActionRunner(runId: string) {
   const dialog = pending ? (
     <ActionDialog
       runId={runId}
+      capture={capture}
       pending={pending}
       onClose={() => setPending(null)}
       onRun={(v) => {
@@ -49,57 +50,25 @@ export function useActionRunner(runId: string) {
   return { run, dialog };
 }
 
-function ActionDialog({ runId, pending, onRun, onClose }: { runId: string; pending: PendingAction; onRun: (v: string) => void; onClose: () => void }) {
-  const a = pending.action;
-  const prompt = a.prompt!;
-  const n = pending.callNo;
-  const id = shortId(runId);
-  if (isInject(a))
-    return (
-      <PromptDialog
-        title={`Inject an instruction at #${n}`}
-        text="It goes in as a block of the last user message (--inject-as user), because some models take no system message mid-conversation, and it stays in place for every later request of the fork. Calls before it replay."
-        multiline
-        initial={prompt.initial ?? ''}
-        placeholder={prompt.placeholder ?? 'Escalate refunds above the regional limit to tier 2.'}
-        command={`shadowlap replay ${id} --inject ${n}="…" --inject-as user`}
-        ok="Fork"
-        onRun={onRun}
-        onClose={onClose}
-      />
-    );
-  if (isOverride(a)) {
-    const recorded = pending.recorded === undefined ? (prompt.initial ?? '') : jsonText(pending.recorded);
-    return (
-      <PromptDialog
-        title={`Override #${n}${pending.callName ? ` ${pending.callName}` : ''}`}
-        text="The agent gets this instead of the recorded result. Calls before it replay; from here the run goes on live, with writes fenced."
-        multiline
-        initial={recorded}
-        placeholder={prompt.placeholder ?? '{"ok": true}'}
-        ok="Fork"
-        onRun={onRun}
-        onClose={onClose}
-      />
-    );
-  }
-  const title = a.key === 'r' ? (/capture|command/i.test(prompt.label) ? 'Replay a capture' : 'Replay') : a.key === 'p' ? `Pack ${id}` : a.key === 'e' ? 'Repeat the replay and compare' : a.key === 'f' ? `Answer #${n} with a failure` : a.key === 'm' ? `Switch the model from #${n}` : menuLabel(a);
-  const text =
-    a.key === 'p'
-      ? 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.'
-      : a.key === 'f'
-        ? 'Nothing is sent. Every attempt fails, so the SDK’s retry policy runs and then gives up: the path worth testing.'
-        : a.key === 'm'
-          ? `Calls before #${n} replay; from here the new model answers live.`
-          : prompt.label;
+function ActionDialog({ runId, capture, pending, onRun, onClose }: { runId: string; capture: boolean; pending: PendingAction; onRun: (v: string) => void; onClose: () => void }) {
+  const copy = dialogCopy(pending.action, {
+    id: shortId(runId),
+    callNo: pending.callNo,
+    capture,
+    ...(pending.callName !== undefined ? { callName: pending.callName } : {}),
+    ...(pending.recorded !== undefined ? { recorded: pending.recorded } : {}),
+  });
   return (
     <PromptDialog
-      title={title}
-      text={text}
-      {...(a.key === 'p' ? { label: 'Folder' } : a.key === 'f' ? { label: 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)' } : a.key === 'm' ? { label: 'Model' } : a.key === 'e' ? { label: 'Attempts' } : {})}
-      initial={prompt.initial ?? ''}
-      placeholder={prompt.placeholder ?? ''}
-      ok={a.key === 'p' ? 'Pack' : a.opensRun ? (a.key === 'r' ? 'Replay' : 'Fork') : 'Run'}
+      title={copy.title}
+      text={copy.text || undefined}
+      {...(copy.label ? { label: copy.label } : {})}
+      {...(copy.command ? { command: copy.command } : {})}
+      {...(copy.choices ? { choices: copy.choices } : {})}
+      multiline={copy.multiline}
+      initial={copy.initial}
+      placeholder={copy.placeholder}
+      ok={copy.ok}
       onRun={onRun}
       onClose={onClose}
     />
@@ -130,7 +99,7 @@ export function ForkMenu({ anchor, run, call, onPick, onClose }: { anchor: HTMLE
   const replay = call.actions.find((a) => a.key === 'r');
   return (
     <Popover anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
-      <div className="pk">{forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
+      <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
       {capture && replay ? (
         <>
           <div className="pnote">A capture has no command. Replay it with yours first; every fork works on that replay.</div>
@@ -142,7 +111,7 @@ export function ForkMenu({ anchor, run, call, onPick, onClose }: { anchor: HTMLE
       ) : (
         <>
           {menu.call.map((m) => (
-            <button key={m.action.key} type="button" role="menuitem" disabled={!!m.action.disabled} title={m.action.disabled ?? m.action.hint ?? undefined} onClick={() => pick(m.action, c.callNo)}>
+            <button key={m.action.key} type="button" role="menuitem" disabled={!!m.action.disabled} title={m.action.disabled ?? m.action.hint ?? m.action.flag ?? undefined} onClick={() => pick(m.action, c.callNo)}>
               <b>{m.label}</b>
               <small>{m.flag}</small>
             </button>
@@ -153,7 +122,7 @@ export function ForkMenu({ anchor, run, call, onPick, onClose }: { anchor: HTMLE
               <hr />
               <div className="pk">The whole run</div>
               {menu.run.map((m) => (
-                <button key={m.action.key} type="button" role="menuitem" disabled={!!m.action.disabled} title={m.action.disabled ?? m.action.hint ?? undefined} onClick={() => pick(m.action, null)}>
+                <button key={m.action.key} type="button" role="menuitem" disabled={!!m.action.disabled} title={m.action.disabled ?? m.action.hint ?? m.action.flag ?? undefined} onClick={() => pick(m.action, null)}>
                   <b>{m.label}</b>
                   <small>{m.flag}</small>
                 </button>

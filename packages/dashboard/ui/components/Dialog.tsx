@@ -57,7 +57,12 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
   );
 }
 
-/** A dialog that asks one thing before an action runs: a line of text, or a longer one. */
+const OTHER = '\u0000other';
+
+/**
+ * A dialog that asks one thing before an action runs: a line of text, a longer one, or one of a few
+ * answers (`choices`, a select like the mock's, with "Something else…" for an answer of your own).
+ */
 export function PromptDialog({
   title,
   text,
@@ -68,6 +73,7 @@ export function PromptDialog({
   ok,
   command,
   maxLength,
+  choices,
   onRun,
   onClose,
 }: {
@@ -81,16 +87,21 @@ export function PromptDialog({
   /** The command it will run, shown under the field. */
   command?: string;
   maxLength?: number;
+  /** Answers to pick from; any other answer is accepted too. */
+  choices?: ReadonlyArray<{ value: string; label: string }>;
   onRun: (value: string) => void;
   onClose: () => void;
 }) {
   const [value, setValue] = useState(initial);
+  const listed = !!choices?.length;
+  const [own, setOwn] = useState(listed && !choices!.some((c) => c.value === initial));
   const ready = value.trim().length > 0;
   const submit = () => ready && onRun(value.trim());
   const field = multiline ? (
     <textarea
       value={value}
       placeholder={placeholder}
+      autoFocus={listed}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -105,6 +116,7 @@ export function PromptDialog({
       value={value}
       placeholder={placeholder}
       spellCheck={false}
+      autoFocus={listed}
       {...(maxLength ? { maxLength } : {})}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
@@ -115,14 +127,36 @@ export function PromptDialog({
       }}
     />
   );
+  const select = listed ? (
+    <select
+      value={own ? OTHER : value}
+      onChange={(e) => {
+        if (e.target.value === OTHER) {
+          setOwn(true);
+          setValue('');
+        } else {
+          setOwn(false);
+          setValue(e.target.value);
+        }
+      }}
+    >
+      {choices!.map((c) => (
+        <option key={c.value} value={c.value}>
+          {c.label}
+        </option>
+      ))}
+      <option value={OTHER}>Something else…</option>
+    </select>
+  ) : null;
   return (
     <Dialog title={title} text={text} ok={ok} okDisabled={!ready} onOk={submit} onClose={onClose}>
-      {label ? (
+      {label || select ? (
         <div className="form one">
           <label>
             {label}
-            {field}
+            {select ?? field}
           </label>
+          {select && own ? <label>{field}</label> : null}
         </div>
       ) : (
         field

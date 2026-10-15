@@ -1555,6 +1555,9 @@ a.livechip:hover { color: var(--ink); }
 .ctab tbody tr { cursor: pointer; }
 .ctab tbody tr:hover td { background: var(--hover); }
 
+/* the fork menu: a long flag gives way before the action's words do */
+.pop.fkm button small { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* forks and provenance */
 .fnode .f2.block { display: block; }
 .checks .bad { color: var(--err); }

@@ -1,7 +1,10 @@
+import { jsonText } from './format.js';
+
 /**
  * The fork menu, from the action list the server sends for a call: what applies to the call, each
- * with its flag on the right, then what applies to the whole run. The server builds every command
- * line; this only arranges and words the list. No DOM here: the tests import it.
+ * with its flag on the right, then what applies to the whole run, and the words of the dialog an
+ * action asks its one thing in. The server builds every command line; this only arranges and words
+ * the list. No DOM here: the tests import it.
  */
 
 export interface ActionLike {
@@ -62,10 +65,18 @@ export function menuLabel(a: ActionLike, toolName?: string | null): string {
   return capitalize(a.label.replace(/^Fork:\s*/i, '').replace(/\s*\((--[^)]*|bisect[^)]*)\)\s*$/, '').trim());
 }
 
+/** The flag on the right of an action's line, short: `--inject 17=…` (the dialog shows the whole command). */
 export function menuFlag(a: ActionLike): string {
-  if (a.flag) return a.flag;
+  if (a.flag) return shortFlag(a.flag);
   const fromLabel = /\(((?:--|bisect)[^)]*)\)\s*$/.exec(a.label)?.[1];
   return fromLabel ?? KNOWN[a.key]?.flag ?? '';
+}
+
+/** The flag as the menu shows it on the right: the first option and its value (`--inject 17=…`); the dialog shows the rest. */
+export function shortFlag(flag: string): string {
+  const [first, second] = flag.trim().split(/\s+/);
+  if (!first) return '';
+  return second && !second.startsWith('--') ? `${first} ${second}` : first;
 }
 
 export function isRunAction(a: ActionLike): boolean {
@@ -77,13 +88,19 @@ export interface ForkMenu {
   run: MenuItem[];
 }
 
-/** The fork menu's two groups. */
+/**
+ * The fork menu's two groups. A server that groups its actions has them in the menu's order already,
+ * and leaves out (`group: null`) what has a place of its own; for one that does not, the actions are
+ * sorted by key into the mock's order, and Replay, Pack and the normalizer are left out by key.
+ */
 export function forkMenu(actions: readonly ActionLike[], toolName?: string | null): ForkMenu {
   const item = (a: ActionLike): MenuItem => ({ action: a, label: menuLabel(a, toolName), flag: menuFlag(a) });
-  const sorted = [...actions].map((a, i) => ({ a, i })).sort((x, y) => rank(x.a.key) - rank(y.a.key) || x.i - y.i).map((x) => x.a);
+  const grouped = actions.length > 0 && actions.every((a) => a.group !== undefined);
+  const sorted = grouped ? [...actions] : [...actions].map((a, i) => ({ a, i })).sort((x, y) => rank(x.a.key) - rank(y.a.key) || x.i - y.i).map((x) => x.a);
+  const listed = sorted.filter((a) => a.group !== null);
   return {
-    call: sorted.filter((a) => !isRunAction(a)).map(item),
-    run: sorted.filter((a) => isRunAction(a) && !OWN_PLACE.has(a.key)).map(item),
+    call: listed.filter((a) => !isRunAction(a)).map(item),
+    run: listed.filter((a) => isRunAction(a) && (grouped || !OWN_PLACE.has(a.key))).map(item),
   };
 }
 
@@ -96,10 +113,131 @@ export function forkMenuTitle(call: { callNo: number; kind: string; name: string
 
 /** Whether an action is the inject one, whose dialog explains how the instruction is sent. */
 export function isInject(a: ActionLike): boolean {
-  return a.key === 'i' || /--inject\b/.test(a.flag ?? '') || /--inject\b/.test(a.label);
+  return a.key === 'i' || /--inject(?![-\w])/.test(a.flag ?? '') || /--inject(?![-\w])/.test(a.label);
+}
+
+/** Whether an action answers a recorded user input differently: an override that starts from the recorded reply. */
+export function isUserAnswer(a: ActionLike): boolean {
+  return a.key === 'u';
 }
 
 /** Whether an action replaces a tool result, so its prompt opens with the recorded one to edit. */
 export function isOverride(a: ActionLike): boolean {
-  return a.key === 'o' || /^--override\b/.test(a.flag ?? '');
+  return !isUserAnswer(a) && (a.key === 'o' || /^--override\b/.test(a.flag ?? ''));
+}
+
+/** Whether the server sends an injected instruction as part of the last user message. */
+export function injectsAsUser(a: ActionLike): boolean {
+  return /--inject-as\s+user\b/.test(a.flag ?? '');
+}
+
+/** What an action's dialog says, and what it asks. */
+export interface DialogCopy {
+  title: string;
+  text: string;
+  /** The field's label, when it needs one. */
+  label?: string;
+  initial: string;
+  placeholder: string;
+  multiline: boolean;
+  ok: string;
+  /** The command it runs, under the field, with … for what is typed. */
+  command?: string;
+  /** Answers to pick from (any other answer is accepted too). */
+  choices?: ReadonlyArray<{ value: string; label: string }>;
+}
+
+export interface DialogContext {
+  /** The run's short id. */
+  id: string;
+  callNo: number | null;
+  /** The call's short name ("lookup_order"). */
+  callName?: string;
+  /** The call's recorded result, for an override that starts from it. */
+  recorded?: unknown;
+  /** A run imported from a capture, which has no command. */
+  capture?: boolean;
+}
+
+/** A run from someone else's pack asks first, and says what replaying it runs: that question is the field's label. */
+const PACK_WARNING = /^This run came from an imported pack/;
+
+/**
+ * The words of the dialog an action asks its one thing in. The server's own hint, when it sends one,
+ * says what the action does; the dialog says an instruction goes in as a user message only when the
+ * server's flag says so (`--inject-as user`).
+ */
+export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
+  const p = a.prompt ?? { label: '' };
+  const n = ctx.callNo;
+  const at = n === null ? '' : `#${n}`;
+  const named = ctx.callName ? ` ${ctx.callName}` : '';
+  const base = { initial: p.initial ?? '', placeholder: p.placeholder ?? '', multiline: false, ok: a.opensRun ? 'Fork' : 'Run' };
+  let copy: DialogCopy;
+  if (isInject(a)) {
+    const asUser = injectsAsUser(a);
+    const flag = a.flag ? a.flag.replace(/=…/g, '="…"') : `--inject ${n ?? 'n'}="…"`;
+    copy = {
+      ...base,
+      title: `Inject an instruction at ${at}`,
+      text:
+        a.hint ??
+        (asUser
+          ? 'Not every model takes a system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.'
+          : `The instruction is added at ${at} and stays in place for every later request of the fork. Calls before it replay.`),
+      placeholder: p.placeholder ?? 'Escalate refunds above the regional limit to tier 2.',
+      multiline: true,
+      ok: 'Fork',
+      command: `shadowlap replay ${ctx.id} ${flag}`,
+    };
+  } else if (isUserAnswer(a)) {
+    copy = { ...base, title: `Answer ${at} differently`, text: a.hint ?? 'The agent gets this reply instead of the recorded one. Calls before it replay; from here the run goes on live, with writes fenced.', multiline: true, ok: 'Fork' };
+  } else if (isOverride(a)) {
+    copy = {
+      ...base,
+      title: `Override ${at}${named}`,
+      text: a.hint ?? 'The agent gets this instead of the recorded result. Calls before it replay; from here the run goes on live, with writes fenced.',
+      initial: p.initial ?? (ctx.recorded === undefined ? '' : jsonText(ctx.recorded)),
+      placeholder: p.placeholder ?? '{"ok": true}',
+      multiline: true,
+      ok: 'Fork',
+    };
+  } else if (a.key === 't') {
+    copy = { ...base, title: `Answer ${at}${named} with an error`, text: a.hint ?? 'The tool doesn’t run: the agent gets the error instead, and its error path runs live. Calls before it replay.', label: 'Error', initial: p.initial ?? 'timeout', ok: 'Fork' };
+  } else if (a.key === 'x') {
+    copy = {
+      ...base,
+      title: `Plant an instruction in ${at}${named}`,
+      text: a.hint ?? 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live, with writes fenced, and the run’s checks say whether it obeyed.',
+      label: 'Instruction',
+      multiline: true,
+      ok: 'Fork',
+    };
+  } else if (a.key === 'f') {
+    copy = {
+      ...base,
+      title: `Answer ${at} with a failure`,
+      text: a.hint ?? 'Nothing is sent. Every attempt fails, so the SDK’s retry policy runs and then gives up: the path worth testing.',
+      label: p.choices?.length ? 'Status' : 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)',
+      initial: p.initial ?? '429',
+      ok: 'Fork',
+    };
+  } else if (a.key === 'm') {
+    copy = { ...base, title: `Switch the model from ${at}`, text: a.hint ?? `Calls before ${at} replay; from here the new model answers live.`, label: 'Model', ok: 'Fork' };
+  } else if (a.key === 'e') {
+    copy = { ...base, title: 'Repeat the replay and compare', text: a.hint ?? p.label, label: 'Attempts', initial: p.initial ?? '5', ok: 'Run' };
+  } else if (a.key === 'p') {
+    copy = { ...base, title: `Pack ${ctx.id}`, text: 'A folder to commit as a golden or send to someone: run.json, calls.jsonl and one file per blob. Redaction rules apply to the copy; the store is never changed.', label: 'Folder', ok: 'Pack' };
+  } else if (a.key === 'r') {
+    copy = { ...base, title: ctx.capture ? 'Replay a capture' : 'Replay', text: p.label, ok: 'Replay' };
+  } else {
+    copy = { ...base, title: menuLabel(a), text: a.hint ?? p.label };
+  }
+  if (p.choices?.length) copy.choices = p.choices;
+  // An imported pack's question carries its warning: it is asked as it is.
+  if (PACK_WARNING.test(p.label)) {
+    copy.label = p.label;
+    if (copy.text === p.label) copy.text = '';
+  }
+  return copy;
 }

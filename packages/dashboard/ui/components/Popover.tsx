@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useLatest } from '../hooks.js';
+import { placePop } from '../place.js';
 import { useLayer } from '../state.js';
 
 /**
@@ -19,13 +20,7 @@ export interface PopoverProps {
   label?: string;
 }
 
-/** Where a menu goes: under its opener, inside the viewport with a 12px margin. */
-export function placePop(anchor: DOMRect, pop: { width: number; height: number }, view: { width: number; height: number }, align: 'right' | 'left' = 'right'): { top: number; left: number } {
-  const top = Math.max(12, Math.min(anchor.bottom + 6, view.height - pop.height - 12));
-  const want = align === 'right' ? anchor.right - pop.width : anchor.left;
-  const left = Math.max(12, Math.min(want, view.width - pop.width - 12));
-  return { top, left };
-}
+export { placePop } from '../place.js';
 
 export function Popover({ anchor, onClose, children, className = '', align = 'right', matchWidth = false, label }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
