@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import { runDetail, showRunJson } from '@shadowlap/dashboard';
-import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { callDetail, runDetail, showRunJson } from '@shadowlap/dashboard';
+import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 
 /**
  * The run page's facts on real recordings: a batch agent works through tickets in one process
@@ -18,6 +18,7 @@ import { message, startMockAnthropic, text, toolUse, type MockServer } from '@sh
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./batch-agent.mjs', import.meta.url));
+const SUPPORT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
 const TICKETS = 6;
 
 let mock: MockServer;
@@ -50,9 +51,9 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string }> {
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, upstream = mock.url): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: upstream, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
@@ -127,5 +128,72 @@ describe('the run page on a recorded batch', () => {
     const show = await shadowlap(['show', recording, '--json']);
     expect(show.code).toBe(0);
     expect(JSON.parse(show.out)).toEqual(JSON.parse(JSON.stringify(open((store) => showRunJson(store, recording)))));
+  });
+});
+
+describe('the run page on a blamed multi-agent run', () => {
+  /**
+   * The support agent with a simulated customer in scope "user" and its own model calls in scope
+   * "agent"; its tools run outside any scope. At its third model call it refunds $240 against
+   * policy, or, asked again, escalates every other time.
+   */
+  let support: MockServer;
+  let decisions = 0;
+  beforeAll(async () => {
+    support = await startMockAnthropic({
+      eventDelayMs: () => 0,
+      script: (ctx: ScriptContext) => {
+        if (JSON.stringify(ctx.request.system ?? '').includes('You play a customer')) return { message: message([text('Hi, I would like a refund on order A-1042, please.')], { stop_reason: 'end_turn' }) };
+        switch (ctx.assistantTurns) {
+          case 0:
+            return { message: message([text('Looking the order up.'), toolUse('lookup_order', { order_id: 'A-1042' }, `toolu_lookup_${ctx.requestNo}`)]) };
+          case 1:
+            return { message: message([toolUse('read_policy', {}, `toolu_policy_${ctx.requestNo}`)]) };
+          case 2:
+            return { message: ++decisions % 2 === 0 ? message([text('Above the limit.'), toolUse('escalate', { reason: 'above $100' }, `toolu_decide_${ctx.requestNo}`)]) : message([toolUse('issue_refund', { order_id: 'A-1042', amount: 240 }, `toolu_decide_${ctx.requestNo}`)]) };
+          default:
+            return { message: message([text('Done.')], { stop_reason: 'end_turn' }) };
+        }
+      },
+    });
+  });
+  afterAll(async () => {
+    await support.close();
+  });
+
+  it('keeps the customer and the agent apart, counts blame in its scope and names the fork it rescued', async () => {
+    const rec = await shadowlap(['run', '--', process.execPath, SUPPORT, 'A-1042', '--simulated-user'], { SHADOWLAP_GUARD: 'off' }, support.url);
+    expect(rec.code, rec.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+    const blame = await shadowlap(['blame', runId, '--expect', JSON.stringify({ tools: { issue_refund: 0 } }), '--scope', 'agent'], { SHADOWLAP_GUARD: 'off' }, support.url);
+    expect(blame.code, blame.out).toBe(0);
+
+    const [d, rescued, tool] = open((store) => {
+      const d = runDetail(store, runId)!;
+      const lookup = d.calls.find((c) => c.name === 'lookup_order')!;
+      return [d, runDetail(store, d.blame!.rescuedRunId!)!, callDetail(store, runId, lookup.callNo)!] as const;
+    });
+    // #1 the customer; #2, #4, #6 and #8 the agent, with a tool after each of the first three.
+    expect(d.conversations.map((c) => [c.scope, c.firstCallNo, c.modelCalls])).toEqual([
+      ['user', 1, 1],
+      ['agent', 2, 4],
+    ]);
+    expect(d.calls.filter((c) => c.kind === 'tool').map((c) => [c.name, c.scope, c.requestedBy, c.conversation])).toEqual([
+      ['lookup_order', null, 2, 2],
+      ['read_policy', null, 4, 2],
+      ['issue_refund', null, 6, 2],
+    ]);
+    // The tool ran outside any scope; its conversation is still the agent's.
+    expect(tool.conversation).toMatchObject({ fromCallNo: 2, n: 2 });
+    expect(d.blame).toMatchObject({ outcome: 'blamed', callNo: 6, modelCall: { k: 3, m: 4 }, scope: 'agent' });
+    expect(rescued.rescuedBy).toEqual({ runId, callNo: 6 });
+    expect(rescued.forkAt).toBe(6);
+    expect(rescued.intervention).toEqual({ flag: '--diverge-at', value: '6', callNo: 6 });
+    expect(rescued.interventions.map((x) => x.flag)).toEqual(['--diverge-at', '--writes']);
+    // The probe's checks, counted over the attempts at that call.
+    expect(rescued.checks?.find((c) => c.label === 'issue_refund called 0 times')).toMatchObject({ ok: true, count: expect.any(Number), of: expect.any(Number) });
+    const check = rescued.checks!.find((c) => c.label === 'issue_refund called 0 times')!;
+    expect(check.of).toBeGreaterThan(1);
+    expect(check.count).toBeGreaterThanOrEqual(1);
   });
 });
