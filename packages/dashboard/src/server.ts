@@ -75,7 +75,12 @@ export interface Dashboard {
   token: string;
   /** Nothing can be changed from this dashboard. */
   readOnly: boolean;
-  close(): Promise<void>;
+  /**
+   * Stops the server. Running jobs are stopped with their agents and waited for (killed after the
+   * grace time), then uploads are deleted. `now` kills the running jobs at once: for a second Ctrl-C
+   * while a close waits for them. Every call returns the same close.
+   */
+  close(options?: { now?: boolean }): Promise<void>;
 }
 
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8' };
@@ -198,20 +203,24 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   port = (server.address() as AddressInfo).port;
   const url = `http://${address()}`;
 
+  let closing: Promise<void> | null = null;
   return {
     url,
     openUrl: `${url}/#token=${token}`,
     runUrl: (runId, callNo) => `${url}/#token=${token}&open=/run/${runId}${callNo ? `/call/${callNo}` : ''}`,
     token,
     readOnly,
-    close: async () => {
-      const closed = new Promise<void>((resolve) => server.close(() => resolve()));
-      server.closeAllConnections?.();
-      // Running jobs are stopped and waited for (killed after the grace time), so none outlives the
-      // dashboard and none leaves a run recording; their uploads go with them, then the rest.
-      await jobs.close();
-      uploads.close();
-      await closed;
+    close: (o = {}) => {
+      if (o.now) jobs.kill();
+      return (closing ??= (async () => {
+        const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+        server.closeAllConnections?.();
+        // Running jobs are stopped and waited for (killed after the grace time), so none outlives the
+        // dashboard and none leaves a run recording; their uploads go with them, then the rest.
+        await jobs.close();
+        uploads.close();
+        await closed;
+      })());
     },
   };
 }

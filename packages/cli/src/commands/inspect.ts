@@ -53,10 +53,17 @@ export function register(program: Command): void {
       if (flags.open && !process.env.CI) {
         if (!(await openInBrowser(link))) process.stderr.write(p.dim('  could not open a browser; open the link above\n'));
       }
+      // Jobs lead process groups of their own, so neither Ctrl-C nor a closing terminal reaches them:
+      // stopping the dashboard stops them, with their agents, and waits. Stopping it again kills them.
+      const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
       await new Promise<void>((done) => {
-        process.once('SIGINT', done);
-        process.once('SIGTERM', done);
+        const first = () => {
+          for (const s of signals) process.off(s, first);
+          done();
+        };
+        for (const s of signals) process.on(s, first);
       });
+      for (const s of signals) process.on(s, () => void dash.close({ now: true }));
       await dash.close();
       store.close();
     });

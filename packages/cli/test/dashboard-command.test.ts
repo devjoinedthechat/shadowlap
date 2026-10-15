@@ -1,13 +1,15 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
 
 /**
  * `shadowlap dashboard` as a person starts it: a job started from the browser runs this CLI, which
- * reports the run it made over the events pipe; `--read-only` refuses it.
+ * reports the run it made over the events pipe; `--read-only` refuses it; stopping the dashboard,
+ * however it is stopped, stops its jobs and the agents they started.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
@@ -44,13 +46,54 @@ async function stop(d: Started): Promise<void> {
   await new Promise((r) => d.child.once('exit', r));
 }
 
+/** Agents the stop tests started, until they are seen gone. */
+const agents = new Set<number>();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+async function gone(pid: number): Promise<boolean> {
+  for (let i = 0; i < 200 && alive(pid); i++) await sleep(25);
+  return !alive(pid);
+}
+
+/**
+ * An agent that keeps running when it is replayed (the file `slow` is there), printing its process
+ * id; with the file `stubborn` it ignores SIGTERM and says it got one in the file `got-term`.
+ */
+const SLEEPER = [
+  "const fs = require('node:fs');",
+  "if (fs.existsSync('slow')) {",
+  "  if (fs.existsSync('stubborn')) process.on('SIGTERM', () => fs.writeFileSync('got-term', ''));",
+  "  console.log('agent ' + process.pid);",
+  '  setInterval(() => {}, 1000);',
+  '}',
+].join('\n');
+
 beforeAll(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-')));
   env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_AUTHOR: 'priya@example.com' };
   const rec = spawnSync(process.execPath, [CLI, 'run', '--', process.execPath, '-e', 'console.log("agent ran")'], { cwd, env, encoding: 'utf8' });
   runId = /recording run (\w{26})/.exec(rec.stderr + rec.stdout)![1]!;
 });
-afterAll(() => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+afterAll(() => {
+  // Agents a failed test left behind.
+  for (const pid of agents) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // gone, as it should be
+    }
+  }
+  rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
 
 describe('shadowlap dashboard', () => {
   it('runs a job through this CLI, which reports the run it made over the events pipe', async () => {
@@ -100,5 +143,71 @@ describe('shadowlap dashboard', () => {
     } finally {
       rmSync(empty, { recursive: true, force: true });
     }
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', () => {
+  let sleeperId: string;
+  beforeAll(() => {
+    const rec = spawnSync(process.execPath, [CLI, 'run', '--', process.execPath, '-e', SLEEPER], { cwd, env, encoding: 'utf8' });
+    sleeperId = /recording run (\w{26})/.exec(rec.stderr + rec.stdout)![1]!;
+  });
+  afterEach(() => {
+    for (const f of ['slow', 'stubborn', 'got-term']) rmSync(join(cwd, f), { force: true });
+  });
+
+  /** Replays the sleeper from the dashboard, and waits for its agent to be running. */
+  async function replaying(d: Started): Promise<{ agent: number; runId: string }> {
+    const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
+    writeFileSync(join(cwd, 'slow'), '');
+    let job = (await (await api(`runs/${sleeperId}/actions`, { method: 'POST', body: JSON.stringify({ key: 'r' }) })).json()) as { id: string; lines: string[]; newRunId: string | null };
+    for (let i = 0; i < 400; i++) {
+      const pid = job.lines.map((l) => /^agent (\d+)$/.exec(l)?.[1]).find(Boolean);
+      if (pid && job.newRunId) {
+        agents.add(Number(pid));
+        return { agent: Number(pid), runId: job.newRunId };
+      }
+      await sleep(50);
+      job = (await (await api(`jobs/${job.id}`)).json()) as typeof job;
+    }
+    throw new Error(`the agent never started: ${job.lines.join('\n')}`);
+  }
+
+  function statusOf(runId: string): string | undefined {
+    const store = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
+    try {
+      return store.getRun(runId)?.status;
+    } finally {
+      store.close();
+    }
+  }
+
+  it('stops its jobs and their agents when the terminal it runs in closes', async () => {
+    const d = await dashboard([]);
+    const { agent, runId } = await replaying(d);
+    const exited = new Promise<number | null>((r) => d.child.once('exit', (code) => r(code)));
+    d.child.kill('SIGHUP');
+    expect(await exited).toBe(0);
+    expect(await gone(agent), 'the agent was stopped with the dashboard').toBe(true);
+    agents.delete(agent);
+    expect(statusOf(runId), 'the replay was interrupted').toBe('crashed');
+  });
+
+  it('kills them at once when it is stopped again while it waits for an agent that ignores the signal', async () => {
+    writeFileSync(join(cwd, 'stubborn'), '');
+    const d = await dashboard([]);
+    const { agent, runId } = await replaying(d);
+    const exited = new Promise<number | null>((r) => d.child.once('exit', (code) => r(code)));
+    d.child.kill('SIGINT');
+    for (let i = 0; i < 200 && !existsSync(join(cwd, 'got-term')); i++) await sleep(25);
+    expect(existsSync(join(cwd, 'got-term')), 'the agent got the stop, and ignored it').toBe(true);
+    const again = Date.now();
+    d.child.kill('SIGINT');
+    expect(await exited).toBe(0);
+    // Five seconds of grace were left: a second Ctrl-C does not wait for them.
+    expect(Date.now() - again).toBeLessThan(4000);
+    expect(await gone(agent), 'the agent was killed with the dashboard').toBe(true);
+    agents.delete(agent);
+    expect(statusOf(runId), 'the replay it left recording was marked as interrupted').toBe('crashed');
   });
 });

@@ -306,6 +306,25 @@ describe('jobs', () => {
     agents.delete(agentPid);
     expect(store.getRun(run.runId)!.status).toBe('crashed');
   });
+
+  it.skipIf(!posix)('are killed at once when the dashboard is closed again with now, without waiting out the grace time', async () => {
+    const run = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js'], cwd: project } });
+    const d = await startDashboard({ store, spawnCli: cliSpawner({ command: [process.execPath, FAKE], cwd: project }), project: { path: project }, jobStopGraceMs: 60_000, routes: [fakeKind] });
+    const started = await startJob(d, { kind: 'fake', mode: 'stubborn', runId: run.runId });
+    const agentPid = Number((await waitLine(d, started.id, /^agent (\d+)$/))[1]);
+    agents.add(agentPid);
+    const closing = d.close();
+    // The first close waits for the agent, which ignores the stop; a second one with now does not.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(alive(agentPid)).toBe(true);
+    const t = Date.now();
+    expect(d.close({ now: true })).toBe(closing);
+    await closing;
+    expect(Date.now() - t).toBeLessThan(10_000);
+    expect(await gone(agentPid)).toBe(true);
+    agents.delete(agentPid);
+    expect(store.getRun(run.runId)!.status).toBe('crashed');
+  });
 });
 
 describe('uploads', () => {

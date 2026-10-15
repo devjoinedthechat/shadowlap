@@ -26,7 +26,9 @@ import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './view
  * per line there when SHADOWLAP_EVENTS_FD is set (`emitJobEvent` in packages/cli/src/job-events.ts).
  *
  *   {"type":"run","runId":"01K…","role":"new"}      a run it made; role "attempt", "probe" or "verify"
- *                                                    marks an attempt, which is listed but not opened
+ *                                                    marks an attempt, which is listed but not opened;
+ *                                                    any other ("new", "passing", "failing", "imported")
+ *                                                    is a run to open, and the last becomes newRunId
  *   {"type":"link","label":"Open the fix","href":"#/fixes/fx-…"}   where to go next (dashboard routes only)
  *   {"type":"file","path":".shadowlap/exports/x.jsonl","label":"Dataset"}   a file or folder it wrote
  *   {"type":"result","data":{…}}                     its outcome (what --json prints); the last one is kept
@@ -670,6 +672,21 @@ export class JobManager {
       if (!job.exited && !job.done) signalJob(child, 'SIGKILL');
     }, this.stopGraceMs);
     job.killTimer.unref();
+  }
+
+  /**
+   * Kills every running job at once, with whatever it started: the dashboard was told to stop again
+   * while it waited for them (a second Ctrl-C). A run one leaves recording is marked as interrupted
+   * when it ends, as after a stop. A job whose command has already exited is left to finish: its
+   * process group may be gone, and its id taken by another.
+   */
+  kill(): void {
+    for (const job of this.jobs.values()) {
+      const child = job.child;
+      if (job.done || !child) continue;
+      job.stopping = true;
+      if (!job.exited) signalJob(child, 'SIGKILL');
+    }
   }
 
   /**
