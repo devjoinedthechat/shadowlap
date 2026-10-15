@@ -127,6 +127,7 @@ export function recordBlame(store: Store, input: BlameToRecord): RecordedBlame {
   const at = input.at ?? Date.now();
   const expect = input.expect ?? null;
   const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: input.command };
+  // Immediate: two blames finishing at once must not both open a fix for the same label.
   return store.transaction(() => {
     store.putBlame(blame);
     const run = store.getRun(input.runId);
@@ -155,7 +156,7 @@ export function recordBlame(store: Store, input: BlameToRecord): RecordedBlame {
     store.addFixLink(fix.fixId, 'failing', input.runId, at);
     store.addFixLink(fix.fixId, 'blame', blame.blameId, at);
     return { blame, fix, created };
-  });
+  }, 'immediate');
 }
 
 export interface VerdictToRecord {
@@ -182,7 +183,7 @@ export interface RecordedVerdict {
  * verdict turns an open fix verified; a fix stays verified whatever a later verdict says.
  */
 export function recordVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
-  return store.transaction(() => keepVerdict(store, input));
+  return store.transaction(() => keepVerdict(store, input), 'immediate');
 }
 
 function keepVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
@@ -252,7 +253,7 @@ export function recordRepair(store: Store, input: RepairToRecord): RecordedRepai
       }
     }
     return { repair, fixes: fixes.map((f) => store.getFix(f.fixId)!), verdict };
-  });
+  }, 'immediate');
 }
 
 /** The fixes failing runs belong to: the ones they fail in, else the ones their labels join. */

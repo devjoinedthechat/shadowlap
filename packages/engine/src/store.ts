@@ -428,8 +428,12 @@ export class Store {
     this.db.close();
   }
 
-  transaction<T>(fn: () => T): T {
-    this.db.exec('BEGIN');
+  /**
+   * Runs `fn` in one transaction. `immediate` takes the write lock first, for a read that decides a
+   * write: another process doing the same waits for this one, then reads what it wrote.
+   */
+  transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'deferred'): T {
+    this.db.exec(mode === 'immediate' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     try {
       const result = fn();
       this.db.exec('COMMIT');

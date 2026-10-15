@@ -1,6 +1,8 @@
+import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkKey, fixCost, fixOfRun, fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, resolveFix, setFixTitle, Store } from '../src/index.js';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from './fix-fixtures.js';
@@ -178,6 +180,37 @@ describe('Fixes: reading them back', () => {
     expect(() => setFixTitle(store, fix.fixId, '   ')).toThrow('a title needs some text');
     const applied = markFixApplied(store, fix.fixId, { patch: 'already', repairId: 'repair-1', goldens: ['goldens/01M3RZ4XKN'], tests: 'passed', by: 'dana' }, 9_000);
     expect(applied).toMatchObject({ status: 'applied', appliedAt: 9_000, data: { titleEdited: true, applied: { patch: 'already', goldens: ['goldens/01M3RZ4XKN'] } } });
+  });
+
+  it('opens one fix when blames of runs with the same label finish at once in several processes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-fixes-race-'));
+    try {
+      const path = join(dir, 'shadowlap.db');
+      const s = Store.open(path);
+      const runs = Array.from({ length: 8 }, () => makeRun(s, { labels: ['refund-over-limit'] }));
+      s.close();
+      const engine = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+      const script = `const { Store, recordBlame } = await import(${JSON.stringify('file://' + engine)}); const s = Store.open(${JSON.stringify(path)}); recordBlame(s, { runId: process.argv[1], report: JSON.parse(process.env.REPORT), expect: null, scope: null, command: 'c', title: 't', checkText: 'x' }); s.close();`;
+      const results = await Promise.all(
+        runs.map(
+          (run) =>
+            new Promise<[number | null, string]>((resolve) => {
+              const child = spawn(process.execPath, ['--input-type=module', '-e', script, run], { env: { ...process.env, REPORT: JSON.stringify(blameReport(run)) }, stdio: ['ignore', 'ignore', 'pipe'] });
+              let err = '';
+              child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+              child.on('exit', (code) => resolve([code, err]));
+            }),
+        ),
+      );
+      expect(results.filter(([code]) => code !== 0).map(([, err]) => err)).toEqual([]);
+      const again = Store.open(path);
+      const fixes = again.listFixes();
+      expect(fixes).toHaveLength(1);
+      expect([...fixRecords(again, fixes[0]!).failing].sort()).toEqual([...runs].sort());
+      again.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('keeps fixes in the store file, and a fix outlives a run deleted from it', () => {
