@@ -310,7 +310,8 @@ describe('setup commands', () => {
   });
 
   it('gives the jobs their arguments', () => {
-    expect(setupJobArgs.inspect()).toEqual(['init', '--json']);
+    // Without --json, so the drawer shows what init found in words; its result arrives as the job's result event.
+    expect(setupJobArgs.inspect()).toEqual(['init']);
     expect(setupJobArgs.calibrate('R1')).toEqual(['calibrate', 'R1']);
     expect(setupJobArgs.calibrate('R1', true)).toEqual(['calibrate', 'R1', '--write']);
     expect(setupJobArgs.pack('R1', 'goldens/x')).toEqual(['pack', 'R1', 'goldens/x']);
