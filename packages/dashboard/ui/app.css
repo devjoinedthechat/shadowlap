@@ -1584,3 +1584,23 @@ table.t td.wrapcell { white-space: normal; }
 /* the status bar gives way from the store path, so the version stays */
 .status > span:not(.sp) { flex: none; }
 .status > span:first-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ============ overview-runs: the Overview and the Runs page ============
+   What the mock drew with inline styles, and the parts the real data adds: a run shown for context
+   in this week's grid, a recording's next cell, the daily chart's colours, the import dialog's spacing. */
+.grow.ctx { color: var(--faint); }
+.grow.ctx code { color: var(--dim); }
+.grow.ctx .gs { opacity: .55; }
+.gs i.nextcell { animation: pulse 1.4s ease-in-out infinite; }
+a.attn-more { text-decoration: none; }
+.dlegend { margin-bottom: 14px; }
+.legend i.lc-spent, .grp i.bar-spent { background: var(--c-spent); }
+.legend i.lc-saved, .grp i.bar-saved { background: var(--c-saved); }
+table.daytable tbody tr { cursor: default; }
+table.daytable tbody tr:hover td { background: none; }
+.feed .empty { text-align: left; padding: 16px 18px; }
+.impdlg .seg { margin-bottom: 14px; }
+.impdlg .impnote { margin: 12px 0 4px; }
+.impdlg .capfile .pick { flex: none; }
+.calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+.feed .w { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }

@@ -1,12 +1,15 @@
-import { clock, isoDay, num, tildePath } from '../format.js';
+import { clock, isoDay, num, tildePath, whenShort } from '../format.js';
 import { useNow } from '../hooks.js';
 import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
+import { useTeamStore } from '../teamstore.js';
 
 /** The status bar: the store, the counts, the sync state, the address and the version. Below 640px only the left side stays. */
 export function StatusBar() {
   const { meta, runs, conn, syncedAt, exported, live } = useApp();
   const now = useNow(10_000);
+  // With a team store set, the right side names it and when this machine last pushed or pulled.
+  const store = useTeamStore();
   const listed = runs ? runs.filter((r) => !isAttempt(r)).length : null;
   const attempts = meta?.counts?.attempts ?? (runs ? runs.length - (listed ?? 0) : null);
   const runCount = meta?.counts?.runs ?? listed;
@@ -42,7 +45,8 @@ export function StatusBar() {
           <span>{sync}</span>
           <span className="sep" />
           <span>
-            {meta?.address ?? location.host} · local only{readOnly ? ' · read-only' : ''}
+            {store ? `store ${store.name} · ${store.syncedAt ? `synced ${whenShort(store.syncedAt, now)}` : 'not synced yet'}` : `${meta?.address ?? location.host} · local only`}
+            {readOnly ? ' · read-only' : ''}
           </span>
         </>
       )}
