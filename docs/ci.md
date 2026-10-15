@@ -237,7 +237,9 @@ On other CI systems, run the CLI directly. `--junit`, `--json` and `--markdown` 
 
 ## Fix on failure
 
-When a golden fails an outcome check in CI, the action can propose the fix itself: it runs `shadowlap repair` on the failing replay, which blames it (finds the model call where it was lost), asks the repairer to rewrite the prompt or a tool description, and keeps a rewrite only when `verify` accepts it. A fix verify accepted becomes a pull request with the patch and its report. The step:
+When a golden fails an outcome check in CI, the action can propose the fix itself: it runs `shadowlap repair` on the failing replay, which blames it (finds the model call where it was lost), asks the repairer to rewrite the prompt or a tool description, and keeps a rewrite only when `verify` accepts it. A fix verify accepted becomes a pull request with the patch and its report.
+
+A fix changes what the agent sends, so a golden that must replay exactly would diverge on the fix's own branch and fail the pull request's checks. The pull request's one commit therefore carries the golden re-recorded under the fix too: the recording verify accepted replaces the golden's pack (`run.json`, `calls.jsonl`, `blobs/`; other files in its folder stay), once it replays clean with the fix applied, which the action checks in its working tree before it pushes. When it can't, the golden stays as it was, and the pull request and the job summary say to run `shadowlap test <golden> --update` on the branch. A golden marked `fork` is left as it is: it passes on its checks from wherever it diverges. The step:
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write }
@@ -267,7 +269,7 @@ It needs:
     ref: ${{ github.head_ref || github.ref }}
 ```
 
-It never opens a pull request for a divergence (most are intended: [update the golden](#update-a-golden-after-an-intended-change) or add a normalizer), never keeps a fix that verify rejected, never spends past the budget (each failing golden gets `fix-budget` dollars for blame, the repairer and verify together, and repair starts nothing once it is spent), and never merges anything: you review every fix. A failed check still fails the build. The job summary lists each failing golden with the pull request opened, or why there is none, and what it spent of its budget. The fix commit is made by GitHub's Actions bot when git has no identity of its own on the runner.
+It never opens a pull request for a divergence (most are intended: [update the golden](#update-a-golden-after-an-intended-change) or add a normalizer), never keeps a fix that verify rejected, never spends past the budget (each failing golden gets `fix-budget` dollars for blame, the repairer and verify together, and repair starts nothing once it is spent), and never merges anything: you review every fix. A failed check still fails the build. The job summary lists each failing golden with the pull request opened (and whether its golden was re-recorded), or why there is none, and what it spent of its budget. The fix commit is made by GitHub's Actions bot when git has no identity of its own on the runner. A session stopped by a signal, as when the job is cancelled, starts no fix.
 
 ## Alerts
 

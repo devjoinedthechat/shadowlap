@@ -13,6 +13,8 @@ export interface PackResult {
   dir: string;
   /** The golden as the store's test history names it: the pack directory relative to the project. */
   golden: string;
+  /** `replay` must send the requests it recorded; `fork` may diverge and passes on its checks. */
+  mode: 'replay' | 'fork';
   ok: boolean;
   /** Why it failed: `diverged`, `check` (an outcome check), `exit`, `no-calls` or `error`. Null when it passed. */
   failure: TestFailure | null;

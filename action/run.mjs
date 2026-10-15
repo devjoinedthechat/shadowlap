@@ -73,7 +73,7 @@ let fixes = [];
 // A session a signal stopped (the job is being cancelled) starts nothing that spends money.
 if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
 if (fixOnFailure && report.failed && !report.interrupted) {
-  fixes = runFixes({ cli, db: store, workdir, report, budget, repairer, env: cliEnv, log: (line) => process.stdout.write(`${line}\n`) });
+  fixes = runFixes({ cli, db: store, workdir, report, budget, repairer, guard, env: cliEnv, log: (line) => process.stdout.write(`${line}\n`) });
   for (const f of fixes) {
     if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${f.pr}\n`);
     else process.stdout.write(`${f.name}: no fix pull request: ${f.why}\n`);

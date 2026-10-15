@@ -250,6 +250,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     name: o.name,
     dir: o.dir,
     golden: o.golden,
+    mode: o.spec?.fork ? 'fork' : 'replay',
     ok: !o.failure,
     failure: o.kind,
     message: o.failure?.message ?? null,

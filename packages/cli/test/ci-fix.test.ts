@@ -1,18 +1,19 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, fixSummary, planFixes, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, fixSummary, goldenNote, planFixes, refreshGolden, repairArgs, type ReportResult } from '../../../action/fix.mjs';
 
 /**
  * Fix on failure in the GitHub Action, run as action.yml runs it, on the support agent in a git
  * repository of its own with a bare remote and a stand-in for gh. Its golden is a run that refunded
  * a $240 order against policy, and the config checks that no such refund happens, so the golden
  * fails a check on a clean replay. The mock plays the agent's model (which, asked again, escalates
- * every other time, and always under the fixed prompt) and the repairer.
+ * every other time, and always under the fixed prompt) and the repairer. The pull request's own
+ * checks are `shadowlap test` on its branch, which the tests run too.
  */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CLI = join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js');
@@ -25,9 +26,9 @@ let mock: MockServer;
 let mode: 'refund' | 'alternate' = 'refund';
 let decisions = 0;
 let counter = 0;
-let project: string;
-let remote: string;
-let bin: string;
+let project = '';
+let remote = '';
+let bin = '';
 
 function script(ctx: ScriptContext) {
   const system = JSON.stringify(ctx.request.system ?? '');
@@ -87,12 +88,14 @@ afterAll(async () => {
   await mock.close();
 });
 
-beforeEach(async () => {
-  // Inside this repository, so the agent's imports resolve; a git repository of its own.
-  project = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-cifix-${process.pid}-${counter++}`);
-  mkdirSync(project);
+/** The agent and its golden, committed, with a remote to push to and gh standing by. */
+async function setUp(tests: Record<string, unknown>): Promise<void> {
+  // Outside this repository, so an interrupted run never leaves a nested one behind in it; the
+  // agent's imports resolve through this repository's node_modules, linked in and ignored.
+  project = mkdtempSync(join(tmpdir(), `sl-cifix-${counter++}-`));
+  symlinkSync(join(ROOT, 'node_modules'), join(project, 'node_modules'), process.platform === 'win32' ? 'junction' : undefined);
   copyFileSync(AGENT, join(project, 'agent.mjs'));
-  writeFileSync(join(project, '.gitignore'), '.shadowlap/\n');
+  writeFileSync(join(project, '.gitignore'), '.shadowlap/\nnode_modules\n');
   sh(project, 'git', ['init', '-q', '-b', 'main']);
   sh(project, 'git', ['config', 'user.name', 'Test']);
   sh(project, 'git', ['config', 'user.email', 'test@example.com']);
@@ -102,7 +105,8 @@ beforeEach(async () => {
   expect(recorded.code, recorded.out).toBe(0);
   const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
   expect((await run([CLI, 'pack', runId, 'goldens/refund-over-limit'])).code).toBe(0);
-  writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-over-limit': { expect: EXPECT } } }, null, 2));
+  writeFileSync(join(project, 'goldens', 'refund-over-limit', 'README.md'), 'Refunds above the limit are escalated.\n');
+  writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-over-limit': tests } }, null, 2));
   sh(project, 'git', ['add', '.']);
   sh(project, 'git', ['commit', '-q', '-m', 'agent and its golden']);
   remote = mkdtempSync(join(tmpdir(), 'sl-remote-'));
@@ -113,14 +117,17 @@ beforeEach(async () => {
   writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(bin, 'args')}"\necho https://github.com/example/agent/pull/7\n`);
   chmodSync(join(bin, 'gh'), 0o755);
   mode = 'alternate';
-});
+}
+
 afterEach(() => {
-  for (const d of [project, remote, bin]) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  for (const d of [project, remote, bin]) if (d) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  project = remote = bin = '';
 });
 
 // The stand-in for gh is a shell script, which Windows won't run by name.
 describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Action', () => {
-  it('opens a pull request with the fix verify accepted when a golden fails its check, and merges nothing', async () => {
+  it('opens a pull request with the fix verify accepted and the golden re-recorded under it, whose own checks pass, and merges nothing', async () => {
+    await setUp({ expect: EXPECT });
     const head = sh(project, 'git', ['rev-parse', 'HEAD']);
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
     expect(r.code, r.out).toBe(1);
@@ -135,16 +142,50 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(sh(project, 'git', ['rev-parse', 'HEAD'])).toBe(head);
     expect(readFileSync(join(project, 'agent.mjs'), 'utf8')).not.toContain(FIX);
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
+    // One commit: the fix, with the golden re-recorded under it; the golden's own README stays.
+    expect(sh(project, 'git', ['rev-list', '--count', `main..${branch}`])).toBe('1');
+    const changed = sh(project, 'git', ['diff', '--name-only', 'main', branch]).split('\n');
+    expect(changed).toEqual(expect.arrayContaining(['agent.mjs', 'goldens/refund-over-limit/run.json', 'goldens/refund-over-limit/calls.jsonl']));
+    expect(changed.every((f) => f === 'agent.mjs' || /^goldens\/refund-over-limit\/(run\.json|calls\.jsonl|blobs\/[0-9a-f]{64})$/.test(f)), changed.join('\n')).toBe(true);
+    expect(sh(project, 'git', ['show', `${branch}:goldens/refund-over-limit/README.md`])).toBe('Refunds above the limit are escalated.');
+    expect(sh(project, 'git', ['log', '-1', '--format=%B', branch])).toContain('goldens/refund-over-limit is re-recorded under the fix, from the run verify accepted');
     const args = readFileSync(join(bin, 'args'), 'utf8').split('\n');
     expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', branch, '--base', 'main', '--title', 'Escalate refunds above the policy limit']);
-    expect(readFileSync(args[9]!, 'utf8')).toContain('## Escalate refunds above the policy limit');
+    const body = readFileSync(args[9]!, 'utf8');
+    expect(body).toContain('## Escalate refunds above the policy limit');
+    expect(body).toContain("`goldens/refund-over-limit` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here, so this pull request's own checks pass.");
 
     expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
     expect(r.summary).toContain('### Shadowlap: 1 fix pull request opened');
-    expect(r.summary).toMatch(/\| ✅ \| `refund-over-limit` \| \[Escalate refunds above the policy limit\]\(https:\/\/github\.com\/example\/agent\/pull\/7\) · verify: target 1 of 1 \| \$\d+\.\d\d of \$5\.00 \|/);
+    expect(r.summary).toMatch(/\| ✅ \| `refund-over-limit` \| \[Escalate refunds above the policy limit\]\(https:\/\/github\.com\/example\/agent\/pull\/7\) · verify: target 1 of 1 · golden re-recorded \| \$\d+\.\d\d of \$5\.00 \|/);
+
+    // The pull request's own checks: shadowlap test on its branch, offline, passes.
+    sh(project, 'git', ['checkout', '-q', branch]);
+    const hits = mock.requests.length;
+    const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*']);
+    expect(onBranch.code, onBranch.out).toBe(0);
+    expect(onBranch.out).toMatch(/✓ refund-over-limit: \d+\/\d+ replayed/);
+    expect(mock.requests.length).toBe(hits);
+  });
+
+  it('leaves a golden that may fork as it is: on the branch it passes on its checks', async () => {
+    await setUp({ fork: true, expect: EXPECT });
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' });
+    expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '1' });
+    const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+    expect(sh(project, 'git', ['diff', '--name-only', 'main', branch])).toBe('agent.mjs');
+    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9]!, 'utf8');
+    expect(body).toContain('`goldens/refund-over-limit` may fork, so it passes on its checks with the fix as it is.');
+    expect(r.summary).not.toContain('· golden');
+    sh(project, 'git', ['checkout', '-q', branch]);
+    // Live from the fork, where this agent escalates: its writes are stubbed, as such a project's CI sets them.
+    const onBranch = await run([CLI, '--db', ':memory:', 'test', 'goldens/*', '--writes', 'stub']);
+    expect(onBranch.code, onBranch.out).toBe(0);
+    expect(onBranch.out).toMatch(/✓ refund-over-limit: forked at call 1/);
   });
 
   it('stops once the budget per failing golden is spent, and opens nothing', async () => {
+    await setUp({ expect: EXPECT });
     // Priced, so every live model call counts against the budget.
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'small-model': { input: 1000, output: 1000 } }, tests: { 'goldens/refund-over-limit': { expect: EXPECT } } }, null, 2));
     sh(project, 'git', ['commit', '-q', '-am', 'price the model']);
@@ -157,6 +198,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
   });
 
   it('opens nothing from a detached HEAD, and says how to check out the branch', async () => {
+    await setUp({ expect: EXPECT });
     sh(project, 'git', ['checkout', '-q', '--detach']);
     const r = await action({ FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic' });
     expect(r.outputs.fixes).toBe('0');
@@ -178,15 +220,34 @@ describe('planning fixes from a test report', () => {
     ]);
     expect(plans[0]).toMatchObject({ fixes: ['A', 'C'], keeps: ['B'] });
     expect(branchName(result({}))).toBe('shadowlap/fix-refund-flow-t9rb1d');
-    expect(repairArgs(plans[0], { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', 'C', '--keeps', 'B', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--pr', '--yes', '--json']);
+    // The branch is pushed and the pull request opened once the golden is re-recorded on it, not by repair.
+    expect(repairArgs(plans[0], { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', 'C', '--keeps', 'B', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--yes', '--json']);
   });
 
   it('writes the job summary', () => {
-    const md = fixSummary([{ name: 'a|b', outcome: 'opened', pr: 'https://example.com/pr/1', title: 'Fix it', verify: 'target 1 of 1', spent: 0.84, why: null }, { name: 'drift', outcome: 'skipped', why: 'diverged: never fixed automatically', pr: null, spent: 0 }], 2);
-    expect(md).toContain('### Shadowlap: 1 fix pull request opened');
-    expect(md).toContain('| ✅ | `a\\|b` | [Fix it](https://example.com/pr/1) · verify: target 1 of 1 | $0.84 of $2.00 |');
+    const md = fixSummary([
+      { name: 'a|b', outcome: 'opened', pr: 'https://example.com/pr/1', title: 'Fix it', verify: 'target 1 of 1', spent: 0.84, why: null, goldenState: { state: 'recorded', golden: 'goldens/a', why: null } },
+      { name: 'c', outcome: 'opened', pr: 'https://example.com/pr/2', title: 'Fix c', verify: null, spent: 0.5, why: null, goldenState: { state: 'stale', golden: 'goldens/c', why: 'the fix does not apply to the working tree' } },
+      { name: 'drift', outcome: 'skipped', why: 'diverged: never fixed automatically', pr: null, spent: 0 },
+    ], 2);
+    expect(md).toContain('### Shadowlap: 2 fix pull requests opened');
+    expect(md).toContain('| ✅ | `a\\|b` | [Fix it](https://example.com/pr/1) · verify: target 1 of 1 · golden re-recorded | $0.84 of $2.00 |');
+    expect(md).toContain('| ✅ | `c` | [Fix c](https://example.com/pr/2) · golden not re-recorded: run `shadowlap test goldens/c --update` on the branch | $0.50 of $2.00 |');
     expect(md).toContain('| ➖ | `drift` | diverged: never fixed automatically |  |');
     expect(md).toContain('Nothing is merged');
     expect(fixSummary([], 2)).toBe('');
+  });
+
+  it('re-records only a golden that must replay exactly, and only from a recording repair kept', () => {
+    const base = { cli: CLI, workdir: tmpdir(), env: process.env, scratch: tmpdir() };
+    expect(refreshGolden({ ...base, result: { name: 'x', dir: 'goldens/x', mode: 'fork', ok: false }, repair: { output: { goldens: ['g'], patch: 'p', branch: 'b' } } })).toEqual({ state: 'fork', golden: 'goldens/x', why: null });
+    expect(refreshGolden({ ...base, result: { name: 'x', dir: 'goldens\\x\\', mode: 'replay', ok: false }, repair: { output: { goldens: [], patch: 'p', branch: 'b' } } })).toEqual({ state: 'stale', golden: 'goldens/x', why: 'repair kept no recording of the fixed run' });
+  });
+
+  it('tells the pull request how to update a golden it could not re-record', () => {
+    const note = goldenNote({ state: 'stale', golden: 'goldens/refund-flow', why: 'the recording verify accepted does not replay clean on the branch (refund-flow: diverged at call 4)' });
+    expect(note).toContain('`goldens/refund-flow` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch.');
+    expect(note).toContain('shadowlap test goldens/refund-flow --update');
+    expect(note).toContain('It was not re-recorded automatically: the recording verify accepted does not replay clean on the branch (refund-flow: diverged at call 4).');
   });
 });

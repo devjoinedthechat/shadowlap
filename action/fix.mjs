@@ -3,10 +3,15 @@
 // it), within a budget per golden, and open a pull request with the patch and the report. Never for
 // a divergence: most divergences are intended changes, and a golden update is a person's call. It
 // never merges anything.
+//
+// A fix changes what the agent sends, so a golden that must replay exactly would diverge on the
+// fix's own branch and fail the pull request's checks. Before the branch is pushed, that golden is
+// re-recorded on it: the recording verify accepted takes the place of its pack, once it replays
+// clean with the fix applied.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** Why a failed golden gets no fix attempt, by the kind of failure `shadowlap test --json` reports. */
 const NOT_FIXED = {
@@ -35,7 +40,10 @@ export function branchName(result) {
   return `shadowlap/fix-${slug}-${(result.runId ?? '').slice(-6).toLowerCase() || Date.now().toString(36)}`;
 }
 
-/** The arguments for `shadowlap repair` on one failed golden. */
+/**
+ * The arguments for `shadowlap repair` on one failed golden. It commits the fix it keeps to a new
+ * branch; the branch is pushed and the pull request opened here, once the golden is re-recorded on it.
+ */
 export function repairArgs(plan, { db, budget, repairer, expectFile }) {
   return [
     ...(db ? ['--db', db] : []),
@@ -50,13 +58,19 @@ export function repairArgs(plan, { db, budget, repairer, expectFile }) {
     ...(repairer ? ['--repairer', repairer] : []),
     '--branch',
     branchName(plan.result),
-    '--pr',
     '--yes',
     '--json',
   ];
 }
 
-const run = (cmd, args, cwd, env) => spawnSync(cmd, args, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const run = (cmd, args, cwd, env, input) => spawnSync(cmd, args, { cwd, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...(input !== undefined ? { input } : {}) });
+
+/** git, failing loudly: its stdout, or an error in git's own words. */
+function git(cwd, args, env, input) {
+  const r = run('git', args, cwd, env, input);
+  if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${(r.stderr || r.error?.message || '').trim()}`);
+  return r.stdout;
+}
 
 /**
  * Why fixes can't be opened from this checkout, or null. A pull request needs a branch to target;
@@ -81,8 +95,143 @@ export function repairEnv(workdir, env) {
   return { ...env, GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: address, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: address };
 }
 
+/** What a pack is made of, as `shadowlap pack` writes it; anything else in a golden's folder is the user's. */
+const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'];
+
+const present = (path) => {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** A rename, or across filesystems a copy and a removal. */
+function move(from, to) {
+  try {
+    renameSync(from, to);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+    rmSync(from, { recursive: true, force: true });
+  }
+}
+
+/** Every file under a directory, as paths relative to it with forward slashes. */
+function filesUnder(dir, prefix = '') {
+  return readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((e) => {
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    return e.isDirectory() ? filesUnder(dir, rel) : [rel];
+  });
+}
+
+/**
+ * Replays the recording verify accepted as the golden, with the fix applied, in the working tree,
+ * where the agent's dependencies are, as verify itself ran it: the golden's pack entries are swapped
+ * for the recording's, the patch applied, `shadowlap test` run on the golden (its checks included),
+ * and both put back. Returns null when it replays clean, or why not.
+ */
+function replaysClean({ cli, workdir, root, golden, pack, patch, guard, env, scratch }) {
+  const dir = resolve(workdir, golden);
+  const aside = join(scratch, 'golden-aside');
+  mkdirSync(aside, { recursive: true });
+  const moved = [];
+  let applied = false;
+  try {
+    for (const e of PACK_ENTRIES) {
+      if (!present(join(dir, e))) continue;
+      move(join(dir, e), join(aside, e));
+      moved.push(e);
+    }
+    for (const e of PACK_ENTRIES) if (present(join(pack, e))) cpSync(join(pack, e), join(dir, e), { recursive: true });
+    const apply = run('git', ['apply', '--whitespace=nowarn', patch], root, env);
+    if (apply.status !== 0) return `the fix does not apply to the working tree: ${(apply.stderr ?? '').trim()}`;
+    applied = true;
+    const t = run(process.execPath, [cli, '--db', ':memory:', 'test', golden, '--guard', guard], workdir, env);
+    if (t.status === 0) return null;
+    const failed = /✗ [^\n]*/.exec(t.stdout ?? '')?.[0];
+    return `the recording verify accepted does not replay clean on the branch${failed ? ` (${failed.slice(2)})` : ''}`;
+  } finally {
+    if (applied) git(root, ['apply', '-R', '--whitespace=nowarn', patch], env);
+    for (const e of PACK_ENTRIES) rmSync(join(dir, e), { recursive: true, force: true });
+    for (const e of moved) move(join(aside, e), join(dir, e));
+    rmSync(aside, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The branch's fix commit made again with the golden's pack replaced by `pack` (the golden's other
+ * files stay), so the pull request is one commit: the fix and the recording that proves it. HEAD and
+ * the working tree stay as they are.
+ */
+function commitGolden({ root, branch, golden, pack, env, scratch }) {
+  const head = git(root, ['rev-parse', '--verify', `refs/heads/${branch}`], env).trim();
+  const [subject, , ...rest] = git(root, ['log', '-1', '--format=%B', head], env).replace(/\s+$/, '').split('\n');
+  const [an, ae, ad] = git(root, ['log', '-1', '--format=%an%x00%ae%x00%aI', head], env).trim().split('\0');
+  const index = join(scratch, 'golden-index');
+  const ienv = { ...env, GIT_INDEX_FILE: index };
+  git(root, ['read-tree', head], ienv);
+  git(root, ['rm', '--cached', '-r', '-q', '--ignore-unmatch', '--', ...PACK_ENTRIES.map((e) => `${golden}/${e}`)], ienv);
+  for (const f of filesUnder(pack)) {
+    const blob = git(root, ['hash-object', '-w', join(pack, f)], env).trim();
+    git(root, ['update-index', '--add', '--cacheinfo', `100644,${blob},${golden}/${f}`], ienv);
+  }
+  const tree = git(root, ['write-tree'], ienv).trim();
+  const body = rest.join('\n').trim();
+  const message = `${subject}\n\n${body ? `${body}\n\n` : ''}${golden} is re-recorded under the fix, from the run verify accepted: the prompt it sends changed, so the recording made before the fix would diverge here.\n`;
+  const commit = git(root, ['commit-tree', tree, '-p', `${head}^`, '-F', '-'], { ...env, GIT_AUTHOR_NAME: an, GIT_AUTHOR_EMAIL: ae, GIT_AUTHOR_DATE: ad }, message).trim();
+  git(root, ['update-ref', `refs/heads/${branch}`, commit, head], env);
+  rmSync(index, { force: true });
+}
+
+/**
+ * The golden on the fix's branch. A golden marked `fork` passes on its checks from wherever it
+ * diverges, so it needs nothing. One that must replay exactly gets the recording verify accepted
+ * (repair packs one of each fixed run) in place of its pack, once that replays clean with the fix
+ * applied, which is what the pull request's own CI runs. Otherwise it stays as it was, and the pull
+ * request says how to update it.
+ */
+export function refreshGolden({ cli, workdir, result, repair, guard = 'block', env, scratch }) {
+  const golden = (result.dir ?? result.golden ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (result.mode === 'fork') return { state: 'fork', golden, why: null };
+  const stale = (why) => ({ state: 'stale', golden, why });
+  const recorded = repair.output?.goldens?.[0];
+  if (!recorded || !repair.output?.patch || !repair.output?.branch) return stale('repair kept no recording of the fixed run');
+  try {
+    const root = realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], env).trim());
+    const inRoot = relative(root, realpathSync(resolve(workdir, golden))).split(sep).join('/');
+    if (!inRoot || inRoot.startsWith('..') || isAbsolute(inRoot)) return stale(`${golden} is not inside the repository`);
+    const pack = resolve(workdir, recorded);
+    const why = replaysClean({ cli, workdir, root, golden, pack, patch: resolve(workdir, repair.output.patch), guard, env, scratch });
+    if (why) return stale(why);
+    commitGolden({ root, branch: repair.output.branch, golden: inRoot, pack, env, scratch });
+    return { state: 'recorded', golden, why: null };
+  } catch (err) {
+    return stale(err.message.split('\n')[0]);
+  }
+}
+
+/** What the pull request says about the golden, after repair's report. */
+export function goldenNote(g) {
+  if (g.state === 'recorded') return `### The golden\n\n\`${g.golden}\` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here, so this pull request's own checks pass. Review the new recording like any other change to a golden.\n`;
+  if (g.state === 'fork') return `### The golden\n\n\`${g.golden}\` may fork, so it passes on its checks with the fix as it is.\n`;
+  return `### The golden\n\n\`${g.golden}\` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch. Re-record it here and commit the change:\n\n\`\`\`sh\nshadowlap test ${g.golden} --update\n\`\`\`\n\nIt was not re-recorded automatically: ${g.why}.\n`;
+}
+
+/** Pushes the branch and opens its pull request into the branch checked out, titled by the fix commit. */
+function openPullRequest(root, branch, bodyFile, env) {
+  const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD'], env).trim();
+  const title = git(root, ['log', '-1', '--format=%s', `refs/heads/${branch}`], env).trim();
+  const push = run('git', ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`], root, env);
+  if (push.status !== 0) return { pr: null, why: `git push origin ${branch} failed: ${(push.stderr || push.error?.message || '').trim()}` };
+  const gh = run('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', title, '--body-file', bodyFile], root, env);
+  if (gh.error || gh.status !== 0) return { pr: null, why: `gh pr create failed: ${(gh.stderr || gh.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand` };
+  return { pr: gh.stdout.trim().split('\n').at(-1) ?? '', why: null };
+}
+
 /** Runs repair for each failed check, one golden at a time, and says how each went. */
-export function runFixes({ cli, db, workdir, report, budget, repairer, env, log = () => {} }) {
+export function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', env, log = () => {} }) {
   const plans = planFixes(report);
   const blocked = plans.some((x) => !x.skip) ? cannotFix(workdir, env) : null;
   const scratch = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-fix-'));
@@ -92,7 +241,7 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, env, log 
     for (const plan of plans) {
       const r = plan.result;
       if (plan.skip || blocked) {
-        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'skipped', why: plan.skip ?? blocked, pr: null, title: null, spent: 0, verify: null });
+        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'skipped', why: plan.skip ?? blocked, pr: null, title: null, spent: 0, verify: null, goldenState: null });
         continue;
       }
       const expectFile = join(scratch, `${out.length}-expect.json`);
@@ -114,18 +263,27 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, env, log 
         return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` : null;
       };
       const verify = accepted ? ['target', 'holdout', 'good'].map(count).filter(Boolean).join(' · ') : null;
-      if (repair?.outcome === 'fixed' && repair.output?.pr) {
-        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: repair.output.pr, branch: repair.output.branch, title: accepted?.strategy ?? null, spent, verify });
+      if (repair?.outcome === 'fixed' && repair.output?.branch) {
+        const branch = repair.output.branch;
+        const g = refreshGolden({ cli, workdir, result: r, repair, guard, env: fixEnv, scratch });
+        log(g.state === 'recorded' ? `${g.golden} re-recorded on ${branch}` : g.state === 'stale' ? `${g.golden} not re-recorded on ${branch}: ${g.why}` : `${g.golden} may fork: left as it is`);
+        // The body is kept beside repair's report, to be read after the job.
+        const reportFile = resolve(workdir, repair.output.report ?? join(repair.output.dir ?? '.', 'report.md'));
+        const bodyFile = join(dirname(reportFile), 'pull-request.md');
+        writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${goldenNote(g)}`);
+        const opened = openPullRequest(realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim()), branch, bodyFile, fixEnv);
+        if (opened.pr) out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, goldenState: g });
+        else out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, goldenState: g });
       } else {
         // Once the budget is spent, that is why there is no fix, whatever was learned by then.
         const spentAll = spent >= Number(budget);
         const why =
           repair?.outcome === 'fixed'
-            ? 'a fix was accepted, but the pull request was not opened'
+            ? 'a fix was accepted, but no branch was made for it'
             : spentAll
               ? `the budget of $${Number(budget).toFixed(2)} is spent`
               : (repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`));
-        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: repair?.outcome === 'fixed' ? 'not-opened' : 'no-fix', why, pr: null, title: null, spent, verify });
+        out.push({ golden: r.golden ?? r.name, name: r.name, outcome: repair?.outcome === 'fixed' ? 'not-opened' : 'no-fix', why, pr: null, title: null, spent, verify, goldenState: null });
       }
     }
   } finally {
@@ -135,6 +293,12 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, env, log 
 }
 
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+
+/** What the summary says about the golden on a fix's branch. */
+function goldenCell(g) {
+  if (!g || g.state === 'fork') return '';
+  return g.state === 'recorded' ? ' · golden re-recorded' : ` · golden not re-recorded: run \`shadowlap test ${cell(g.golden)} --update\` on the branch`;
+}
 
 /** The fixes for the job summary. */
 export function fixSummary(fixes, budget) {
@@ -149,13 +313,13 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}`
+        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f.goldenState)}`
         : f.outcome === 'skipped'
           ? cell(f.why)
-          : `no fix: ${cell(f.why)}`;
+          : `no fix: ${cell(f.why)}${goldenCell(f.goldenState)}`;
     const icon = f.outcome === 'opened' ? '✅' : f.outcome === 'skipped' ? '➖' : '❌';
     lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(budget).toFixed(2)}`} |`);
   }
-  lines.push('', 'Each pull request carries the patch verify accepted and its report. Nothing is merged: review each one like any other change.');
+  lines.push('', 'Each pull request carries the patch verify accepted, its report and, for a golden that must replay exactly, the golden re-recorded under the fix. Nothing is merged: review each one like any other change.');
   return lines.join('\n') + '\n';
 }
