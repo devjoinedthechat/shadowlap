@@ -2,7 +2,7 @@ import { checksOf, cleanLabel, lostAt, withLabels, type AttemptKind, type RunKin
 import { lookupRun, type RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
 import { classifiable, depthOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { originStrings, runStats, type StatsOptions } from './run-stats.js';
+import { originStrings, runStats, spentOf, type StatsOptions } from './run-stats.js';
 
 /**
  * The Runs page: a page of the table at a time, the 12-week calendar above it, and the bulk
@@ -157,8 +157,8 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50)));
   const m = matcher(options);
   const matching = index.runs.filter(m.matches);
-  const stats = sort === 'spent' ? runStats(store, index, matching, options) : null;
-  const keyOf = (r: IndexedRun): SortKey => ({ s: sort, v: sort === 'when' ? 0 : sort === 'calls' ? r.calls : (stats!.get(r.runId)?.spent ?? 0), t: r.startedAt, id: r.runId });
+  const spent = sort === 'spent' ? spentOf(store, index, matching, options) : null;
+  const keyOf = (r: IndexedRun): SortKey => ({ s: sort, v: sort === 'when' ? 0 : sort === 'calls' ? r.calls : (spent!.get(r.runId) ?? 0), t: r.startedAt, id: r.runId });
   const keyed = matching.map((r) => ({ r, k: keyOf(r) }));
   // The index is newest first already; the other sorts reorder it.
   if (sort !== 'when') keyed.sort((a, b) => compareKeys(a.k, b.k));

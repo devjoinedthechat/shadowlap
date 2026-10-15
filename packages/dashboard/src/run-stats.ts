@@ -176,6 +176,66 @@ export function runStats(store: Store, index: RunIndex, runs: Iterable<IndexedRu
   return out;
 }
 
+const SPENT_SQL = `
+SELECT s.run_id AS run, COALESCE(e.meta ->> '$.model', s.meta ->> '$.model') AS model,
+       COUNT(e.meta ->> '$.usage.outputTokens') AS with_usage,
+       SUM(e.meta ->> '$.usage.inputTokens') AS input,
+       SUM(e.meta ->> '$.usage.outputTokens') AS output,
+       SUM(e.meta ->> '$.usage.cacheReadInputTokens') AS cache_read,
+       SUM(e.meta ->> '$.usage.cacheCreationInputTokens') AS cache_write
+FROM call_events s
+${FINAL_END}
+WHERE s.phase = 'start' AND s.kind = 'api' AND s.origin = 'live' AND s.run_id IN (SELECT value FROM json_each(?))
+GROUP BY s.run_id, model`;
+
+const spentCache = new WeakMap<Store, Map<string, { key: string; spent: number }>>();
+
+/**
+ * What each run spent live, for sorting the Runs table by it: read from the runs' statistics when
+ * they are known, and otherwise from their live model calls alone, which is much less to read.
+ */
+export function spentOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): Map<string, number> {
+  const prices = options.prices ? JSON.stringify(options.prices) : '';
+  const stats = cache.get(store);
+  let kept = spentCache.get(store);
+  if (!kept) {
+    kept = new Map();
+    spentCache.set(store, kept);
+  }
+  const out = new Map<string, number>();
+  const todo: IndexedRun[] = [];
+  for (const r of runs) {
+    const key = keyOf(r, prices);
+    const known = stats?.get(r.runId);
+    const hit = kept.get(r.runId);
+    if (known?.key === key) out.set(r.runId, known.stats.spent);
+    else if (hit?.key === key) out.set(r.runId, hit.spent);
+    // An imported recording's calls were paid for where they were made.
+    else if (r.calls === 0 || (r.meta.imported && r.mode === 'record')) out.set(r.runId, 0);
+    else todo.push(r);
+  }
+  const legacy: IndexedRun[] = [];
+  for (const batch of batches(todo.map((r) => r.runId))) {
+    for (const row of store.query(SPENT_SQL, ids(batch))) {
+      const runId = String(row.run);
+      if (n(row.with_usage) === 0) continue;
+      if (typeof row.model !== 'string') {
+        legacy.push(index.byId.get(runId)!);
+        continue;
+      }
+      const usd = estimateCost(row.model, { inputTokens: n(row.input), outputTokens: n(row.output), cacheReadInputTokens: n(row.cache_read), cacheCreationInputTokens: n(row.cache_write) }, options.prices);
+      out.set(runId, (out.get(runId) ?? 0) + (usd ?? 0));
+    }
+  }
+  if (legacy.length) for (const [runId, st] of runStats(store, index, legacy, options)) out.set(runId, st.spent);
+  for (const r of todo) {
+    if (!out.has(r.runId)) out.set(r.runId, 0);
+    if (r.status !== 'running') kept.set(r.runId, { key: keyOf(r, prices), spent: out.get(r.runId)! });
+  }
+  if (kept.size > 50_000) kept.clear();
+  return out;
+}
+
 function empty(): RunStats {
   return { calls: 0, origins: emptyOriginCounts(), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: 0, liveInput: 0, liveCacheRead: 0 };
 }

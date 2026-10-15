@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
-import { originStrings, runStats, sumStats } from '../src/run-stats.js';
-import { addRun, DAY, usageAt } from './read-model-store.js';
+import { originStrings, runStats, spentOf, sumStats } from '../src/run-stats.js';
+import { addRun, capture, DAY, usageAt } from './read-model-store.js';
 
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
 let store: Store;
@@ -74,6 +74,19 @@ describe('run statistics', () => {
     store.endRun(live, 'completed', NOW + 1);
     const first = statsOf(live).get(live)!;
     expect(statsOf(live).get(live)).toBe(first);
+  });
+
+  it('reads what runs spent live from their live model calls alone, as their statistics say', () => {
+    const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llllbl' });
+    const fork = addRun(store, { parent: rec, startedAt: NOW, divergence: 3, calls: 'rrll' });
+    const cap = capture(store, NOW);
+    const index = loadRunIndex(store);
+    const runs = [rec, fork, cap].map((id) => index.byId.get(id)!);
+    const spent = spentOf(store, index, runs);
+    const stats = runStats(store, index, runs);
+    for (const id of [rec, fork, cap]) expect(spent.get(id)).toBeCloseTo(stats.get(id)!.spent, 12);
+    expect(spent.get(cap)).toBe(0);
+    expect(spent.get(rec)).toBeGreaterThan(spent.get(fork)!);
   });
 
   it('names models with no price instead of guessing their cost', () => {
