@@ -188,19 +188,50 @@ describe('the switcher', () => {
     expect(done.lines).toContain(`db ${projectDbPath(w.support)}`);
   });
 
-  it('refuses a route module that keeps the store from registration', async () => {
-    const home = tempDir('sl-proj-capture-');
-    const folder = files(join(home, 'agent'), { 'package.json': '{}' });
-    const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, '.sl') }, actor: () => null });
-    const host = ProjectHost.open<ProjectConfig>(folder, { registry, loadConfig: () => ({ normalize: [], redact: [] }) });
+  it('gives each project its own instance of a route module, so one that keeps the store and folder from registration serves each project’s', async () => {
+    const heard: Array<[string, string]> = [];
     const capturing: RouteModule = {
       register: (router, ctx) => {
-        const { store } = ctx;
-        router.get('/kept', (r) => r.json({ runs: store.allRuns().length }));
+        const { store, project, jobs } = ctx;
+        router.get('/kept', (r) => r.json({ runs: store.allRuns().length, project: project?.name }));
+        jobs.registerJobKind('kept', { title: () => 'Keeping', build: () => ({ args: ['kept', project!.name] }) });
+        // Each instance hears the jobs of its own project.
+        jobs.onJob((n) => (n.type === 'end' ? heard.push([project!.name, n.job.kind]) : undefined));
       },
     };
-    await expect(startDashboard({ projects: host, routes: [capturing] })).rejects.toThrow(/read ctx\.store while registering/);
-    host.close();
+    const w = await world({ routes: [capturing] });
+    w.registry.add(w.triage);
+    expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent' });
+    await w.api('projects/triage-bot/select', { method: 'POST' });
+    expect((await w.api('kept')).body).toEqual({ runs: 0, project: 'triage-bot' });
+    // The kind is listed once, and its job is built by the current project's instance.
+    expect((await w.api<{ jobKinds: string[] }>('meta')).body.jobKinds.filter((k) => k === 'kept')).toHaveLength(1);
+    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'kept' } });
+    const done = await w.waitJob(job.body.id);
+    expect(done.lines).toContain(`args ${JSON.stringify(['--db', projectDbPath(w.triage), 'kept', 'triage-bot'])}`);
+    expect(heard).toEqual([['triage-bot', 'kept']]);
+    // Back again: the first project's instance, with its store.
+    await w.api('projects/support-agent/select', { method: 'POST' });
+    expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent' });
+  });
+
+  it('shows an empty stand-in for a project whose folder is gone, so the switcher still works, and refuses its jobs with the reason', async () => {
+    const w = await world();
+    const gone = files(join(w.home, 'old-agent'), { 'package.json': '{}' });
+    w.registry.add(gone);
+    rmSync(gone, { recursive: true, force: true });
+    await w.api('projects/old-agent/select', { method: 'POST' });
+    const meta = await w.api<{ project: { id: string; problem: string }; counts: { runs: number } }>('meta');
+    expect(meta.status).toBe(200);
+    expect(meta.body.project).toMatchObject({ id: 'old-agent', problem: expect.stringContaining('doesn’t exist any more') });
+    expect(meta.body.counts.runs).toBe(0);
+    expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
+    const list = await w.api<{ items: Array<{ id: string; detail: string }> }>('projects');
+    expect(list.body.items.find((i) => i.id === 'old-agent')?.detail).toBe('~/old-agent · folder not found');
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'init' } })).toMatchObject({ status: 400, body: { error: expect.stringContaining('doesn’t exist any more') } });
+    // Switching back serves the real store again.
+    await w.api('projects/support-agent/select', { method: 'POST' });
+    expect((await w.api<{ counts: { runs: number }; project: { id: string } }>('meta')).body).toMatchObject({ counts: { runs: 2 }, project: { id: 'support-agent' } });
   });
 });
 

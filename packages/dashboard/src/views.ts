@@ -87,6 +87,11 @@ export interface ProjectView {
   display?: string;
   /** Its setup isn't finished: once it has runs, the Overview shows the setup. */
   settingUp?: boolean;
+  /**
+   * Why its store can't be opened (its folder is gone, or the store is from a newer Shadowlap): the
+   * dashboard shows an empty stand-in for it, and refuses its jobs with this reason.
+   */
+  problem?: string;
 }
 
 /** `GET /api/meta`: what the shell needs once, and the status bar. */

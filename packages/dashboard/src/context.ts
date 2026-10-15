@@ -22,16 +22,17 @@ export interface ProjectConfig {
 /**
  * What every route module gets from the server: `register(router, ctx)`.
  *
- * A dashboard can serve several projects (`DashboardOptions.projects`), one of them current. Then
- * `store`, `project`, `read`, `config()` and `instance` are the current project's, worked out on
- * every read, and so are `options.store`, `options.dbPath`, `options.project`, `options.prices` and
- * `options.loadConfig`: read them inside each handler, never once in `register` (reading `store` or
- * `project` there throws). Caches keyed by the `Store` object follow a switch by themselves, as
- * each project keeps its own store open.
+ * A dashboard can serve several projects (`DashboardOptions.projects`), one of them current. Each
+ * project then gets its own instance of every route module, registered the first time it is
+ * current, with a context of its own: `store`, `project`, `read`, `config()`, `instance` and the
+ * options' `store`, `dbPath`, `project`, `prices` and `loadConfig` are that project's. A module is
+ * written as for one store and may keep what it reads in `register`; requests go to the current
+ * project's instance. Job kinds registered by each instance build the jobs that run in its project,
+ * and `jobs.onJob` hears only those.
  */
 export interface RouteContext {
   store: Store;
-  /** The options the dashboard was started with; with several projects, their store, path, folder and config are the current project's. */
+  /** The options the dashboard was started with; with several projects, their store, path, folder and config are this project's. */
   options: DashboardOptions;
   /** Starts and tracks CLI jobs; `ctx.jobs.registerJobKind(kind, …)` adds a kind. A job runs in the project current when it starts. */
   jobs: JobManager;
