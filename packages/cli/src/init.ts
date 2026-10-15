@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
-import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
+import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -41,6 +41,8 @@ export interface FoundTool {
   effect: Effect | null;
   suggested: Effect;
   why: string;
+  /** The framework's decorator as written, where it matters to wrapping: `@agent.tool_plain` (Pydantic AI). */
+  decorator?: string;
 }
 
 export interface BaseUrlWarning {
@@ -186,9 +188,9 @@ export function suggestEffect(name: string): { effect: Effect; why: string } {
 /** Tool definitions in one file, by the patterns each framework uses. */
 function scanTools(text: string, file: string): FoundTool[] {
   const found: FoundTool[] = [];
-  const push = (name: string, index: number, via: string, effect: Effect | null) => {
+  const push = (name: string, index: number, via: string, effect: Effect | null, decorator?: string) => {
     const s = suggestEffect(name);
-    const tool: FoundTool = { name, file, line: lineOf(text, index), via, effect, suggested: effect ?? s.effect, why: effect ? 'declared' : s.why };
+    const tool: FoundTool = { name, file, line: lineOf(text, index), via, effect, suggested: effect ?? s.effect, why: effect ? 'declared' : s.why, ...(decorator ? { decorator } : {}) };
     const same = found.findIndex((t) => t.name === name && t.via === via);
     if (same < 0) found.push(tool);
     else if (!found[same]!.effect && effect) found[same] = tool; // a wrapped definition wins over a mention
@@ -211,7 +213,8 @@ function scanTools(text: string, file: string): FoundTool[] {
       const adapted = /@function_tool\([^)]*effect\s*=\s*["'](pure|read|write)["']/.exec(decorators);
       if (declared) push(name, m.index!, 'shadowlap', declared[1] as Effect);
       else if (adapted) push(name, m.index!, 'openai-agents-python', adapted[1] as Effect);
-      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index!, 'pydantic-ai', null);
+      // Pydantic AI: `@agent.tool` passes a RunContext first, `@agent.tool_plain` doesn't; the wrap keeps the one found.
+      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index!, 'pydantic-ai', null, /^[ \t]*(@\w+\.tool(?:_plain)?\b[^\n]*)$/m.exec(decorators)?.[1]?.trim());
       else if (/@function_tool\b/.test(decorators)) push(name, m.index!, 'openai-agents-python', null);
       else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(decorators) && /langchain|crewai/.test(text)) push(name, m.index!, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
     }
@@ -443,14 +446,14 @@ const PROVIDER_NAMES: Record<Provider['id'], [string, string]> = {
   bedrock: ['Amazon Bedrock', 'captured in the process'],
 };
 
-const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect) => string> = {
+const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect, tool?: FoundTool) => string> = {
   'ai-sdk': (n, e) => `const tools = withEffects({ ${n}: tool({ … }) }, { ${n}: '${e}' });   // import { withEffects } from '@shadowlap/adapters/ai-sdk'`,
   'openai-agents': (n, e) => `tool(withEffect({ name: '${n}', … }, '${e}'))   // import { withEffect } from '@shadowlap/adapters/openai-agents'`,
   mastra: (n, e) => `createTool(withEffect({ id: '${n}', … }, '${e}'))   // import { withEffect } from '@shadowlap/adapters/mastra'`,
   langchain: (n, e) => `withEffect(tool(impl, { name: '${n}', … }), '${e}')   // import { withEffect } from '@shadowlap/adapters/langchain'`,
   'anthropic-tool-runner': (n, e) => `betaZodTool(withEffect({ name: '${n}', … }, '${e}'))   // import { withEffect } from '@shadowlap/adapters/anthropic'`,
   python: (n, e) => `@tool(effect="${e}") above def ${n}   # from shadowlap import tool`,
-  'pydantic-ai': (n, e) => `@agent.tool over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
+  'pydantic-ai': (n, e, t) => `${t?.decorator ?? '@agent.tool'} over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
   'openai-agents-python': (n, e) => `@function_tool(effect="${e}") on def ${n}   # from shadowlap.adapters.openai_agents import function_tool`,
   'langchain-python': (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.langchain import with_effect`,
   crewai: (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.crewai import with_effect`,
@@ -520,7 +523,7 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean): str
     if (unwrapped.length) {
       const example = unwrapped[0]!;
       const snippet = ADAPTER_SNIPPETS[example.via] ?? (example.file.endsWith('.py') ? ADAPTER_SNIPPETS.python : undefined);
-      if (snippet) out(`     ${p.dim('for example:')} ${snippet(example.name, example.suggested)}`);
+      if (snippet) out(`     ${p.dim('for example:')} ${snippet(example.name, example.suggested, example)}`);
       out(`     ${p.dim('read: may run again after a fork · write: never runs again after a fork · pure: depends only on its input')}`);
     }
     out();
@@ -561,8 +564,14 @@ export type InitJsonTool = FoundTool & {
  * it isn't wrapped, and the code that wraps those, per language. Running it again re-checks: the
  * config is left as it is, and the tools are scanned afresh.
  */
-export interface InitJson extends Omit<InitReport, 'tools' | 'config'> {
+export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelServer'> {
   config: InitReport['config'] & { created: boolean };
+  /**
+   * The model server the project points at, never with the credentials its address holds: those
+   * are removed, and such a server has no `upstream` (record it in a terminal). This output reaches
+   * the dashboard's job drawer.
+   */
+  modelServer: ModelServer | null;
   /** The folder as Add a project describes it. */
   folder: FolderKind;
   summary: {
@@ -648,7 +657,7 @@ function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string
       const def = (decorators: string[], t: FoundTool) => `${decorators.join('\n')}\ndef ${t.name}(…):\n    …`;
       if (via === 'openai-agents-python') blocks.push(['from shadowlap.adapters.openai_agents import function_tool', '', list.map((t) => def([`@function_tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       else if (via === 'langchain-python' || via === 'crewai') blocks.push([`from shadowlap.adapters.${via === 'crewai' ? 'crewai' : 'langchain'} import with_effect`, '', `tools = [${list.map((t) => `with_effect(${t.name}, "${t.suggested}")`).join(', ')}]`].join('\n'));
-      else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def(['@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       else blocks.push(['from shadowlap import tool', '', list.map((t) => def([`@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       continue;
     }
@@ -685,6 +694,9 @@ export function initJson(r: InitReport, wroteConfig: boolean): InitJson {
   return {
     ...r,
     config: { ...r.config, created: wroteConfig },
+    // Addresses found in the project's files may hold a password or a key: never printed here.
+    modelServer: r.modelServer ? modelServerFinding(r.modelServer) : null,
+    hardcodedBaseUrls: r.hardcodedBaseUrls.map((w) => ({ ...w, url: modelServerFinding({ url: w.url, from: '' })?.url ?? w.url })),
     folder,
     summary: {
       language: languageLine(r.cwd, r, folder),
@@ -715,7 +727,7 @@ export function initFindings(json: InitJson, at: number = Date.now()): SetupFind
     tools: json.tools.map((t) => ({ name: t.name, effect: t.effect ?? t.suggested, wrapped: t.wrapped, why: t.effect ? 'declared' : t.why, file: t.file, line: t.line })),
     wrap: json.wrap,
     // Recording from the dashboard forwards there, as init tells a terminal to; never with credentials.
-    modelServer: json.modelServer ? modelServerFinding(json.modelServer) : null,
+    modelServer: json.modelServer ? modelServerFinding({ url: json.modelServer.url, upstream: json.modelServer.upstream, from: json.modelServer.from }) : null,
   };
 }
 

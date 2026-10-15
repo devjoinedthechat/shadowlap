@@ -79,11 +79,13 @@ describe('shadowlap init --json', () => {
       ['notify_slack', 'write', false],
     ]);
     expect(j.unwrapped).toEqual(['save_report', 'notify_slack']);
+    expect(j.tools.map((t) => t.decorator)).toEqual([undefined, '@agent.tool', '@agent.tool_plain']);
     expect(j.wrap).toEqual([
       {
         language: 'python',
         tools: ['save_report', 'notify_slack'],
-        code: 'from shadowlap import tool\n\n@agent.tool\n@tool(effect="write")\ndef save_report(…):\n    …\n\n@agent.tool\n@tool(effect="write")\ndef notify_slack(…):\n    …',
+        // Each keeps the decorator it has: a tool_plain takes no RunContext, and Pydantic AI checks.
+        code: 'from shadowlap import tool\n\n@agent.tool\n@tool(effect="write")\ndef save_report(…):\n    …\n\n@agent.tool_plain\n@tool(effect="write")\ndef notify_slack(…):\n    …',
       },
     ]);
   });
@@ -168,9 +170,10 @@ describe('initFindings', () => {
 
   it('keeps the model server the project points at, never the credentials in its address', () => {
     const local = json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }));
-    expect(local.modelServer).toMatchObject({ upstream: 'http://127.0.0.1:11434' });
+    expect(local.modelServer).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' });
     expect(initFindings(local).modelServer).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' });
     const secret = json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=https://dana:s3cret@llm.internal/v1\n' }));
+    expect(secret.modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
     expect(initFindings(secret).modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
     expect(initFindings(json(project(RESEARCH))).modelServer).toBeNull();
   });
@@ -206,6 +209,30 @@ describe('shadowlap init in a dashboard project', () => {
     const out = spawnSync(process.execPath, [CLI, 'init', '--json'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
     expect(out.status).toBe(0);
     expect(existsSync(join(slHome, 'projects.json'))).toBe(false);
+  });
+
+  it('never prints a model server’s credentials, nor tells a dashboard job them', async () => {
+    const slHome = tempDir('sl-initjson-secret-');
+    const dir = project({
+      ...RESEARCH,
+      '.env': 'OPENAI_BASE_URL=https://dana:s3cret-token@llm.internal/v1\n',
+      'client.py': 'from openai import OpenAI\nclient = OpenAI(base_url="https://bot:hunter2@gateway.internal/v1?api_key=k3y")\n',
+    });
+    const child = spawn(process.execPath, [CLI, 'init', '--json'], { cwd: dir, env: { ...env(slHome), SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+    const out: Buffer[] = [];
+    const events: Buffer[] = [];
+    child.stdout!.on('data', (c: Buffer) => out.push(c));
+    (child.stdio[3] as NodeJS.ReadableStream).on('data', (c: Buffer) => events.push(c));
+    expect(await new Promise<number | null>((resolve) => child.on('close', resolve))).toBe(0);
+    const stdout = Buffer.concat(out).toString('utf8');
+    const event = Buffer.concat(events).toString('utf8');
+    for (const secret of ['s3cret-token', 'hunter2', 'k3y', 'dana:', 'bot:']) {
+      expect(stdout, secret).not.toContain(secret);
+      expect(event, secret).not.toContain(secret);
+    }
+    const printed = JSON.parse(stdout) as InitJson;
+    expect(printed.modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
+    expect(printed.hardcodedBaseUrls.map((w) => w.url)).toEqual(['https://gateway.internal/v1']);
   });
 
   it('tells a dashboard job its findings', async () => {
