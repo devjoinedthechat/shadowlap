@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
 import { formatTokens, packRun, recordEvent, resolveAuthor, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
+import { BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { readExpect } from './fix.js';
 import { formatChecks, junitCase, outputTail, packResult, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { describeChange, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
@@ -13,11 +15,11 @@ import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
-import { openStore, parseChoice, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
+import { openStore, parseChoice, parseIntArg, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
-/** Recordings as tests: `shadowlap test` for packed goldens in CI, packs, and the host that the pytest and Vitest plugins start. */
+/** Recordings as tests: `shadowlap test` for packed goldens in CI, `bisect`, packs, and the host that the pytest and Vitest plugins start. */
 
 /**
  * `shadowlap serve --recordings`: the host a test-runner plugin starts once per worker process.
@@ -232,6 +234,45 @@ export function register(program: Command): void {
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       await telemetry().flush();
       process.exitCode = report.failed ? 1 : 0;
+    });
+
+  program
+    .command('bisect')
+    .description('Find the commit that broke a golden or a run: replay it at commits between a good one and a bad one, halving each time, each in a temporary git worktree. Replays are offline, so it costs no tokens.')
+    .argument('<recording>', 'a golden (a directory written by shadowlap pack) or a run id')
+    .requiredOption('--good <rev>', 'a commit where it still passed')
+    .option('--bad <rev>', 'a commit where it fails (default: HEAD)', 'HEAD')
+    .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
+    .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build"')
+    .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
+    .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
+    .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('--json', 'print the result as JSON (progress still goes to stderr)')
+    .action(async (target: string, flags: { good: string; bad: string; expect?: string; build?: string; cwd?: string; timeout: number; guard: GuardMode; json?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      try {
+        const report = await runBisect({
+          opts,
+          target,
+          good: flags.good,
+          bad: flags.bad,
+          spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,
+          build: flags.build ?? null,
+          cwd: resolve(flags.cwd ?? process.cwd()),
+          timeoutMs: flags.timeout * 1000,
+          guard: flags.guard,
+          log: (line) => process.stderr.write(`${line}\n`),
+        });
+        if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+        else process.stdout.write(formatBisect(report, p) + '\n');
+        emitJobEvent({ type: 'result', data: report });
+        process.exitCode = report.outcome === 'found' ? 0 : 1;
+      } catch (err) {
+        if (!(err instanceof BisectError)) throw err;
+        if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
+        else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
+        process.exitCode = 1;
+      }
     });
 
   program
