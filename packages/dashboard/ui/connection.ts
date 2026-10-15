@@ -58,10 +58,14 @@ export function onTick(s: ConnState, now: number, busy: boolean): 'wait' | 'try'
   return s.preview ? 'advance' : 'try';
 }
 
-/** The seconds the bar counts down: "Retrying in 7s". */
+/**
+ * The seconds the bar counts down: "Retrying in 7s". Never more than the wait itself: the page's clock
+ * ticks four times a second, so it can be a moment behind the deadline just set.
+ */
 export function secondsLeft(s: ConnState, now: number): number {
-  if (s.retryAt === null) return backoffSeconds(s.attempt);
-  return Math.max(0, Math.ceil((s.retryAt - now) / 1000));
+  const wait = backoffSeconds(s.attempt);
+  if (s.retryAt === null) return wait;
+  return Math.min(wait, Math.max(0, Math.ceil((s.retryAt - now) / 1000)));
 }
 
 /**

@@ -19,6 +19,9 @@ describe('the connection to the dashboard server', () => {
       now = s.retryAt!;
     }
     expect(waits).toEqual([10, 20, 30, 30]);
+    // A clock a moment behind the deadline just set still counts down from the wait, not one more.
+    const failed = connStep(connStep(connStart(null), { type: 'unreachable', now: 0 }), { type: 'retry-failed', now: 5_000 });
+    expect(secondsLeft(failed, 4_800)).toBe(10);
   });
 
   it('comes back as it was before it went away, and a new outage starts the schedule again', () => {
