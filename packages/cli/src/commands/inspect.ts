@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
@@ -72,15 +73,15 @@ export function register(program: Command): void {
       void telemetry().flush();
       // The actions palette runs this same CLI against the same store.
       const dbPath = resolve(opts.db ?? defaultDbPath(process.cwd()));
-      const { cliSpawner } = await import('@shadowlap/dashboard');
+      const spawnCli = (args: string[]) => spawn(process.execPath, [process.argv[1]!, '--db', dbPath, ...args], { cwd: process.cwd(), env: { ...process.env, NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
       const cwd = process.cwd();
-      const spawnCli = cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd });
       const uiConfig = loadConfig(cwd);
       // `o` starts the dashboard in this process on first use, over the same store, and reuses it after.
       let dashboard: Promise<import('@shadowlap/dashboard').Dashboard> | undefined;
       const openDashboard = async (id: string, callNo?: number) => {
-        const { startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
-        dashboard ??= startDashboard({ store, dbPath, port: 4777, spawnCli, project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) }).catch((err: unknown) => {
+        const { cliSpawner, startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
+        // The dashboard's jobs get the events pipe; the terminal UI reads its actions' output as it always did.
+        dashboard ??= startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) }).catch((err: unknown) => {
           dashboard = undefined;
           throw err;
         });
