@@ -6,11 +6,12 @@ import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { familyLine, repeatBundle, type RunLike } from '../runs.js';
 import { useApp } from '../state.js';
+import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 
 /**
  * Forks: the run's family, its recording and every replay and fork of it, each with a line that says
  * what happened ("fork @17 · 13 live · 1 blocked"). Attempts of one `--repeat` are bundled with how
- * many passed.
+ * many passed, and so are blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
  */
 
 function asRun(n: LineageNode, listed: RunListItem | undefined): RunLike {
@@ -41,6 +42,8 @@ export function ForksView({ runId }: { runId: string }) {
   const { client, runs, tick } = useApp();
   const lineage = useLoad(() => client.lineage(runId), runId, tick);
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
+  // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
+  const fixes = useFixBundles(runId);
   if (lineage.error) return <div className="empty">Could not load this run’s family: {lineage.error.message}</div>;
   if (!lineage.data) return <div className="empty">Loading the family…</div>;
   const nodes = lineage.data;
@@ -75,10 +78,12 @@ export function ForksView({ runId }: { runId: string }) {
     );
   };
   const family = (parent: string | null): ReactNode => {
-    const list = [...(kids.get(parent) ?? [])].sort((a, b) => a.startedAt - b.startedAt);
-    const plain = list.filter((n) => !n.repeat);
+    const list = [...(kids.get(parent) ?? [])].filter((n) => !fixes.bundled.has(n.runId)).sort((a, b) => a.startedAt - b.startedAt);
+    // The fork blame rescued a run with is one of its attempts, but it shows as a fork of its own.
+    const repeated = (n: LineageNode) => !!n.repeat && !fixes.rescued.has(n.runId);
+    const plain = list.filter((n) => !repeated(n));
     const groups = new Map<string, LineageNode[]>();
-    for (const n of list) if (n.repeat) groups.set(n.repeat.group, [...(groups.get(n.repeat.group) ?? []), n]);
+    for (const n of list) if (n.repeat && repeated(n)) groups.set(n.repeat.group, [...(groups.get(n.repeat.group) ?? []), n]);
     const items: ReactNode[] = [];
     for (const n of plain) {
       items.push(node(n));
@@ -86,6 +91,7 @@ export function ForksView({ runId }: { runId: string }) {
       if (sub) items.push(<Fragment key={`${n.runId}:kids`}>{sub}</Fragment>);
     }
     for (const [group, attempts] of groups) items.push(<Bundle key={group} attempts={attempts} current={runId} />);
+    if (parent !== null) for (const b of fixes.bundles) if (b.parentRunId === parent) items.push(<FixBundleNode key={b.key} bundle={b} current={runId} />);
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };

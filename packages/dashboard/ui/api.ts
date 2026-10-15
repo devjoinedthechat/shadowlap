@@ -3,7 +3,7 @@ import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
+import type { CallDetail, Changes, FixBundle, FixDetail, FixList, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -28,6 +28,8 @@ export const JOB_KINDS = {
   otel: 'export-otel',
   har: 'export-har',
   blame: 'blame',
+  repair: 'repair',
+  applyFix: 'apply',
   tests: 'test',
   importCapture: 'import',
   calibrate: 'calibrate',
@@ -105,6 +107,14 @@ export interface Client {
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
   changes(since: string | null): Promise<Changes | null>;
+  // ---- Fixes (`/api/fixes`)
+  /** Every fix, newest first, with the counts the filter chips show. */
+  fixes(): Promise<FixList>;
+  /** One fix, by its id or a unique prefix, with its three steps. */
+  fix(id: string): Promise<FixDetail>;
+  renameFix(id: string, title: string): Promise<FixDetail>;
+  /** The attempts blame and verify made in a run's family, for the Forks view; null when the server does not bundle them. */
+  fixBundles(runId: string): Promise<FixBundle[] | null>;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
@@ -133,6 +143,7 @@ function saveBlob(blob: Blob, filename: string): void {
 export function createClient(token: string): Client {
   let hasChanges: boolean | null = null;
   let hasProvenance: boolean | null = null;
+  let hasBundles: boolean | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -225,6 +236,22 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    fixes: () => request<FixList>('fixes'),
+    fix: (fixId) => request<FixDetail>(`fixes/${id(fixId)}`),
+    renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
+    fixBundles: async (runId) => {
+      if (hasBundles === false) return null;
+      try {
+        const out = await request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`);
+        hasBundles = true;
+        return out.bundles;
+      } catch (err) {
+        // A server that does not bundle them (405), or one that never heard of the run: the Forks view lists the attempts as runs.
+        if (err instanceof ApiError && err.status === 405) hasBundles = false;
+        if (err instanceof ApiError && (err.status === 404 || err.status === 405)) return null;
+        throw err;
+      }
+    },
   };
 }
 
@@ -268,5 +295,10 @@ export function createExportedClient(data: StaticPayload): Client {
     exportHtml: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
+    // Fixes are not part of an exported copy.
+    fixes: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
+    fix: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
+    renameFix: readOnly,
+    fixBundles: () => Promise.resolve(null),
   };
 }
