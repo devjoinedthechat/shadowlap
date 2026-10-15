@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
-import { commandIsImported, describeRescue, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { commandIsImported, describeRescue, FIX_STATUSES, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fixDetail, fixHref, fixList } from '@shadowlap/dashboard';
 import { formatBudget } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -464,7 +464,7 @@ function registerFixes(program: Command): void {
   fix
     .command('ls')
     .description('List fixes, the most recently opened first: status, title, failing runs, and how far blame, repair and verify got')
-    .option('--status <status>', 'only fixes that are open, verified (applied ones too) or applied', parseChoice<FixStatus>(['open', 'verified', 'applied']))
+    .option('--status <status>', 'only fixes that are open, verified (applied ones too) or applied', parseChoice<FixStatus>(FIX_STATUSES))
     .option('--json', 'print the list as JSON, as the dashboard reads it')
     .action((flags: { status?: FixStatus; json?: boolean }) => {
       const store = openStore(program.opts<GlobalOpts>());

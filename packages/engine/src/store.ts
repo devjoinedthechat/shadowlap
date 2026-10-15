@@ -540,11 +540,6 @@ export class Store {
     return rows.map(rowToFixLink);
   }
 
-  /** Every link of one kind, from every fix: what the read models count. */
-  allFixLinks(kind: FixLinkKind): FixLink[] {
-    return this.db.prepare(`SELECT * FROM fix_links WHERE kind = ? ORDER BY at ASC, fix_id ASC, ref ASC`).all(kind).map(rowToFixLink);
-  }
-
   putBlame(b: StoredBlame): void {
     this.db
       .prepare(`INSERT INTO blames (blame_id, run_id, at, outcome, record) VALUES (?, ?, ?, ?, ?)`)

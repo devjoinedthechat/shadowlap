@@ -166,7 +166,7 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for `verify` |
 
-Exit status 0 when a fix is accepted, 1 otherwise. The repair is kept with the [fix](#fix) its blames opened or joined: accepted, the fix turns verified; with nothing accepted, the fix stays open with every candidate tried and why it was dropped.
+Exit status 0 when a candidate is accepted, 1 otherwise. The repair is kept with the [fix](#fix) its blames opened or joined: when a candidate is accepted the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
 
 ## fix
 
