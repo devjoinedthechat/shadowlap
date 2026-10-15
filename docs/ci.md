@@ -163,7 +163,7 @@ shadowlap bisect goldens/refund-in-limit --good c91d0f4      # --bad defaults to
   replay at 9a3c5e0  replayed clean
   replay at 4e7b2d1  ✗ diverged at call 1 (api POST /v1/messages) · $.metadata.user_id
 ✓ first bad commit 4e7b2d1 · Send the user id with every request · Ravi · 2026-09-30
-  diverged at call 1 (api POST /v1/messages) · $.metadata.user_id · 4 replays · 0 tokens · 0 upstream requests · 4s
+  diverged at call 1 (api POST /v1/messages) · $.metadata.user_id · 4 replays · 0 tokens · 0 upstream requests · 4.0s
 ```
 
 It replays the recording at commits between the two, halving the range each time. Each commit is checked out in a temporary git worktree under `.shadowlap/bisect/`, where the agent runs with its recorded command, and the replay is judged as `shadowlap test` judges it: a divergence, a failed check or a non-zero exit fails it. Replays are offline, so it costs no tokens. It checks both ends first, and says so when the recording passes at `--bad` (nothing to find) or already fails at `--good`.
@@ -172,7 +172,6 @@ It replays the recording at commits between the two, halving the range each time
 - **Dependencies.** Node resolves packages from the project's `node_modules` above the worktree, and an installed executable in the recorded command that the checkout doesn't have, such as `.venv/bin/python`, still runs from your working tree. When the agent needs more at each commit, `--build "npm ci && npm run build"` runs in each worktree before its replay.
 - **A run works too:** `shadowlap bisect <run> --good <rev>` replays a run from the store. For a run that failed a check rather than one that should replay clean, add the check and `--fork`: older commits send different requests, so each replay runs live from where it diverges and the check decides. That part costs tokens, and the result says how many.
 - History is followed by first parents, so a merged branch counts as its merge commit. The worktrees are removed after each replay, and on Ctrl-C.
-
 
 ## GitHub Actions
 
