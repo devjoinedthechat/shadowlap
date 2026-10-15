@@ -38,6 +38,8 @@ export interface BisectInput {
   bad: string;
   /** The checks a replay must pass; undefined takes the golden's from the config. */
   spec?: TestSpec | null | undefined;
+  /** Let each replay diverge and run live from the fork, so only the exit status and the checks decide. */
+  fork?: boolean;
   /** A shell command run in each worktree before its replay. */
   build: string | null;
   /** Where the recorded command runs: a directory inside the repository. */
@@ -214,8 +216,10 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     throw new BisectError(`${target.name} was imported from a capture and has no command to run at each commit. Replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
   }
   const fromConfig = target.golden ? specFor(loadTests(projectDir), resolve(projectDir, target.golden), projectDir) : null;
-  // Checks given on the command line judge the replay as it is: offline, so a divergence fails it.
-  const spec = input.spec === undefined ? fromConfig : input.spec ? { ...input.spec, fork: false } : null;
+  // Checks given on the command line judge the replay as it is: offline, so a divergence fails it,
+  // unless --fork lets it go live from the fork and leaves the verdict to the checks.
+  const given = input.spec === undefined ? fromConfig : input.spec ? { ...input.spec, fork: false } : null;
+  const spec: TestSpec | null = input.fork ? { ...(given ?? { repeat: 1, passes: 1, tools: [] }), fork: true } : given;
 
   const report: BisectReport = { outcome: 'stopped', target: { kind: target.kind, name: target.name, runId: target.run.runId }, good, bad, commits: commits.length, steps: [], first: null, why: null, replays: 0, tokens: 0, upstreamRequests: 0, spent: 0, seconds: 0 };
   input.log(`▸ ${target.name} · good ${good.short} · bad ${bad.short} · ${commits.length} commit${commits.length === 1 ? '' : 's'} apart`);

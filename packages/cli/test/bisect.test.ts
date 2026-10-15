@@ -36,6 +36,7 @@ let mock: MockServer;
 let project: string;
 const rev: Record<string, string> = {};
 let recordedRun = '';
+let briefRun = '';
 
 const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
 function commit(name: string, files: Record<string, string>, author = 'Test'): void {
@@ -60,7 +61,7 @@ function shadowlap(args: string[]): Promise<{ code: number | null; out: string; 
 }
 
 beforeAll(async () => {
-  mock = await startMockAnthropic({ script: () => ({ message: message([text('Ticket summarized.')]) }) });
+  mock = await startMockAnthropic({ script: (ctx) => ({ message: message([text(JSON.stringify(ctx.request.system ?? '').includes('Be brief') ? 'Short.' : 'Ticket summarized.')]) }) });
   project = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-bisect-${process.pid}`);
   rmSync(project, { recursive: true, force: true });
   mkdirSync(project);
@@ -77,7 +78,8 @@ beforeAll(async () => {
   commit('Ask for brevity', { 'prompt.txt': 'You summarize support tickets. Be brief.\n' }, 'Ravi');
   commit('Mention the prompt', { 'README.md': 'Ticket agent: one model call; the prompt is prompt.txt.\n' });
   const second = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
-  expect((await shadowlap(['pack', /recording run (\w{26})/.exec(second.out)![1]!, 'goldens/brief'])).code).toBe(0);
+  briefRun = /recording run (\w{26})/.exec(second.out)![1]!;
+  expect((await shadowlap(['pack', briefRun, 'goldens/brief'])).code).toBe(0);
   commit('Mark summaries as drafts', { 'marker.txt': 'DRAFT: \n' }, 'Jonas');
 });
 afterAll(async () => {
@@ -115,6 +117,20 @@ describe('shadowlap bisect', () => {
     const byRun = await shadowlap(['bisect', recordedRun.slice(0, 12), '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!]);
     expect(byRun.code, byRun.out).toBe(0);
     expect(byRun.stdout).toContain(`first bad commit ${rev['Ask for brevity']} · Ask for brevity`);
+  });
+
+  it('with --fork, finds where a run that failed a check started failing, going live from each fork', async () => {
+    const hits = mock.requests.length;
+    // The second recording, whose answer is "Short.", which the check rules out.
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!, '--expect', '{"answer":{"excludes":"Short"}}', '--fork', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as { first: { short: string; why: string }; upstreamRequests: number; tokens: number; steps: Array<{ short: string; ok: boolean; result: string }> };
+    expect(report.first).toMatchObject({ short: rev['Ask for brevity'], why: 'check failed: final answer doesn\'t include "Short", but found in the final answer' });
+    // Commits before the change diverge at the prompt and run live from there, so they cost what they cost.
+    expect(report.steps.find((s) => s.short === rev['Start the ticket agent'])).toMatchObject({ ok: true, result: 'forked at call 1, 1 check passed' });
+    expect(report.upstreamRequests).toBe(mock.requests.length - hits);
+    expect(report.upstreamRequests).toBeGreaterThan(0);
+    expect(report.tokens).toBeGreaterThan(0);
   });
 
   it('says when there is nothing to find, or the good commit already fails', async () => {

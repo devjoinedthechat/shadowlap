@@ -243,12 +243,13 @@ export function register(program: Command): void {
     .requiredOption('--good <rev>', 'a commit where it still passed')
     .option('--bad <rev>', 'a commit where it fails (default: HEAD)', 'HEAD')
     .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
+    .option('--fork', 'let each replay diverge and run live from the fork (it costs tokens), so only the exit status and the checks decide: for a run that failed a check')
     .option('--build <command>', 'run in each worktree before the replay, e.g. "npm ci && npm run build"')
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
-    .action(async (target: string, flags: { good: string; bad: string; expect?: string; build?: string; cwd?: string; timeout: number; guard: GuardMode; json?: boolean }) => {
+    .action(async (target: string, flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       try {
         const report = await runBisect({
@@ -257,6 +258,7 @@ export function register(program: Command): void {
           good: flags.good,
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,
+          fork: !!flags.fork,
           build: flags.build ?? null,
           cwd: resolve(flags.cwd ?? process.cwd()),
           timeoutMs: flags.timeout * 1000,

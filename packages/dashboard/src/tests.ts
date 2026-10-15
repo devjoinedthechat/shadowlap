@@ -136,6 +136,8 @@ export interface TestsView {
   commands: {
     /** Copy CI command. */
     ci: string;
+    /** The In CI panel's command, with the job summary. */
+    inCi: string;
     /** Add a golden. */
     pack: string;
     /** Run tests, as arguments: the CLI expands the pattern itself. */
@@ -341,6 +343,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     diverged,
     commands: {
       ci: `shadowlap test ${folder}/* --junit report.xml`,
+      inCi: `shadowlap test ${folder}/* --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`,
       pack: `shadowlap pack <run> ${folder}/<name>`,
       run: ['test', `${folder}/*`],
       updateAll: diverged.length ? ['test', ...diverged, '--update'] : null,

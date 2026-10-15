@@ -111,7 +111,7 @@ describe('the Tests screen', () => {
     expect(d!.update).toEqual(['test', 'goldens/refund-in-limit', '--update']);
     expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
     expect(view.failures).toEqual([]);
-    expect(view.commands).toEqual({ ci: 'shadowlap test goldens/* --junit report.xml', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
+    expect(view.commands).toEqual({ ci: 'shadowlap test goldens/* --junit report.xml', inCi: 'shadowlap test goldens/* --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
     store.close();
   });
 
