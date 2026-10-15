@@ -17,6 +17,23 @@ function storedRequest(src: Store, call: CallRecord): unknown {
   return call.kind === 'api' ? loadApiRequest(src, call.requestRef!) : src.getJson(call.requestRef!);
 }
 
+/**
+ * The store, reading each JSON blob once. Every model request carries the whole conversation, so
+ * the same message blobs are read again for each call; the rules apply to a copy of each request,
+ * so sharing what was parsed changes nothing they see.
+ */
+function readingOnce(store: Store): Store {
+  const parsed = new Map<string, unknown>();
+  return Object.create(store, {
+    getJson: {
+      value: (hash: string) => {
+        if (!parsed.has(hash)) parsed.set(hash, store.getJson(hash));
+        return parsed.get(hash);
+      },
+    },
+  }) as Store;
+}
+
 /** What `pack` writes for a call's request: the rules applied to a copy of it. */
 function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver): unknown {
   return applyNormalizers(storedRequest(src, call), rules, call.kind, call.name, observer);
@@ -163,13 +180,14 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     },
   };
   const calls = store.getCalls(runId);
+  const reader = readingOnce(store);
   let unreadable = 0;
   for (const call of calls) {
     rules.forEach((rule, i) => {
       if (normalizerApplies(rule, call.kind, call.name)) per[i]!.scoped++;
     });
     try {
-      if (call.requestRef) redactedRequest(store, call, rules, observer);
+      if (call.requestRef) redactedRequest(reader, call, rules, observer);
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const bytes = end.responseRef ? store.getBlob(end.responseRef) : null;
         if (bytes) redactedResponse(bytes, rules, observer);
