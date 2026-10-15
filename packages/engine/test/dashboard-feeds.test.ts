@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,7 +6,7 @@ import { packRun, recordEvent, Store, unpackRun } from '../src/index.js';
 
 /**
  * What the dashboard's feeds need from the store: events paged by time and id, write counters, and
- * packs that read as one import.
+ * packs that read as one import and do not carry who made their runs.
  */
 
 describe('activity events paged by time and id', () => {
@@ -62,6 +62,25 @@ describe('packs', () => {
     store.endRun(fork.runId, 'completed');
     return { root: root.runId, fork: fork.runId };
   }
+
+  it('leave out who made each run, unless asked to keep it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-pack-author-'));
+    const store = Store.open(':memory:');
+    try {
+      const { fork } = family(store);
+      packRun(store, fork, join(dir, 'shared'), { lineage: true });
+      const shared = readFileSync(join(dir, 'shared', 'run.json'), 'utf8');
+      expect(shared).not.toContain('dana@example.com');
+      expect(JSON.parse(shared).runs[1].meta).toMatchObject({ labels: ['bug'] });
+      packRun(store, fork, join(dir, 'kept'), { lineage: true, keepAuthor: true });
+      expect(JSON.parse(readFileSync(join(dir, 'kept', 'run.json'), 'utf8')).runs.map((r: { meta: { author?: string } }) => r.meta.author)).toEqual(['dana@example.com', 'dana@example.com']);
+      // The store keeps it either way.
+      expect(store.getRun(fork)!.meta?.author).toBe('dana@example.com');
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('unpack with one time for every run they bring in', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-pack-time-'));
