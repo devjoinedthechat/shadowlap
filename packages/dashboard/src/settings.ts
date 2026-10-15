@@ -193,6 +193,8 @@ export interface McpServerRow {
   entry: { command: string; args: string[] };
   /** Something that looked like a credential is shown as ••• in `target`, `line` and `entry`: copy it from the entry as it is. */
   hidden: boolean;
+  /** The names in the entry's `env` block, which stays as it is; their values are never read. */
+  env: string[];
   /** How `shadowlap mcp` names the server in what it records: its transport, and its host or its command (with the package a runner such as npx starts). */
   recordedAs: { transport: 'stdio' | 'http'; server: string };
   /** What the recordings hold from it (McpRecordedServer), or null when nothing was recorded through it. */
@@ -231,7 +233,11 @@ export interface ToolsSettings {
     recorded: McpRecordedServer[];
     /** The client config files looked at, and why one couldn't be read. */
     files: Array<{ path: string; found: boolean; error: string | null }>;
-    /** The client configuration example from docs/mcp.md. */
+    /**
+     * The client config to copy: the servers of the project's first client config that lists any,
+     * each with `shadowlap mcp` in front (credentials hidden, `env` values elided); without one, the
+     * example in docs/mcp.md, which shows both forms.
+     */
     clientConfig: string | null;
   };
 }
@@ -622,7 +628,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
     http,
-    mcp: { effects, servers, recorded, files: found.files, clientConfig: doc === null ? null : mcpClientConfig(doc) },
+    mcp: { effects, servers, recorded, files: found.files, clientConfig: projectClientConfig(servers) ?? (doc === null ? null : mcpClientConfig(doc)) },
   };
 }
 
@@ -888,8 +894,8 @@ function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'
   return { transport: 'stdio', target: [] };
 }
 
-/** How a server entry is recorded, from its command and arguments: the row without its name, file and what was recorded. */
-type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'recorded'>;
+/** How a server entry is recorded, from its command and arguments: the row without its name, file, environment and what was recorded. */
+type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'env' | 'recorded'>;
 
 function commandServer(command: string, args: string[]): ServerRecording {
   const shownArgs = hideSecrets(args);
@@ -904,9 +910,39 @@ function commandServer(command: string, args: string[]): ServerRecording {
   return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]), recordedAs: { transport: 'stdio', server: stdioServerName(command, args) } };
 }
 
-function urlServer(url: string): ServerRecording {
+/**
+ * A remote server by its URL. Headers its entry sends become `--header "Name: •••"`, as
+ * `shadowlap mcp --url` takes them: their values, usually a token, are never shown.
+ */
+function urlServer(url: string, headers: readonly string[] = []): ServerRecording {
   const shown = hideUrlSecrets(url);
-  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--url', shown]), entry: { command: 'shadowlap', args: ['mcp', '--url', shown] }, hidden: shown !== url, recordedAs: { transport: 'http', server: httpServerName(url) } };
+  const args = ['mcp', '--url', shown, ...headers.flatMap((name) => ['--header', `${name}: •••`])];
+  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', ...args]), entry: { command: 'shadowlap', args }, hidden: shown !== url || headers.length > 0, recordedAs: { transport: 'http', server: httpServerName(url) } };
+}
+
+/** The names of an entry's headers or environment: names only, never their values. */
+function names(value: unknown): string[] {
+  return isObject(value) ? Object.keys(value).filter((k) => /^[A-Za-z_][\w.-]{0,99}$/.test(k)) : [];
+}
+
+/**
+ * The project's servers as its first client config that lists any would list them, each with
+ * `shadowlap mcp` in front, written as docs/mcp.md writes a client config. Null when no config here
+ * lists a server.
+ */
+export function projectClientConfig(servers: ReadonlyArray<Pick<McpServerRow, 'name' | 'file' | 'entry' | 'env'>>): string | null {
+  const file = servers[0]?.file;
+  if (file === undefined) return null;
+  const key = MCP_FILES.find((f) => f.path === file)?.key ?? 'mcpServers';
+  const q = (v: string) => JSON.stringify(v);
+  const entries = servers
+    .filter((s) => s.file === file)
+    .map((s) => {
+      const lines = [`    ${q(s.name)}: {`, `      "command": ${q(s.entry.command)},`, `      "args": [${s.entry.args.map(q).join(', ')}]${s.env.length ? ',' : ''}`];
+      if (s.env.length) lines.push(`      "env": { ${s.env.map((n) => `${q(n)}: "…"`).join(', ')} }`);
+      return [...lines, '    }'].join('\n');
+    });
+  return [`{`, `  ${q(key)}: {`, entries.join(',\n'), '  }', '}'].join('\n');
 }
 
 /**
@@ -964,8 +1000,9 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
       const url = str(entry.url) ?? str(entry.serverUrl) ?? str(entry.httpUrl);
       const command = str(entry.command);
       const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === 'string') : [];
-      if (command) servers.push({ name, file: path, ...commandServer(command, args) });
-      else if (url) servers.push({ name, file: path, ...urlServer(url) });
+      const env = names(entry.env);
+      if (command) servers.push({ name, file: path, ...commandServer(command, args), env });
+      else if (url) servers.push({ name, file: path, ...urlServer(url, names(entry.headers)), env });
     }
     return { path, found: true, error: null };
   });
