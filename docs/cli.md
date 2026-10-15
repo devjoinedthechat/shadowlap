@@ -171,18 +171,18 @@ Exit status 0 when a fix is accepted, 1 otherwise.
 ```sh
 shadowlap tasks [--json]
 shadowlap tasks score [goldens...] --model <model> [--base-url <url>] [--attempts <n>] [--reads replay]
-shadowlap tasks serve [goldens...] [--port 4779]
+shadowlap tasks serve [goldens...] [--port 4779] [--base-url <url> [--key-env <name>]]
 shadowlap tasks models [--json]
 ```
 
-Goldens as tasks a model can be scored on: a model under test takes over at one model call, the calls before it replay from the recording for free, and the golden's checks score what it did from there. `tasks` lists them: where the model takes over and why, what each rewards, which tools run live or are stubbed after the takeover, and whether each is ready, blocked (its test fails), not a task (its checks only cap tokens and cost) or has no golden, with a warning when every ready task rewards the same behaviour. The takeover, why and what a task rewards can be set in a `task` object next to its `expect` in the config. Training (`docs/training.md`) explains the defaults.
+Goldens as tasks a model can be scored on: a model under test takes over at one model call, the calls before it replay from the recording for free, and the golden's checks score what it did from there. `tasks` lists them: where the model takes over and why, what each rewards, which tools run live or are stubbed after the takeover, and whether each is ready, blocked (its test fails, or it was packed from a capture and has no command), not a task (its checks only cap tokens and cost, or its model calls are made in more than one scope) or has no golden, with a warning when every ready task rewards the same behaviour. The takeover, why, what a task rewards and the agent's scope can be set in a `task` object next to its `expect` in the config. Training (`docs/training.md`) explains the defaults.
 
-`tasks score` scores a model on every ready task, or on the goldens given: each attempt is a run, the score is the share of checks it passed, and scores are kept per model (scoring a model again replaces its scores). `--model <name>` asks the recording's provider for another model, `anthropic:<name>` and `openai:<name>` that provider's API, and `--base-url` an OpenAI-compatible server such as Ollama or vLLM; when that isn't the API the recording spoke, the conversation is translated at the takeover and the answer back. Training (`docs/training.md`) has every option and the JSON.
+`tasks score` scores a model on every ready task, or on the goldens given: each attempt is a run, the score is the share of checks it passed, and scores are kept per model (scoring a model again replaces its scores, unless the re-score stops short). `--model <name>` asks the recording's provider for another model, `anthropic:<name>` and `openai:<name>` that provider's API, and `--base-url` an OpenAI-compatible server such as Ollama or vLLM; when that isn't the API the recording spoke, the conversation is translated at the takeover and the answer back. Training (`docs/training.md`) has every option and the JSON.
 
 | Option | Effect |
 |---|---|
 | `--model <model>` | The model to score (required) |
-| `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` |
+| `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` (no user or password in it) |
 | `--key-env <name>` | The variable holding the endpoint's key; default `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` |
 | `--attempts <n>` | Attempts per task. Default 5 |
 | `--reads live\|replay` | What read tools do after the takeover. Default `live` |
@@ -191,7 +191,7 @@ Goldens as tasks a model can be scored on: a model under test takes over at one 
 
 Exit status 0 when every task was scored in full, 1 when a task was skipped or stopped.
 
-`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it); `--key-env <name>` names the variable whose key goes to the endpoints requests name. Training (`docs/training.md`) shows a request and its response.
+`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. Training (`docs/training.md`) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt and last score. A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
 
@@ -363,7 +363,7 @@ Replays a recording (default: the latest) offline, repeatedly, and proposes a no
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
 | `prices` | USD per million tokens by model prefix, for cost estimates |
-| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, and what the task rewards (see `docs/training.md`) |
+| `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see `docs/training.md`) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 
 The schema is [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json) in the repository. It gives completion in any
@@ -516,6 +516,6 @@ A run as one OpenTelemetry trace: a span for the run and a child span per call, 
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
 | `SHADOWLAP_TELEMETRY_URL` | Send telemetry to another collector |
-| `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires; a random one is printed without it |
+| `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters; a random one is printed without it |
 | `OLLAMA_HOST` | Where `tasks models` lists Ollama's installed models (default `127.0.0.1:11434`) |
 | `NO_COLOR` | Plain output |

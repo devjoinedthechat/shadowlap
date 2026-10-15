@@ -21,7 +21,11 @@ A pair is two answers to the same conversation, at the same model call: one that
 
 Identical answers count once, whichever source found them: a verify that replays a blamed run and finds the two answers blame already paired adds nothing, and the pair stays high. Answers compare by their text and tool calls, so tool-call ids, whitespace and thinking don't make two answers different. Two answers only make a pair when they answer the same conversation: attempts whose conversations parted before their answers did, as when a live read returned something else, make none, and neither does an answer that also passed, from the same point, in another attempt.
 
-Every source is listed, including the ones that made no pairs and why: a blame that rescued nothing has no answer to prefer, and a verify where every run passed every attempt, or none, has nothing to contrast.
+Every source is listed, including the ones that made no pairs and why: a blame that rescued nothing has no answer to prefer, and a verify where every run passed every attempt, or none, has nothing to contrast. The attempts `tasks score` and `tasks serve` run are never read as a source, including one that stopped before it was scored.
+
+**A simulated user.** When an agent talks to a simulated user that is itself a model, each side's model calls are made in a [scope](./sdk.md#scopes) of their own (`agent` and `user`, say), and pairs are read from the agent's calls only: the scope blame was limited to with `--scope`. Two attempts whose simulated customer said something else first saw different conversations from then on, so they make no pair there, rather than a pair of the customer's lines. A run whose model calls are made in more than one scope, with no blame to say which is the agent's, makes no verify or `--repeat` pairs, and its source says so: blame it with `--scope` once.
+
+Reading pairs keys each stored message once and looks at a handful of calls per pair of attempts, so a run of a thousand calls takes a fraction of a second; what was found is kept until a run in the store changes.
 
 ### Exporting pairs
 
@@ -69,7 +73,9 @@ A golden with outcome checks is a task. A model under test takes over at one mod
 }
 ```
 
-All three are optional. Without `takeover`, a task takes over at the call blame found when the golden came from a blamed run (the decision the run turned on), else at the first model call after the last recorded user input, else at the first model call, where the model plays the whole run. Without `rewards`, a task rewards its outcome checks.
+All three are optional. Without `takeover`, a task takes over at the call blame found when the golden came from a blamed run (the decision the run turned on), else at the first model call after the last recorded user input, else at the first model call, where the model plays the whole run. Without `rewards`, a task rewards its outcome checks. Embeddings and token counts are never a takeover.
+
+A fourth key, `scope`, names the scope the agent's model calls are made in when a simulated user's are made in another; it defaults to the scope blame was limited to. The default takeover is then the agent's call, never the simulated user's, and a `takeover` set at the user's call is refused. Such a golden can't be scored yet, though: from the takeover on, every model call goes to the model under test, the simulated user's too, so the score wouldn't be the agent's. It is listed as not a task, with that reason, until scoring can keep the model under test to one scope.
 
 ```sh
 shadowlap tasks
@@ -92,8 +98,8 @@ shadowlap tasks
 | Status | When |
 |---|---|
 | **ready** | The golden has outcome checks and its test passes |
-| **blocked** | The golden's last [`shadowlap test`](./ci.md) failed. Fix the test and the task is ready again |
-| **not a task** | Its checks only cap tokens and cost, which say what a run spent, not whether the agent was right; or it has no checks |
+| **blocked** | The golden's last [`shadowlap test`](./ci.md) failed (as `shadowlap test --db` keeps it in the store). Fix the test and the task is ready again. Also a golden packed straight from a capture: it has no command to start its agent, so neither its test nor a score can run. Replay it once with your agent (`shadowlap replay <run> -- <command>`) and pack that run |
+| **not a task** | Its checks only cap tokens and cost, which say what a run spent, not whether the agent was right; or it has no checks; or its model calls are made in more than one scope |
 | **no golden** | A `tests` entry names a directory with no pack in it |
 
 Every pack under `goldens/` is listed, and every directory the `tests` entries name. **One-sided** means every ready task rewards the same behaviour, so a model that does only that scores full marks: a model trained to escalate every refund passes tasks that all reward escalating. The warning names a task that rewards something else once it is ready. `--json` prints the tasks and the warning as JSON.
@@ -117,9 +123,9 @@ shadowlap tasks score --model my-finetune-step-200 --base-url http://127.0.0.1:8
 
 Each attempt runs the agent's real code against the golden: the calls before the takeover replay from the recording, so they cost nothing and the model under test starts from exactly the conversation the recording had; from the takeover on, the model answers, every write is stubbed, and reads run live (`--reads replay` serves them from the recording when they match). An attempt's score is the share of its checks it passed, the agent's exit status among them. Token and cost budgets are left out of the score: they cap what a run spends, and a model on your machine has no price to check.
 
-Every attempt is a run in the store, a fork of the golden's run at the takeover, marked with the task, the model and its score, so an odd score opens like any fork. Scores are kept per model and endpoint; scoring a model again replaces its scores on the tasks it scored. Each scoring is logged in Activity as `model.scored`.
+Every attempt is a run in the store, a fork of the golden's run at the takeover, marked with the task, the model and its score, so an odd score opens like any fork. Scores are kept per model and endpoint; scoring a model again replaces its scores on the tasks it scored, and says what it replaced. A re-score that stops short of its attempts (the budget ran out, Ctrl-C) leaves a whole earlier score in place and says so; with no earlier score, the attempts it has are kept. Each scoring is logged in Activity as `model.scored`.
 
-Goldens are given as directories or folders of them; without any, every ready task is scored. A task that isn't ready is skipped with the reason. A golden that doesn't replay up to its takeover (the code changed and it forks earlier) stops its task with the divergence, and so does a model that doesn't answer the takeover call, so that a score never grades an unreachable endpoint. The exit status is 0 when every task was scored in full.
+Goldens are given as directories, folders of them, or names; a name two goldens share is refused with both paths. Without any, every ready task is scored. A task that isn't ready is skipped with the reason. A golden that doesn't replay up to its takeover (the code changed and it forks earlier) stops its task with the divergence, and so does a model that doesn't answer the takeover call, so that a score never grades an unreachable endpoint. The first attempt of each task runs on its own, so either stops the task after one attempt whatever `--concurrency` says; the attempt is kept as a run marked with why it stopped. The exit status is 0 when every task was scored in full.
 
 ### Which model
 
@@ -130,17 +136,17 @@ Goldens are given as directories or folders of them; without any, every ready ta
 | `openai:<name>` | OpenAI's API (or wherever `SHADOWLAP_UPSTREAM_OPENAI` or `OPENAI_BASE_URL` points), with `OPENAI_API_KEY` |
 | `<name> --base-url <url>` | An OpenAI-compatible server: Ollama (`http://127.0.0.1:11434/v1`), vLLM, or the server of the model you're training. `--key-env <name>` names the variable holding its key, if it needs one |
 
-Keys are read from the environment and never stored. A model at a loopback address costs nothing; any other is priced from the [price table](./cli.md#the-configuration-file), and a model with no price is named rather than counted as free.
+Keys are read from the environment and never stored; a `--base-url` with a user or password in it is refused. A model at a loopback address costs nothing; any other is priced from the [price table](./cli.md#the-configuration-file), and a model with no price is named rather than counted as free.
 
 ### Another provider at the takeover
 
-A recording holds each request in its provider's shape. When the model under test speaks another API, scoring an Anthropic recording with a local OpenAI-compatible model, or an OpenAI recording with an Anthropic model, Shadowlap puts a translator where the provider would be, on 127.0.0.1. From the takeover on, it turns each request into the model's API and the answer back into the shape the agent's SDK parses, so the agent never knows.
+A recording holds each request in its provider's shape. When the model under test speaks another API, scoring an Anthropic recording with a local OpenAI-compatible model, or an OpenAI recording with an Anthropic model, Shadowlap puts a translator where the provider would be, on 127.0.0.1. From the takeover on, it turns each model call into the model's API and the answer back into the shape the agent's SDK parses, so the agent never knows. Only the recorded API's model call is the model under test's (`/v1/messages` for Anthropic, `/chat/completions` for OpenAI): anything else the agent sends that provider, such as an embeddings call or a token count, goes to the provider unchanged, as it would without a takeover.
 
 - **Carried over:** the system prompt, every message, tool definitions, tool calls and their results (errors included), images, the tool choice, `max_tokens`, temperature, `top_p` and stop sequences; on the way back, text, tool calls, the stop reason and usage. A streaming agent gets its answer as the stream its SDK reads.
 - **Dropped, and named after the task:** thinking blocks, which only the model that wrote them can read; server-side tools such as web search, which have no definition to carry; and sampling options one API has and the other lacks, such as `top_k`.
 - **Fixed on the way back:** a local reasoning model's `<think>…</think>` preamble is removed, and an answer that calls a tool always stops with `tool_use` (or `tool_calls`), since a server that reports "stop" after a tool call would end the agent's loop.
 
-Anthropic Messages and OpenAI Chat Completions recordings translate. Others can be scored only with their own provider. A Gemini, Bedrock, Vertex or Azure request names its model in the URL, and an OpenAI Responses request has no messages, so `--model` doesn't change them yet: `tasks score` stops and says so rather than scoring the recorded model.
+Anthropic Messages and OpenAI Chat Completions recordings translate. Others can be scored only with their own provider. A Gemini, Bedrock, Vertex or Azure request names its model in the URL, and an OpenAI Responses request has no messages, so `--model` doesn't change them yet: `tasks score` refuses them before any attempt runs rather than paying to score the recorded model.
 
 ### Options
 
@@ -154,13 +160,14 @@ Anthropic Messages and OpenAI Chat Completions recordings translate. Others can 
 | `--guard warn\|block\|off` | The network guard for connections that bypass Shadowlap |
 | `--json` | The scores as JSON on stdout; progress still goes to stderr |
 
-`--json` prints `model`, `baseUrl`, `via`, `session`, `mean`, `attempts`, `spent`, `unknownModels` (models with no price), `skipped` (each with its reason) and `tasks`, each with `task`, `takeover`, `why`, `replayed` (calls replayed before the takeover), `mean`, `spent`, `stopped`, `dropped` (what the translation left out) and its `attempts`: `attempt`, `run`, `score`, `checks` (`check`, `pass`, `detail`), `spent` and `exitCode`.
+`--json` prints `model`, `baseUrl`, `via`, `session`, `mean`, `attempts`, `spent`, `unknownModels` (models with no price), `skipped` (each with its reason) and `tasks`, each with `task`, `takeover`, `why`, `replayed` (calls replayed before the takeover), `mean`, `spent`, `stopped`, `dropped` (what the translation left out), `stored` (`new`, `replaced`, `kept-earlier` when the earlier score stands, or `none`) and its `attempts`: `attempt`, `run`, `score`, `checks` (`check`, `pass`, `detail`), `spent` and `exitCode`.
 
 ### What a score can't tell you
 
 - **Reads run live.** After the takeover, read tools call the real services, so those must be up. `--reads replay` serves matching calls from the recording instead.
 - **Writes are stubbed.** A task can't score what a write would have caused.
 - **A model learns what the checks reward.** Weak checks teach the wrong thing. That's why a golden whose checks only cap tokens and cost isn't a task, and why a set of tasks that all reward one behaviour is flagged.
+- **A simulated user isn't scored around yet.** A golden whose model calls are made in more than one scope can't be scored: the model under test would answer the simulated user's calls too.
 
 ## Models to score
 
@@ -187,10 +194,11 @@ The models the ready tasks' recordings used, every model each configured provide
 
 ## From a training loop
 
-`shadowlap tasks serve` answers one attempt per HTTP request, so a reinforcement-learning loop can use a task's score as its reward. Serve the model you're training on an OpenAI-compatible endpoint, and name it in each request.
+`shadowlap tasks serve` answers one attempt per HTTP request, so a reinforcement-learning loop can use a task's score as its reward. Serve the model you're training on an OpenAI-compatible endpoint, and name it when the server starts or in each request.
 
 ```sh
 shadowlap tasks serve --port 4779
+shadowlap tasks serve --base-url https://gpu.example.com/v1 --key-env TRAINER_API_KEY
 ```
 
 ```
@@ -230,18 +238,18 @@ Content-Type: application/json
 }
 ```
 
-The task is its golden's name or path (`escalate-over-limit`, or `goldens%2Fescalate-over-limit`). The body takes `model` (required) and, as `tasks score` does, `baseUrl`, `reads` (`live` or `replay`) and `from`, a model call to take over at instead of the task's. An endpoint that needs a key gets it from the variable `tasks serve --key-env <name>` names when it starts; a request can't name one, since it could send any key in the environment to any address. The response carries each check's result, the score, the attempt's run, what it cost in USD, the agent's exit code and how long it took, and `dropped` when a translation left something out. `GET /v1/tasks` lists the tasks with their status, takeover and checks.
+The task is its golden's name or path (`escalate-over-limit`, or `goldens%2Fescalate-over-limit`). The body takes `model` (required) and, as `tasks score` does, `baseUrl`, `reads` (`live` or `replay`) and `from`, a model call to take over at instead of the task's. A request that names no `baseUrl` (and no provider, as `anthropic:<model>` does) asks the endpoint `--base-url` gave when the server started. The key `--key-env <name>` names goes to that endpoint and nowhere else, so `--key-env` needs `--base-url`; a request can't name a key, and an endpoint a request names elsewhere is asked without one. The response carries each check's result, the score, the attempt's run, what it cost in USD, the agent's exit code and how long it took, and `dropped` when a translation left something out. `GET /v1/tasks` lists the tasks with their status, takeover, scope and checks.
 
 | Status | Means |
 |---|---|
-| 400 | The body isn't a JSON object with a model name, a field has the wrong type, or it names a `keyEnv` |
+| 400 | The body isn't a JSON object with a model name, a field has the wrong type, it names a `keyEnv`, or the task in the path isn't percent-encoded right |
 | 401 | No token, or the wrong one |
 | 403 | The request wasn't addressed to `127.0.0.1:<port>` or `localhost:<port>`, or it came from a web page |
 | 404 | No such task or route |
-| 409 | The task can't be scored: it isn't ready, or its recording can't be translated for that model |
+| 409 | The task can't be scored: it isn't ready, or its recording can't be translated for that model; or two goldens share the name, and `ambiguous` lists their paths |
 | 413 | The body is over 64 KB |
 | 502 | The attempt didn't score: the golden didn't replay up to the takeover, or the model didn't answer |
 
-It listens on 127.0.0.1 only and checks the `Host` header, so a web page can't reach it by renaming itself, and it refuses requests that carry an `Origin`. The token is `SHADOWLAP_TASKS_TOKEN` when that is set, else a new random one each start; only `GET /v1/health` answers without it. `--port` fails when the port is taken; without it, 4779 falls back to a free port. `--concurrency` (default 2) attempts run at once and further requests wait their turn; `--reads`, `--timeout` and `--guard` are as for `tasks score`, and golden directories after `serve` limit which tasks it serves.
+It listens on 127.0.0.1 only and checks the `Host` header, so a web page can't reach it by renaming itself, and it refuses requests that carry an `Origin`. The token is `SHADOWLAP_TASKS_TOKEN` when that is set (at least 16 characters, since anyone on the machine can try a loopback port), else a new random one each start; only `GET /v1/health` answers without it. `--port` fails when the port is taken; without it, 4779 falls back to a free port. `--concurrency` (default 2) attempts run at once and further requests wait their turn; `--reads`, `--timeout` and `--guard` are as for `tasks score`, and golden directories after `serve` limit which tasks it serves.
 
 Each attempt is a run in the store like any other, but a training loop's model changes with every step, so its scores aren't kept as a model's scores.
