@@ -118,7 +118,7 @@ Credentials never need redacting: API keys and authorization headers are forward
 
 ### Where the rules apply
 
-The Settings page and `REDACTION_EXPORTS` list the same thing, and a test holds each export to it:
+Shadowlap's tests hold each export to this list:
 
 | Export | Applies |
 |---|---|
@@ -132,7 +132,7 @@ Each export that applies rules takes `--no-redact`, and stops, naming the rule, 
 
 ### Preview
 
-`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests, responses and errors, retries included, go through the same functions pack applies, and nothing is written. Without a run named it takes the newest run that has ended; a run still recording is refused. A conversation sends its earlier messages again with every request; the preview reads each of them once, so it takes time in proportion to the run's length (a run of 1,200 model calls takes about a second). In the dashboard it runs as a job, so a long run never holds up the page.
+`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests, responses and errors, retries included, go through the same functions pack applies, and nothing is written. Without a run named it takes the newest run that has ended; a run still recording is refused. A conversation sends its earlier messages again with every request; the preview reads each of them once, so it takes time in proportion to the run's length (a run of 1,200 model calls takes about a second).
 
 ```
 01M2R1HDVD (node agent.js): 5 values would be masked
@@ -153,7 +153,7 @@ Each rule shows how many values it would mask and up to two of them before and a
 
 `normalize add` and `rm`, `redact add` and `rm`, and `calibrate --write` edit `shadowlap.config.json` through one editor, with the same checks:
 
-- One edit at a time: an edit takes `shadowlap.config.json.lock` beside the file, and waits up to two seconds for another to finish. The lock names the process holding it: a lock whose process is gone is taken over at once, any other after ten seconds untouched, and a writer only ever removes its own. The dashboard waits for the lock without holding up anything else it is doing.
+- One edit at a time: an edit takes `shadowlap.config.json.lock` beside the file, and waits up to two seconds for another to finish. The lock names the process holding it: a lock whose process is gone is taken over at once, any other after ten seconds untouched, and a writer only ever removes its own.
 - An edit replaces the file with one rename, so the file is never half written.
 - Every key the edit doesn't touch keeps its place and its value, keys this version doesn't know included, and the file keeps its indentation and line endings.
 - `--expect <version>` on `add` and `rm` refuses the edit when the file is no longer the version `ls --json` printed, so a script that read rule #2 never removes a rule someone added in the meantime.
