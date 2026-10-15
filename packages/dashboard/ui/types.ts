@@ -228,7 +228,8 @@ export interface Meta {
   jobKinds?: string[];
   /** The most an upload may hold, in bytes; null when uploads are not possible. */
   uploadLimit?: number | null;
-  project?: { name: string; path: string } | null;
+  /** With several projects: its `id` in the list, its folder as the switcher shows it (`display`), and whether its setup is finished. */
+  project?: { name: string; path: string; id?: string; display?: string; settingUp?: boolean } | null;
   /** How many redaction rules a copy made now applies. */
   redactRules?: number | null;
 }

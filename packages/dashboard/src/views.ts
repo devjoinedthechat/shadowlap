@@ -83,6 +83,8 @@ export interface ProjectView {
   path: string;
   /** Its id in the dashboard's project list, on a dashboard that serves several (`GET /api/projects`). */
   id?: string;
+  /** Its folder as the switcher shows it: `~/support-agent`. */
+  display?: string;
   /** Its setup isn't finished: once it has runs, the Overview shows the setup. */
   settingUp?: boolean;
 }

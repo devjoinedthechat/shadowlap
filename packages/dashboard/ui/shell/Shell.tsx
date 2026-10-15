@@ -14,6 +14,8 @@ import { SettingsPage } from '../pages/Settings.js';
 import { SetupPage } from '../pages/Setup.js';
 import { TestsPage } from '../pages/Tests.js';
 import { TrainingPage } from '../pages/Training.js';
+import { Page } from '../components/Page.js';
+import { setupShowsOn } from '../projects.js';
 import { href, type Route } from '../route.js';
 import { navigate, useRoute } from '../router.js';
 import { exportStartRun } from '../runs.js';
@@ -53,7 +55,7 @@ export function Shell() {
         <TopBar route={route} />
         <Sidebar route={route} />
         <main className="view" id="view" tabIndex={-1}>
-          <PageFor route={route} />
+          <SetupOr route={route} />
         </main>
         <StatusBar />
       </div>
@@ -67,6 +69,18 @@ export function Shell() {
       <Keyboard />
     </>
   );
+}
+
+/**
+ * The project's setup in place of the page: on every page but Settings while the project has no
+ * runs, and on the Overview while its setup isn't finished (`setupShowsOn`). Until that can be
+ * told, the page waits rather than flashing.
+ */
+function SetupOr({ route }: { route: Route }) {
+  const { exported, meta, runs } = useApp();
+  const setup = setupShowsOn(route, { exported, meta, runs });
+  if (setup === null) return <Page>{null}</Page>;
+  return setup ? <SetupPage /> : <PageFor route={route} />;
 }
 
 function PageFor({ route }: { route: Route }) {

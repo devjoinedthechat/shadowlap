@@ -52,6 +52,11 @@ export interface AppState {
   tick: number;
   live: LiveRun[];
   refresh: () => void;
+  /**
+   * Loads the meta and the run list again at once, as after switching projects: what the page had
+   * was another project's, so the run list is emptied first and the change feed starts over.
+   */
+  reload: () => Promise<void>;
   /** Why actions cannot run here, shown on the disabled control; null when they can. */
   actionsOff: string | null;
   /** Whether the server runs a job kind (`meta.jobKinds`); a server that lists none runs none of them. */
@@ -244,6 +249,20 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     loadRuns().catch(fail);
   }, [client, loadRuns, fail]);
 
+  const reload = useCallback(async () => {
+    if (client.exported) return;
+    cursor.current = null;
+    setRuns(null);
+    try {
+      const m = await client.meta();
+      setMeta(m);
+      setLive(m.live ?? []);
+      await loadRuns();
+    } catch (err) {
+      fail(err);
+    }
+  }, [client, loadRuns, fail]);
+
   const readOnly = !!meta && !meta.static && (meta.readOnly === true || !meta.actions);
   const actionsOff = client.exported
     ? 'This is an exported copy: nothing runs from here.'
@@ -373,6 +392,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       tick,
       live,
       refresh,
+      reload,
       actionsOff,
       hasKind,
       guard,
@@ -395,7 +415,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, live, refresh, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

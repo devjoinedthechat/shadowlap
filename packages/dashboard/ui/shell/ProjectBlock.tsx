@@ -1,15 +1,52 @@
-import { compactPath, projectOfStore } from '../format.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Meta } from '../api.js';
+import { Icon } from '../components/Icon.js';
+import { Popover, useMenu } from '../components/Popover.js';
+import { compactPath, projectOfStore } from '../format.js';
+import { addPaletteSource } from '../palette-sources.js';
+import type { ProjectsView } from '../projects-api.js';
+import { href } from '../route.js';
+import { navigate } from '../router.js';
+import { useApp, type AppState } from '../state.js';
+import { RemoveProjectDialog } from './RemoveProject.js';
 
 /**
- * The project at the top of the sidebar: its name and folder. The switcher (other projects, Add
- * project…, Remove) replaces this component; it gets the same meta.
+ * The project at the top of the sidebar, and the switcher behind it: each project on this machine
+ * with its folder and runs, the current one marked, those still being set up, Add project…, and ×
+ * to remove one while there is more than one. Switching swaps the dashboard onto that project's
+ * store and opens the Overview. A dashboard that serves one store (an exported copy, `--read-only`)
+ * shows the project alone.
  */
 
 export function projectOf(meta: Meta | null): { name: string; path: string } | null {
   if (meta?.project) return meta.project;
   return meta?.dbPath ? projectOfStore(meta.dbPath) : null;
 }
+
+/** The last list the switcher loaded: what the palette's Projects group offers. */
+let lastList: ProjectsView | null = null;
+
+/** Switches to a project and opens its Overview, where the setup shows while it has no runs. */
+export async function switchProject(app: AppState, id: string): Promise<void> {
+  const current = app.meta?.project?.id;
+  if (id !== current) {
+    try {
+      await app.client.projects.select(id);
+    } catch (err) {
+      app.toast(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    await app.reload();
+  }
+  navigate(href.overview());
+}
+
+// The palette's Projects group: switch to each of the others.
+addPaletteSource(({ app }) =>
+  (lastList?.items ?? [])
+    .filter((p) => !p.current)
+    .map((p) => ({ group: 'Projects' as const, label: `Switch to ${p.name}`, hint: p.path, run: () => app.guard(() => void switchProject(app, p.id)) })),
+);
 
 export function ProjectBlock({ meta }: { meta: Meta | null }) {
   const p = projectOf(meta);
@@ -24,6 +61,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
       </div>
     );
   }
+  if (meta?.project?.id) return <ProjectSwitcher meta={meta} />;
   const name = p?.name ?? 'this store';
   return (
     <div className="proj is-static" title={p?.path ?? meta?.dbPath ?? undefined}>
@@ -33,5 +71,120 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
         <small>{p ? compactPath(p.path, 30) : meta?.dbPath ? compactPath(meta.dbPath, 30) : '…'}</small>
       </span>
     </div>
+  );
+}
+
+/** The letter on a project's badge. */
+const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name.normalize('NFC'))?.[0] ?? '?').toUpperCase();
+
+function ProjectSwitcher({ meta }: { meta: Meta }) {
+  const app = useApp();
+  const { client, guard } = app;
+  const menu = useMenu();
+  const [list, setList] = useState<ProjectsView | null>(lastList);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const project = meta.project!;
+  const id = project.id!;
+  const seen = useRef(id);
+
+  const load = useCallback(() => {
+    client.projects.list().then(
+      (v) => {
+        lastList = v;
+        setList(v);
+      },
+      () => undefined,
+    );
+  }, [client]);
+
+  // Loaded once, and again whenever the project changes; the menu loads it afresh as it opens.
+  useEffect(() => load(), [load, id]);
+
+  // A switch made elsewhere (another tab, a removed project) lands on the Overview, as one made here does.
+  useEffect(() => {
+    if (seen.current === id) return;
+    seen.current = id;
+    if (location.hash.replace(/^#\/?/, '') !== '') navigate(href.overview());
+  }, [id]);
+
+  const pick = (pid: string) => {
+    menu.close();
+    guard(() => void switchProject(app, pid));
+  };
+  const items = list?.items ?? [];
+  return (
+    <>
+      <button
+        className="proj"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={menu.open}
+        title={list?.notice ?? project.path}
+        onClick={(e) => {
+          if (!menu.open) load();
+          menu.toggle(e.currentTarget);
+        }}
+      >
+        <span className="pa">{initial(project.name)}</span>
+        <span className="pn">
+          <b>{project.name}</b>
+          <small>{project.display ?? compactPath(project.path, 30)}</small>
+        </span>
+        <Icon name="caret" className="caret" />
+      </button>
+      {menu.open ? (
+        <Popover anchor={menu.anchor} onClose={menu.close} align="left" matchWidth label="Projects" className="projmenu">
+          <div className="pk">{list?.heading ?? 'Projects on this machine'}</div>
+          {items.map((p) => (
+            <div className="prow" key={p.id}>
+              <button type="button" role="menuitem" onClick={() => pick(p.id)} title={p.why ?? undefined}>
+                <b>
+                  {p.name}
+                  {p.current ? <span className="cur">current</span> : null}
+                </b>
+                <small>{p.detail}</small>
+              </button>
+              {p.removable ? (
+                <button
+                  type="button"
+                  className="px"
+                  aria-label={p.removeLabel}
+                  title="Remove from the dashboard"
+                  onClick={() => {
+                    menu.close();
+                    setRemoving(p.id);
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          ))}
+          <hr />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              menu.close();
+              navigate(href.newProject());
+            }}
+          >
+            <b>{list?.add.label ?? 'Add project…'}</b>
+            <small>{list?.add.hint ?? 'a folder with your agent’s code'}</small>
+          </button>
+          <div className="pnote">{list?.notice ?? list?.note ?? 'Each project keeps its own store.'}</div>
+        </Popover>
+      ) : null}
+      {removing ? (
+        <RemoveProjectDialog
+          id={removing}
+          onClose={() => setRemoving(null)}
+          onRemoved={() => {
+            setRemoving(null);
+            load();
+          }}
+        />
+      ) : null}
+    </>
   );
 }

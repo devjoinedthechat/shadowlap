@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ProjectError, type Normalizer, type Price, type ProjectHost, type Store } from '@shadowlap/engine';
+import { ProjectError, tildePath, type Normalizer, type Price, type ProjectHost, type Store } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from './context.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobPlace, type SpawnCli } from './jobs.js';
@@ -161,7 +161,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     try {
       const c = projects.current();
       const entry = projects.registry.get(c.id);
-      return { id: c.id, store: c.store(), dbPath: c.dbPath, project: { id: c.id, name: c.name, path: c.path, settingUp: entry ? entry.setup.stage !== 'done' : false }, config: () => readConfig(() => c.config()) };
+      const project = { id: c.id, name: c.name, path: c.path, display: tildePath(c.path, projects.registry.realHome), settingUp: entry ? entry.setup.stage !== 'done' : false };
+      return { id: c.id, store: c.store(), dbPath: c.dbPath, project, config: () => readConfig(() => c.config()) };
     } catch (err) {
       // The current project's folder is gone, or its store can't be opened: the switcher still works.
       if (err instanceof ProjectError) throw new HttpError(err.status, err.message);

@@ -140,7 +140,7 @@ describe('the switcher', () => {
     expect(list.body.add.label).toBe('Add project…');
 
     const meta = await w.api<{ project: { id: string; name: string; path: string; settingUp: boolean }; counts: { runs: number }; dbPath: string }>('meta');
-    expect(meta.body.project).toEqual({ id: 'support-agent', name: 'support-agent', path: w.support, settingUp: false });
+    expect(meta.body.project).toEqual({ id: 'support-agent', name: 'support-agent', path: w.support, display: '~/support-agent', settingUp: false });
     expect(meta.body.counts.runs).toBe(2);
     expect(meta.body.dbPath).toBe(projectDbPath(w.support));
     const before = await w.api<{ cursor: string }>('changes');

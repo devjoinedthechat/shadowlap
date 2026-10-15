@@ -2,6 +2,7 @@ import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
+import { noProjects, projectsApi, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
@@ -32,6 +33,9 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // A project's setup (the projects slice registers these): inspect the folder, record a first run.
+  inspect: 'init',
+  record: 'record',
 } as const;
 
 export class ApiError extends Error {
@@ -105,6 +109,8 @@ export interface Client {
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
   changes(since: string | null): Promise<Changes | null>;
+  /** Projects: the switcher, Add a project, removing one, and the setup (`projects-api.ts`). */
+  projects: ProjectsApi;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
@@ -225,6 +231,7 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    projects: projectsApi(request),
   };
 }
 
@@ -268,5 +275,6 @@ export function createExportedClient(data: StaticPayload): Client {
     exportHtml: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
+    projects: noProjects(readOnly),
   };
 }

@@ -1,16 +1,172 @@
+import { useEffect, useRef, useState } from 'react';
 import { CmdLine, PageHeader } from '../components/bits.js';
+import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import type { AddProjectView } from '../projects-api.js';
+import { href } from '../route.js';
+import { navigate } from '../router.js';
+import { useApp } from '../state.js';
 
-/** Add a project (#/new). Not in the dashboard yet: a dashboard serves the store of the folder it starts in. */
+/**
+ * Add a project (#/new): pick the folder your agent's code is in. Typing filters the folders the
+ * server suggests (one level at a time, within the home folder and configured roots, never hidden
+ * or system folders); each says what kind of project it holds, those already added are disabled,
+ * and a folder without project files says why it can't be added. The button names the folder and
+ * stays disabled until one with project files is picked. Nothing runs here: after adding, the
+ * dashboard switches to the project and its setup opens.
+ */
 export function NewProjectPage() {
+  const app = useApp();
+  const { client, guard, toast, actionsOff, meta } = app;
+  const [query, setQuery] = useState('');
+  const [pick, setPick] = useState<string | null>(null);
+  const [view, setView] = useState<AddProjectView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [unsupported, setUnsupported] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const asked = useRef(0);
+  /** Typing waits a moment before asking; a click asks at once. */
+  const wait = useRef(0);
+  const input = useRef<HTMLInputElement>(null);
+  const oneStore = !!meta && !meta.static && !meta.project?.id;
+
+  // Suggestions for what is typed, and the picked folder checked; the latest answer wins.
+  useEffect(() => {
+    if (oneStore) return;
+    const n = ++asked.current;
+    const timer = setTimeout(() => {
+      client.projects.folders(query, pick).then(
+        (v) => {
+          if (n !== asked.current) return;
+          setView(v);
+          setError(null);
+        },
+        (err: unknown) => {
+          if (n !== asked.current) return;
+          const status = (err as { status?: number }).status;
+          if (status === 404 || status === 405) setUnsupported(true);
+          else setError(err instanceof Error ? err.message : String(err));
+        },
+      );
+    }, wait.current);
+    return () => clearTimeout(timer);
+  }, [client, query, pick, oneStore]);
+
+  useEffect(() => input.current?.focus(), []);
+
+  if (unsupported || oneStore)
+    return (
+      <Page>
+        <PageHeader eyebrow="projects" title="Add a project" text="A project is a folder with your agent’s code, and it keeps its own store." />
+        <section className="panel stepempty">
+          <h3>Start the dashboard in that folder</h3>
+          <p>This dashboard serves one store: start one with shadowlap dashboard to add and switch projects.</p>
+          <CmdLine>{'cd <folder> && shadowlap dashboard'}</CmdLine>
+        </section>
+      </Page>
+    );
+
+  const add = () => {
+    const path = view?.button.path;
+    if (!path || view.button.disabled) return;
+    guard(() => {
+      setBusy(true);
+      client.projects.add(path).then(
+        async (out) => {
+          toast(out.message);
+          await app.reload();
+          navigate(href.overview());
+        },
+        (err: unknown) => {
+          setBusy(false);
+          setError(err instanceof Error ? err.message : String(err));
+        },
+      );
+    });
+  };
+
+  const fieldError = error ?? view?.error ?? null;
+  const next = view?.next;
   return (
     <Page>
-      <PageHeader eyebrow="projects" title="Add a project" text="A project is a folder with your agent’s code, and it keeps its own store." />
-      <section className="panel stepempty">
-        <h3>Start the dashboard in that folder</h3>
-        <p>The dashboard serves the store of the folder it starts in, and its actions run there.</p>
-        <CmdLine>{'cd <folder> && shadowlap dashboard'}</CmdLine>
-      </section>
+      <PageHeader eyebrow="projects" title={view?.title ?? 'Add a project'} text={view?.intro ?? 'Pick the folder your agent’s code is in. Nothing runs until you click.'} />
+      <div className="newgrid">
+        <section className="panel">
+          <div className="pbody">
+            <label className="pathin">
+              <span className="k">{view?.field.label ?? 'Folder'}</span>
+              <input
+                ref={input}
+                id="newPath"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={view?.field.placeholder ?? '~/path/to/your/agent'}
+                value={query}
+                onChange={(e) => {
+                  wait.current = 120;
+                  setQuery(e.target.value);
+                  setPick(null);
+                }}
+                onKeyDown={(e) => {
+                  // Enter takes the typed path as the folder: checked as typed, then where it leads.
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  if (view && !view.button.disabled && pick) add();
+                  else if (query.trim()) {
+                    wait.current = 0;
+                    setPick(query.trim());
+                  }
+                }}
+              />
+            </label>
+            <div className="folders" role="listbox" aria-label="Folders">
+              {view === null ? null : view.folders.length ? (
+                view.folders.map((f) => (
+                  <button key={f.path} type="button" className="fold" role="option" aria-selected={f.selected} disabled={f.disabled} onClick={() => {
+                      wait.current = 0;
+                      setPick(f.path);
+                    }}
+                    title={f.path}
+                  >
+                    <Icon name="folder" />
+                    <span>
+                      <b>{f.display}</b>
+                      <small>{f.note}</small>
+                    </span>
+                    {f.selected ? <i className="tick">✓</i> : null}
+                  </button>
+                ))
+              ) : (
+                <div className="empty">{view.empty}</div>
+              )}
+            </div>
+            {fieldError ? <p className="fieldnote err">{fieldError}</p> : null}
+          </div>
+          <footer className="pfoot">
+            <a className="btn quiet" href={view?.cancel.href ?? href.overview()}>
+              {view?.cancel.label ?? 'Cancel'}
+            </a>
+            <button className="btn lime" type="button" disabled={!view || view.button.disabled || busy || !!actionsOff} title={actionsOff ?? undefined} onClick={add}>
+              {view?.button.label ?? 'Add project'}
+            </button>
+          </footer>
+        </section>
+        <section className="panel nextsteps">
+          <header>
+            <h2>{next?.title ?? 'What happens next'}</h2>
+          </header>
+          <ol>
+            {(next?.steps ?? []).map((s) => (
+              <li key={s.title}>
+                <b>{s.title}</b>
+                <span>{s.text}</span>
+              </li>
+            ))}
+          </ol>
+          {next ? <p className="muted nextnote">{next.note}</p> : null}
+        </section>
+      </div>
     </Page>
   );
 }
