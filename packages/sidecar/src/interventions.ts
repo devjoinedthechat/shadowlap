@@ -22,9 +22,12 @@ export interface Interventions {
   };
 }
 
-/** What `apply` did to one request. */
+/**
+ * What `apply` did to one request. `target` is set at the call a flag named: the flag, as the
+ * divergence report should name it, and the recorded call it stands in for.
+ */
 export type Rewrite =
-  | { path: string; body: unknown; changed: boolean; forced?: { by: string; counterpart: number } }
+  | { path: string; body: unknown; changed: boolean; target?: { by: string; counterpart: number } }
   | { refused: string };
 
 const short = (s: string, n = 40) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -139,7 +142,7 @@ export class RequestInterventions {
       }
     }
     const counterpart = inj && apiIndex === inj.apiIndex ? inj.callNo : (set?.callNo ?? 0);
-    return { path: nextPath, body: nextBody, changed, ...(forced.length ? { forced: { by: forced.join('; '), counterpart } } : {}) };
+    return { path: nextPath, body: nextBody, changed, ...(forced.length ? { target: { by: forced.join('; '), counterpart } } : {}) };
   }
 
   private warnOnce(message: string): void {

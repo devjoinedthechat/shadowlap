@@ -116,7 +116,8 @@ describe('replay --inject', () => {
     const before = mock.requests.length;
     const r = await shadowlap(['replay', runId, '--inject', `${third}=Prefer sources from 2026.`]);
     expect(r.code, r.out).toBe(0);
-    expect(r.out).toContain(`forced live by --inject ${third}: an instruction added to the user turn`);
+    expect(r.out).toContain(`changed by --inject ${third}: an instruction added to the user turn`);
+    expect(r.out).toMatch(/\+ \$\.messages\[\d+\]\.content\[\d+\]\n\s+\+ \{"type":"text","text":"Prefer sources from 2026\."\}/);
     const first = mock.requests[before]!.body;
     const last = first.messages.at(-1)! as { role: string; content: Array<{ type: string; text?: string }> };
     expect(last.role).toBe('user');

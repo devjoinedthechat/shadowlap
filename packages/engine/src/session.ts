@@ -64,11 +64,16 @@ export interface ResolveInput {
    */
   scope?: string;
   /**
-   * The request was changed by an intervention the caller applied (`--inject`, `--set`, `--model`):
-   * the call runs live, and the divergence report names the flag (`by`) and the recorded call it
-   * stands in for (`counterpart`, the parent run's call number).
+   * An intervention the caller applied that a diff can't show (a model switched in the path, a
+   * setting the request already had): the call runs live, and the divergence report names the flag
+   * (`by`) and the recorded call it stands in for (`counterpart`, the parent run's call number).
    */
   forced?: { by: string; counterpart?: number };
+  /**
+   * The flag that changed this request's body (`--inject`, `--set`): the call diverges on the change
+   * as usual, its diff shows it, and the report names the flag instead of guessing at a normalizer.
+   */
+  changedBy?: string;
 }
 
 export type Decision =
@@ -291,6 +296,7 @@ export class Session {
     }
 
     const remaining = this.parentCalls.filter((c) => c.end && !this.consumed.has(c.callNo));
+    const changedBy = input.changedBy ? `changed by ${input.changedBy}` : null;
     if (remaining.length === 0) {
       return { ...base, type: 'beyond_recording', reason: 'the agent made more calls than the recording contains' };
     }
@@ -299,7 +305,7 @@ export class Session {
     const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
     const candidates = sameScope.length ? sameScope : sameName;
     if (candidates.length === 0) {
-      return { ...base, type: 'new_call', reason: `no recorded ${input.kind} call named "${input.name}" remains unconsumed` };
+      return { ...base, type: 'new_call', reason: `${changedBy ? `${changedBy}; ` : ''}no recorded ${input.kind} call named "${input.name}" remains unconsumed` };
     }
 
     // Among the unconsumed calls of the same kind and name, the one with the smallest structural diff.
@@ -321,8 +327,10 @@ export class Session {
     }
     if (!best) {
       const first = candidates[0]!;
-      return { ...base, type: 'request_changed', counterpart: { runId: this.parentRunId ?? first.runId, callNo: first.callNo } };
+      return { ...base, type: 'request_changed', counterpart: { runId: this.parentRunId ?? first.runId, callNo: first.callNo }, ...(changedBy ? { reason: changedBy } : {}) };
     }
+    // A change a flag made is the point of the fork, not a value to mask: no normalizer hints for it.
+    if (changedBy) return { ...base, type: 'request_changed', reason: changedBy, counterpart: { runId: this.parentRunId ?? best.record.runId, callNo: best.record.callNo }, diff: best.diff };
     const hints = best.diff.flatMap((e) => hintsFor(e, input.kind, input.name));
     if (this.clock && best.diff.some((e) => [e.before, e.after].some((v) => typeof v === 'string' && CLOCK_PLACEHOLDERS.some((p) => v.includes(p))))) {
       hints.push({ message: 'dates and timestamps within a day of each run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from its run\'s start. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });

@@ -112,7 +112,7 @@ shadowlap replay <run> --inject 15="Prefer sources from 2026."
 shadowlap replay <run> --inject 15="…" --inject-as system
 ```
 
-At model call 15 an instruction is added to the conversation, and kept at that same place in every later request of the same conversation, so it stays consistent from the model's point of view. Calls 1–14 replay; 15 onward run live. It is append-only: an addition at step 15, not a change to what steps 1–14 saw. The divergence report says so (`forced live by --inject 15`).
+At model call 15 an instruction is added to the conversation, and kept at that same place in every later request of the same conversation, so it stays consistent from the model's point of view. Calls 1–14 replay; 15 onward run live. It is append-only: an addition at step 15, not a change to what steps 1–14 saw. The divergence report says so: it names the flag (`changed by --inject 15`) and its diff shows the instruction where it went.
 
 **As the user (the default).** The instruction joins the user turn the model answers next: a text block after the last user message's content (on Anthropic, Gemini and Bedrock Converse that turn holds the tool results too), or, where a request ends with tool output as turns of their own (OpenAI Chat Completions and the Responses API), a user message of its own after them. A message that is a plain string stays a string, with the instruction after a blank line, because not every OpenAI-compatible server takes content parts. Every provider takes it.
 
@@ -147,6 +147,7 @@ Request fields are set from model call 15 on. Each field goes where the provider
 
 `--model` switches the model where the provider names it: the body's `model` on Anthropic and OpenAI, the path on Gemini and Vertex AI (`models/<model>:`), Bedrock (`/model/<id>/`, an inference profile or ARN too) and Azure OpenAI (the deployment). A request that names no model is refused.
 
+- The divergence report names the flags. A changed body shows in its diff; a model switched in the path is another endpoint, so the report says `forced live by --model 15:…` instead.
 - They apply to the provider the named call went to, so a model id or a setting meant for one provider never reaches another, and they skip a later request that is not a conversation (an embeddings call keeps its own model).
 - Fields outside `system`, `tools` and the turns are not bound by thinking-block validation. A model switch is allowed; the new model drops the earlier model's thinking blocks silently, so the fork's early turns lose that reasoning (no error).
 - Blame resamples the same way: `shadowlap blame --set temperature=1` and `--model` work on every provider.

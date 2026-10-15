@@ -70,8 +70,10 @@ describe('Anthropic', () => {
     expect(mock.requests.length - before).toBe(1);
     const sent = mock.requests.at(-1)!.body;
     expect(sent.messages.at(-1)).toEqual({ role: 'user', content: [expect.objectContaining({ type: 'tool_result' }), { type: 'text', text: 'Escalate refunds above $200 to tier 2.' }] });
-    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 2, counterpart: { callNo: 2 } });
-    expect(summary.divergence!.reason).toContain('--inject 2: an instruction added to the user turn');
+    // The fork is where the request changed, its diff shows the instruction, and the report names the flag.
+    expect(summary.divergence).toMatchObject({ type: 'request_changed', callNo: 2, counterpart: { callNo: 2 }, reason: 'changed by --inject 2: an instruction added to the user turn' });
+    expect(summary.divergence!.diff).toEqual([{ path: '$.messages[2].content[1]', op: 'added', after: { type: 'text', text: 'Escalate refunds above $200 to tier 2.' } }]);
+    expect(summary.divergence!.hints).toBeUndefined();
   });
 
   it('injects as a system message after the conversation with --inject-as system', async () => {
@@ -150,7 +152,7 @@ describe('OpenAI', () => {
     expect(sent.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'user']);
     expect(sent.messages.at(-1)).toEqual({ role: 'user', content: 'Escalate refunds above $200.' });
     expect((sent as unknown as { temperature: number }).temperature).toBe(0);
-    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 3 });
+    expect(summary.divergence).toMatchObject({ type: 'request_changed', callNo: 3, reason: 'changed by --inject 3: an instruction added to the user turn; --set 3:temperature=0' });
   });
 
   it('injects into the Responses API input, and sets max_tokens as max_output_tokens', async () => {
@@ -227,7 +229,9 @@ describe('Gemini', () => {
   });
 
   it('sets sampling in generationConfig and switches the model in the path', async () => {
-    const { run } = await replay(sidecar, parent, { set: { fromCall: 2, fields: { temperature: 0, max_tokens: 256, model: 'gemini-2.5-pro' } } }, (r) => agent(sidecar, r));
+    const { run, summary } = await replay(sidecar, parent, { set: { fromCall: 2, fields: { temperature: 0, max_tokens: 256, model: 'gemini-2.5-pro' } } }, (r) => agent(sidecar, r));
+    // Another path is another call name, so the report names the flags instead of diffing two endpoints.
+    expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 2, counterpart: { callNo: 2 }, reason: 'forced live by --set 2:temperature=0 --set 2:max_tokens=256 --model 2:gemini-2.5-pro' });
     const last = mock.requests.at(-1)!;
     expect(last.path).toBe('/v1beta/models/gemini-2.5-pro:generateContent');
     expect(last.body.generationConfig).toEqual({ temperature: 0, maxOutputTokens: 256 });

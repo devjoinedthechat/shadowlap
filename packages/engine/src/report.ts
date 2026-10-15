@@ -191,6 +191,8 @@ export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEnt
       lines.push(p.dim(`  new call: ${safeLine(d.reason ?? 'no recorded counterpart')}`));
       break;
     case 'request_changed': {
+      // An intervention's change names its flag.
+      if (d.reason) lines.push(p.dim(`  ${safeLine(d.reason)}`));
       if (d.counterpart) lines.push(p.dim(`  compared with run ${shortId(d.counterpart.runId)}, call ${d.counterpart.callNo}`));
       const entries = d.diff ?? [];
       for (const e of entries.slice(0, maxEntries)) {

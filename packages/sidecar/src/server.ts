@@ -627,12 +627,18 @@ export class Sidecar {
     // recording of the fork holds exactly what was sent.
     let path = subpath;
     let forced: { by: string; counterpart: number } | undefined;
+    let changedBy: string | undefined;
     let refusal: string | undefined;
     if (ctx.interventions?.active) {
       const rewrite = ctx.interventions.apply(apiIndex, provider.id, subpath, body);
       if ('refused' in rewrite) refusal = rewrite.refused;
       else {
-        forced = rewrite.forced;
+        // At the call a flag named: a changed body diverges on its own, and its diff shows the
+        // change; a model switched in the path, or a setting the request already had, is forced.
+        if (rewrite.target) {
+          if (rewrite.changed && rewrite.path === subpath) changedBy = rewrite.target.by;
+          else forced = rewrite.target;
+        }
         if (rewrite.changed) {
           path = rewrite.path;
           body = rewrite.body;
@@ -640,7 +646,7 @@ export class Sidecar {
           // AWS signs a request's exact path and body: the changed one is signed again, or refused.
           if (signingKeyId(headers.authorization)) {
             const signed = this.resign(req, headers, method, path, search, rawBody);
-            if ('error' in signed) refusal = `${forced?.by ?? 'the intervention'}: ${signed.error}`;
+            if ('error' in signed) refusal = `${rewrite.target?.by ?? 'the intervention'}: ${signed.error}`;
             else headers = signed.headers;
           }
         }
@@ -666,8 +672,8 @@ export class Sidecar {
     } else {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
-      const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})`, counterpart: forced?.counterpart ?? 0 } : forced;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, ...(scope ? { scope } : {}), ...(by ? { forced: by } : {}) });
+      const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
