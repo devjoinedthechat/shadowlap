@@ -352,20 +352,33 @@ interface Candidate {
   chosen: { run: RunRecord; call: ModelCall; what: string };
 }
 
+/** Runs up to this many model calls are compared call by call; longer ones by halving. */
+const WALK = 64;
+
 /**
  * The model call where two attempts first answered the same conversation differently, among the
- * calls made in `scope` (all of them when null). A conversation only grows, so once two attempts'
- * conversations part they stay parted, and the last call where they agree is found by halving: a
- * long run is keyed at a handful of calls, not at every one. They pair there when their answers
- * differ; when the answers agree and the next conversations don't, a read returned something else
- * and their paths parted.
+ * calls made in `scope` (all of them when null). They pair there when their answers differ; when the
+ * conversations part first, a read returned something else and their paths parted.
+ *
+ * A short run is compared call by call. A long one is not: a conversation only grows, so once two
+ * attempts' conversations part they stay parted, and the last call where they agree is found by
+ * halving, keying a handful of calls rather than every one. (An agent that drops old messages can
+ * make two conversations agree again; in a long run, the pair is then looked for where they agree last.)
  */
 function firstDifference(r: Reader, a: RunRecord, b: RunRecord, scope: string | null): { kind: 'pair'; i: number; ca: ModelCall; cb: ModelCall } | { kind: 'same' } | { kind: 'paths'; at: number } {
   const ma = r.modelCalls(a.runId, scope);
   const mb = r.modelCalls(b.runId, scope);
   const n = Math.min(ma.length, mb.length);
-  if (!n) return { kind: 'same' };
   const agree = (i: number) => r.samePrompt(ma[i]!, mb[i]!);
+  const at = (i: number) => (r.answerKey(ma[i]!) !== r.answerKey(mb[i]!) ? { kind: 'pair' as const, i, ca: ma[i]!, cb: mb[i]! } : null);
+  if (n <= WALK) {
+    for (let i = 0; i < n; i++) {
+      if (!agree(i)) return { kind: 'paths', at: ma[i]!.callNo };
+      const pair = at(i);
+      if (pair) return pair;
+    }
+    return { kind: 'same' };
+  }
   if (!agree(0)) return { kind: 'paths', at: ma[0]!.callNo };
   let lo = 0;
   let hi = n - 1;
@@ -375,8 +388,7 @@ function firstDifference(r: Reader, a: RunRecord, b: RunRecord, scope: string | 
     if (agree(mid)) lo = mid;
     else hi = mid;
   }
-  if (r.answerKey(ma[lo]!) !== r.answerKey(mb[lo]!)) return { kind: 'pair', i: lo, ca: ma[lo]!, cb: mb[lo]! };
-  return lo === n - 1 ? { kind: 'same' } : { kind: 'paths', at: ma[lo + 1]!.callNo };
+  return at(lo) ?? (lo === n - 1 ? { kind: 'same' } : { kind: 'paths', at: ma[lo + 1]!.callNo });
 }
 
 function answerOf(r: Reader, run: RunRecord, call: ModelCall, what: string): PairAnswer {

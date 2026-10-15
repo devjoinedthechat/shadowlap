@@ -321,6 +321,37 @@ describe('reading pairs', () => {
     store.close();
   });
 
+  it('finds where two long attempts part by halving: at an answer, or at a read that returned something else', () => {
+    const store = Store.open(':memory:');
+    // 100 model calls, past the length compared call by call: each answer, then the tool's result.
+    const record = (o: { parentRunId?: string; status: Exclude<RunStatus, 'running'>; meta?: RunMeta; ids: string; answer?: (i: number) => string; result?: (i: number) => string }) => {
+      const run = store.createRun({ runId: testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: 'c2', ...(o.meta ? { meta: o.meta } : {}) });
+      const messages: unknown[] = [{ role: 'user', content: 'Sort the tickets.' }];
+      for (let i = 0; i < 100; i++) {
+        const content = [{ type: 'text', text: o.answer?.(i) ?? `Ticket ${i}: filed.` }, { type: 'tool_use', id: `toolu_${o.ids}_${i}`, name: 'file', input: { n: i } }];
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`${o.ids}${i}`), occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'claude-sonnet-5', system: 'Sort them.', messages }), meta: { provider: 'anthropic' }, at: i });
+        store.appendCallEnd(identity, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putJson({ type: 'message', role: 'assistant', model: 'claude-sonnet-5', content, stop_reason: 'tool_use' }), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic' }, at: i });
+        messages.push({ role: 'assistant', content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_${o.ids}_${i}`, content: o.result?.(i) ?? `filed ${i}` }] });
+      }
+      store.endRun(run.runId, o.status);
+      return run;
+    };
+    const target = record({ status: 'failed', ids: 't' });
+    const repeat = (group: string, n: number): RunMeta => ({ repeat: { group, attempt: n, of: 2 } });
+    // One answers ticket 30 otherwise and fails; the other passes.
+    const lost = record({ parentRunId: target.runId, status: 'failed', meta: repeat('answer', 1), ids: 'a', answer: (i) => (i === 30 ? 'Ticket 30: closed as spam.' : `Ticket ${i}: filed.`) });
+    record({ parentRunId: target.runId, status: 'completed', meta: repeat('answer', 2), ids: 'b' });
+    // Here the answers agree, but the 40th read came back different: their paths parted there.
+    record({ parentRunId: target.runId, status: 'failed', meta: repeat('read', 1), ids: 'c', result: (i) => (i === 40 ? 'the queue is down' : `filed ${i}`) });
+    record({ parentRunId: target.runId, status: 'completed', meta: repeat('read', 2), ids: 'd' });
+
+    const { pairs, sources } = findPairs(store);
+    expect(pairs).toEqual([expect.objectContaining({ source: 'repeat:answer', callNo: 31, rejected: expect.objectContaining({ runId: lost.runId, text: '"Ticket 30: closed as spam.", file({"n":30})' }), chosen: expect.objectContaining({ text: '"Ticket 30: filed.", file({"n":30})' }) })]);
+    expect(sources.find((x) => x.key === 'repeat:read')!.why).toContain('Once the attempts saw different conversations before their answers differed');
+    store.close();
+  });
+
   it('reads the store again once a run changes', () => {
     const store = Store.open(':memory:');
     const { run } = blamed(store);
