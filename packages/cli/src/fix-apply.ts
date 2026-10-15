@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyLeft, fixRecords, markFixApplied, recordEvent, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 
@@ -132,10 +132,13 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     }
 
     // The recordings the repair made with the fixed code: replayed by `shadowlap test`, they fail the
-    // build if the fix is ever undone.
+    // build if the fix is ever undone. One copied before (by `repair --apply --goldens <dir>`, or an
+    // earlier run of this) is tested where it is.
+    const copiedBefore = (before?.goldens ?? []).map(slashes).filter((p) => !isAbsolute(p) && !/^[a-z]:/i.test(p) && !p.split('/').includes('..'));
     for (const g of paths.goldens) {
       const from = resolve(o.cwd, g.path);
-      const to = resolve(o.cwd, o.goldens, g.name);
+      const known = copiedBefore.find((p) => basename(p) === g.name);
+      const to = known ? resolve(o.cwd, known) : resolve(o.cwd, o.goldens, g.name);
       if (!existsSync(from)) {
         o.log(`  ! ${g.path} is gone, so it was not copied`);
         continue;
