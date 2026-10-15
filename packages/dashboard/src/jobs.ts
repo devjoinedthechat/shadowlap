@@ -71,11 +71,13 @@ export function cliSpawner(o: { command: string[]; dbPath?: string; cwd: string;
 
 /**
  * Signals a job's process group (the CLI and the agent it started), or the process alone when the
- * spawner gave it no group of its own. On Windows a kill takes the whole process tree down.
+ * spawner gave it no group of its own. Windows has neither groups nor a SIGTERM the CLI could pass
+ * on (the process is simply ended), so there it ends the job's whole process tree. Called only while
+ * the job's process is alive, or (on macOS and Linux) the moment it exits.
  */
 function signalJob(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
   const pid = child.pid;
-  if (pid && process.platform === 'win32' && signal === 'SIGKILL') {
+  if (pid && process.platform === 'win32') {
     try {
       spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => undefined);
     } catch {
@@ -388,8 +390,9 @@ export class JobManager {
     child.on('exit', (code) => {
       job.exited = true;
       // A job that was asked to stop takes down whatever it left in its group (an agent that ignored
-      // the signal), at once: the group's id cannot have been reused while anything is in it.
-      if (job.stopping) signalJob(child, 'SIGKILL');
+      // the signal), at once: the group's id cannot have been reused while anything is in it. Not on
+      // Windows, which has no such groups and reuses a process id soon after it is freed.
+      if (job.stopping && process.platform !== 'win32') signalJob(child, 'SIGKILL');
       // `close` waits for every pipe; a process the job left behind may hold one open for good.
       drain = setTimeout(() => {
         for (const s of [child.stdout, child.stderr, events]) s?.destroy();
