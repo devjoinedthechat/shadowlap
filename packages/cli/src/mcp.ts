@@ -339,7 +339,7 @@ export function parseHeaderFlags(flags: string[], env: NodeJS.ProcessEnv = proce
       if (found === undefined) throw new Error(`--header ${name}: \${${v}} is not set in the environment`);
       return found;
     });
-    if (/[\r\n\0]/.test(value)) throw new Error(`--header ${name}: the value has a line break in it`);
+    if (/[^\t\x20-\x7e\x80-\xff]/.test(value)) throw new Error(`--header ${name}: the value has a character a header can't carry (a line break, say)`);
     out[name] = value;
   }
   return out;
@@ -447,21 +447,31 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
   function forward(raw: string, m: JsonRpcMessage | null): Promise<void> {
     const id = m && m.id !== undefined && m.id !== null && typeof m.method === 'string' ? m.id : null;
     return new Promise<void>((resolve) => {
-      const body = Buffer.from(raw, 'utf8');
-      const req = send(url, { method: 'POST', headers: headers({ 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'content-length': String(body.length) }) }, (res) => {
-        inFlight.delete(req);
-        const sid = res.headers['mcp-session-id'];
-        if (typeof sid === 'string' && sid) sessionId = sid;
-        void relay(res, id).then(resolve);
-      });
-      inFlight.add(req);
-      req.on('error', (err) => {
-        inFlight.delete(req);
+      const failed = (err: Error) => {
         if (id !== null && !closed) {
           pending.delete(idKey(id));
           failure(id, `could not reach the MCP server at ${url.host}: ${err.message}`);
         }
         resolve();
+      };
+      const body = Buffer.from(raw, 'utf8');
+      let req: ReturnType<typeof send>;
+      try {
+        req = send(url, { method: 'POST', headers: headers({ 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'content-length': String(body.length) }) }, (res) => {
+          inFlight.delete(req);
+          const sid = res.headers['mcp-session-id'];
+          // The transport allows visible ASCII only, and the id goes back in a header.
+          if (typeof sid === 'string' && /^[\x21-\x7e]{1,1024}$/.test(sid)) sessionId = sid;
+          void relay(res, id).then(resolve);
+        });
+      } catch (err) {
+        // A header Node refuses to send, say: answered, so the client and this loop go on.
+        return failed(err as Error);
+      }
+      inFlight.add(req);
+      req.on('error', (err) => {
+        inFlight.delete(req);
+        failed(err);
       });
       req.end(body);
     });
@@ -509,13 +519,18 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
   function listen(): void {
     if (listening || !sessionId || closed) return;
     listening = true;
-    const req = send(url, { method: 'GET', headers: headers({ accept: 'text/event-stream' }) }, (res) => {
-      if (res.statusCode !== 200 || !/text\/event-stream/i.test(String(res.headers['content-type'] ?? ''))) return void res.resume();
-      res.setEncoding('utf8');
-      let chain: Promise<void> = Promise.resolve();
-      const events = new EventStream((data) => (chain = chain.then(() => fromServer(data))));
-      res.on('data', (chunk: string) => events.push(chunk));
-    });
+    let req: ReturnType<typeof send>;
+    try {
+      req = send(url, { method: 'GET', headers: headers({ accept: 'text/event-stream' }) }, (res) => {
+        if (res.statusCode !== 200 || !/text\/event-stream/i.test(String(res.headers['content-type'] ?? ''))) return void res.resume();
+        res.setEncoding('utf8');
+        let chain: Promise<void> = Promise.resolve();
+        const events = new EventStream((data) => (chain = chain.then(() => fromServer(data))));
+        res.on('data', (chunk: string) => events.push(chunk));
+      });
+    } catch {
+      return;
+    }
     inFlight.add(req);
     req.on('error', () => inFlight.delete(req));
     req.end();

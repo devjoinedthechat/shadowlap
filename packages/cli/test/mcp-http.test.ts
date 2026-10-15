@@ -205,6 +205,8 @@ describe('shadowlap mcp --url', () => {
     expect(() => parseHeaderFlags(['Authorization: Bearer ${MISSING}'], {})).toThrow(/\$\{MISSING\} is not set/);
     expect(() => parseHeaderFlags(['Mcp-Session-Id: forged'])).toThrow(/set by the proxy itself/);
     expect(() => parseHeaderFlags(['no colon'])).toThrow(/<name>: <value>/);
+    expect(() => parseHeaderFlags(['X-Team: a\r\nX-Evil: 1'])).toThrow(/can't carry/);
+    expect(() => parseHeaderFlags(['X-Team: ${V}'], { V: 'a\nb' })).toThrow(/can't carry/);
     expect(mcpServerUrl('https://mcp.example.com/mcp', true).host).toBe('mcp.example.com');
     expect(mcpServerUrl('http://127.0.0.1:3000/mcp', true).port).toBe('3000');
     expect(mcpServerUrl('http://mcp.internal/mcp', false).host).toBe('mcp.internal');
