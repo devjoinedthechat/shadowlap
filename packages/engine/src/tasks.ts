@@ -347,7 +347,9 @@ export function describeTask(input: TaskInput): Task {
   // The scope the model under test plays: the task's, blame's, or the only one there is.
   const models = modelCalls(golden.calls);
   base.scopes = uniq(models.map(scopeOf));
-  base.scope = fields.scope ?? blamedScope(golden, input.ancestors ?? []) ?? (base.scopes.length === 1 ? (base.scopes[0] ?? null) : null);
+  // Blame's scope counts when the golden still makes calls in it: a run it came from may predate a renamed scope.
+  const blamed = blamedScope(golden, input.ancestors ?? []);
+  base.scope = fields.scope ?? (blamed !== null && models.some((c) => scopeOf(c) === blamed) ? blamed : null) ?? (base.scopes.length === 1 ? (base.scopes[0] ?? null) : null);
   if (fields.scope !== undefined && !models.some((c) => scopeOf(c) === fields.scope)) return { ...base, status: 'not-a-task', note: `no model call of the golden's run is made in scope ${fields.scope}` };
 
   let takeover: Takeover | null;
