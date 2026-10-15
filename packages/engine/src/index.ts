@@ -12,7 +12,7 @@ export type { CreateRunInput, NewStoredEvent, StoredEvent } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
-export { CONFIG_FILE, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, findRule, parseRules, readConfigFile, readRules, removeRule, ruleNoun, setClock, validateRule } from './config-file.js';
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, ruleNoun, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';

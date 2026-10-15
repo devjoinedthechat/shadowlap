@@ -42,7 +42,7 @@ A rule is a pattern, a path, or both:
 - Scope with `--kind` (`api`, `tool`, `clock`, `random`) and `--name` (a tool name, or `POST /v1/messages`).
 - `--replace` is what a match becomes; `<MASKED>` when it is left out.
 
-`add` refuses a rule with neither a path nor a pattern, which would change nothing, a pattern that matches an empty string, and a pattern or path it can't read, with the reason. Adding a rule that is already there changes nothing.
+`add` refuses, with the reason: a rule with neither a path nor a pattern, which would change nothing; a pattern that can match no text at all, such as `/x*/`, `/\b/` or `/(?=sk-)/`, which would insert the replacement instead of masking anything; `--path '$'` with no pattern unless `--name` scopes it to one tool or call, which would make every call look the same; and a pattern or path it can't read. Adding a rule that is already there changes nothing.
 
 `ls` numbers the rules, and `rm` takes that number (`2` or `#2`), or the tool name, path or pattern of exactly one rule: `shadowlap normalize rm create_ticket`. The rules after a removed one move up a number. `ls --json` prints the file, its version and every rule with its number; a rule the config can no longer load is listed with the reason, so `rm` can take it out.
 
@@ -110,7 +110,7 @@ Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool
 
 `pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request and the raw text of responses and tool results. The local store is never modified. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean. `--no-redact` skips the rules.
 
-Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`), and one that puts the match back (`$&`). Redaction is pattern-based: it masks what your rules describe and nothing else. A value a streamed response splits across two events is not matched, so check the preview, and review a pack before sharing it.
+Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`). It also refuses a replacement that copies matched text back into the copy (`$&`, `$1`, `$<name>`, `` $` `` or `$'`); `$$` is a literal dollar sign. To keep the text around a secret, match only the secret, with a lookbehind for what comes before it: `--pattern '/(?<=key=)\w+/'`. Redaction is pattern-based: it masks what your rules describe and nothing else. A value a streamed response splits across two events is not matched, so check the preview, and review a pack before sharing it.
 
 Credentials never need redacting: API keys and authorization headers are forwarded upstream and never stored in the first place.
 
@@ -150,7 +150,7 @@ Each rule shows how many values it would mask and up to two of them before and a
 
 `normalize add` and `rm`, `redact add` and `rm`, and `calibrate --write` edit `shadowlap.config.json` through one editor, with the same checks:
 
-- One edit at a time: an edit takes `shadowlap.config.json.lock` beside the file, and waits for another to finish. A lock left behind by a crash expires after ten seconds.
+- One edit at a time: an edit takes `shadowlap.config.json.lock` beside the file, and waits up to two seconds for another to finish. The lock names the process holding it: a lock whose process is gone is taken over at once, any other after ten seconds untouched, and a writer only ever removes its own. The dashboard waits for the lock without holding up anything else it is doing.
 - An edit replaces the file with one rename, so the file is never half written.
 - Every key the edit doesn't touch keeps its place and its value, keys this version doesn't know included, and the file keeps its indentation and line endings.
 - `--expect <version>` on `add` and `rm` refuses the edit when the file is no longer the version `ls --json` printed, so a script that read rule #2 never removes a rule someone added in the meantime.

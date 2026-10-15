@@ -1,9 +1,12 @@
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CONFIG_FILE,
+  ConfigBusyError,
   ConfigConflictError,
   ConfigFileError,
   NO_CONFIG,
@@ -12,6 +15,7 @@ import {
   addRules,
   configClock,
   editConfigFile,
+  editWhenFree,
   findRule,
   parseRules,
   readConfigFile,
@@ -85,7 +89,18 @@ describe('validateRule', () => {
       ['normalize', { path: '$.a', extra: 1 }, /no field extra/],
       ['normalize', { pattern: '/x*/' }, /matches an empty string/],
       ['redact', { pattern: 'number', replace: 'n0 and 1' }, /would rewrite its own replacement/],
-      ['redact', { pattern: 'email', replace: '[$&]' }, /puts the matched text back/],
+      ['redact', { pattern: 'email', replace: '[$&]' }, /copies matched text back \(\$&\)/],
+      // A capture that is the whole match puts the secret back: "key [sk-abc123] end".
+      ['redact', { pattern: '/(sk-[a-z0-9]+)/', replace: '[$1]' }, /copies matched text back \(\$1\)/],
+      ['redact', { pattern: '/(?<k>sk-[a-z0-9]+)/', replace: '<$<k>>' }, /copies matched text back \(\$<name>\)/],
+      ['redact', { pattern: '/key=\\w+/', replace: "$'" }, /copies matched text back/],
+      // Matching no text inserts the replacement and masks nothing.
+      ['normalize', { pattern: '/(?<=a)/' }, /can match without matching any text/],
+      ['redact', { pattern: '/(?=sk-)/', replace: '<KEY>' }, /can match without matching any text \(in "\/\(\?=sk-\)\/"\)/],
+      ['normalize', { pattern: '/\\b/' }, /can match without matching any text/],
+      // The whole request with no pattern: every call would look the same.
+      ['normalize', { path: '$' }, /\$ with no pattern replaces the whole of every request/],
+      ['redact', { kind: 'api', path: '$', replace: '<R>' }, /replaces the whole of every api request/],
       ['normalize', 'uuid', /a rule is an object/],
     ];
     for (const [list, input, message] of bad) {
@@ -94,6 +109,12 @@ describe('validateRule', () => {
     }
     // Idempotent replacements are fine, even when the pattern matches them: /.+/ turns <KEY> into <KEY>.
     expect(validateRule('redact', { kind: 'tool', path: '$.args.api_key', pattern: '/.+/', replace: '<KEY>' })).toMatchObject({ pattern: '/.+/' });
+    // A literal dollar sign, a lookbehind that keeps the context, a normalizer that keeps a prefix.
+    expect(validateRule('redact', { pattern: '/(?<=key=)\\w+/', replace: '$$<KEY>' }).replace).toBe('$$<KEY>');
+    expect(validateRule('normalize', { pattern: '/(user_)\\d+/', replace: '$1<N>' }).replace).toBe('$1<N>');
+    // The whole request of one named tool, or the whole request through a pattern.
+    expect(validateRule('normalize', { kind: 'tool', name: 'get_time', path: '$' })).toEqual({ kind: 'tool', name: 'get_time', path: '$', replace: '<MASKED>' });
+    expect(validateRule('redact', { path: '$', pattern: 'email' })).toMatchObject({ path: '$', pattern: 'email' });
   });
 });
 
@@ -233,12 +254,67 @@ describe('versions and concurrent writers', () => {
     const { result } = editConfigFile(cwd, {}, (data) => {
       data.normalize = [{ path: '$.a', replace: '<A>' }];
       // A writer that started meanwhile has to wait for the lock rather than read the old file.
-      expect(() => addRule(cwd, 'normalize', { path: '$.b', replace: '<B>' })).toThrow(ConfigConflictError);
+      expect(() => addRule(cwd, 'normalize', { path: '$.b', replace: '<B>' }, { wait: 100 })).toThrow(ConfigBusyError);
       return 'done';
     });
     expect(result).toBe('done');
     expect(addRule(cwd, 'normalize', { path: '$.b', replace: '<B>' }).n).toBe(2);
   }, 10_000);
+
+  it('takes over a lock whose writer is gone at once, and removes only its own lock', () => {
+    const gone = spawnSync(process.execPath, ['-e', '']).pid!;
+    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: gone, host: hostname(), token: 'x' }));
+    const started = Date.now();
+    expect(addRule(cwd, 'normalize', { path: '$.a', replace: '<A>' }).added).toBe(true);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(existsSync(`${file()}.lock`)).toBe(false);
+
+    // A lock someone else holds now (here: taken over while this edit ran) is theirs to remove.
+    const theirs = JSON.stringify({ pid: process.pid, host: hostname(), token: 'theirs' });
+    editConfigFile(cwd, {}, (data) => {
+      writeFileSync(`${file()}.lock`, theirs);
+      data.clock = 'exact';
+    });
+    expect(readFileSync(`${file()}.lock`, 'utf8')).toBe(theirs);
+    // Held by a live process and fresh: a server's edit doesn't wait, it is told to try again.
+    expect(() => addRule(cwd, 'normalize', { path: '$.b', replace: '<B>' }, { wait: 0 })).toThrow(ConfigBusyError);
+    expect(() => addRule(cwd, 'normalize', { path: '$.b', replace: '<B>' }, { wait: 0 })).toThrow(/being edited by another command; try again/);
+  });
+
+  it('lets a server wait for the lock without blocking', async () => {
+    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: process.pid, host: hostname(), token: 'other' }));
+    let ticks = 0;
+    const timer = setInterval(() => ticks++, 5);
+    setTimeout(() => rmSync(`${file()}.lock`), 150);
+    const r = await editWhenFree((o) => addRule(cwd, 'redact', { pattern: 'email' }, { ...o, expect: NO_CONFIG }));
+    clearInterval(timer);
+    expect(r.added).toBe(true);
+    expect(ticks).toBeGreaterThan(5);
+    // Still busy when the time is up: the edit is refused, and a conflict isn't retried.
+    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: process.pid, host: hostname(), token: 'other' }));
+    await expect(editWhenFree((o) => addRule(cwd, 'redact', { pattern: 'uuid' }, o), 50)).rejects.toThrow(ConfigBusyError);
+    rmSync(`${file()}.lock`);
+    await expect(editWhenFree((o) => addRule(cwd, 'redact', { pattern: 'uuid' }, { ...o, expect: NO_CONFIG }))).rejects.toThrow(/changed since it was read/);
+  });
+
+  it('keeps every rule when many processes add one at once, with a lock left by a crash in the way', async () => {
+    const engine = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+    const gone = spawnSync(process.execPath, ['-e', '']).pid!;
+    writeFileSync(`${file()}.lock`, JSON.stringify({ pid: gone, host: hostname(), token: 'crashed' }));
+    const script = (i: number) => `const { addRule } = await import(${JSON.stringify(`file://${engine}`)}); addRule(${JSON.stringify(cwd)}, 'normalize', { path: '$.field${i}', replace: '<F${i}>' }, { wait: 20000 });`;
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, i) => new Promise<[number | null, string]>((resolve) => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e', script(i)], { stdio: ['ignore', 'ignore', 'pipe'] });
+        let err = '';
+        child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+        child.on('close', (code) => resolve([code, err]));
+      })),
+    );
+    expect(results.filter(([code]) => code !== 0)).toEqual([]);
+    const paths = (json().normalize as Array<{ path: string }>).map((r) => r.path).sort();
+    expect(paths).toEqual(Array.from({ length: 12 }, (_, i) => `$.field${i}`).sort());
+    expect(readdirSync(cwd)).toEqual([CONFIG_FILE]);
+  }, 30_000);
 
   it('writes through a symbolic link and keeps the file mode', () => {
     if (process.platform === 'win32') return;

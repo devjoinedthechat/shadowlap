@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, fchmodSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fchmodSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { ClockMode } from './clock.js';
 import { compilePattern, namedPatterns, parsePath } from './normalize.js';
@@ -44,7 +45,12 @@ export class ConfigFileError extends Error {
 
 /** The file changed since the version an edit was based on, or another edit holds the lock. */
 export class ConfigConflictError extends Error {
-  override readonly name = 'ConfigConflictError';
+  override readonly name: string = 'ConfigConflictError';
+}
+
+/** Another edit holds the lock: try again in a moment (editWhenFree does). */
+export class ConfigBusyError extends ConfigConflictError {
+  override readonly name = 'ConfigBusyError';
 }
 
 /** A rule, or a reference to one, that the CLI would refuse. */
@@ -170,8 +176,11 @@ function checkStored(entry: unknown): Normalizer {
  * /regex/flags literal, with or without a path; a path with no pattern, which replaces the whole
  * value there; a scope by kind and by name (a tool name, or a call name such as
  * "POST /v1/messages"). Refused: a rule with neither a path nor a pattern, which would change
- * nothing; and for redaction, a replacement that the rule would rewrite again, or that puts the
- * matched text back, because a redacted pack replays with its rules applied a second time.
+ * nothing; a pattern that can match no text at all, which would insert the replacement instead of
+ * masking anything; the whole request (`$`) replaced with no pattern and no name, which would make
+ * every call of its kind look the same; and for redaction, a replacement that the rule would
+ * rewrite again, because a redacted pack replays with its rules applied a second time, or that
+ * copies matched text back ($&, $1, $<name>, $` or $').
  */
 export function validateRule(list: RuleList, input: unknown): Normalizer {
   if (!isObject(input)) throw new RuleError('a rule is an object with a path, a pattern or both, and what to replace them with');
@@ -179,15 +188,42 @@ export function validateRule(list: RuleList, input: unknown): Normalizer {
   if (unknown.length) throw new RuleError(`a rule has no field ${unknown[0]}: it takes kind, name, path, pattern and replace`);
   const rule = checkShape({ ...input, replace: input.replace ?? DEFAULT_REPLACE[list] }, RULE_KINDS[list], true);
   if (rule.path === undefined && rule.pattern === undefined) throw new RuleError('give a path, a pattern or both: a rule with neither would change nothing');
-  if (rule.pattern !== undefined && compilePattern(rule.pattern).test('')) throw new RuleError(`${rule.pattern} matches an empty string, so it would put the replacement between every character`);
+  if (rule.pattern !== undefined) {
+    const re = compilePattern(rule.pattern);
+    if (re.test('')) throw new RuleError(`${rule.pattern} matches an empty string, so it would put the replacement between every character`);
+    const empty = emptyMatch(re, [rule.pattern, rule.pattern.replace(/\\/g, ''), rule.replace, ...PROBES]);
+    if (empty !== null) throw new RuleError(`${rule.pattern} can match without matching any text (in "${empty}"), so it would insert the replacement there instead of masking anything: match the text itself, with a lookbehind for what comes before it`);
+  }
+  if (rule.path !== undefined && rule.pattern === undefined && rule.name === undefined && parsePath(rule.path).length === 0) {
+    throw new RuleError(`${rule.path} with no pattern replaces the whole of every ${rule.kind ? `${rule.kind} ` : ''}request, so every call would look the same: give a pattern, a deeper path, or --name to scope it to one tool or call`);
+  }
   if (list === 'redact' && rule.pattern !== undefined) {
-    if (rule.replace.includes('$&')) throw new RuleError('the replacement puts the matched text back ($&), so nothing would be masked');
+    const back = /\$(?:[&`']|\d|<)/.exec(rule.replace.replace(/\$\$/g, ''));
+    if (back) throw new RuleError(`the replacement copies matched text back (${back[0]}${back[0] === '$<' ? 'name>' : ''}), so a redacted copy would still carry it: use plain text, $$ for a dollar sign, and a lookbehind such as /(?<=key=)\\w+/ to keep what comes before the secret`);
     const re = compilePattern(rule.pattern);
     if (rule.replace.replace(re, rule.replace) !== rule.replace) {
       throw new RuleError(`${rule.pattern} would rewrite its own replacement "${rule.replace}": a redacted pack replays with its rules applied a second time, so pick a replacement the pattern leaves as it is`);
     }
   }
   return rule;
+}
+
+/** Text a pattern is tried on for a match of no characters: ids, keys, dates, addresses and punctuation. */
+const PROBES = [
+  'a A z Z 0 9 _ - . / : @ # = & ? % + , ; ! ~ * ( ) [ ] { } < > " \' ` \\ |',
+  'sk-ant-abc123 ghp_AbC123 key=value token: abc.def.ghi Bearer xyz user_42 id-7f3a',
+  'alice@example.com 2026-09-16T10:31:22Z 2026-09-16 1758018682000 3.14 -12',
+  '123e4567-e89b-12d3-a456-426614174000 01ARZ3NDEKTSV4RRFFQ69G5FAV /tmp/agent-x9 https://api.example.com/v1?q=1',
+  'The quick brown fox jumps over the lazy dog.\nLine two\r\n\tTabbed',
+];
+
+/** The first of `texts` where `re` matches no characters at some position; null when it never does. */
+function emptyMatch(re: RegExp, texts: readonly string[]): string | null {
+  const global = new RegExp(re.source, re.flags.replace('y', '').includes('g') ? re.flags.replace('y', '') : `${re.flags.replace('y', '')}g`);
+  for (const text of texts) {
+    for (const m of text.matchAll(global)) if (m[0] === '') return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  }
+  return null;
 }
 
 /**
@@ -256,6 +292,12 @@ export interface EditOptions {
    * edit the file as it is when the edit runs, as the CLI does.
    */
   expect?: string;
+  /**
+   * How long to wait, in milliseconds, while another edit holds the lock: 2000 by default. The wait
+   * blocks the thread, which suits a command; a server passes 0, which throws ConfigBusyError at
+   * once, and retries without blocking through editWhenFree.
+   */
+  wait?: number;
 }
 
 /** An activity event an edit leaves, for recordEvent(store, { ...event, actor }). */
@@ -283,36 +325,121 @@ function writeTarget(path: string): string {
   }
 }
 
-/** Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes; a lock left by a crash expires. */
-function withLock<T>(target: string, fn: () => T): T {
-  const lock = `${target}.lock`;
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * A lock left by a writer that is gone: its process no longer runs on this machine, or (for a lock
+ * from another machine on a shared folder, or one whose owner can't be read) nobody touched it for
+ * a while.
+ */
+function stale(owner: string, mtimeMs: number): boolean {
+  try {
+    const o = JSON.parse(owner) as { pid?: unknown; host?: unknown };
+    if (o.host === hostname() && typeof o.pid === 'number' && Number.isInteger(o.pid) && o.pid > 0 && !alive(o.pid)) return true;
+  } catch {
+    // written by something else, or still being written: go by its age
+  }
+  return Date.now() - mtimeMs > LOCK_STALE_MS;
+}
+
+const readOr = (path: string, fallback: string | null): string | null => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return fallback;
+  }
+};
+
+/**
+ * Moves a stale lock out of the way, if it is still the one `seen`: renaming is atomic, so of two
+ * writers that found the same stale lock only one moves it. One that moved a fresh lock instead
+ * (taken between its look and its move) puts it back and waits like everyone else.
+ */
+function breakStale(lock: string, seen: string): void {
+  const aside = `${lock}.${process.pid}.${randomBytes(4).toString('hex')}.stale`;
+  try {
+    renameSync(lock, aside);
+  } catch {
+    return; // released or broken meanwhile
+  }
+  if (readOr(aside, null) !== seen) {
     try {
-      closeSync(openSync(lock, 'wx'));
-      break;
+      linkSync(aside, lock);
+    } catch {
+      // another lock was taken meanwhile; its owner and the one moved aside both finish first
+    }
+  }
+  rmSync(aside, { force: true });
+}
+
+/**
+ * Runs `fn` holding `<file>.lock`, which every Shadowlap writer takes. The lock names its owner, so
+ * a lock left by a crash is taken over at once on the same machine (after LOCK_STALE_MS otherwise),
+ * and a writer only ever removes its own.
+ */
+function withLock<T>(target: string, wait: number, fn: () => T): T {
+  const lock = `${target}.lock`;
+  const owner = JSON.stringify({ pid: process.pid, host: hostname(), token: randomBytes(8).toString('hex'), at: new Date().toISOString() });
+  const deadline = Date.now() + wait;
+  for (;;) {
+    let fd: number | null = null;
+    try {
+      fd = openSync(lock, 'wx', 0o644);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) {
-          unlinkSync(lock);
-          continue;
-        }
-      } catch {
-        continue; // released between the two calls
-      }
-      if (Date.now() > deadline) throw new ConfigConflictError(`${CONFIG_FILE} is being edited by another command; try again`);
-      pause(10);
     }
+    if (fd !== null) {
+      try {
+        writeSync(fd, owner);
+      } finally {
+        closeSync(fd);
+      }
+      break;
+    }
+    let seen: string | null = null;
+    let mtimeMs = 0;
+    try {
+      mtimeMs = statSync(lock).mtimeMs;
+      seen = readFileSync(lock, 'utf8');
+    } catch {
+      continue; // released between the two calls
+    }
+    if (stale(seen, mtimeMs)) {
+      breakStale(lock, seen);
+      continue;
+    }
+    if (Date.now() >= deadline) throw new ConfigBusyError(`${CONFIG_FILE} is being edited by another command; try again`);
+    pause(10 + Math.floor(Math.random() * 15));
   }
   try {
     return fn();
   } finally {
+    if (readOr(lock, null) === owner) rmSync(lock, { force: true });
+  }
+}
+
+/**
+ * Runs a config edit without blocking the thread while another writer holds the lock, for a server
+ * that must keep answering: the edit is tried at once and again every few milliseconds, with the
+ * thread free in between, for up to `waitMs`. `edit` gets the options to pass on:
+ * `await editWhenFree((o) => addRule(cwd, 'normalize', input, { ...o, expect }))`.
+ */
+export async function editWhenFree<T>(edit: (options: { wait: 0 }) => T, waitMs = LOCK_WAIT_MS): Promise<T> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
     try {
-      unlinkSync(lock);
-    } catch {
-      // already gone
+      return edit({ wait: 0 });
+    } catch (err) {
+      if (!(err instanceof ConfigBusyError) || Date.now() >= deadline) throw err;
     }
+    await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 15));
   }
 }
 
@@ -349,7 +476,7 @@ function replaceFile(target: string, text: string, existed: boolean): void {
 export function editConfigFile<T>(cwd: string, options: EditOptions, mutate: (data: Record<string, unknown>, file: ConfigFile) => T): { file: ConfigFile; result: T; changed: boolean } {
   const path = configFilePath(cwd);
   const target = writeTarget(path);
-  return withLock(target, () => {
+  return withLock(target, options.wait ?? LOCK_WAIT_MS, () => {
     const current = readConfigFile(cwd);
     if (options.expect !== undefined && options.expect !== current.version) {
       throw new ConfigConflictError(`${CONFIG_FILE} changed since it was read; reload it and try again`);
