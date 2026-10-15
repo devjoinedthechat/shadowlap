@@ -37,16 +37,21 @@ export function configPath(cwd: string): string {
 }
 
 /**
- * The project's config, checked. A missing file is an empty config. Rules are checked as every
- * writer checks them (a bad pattern or path, or a kind that doesn't exist, is reported with the
- * rule's number as `ls` shows it) rather than failing the first call that would apply them.
+ * The project's config. A missing file is an empty config. Each list of rules is checked when a
+ * command first uses it, as every writer checks a rule (a bad pattern or path, or a kind that
+ * doesn't exist, is named with the rule's number as `ls` shows it), so a broken redaction rule
+ * stops `pack` and the exports, which apply it, but not a recording, and a broken normalizer stops
+ * what records or replays, but not the dashboard that shows it and can remove it. Everything else
+ * is checked here.
  */
 export function loadConfig(cwd: string): ShadowlapConfig {
   const stored = readConfigFile(cwd);
   if (!stored.exists) return { normalize: [], redact: [] };
   const file = CONFIG_FILE;
   const parsed = stored.data as Partial<ShadowlapConfig>;
-  const config: ShadowlapConfig = { normalize: parseRules(parsed.normalize, 'normalize'), redact: parseRules(parsed.redact, 'redact') };
+  const config = {} as ShadowlapConfig;
+  Object.defineProperty(config, 'normalize', checkedOnFirstUse('normalize', parsed.normalize));
+  Object.defineProperty(config, 'redact', checkedOnFirstUse('redact', parsed.redact));
   if (parsed.clock !== undefined) {
     if (parsed.clock !== 'auto' && parsed.clock !== 'exact') throw new Error(`${file}: clock must be "auto" or "exact"`);
     config.clock = parsed.clock;
@@ -80,6 +85,12 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     config.mcp = { effects };
   }
   return config;
+}
+
+/** A list of rules as a property that checks it the first time a command reads it. */
+function checkedOnFirstUse(list: 'normalize' | 'redact', raw: unknown): PropertyDescriptor {
+  let rules: Normalizer[] | undefined;
+  return { enumerable: true, get: () => (rules ??= parseRules(raw, list)) };
 }
 
 function parsePrices(raw: unknown, file = CONFIG_FILE): Record<string, Price> | null {

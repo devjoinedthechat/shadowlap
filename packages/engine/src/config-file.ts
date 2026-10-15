@@ -99,7 +99,8 @@ export const RULE_KINDS: Record<RuleList, readonly CallKind[]> = { normalize: ['
 export const DEFAULT_REPLACE: Record<RuleList, string> = { normalize: '<MASKED>', redact: '<REDACTED>' };
 
 const ALL_KINDS: readonly CallKind[] = ['api', 'tool', 'clock', 'random'];
-const LIMITS = { name: 200, path: 500, pattern: 1000, replace: 500 };
+/** For a rule typed into a form or a command line: room for any real rule, a bound on what a request can send. */
+const LIMITS = { name: 200, path: 500, pattern: 10_000, replace: 500 };
 const NOUN: Record<RuleList, [string, string]> = { normalize: ['normalizer', 'normalizers'], redact: ['redaction rule', 'redaction rules'] };
 
 /** `normalizer` or `redaction rule`, as messages and listings name them. */
@@ -111,22 +112,25 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const FIELDS = ['kind', 'name', 'path', 'pattern', 'replace'] as const;
 
 /**
- * The checks every rule passes, however it got there. `blankIsAbsent` reads an empty text field as
- * not given, as an empty form field means; in the file an empty path or pattern is a mistake.
+ * The checks every rule passes, however it got there. `input` is a rule typed into a form or a
+ * command line: an empty text field reads as not given, and the length limits apply. A rule in the
+ * file is the user's own, so no limit applies to it (a long alternation of customer names is a
+ * fine redaction rule), and an empty path or pattern there is a mistake.
  */
-function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], blankIsAbsent: boolean): Normalizer {
-  const pick = (x: unknown): unknown => (x === null || (blankIsAbsent && x === '') ? undefined : x);
+function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], input: boolean): Normalizer {
+  const pick = (x: unknown): unknown => (x === null || (input && x === '') ? undefined : x);
   const kind = pick(v.kind);
   const name = pick(v.name);
   const path = pick(v.path);
   const pattern = pick(v.pattern);
   const replace = v.replace;
+  const tooLong = (field: keyof typeof LIMITS, text: string) => input && text.length > LIMITS[field];
   if (kind !== undefined && (typeof kind !== 'string' || !(kinds as readonly string[]).includes(kind))) throw new RuleError(`kind must be one of ${kinds.join(', ')}`);
   if (name !== undefined && (typeof name !== 'string' || !name.trim())) throw new RuleError('name must be a tool name, or a call name such as "POST /v1/messages"');
-  if (typeof name === 'string' && (name.length > LIMITS.name || /[\u0000-\u001f]/.test(name))) throw new RuleError(`name must be one line of at most ${LIMITS.name} characters`);
+  if (typeof name === 'string' && (tooLong('name', name) || (input && /[\u0000-\u001f]/.test(name)))) throw new RuleError(`name must be one line of at most ${LIMITS.name} characters`);
   if (path !== undefined) {
     if (typeof path !== 'string') throw new RuleError('path must be a JSONPath such as $.metadata.user_id');
-    if (path.length > LIMITS.path) throw new RuleError(`path must be at most ${LIMITS.path} characters`);
+    if (tooLong('path', path)) throw new RuleError(`path must be at most ${LIMITS.path} characters`);
     try {
       parsePath(path);
     } catch (err) {
@@ -135,7 +139,7 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], blan
   }
   if (pattern !== undefined) {
     if (typeof pattern !== 'string') throw new RuleError(`pattern must be ${namedPatterns().join(', ')} or a /regex/flags literal`);
-    if (pattern.length > LIMITS.pattern) throw new RuleError(`pattern must be at most ${LIMITS.pattern} characters`);
+    if (tooLong('pattern', pattern)) throw new RuleError(`pattern must be at most ${LIMITS.pattern} characters`);
     try {
       compilePattern(pattern);
     } catch (err) {
@@ -143,7 +147,7 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], blan
     }
   }
   if (typeof replace !== 'string') throw new RuleError('replace must be text, such as <UUID>');
-  if (replace.length > LIMITS.replace) throw new RuleError(`replace must be at most ${LIMITS.replace} characters`);
+  if (tooLong('replace', replace)) throw new RuleError(`replace must be at most ${LIMITS.replace} characters`);
   return {
     ...(kind !== undefined ? { kind: kind as CallKind } : {}),
     ...(name !== undefined ? { name: name as string } : {}),

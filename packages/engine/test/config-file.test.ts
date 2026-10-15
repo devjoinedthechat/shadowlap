@@ -107,6 +107,14 @@ describe('parseRules', () => {
     // A scope the schema allows is loaded, even where `redact add` doesn't offer it.
     expect(parseRules([{ kind: 'random', pattern: 'number', replace: '0' }], 'redact')).toHaveLength(1);
   });
+
+  it('applies no length limit to the rules in the file, only to what a form or a command line sends', () => {
+    const long = `/${Array.from({ length: 1500 }, (_, i) => `name${i}`).join('|')}/`;
+    expect(long.length).toBeGreaterThan(10_000);
+    expect(parseRules([{ pattern: long, replace: '<NAME>' }, { name: `tool\n${'x'.repeat(300)}`, path: '$.a', replace: 'y'.repeat(600) }], 'redact')).toHaveLength(2);
+    expect(() => validateRule('redact', { pattern: long, replace: '<NAME>' })).toThrow(/pattern must be at most 10000 characters/);
+    expect(validateRule('redact', { pattern: `/${Array.from({ length: 300 }, (_, i) => `name${i}`).join('|')}/`, replace: '<NAME>' }).pattern!.length).toBeGreaterThan(2000);
+  });
 });
 
 describe('addRules and removeRule', () => {

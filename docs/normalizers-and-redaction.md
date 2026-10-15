@@ -46,6 +46,8 @@ A rule is a pattern, a path, or both:
 
 `ls` numbers the rules, and `rm` takes that number (`2` or `#2`), or the tool name, path or pattern of exactly one rule: `shadowlap normalize rm create_ticket`. The rules after a removed one move up a number. `ls --json` prints the file, its version and every rule with its number; a rule the config can no longer load is listed with the reason, so `rm` can take it out.
 
+A rule that can't be loaded (a misspelled pattern, a path that isn't one) stops only what applies it, with its number and the reason: a broken normalizer stops `run`, `replay`, `calibrate` and `test`; a broken redaction rule stops `pack`, the exports and `redact preview`, never a recording. The dashboard opens either way, and a run downloaded from it as HTML is refused, not shared without the rule. The limits `add` puts on a rule's length are for what a command line or the dashboard sends; a long rule you write into the file yourself loads as it is.
+
 Normalizers apply at match time: adding one makes older recordings match too, because the parent's fingerprints are recomputed from its stored requests under the current rules when a replay starts.
 
 When a divergence is only a date, time, UUID or ULID, the report proposes the rule:

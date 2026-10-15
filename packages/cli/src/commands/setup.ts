@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { RULE_KINDS, addRule, describeRule, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RuleList } from '@shadowlap/engine';
+import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RuleList } from '@shadowlap/engine';
 import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
 import { formatInit, inspectProject, writeInitialConfig } from '../init.js';
@@ -107,9 +107,17 @@ function registerRules(program: Command, list: RuleList): void {
     .action((flags: { json?: boolean }) => {
       const file = readConfigFile(process.cwd());
       const rules = readRules(file, list);
+      // A list of rules that is not a list is a mistake every other command stops on: say so here too.
+      const raw = file.data[list];
+      const error = raw !== undefined && raw !== null && !Array.isArray(raw) ? `${CONFIG_FILE}: ${list} must be a list of rules` : null;
+      if (error) process.exitCode = 1;
       if (flags.json) {
         const out = rules.map((r, i) => (r.error === null ? { n: i + 1, ...r.rule } : { n: i + 1, error: r.error, rule: r.rule }));
-        process.stdout.write(JSON.stringify({ file: file.path, exists: file.exists, version: file.version, rules: out }, null, 2) + '\n');
+        process.stdout.write(JSON.stringify({ file: file.path, exists: file.exists, version: file.version, error, rules: out }, null, 2) + '\n');
+        return;
+      }
+      if (error) {
+        process.stderr.write(`${p.red('✗')} ${error}, such as [{ "pattern": "uuid", "replace": "<UUID>" }]\n`);
         return;
       }
       if (rules.length === 0) {

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import type { DashboardOptions } from '@shadowlap/dashboard';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
@@ -28,7 +29,7 @@ export function register(program: Command): void {
       const { startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
       // Actions run this same CLI against the same store, like the terminal UI's.
       const spawnCli = (args: string[]) => spawn(process.execPath, [process.argv[1]!, '--db', dbPath, ...args], { cwd: process.cwd(), env: { ...process.env, NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      const dash = await startDashboard({ store, dbPath, port: flags.port, spawnCli, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), ...(config.redact.length ? { redact: config.redact } : {}), ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}) });
+      const dash = await startDashboard(withProjectRedaction({ store, dbPath, port: flags.port, spawnCli, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}) }));
       telemetry().record({ type: 'ui' });
       void telemetry().flush();
       const link = runId ? dash.runUrl(runId, flags.call) : dash.openUrl;
@@ -65,7 +66,7 @@ export function register(program: Command): void {
       let dashboard: Promise<import('@shadowlap/dashboard').Dashboard> | undefined;
       const openDashboard = async (id: string, callNo?: number) => {
         const { startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
-        dashboard ??= startDashboard({ store, dbPath, port: 4777, spawnCli, version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) }).catch((err: unknown) => {
+        dashboard ??= startDashboard(withProjectRedaction({ store, dbPath, port: 4777, spawnCli, version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) })).catch((err: unknown) => {
           dashboard = undefined;
           throw err;
         });
@@ -315,4 +316,14 @@ export function register(program: Command): void {
       }
     });
 
+}
+
+/**
+ * The dashboard's options with the project's redaction rules read from shadowlap.config.json each
+ * time a run is downloaded as HTML, not once at start: a rule added in Settings applies at once, and
+ * a broken rule fails the download, naming the rule, instead of stopping the dashboard that can
+ * show and remove it.
+ */
+function withProjectRedaction(options: DashboardOptions, cwd = process.cwd()): DashboardOptions {
+  return Object.defineProperty(options, 'redact', { enumerable: true, get: () => loadConfig(cwd).redact });
 }

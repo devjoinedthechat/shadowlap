@@ -122,10 +122,72 @@ describe('shadowlap normalize', () => {
     writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ path: '$.a', replace: '<A>' }, { pattern: 'uuidd', replace: '<U>' }] }));
     expect((await shadowlap(['normalize', 'ls'])).out).toMatch(/#2 +✗ unknown pattern "uuidd"/);
     expect(JSON.parse((await shadowlap(['normalize', 'ls', '--json'])).out).rules[1]).toMatchObject({ n: 2, error: expect.stringContaining('uuidd') });
-    // Everything that loads the config names the broken rule.
-    expect((await shadowlap(['redact', 'preview'])).err).toContain('shadowlap.config.json: normalizer #2: unknown pattern "uuidd"');
+    // What applies normalizers names the broken rule before it records anything.
+    const run = await shadowlap(['run', '--', process.execPath, '-e', '']);
+    expect(run).toMatchObject({ code: 1, err: expect.stringContaining('shadowlap.config.json: normalizer #2: unknown pattern "uuidd"') });
     expect((await shadowlap(['normalize', 'rm', 'uuidd'])).code).toBe(0);
     expect(config().normalize).toEqual([{ path: '$.a', replace: '<A>' }]);
+  });
+
+  it('says when a list of rules is not a list', async () => {
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize: { pattern: 'uuid', replace: '<U>' } }));
+    const r = await shadowlap(['normalize', 'ls']);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('shadowlap.config.json: normalize must be a list of rules') });
+    const json = await shadowlap(['normalize', 'ls', '--json']);
+    expect(json.code).toBe(1);
+    expect(JSON.parse(json.out)).toMatchObject({ error: 'shadowlap.config.json: normalize must be a list of rules', rules: [] });
+    expect(JSON.parse((await shadowlap(['redact', 'ls', '--json'])).out)).toMatchObject({ error: null, rules: [] });
+  });
+});
+
+describe('a broken or long rule in the file', () => {
+  /** `shadowlap dashboard` in the background: its address and session token, and how to stop it. */
+  function dashboard(): Promise<{ origin: string; token: string; stop: () => Promise<void> }> {
+    const child = spawn(process.execPath, [CLI, 'dashboard', '--no-open'], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const closed = new Promise<void>((resolve) => child.on('close', () => resolve()));
+    let err = '';
+    return new Promise((resolve, reject) => {
+      child.stderr!.on('data', (d: Buffer) => {
+        err += d.toString();
+        const link = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(err);
+        if (link) resolve({ origin: link[1]!, token: link[2]!, stop: () => (child.kill('SIGTERM'), closed) });
+      });
+      void closed.then(() => reject(new Error(`the dashboard exited: ${err}`)));
+    });
+  }
+
+  it('starts the dashboard and records, and stops only what applies the broken rule, naming it', async () => {
+    const { done } = seedRuns();
+    // A long alternation of customer names is a fine rule; a misspelled pattern is not.
+    const names = Array.from({ length: 300 }, (_, i) => `customer${String(i).padStart(3, '0')}`).join('|');
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ pattern: 'uuidd', replace: '<U>' }], redact: [{ pattern: `/${names}/g`, replace: '<NAME>' }, { pattern: 'emial', replace: '<E>' }] }));
+    expect(names.length).toBeGreaterThan(2000);
+
+    const dash = await dashboard();
+    try {
+      // A download applies the redaction rules as they are now: a broken one fails it rather than leaving the rule out.
+      const res = await fetch(`${dash.origin}/api/runs/${done}/export`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(res.status).toBe(500);
+      expect(((await res.json()) as { error: string }).error).toContain('shadowlap.config.json: redaction rule #2: unknown pattern "emial"');
+      expect((await shadowlap(['redact', 'rm', '2'])).code).toBe(0);
+      const ok = await fetch(`${dash.origin}/api/runs/${done}/export`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(ok.status).toBe(200);
+      expect(ok.headers.get('x-shadowlap-redacted')).toBe('yes');
+    } finally {
+      await dash.stop();
+    }
+
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: `/${names}/g`, replace: '<NAME>' }, { pattern: 'emial', replace: '<E>' }] }));
+    // Recording applies no redaction rule, so a broken one doesn't stop it.
+    const recorded = await shadowlap(['run', '--', process.execPath, '-e', '']);
+    expect(recorded.code, recorded.err).toBe(0);
+    // Sharing does: pack and the preview name the rule.
+    expect((await shadowlap(['pack', done, join(cwd, 'out')])).err).toContain('shadowlap.config.json: redaction rule #2: unknown pattern "emial"');
+    expect((await shadowlap(['redact', 'preview', done])).err).toContain('redaction rule #2: unknown pattern "emial"');
+    expect((await shadowlap(['redact', 'rm', 'emial'])).code).toBe(0);
+    const preview = await shadowlap(['redact', 'preview', done, '--json']);
+    expect(preview.code, preview.err).toBe(0);
+    expect(JSON.parse(preview.out)).toMatchObject({ rules: [{ n: 1, count: 0 }] });
   });
 });
 
