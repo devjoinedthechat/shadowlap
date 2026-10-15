@@ -47,7 +47,7 @@ The conversation tab needs no state reconstruction: every model request carries 
 | `:` | Actions for the selected call |
 | `y`, `w` | Copy the request (or the response, on that tab) to the clipboard; write request and response to `shadowlap-<run>-call<n>.json` |
 | `p` | Open the parent run |
-| `o` | Open the run, at the selected call, in the dashboard. The first `o` starts the dashboard in the same process; it stops when you quit. Without a browser (over SSH), the link is shown and copied |
+| `o` | Open the run, at the selected call, in the dashboard. The first `o` starts the dashboard in the same process; it stops when you quit, and so do the jobs started from it (they are killed at once when the terminal closes). Without a browser (over SSH), the link is shown and copied |
 | `x` | Delete the selected run (runs view; asks first) |
 | `?`, `Esc`/`q` | Help; back / quit |
 

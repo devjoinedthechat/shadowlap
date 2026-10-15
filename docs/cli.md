@@ -243,7 +243,7 @@ shadowlap pack <run> <dir> [--lineage] [--no-redact]
 shadowlap unpack <dir>
 ```
 
-`pack` writes a run as a directory: `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/`. Stable names and one file per blob keep it git-friendly, so it can be committed as a CI golden or shared. The [redaction rules](./normalizers-and-redaction.md#redaction) in `shadowlap.config.json` are applied to the copy; the local store is never modified. `unpack` imports a pack, treating it as untrusted input: every record is validated, every blob is verified against its hash, and a pack that fails a check imports nothing. Runs that already exist are skipped. Imported runs are marked, and `unpack` prints the command each one would run on replay:
+`pack` writes a run as a directory: `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/`. Stable names and one file per blob keep it git-friendly, so it can be committed as a CI golden or shared. The [redaction rules](./normalizers-and-redaction.md#redaction) in `shadowlap.config.json` are applied to the copy, and who made each run (its author, often an email) is left out of it; the local store is never modified. `unpack` imports a pack, treating it as untrusted input: every record is validated, every blob is verified against its hash, and a pack that fails a check imports nothing. Runs that already exist are skipped. Imported runs are marked, and `unpack` prints the command each one would run on replay:
 
 ```
 imported 01K5CQ4N7G8M2XWQH6V3T9RB1D  command: node dist/agent.js --task 'triage inbox'
@@ -383,10 +383,10 @@ Two runs call by call, aligned by position. First, what differs about the runs a
 ## dashboard
 
 ```sh
-shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open]
+shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a taken port falls back to a free one. See [Dashboard](./dashboard.md).
+A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a taken port falls back to a free one. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. It needs a store to show and never creates one. See [Dashboard](./dashboard.md).
 
 ## doctor
 
@@ -415,7 +415,7 @@ shadowlap export html <run> --no-redact        # skip the config's redaction rul
 
 One HTML file with the dashboard's views and the run's data built into it: calls, conversations, responses, the divergence diff, the context and timeline views, and comparison between the runs it holds. It opens from a file, an artifact or a pull request comment, on a machine that has neither Shadowlap nor the recording, and it loads nothing from the network. Actions, live updates and search across runs belong to the dashboard, not to a copy.
 
-It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says so when there are none. A 30-call run is roughly 500 kB.
+It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says so when there are none. Like a pack, it leaves out who made each run. A 30-call run is roughly 500 kB.
 
 ## export dataset
 
@@ -469,4 +469,5 @@ A run as one OpenTelemetry trace: a span for the run and a child span per call, 
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
 | `SHADOWLAP_TELEMETRY_URL` | Send telemetry to another collector |
+| `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them. Otherwise `ci` in CI, else git's `user.email`, else the OS user |
 | `NO_COLOR` | Plain output |

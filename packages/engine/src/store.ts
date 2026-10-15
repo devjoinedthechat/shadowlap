@@ -107,6 +107,21 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: change feed. A counter per table that goes up on every write to it, kept by triggers so every
+-- writer counts (the CLI, the sidecar, the dashboard): the dashboard compares them to tell the browser
+-- what to fetch again. Call events need no counter: their newest rowid goes up as calls arrive. A
+-- feature that adds a table counts it the same way: a row here and triggers that bump it.
+CREATE TABLE IF NOT EXISTS change_counts (
+  name  TEXT    PRIMARY KEY,
+  n     INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('runs', 0), ('events', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_runs_insert AFTER INSERT ON runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'runs'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_runs_update AFTER UPDATE ON runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'runs'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_runs_delete AFTER DELETE ON runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'runs'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_events_insert AFTER INSERT ON events BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'events'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_events_delete AFTER DELETE ON events BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'events'; END;
 `;
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
@@ -316,17 +331,29 @@ export class Store {
     return event;
   }
 
-  /** Activity events, newest first. `before` pages back (exclusive); `kinds` filters. */
-  listEvents(options: { limit?: number; before?: number; kinds?: string[] } = {}): StoredEvent[] {
+  /**
+   * Activity events, newest first (then by id, descending). `before` pages back (exclusive); with
+   * `beforeId`, the events at exactly `before` whose id sorts before it come too, so a cursor made
+   * of the last event's time and id never skips events that share a millisecond. `kinds` keeps only
+   * those kinds, `exceptKinds` leaves those out.
+   */
+  listEvents(options: { limit?: number; before?: number; beforeId?: string; kinds?: string[]; exceptKinds?: string[] } = {}): StoredEvent[] {
     const where: string[] = [];
     const params: unknown[] = [];
-    if (options.before !== undefined) {
+    if (options.before !== undefined && options.beforeId !== undefined) {
+      where.push('at <= ? AND (at < ? OR event_id < ?)');
+      params.push(options.before, options.before, options.beforeId);
+    } else if (options.before !== undefined) {
       where.push('at < ?');
       params.push(options.before);
     }
     if (options.kinds?.length) {
       where.push(`kind IN (${options.kinds.map(() => '?').join(', ')})`);
       params.push(...options.kinds);
+    }
+    if (options.exceptKinds?.length) {
+      where.push(`kind NOT IN (${options.exceptKinds.map(() => '?').join(', ')})`);
+      params.push(...options.exceptKinds);
     }
     params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
     const rows = this.db.prepare(`SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, event_id DESC LIMIT ?`).all(...params);
@@ -339,6 +366,21 @@ export class Store {
       ref: r.ref === null ? null : String(r.ref),
       data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
     }));
+  }
+
+  // ---- change feed (v4) ----
+
+  /**
+   * How many writes each counted table has seen (`runs`, `events`, and any a feature adds), plus
+   * `calls`, the newest call event's rowid, which goes up as calls are recorded (deleting a run can
+   * lower it, and counts as a write to `runs`). Two readings that differ mean something changed in
+   * between. Cheap: one small table and one index lookup.
+   */
+  changeCounts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const r of this.db.prepare(`SELECT name, n FROM change_counts`).all()) out[String(r.name)] = Number(r.n);
+    out.calls = Number(this.db.prepare(`SELECT COALESCE(MAX(rowid), 0) AS n FROM call_events`).get()?.n ?? 0);
+    return out;
   }
 
   // ---- runs ----

@@ -29,6 +29,18 @@ export interface PackOptions {
   lineage?: boolean;
   /** Redaction rules applied to every request and response written to the pack. */
   redact?: Normalizer[];
+  /**
+   * Keep who made each run (`meta.author`, often an email). A pack is made to be committed or
+   * shared, so it leaves the author out unless asked.
+   */
+  keepAuthor?: boolean;
+}
+
+/** The run as a pack carries it: without its author, unless the caller keeps it. */
+function forPack(run: RunRecord, keepAuthor: boolean): RunRecord {
+  if (keepAuthor || run.meta?.author === undefined) return run;
+  const { author: _author, ...meta } = run.meta;
+  return { ...run, meta };
 }
 
 export interface PackResult {
@@ -95,7 +107,7 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
     if (!bytes) throw new Error(`missing blob ${hash}`);
     writeFileSync(join(dir, 'blobs', hash), bytes);
   }
-  const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs };
+  const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: runs.map((r) => forPack(r, opts.keepAuthor === true)) };
   writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
   writeFileSync(join(dir, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
   if (store !== source) store.close();
@@ -187,6 +199,8 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   const skipped: string[] = [];
   const commands: UnpackResult['commands'] = [];
   const from = basename(root);
+  // One time for everything one unpack brings in, so the runs of a pack read as one import.
+  const at = Date.now();
   store.transaction(() => {
     for (const b of blobs) store.putBlob(b.bytes);
     // Every blob a call needs must now exist, including the parts of a chunked request.
@@ -208,7 +222,7 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
       }
       // Whatever the pack claims, the run is marked as imported here.
       const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
-      store.importRun({ ...run, meta: { ...rest, imported: { at: Date.now(), from } } });
+      store.importRun({ ...run, meta: { ...rest, imported: { at, from } } });
       for (const call of calls.filter((c) => c.runId === run.runId)) {
         const { end, attempts, ...start } = call;
         store.appendCallStart(start);

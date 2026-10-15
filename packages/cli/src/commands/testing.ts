@@ -1,11 +1,13 @@
 import { writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { formatTokens, hasRecordedCommand, packRun, Store, unpackRun, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
+import { logActivity, stampAuthor } from '../activity.js';
 import { specFor, type CheckResult } from '../checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, placeholderAwsCredentials, providerIds, testAttempt, type GuardMode, type TestAttempt } from '../run-agent.js';
@@ -51,6 +53,15 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
   host.close();
   await sidecar.close();
   store.close();
+}
+
+/** Whether a pack folder is one the config's tests name, so a golden wherever it lives. */
+function isTestPack(dir: string): boolean {
+  try {
+    return specFor(loadTests(process.cwd()), resolve(dir), process.cwd()) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function register(program: Command): void {
@@ -193,6 +204,15 @@ export function register(program: Command): void {
       const result = packRun(store, run.runId, dir, { lineage: flags.lineage === true, redact: rules });
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
       if (!result.redacted) process.stderr.write(p.yellow('  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
+      const where = relative(process.cwd(), resolve(result.dir)).split('\\').join('/') || '.';
+      // The activity log names a pack outside the project by its folder alone: a path climbing out
+      // of it would put this machine's folders in a feed the whole team reads.
+      const outside = where === '..' || where.startsWith('../') || isAbsolute(where);
+      // A golden is a pack in a goldens folder or one the config's tests name; anything else is a pack to share.
+      const golden = (!outside && /(^|\/)goldens(\/|$)/.test(where)) || isTestPack(result.dir);
+      logActivity(store, { kind: golden ? 'golden.packed' : 'run.packed', runId: run.runId, ref: outside ? basename(resolve(result.dir)) : where, data: { runs: result.runs.length, calls: result.calls, redacted: result.redacted, ...(outside ? { outside: true } : {}) } });
+      emitJobEvent({ type: 'file', path: result.dir, label: 'Pack' });
+      emitJobEvent({ type: 'result', data: { ...result, dir: where } });
       store.close();
       telemetry().record({ type: 'pack', calls: result.calls });
       await telemetry().flush();
@@ -212,6 +232,9 @@ export function register(program: Command): void {
       }
       for (const { runId, argv } of result.commands) process.stdout.write(`imported ${runId}  ${p.dim(`command: ${safe(quoteArgv(argv))}`)}\n`);
       for (const id of result.skipped) process.stdout.write(p.dim(`skipped ${id} (already present)\n`));
+      // A dashboard job opens what it brought in: the pack's own run, which comes after its ancestors.
+      for (const runId of result.imported) emitJobEvent({ type: 'run', runId, role: 'imported' });
+      emitJobEvent({ type: 'result', data: { imported: result.imported, skipped: result.skipped } });
       if (result.commands.length) {
         process.stdout.write(p.yellow(`\nReplaying an imported run executes the command it was recorded with (shown above), which came from whoever made the pack.\n`) + p.dim(`shadowlap replay asks before running it; give your own command after "--" to run that instead.\n`));
       }
@@ -231,6 +254,8 @@ export function register(program: Command): void {
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
       const run = sidecar.startRun({ mode: 'record', command: { argv: ['<external>'], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
+      stampAuthor(store, run.runId);
+      emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
       const env = sidecar.envFor(run.runId);
       process.stdout.write(Object.entries(env).map(([k, v]) => `export ${k}=${v}`).join('\n') + '\n');
       process.stderr.write(p.dim(`[shadowlap] recording run ${run.runId}; Ctrl-C to end it\n`));

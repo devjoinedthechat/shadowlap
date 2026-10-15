@@ -402,3 +402,6 @@ export function compare(store: Store, a: string, b: string): RunComparison | nul
   if (!ra || !rb) return null;
   return compareRuns(store, ra, store.getCalls(ra.runId), rb, store.getCalls(rb.runId));
 }
+
+// The rest of the API's shapes (jobs, meta, activity, changes, uploads), for the browser code.
+export type { ActivityIcon, ActivityItem, ActivityPage, ChangesView, JobFile, JobLink, JobListItem, JobView, LiveRun, MetaView, ProjectView, UploadView } from './views.js';

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
-import { applyDeltas, startDashboard, type Dashboard } from '../src/index.js';
+import { applyDeltas, startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url));
 
@@ -236,6 +236,45 @@ describe('dashboard server: data', () => {
       expect(redacted).toContain('<QUERY>');
     } finally {
       await redacting.close();
+    }
+  });
+
+  it('reads the rules afresh for each download, makes no file from a config it cannot read, and names no author', async () => {
+    const own = Store.open(':memory:');
+    const id = unpackRun(own, GOLDEN).imported[0]!;
+    own.updateRunMeta(id, { author: 'dana.private@example.com' });
+    let config: ProjectConfig | Error = { normalize: [], redact: [] };
+    const d = await startDashboard({
+      store: own,
+      uiDir,
+      version: '0.1.0',
+      dbPath: ':memory:',
+      loadConfig: () => {
+        if (config instanceof Error) throw config;
+        return config;
+      },
+    });
+    const download = () => fetch(`${d.url}/api/runs/${id}/export`, { headers: { 'x-shadowlap-token': d.token } });
+    try {
+      const first = await download();
+      expect(first.headers.get('x-shadowlap-redacted')).toBe('no');
+      const html = await first.text();
+      expect(html).toContain('search_web');
+      expect(html, 'who recorded it stays on this machine').not.toContain('dana.private');
+      // A rule added since (Settings, or the CLI): the next download applies it, without a restart.
+      config = { normalize: [], redact: [{ kind: 'tool', path: '$.query', replace: '<QUERY>' }] };
+      const second = await download();
+      expect(second.headers.get('x-shadowlap-redacted')).toBe('yes');
+      expect(await second.text()).toContain('<QUERY>');
+      // A config it cannot read: no file at all, rather than one made without the project's rules.
+      config = new Error('Unexpected token } in JSON at position 12');
+      const broken = await download();
+      expect(broken.status).toBe(500);
+      expect(broken.headers.get('content-type')).toMatch(/^application\/json/);
+      expect(((await broken.json()) as { error: string }).error).toBe("could not read the project's shadowlap.config.json: Unexpected token } in JSON at position 12");
+    } finally {
+      await d.close();
+      own.close();
     }
   });
 

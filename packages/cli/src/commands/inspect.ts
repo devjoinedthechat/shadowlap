@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, loadApiRequest, MATCH_END, MATCH_START, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
+import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
@@ -18,29 +20,51 @@ export function register(program: Command): void {
     .option('--call <n>', 'with a run: open at this call', parseIntArg)
     .option('--port <port>', 'port to listen on (a free one is used when it is taken)', parseIntArg, 4777)
     .option('--no-open', 'print the link instead of opening a browser')
-    .action(async (runArg: string | undefined, flags: { call?: number; port: number; open: boolean }) => {
+    .option('--read-only', 'show every page but change nothing: no actions, labels, notes, uploads or deletes')
+    .action(async (runArg: string | undefined, flags: { call?: number; port: number; open: boolean; readOnly?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      const dbPath = resolve(opts.db ?? defaultDbPath(process.cwd()));
+      const cwd = process.cwd();
+      const dbPath = resolve(opts.db ?? defaultDbPath(cwd));
+      // A read-only dashboard shows a store; it never makes one.
+      if (flags.readOnly && !existsSync(dbPath)) throw new Error(`no store at ${dbPath}: --read-only shows an existing store and never creates one (record a run first, or point --db at a store)`);
       const store = openStore(opts);
       if (flags.call !== undefined && !runArg) throw new Error('--call needs a run: shadowlap dashboard <run> --call <n>');
       const runId = runArg ? requireRun(store, runArg).runId : undefined;
-      const config = loadConfig(process.cwd());
-      const { startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
-      // Actions run this same CLI against the same store, like the terminal UI's.
-      const spawnCli = (args: string[]) => spawn(process.execPath, [process.argv[1]!, '--db', dbPath, ...args], { cwd: process.cwd(), env: { ...process.env, NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      const dash = await startDashboard({ store, dbPath, port: flags.port, spawnCli, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), ...(config.redact.length ? { redact: config.redact } : {}), ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}) });
+      const config = loadConfig(cwd);
+      const { cliSpawner, startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
+      // Actions run this same CLI against the same store, like the terminal UI's, with a pipe to report what they made.
+      const spawnCli = flags.readOnly ? undefined : cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd });
+      const dash = await startDashboard({
+        store,
+        dbPath,
+        port: flags.port,
+        ...(spawnCli ? { spawnCli } : {}),
+        readOnly: !!flags.readOnly,
+        project: { path: cwd },
+        loadConfig: () => loadConfig(cwd),
+        version: VERSION,
+        ...(config.prices ? { prices: config.prices } : {}),
+        ...(config.redact.length ? { redact: config.redact } : {}),
+        ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}),
+      });
       telemetry().record({ type: 'ui' });
       void telemetry().flush();
       const link = runId ? dash.runUrl(runId, flags.call) : dash.openUrl;
-      process.stderr.write(`${p.bold('Shadowlap dashboard')}  ${link}\n${p.dim(`  ${dbPath} · the link carries a session token; keep it to yourself · Ctrl-C stops`)}\n`);
+      process.stderr.write(`${p.bold('Shadowlap dashboard')}${flags.readOnly ? p.dim(' (read-only)') : ''}  ${link}\n${p.dim(`  ${dbPath} · the link carries a session token; keep it to yourself · Ctrl-C stops`)}\n`);
       if (flags.open && !process.env.CI) {
         if (!(await openInBrowser(link))) process.stderr.write(p.dim('  could not open a browser; open the link above\n'));
       }
+      // Jobs lead process groups of their own, so neither Ctrl-C nor a closing terminal reaches them:
+      // stopping the dashboard stops them, with their agents, and waits. Stopping it again kills them.
+      let release: () => void = () => undefined;
       await new Promise<void>((done) => {
-        process.once('SIGINT', done);
-        process.once('SIGTERM', done);
+        release = onStopSignals(
+          () => done(),
+          () => void dash.close({ now: true }),
+        );
       });
       await dash.close();
+      release();
       store.close();
     });
 
@@ -60,22 +84,25 @@ export function register(program: Command): void {
       // The actions palette runs this same CLI against the same store.
       const dbPath = resolve(opts.db ?? defaultDbPath(process.cwd()));
       const spawnCli = (args: string[]) => spawn(process.execPath, [process.argv[1]!, '--db', dbPath, ...args], { cwd: process.cwd(), env: { ...process.env, NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      const uiConfig = loadConfig(process.cwd());
+      const cwd = process.cwd();
+      const uiConfig = loadConfig(cwd);
       // `o` starts the dashboard in this process on first use, over the same store, and reuses it after.
-      let dashboard: Promise<import('@shadowlap/dashboard').Dashboard> | undefined;
+      // Its jobs lead process groups of their own: from then on a closed terminal or a kill stops them
+      // too, before this process ends.
+      const dashboard = embeddedDashboard(async () => {
+        const { cliSpawner, startDashboard } = await import('@shadowlap/dashboard');
+        // The dashboard's jobs get the events pipe; the terminal UI reads its actions' output as it always did.
+        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) });
+      });
       const openDashboard = async (id: string, callNo?: number) => {
-        const { startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
-        dashboard ??= startDashboard({ store, dbPath, port: 4777, spawnCli, version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) }).catch((err: unknown) => {
-          dashboard = undefined;
-          throw err;
-        });
-        const url = (await dashboard).runUrl(id, callNo);
+        const { openInBrowser } = await import('@shadowlap/dashboard');
+        const url = (await dashboard.open()).runUrl(id, callNo);
         return { url, opened: !process.env.CI && (await openInBrowser(url)) };
       };
       try {
         await launchTui(store, { spawnCli, openDashboard, ...(runId ? { runId } : {}), ...(flags.call !== undefined ? { callNo: flags.call } : {}), ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
       } finally {
-        if (dashboard) await dashboard.then((d) => d.close()).catch(() => undefined);
+        await dashboard.close();
         store.close();
       }
     });

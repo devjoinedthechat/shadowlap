@@ -5,15 +5,34 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * merges these with events it derives from runs (a recording started, a fork, a clean replay), so a
  * command records an event only when the runs table can't tell the story by itself.
  *
- * Kinds are dotted, noun first. The ones in use:
- * - `normalizer.added`, `normalizer.removed`, `redaction.added`, `redaction.removed`, `clock.set`
- * - `golden.packed`, `golden.updated`, `capture.imported`
- * - `test.session` (data: passed, failed), `bisect.found`
- * - `blame.done`, `repair.accepted`, `repair.empty`, `verify.rejected`, `verify.accepted`, `fix.applied`
- * - `pairs.exported`, `model.scored`
- * - `project.added`, `project.setup`, `project.removed`
- * - `store.pushed`, `store.pulled`
- * Add new kinds here, with the feature that records them.
+ * Kinds are dotted, noun first. The ones in use, with the `ref` and `data` fields the dashboard's
+ * activity feed reads (packages/dashboard/src/activity.ts words them; a field it reads is a contract):
+ * - `normalizer.added`, `normalizer.removed`: ref the rule's path; data the rule as stored (kind,
+ *   name, path, pattern, replace), with `via: 'calibrate'` from `calibrate --write`
+ * - `redaction.added`, `redaction.removed`: ref the replacement; data the rule without its pattern
+ * - `clock.set`: data { clock, was }; `runs.cleaned`: data { runs, blobs, bytes, olderThanDays, keep }
+ * - `golden.packed` (a pack in a goldens folder or named in the config's tests), `run.packed` (any
+ *   other pack): runId, ref the folder relative to the project (its name alone when outside it,
+ *   with `outside: true`); data { runs, calls, redacted }
+ * - `golden.updated`: runId the new recording, ref the golden; data { session, previous, calls, checks }
+ * - `capture.imported`: runId, ref the source's name; data { format, from, key, modelCalls, toolCalls }.
+ *   One event per run an import keeps; the feed tells the events of one import (same actor and
+ *   source, moments apart) as one entry. An event may instead list its runs in `runIds`.
+ * - `test.session`: ref the session; data { passed, failed, goldens, interrupted?, notRun? }
+ * - `bisect.found`: data { commit, subject, … }
+ * - `blame.done`: runId the blamed run, ref the fix (`fx-…`); data { outcome ('blamed',
+ *   'unrescuable' or 'stopped'), callNo, confidence, title }
+ * - `repair.accepted`, `repair.empty`: ref the fix; data { repairId, title (accepted), why (empty) }
+ * - `verify.accepted`, `verify.rejected`: ref the fix; data { verifyId, reasons }
+ * - `fix.applied`: ref the fix; data { title }
+ * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
+ * - `project.added`, `project.removed`: ref the project; data { path, name, again? }
+ * - `project.setup`: data { name, stage: 'done', skipped } from a setup, { name, config: 'created' } from init
+ * - `org.noted`: ref the organisation; data { group, size, end, organisation }, or { group, refreshed: true }
+ * - `store.pushed`: ref the bucket; data { pushed, updated, queued, refused }; `store.pulled`: data
+ *   { pulled, merged, failed }; `run.shared`: runId; data { runs, redacted, expiresAt }
+ * - `release.tagged`: ref the release
+ * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;
 

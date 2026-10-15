@@ -4,6 +4,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { DATASET_FORMATS, datasetRows, type DatasetFormat, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
+import { emitJobEvent } from '../job-events.js';
 import { otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
 import { fileSize, formatBytes, openStore, parseChoice, parseIntArg, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, shortId } from '../ui.js';
@@ -39,8 +40,10 @@ export function register(program: Command): void {
         const body = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
         if (flags.out) {
           writeFileSync(flags.out, body);
+          emitJobEvent({ type: 'file', path: resolve(flags.out), label: 'Dataset' });
           process.stderr.write(`${p.green('✓')} ${rows.length} example${rows.length === 1 ? '' : 's'} from ${runs.length} run${runs.length === 1 ? '' : 's'} → ${flags.out}\n`);
         } else process.stdout.write(body);
+        emitJobEvent({ type: 'result', data: { examples: rows.length, runs: runs.length, format: flags.format, calls: flags.calls } });
       } finally {
         store.close();
       }
@@ -63,6 +66,8 @@ export function register(program: Command): void {
         }
         const out = resolve(file);
         writeFileSync(out, body);
+        emitJobEvent({ type: 'file', path: out, label: 'HAR' });
+        emitJobEvent({ type: 'result', data: { entries: result.entries, skipped: result.skipped.length } });
         console.log(`${p.green('\u2713')} ${out}  ${result.entries} ${result.entries === 1 ? 'call' : 'calls'}, ${formatBytes(fileSize(out))}`);
         for (const s of result.skipped) console.log(p.dim(`  call ${s.callNo} left out: ${s.reason}`));
         if (result.entries === 0) console.log(p.dim('  this run made no model API calls'));
@@ -94,6 +99,8 @@ export function register(program: Command): void {
           ...(flags.redact && config.redact.length ? { redact: config.redact } : {}),
         });
         writeFileSync(out, result.html);
+        emitJobEvent({ type: 'file', path: out, label: 'HTML' });
+        emitJobEvent({ type: 'result', data: { runIds: result.runIds, calls: result.calls, redacted: result.redacted } });
         const size = formatBytes(Buffer.byteLength(result.html));
         process.stdout.write(`${p.green('✓')} ${out}  ${p.dim(`${result.runIds.length} run${result.runIds.length === 1 ? '' : 's'}, ${result.calls} calls, ${size}${result.redacted ? ', redacted' : ''}`)}\n`);
         if (!result.redacted) process.stdout.write(p.dim('  no redaction rules in shadowlap.config.json: the file holds the prompts and tool data as recorded\n'));
@@ -120,6 +127,7 @@ export function register(program: Command): void {
       const spans = calls.length + 1;
       if (flags.out) {
         writeFileSync(flags.out, JSON.stringify(payload) + '\n');
+        emitJobEvent({ type: 'file', path: resolve(flags.out), label: 'OTel trace' });
         process.stderr.write(`${p.green('✓')} wrote ${spans} spans for ${shortId(run.runId)} to ${flags.out}\n`);
       }
       if (endpoint) {
@@ -128,6 +136,7 @@ export function register(program: Command): void {
       } else if (!flags.out) {
         process.stdout.write(JSON.stringify(payload) + '\n');
       }
+      emitJobEvent({ type: 'result', data: { spans, written: !!flags.out, sent: !!endpoint } });
     });
 
   program

@@ -91,6 +91,27 @@ describe('export html', () => {
     expect(redacted.html).toContain('<EMAIL>');
   });
 
+  it('leaves out who made each run, with or without redaction rules, unless asked to keep it', () => {
+    const own = Store.open(':memory:');
+    try {
+      const parent = unpackRun(own, GOLDEN).imported[0]!;
+      own.updateRunMeta(parent, { author: 'dana.private@example.com' });
+      const fork = own.createRun({ mode: 'replay', parentRunId: parent, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { author: 'dana.private@example.com' } });
+      own.endRun(fork.runId, 'completed');
+      for (const redact of [undefined, [{ pattern: 'email', replace: '<EMAIL>' }]]) {
+        const out = exportHtml({ store: own, runIds: [fork.runId, parent], uiDir, ...(redact ? { redact } : {}) });
+        expect(out.html, redact ? 'with rules' : 'without rules').not.toContain('dana.private');
+        const data = embedded(out.html);
+        expect((data.responses[`runs/${parent}`] as { run: { meta: Record<string, unknown> } }).run.meta).not.toHaveProperty('author');
+      }
+      // The store keeps it: only the file leaves it out.
+      expect(own.getRun(parent)!.meta?.author).toBe('dana.private@example.com');
+      expect(exportHtml({ store: own, runIds: [parent], uiDir, keepAuthor: true }).html).toContain('dana.private@example.com');
+    } finally {
+      own.close();
+    }
+  });
+
   it('lists a run with its ancestors, oldest first', () => {
     expect(withAncestors(store, forkId)).toEqual([runId, forkId]);
     expect(withAncestors(store, runId)).toEqual([runId]);
