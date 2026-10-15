@@ -396,6 +396,25 @@ export function settingsOf(...sources: unknown[]): ModelSettings {
   return s;
 }
 
+/**
+ * The request a source logged as a call's input, when it is the provider's own request (LangSmith's
+ * wrapped clients, OpenInference's OpenAI and Anthropic instrumentations): a model and plain role
+ * messages. LangChain's serialized messages are not a provider's.
+ */
+export function providerRequest(inputs: Record<string, unknown>): Record<string, unknown> | undefined {
+  const messages = inputs.messages;
+  if (typeof inputs.model !== 'string' || !Array.isArray(messages) || Array.isArray(messages[0])) return undefined;
+  if (!messages.every((m) => isObject(m) && typeof m.role === 'string')) return undefined;
+  return inputs;
+}
+
+/** The response a source logged as a call's output, when it is the provider's own response. */
+export function providerResponse(outputs: unknown): Record<string, unknown> | undefined {
+  if (!isObject(outputs)) return undefined;
+  if (Array.isArray(outputs.choices) || (outputs.type === 'message' && Array.isArray(outputs.content)) || Array.isArray(outputs.candidates)) return outputs;
+  return undefined;
+}
+
 /** The tool names a model call asked for, so a span named after one can be read as that tool's call. */
 export function calledToolNames(calls: TraceCall[]): Set<string> {
   const names = new Set<string>();

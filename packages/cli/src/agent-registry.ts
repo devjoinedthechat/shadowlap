@@ -188,13 +188,18 @@ function processTable(): Map<number, ProcessInfo> | null {
   }
 }
 
-/** One process from Linux's /proc: its parent from `stat` (after the command name, which may hold anything), its command line from `cmdline`. */
+/** The parent process id in a Linux `/proc/<pid>/stat` line: the second field after the command name, which may hold spaces and parentheses itself. */
+export function parentFromProcStat(stat: string): number | null {
+  const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  const ppid = Number(fields[1]);
+  return Number.isInteger(ppid) && ppid >= 0 ? ppid : null;
+}
+
+/** One process from Linux's /proc: its parent from `stat`, its command line from `cmdline`. */
 function procInfo(pid: number): ProcessInfo | null {
   try {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    const ppid = Number(fields[1]);
-    if (!Number.isInteger(ppid)) return null;
+    const ppid = parentFromProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'));
+    if (ppid === null) return null;
     let args: string | null = null;
     try {
       args = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).join(' ') || null;

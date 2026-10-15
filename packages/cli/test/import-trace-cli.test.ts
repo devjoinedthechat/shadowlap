@@ -16,6 +16,7 @@ import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-t
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./trace-agent.mjs', import.meta.url));
+const OPENAI_AGENT = fileURLToPath(new URL('./trace-agent-openai.mjs', import.meta.url));
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/traces/${name}`, import.meta.url), 'utf8');
 
 let cwd: string;
@@ -105,6 +106,16 @@ describe('shadowlap import otel', () => {
     expect(r.code).toBe(0);
     expect(JSON.parse(r.out).runs[0]).toMatchObject({ source: 'traces.json, logs.json', calls: { model: 2, tool: 0 } });
     expect((await shadowlap(['import', 'otel', 'traces.json', 'missing.json'])).err).toContain('missing.json: ');
+  });
+
+  it('replays an OpenAI agent traced with OpenInference exactly, from the requests its instrumentation logged', async () => {
+    writeFileSync(join(cwd, 'phoenix.json'), fixture('otel-openinference.json'));
+    const imported = JSON.parse((await shadowlap(['import', 'otel', 'phoenix.json', '--json'])).out);
+    expect(imported.runs[0]).toMatchObject({ calls: { model: 2, tool: 1 } });
+    const r = await shadowlap(['replay', imported.runs[0].runId, '--', process.execPath, OPENAI_AGENT], { SHADOWLAP_UPSTREAM_OPENAI: 'offline' });
+    expect(r.err + r.out).toContain('Replay clean: 3/3 calls replayed (2 api, 1 tool), 0 upstream requests');
+    // The tool's output came from the trace, not from running it.
+    expect(r.out).toContain('answer: Order B-7 ($40) is delivered and within policy: refunded.');
   });
 
   it('says in words what it imported and what the trace kept', async () => {

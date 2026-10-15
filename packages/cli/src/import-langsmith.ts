@@ -6,6 +6,8 @@ import {
   messagesOf,
   num,
   outputOf,
+  providerRequest,
+  providerResponse,
   settingsOf,
   str,
   toolDefinitionsOf,
@@ -61,22 +63,6 @@ export async function fetchLangsmithRuns(traceId: string, o: LangsmithOptions): 
   return runs;
 }
 
-/** The request a wrapped client logged as the run's inputs, when it did: the provider's own request. */
-function rawRequest(inputs: Record<string, unknown>): Record<string, unknown> | undefined {
-  const messages = inputs.messages;
-  if (typeof inputs.model !== 'string' || !Array.isArray(messages) || Array.isArray(messages[0])) return undefined;
-  // LangChain's serialized messages are not a provider's; the wrapped clients' are plain role objects.
-  if (!messages.every((m) => isObject(m) && typeof m.role === 'string')) return undefined;
-  return inputs;
-}
-
-/** The response a wrapped client logged as the run's outputs, when it did. */
-function rawResponse(outputs: unknown): Record<string, unknown> | undefined {
-  if (!isObject(outputs)) return undefined;
-  if (Array.isArray(outputs.choices) || (outputs.type === 'message' && Array.isArray(outputs.content)) || Array.isArray(outputs.candidates)) return outputs;
-  return undefined;
-}
-
 function usage(run: Record<string, unknown>, outputs: unknown): TraceUsage | null {
   // LangChain reports usage_metadata on the message; the run itself carries the totals LangSmith counted.
   let input = num(run.prompt_tokens);
@@ -105,9 +91,9 @@ function modelCall(run: Record<string, unknown>): TraceModelCall {
   const extra = isObject(run.extra) ? run.extra : {};
   const params = isObject(extra.invocation_params) ? extra.invocation_params : {};
   const metadata = isObject(extra.metadata) ? extra.metadata : {};
-  const raw = rawRequest(inputs);
+  const raw = providerRequest(inputs);
   const llmOutput = isObject(outputs) && isObject(outputs.llm_output) ? outputs.llm_output : {};
-  const responseMeta = rawResponse(outputs);
+  const responseMeta = providerResponse(outputs);
   return {
     kind: 'model',
     what: `run ${clean(run.name ?? run.id)}`,

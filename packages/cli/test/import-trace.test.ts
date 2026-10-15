@@ -253,6 +253,55 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
   });
 });
 
+describe("import otel: OpenInference's conventions (Arize Phoenix)", () => {
+  it('rebuilds a call exactly from the request and response the OpenAI instrumentation logged', () => {
+    const read = otel('otel-openinference.json');
+    const [trace] = read.traces;
+    // The agent's own span and its tool's come from another scope than the client's; time puts them in order.
+    const ordered = [...trace!.calls].sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0));
+    expect(ordered.map((c) => `${c.kind}:${c.kind === 'tool' ? c.name : c.model}`)).toEqual(['model:gpt-4.1-mini', 'tool:lookup_order', 'model:gpt-4.1-mini']);
+    const store = open();
+    const { result, counts } = importTrace(store, trace!, { source: 'otel-openinference.json', labels: ['otel'] });
+    expect(counts).toEqual({ modelCalls: 2, modelCallsImported: 2, withSettings: 2, withToolDefinitions: 2, toolCalls: 1, toolCallsKept: 1 });
+    expect(result.run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
+    const logged = JSON.parse(fixture('otel-openinference.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ attributes: Array<{ key: string; value: { stringValue?: string } }> }> }> }> };
+    const value = (span: number, key: string) => JSON.parse(logged.resourceSpans[0]!.scopeSpans[0]!.spans[span]!.attributes.find((x) => x.key === key)!.value.stringValue!);
+    const [first, tool, second] = callsOf(store, result.run.runId);
+    expect(first!.request).toEqual(value(0, 'input.value'));
+    expect(JSON.parse(first!.response as string)).toEqual(value(0, 'output.value'));
+    expect(tool!.request).toEqual({ args: { order_id: 'B-7' } });
+    expect(tool!.response).toEqual({ result: { order_id: 'B-7', amount: 40, status: 'delivered' } });
+    expect(second!.request).toEqual(value(1, 'input.value'));
+    expect(second!.end.meta.usage).toMatchObject({ inputTokens: 151, outputTokens: 14 });
+    store.close();
+  });
+
+  it('rebuilds from the flattened messages and tools when the request itself was not logged', () => {
+    const doc = JSON.parse(fixture('otel-openinference.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ scope: { name: string }; spans: Array<{ attributes: Array<{ key: string }> }> }> }> };
+    // As the LlamaIndex instrumentation writes it: no provider request in input.value.
+    doc.resourceSpans[0]!.scopeSpans[0]!.scope.name = 'openinference.instrumentation.llama_index';
+    const [trace] = readOtel([doc]).traces;
+    const store = open();
+    const { result } = importTrace(store, trace!, { source: 'phoenix.json' });
+    const [first, , second] = callsOf(store, result.run.runId);
+    expect(first!.request).toEqual({
+      model: 'gpt-4.1-mini',
+      temperature: 0,
+      tools: [{ type: 'function', function: { name: 'lookup_order', description: 'Look an order up by its id.', parameters: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] } } }],
+      messages: [
+        { role: 'system', content: 'You are a refunds agent. Look an order up before you refund it.' },
+        { role: 'user', content: 'Refund order B-7, please.' },
+      ],
+    });
+    expect(JSON.parse(first!.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_b7', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] } });
+    expect((second!.request.messages as unknown[]).slice(2)).toEqual([
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call_b7', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] },
+      { role: 'tool', tool_call_id: 'call_b7', content: '{"order_id":"B-7","amount":40,"status":"delivered"}' },
+    ]);
+    store.close();
+  });
+});
+
 describe('a trace is a file from anywhere', () => {
   it('escapes what it names before a terminal shows it', () => {
     const attr = (key: string, value: string) => ({ key, value: { stringValue: value } });

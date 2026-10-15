@@ -8,6 +8,8 @@ import {
   messagesOf,
   num,
   outputOf,
+  providerRequest,
+  providerResponse,
   settingsOf,
   str,
   toolDefinitionsOf,
@@ -38,6 +40,12 @@ import {
  * - the `gen_ai.client.inference.operation.details` event, whose message attributes count as the span's.
  * Tool calls are `execute_tool` spans with `gen_ai.tool.name`, `gen_ai.tool.call.arguments` and
  * `gen_ai.tool.call.result` (or OpenLLMetry's `traceloop.entity.input` and `output`).
+ *
+ * OpenInference's conventions (Arize Phoenix, and the LlamaIndex, DSPy and smolagents
+ * instrumentations) are read too: `openinference.span.kind` LLM and TOOL spans, with their messages
+ * flattened under `llm.input_messages` and `llm.output_messages`, tools under `llm.tools`, and the
+ * provider's own request and response in `input.value` and `output.value` where its OpenAI and
+ * Anthropic instrumentations log them, which rebuild exactly.
  */
 
 interface Span {
@@ -45,6 +53,8 @@ interface Span {
   spanId: string;
   parentSpanId: string;
   name: string;
+  /** The instrumentation scope's name, e.g. `openinference.instrumentation.openai`. */
+  scope: string;
   start: number | null;
   end: number | null;
   attrs: Record<string, unknown>;
@@ -212,6 +222,10 @@ function hasMessages(s: Span): boolean {
 
 function kindOf(s: Span): 'model' | 'tool' | 'embedding' | null {
   const a = s.attrs;
+  if (typeof a['openinference.span.kind'] === 'string') {
+    const kind = a['openinference.span.kind'].toUpperCase();
+    return kind === 'LLM' ? 'model' : kind === 'TOOL' ? 'tool' : kind === 'EMBEDDING' ? 'embedding' : null;
+  }
   const op = String(a['gen_ai.operation.name'] ?? '');
   if (op === 'execute_tool' || a['traceloop.span.kind'] === 'tool') return 'tool';
   if (op === 'embeddings' || a['llm.request.type'] === 'embedding') return 'embedding';
@@ -232,14 +246,73 @@ function entityValue(raw: unknown, key: 'inputs' | 'outputs'): unknown {
 
 function toolCall(s: Span): TraceToolCall {
   const a = s.attrs;
-  const name = clean(str(a['gen_ai.tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
-  const args = a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : undefined);
-  const out = a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : undefined);
-  return { kind: 'tool', what: `span ${s.name}`, name, callId: str(a['gen_ai.tool.call.id']), args: maybeJson(args), output: maybeJson(out), error: s.error, startedAt: s.start, endedAt: s.end };
+  const name = clean(str(a['gen_ai.tool.name']) ?? str(a['tool.name']) ?? str(a['traceloop.entity.name']) ?? s.name.replace(/^execute_tool\s+/, ''), 200);
+  const args = a['gen_ai.tool.call.arguments'] ?? (a['traceloop.entity.input'] !== undefined ? entityValue(a['traceloop.entity.input'], 'inputs') : a['input.value']);
+  const out = a['gen_ai.tool.call.result'] ?? (a['traceloop.entity.output'] !== undefined ? entityValue(a['traceloop.entity.output'], 'outputs') : a['output.value']);
+  return { kind: 'tool', what: `span ${s.name}`, name, callId: str(a['gen_ai.tool.call.id']) ?? str(a['tool_call.id']), args: maybeJson(args), output: maybeJson(out), error: s.error, startedAt: s.start, endedAt: s.end };
+}
+
+/** OpenInference instrumentations whose `input.value` and `output.value` are the provider SDK's own request and response. */
+const PROVIDER_SCOPES = /^openinference\.instrumentation\.(openai|anthropic)$/;
+
+/** An OpenInference message (`message.role`, `message.content` or `message.contents`, `message.tool_calls`) in a shape messageOf reads. */
+function openInferenceMessage(row: Record<string, unknown>): Record<string, unknown> {
+  const m = isObject(row.message) ? row.message : {};
+  const contents = (Array.isArray(m.contents) ? m.contents : []).flatMap((c) => {
+    const part = isObject(c) && isObject(c.message_content) ? c.message_content : null;
+    return part && (part.type === undefined || part.type === 'text') && typeof part.text === 'string' ? [{ type: 'text', text: part.text }] : [];
+  });
+  const calls = (Array.isArray(m.tool_calls) ? m.tool_calls : []).flatMap((t) => (isObject(t) && isObject(t.tool_call) ? [{ id: t.tool_call.id ?? '', function: isObject(t.tool_call.function) ? t.tool_call.function : {} }] : []));
+  return {
+    role: m.role,
+    content: contents.length ? contents : m.content,
+    ...(calls.length ? { tool_calls: calls } : {}),
+    ...(m.tool_call_id !== undefined ? { tool_call_id: m.tool_call_id } : {}),
+    ...(m.name !== undefined ? { name: m.name } : {}),
+  };
+}
+
+/** A model call in OpenInference's conventions. */
+function openInferenceModelCall(s: Span): TraceModelCall {
+  const a = s.attrs;
+  const params = maybeJson(a['llm.invocation_parameters']);
+  const json = (value: unknown, type: unknown) => (type === undefined || type === 'application/json' ? maybeJson(value) : undefined);
+  const input = json(a['input.value'], a['input.mime_type']);
+  const raw = PROVIDER_SCOPES.test(s.scope) && isObject(input) ? providerRequest(input) : undefined;
+  const response = PROVIDER_SCOPES.test(s.scope) ? providerResponse(json(a['output.value'], a['output.mime_type'])) : undefined;
+  const outputs = indexed(a, 'llm.output_messages');
+  const toolRows = indexed(a, 'llm.tools');
+  const prompt = num(a['llm.token_count.prompt']);
+  const completion = num(a['llm.token_count.completion']);
+  const cacheRead = num(a['llm.token_count.prompt_details.cache_read']);
+  const cacheWrite = num(a['llm.token_count.prompt_details.cache_write']);
+  return {
+    kind: 'model',
+    what: `span ${s.name}`,
+    provider: str(a['llm.provider']) ?? str(a['llm.system']),
+    // The model asked for: llm.model_name is often the one that answered (a dated version of it).
+    model: (raw && str(raw.model)) ?? (isObject(params) ? str(params.model) : null) ?? str(a['llm.model_name']),
+    messages: indexed(a, 'llm.input_messages')
+      .map((row) => messageOf(openInferenceMessage(row)))
+      .filter((m): m is TraceMessage => m !== null),
+    tools: toolRows.length ? toolDefinitionsOf(toolRows.map((r) => maybeJson(isObject(r.tool) ? r.tool.json_schema : undefined))) : raw ? toolDefinitionsOf(raw.tools) : null,
+    settings: settingsOf(params, raw),
+    stream: raw?.stream === true || (isObject(params) && params.stream === true),
+    output: response ? outputOf(response) : outputs.length ? outputOf({ role: 'assistant', ...openInferenceMessage(outputs[0]!) }) : null,
+    // OpenInference counts cached tokens in the prompt, as the GenAI conventions do.
+    usage: prompt === undefined && completion === undefined ? null : { input: prompt ?? 0, output: completion ?? 0, ...(cacheRead !== undefined ? { cacheRead } : {}), ...(cacheWrite !== undefined ? { cacheWrite } : {}), inputIncludesCache: true },
+    error: s.error,
+    ...(raw ? { rawRequest: raw } : {}),
+    ...(response ? { rawResponse: response } : {}),
+    responseId: response ? str(response.id) : null,
+    startedAt: s.start,
+    endedAt: s.end,
+  };
 }
 
 function modelCall(s: Span): TraceModelCall {
   const a = s.attrs;
+  if (typeof a['openinference.span.kind'] === 'string') return openInferenceModelCall(s);
   return {
     kind: 'model',
     what: `span ${s.name}`,
@@ -331,6 +404,7 @@ function spansOf(payload: unknown): Span[] {
             spanId,
             parentSpanId: String(raw.parentSpanId ?? ''),
             name: clean(raw.name),
+            scope: isObject(ss.scope) ? String(ss.scope.name ?? '') : isObject(ss.instrumentationLibrary) ? String(ss.instrumentationLibrary.name ?? '') : '',
             start: nanosToMs(raw.startTimeUnixNano),
             end: nanosToMs(raw.endTimeUnixNano),
             attrs,
@@ -405,7 +479,7 @@ export function readOtel(payloads: unknown[]): OtelRead {
     // A span named after a tool the model asked for is that tool's call, whatever else it says.
     const asked = calledToolNames(calls);
     for (const s of list) {
-      if (kinds.get(s.spanId) === null && asked.has(s.name) && (s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined)) calls.push(toolCall(s));
+      if (kinds.get(s.spanId) === null && asked.has(s.name) && (s.attrs['gen_ai.tool.call.arguments'] !== undefined || s.attrs['traceloop.entity.input'] !== undefined || s.attrs['input.value'] !== undefined)) calls.push(toolCall(s));
     }
     // `shadowlap export otel` leaves prompt text out, so its traces hold no messages to replay.
     if (!calls.some((c) => c.kind === 'model' && c.messages.length) && list.some((s) => s.attrs['shadowlap.run.id'] !== undefined || s.attrs['shadowlap.call_no'] !== undefined)) {

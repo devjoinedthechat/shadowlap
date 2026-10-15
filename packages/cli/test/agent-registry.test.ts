@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findRegistration, lookupRegistration, processAncestors, registerAgent, registryDirs, startsAgents, type ProcessInfo } from '../src/agent-registry.js';
+import { findRegistration, lookupRegistration, parentFromProcStat, processAncestors, registerAgent, registryDirs, startsAgents, type ProcessInfo } from '../src/agent-registry.js';
 import { isLoopbackHost } from '../src/loopback.js';
 
 /**
@@ -130,6 +130,12 @@ describe('the agent registry', () => {
     if (!chain) return; // a system that won't say
     expect(chain[0]).toMatchObject({ pid: process.pid, ppid: process.ppid });
     expect(chain[1]?.pid).toBe(process.ppid);
+  });
+
+  it("reads a process's parent from Linux's /proc, whatever its name holds", () => {
+    expect(parentFromProcStat('4242 (python3) S 4100 4242 4100 34816 4242 4194304 1032 0 0 0')).toBe(4100);
+    expect(parentFromProcStat('4242 (my (odd) agent) S) R 977 4242 977 0 -1 4194560')).toBe(977);
+    expect(parentFromProcStat('garbage')).toBeNull();
   });
 
   it('knows a Shadowlap command that starts agents by its command line', () => {

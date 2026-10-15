@@ -77,7 +77,7 @@ function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported:
     const reasons = new Map<string, number>();
     for (const s of json.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n}: ${reason}`);
-    if (!kept.modelCalls) console.error('\nA model call is a span with the OpenTelemetry GenAI conventions (gen_ai.*), a Langfuse generation or a LangSmith llm run, and it needs its messages logged.');
+    if (!kept.modelCalls) console.error("\nA model call is a span with the OpenTelemetry GenAI conventions (gen_ai.*) or OpenInference's (an LLM span), a Langfuse generation or a LangSmith llm run, and it needs its messages logged.");
     process.exitCode = 1;
     return;
   }
@@ -255,7 +255,7 @@ export function register(program: Command): void {
 
   importCmd
     .command('otel')
-    .description('Model and tool calls out of OpenTelemetry traces (OTLP JSON) with the GenAI semantic conventions, as partial recordings, one run per trace')
+    .description("Model and tool calls out of OpenTelemetry traces (OTLP JSON) with the GenAI semantic conventions or OpenInference's, as partial recordings, one run per trace")
     .argument('<file...>', "OTLP JSON: an export request, or one per line as the collector's file exporter writes them; traces and their logs (the GenAI events) may come in separate files")
     .option('--json', 'machine-readable output: every run made, with its full id, source and call counts, and what the traces kept')
     .action((files: string[], flags: { json?: boolean }) => {
