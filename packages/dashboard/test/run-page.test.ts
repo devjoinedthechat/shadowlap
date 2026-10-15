@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { describeInterventions, packRun, showJson, Store, type BlameRecord, type RunMeta } from '@shadowlap/engine';
+import { packRun, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
+// The record a replay keeps of its flags is written by the sidecar when the replay starts.
+import { describeInterventions } from '@shadowlap/sidecar';
 import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
 
 type RunDetailShape = Pick<RunDetail, 'intervention' | 'interventions' | 'notRecorded'>;
@@ -180,10 +182,10 @@ describe('the run page: header and banners', () => {
     expect(d.intervention).toEqual({ flag: '--fail-at', value: '2=529', callNo: 2 });
     expect(d.interventions.map((x) => x.flag)).toEqual(['--fail-at', '--writes']);
     expect(d.calls[2]!.resultShort).toBe('stubbed {"stubbed":true}');
-    // Stored flags win, as the sidecar keeps them: the call an instruction was injected at, not the instruction.
+    // Stored flags win, as the sidecar keeps them: the instruction in its short form.
     store.updateRunMeta(fork, { interventions: describeInterventions(undefined, { inject: { atCall: 2, text: 'Prefer the 2026 policy', as: 'user' } }) });
-    expect(runDetail(store, fork)!.intervention).toEqual({ flag: '--inject', value: '2', callNo: 2 });
-    expect(runDetail(store, fork)!.interventions.map((x) => x.flag)).toEqual(['--inject', '--inject-as']);
+    expect(runDetail(store, fork)!.intervention).toEqual({ flag: '--inject', value: '2=Prefer the 2026 policy', callNo: 2 });
+    expect(runDetail(store, fork)!.interventions.map((x) => x.flag)).toEqual(['--inject']);
     const r = runDetail(store, rec)!;
     expect([r.forkAt, r.intervention, r.interventions, r.rescuedBy, r.blame, r.checks, r.notRecorded]).toEqual([null, null, [], null, null, null, null]);
     store.close();
@@ -269,12 +271,12 @@ describe('the run page: a fork’s flags in a copy of it', () => {
   }
 
   const kept = describeInterventions({ overrides: new Map([[2, OVERRIDE]]), writes: 'stub' }, { inject: { atCall: 3, text: INJECTED, as: 'user' }, set: { fromCall: 3, fields: { metadata: { user_id: '078-05-1120' } } } });
-  // As a build before this one kept them, payloads and all.
+  // As someone else's pack may hold them: each flag's value kept apart from it, payloads and all.
   const legacy = [
     { flag: '--override', value: `2=${JSON.stringify(OVERRIDE)}`, callNo: 2 },
     { flag: '--inject', value: `3=${INJECTED}`, callNo: 3 },
     { flag: '--set', value: '3:metadata={"user_id":"078-05-1120"}', callNo: 3 },
-  ];
+  ] as unknown as RunIntervention[];
 
   let uiDir: string;
   beforeAll(() => {
@@ -286,23 +288,22 @@ describe('the run page: a fork’s flags in a copy of it', () => {
   });
   afterAll(() => rmSync(uiDir, { recursive: true, force: true }));
 
-  it('keeps no payload on the run, and shows an override as the call recorded it', () => {
+  it('keeps each flag exactly on the run, and shows an override as the call recorded it', () => {
     const store = Store.open(':memory:');
     const { fork } = forked(store, kept);
-    const meta = JSON.stringify(store.getRun(fork)!.meta);
-    for (const s of secrets) expect(meta).not.toContain(s);
+    // The run keeps what made the fork exactly, so the fork menu can make it again; its page shows the short form.
+    expect(store.getRun(fork)!.meta!.interventions!.find((i) => i.kind === 'override')!.args).toEqual(['--override', `2=${JSON.stringify(OVERRIDE)}`]);
     const d = runDetail(store, fork)!;
     expect(d.interventions).toEqual([
+      { flag: '--inject', value: `3=${INJECTED}`, callNo: 3 },
+      { flag: '--set', value: '3:metadata={"user_id":"078-05-1120"}', callNo: 3 },
       { flag: '--override', value: `2=${JSON.stringify(OVERRIDE)}`, callNo: 2 },
-      { flag: '--inject', value: '3', callNo: 3 },
-      { flag: '--inject-as', value: 'user', callNo: null },
-      { flag: '--set', value: '3:metadata', callNo: 3 },
       { flag: '--writes', value: 'stub', callNo: null },
     ]);
     store.close();
   });
 
-  for (const [what, interventions] of [['as kept now', kept], ['as an earlier build kept them', legacy]] as const) {
+  for (const [what, interventions] of [['as kept now', kept], ['as someone else’s pack may hold them', legacy]] as const) {
     it(`masks them in an HTML export and a pack, ${what}`, () => {
       const store = Store.open(':memory:');
       const { fork } = forked(store, interventions);
@@ -310,7 +311,9 @@ describe('the run page: a fork’s flags in a copy of it', () => {
       for (const s of secrets) expect(html, s).not.toContain(s);
       const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1]!.replace(/<\\\//g, '</')) as { responses: Record<string, RunDetailShape> };
       const shown = data.responses[`runs/${fork}`]!;
-      expect(shown.intervention).toEqual({ flag: '--override', value: '2={"email":"<EMAIL>","ssn":"<SSN>"}', callNo: 2 });
+      // The override as the copy's call recorded it, masked there; a value someone else's pack kept apart from its flag is left out.
+      if (interventions === kept) expect(shown.interventions.find((x) => x.flag === '--override')).toEqual({ flag: '--override', value: '2={"email":"<EMAIL>","ssn":"<SSN>"}', callNo: 2 });
+      else expect(shown.interventions.map((x) => x.value)).toEqual([null, null, null]);
       expect(shown.notRecorded!.hosts[0]!.target).toBe('payroll.corp.internal:5432');
 
       const dir = mkdtempSync(join(tmpdir(), 'sl-run-page-pack-'));

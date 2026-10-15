@@ -24,7 +24,7 @@ import {
   type Price,
   type RunCache,
   type RunConversations,
-  type RunIntervention,
+  type InterventionFlag,
   type RunNote,
   type RunRecord,
   type ShowJson,
@@ -177,8 +177,8 @@ export interface RunPageFacts {
   /** The call a replay forked at. */
   forkAt: number | null;
   /** The flag the fork banner names, and every flag the replay ran with. */
-  intervention: RunIntervention | null;
-  interventions: RunIntervention[];
+  intervention: InterventionFlag | null;
+  interventions: InterventionFlag[];
   /** A fork a blame of its parent found passing: the blamed run and the call it asked again. */
   rescuedBy: { runId: string; callNo: number | null } | null;
   /** The last blame of this run. */
@@ -276,7 +276,8 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     notWaitedMs,
     notRecorded: notRecordedOf(store, run),
     forkAt: run.mode === 'replay' ? (run.divergence?.callNo ?? null) : null,
-    intervention: interventions.find((x) => x.flag !== '--inject-as') ?? null,
+    // The flag the banner names: the first the replay ran with (`--inject-as system` is part of its `--inject`).
+    intervention: interventions[0] ?? null,
     interventions,
     rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
     blame: blameOf(run, calls),

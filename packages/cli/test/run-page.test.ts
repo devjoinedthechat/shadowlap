@@ -124,20 +124,23 @@ describe('the run page on a recorded batch', () => {
     expect(d.calls.find((c) => c.callNo === 6)!.origin).toBe('injected');
   });
 
-  it('keeps the file an override came from, and none of what a flag carried in', async () => {
+  it('names the file an override came from, and a copy keeps none of what a flag carried in', async () => {
     // Ticket 1's lookup_order (#3) answered from a file holding personal data, and an instruction injected at #4.
-    writeFileSync(join(cwd, 'policy.json'), JSON.stringify({ order_id: 'A-2001', amount: 240, status: 'delivered', contact: 'victim.person@corp.example' }));
+    const policy = { order_id: 'A-2001', amount: 240, status: 'delivered', contact: 'victim.person@corp.example' };
+    writeFileSync(join(cwd, 'policy.json'), JSON.stringify(policy));
     const fork = await shadowlap(['replay', recording, '--override', '3=@policy.json', '--inject', '4=Write to jane.doe@corp.example', '--inject-as', 'user'], { EXTERNAL: '' });
     expect(fork.code, fork.out).toBe(0);
     const id = /replaying run (\w{26})/.exec(fork.out)![1]!;
     const [meta, d] = open((store) => [store.getRun(id)!.meta, runDetail(store, id)!] as const);
+    // The run keeps each flag exactly, so the fork menu can make the fork again, beside the short form its page shows.
     expect(meta?.interventions).toEqual([
-      { flag: '--override', value: '3=@policy.json', callNo: 3 },
-      { flag: '--inject', value: '4', callNo: 4 },
-      { flag: '--inject-as', value: 'user', callNo: null },
+      { kind: 'inject', at: 4, flag: '--inject 4=Write to jane.doe@corp.example', args: ['--inject', '4=Write to jane.doe@corp.example', '--inject-as', 'user'] },
+      { kind: 'override', at: 3, flag: '--override 3=@policy.json', args: ['--override', `3=${JSON.stringify(policy)}`] },
     ]);
-    expect(JSON.stringify(meta)).not.toMatch(/victim\.person|jane\.doe/);
-    expect(d.intervention).toEqual({ flag: '--override', value: '3=@policy.json', callNo: 3 });
+    expect(d.interventions).toEqual([
+      { flag: '--inject', value: '4=Write to jane.doe@corp.example', callNo: 4 },
+      { flag: '--override', value: '3=@policy.json', callNo: 3 },
+    ]);
     expect(d.calls.find((c) => c.callNo === 3)!.origin).toBe('overridden');
 
     // A pack under the project's redaction rules carries neither address.

@@ -59,7 +59,7 @@ export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, runCache, whol
 export type { CacheMiss, CacheUse, CacheUseMiss, CacheUseOptions, RunCache } from './cache.js';
 export { notWaited, recordedDurations } from './waits.js';
 export type { NotWaited, RunSelection } from './waits.js';
-export { describeInterventions, inferInterventions, overrideSources, recordNotRecorded, redactRunFacts, runInterventions, toolResultLine, unrecordedTools } from './run-facts.js';
-export type { OverrideSources, RequestInterventions } from './run-facts.js';
+export { inferInterventions, overrideSources, recordNotRecorded, redactRunFacts, runInterventions, toolResultLine, unrecordedTools } from './run-facts.js';
+export type { InterventionFlag, OverrideSources } from './run-facts.js';
 export { showJson } from './show.js';
 export type { ShowJson } from './show.js';

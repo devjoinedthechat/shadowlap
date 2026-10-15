@@ -199,13 +199,16 @@ function redactDivergence(d: DivergenceReport, rules: Normalizer[]): DivergenceR
 /**
  * The run's own record of its content, masked. A fork's flags keep only their display form: `args`
  * can carry a whole `--override` result, and a copy is never made again from its record anyway, so
- * the `--expect` it was judged by goes too. Checks keep their verdicts, with their details masked.
+ * the `--expect` it was judged by goes too. Each flag is rebuilt from the fields a flag has, so a
+ * record from someone else's pack carries nothing else along. Checks keep their verdicts, with their
+ * details masked. A record that isn't a list is left for the read side, which skips it.
  */
 function redactMeta(meta: RunMeta | undefined, rules: Normalizer[]): RunMeta {
   const { expect: _expect, ...rest } = meta ?? {};
   const out: RunMeta = { ...rest, redactions: [...(meta?.redactions ?? []), ...rules] };
-  if (meta?.interventions) out.interventions = meta.interventions.map(({ args: _args, ...i }) => ({ ...i, flag: rewriteText(i.flag, rules) }));
-  if (meta?.checks) out.checks = meta.checks.map((c) => ({ ...c, label: rewriteText(c.label, rules), detail: c.detail === null ? null : rewriteText(c.detail, rules) }));
+  const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules) : '');
+  if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
+  if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
   return out;
 }
 

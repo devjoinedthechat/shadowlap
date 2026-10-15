@@ -1,4 +1,4 @@
-import { applyInjection, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
+import { applyInjection, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type OverrideSources, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
 
 /**
  * Request-level interventions for a replay. Both are append-only with respect to the conversation
@@ -217,8 +217,10 @@ const ARG_LIMIT = 8_192;
  * (a banner can name it), and how to make it again (`--repeat` from the fork menu). `args` is left
  * out when a value is too large to keep on the run. `command` is the replay's command when it is not
  * its parent's (`-- <command>`): named for display only, since the run records its command anyway.
+ * An override read from a file is shown by the file's name as it was typed (`sources`), one given
+ * inline by its call; `args` keep the result itself either way.
  */
-export function describeInterventions(replay: Partial<ReplayOptions> | undefined, interventions: Interventions | undefined, command?: string[]): RunIntervention[] {
+export function describeInterventions(replay: Partial<ReplayOptions> | undefined, interventions: Interventions | undefined, command?: string[], sources?: OverrideSources): RunIntervention[] {
   const out: RunIntervention[] = [];
   const add = (kind: RunIntervention['kind'], at: number | null, args: string[], flag?: string) => {
     const display = flag ?? args.map((a) => (a.startsWith('--') ? a : short(a, 60))).join(' ');
@@ -237,7 +239,10 @@ export function describeInterventions(replay: Partial<ReplayOptions> | undefined
   }
   for (const [callNo, status] of replay?.failAt ?? []) add('fail', callNo, ['--fail-at', `${callNo}=${status}`]);
   for (const [callNo, failure] of replay?.toolFailures ?? []) add('fail', callNo, ['--fail-at', `${callNo}=${formatToolFailure(failure)}`]);
-  for (const [callNo, value] of replay?.overrides ?? []) add('override', callNo, ['--override', `${callNo}=${JSON.stringify(value)}`], `--override ${callNo}=…`);
+  for (const [callNo, value] of replay?.overrides ?? []) {
+    const file = sources?.[callNo];
+    add('override', callNo, ['--override', `${callNo}=${JSON.stringify(value)}`], `--override ${callNo}=${typeof file === 'string' && file.startsWith('@') ? short(file, 60) : '…'}`);
+  }
   // Text that starts with `@` is kept as text, never read back as a file name.
   for (const [callNo, text] of replay?.plants ?? []) add('plant', callNo, ['--inject-result', `${callNo}=${literalValue(text)}`], `--inject-result ${callNo}=${short(text)}`);
   if (replay?.divergeAt !== undefined) add('diverge', replay.divergeAt, ['--diverge-at', String(replay.divergeAt)]);

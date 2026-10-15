@@ -402,7 +402,7 @@ export class Sidecar {
     }) : null;
     // Every replay keeps the list, empty when it changed nothing, so a run made before replays kept
     // their flags (no list) is never taken for one that had none.
-    const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand) : null;
+    const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand, input.overrideSources) : null;
     const run = this.store.createRun({
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
