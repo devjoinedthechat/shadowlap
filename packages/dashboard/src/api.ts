@@ -4,7 +4,7 @@ import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { captureSource } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { analyseRun, conversationSource, lineageMarks, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type LineageMarks, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
 
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
 
@@ -75,7 +75,10 @@ export interface CallRow extends CallFacts {
   /** The stored request (a manifest for a model call) and response blobs, by hash; shared by every run that has them. */
   requestRef: string | null;
   responseRef: string | null;
-  /** A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call; null for other calls. */
+  /**
+   * A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call;
+   * for a clock read or a random value, the value it gave, shown beside it; null for model calls.
+   */
   resultShort: string | null;
 }
 
@@ -387,6 +390,11 @@ export interface LineageNode {
   startedAt: number;
   repeat: { group: string; attempt: number; of: number } | null;
   checks: { passed: number; total: number } | null;
+  // ---- the Forks view's bundles (run-page.ts) ----
+  probe: LineageMarks['probe'];
+  verify: LineageMarks['verify'];
+  blamedAt: LineageMarks['blamedAt'];
+  fix: LineageMarks['fix'];
 }
 
 /** Every run in the family of a run: its root recording and all that descends from it, depth first, oldest first. */
@@ -421,6 +429,7 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
       checks: checksOf(r),
+      ...lineageMarks(store, r),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };

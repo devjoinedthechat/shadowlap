@@ -7,6 +7,8 @@ import * as files from './files.js';
 import * as jobs from './jobs.js';
 import * as meta from './meta.js';
 import * as runs from './runs.js';
+// The run page: what it offers to do with a run, show --json, and the Share menu's exports.
+import * as runPage from './run-page.js';
 import * as search from './search.js';
 import * as uploads from './uploads.js';
 
@@ -23,6 +25,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   meta,
   changes,
   runs,
+  runPage,
   search,
   compare,
   jobs,

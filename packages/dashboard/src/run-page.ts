@@ -31,6 +31,7 @@ import {
   type Store,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/tui/data';
+import { fixForRun } from './fixes.js';
 
 /**
  * The run page's read model beyond the rows themselves: where each conversation starts and which
@@ -111,6 +112,7 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
 const resultLines = new WeakMap<Store, Lru<string, string | null>>();
 
 function resultShortOf(store: Store, c: CallRecord): string | null {
+  if (c.kind === 'clock' || c.kind === 'random') return valueLineOf(store, c);
   if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked' || !c.end) return toolResultLine(c, null);
   let lines = resultLines.get(store);
@@ -125,6 +127,27 @@ function resultShortOf(store: Store, c: CallRecord): string | null {
     payload = null;
   }
   const line = toolResultLine(c, payload);
+  lines.set(key, line);
+  return line;
+}
+
+/** A clock read's or a random value's value in a line, as JSON: what the agent got, and a replay serves again. */
+function valueLineOf(store: Store, c: CallRecord): string | null {
+  if (!c.end?.responseRef || c.end.outcome !== 'ok') return null;
+  let lines = resultLines.get(store);
+  if (!lines) resultLines.set(store, (lines = new Lru(20_000)));
+  const key = `${c.end.responseRef}\nvalue`;
+  const known = lines.get(key);
+  if (known !== undefined) return known;
+  let line: string | null = null;
+  try {
+    const payload = store.getJson<{ result?: unknown }>(c.end.responseRef);
+    const v = payload && typeof payload === 'object' && 'result' in payload ? payload.result : undefined;
+    const text = v === undefined ? null : (JSON.stringify(v) ?? null);
+    line = text === null ? null : text.length > 72 ? `${text.slice(0, 71)}…` : text;
+  } catch {
+    line = null;
+  }
   lines.set(key, line);
   return line;
 }
@@ -411,4 +434,35 @@ export function runProvenance(store: Store, run: RunRecord, options: ProvenanceO
 /** `shadowlap show <run> --json`, exactly as the CLI prints it, without starting the CLI. */
 export function runShowJson(store: Store, run: RunRecord, options: { prices?: Record<string, Price> } = {}): ShowJson {
   return showJson(store, run, { ...(options.prices ? { prices: options.prices } : {}), modelOf: modelResolver(store) });
+}
+
+// ---- the Forks view ----------------------------------------------------------------------------------
+
+/** What the Forks view needs to bundle a run's attempts: what made it one, and the fix they count towards. */
+export interface LineageMarks {
+  /** An attempt of a blame probe: the run blamed, the model call asked again, and whether it passed. */
+  probe: { of: string; callNo: number; passed: boolean } | null;
+  /** An attempt of `shadowlap verify`: the role its recording played, and whether it passed. */
+  verify: { role: string; passed: boolean } | null;
+  /** Where the last blame of this run found it lost: the probe of that call carries "blamed". */
+  blamedAt: number | null;
+  /** Where its attempts link: a blamed run's blame step, or a verify attempt's verdict (accepted or rejected). */
+  fix: { href: string; verdict: string | null } | null;
+}
+
+export function lineageMarks(store: Store, run: RunRecord): LineageMarks {
+  const m = run.meta;
+  const p: unknown = m?.probe;
+  const v: unknown = m?.verify;
+  const b: unknown = m?.blame;
+  const probe = isObject(p) && typeof p.of === 'string' && int(p.callNo) !== null ? { of: p.of, callNo: int(p.callNo)!, passed: p.passed === true } : null;
+  const verify = isObject(v) && typeof v.role === 'string' ? { role: v.role, passed: v.passed === true } : null;
+  const blamedAt = isObject(b) && b.outcome === 'blamed' ? int(b.callNo) : null;
+  let fix: LineageMarks['fix'] = null;
+  if (isObject(b) || verify) {
+    const f = fixForRun(store, run.runId);
+    if (f?.role === 'failing' && f.blame) fix = { href: f.blame.href, verdict: null };
+    else if (f?.role === 'verify' && f.verify) fix = { href: f.verify.href, verdict: f.verify.verdict };
+  }
+  return { probe, verify, blamedAt, fix };
 }
