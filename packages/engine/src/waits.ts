@@ -1,3 +1,4 @@
+import { Lru } from './conversations.js';
 import type { Store } from './store.js';
 import type { CallRecord, RunRecord } from './types.js';
 
@@ -40,7 +41,8 @@ class Ancestry {
   }
 }
 
-function durations(a: Ancestry, run: RunRecord, calls: readonly CallRecord[]): Map<number, number> {
+/** `followed`, when given, gets each ancestor read, and whether it was in the store. */
+function durations(a: Ancestry, run: RunRecord, calls: readonly CallRecord[], followed?: Array<[string, boolean]>): Map<number, number> {
   const out = new Map<number, number>();
   /** Calls of `run` still being followed, by the call number to read in the next ancestor. */
   let pending = new Map<number, number>();
@@ -52,6 +54,7 @@ function durations(a: Ancestry, run: RunRecord, calls: readonly CallRecord[]): M
   let ancestor = run.parentRunId;
   while (pending.size && ancestor && !seen.has(ancestor)) {
     seen.add(ancestor);
+    followed?.push([ancestor, a.run(ancestor) !== null]);
     const timings = a.timingsOf(ancestor);
     const next = new Map<number, number>();
     for (const [callNo, from] of pending) {
@@ -87,8 +90,17 @@ export interface NotWaited {
 export type RunSelection = readonly string[] | number | { since: number; until?: number };
 
 /**
+ * Each finished replay's part, per store: the calls it replayed and what its recording waited for
+ * them no longer change, so the Overview, which asks on every load, reads them once. The ancestors
+ * it was followed through are kept with it: once one of them is deleted (`gc`), the part is
+ * worked out again, as the run's page would.
+ */
+const finishedWaits = new WeakMap<Store, Lru<string, { ms: number; calls: number; followed: Array<[string, boolean]> }>>();
+
+/**
  * The time replays did not wait, over the runs named or those started since a time (ms since the
- * epoch, or a window with an exclusive `until`). Ancestors shared by many runs are read once.
+ * epoch, or a window with an exclusive `until`). Ancestors shared by many runs are read once, and a
+ * finished replay's calls once per store; a replay still running is read again each time.
  */
 export function notWaited(store: Store, which: RunSelection): NotWaited {
   const a = new Ancestry(store);
@@ -99,20 +111,30 @@ export function notWaited(store: Store, which: RunSelection): NotWaited {
     const until = typeof which === 'number' ? undefined : (which as { until?: number }).until;
     runs = store.allRuns().filter((r) => r.startedAt >= since && (until === undefined || r.startedAt < until));
   }
+  let known = finishedWaits.get(store);
+  if (!known) finishedWaits.set(store, (known = new Lru(8192)));
   const out: NotWaited = { ms: 0, calls: 0, runs: [] };
   for (const run of runs) {
     // Recordings replay nothing: no need to read their calls.
     if (run.mode !== 'replay' || !run.parentRunId) continue;
-    const calls = store.getCalls(run.runId);
-    // A run selected here may be another's ancestor too: its calls are read once.
-    a.timingsOf(run.runId, calls);
-    const found = durations(a, run, calls);
-    if (!found.size) continue;
-    let ms = 0;
-    for (const v of found.values()) ms += v;
-    out.ms += ms;
-    out.calls += found.size;
-    out.runs.push({ runId: run.runId, startedAt: run.startedAt, ms, calls: found.size });
+    const finished = run.status !== 'running' ? `${run.runId}\n${run.status}\n${run.endedAt ?? ''}` : null;
+    let part = finished === null ? undefined : known.get(finished);
+    if (part && !part.followed.every(([id, was]) => (a.run(id) !== null) === was)) part = undefined;
+    if (part === undefined) {
+      const calls = store.getCalls(run.runId);
+      // A run selected here may be another's ancestor too: its calls are read once.
+      a.timingsOf(run.runId, calls);
+      const followed: Array<[string, boolean]> = [];
+      const found = durations(a, run, calls, followed);
+      let ms = 0;
+      for (const v of found.values()) ms += v;
+      part = { ms, calls: found.size, followed };
+      if (finished !== null) known.set(finished, part);
+    }
+    if (!part.calls) continue;
+    out.ms += part.ms;
+    out.calls += part.calls;
+    out.runs.push({ runId: run.runId, startedAt: run.startedAt, ms: part.ms, calls: part.calls });
   }
   return out;
 }

@@ -84,4 +84,41 @@ describe('time not waited', () => {
     expect(notWaited(store, 8_000).ms).toBe(total);
     store.close();
   });
+
+  it('reads a finished replay once however often the Overview asks, and one still running each time', () => {
+    const store = Store.open(':memory:');
+    const f = family(store, 6);
+    const total = f.ms.reduce((s, v) => s + v, 0);
+    const done = [f.replay(f.rec, 7, 5_000), f.replay(f.rec, 4, 6_000)];
+    // A replay still running: three calls replayed so far.
+    const running = RunBuilder.start(store, { parent: f.rec, startedAt: 7_000 });
+    for (let i = 1; i <= 3; i++) {
+      if (i % 2) running.model({ messages: [user(`step ${i}`)] }, [text('x')], { origin: 'replayed', replayedFrom: i });
+      else running.tool('t', { i }, { ok: i }, { origin: 'replayed', replayedFrom: i });
+    }
+    const first = notWaited(store, { since: 0 });
+    expect(first.ms).toBe(total + 600 + 600);
+    const getCalls = vi.spyOn(store, 'getCalls');
+    expect(notWaited(store, { since: 0 })).toEqual(first);
+    // Only the running replay and the recording it follows are read again.
+    expect(getCalls.mock.calls.map((c) => c[0]).sort()).toEqual([f.rec, running.runId].sort());
+    expect(getCalls.mock.calls.some((c) => done.includes(c[0]))).toBe(false);
+    // Its next replayed call counts at once.
+    running.tool('t', { i: 4 }, { ok: 4 }, { origin: 'replayed', replayedFrom: 4 });
+    expect(notWaited(store, { since: 0 }).ms).toBe(total + 600 + 1000);
+    // Once it ends, it is read once more and then kept.
+    running.end();
+    expect(notWaited(store, [running.runId]).ms).toBe(1000);
+    getCalls.mockClear();
+    expect(notWaited(store, [running.runId]).ms).toBe(1000);
+    expect(getCalls).not.toHaveBeenCalled();
+    // A replay of a replay, kept; then its recording is deleted (the replay in between stays). What
+    // was kept for it goes with the recording, as on its own page.
+    const again = f.replay(done[0]!, 7, 8_000);
+    expect(notWaited(store, [again]).ms).toBe(total);
+    store.deleteRun(f.rec);
+    expect(recordedDurations(store, store.getRun(again)!).size).toBe(0);
+    expect(notWaited(store, [again])).toEqual({ ms: 0, calls: 0, runs: [] });
+    store.close();
+  });
 });
