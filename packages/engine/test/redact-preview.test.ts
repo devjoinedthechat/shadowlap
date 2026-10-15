@@ -140,14 +140,14 @@ describe('previewRedaction', () => {
     store.close();
   });
 
-  it('previews a run of 1,200 model calls in about the time it takes to read it', () => {
+  it('takes time in proportion to a long run, not to the square of its length', () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: cmd });
     // Stored as storeApiRequest stores a conversation: each message once, and a manifest per request listing them.
     const system = store.putJson(`You help customers. The account owner is alice@example.com. ${'Policy text. '.repeat(200)}`);
     const messages: string[] = [];
     store.transaction(() => {
-      for (let i = 0; i < 1200; i++) {
+      for (let i = 0; i < 400; i++) {
         messages.push(store.putJson({ role: 'user', content: `Turn ${i}: refund order ${4400 + i} for user${i}@example.com. ${'More words here. '.repeat(20)}` }));
         const id = { ...API, fingerprint: String(i).padStart(64, 'd'), occurrence: 1 };
         const manifest = store.putJson({ v: 1, kind: 'chunked', fields: { model: 'm' }, system, tools: null, messages: [...messages] });
@@ -157,13 +157,20 @@ describe('previewRedaction', () => {
       }
     });
     store.endRun(run.runId, 'completed');
-    const started = performance.now();
-    const p = previewRedaction(store, run.runId, [EMAIL, CARD, USER]);
-    // Reading every request whole took over 8 seconds here; the work now grows with the run, not its square.
-    expect(performance.now() - started).toBeLessThan(5000);
-    expect(p).toMatchObject({ calls: 1200, partial: null });
+    const rules = [EMAIL, CARD, USER];
+    let started = performance.now();
+    const p = previewRedaction(store, run.runId, rules);
+    const fast = performance.now() - started;
+    // Reading every request whole, as the preview must with a rule that sees a whole message: the square of the length.
+    started = performance.now();
+    const whole = previewRedaction(store, run.runId, [...rules, { kind: 'tool', name: 'nothing', path: '$.messages[0]', replace: 'x' }]);
+    const slow = performance.now() - started;
+    expect(p.rules).toEqual(whole.rules.slice(0, rules.length));
+    // About seven times faster at 400 calls here, and the gap widens with the length; a third is the floor.
+    expect(fast).toBeLessThan(slow / 3);
     // The system prompt, each user turn, each answer as the conversation sends it back, and each response.
-    expect(p.rules[0]!.count).toBe(1 + 1200 + 1199 + 1200);
+    expect(p).toMatchObject({ calls: 400, partial: null });
+    expect(p.rules[0]!.count).toBe(1 + 400 + 399 + 400);
     store.close();
   }, 30_000);
 

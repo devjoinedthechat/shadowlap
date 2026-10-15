@@ -289,7 +289,8 @@ describe('versions and concurrent writers', () => {
     const r = await editWhenFree((o) => addRule(cwd, 'redact', { pattern: 'email' }, { ...o, expect: NO_CONFIG }));
     clearInterval(timer);
     expect(r.added).toBe(true);
-    expect(ticks).toBeGreaterThan(5);
+    // Timers ran while it waited: a blocking wait would have let none fire.
+    expect(ticks).toBeGreaterThan(0);
     // Still busy when the time is up: the edit is refused, and a conflict isn't retried.
     writeFileSync(`${file()}.lock`, JSON.stringify({ pid: process.pid, host: hostname(), token: 'other' }));
     await expect(editWhenFree((o) => addRule(cwd, 'redact', { pattern: 'uuid' }, o), 50)).rejects.toThrow(ConfigBusyError);
