@@ -21,7 +21,9 @@ import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
  *   lists nothing. A configured root can't be a filesystem root, a system folder, or a folder
  *   that holds the home folder.
  * - Never hidden folders (a name starting with a dot, such as `~/.ssh`) or system folders
- *   (`~/Library`, `AppData`, `node_modules`), and nothing inside them.
+ *   (`~/Library`, `~/AppData` and `~/snap` at the top of the home folder or a root;
+ *   `node_modules`, `__pycache__` and `site-packages` anywhere), and nothing inside them. Only a
+ *   root the user configured there, such as iCloud Drive's folder under `~/Library`, reaches in.
  * - Capped: at most {@link SUGGEST_LIMITS.scanned} entries read from a directory, at most
  *   {@link SUGGEST_LIMITS.described} of them looked into for project files, and at most
  *   {@link SUGGEST_LIMITS.maxResults} returned.
@@ -219,8 +221,20 @@ export function countGoldens(folder: string, limit = 500): number {
 // ---------------------------------------------------------------------------------------------
 // Where suggestions may go
 
-/** Folder names never listed or entered: system and tool folders, at any level. Compared lowercased. */
-const SYSTEM_NAMES = new Set(['library', 'applications', 'appdata', 'application data', 'system volume information', '$recycle.bin', 'node_modules', '__pycache__', 'site-packages', 'snap']);
+/**
+ * Folders at the top of the home folder (or of a root) that hold the system's and apps' files, not
+ * projects: `~/Library`, `~/AppData`, `~/snap`. Deeper down the same names are ordinary folders
+ * (`~/code/library`). Compared lowercased.
+ */
+const SYSTEM_TOP = new Set(['library', 'applications', 'appdata', 'application data', 'snap', 'system volume information', '$recycle.bin']);
+/** Folders of installed packages and caches, at any depth. Compared lowercased. */
+const SYSTEM_ANYWHERE = new Set(['node_modules', '__pycache__', 'site-packages']);
+
+/** A system folder's name, `depth` folders below a root (0: right in it). */
+function systemName(name: string, depth: number): boolean {
+  const lower = name.toLowerCase();
+  return SYSTEM_ANYWHERE.has(lower) || (depth === 0 && SYSTEM_TOP.has(lower));
+}
 
 /** Folders that can never be a root, whatever the configuration says. */
 const SYSTEM_PATHS = new Set(
@@ -238,11 +252,23 @@ function isSystemPath(path: string): boolean {
 function blockedBetween(root: string, path: string): 'hidden' | 'system' | null {
   const rel = relative(root, path);
   if (!rel) return null;
-  for (const segment of rel.split(sep)) {
+  const segments = rel.split(sep);
+  for (let depth = 0; depth < segments.length; depth++) {
+    const segment = segments[depth]!;
     if (segment.startsWith('.')) return 'hidden';
-    if (SYSTEM_NAMES.has(segment.toLowerCase())) return 'system';
+    if (systemName(segment, depth)) return 'system';
   }
   return null;
+}
+
+/**
+ * The root a path is in: the deepest that holds it, so a root configured inside another (even in a
+ * hidden or system folder there, such as iCloud Drive's folder under `~/Library`) is its own root.
+ */
+function rootOf(path: string, roots: readonly string[]): string | undefined {
+  let best: string | undefined;
+  for (const r of roots) if (isWithin(path, r) && (best === undefined || r.length > best.length)) best = r;
+  return best;
 }
 
 export interface ProjectRoots {
@@ -292,7 +318,9 @@ export function projectRoots(options: { home?: string; configured?: readonly str
     }
     if (!reach.includes(resolve(expanded))) reach.push(resolve(expanded));
     if (!reach.includes(real)) reach.push(real);
-    if (roots.some((r) => isWithin(real, r))) continue;
+    // Inside a root already, it adds nothing, unless it is somewhere that root keeps out (a hidden
+    // or system folder): then it is a root of its own.
+    if (roots.some((r) => isWithin(real, r) && !blockedBetween(r, real))) continue;
     roots.push(real);
   }
   return { roots, reach, refused };
@@ -326,7 +354,7 @@ export function checkFolder(input: string, options: { home?: string; roots?: rea
   if (!reachable(abs, reach)) return outside;
   const real = realpathOrNull(abs);
   if (!real) return { ok: false, code: 'missing', why: `${shown} doesn’t exist.` };
-  const root = roots.find((r) => isWithin(real, r));
+  const root = rootOf(real, roots);
   if (!root) return outside;
   if (!isDirectory(real)) return { ok: false, code: 'not-a-folder', why: `${shown} isn’t a folder.` };
   const blocked = blockedBetween(root, real);
@@ -418,7 +446,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   if (!reachable(dir, reach)) return outside();
   const realDir = realpathOrNull(dir);
   if (!realDir) return result(listed, [], false, `${shownDir} doesn’t exist.`);
-  const root = roots.find((r) => isWithin(realDir, r));
+  const root = rootOf(realDir, roots);
   if (!root) return outside();
   if (!isDirectory(realDir)) return result(listed, [], false, `${shownDir} isn’t a folder.`);
   const blocked = blockedBetween(root, realDir);
@@ -430,6 +458,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   // Read one level, directories only, skipping hidden and system names.
   const matches: Array<{ name: string; path: string; rank: number }> = [];
   const links: Array<{ name: string; path: string; rank: number }> = [];
+  const depth = realDir === root ? 0 : 1;
   let truncated = false;
   let handle;
   try {
@@ -445,7 +474,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
         break;
       }
       const name = entry.name;
-      if (name.startsWith('.') || SYSTEM_NAMES.has(name.toLowerCase())) continue;
+      if (name.startsWith('.') || systemName(name, depth)) continue;
       const lower = name.toLowerCase();
       const rank = !prefix || lower.startsWith(prefix) ? 0 : lower.includes(prefix) ? 1 : -1;
       if (rank < 0) continue;
@@ -460,7 +489,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   const seen = new Set(matches.map((m) => m.path));
   for (const link of links) {
     const target = realpathOrNull(link.path);
-    const targetRoot = target ? roots.find((r) => isWithin(target, r)) : undefined;
+    const targetRoot = target ? rootOf(target, roots) : undefined;
     if (!target || !targetRoot || seen.has(target) || !isDirectory(target) || blockedBetween(targetRoot, target)) continue;
     seen.add(target);
     matches.push({ ...link, path: target });

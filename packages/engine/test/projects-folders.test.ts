@@ -160,6 +160,37 @@ describe('suggestFolders', () => {
     expect(suggestFolders('~/link-in', { home }).folders.map((f) => [f.name, f.path, f.display])).toEqual([['link-in', join(home, 'research-agent'), '~/research-agent']]);
   });
 
+  it('takes a system folder’s name for an ordinary folder deeper down', () => {
+    const deeper = files(tempDir('sl-deeper-'), { 'code/library/package.json': '{}', 'code/Applications/agent/pyproject.toml': '', 'Library/agent/package.json': '{}', 'code/node_modules/x/package.json': '{}' });
+    expect(suggestFolders('~/code/', { home: deeper }).folders.map((f) => f.name)).toEqual(['library', 'Applications']);
+    expect(checkFolder('~/code/library', { home: deeper })).toMatchObject({ ok: true, path: join(deeper, 'code', 'library') });
+    expect(checkFolder('~/code/Applications/agent', { home: deeper }).ok).toBe(true);
+    expect(checkFolder('~/Library/agent', { home: deeper })).toMatchObject({ ok: false, code: 'system' });
+    expect(checkFolder('~/code/node_modules/x', { home: deeper })).toMatchObject({ ok: false, code: 'system' });
+  });
+
+  it('reaches into a hidden or system folder only through a root configured there', () => {
+    const own = files(tempDir('sl-own-roots-'), {
+      '.work/agent/package.json': '{}',
+      '.ssh/id_ed25519': 'secret',
+      'Library/Mobile Documents/com~apple~CloudDocs/projects/agent/pyproject.toml': '',
+      'Library/Preferences/x.plist': '',
+    });
+    const icloud = join(own, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'projects');
+    const roots = ['~/.work', icloud];
+    expect(projectRoots({ home: own, configured: roots }).roots).toEqual([own, join(own, '.work'), icloud]);
+    expect(suggestFolders('~/.work/', { home: own, roots }).folders.map((f) => f.display)).toEqual(['~/.work/agent']);
+    expect(checkFolder('~/.work/agent', { home: own, roots })).toMatchObject({ ok: true });
+    expect(suggestFolders(`${icloud}/`, { home: own, roots }).folders.map((f) => f.name)).toEqual(['agent']);
+    expect(checkFolder(join(icloud, 'agent'), { home: own, roots }).ok).toBe(true);
+    // The rest of those folders stays out.
+    expect(suggestFolders('~/.ssh/', { home: own, roots }).note).toBe('Hidden folders aren’t listed.');
+    expect(suggestFolders('~/Library/', { home: own, roots }).folders).toEqual([]);
+    expect(checkFolder('~/Library/Preferences', { home: own, roots, requireProjectFiles: false })).toMatchObject({ ok: false, code: 'system' });
+    // Without the roots, nothing in them.
+    expect(checkFolder('~/.work/agent', { home: own })).toMatchObject({ ok: false, code: 'hidden' });
+  });
+
   it('lists nothing inside hidden or system folders', () => {
     expect(suggestFolders('~/.ssh/', { home })).toMatchObject({ folders: [], note: 'Hidden folders aren’t listed.' });
     expect(suggestFolders('~/.config/', { home })).toMatchObject({ folders: [], note: 'Hidden folders aren’t listed.' });

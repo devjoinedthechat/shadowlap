@@ -21,7 +21,7 @@ const SHELL_SYNTAX: ReadonlyArray<readonly [RegExp, string]> = [
   [/[;&]/, 'chained commands'],
   [/[<>]/, 'a redirection'],
   [/[`]|\$[({]/, 'a substitution'],
-  [/\$[A-Za-z_]/, 'a variable'],
+  [/\$[A-Za-z0-9_@#!$]/, 'a variable'],
   [/[()]/, 'a subshell'],
   [/[*?[]/, 'a wildcard'],
   [/\{[^{} ]*(?:,|\.\.)[^{} ]*\}/, 'a brace expansion'],
@@ -31,9 +31,11 @@ const SHELL_SYNTAX: ReadonlyArray<readonly [RegExp, string]> = [
 /**
  * Splits the agent's command into arguments, honouring single and double quotes as the terminal
  * UI's prompt does (backslashes are kept as typed, so Windows paths survive). No shell runs it, so
- * shell syntax outside quotes is refused rather than passed on as literal text: a pipe, `&&`, a
- * redirection, `$VAR`, `~`, a wildcard or a leading `NAME=value` would not do what it does in a
- * terminal. A leading `shadowlap run --` is dropped: it is what the step's command line shows.
+ * shell syntax is refused rather than passed on as literal text: outside quotes a pipe, `&&`, a
+ * redirection, `$VAR`, `~`, a wildcard or a leading `NAME=value`, and inside double quotes `$VAR`
+ * or a substitution, which a terminal expands there too; a backslash escaping a space or a quote
+ * would split the line differently. Single quotes keep text as it is, as in a terminal. A leading
+ * `shadowlap run --` is dropped: it is what the step's command line shows.
  */
 export function parseAgentCommand(line: string): ParsedCommand {
   if (line.length > COMMAND_LIMITS.chars) return { ok: false, error: `The command is longer than ${COMMAND_LIMITS.chars} characters.` };
@@ -44,17 +46,31 @@ export function parseAgentCommand(line: string): ParsedCommand {
   let quote: '"' | "'" | null = null;
   let started = false;
   let bare = '';
+  // What double quotes held, where a terminal still expands `$` and backquotes.
+  let doubleQuoted = '';
+  let prev = '';
+  const escape = { ok: false as const, error: 'Shadowlap runs the command without a shell, so a backslash before a space or a quote would not do what it does in a terminal. Put the argument in single quotes instead.' };
   const flush = () => {
     if (started) args.push(current);
     current = '';
     started = false;
   };
   for (const ch of line.trim()) {
+    const escaped = prev === '\\';
+    prev = ch;
     if (quote) {
-      if (ch === quote) quote = null;
-      else current += ch;
+      if (ch === quote) {
+        // In a terminal, \" inside double quotes is a quote, not the end of them.
+        if (escaped && quote === '"') return escape;
+        quote = null;
+        if (ch === '"') doubleQuoted += ' ';
+      } else {
+        current += ch;
+        if (quote === '"') doubleQuoted += ch;
+      }
       continue;
     }
+    if (escaped && (ch === '"' || ch === "'" || /\s/.test(ch))) return escape;
     if (ch === '"' || ch === "'") {
       quote = ch;
       started = true;
@@ -73,6 +89,7 @@ export function parseAgentCommand(line: string): ParsedCommand {
   for (const [re, what] of SHELL_SYNTAX) {
     if (re.test(bare)) return { ok: false, error: `Shadowlap runs the command without a shell, so ${what} would not do what it does in a terminal. Put it in a script and give the script, or quote the text.` };
   }
+  if (/[`]|\$[A-Za-z0-9_{(@#!$*?]/.test(doubleQuoted)) return { ok: false, error: 'Shadowlap runs the command without a shell, so a variable or a substitution inside double quotes would not be expanded as in a terminal. Type the value itself, use single quotes to keep the text as it is, or put the command in a script.' };
   // What the step shows in full: `shadowlap run -- <command>`. Pasting that is fine.
   const lead = args[0] === 'npx' ? 1 : 0;
   if (args[lead] === 'shadowlap' && args[lead + 1] === 'run' && args[lead + 2] === '--') args.splice(0, lead + 3);
@@ -104,6 +121,11 @@ export interface RecordPlan {
   argv: string[];
   /** Where it runs: the project's folder. */
   cwd: string;
+  /**
+   * Variables the job sets for the command, beside the dashboard's own environment: the model
+   * server the project points at, as {@link UPSTREAM_ENV}. Empty for a project on a provider's API.
+   */
+  env: Record<string, string>;
   /** As a terminal shows it: `shadowlap run -- uv run agent.py`. */
   display: string;
   /** Set the first time this command runs in this folder: ask with this before running it. */
@@ -118,25 +140,82 @@ export function sameArgv(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * What recording a typed command in a project's folder takes: the arguments for the job, and the
- * confirmation to show first unless this exact command was confirmed in this folder before.
- * The server records the pair once the person confirms (`ProjectRegistry.confirmCommand`).
+ * A project that talks to its own model server (Ollama, vLLM, a proxy: `OPENAI_BASE_URL` in its
+ * `.env` or a base URL in its code) is recorded with this variable naming it, so the sidecar
+ * forwards there instead of to the provider's API. `init` prints it before `shadowlap run` in a
+ * terminal; the dashboard sets it for the job.
  */
-export function planRecording(project: { path: string; confirmed: ReadonlyArray<{ argv: string[] }> }, line: string, options: { home?: string } = {}): RecordPlanResult {
+export const UPSTREAM_ENV = 'SHADOWLAP_UPSTREAM_OPENAI';
+
+/** A model server as the project list keeps it, from `init`. */
+export interface ModelServer {
+  /** Where the project points, credentials removed. */
+  url: string;
+  /**
+   * What recording sets {@link UPSTREAM_ENV} to; null when the address holds credentials (never
+   * stored) or isn't a plain http(s) URL, and the dashboard won't record through it.
+   */
+  upstream: string | null;
+  /** Where `init` found it: `OPENAI_BASE_URL in .env`. */
+  from: string;
+}
+
+function parseUrl(value: unknown): URL | null {
+  if (typeof value !== 'string' || !value || value.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(value)) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** An http(s) address recording may forward to: no credentials in it, nothing but the URL. */
+export function upstreamUrl(value: unknown): string | null {
+  const url = parseUrl(value);
+  return url && !url.username && !url.password ? (value as string) : null;
+}
+
+/** A model server `init` found, as the project list may keep it: never with the credentials its address holds. */
+export function modelServerFinding(server: { url: string; upstream: string; from: string }): ModelServer | null {
+  const url = parseUrl(server.url);
+  if (!url) return null;
+  const secret = !!(url.username || url.password);
+  url.username = '';
+  url.password = '';
+  return { url: secret ? url.toString() : server.url, upstream: secret ? null : upstreamUrl(server.upstream), from: server.from };
+}
+
+/**
+ * What recording a typed command in a project's folder takes: the arguments for the job, the
+ * variables it sets (the project's model server, when `init` found one), and the confirmation to
+ * show first unless this exact command was confirmed in this folder before. The server records the
+ * pair once the person confirms (`ProjectRegistry.confirmCommand`).
+ */
+export function planRecording(
+  project: { path: string; confirmed: ReadonlyArray<{ argv: string[] }> },
+  line: string,
+  options: { home?: string; modelServer?: Pick<ModelServer, 'url' | 'upstream'> | null } = {},
+): RecordPlanResult {
   const parsed = parseAgentCommand(line);
   if (!parsed.ok) return parsed;
+  const server = options.modelServer ?? null;
+  // Without the upstream, the calls meant for that server would go to the provider's API.
+  if (server && !server.upstream) return { ok: false, error: `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.` };
   const argv = parsed.argv;
-  const display = `shadowlap run -- ${quoteArgs(argv)}`;
+  const env: Record<string, string> = server?.upstream ? { [UPSTREAM_ENV]: server.upstream } : {};
+  const display = `${server?.upstream ? `${quoteArgs([`${UPSTREAM_ENV}=${server.upstream}`])} ` : ''}shadowlap run -- ${quoteArgs(argv)}`;
   const known = project.confirmed.some((c) => sameArgv(c.argv, argv));
+  const calls = server?.upstream ? `Model calls go to ${server.url}, the model server this project uses.` : 'Model calls go to the real API with your keys, which are never stored.';
   const confirm: RecordConfirmation | null = known
     ? null
     : {
         title: `Run this command in ${displayPath(project.path, options.home ?? homedir())}?`,
-        text: 'The first command in a folder asks first. Shadowlap starts a local sidecar, runs it once, and records every model and tool call. Model calls go to the real API with your keys, which are never stored.',
+        text: `The first command in a folder asks first. Shadowlap starts a local sidecar, runs it once, and records every model and tool call. ${calls}`,
         command: display,
         button: 'Run and record',
       };
-  return { ok: true, plan: { args: ['run', '--', ...argv], argv, cwd: project.path, display, confirm } };
+  return { ok: true, plan: { args: ['run', '--', ...argv], argv, cwd: project.path, env, display, confirm } };
 }
 
 export type GoldenPathResult = { ok: true; path: string } | { ok: false; error: string };
@@ -202,12 +281,17 @@ export const setupJobArgs = {
   test: (golden: string): string[] => ['test', golden],
 };
 
-/** The same steps as commands to type in a terminal, as the setup shows them beside each step. */
-export function setupCommands(input: { argv: readonly string[] | null; runId: string | null; golden: string }): { inspect: string[]; record: string[]; calibrate: string[]; test: string[] } {
+/**
+ * The same steps as commands to type in a terminal, as the setup shows them beside each step. A
+ * project on its own model server records with {@link UPSTREAM_ENV} before the command, as `init`
+ * prints it; `<your model server>` stands in for an address that holds credentials.
+ */
+export function setupCommands(input: { argv: readonly string[] | null; runId: string | null; golden: string; modelServer?: Pick<ModelServer, 'upstream'> | null }): { inspect: string[]; record: string[]; calibrate: string[]; test: string[] } {
   const run = input.runId ? shortRunId(input.runId) : '<run>';
+  const upstream = input.modelServer ? `${input.modelServer.upstream ? quoteArgs([`${UPSTREAM_ENV}=${input.modelServer.upstream}`]) : `${UPSTREAM_ENV}=<your model server>`} ` : '';
   return {
     inspect: ['shadowlap init'],
-    record: [`shadowlap run -- ${input.argv?.length ? quoteArgs(input.argv) : '<the command that starts your agent>'}`],
+    record: [`${upstream}shadowlap run -- ${input.argv?.length ? quoteArgs(input.argv) : '<the command that starts your agent>'}`],
     calibrate: [`shadowlap calibrate ${run} --write`],
     test: [`shadowlap pack ${run} ${input.golden}`, `shadowlap test ${input.golden}`],
   };

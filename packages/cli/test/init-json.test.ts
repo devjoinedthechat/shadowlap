@@ -165,6 +165,15 @@ describe('initFindings', () => {
     const declared = { ...j, tools: [{ name: 'send_digest', file: 'agent.py', line: 3, via: 'shadowlap', effect: 'read' as const, suggested: 'write' as const, why: '"send" changes something', wrapped: true }] };
     expect(initFindings(declared).tools).toEqual([{ name: 'send_digest', effect: 'read', wrapped: true, why: 'declared', file: 'agent.py', line: 3 }]);
   });
+
+  it('keeps the model server the project points at, never the credentials in its address', () => {
+    const local = json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }));
+    expect(local.modelServer).toMatchObject({ upstream: 'http://127.0.0.1:11434' });
+    expect(initFindings(local).modelServer).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' });
+    const secret = json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=https://dana:s3cret@llm.internal/v1\n' }));
+    expect(initFindings(secret).modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
+    expect(initFindings(json(project(RESEARCH))).modelServer).toBeNull();
+  });
 });
 
 describe('shadowlap init in a dashboard project', () => {

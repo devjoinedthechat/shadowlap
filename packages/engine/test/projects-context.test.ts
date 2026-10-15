@@ -113,6 +113,92 @@ describe('ProjectHost', () => {
     host.close();
   });
 
+  it('follows the list when another process changes it', () => {
+    const { registry, loadConfig, support, home } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    const other = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, '.sl') }, actor: () => null });
+    other.add('~/triage-bot');
+    files(join(home, 'a', 'agent'), { 'package.json': '{}' });
+    files(join(home, 'b', 'agent'), { 'package.json': '{}' });
+    other.add('~/a/agent');
+    expect(host.context('agent').path).toBe(join(home, 'a', 'agent'));
+
+    // Removed elsewhere: gone here too, and the id now names another folder.
+    other.remove('agent');
+    expect(() => host.context('agent')).toThrow(expect.objectContaining({ code: 'not-found' }));
+    other.add('~/b/agent');
+    expect(host.context('agent').path).toBe(join(home, 'b', 'agent'));
+
+    // The current project removed elsewhere: the first one left becomes current.
+    other.remove('support-agent');
+    expect(host.currentProject()).toBe('triage-bot');
+    expect(host.current().path).toBe(join(home, 'triage-bot'));
+    host.close();
+  });
+
+  it('adds the folder it started in again when the list loses every project', () => {
+    const { registry, loadConfig, support } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    rmSync(registry.file);
+    expect(host.current()).toMatchObject({ id: 'support-agent', path: support });
+    expect(registry.list().map((p) => p.id)).toEqual(['support-agent']);
+    host.close();
+  });
+
+  it('counts runs, attempts and goldens per project, and says when a folder is gone', () => {
+    const { registry, loadConfig, support, triage } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    const store = host.context('triage-bot').store();
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'triage.mjs'], cwd: triage } });
+    store.endRun(rec.runId, 'completed');
+    store.endRun(store.createRun({ mode: 'replay', command: { argv: ['node', 'triage.mjs'], cwd: triage }, parentRunId: rec.runId, meta: { repeat: { group: 'g1', attempt: 1, of: 2 } } }).runId, 'completed');
+    const gone = files(join(registry.home, 'gone-agent'), { 'package.json': '{}' });
+    registry.add('~/gone-agent');
+    rmSync(gone, { recursive: true, force: true });
+    expect(host.stats()).toEqual({
+      'support-agent': { runs: 0, attempts: 0, goldens: 0, missing: false },
+      'triage-bot': { runs: 1, attempts: 1, goldens: 1, missing: false },
+      'gone-agent': { runs: 0, attempts: 0, goldens: 0, missing: true },
+    });
+    host.close();
+  });
+
+  it('plans a recording with the commands confirmed in the folder and the model server init found', () => {
+    const { registry, loadConfig, support } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    const first = host.planRecording('support-agent', 'python agent.py');
+    expect(first.ok && first.plan).toMatchObject({ args: ['run', '--', 'python', 'agent.py'], cwd: support, env: {}, confirm: { title: 'Run this command in ~/support-agent?' } });
+    registry.confirmCommand('support-agent', ['python', 'agent.py']);
+    expect(host.planRecording('support-agent', 'python agent.py')).toMatchObject({ ok: true, plan: { confirm: null } });
+    registry.noteInspected('support-agent', {
+      at: 1, language: 'Python', files: [], sdk: null, framework: null, command: null, commandFrom: null,
+      config: { file: 'shadowlap.config.json', created: false, existed: true }, tools: [], wrap: [],
+      modelServer: { url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' },
+    });
+    expect(host.planRecording('support-agent', 'python agent.py')).toMatchObject({ ok: true, plan: { env: { SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:11434' } } });
+    expect(host.current().cliArgs(['run', '--', 'python', 'agent.py'])).toEqual(['--db', projectDbPath(support), 'run', '--', 'python', 'agent.py']);
+    expect(() => host.planRecording('nope', 'x')).toThrow(expect.objectContaining({ code: 'not-found' }));
+    host.close();
+  });
+
+  it('finishes a setup only once its first recording has finished', () => {
+    const { registry, loadConfig, support } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    expect(() => host.finishSetup('triage-bot')).toThrow(expect.objectContaining({ code: 'setup', status: 409, message: 'Record a first run before finishing the setup.' }));
+    const store = host.context('triage-bot').store();
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'triage.mjs'], cwd: registry.get('triage-bot')!.path } });
+    // Still recording: not yet.
+    expect(() => host.finishSetup('triage-bot')).toThrow(expect.objectContaining({ code: 'setup' }));
+    store.endRun(run.runId, 'completed');
+    expect(host.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', skipped: true, runId: run.runId });
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'done', shows: 'none' });
+    // Again: nothing changes.
+    expect(host.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', skipped: true });
+    host.close();
+  });
+
   it('doesn’t bring back the folder of a project that was deleted from disk', () => {
     const { registry, loadConfig, support } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });

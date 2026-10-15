@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
-import { ProjectRegistry, describeFolder, type FolderKind, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
+import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -714,6 +714,8 @@ export function initFindings(json: InitJson, at: number = Date.now()): SetupFind
     // A wrapped tool shows the effect it declares; one that isn't, the effect suggested for it.
     tools: json.tools.map((t) => ({ name: t.name, effect: t.effect ?? t.suggested, wrapped: t.wrapped, why: t.effect ? 'declared' : t.why, file: t.file, line: t.line })),
     wrap: json.wrap,
+    // Recording from the dashboard forwards there, as init tells a terminal to; never with credentials.
+    modelServer: json.modelServer ? modelServerFinding(json.modelServer) : null,
   };
 }
 

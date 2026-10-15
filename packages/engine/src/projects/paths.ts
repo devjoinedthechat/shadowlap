@@ -36,15 +36,26 @@ export function realpathOrNull(path: string): string | null {
 }
 
 /**
- * A folder as people read it: `~/research-agent` inside the home folder, the absolute path
- * elsewhere. Forward slashes after `~` on every platform, as the dashboard shows paths.
+ * A folder as people read it, without touching the disk: `~/research-agent` inside `home`, the
+ * path as it is elsewhere. Forward slashes after `~` on every platform, as the dashboard shows
+ * paths. Give the home folder's real path, as the project list keeps real paths
+ * (`ProjectRegistry.realHome`).
+ */
+export function tildePath(path: string, home: string): string {
+  const base = resolve(home);
+  if (!isWithin(path, base)) return path;
+  const rel = relative(base, path);
+  return rel ? `~/${rel.split(sep).join('/')}` : '~';
+}
+
+/**
+ * A folder as people read it: `~/research-agent` inside the home folder, reached by its own path
+ * or its real one, the absolute path elsewhere.
  */
 export function displayPath(path: string, home: string): string {
   const realHome = realpathOrNull(home) ?? resolve(home);
   for (const base of new Set([resolve(home), realHome])) {
-    if (!isWithin(path, base)) continue;
-    const rel = relative(base, path);
-    return rel ? `~/${rel.split(sep).join('/')}` : '~';
+    if (isWithin(path, base)) return tildePath(path, base);
   }
   return path;
 }

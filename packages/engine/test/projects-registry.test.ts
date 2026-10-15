@@ -79,6 +79,7 @@ describe('ProjectRegistry: adding', () => {
     expect(added.project.confirmed).toEqual([]);
 
     expect(registry.file).toBe(join(shadowlapDir, 'projects.json'));
+    expect(registry.realHome).toBe(registry.home);
     const onDisk = JSON.parse(readFileSync(registry.file, 'utf8')) as { version: number; projects: ProjectEntry[] };
     expect(onDisk.version).toBe(1);
     expect(onDisk.projects.map((p) => [p.id, p.path, p.addedAt])).toEqual([['support-agent', folder, 1_000]]);
@@ -290,6 +291,28 @@ describe('ProjectRegistry: setup', () => {
     // Go to the overview after Skip the rest changes nothing.
     expect(registry.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', skipped: true });
     expect(events(folder, 'project.setup')).toHaveLength(1);
+  });
+
+  it('keeps the model server init found, never the credentials in its address', () => {
+    const { registry, agent } = setup();
+    agent('local-agent');
+    registry.add('~/local-agent');
+    const local = { url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' };
+    expect(registry.noteInspected('local-agent', findings({ modelServer: local })).setup.findings?.modelServer).toEqual(local);
+    expect(registry.get('local-agent')!.setup.findings?.modelServer).toEqual(local);
+
+    const secret = { url: 'https://dana:s3cret@llm.internal/v1', upstream: 'https://dana:s3cret@llm.internal', from: '.env' };
+    registry.noteInspected('local-agent', findings({ modelServer: secret }));
+    expect(readFileSync(registry.file, 'utf8')).not.toContain('s3cret');
+    expect(registry.get('local-agent')!.setup.findings?.modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: '.env' });
+
+    // One written by hand is read the same way.
+    const raw = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ setup: { findings: Record<string, unknown> } }> };
+    raw.projects[0]!.setup.findings.modelServer = { url: 'http://u:p@10.0.0.2:8000/v1', upstream: 'http://u:p@10.0.0.2:8000', from: 'x' };
+    writeFileSync(registry.file, JSON.stringify(raw));
+    expect(registry.get('local-agent')!.setup.findings?.modelServer).toEqual({ url: 'http://10.0.0.2:8000/v1', upstream: null, from: 'x' });
+    // Findings an older version kept have none.
+    expect(registry.noteInspected('local-agent', findings()).setup.findings?.modelServer).toBeNull();
   });
 
   it('remembers the commands confirmed in each folder, exactly, the newest twenty', () => {

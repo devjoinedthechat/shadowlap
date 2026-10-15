@@ -3,6 +3,7 @@ import type { Price } from '../prices.js';
 import { summarizeRun } from '../report.js';
 import type { Store, StoredEvent } from '../store.js';
 import type { Effect, RunRecord, RunStatus } from '../types.js';
+import type { ModelServer } from './record.js';
 
 /**
  * Setting a project up: four steps, each a CLI command (inspect with `init`, record with `run`, make
@@ -71,6 +72,11 @@ export interface SetupFindings {
   tools: SetupTool[];
   /** Code to wrap the tools that aren't, per language; empty when every tool is wrapped. */
   wrap: WrapSnippet[];
+  /**
+   * The model server the project points at (Ollama, vLLM, a proxy), when it has its own: recording
+   * forwards there (`SHADOWLAP_UPSTREAM_OPENAI`). Absent in findings an older version kept.
+   */
+  modelServer?: ModelServer | null;
 }
 
 /** Tools found but not wrapped: a replay runs them for real, since their calls aren't recorded. */

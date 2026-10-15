@@ -155,6 +155,25 @@ describe('setupView', () => {
     expect(v.record.cli).toEqual(["shadowlap run -- uv run research-agent 'Summarize Northwind’s Q3 10-Q'"]);
   });
 
+  it('records through the model server init found, and says when the dashboard can’t', () => {
+    const local = findings({ modelServer: { url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' } });
+    const v = view(entry('local-agent', { stage: 'inspected', findings: local }), facts());
+    expect(v.inspect.findings!.rows.find((r) => r.label === 'Model server')).toEqual({ label: 'Model server', value: 'http://127.0.0.1:11434/v1', code: false, small: 'from OPENAI_BASE_URL in .env' });
+    expect(v.record).toMatchObject({
+      text: 'Runs the command once with a local sidecar in front of your model server. Model calls go to http://127.0.0.1:11434/v1, the model server this project uses.',
+      cli: ["SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- uv run research-agent 'Summarize Northwind’s Q3 10-Q'"],
+      button: { enabled: true },
+    });
+    const secret = findings({ modelServer: { url: 'https://llm.internal/v1', upstream: null, from: '.env' } });
+    const blocked = view(entry('local-agent', { stage: 'inspected', findings: secret }), facts());
+    expect(blocked.record).toMatchObject({
+      text: expect.stringContaining('The dashboard can’t record through this project’s model server (https://llm.internal/v1)'),
+      cli: ["SHADOWLAP_UPSTREAM_OPENAI=<your model server> shadowlap run -- uv run research-agent 'Summarize Northwind’s Q3 10-Q'"],
+      command: { enabled: false },
+      button: { enabled: false },
+    });
+  });
+
   it('follows the recording as it streams in', () => {
     const p = entry('research-agent', { stage: 'inspected', findings: findings(), runId: RUN, command: ['uv', 'run', 'research-agent'] });
     const v = view(p, facts({ runs: 1, recordings: [run('running')], live: true }), { run: { runId: RUN, status: 'running', calls: 3, spent: 0.01, durationMs: null } });

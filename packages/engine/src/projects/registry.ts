@@ -8,7 +8,7 @@ import { writeFileAtomic, withFileLock } from './files.js';
 import { checkFolder, countGoldens, projectRoots, type ProjectRoots } from './folders.js';
 import { displayPath, expandHome, projectDbPath, realpathOrNull, shadowlapHome } from './paths.js';
 import { RecordingsError, deleteRecordings, storeFilesToDelete } from './recordings.js';
-import { sameArgv } from './record.js';
+import { modelServerFinding, sameArgv, type ModelServer } from './record.js';
 import { emptyStoreFacts, initialSetup, isSetupStage, laterStage, stageAtLeast, storeFacts, unwrappedTools, type SetupFindings, type SetupStage, type StoreFacts } from './setup.js';
 
 /**
@@ -69,9 +69,9 @@ export interface ProjectEntry {
   confirmed: ConfirmedCommand[];
 }
 
-export type ProjectErrorCode = 'not-found' | 'exists' | 'only-project' | 'folder' | 'name-mismatch' | 'recording' | 'store' | 'registry';
+export type ProjectErrorCode = 'not-found' | 'exists' | 'only-project' | 'folder' | 'name-mismatch' | 'recording' | 'store' | 'setup' | 'registry';
 
-const STATUS: Record<ProjectErrorCode, number> = { 'not-found': 404, exists: 409, 'only-project': 409, folder: 400, 'name-mismatch': 400, recording: 409, store: 409, registry: 500 };
+const STATUS: Record<ProjectErrorCode, number> = { 'not-found': 404, exists: 409, 'only-project': 409, folder: 400, 'name-mismatch': 400, recording: 409, store: 409, setup: 409, registry: 500 };
 
 /** A change to the project list that can't be made, with the HTTP status the dashboard answers it with. */
 export class ProjectError extends Error {
@@ -154,7 +154,14 @@ function toFindings(raw: unknown): SetupFindings | null {
       .filter(isObject)
       .filter((w) => typeof w.code === 'string')
       .map((w) => ({ ...w, language: w.language === 'python' || w.language === 'typescript' ? w.language : 'javascript', tools: strings(w.tools), code: String(w.code) })),
+    modelServer: toModelServer(raw.modelServer),
   };
+}
+
+/** A model server as read from the file: its address without credentials, and an upstream only when it is a plain http(s) URL. */
+function toModelServer(raw: unknown): ModelServer | null {
+  if (!isObject(raw)) return null;
+  return modelServerFinding({ url: String(raw.url ?? ''), upstream: String(raw.upstream ?? ''), from: str(raw.from) ?? '' });
 }
 
 /** A setup as read from the file; keys this version doesn't know are kept. */
@@ -217,9 +224,14 @@ function uniqueId(name: string, taken: readonly ProjectEntry[]): string {
   return id;
 }
 
-/** Findings as kept in the list: bounded, whatever a project holds. */
+/** Findings as kept in the list: bounded, whatever a project holds, and never with a model server's credentials. */
 function boundedFindings(f: SetupFindings): SetupFindings {
-  return { ...f, tools: f.tools.slice(0, MAX_TOOLS), wrap: f.wrap.map((w) => ({ ...w, code: w.code.length > MAX_WRAP_CHARS ? `${w.code.slice(0, MAX_WRAP_CHARS)}\n…` : w.code })) };
+  return {
+    ...f,
+    tools: f.tools.slice(0, MAX_TOOLS),
+    wrap: f.wrap.map((w) => ({ ...w, code: w.code.length > MAX_WRAP_CHARS ? `${w.code.slice(0, MAX_WRAP_CHARS)}\n…` : w.code })),
+    modelServer: f.modelServer ? modelServerFinding({ url: f.modelServer.url, upstream: f.modelServer.upstream ?? '', from: f.modelServer.from }) : null,
+  };
 }
 
 export type SetupPatch = Partial<Omit<ProjectSetup, 'updatedAt'>>;
@@ -230,6 +242,8 @@ export class ProjectRegistry {
   /** `projects.json`. */
   readonly file: string;
   readonly home: string;
+  /** The home folder's real path, as project paths are kept: what the dashboard's read model shows paths against. */
+  readonly realHome: string;
   private readonly env: NodeJS.ProcessEnv;
   private readonly now: () => number;
   private readonly actor: (folder: string) => string | null;
@@ -238,6 +252,7 @@ export class ProjectRegistry {
   constructor(options: RegistryOptions = {}) {
     this.env = options.env ?? process.env;
     this.home = options.home ?? homedir();
+    this.realHome = realpathOrNull(this.home) ?? resolve(this.home);
     this.dir = options.dir ?? shadowlapHome(this.env, this.home);
     this.file = join(this.dir, REGISTRY_FILE);
     this.now = options.now ?? Date.now;

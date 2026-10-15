@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COMMAND_LIMITS, defaultGolden, goldenPath, parseAgentCommand, planRecording, quoteArgs, setupCommands, setupJobArgs } from '../src/index.js';
+import { COMMAND_LIMITS, UPSTREAM_ENV, defaultGolden, goldenPath, modelServerFinding, parseAgentCommand, planRecording, quoteArgs, setupCommands, setupJobArgs, upstreamUrl } from '../src/index.js';
 
 const argv = (line: string) => {
   const r = parseAgentCommand(line);
@@ -18,8 +18,13 @@ describe('parseAgentCommand', () => {
     expect(argv('node\tagent.mjs')).toEqual(['node', 'agent.mjs']);
     // Backslashes stay as typed: a Windows path survives.
     expect(argv('python C:\\agents\\refund.py')).toEqual(['python', 'C:\\agents\\refund.py']);
-    // Shell syntax inside quotes is text.
-    expect(argv(`node agent.mjs --prompt "a | b && c > d; $HOME * ? {a,b} [x]"`)).toEqual(['node', 'agent.mjs', '--prompt', 'a | b && c > d; $HOME * ? {a,b} [x]']);
+    // Shell syntax inside quotes is text; single quotes keep a $ as it is, as in a terminal.
+    expect(argv(`node agent.mjs --prompt "a | b && c > d; * ? {a,b} [x]"`)).toEqual(['node', 'agent.mjs', '--prompt', 'a | b && c > d; * ? {a,b} [x]']);
+    expect(argv("node agent.mjs --prompt '$HOME costs $5 `now`'")).toEqual(['node', 'agent.mjs', '--prompt', '$HOME costs $5 `now`']);
+    // A $ that names nothing is text in double quotes too.
+    expect(argv('node agent.mjs "costs $ 5" "$"')).toEqual(['node', 'agent.mjs', 'costs $ 5', '$']);
+    // A backslash inside single quotes is text, and so is one that ends them.
+    expect(argv(`python agent.py 'C:\\agents\\'`)).toEqual(['python', 'agent.py', 'C:\\agents\\']);
     // Braces without a list or a range are text to a shell too.
     expect(argv('node agent.mjs {} {x}')).toEqual(['node', 'agent.mjs', '{}', '{x}']);
   });
@@ -42,6 +47,14 @@ describe('parseAgentCommand', () => {
       ['node `which agent`', /a substitution/],
       ['node a.mjs ${X}', /a substitution/],
       ['node a.mjs $TASK', /a variable/],
+      ['node a.mjs $1', /a variable/],
+      ['node a.mjs --task "Summarize $COMPANY"', /inside double quotes would not be expanded/],
+      ['node a.mjs "$(date)"', /inside double quotes would not be expanded/],
+      ['node a.mjs "`date`"', /inside double quotes would not be expanded/],
+      ['node a.mjs "costs $5"', /inside double quotes would not be expanded/],
+      ['node a.mjs my\\ file.txt', /a backslash before a space or a quote/],
+      ['node a.mjs \\"x\\"', /a backslash before a space or a quote/],
+      ['node a.mjs "say \\"hi\\""', /a backslash before a space or a quote/],
       ['python *.py', /a wildcard/],
       ['python agent.py data/[ab].json', /a wildcard/],
       ['node run.js --in=data/{a,b}.json', /a brace expansion/],
@@ -73,6 +86,7 @@ describe('planRecording', () => {
         args: ['run', '--', 'node', 'triage.mjs', '--label', 'billing & bugs'],
         argv: ['node', 'triage.mjs', '--label', 'billing & bugs'],
         cwd: '/home/dana/triage-bot',
+        env: {},
         display: "shadowlap run -- node triage.mjs --label 'billing & bugs'",
         confirm: {
           title: 'Run this command in ~/triage-bot?',
@@ -92,6 +106,39 @@ describe('planRecording', () => {
 
   it('passes a refusal on', () => {
     expect(planRecording(project, 'node triage.mjs | tee x')).toEqual({ ok: false, error: expect.stringMatching(/a pipe/) });
+  });
+
+  it('records through the model server init found, as init tells a terminal to', () => {
+    const modelServer = { url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' };
+    const r = planRecording(project, 'node triage.mjs', { home: '/home/dana', modelServer });
+    expect(r.ok && r.plan).toMatchObject({
+      args: ['run', '--', 'node', 'triage.mjs'],
+      env: { [UPSTREAM_ENV]: 'http://127.0.0.1:11434' },
+      display: 'SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node triage.mjs',
+      confirm: null,
+    });
+    const first = planRecording(project, 'node triage.mjs --all', { home: '/home/dana', modelServer });
+    expect(first.ok && first.plan.confirm).toMatchObject({
+      command: 'SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node triage.mjs --all',
+      text: expect.stringContaining('Model calls go to http://127.0.0.1:11434/v1, the model server this project uses.'),
+    });
+    // Without an address it can forward to, the calls would go to the provider's API instead: refused.
+    expect(planRecording(project, 'node triage.mjs', { modelServer: { url: 'https://llm.internal/v1', upstream: null } })).toEqual({ ok: false, error: expect.stringMatching(/can’t record through this project’s model server \(https:\/\/llm.internal\/v1\).*SHADOWLAP_UPSTREAM_OPENAI/) });
+  });
+});
+
+describe('modelServerFinding', () => {
+  it('keeps a model server’s address and upstream, never the credentials in it', () => {
+    expect(modelServerFinding({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'agent.py:4' })).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'agent.py:4' });
+    expect(modelServerFinding({ url: 'https://dana:s3cret@llm.internal/v1', upstream: 'https://dana:s3cret@llm.internal', from: '.env' })).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: '.env' });
+    expect(modelServerFinding({ url: 'not a url', upstream: 'x', from: '' })).toBeNull();
+    expect(modelServerFinding({ url: 'http://127.0.0.1:8000/v1', upstream: 'file:///etc/passwd', from: '' })).toMatchObject({ upstream: null });
+  });
+
+  it('forwards only to a plain http(s) address', () => {
+    expect(upstreamUrl('http://127.0.0.1:11434')).toBe('http://127.0.0.1:11434');
+    expect(upstreamUrl('https://llm.internal:8443/openai')).toBe('https://llm.internal:8443/openai');
+    for (const bad of ['', 'ftp://host', 'http://u:p@host', 'http://host/a b', 'http://host\n', 42, null]) expect(upstreamUrl(bad), String(bad)).toBeNull();
   });
 });
 
@@ -145,6 +192,9 @@ describe('setup commands', () => {
     });
     expect(setupCommands({ argv: null, runId: null, golden: 'goldens/x' }).record).toEqual(['shadowlap run -- <the command that starts your agent>']);
     expect(setupCommands({ argv: null, runId: null, golden: 'goldens/x' }).calibrate).toEqual(['shadowlap calibrate <run> --write']);
+    // A project on its own model server records with the upstream set, as init prints it.
+    expect(setupCommands({ argv: ['node', 'agent.mjs'], runId: null, golden: 'goldens/x', modelServer: { upstream: 'http://127.0.0.1:11434' } }).record).toEqual(['SHADOWLAP_UPSTREAM_OPENAI=http://127.0.0.1:11434 shadowlap run -- node agent.mjs']);
+    expect(setupCommands({ argv: ['node', 'agent.mjs'], runId: null, golden: 'goldens/x', modelServer: { upstream: null } }).record).toEqual(['SHADOWLAP_UPSTREAM_OPENAI=<your model server> shadowlap run -- node agent.mjs']);
   });
 
   it('gives the jobs their arguments', () => {

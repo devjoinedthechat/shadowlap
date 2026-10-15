@@ -3,8 +3,9 @@ import { join, resolve } from 'node:path';
 import { Store } from '../store.js';
 import { countGoldens } from './folders.js';
 import { projectDbPath } from './paths.js';
+import { planRecording, type RecordPlanResult } from './record.js';
 import { ProjectError, type AddedProject, type ProjectEntry, type ProjectRegistry, type RemovedProject } from './registry.js';
-import { deriveSetup, emptyStoreFacts, storeFacts, type EffectiveSetup, type StoreFacts } from './setup.js';
+import { deriveSetup, emptyStoreFacts, stageAtLeast, storeFacts, type EffectiveSetup, type StoreFacts } from './setup.js';
 
 /**
  * Several projects behind one dashboard. A {@link ProjectContext} is everything the server needs to
@@ -119,15 +120,35 @@ export interface ProjectHostOptions<C> {
   openStore?: (dbPath: string) => Store;
   /** The file whose changes make the configuration be read again. */
   configFile?: string;
+  /** The folder the dashboard started in: added again if the list loses every project. */
+  startFolder?: string;
+}
+
+/** What the switcher and the Remove dialog count for a project (the dashboard's `ProjectStats`). */
+export interface ProjectCounts {
+  /** Runs, attempts left out. */
+  runs: number;
+  attempts: number;
+  /** Goldens in the project's repository. */
+  goldens: number;
+  /** The folder is gone from disk. */
+  missing: boolean;
 }
 
 export class ProjectHost<C = unknown> {
   private readonly contexts = new Map<string, Context<C>>();
   private currentId: string;
+  /** The store `--db` named, by project id, with the folder it was named for. */
+  private readonly customDb = new Map<string, { path: string; dbPath: string }>();
 
   constructor(private readonly options: ProjectHostOptions<C>) {
-    if (!options.registry.get(options.current)) throw new ProjectError('not-found', `No project ${options.current}.`);
+    const entry = options.registry.get(options.current);
+    if (!entry) throw new ProjectError('not-found', `No project ${options.current}.`);
     this.currentId = options.current;
+    for (const [id, dbPath] of Object.entries(options.dbPaths ?? {})) {
+      const p = id === entry.id ? entry : options.registry.get(id);
+      if (p) this.customDb.set(id, { path: p.path, dbPath });
+    }
   }
 
   /**
@@ -135,11 +156,11 @@ export class ProjectHost<C = unknown> {
    * (it was chosen in a terminal, so the dashboard's limits on adding don't apply) and is current.
    * `dbPath` is the store `--db` named, if any.
    */
-  static open<C>(folder: string, options: Omit<ProjectHostOptions<C>, 'current'> & { dbPath?: string }): ProjectHost<C> {
+  static open<C>(folder: string, options: Omit<ProjectHostOptions<C>, 'current' | 'startFolder'> & { dbPath?: string }): ProjectHost<C> {
     const entry = options.registry.ensure(folder, options.dbPath ? { dbPath: options.dbPath } : {});
     const { dbPath, ...rest } = options;
     const dbPaths = { ...(options.dbPaths ?? {}), ...(dbPath && resolve(dbPath) !== projectDbPath(entry.path) ? { [entry.id]: resolve(dbPath) } : {}) };
-    return new ProjectHost<C>({ ...rest, dbPaths, current: entry.id });
+    return new ProjectHost<C>({ ...rest, dbPaths, current: entry.id, startFolder: entry.path });
   }
 
   get registry(): ProjectRegistry {
@@ -151,21 +172,37 @@ export class ProjectHost<C = unknown> {
     return this.options.registry.list();
   }
 
+  /** The current project's id. When it left the list (another dashboard or the CLI removed it), the first project left becomes current. */
   currentProject(): string {
+    if (this.options.registry.get(this.currentId)) return this.currentId;
+    const first = this.list()[0] ?? (this.options.startFolder ? this.options.registry.ensure(this.options.startFolder) : null);
+    if (!first) throw new ProjectError('not-found', `No project ${this.currentId}.`);
+    this.currentId = first.id;
     return this.currentId;
   }
 
   current(): ProjectContext<C> {
-    return this.context(this.currentId);
+    return this.context(this.currentProject());
   }
 
-  /** The context for any project, current or not. */
+  /**
+   * The context for any project, current or not. The list is shared with the CLI and other
+   * dashboards, so it is read each time: a project removed elsewhere is gone here too, and an id
+   * that now names another folder gets a context of its own.
+   */
   context(id: string): ProjectContext<C> {
-    const known = this.contexts.get(id);
-    if (known) return known;
     const entry = this.options.registry.get(id);
-    if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
-    const ctx = new Context<C>(entry, this.options.dbPaths?.[id] ?? projectDbPath(entry.path), this.options.loadConfig, this.options.openStore ?? ((p) => Store.open(p)), this.options.configFile ?? 'shadowlap.config.json');
+    const known = this.contexts.get(id);
+    if (!entry) {
+      known?.close();
+      this.contexts.delete(id);
+      throw new ProjectError('not-found', `No project ${id}.`);
+    }
+    if (known && known.path === entry.path) return known;
+    known?.close();
+    const custom = this.customDb.get(id);
+    const dbPath = custom && custom.path === entry.path ? custom.dbPath : projectDbPath(entry.path);
+    const ctx = new Context<C>(entry, dbPath, this.options.loadConfig, this.options.openStore ?? ((p) => Store.open(p)), this.options.configFile ?? 'shadowlap.config.json');
     this.contexts.set(id, ctx);
     return ctx;
   }
@@ -177,11 +214,53 @@ export class ProjectHost<C = unknown> {
     return ctx;
   }
 
+  /** Runs, attempts and goldens for every project, for the switcher and the Remove dialog. A store that can't be read counts nothing. */
+  stats(): Record<string, ProjectCounts> {
+    const out: Record<string, ProjectCounts> = {};
+    for (const p of this.list()) {
+      const missing = !existsSync(p.path);
+      let facts: StoreFacts = emptyStoreFacts();
+      if (!missing) {
+        try {
+          facts = this.context(p.id).facts();
+        } catch {
+          // a store from a newer version, or one that isn't a database: the switcher still lists it
+        }
+      }
+      out[p.id] = { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing };
+    }
+    return out;
+  }
+
   /** Where a project's setup is, from the list and its store. */
   setup(id: string): EffectiveSetup {
     const entry = this.options.registry.get(id);
     if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
     return deriveSetup(entry.setup, this.context(id).facts({ keep: entry.setup.runId }));
+  }
+
+  /**
+   * Recording from a project's setup: what typing `line` runs in its folder ({@link planRecording}),
+   * with the commands already confirmed there and the model server `init` found. The job runs
+   * `context.cliArgs(plan.args)` in `plan.cwd` with `plan.env` added; when `plan.confirm` is set,
+   * ask first, then `registry.confirmCommand(id, plan.argv)`.
+   */
+  planRecording(id: string, line: string): RecordPlanResult {
+    const entry = this.options.registry.get(id);
+    if (!entry) throw new ProjectError('not-found', `No project ${id}.`);
+    return planRecording(entry, line, { home: this.options.registry.home, modelServer: entry.setup.findings?.modelServer ?? null });
+  }
+
+  /**
+   * Skip the rest, or Go to the overview: the project is set up (see `ProjectRegistry.finishSetup`).
+   * The setup offers both only once its first recording has finished, so this refuses before then:
+   * a request can't skip recording.
+   */
+  finishSetup(id: string): ProjectEntry {
+    const setup = this.setup(id);
+    if (setup.stage === 'done') return this.options.registry.get(id)!;
+    if (!setup.run || setup.live || !stageAtLeast(setup.stage, 'recorded')) throw new ProjectError('setup', 'Record a first run before finishing the setup.');
+    return this.options.registry.finishSetup(id, { runId: setup.run.runId });
   }
 
   /** Adds a folder picked in the dashboard (see `ProjectRegistry.add`) and returns its context too. */
@@ -196,12 +275,14 @@ export class ProjectHost<C = unknown> {
    * first remaining project becomes current.
    */
   remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): RemovedProject & { current: string } {
-    if (options.deleteRecordings && this.options.dbPaths?.[id]) throw new ProjectError('store', `This project’s store is ${this.options.dbPaths[id]}, outside its folder. Delete it yourself if you mean to.`);
+    const entry = this.options.registry.get(id);
+    const custom = this.customDb.get(id);
+    if (options.deleteRecordings && entry && custom && custom.path === entry.path) throw new ProjectError('store', `This project’s store is ${custom.dbPath}, outside its folder. Delete it yourself if you mean to.`);
     this.contexts.get(id)?.close();
     const removed = this.options.registry.remove(id, options);
     this.contexts.delete(id);
-    if (this.currentId === id) this.currentId = this.list()[0]!.id;
-    return { ...removed, current: this.currentId };
+    this.customDb.delete(id);
+    return { ...removed, current: this.currentProject() };
   }
 
   /** Closes every store. */

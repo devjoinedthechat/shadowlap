@@ -47,7 +47,7 @@ Suggesting folders means the dashboard lists directories, so it does that within
 
 - Like every request, suggestions need the session token; adding a project, like every change, is also refused from another origin.
 - They reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`). A root can't be `/`, a system folder, or a folder that holds your home folder. A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
-- They list one folder level at a time, folder names and what kind of project each is; never files. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `AppData`, `node_modules`) are never listed or entered.
+- They list one folder level at a time, folder names and what kind of project each is; never files. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `~/AppData` and `~/snap` in your home folder, `node_modules` anywhere) are never listed or entered, unless you add a root inside one, such as your iCloud Drive folder under `~/Library`.
 - At most 2,000 entries are read from a folder, and 100 suggestions returned.
 
 ### Setting it up
@@ -63,11 +63,13 @@ A project with no runs shows its setup on every page but Settings; one that is p
 
 Running `init` or recording in a terminal moves the setup on as well. **Skip the rest** appears after the first recording.
 
-The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, so a pipe, `&&`, a redirection, `$VAR`, `~` or a wildcard outside quotes is refused rather than passed on as text; put those in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again.
+The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, so what only a shell would understand is refused rather than passed on as text: a pipe, `&&`, a redirection, `$VAR`, `~` or a wildcard outside quotes, `$VAR` or a substitution inside double quotes, and a backslash before a space or a quote. Single quotes keep text as it is. Put the rest in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again.
+
+When `init` finds that the project talks to a model server of its own (`OPENAI_BASE_URL` in its `.env`, or a local base URL in its code, as with Ollama or vLLM), recording sets `SHADOWLAP_UPSTREAM_OPENAI` to that server, as `init` tells you to in a terminal, so the calls go there and not to the provider's API. A server address with credentials in it is never stored, so such a project is recorded in a terminal.
 
 ### Removing a project
 
-**Remove from dashboard** forgets the folder. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay, so adding the folder again undoes it. **Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it) once you type the project's name. It won't while a run is recording there, and it never touches the goldens in your repository. The only project can't be removed.
+**Remove from dashboard** forgets the folder. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay, so adding the folder again undoes it. **Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it) once you type the project's name. It won't while a run is recording there, and it never touches the goldens in your repository. Repair reports and exports written under `.shadowlap/` are files of their own and stay too. The only project can't be removed.
 
 ## Keys
 

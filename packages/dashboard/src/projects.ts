@@ -1,11 +1,12 @@
 import {
+  UPSTREAM_ENV,
   defaultGolden,
-  displayPath,
   nameConfirms,
   quoteArgs,
   setupCommands,
   shortRunId,
   stageAtLeast,
+  tildePath,
   unwrappedTools,
   type EffectiveSetup,
   type FolderKind,
@@ -20,8 +21,10 @@ import {
 /**
  * The dashboard's read model for projects: plain data for the project switcher, the Add a project
  * page, a project's setup and the Remove dialog, built from the project list and what each store
- * says. No HTTP and no file access here: the server gathers the inputs (the registry, store facts,
- * folder suggestions) and these functions decide what the screens say, in the mock's words.
+ * says. No HTTP and no file access here: the server gathers the inputs (the registry, store facts
+ * and counts from `ProjectHost`, folder suggestions) and these functions decide what the screens
+ * say, in the mock's words. `home` is the home folder's real path (`ProjectRegistry.realHome`), as
+ * project paths are real paths: paths under it show as `~/…`.
  */
 
 /** What the switcher and the Remove dialog need from a project's store and folder. */
@@ -82,7 +85,7 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
   const removable = input.projects.length > 1;
   const items = input.projects.map((p): SwitcherItem => {
     const stats = input.stats[p.id] ?? { runs: 0, attempts: 0, goldens: 0 };
-    const path = displayPath(p.path, input.home);
+    const path = tildePath(p.path, input.home);
     const settingUp = p.setup.stage !== 'done';
     const missing = !!stats.missing;
     return {
@@ -169,7 +172,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
       selected: picked?.path === f.path,
     }),
   );
-  const pickedDisplay = picked ? displayPath(picked.path, input.home) : null;
+  const pickedDisplay = picked ? tildePath(picked.path, input.home) : null;
   const addable = !!picked && !!picked.folder.kind && !picked.added;
   const error = !picked ? null : picked.added ? `${pickedDisplay} is already in the dashboard.` : picked.folder.kind ? null : (picked.folder.why ?? `${pickedDisplay} has no project files.`);
   const query = input.query.trim();
@@ -200,7 +203,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
 
 /** The toast after adding: a folder added again says its runs came back. */
 export function addedMessage(added: { project: ProjectEntry; again: boolean; runs: number }, home: string): string {
-  const path = displayPath(added.project.path, home);
+  const path = tildePath(added.project.path, home);
   return added.again ? `Added ${path} back · ${plural(added.runs, 'run')}` : `Added ${path}`;
 }
 
@@ -312,6 +315,7 @@ function findingRows(f: NonNullable<ProjectEntry['setup']['findings']>): Finding
   return [
     { label: 'Language', value: f.language ?? 'not recognised', code: false, small: f.files.length ? f.files.join(' · ') : null },
     { label: 'Model SDK', value: f.sdk ?? 'none found', code: false, small: null },
+    ...(f.modelServer ? [{ label: 'Model server', value: f.modelServer.url, code: false, small: f.modelServer.from ? `from ${f.modelServer.from}` : null }] : []),
     { label: 'Framework', value: f.framework ?? 'none detected', code: false, small: null },
     { label: 'Command', value: f.command ? quoteArgs(f.command) : 'none found', code: !!f.command, small: f.commandFrom ? `from ${f.commandFrom}` : null },
     { label: 'Config', value: f.config.created ? `wrote an empty ${f.config.file}` : f.config.existed ? `${f.config.file} exists · left as it is` : 'none written', code: false, small: null },
@@ -327,7 +331,7 @@ export function setupView(input: SetupInput): SetupView {
   const { project, setup } = input;
   const s = project.setup;
   const stage = setup.stage;
-  const path = displayPath(project.path, input.home);
+  const path = tildePath(project.path, input.home);
   const findings = s.findings;
   const inspected = stageAtLeast(stage, 'inspected');
   const run = setup.run;
@@ -341,7 +345,8 @@ export function setupView(input: SetupInput): SetupView {
   const state = (done: boolean, ready: boolean): StepState => (done ? 'done' : finished ? 'skipped' : ready ? 'current' : 'todo');
   const golden = s.golden ?? defaultGolden(project.id);
   const argv = s.command ?? findings?.command ?? null;
-  const commands = setupCommands({ argv, runId: run?.runId ?? null, golden });
+  const server = findings?.modelServer ?? null;
+  const commands = setupCommands({ argv, runId: run?.runId ?? null, golden, modelServer: server });
   const totals = run && input.run?.runId === run.runId ? input.run : null;
 
   // 1 · Inspect the folder
@@ -372,15 +377,22 @@ export function setupView(input: SetupInput): SetupView {
 
   // 2 · Record a first run
   const unwrappedAtRecord = run && s.runId === run.runId ? s.unwrappedAtRecord : [];
+  // A model server the dashboard can't forward to (its address holds credentials) is recorded in a terminal.
+  const canRecord = inspected && !(server && !server.upstream);
+  const recordText = !server
+    ? 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.'
+    : server.upstream
+      ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`
+      : `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.`;
   const record: RecordStep = {
     key: 'record',
     n: 2,
     title: 'Record a first run',
     state: state(recorded, inspected),
     cli: recorded || live ? [] : commands.record,
-    text: recorded || live ? null : 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.',
-    command: recorded || live ? null : { value: argv ? quoteArgs(argv) : '', enabled: inspected },
-    button: recorded || live ? null : { label: 'Record a run', action: 'record', enabled: inspected },
+    text: recorded || live ? null : recordText,
+    command: recorded || live ? null : { value: argv ? quoteArgs(argv) : '', enabled: canRecord },
+    button: recorded || live ? null : { label: 'Record a run', action: 'record', enabled: canRecord },
     live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${shortRunId(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: `#/run/${run.runId}` } } : null,
     recorded:
       recorded && run
@@ -487,7 +499,7 @@ export interface RemoveDialogView {
 /** Remove a project, from the switcher's × or Settings → Project. */
 export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats; projects: number; home: string }): RemoveDialogView {
   const { project, stats } = input;
-  const path = displayPath(project.path, input.home);
+  const path = tildePath(project.path, input.home);
   const canRemove = input.projects > 1;
   const onDisk: OnDiskRow[] = [
     { key: 'code', label: 'The folder and its code', path },
