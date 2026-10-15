@@ -158,6 +158,18 @@ export function readTokenLink(hash: string): { token: string; open: string } | n
   return { token, open: `#${open ?? '/'}` };
 }
 
+/**
+ * A token link opened in a page that is already open, as when the link a restarted dashboard printed
+ * is pasted over an expired one (only the part after the # changes, so the page does not load
+ * again): with the token in use, open its view; with another, load the page again to start with it.
+ * Null for any other fragment.
+ */
+export function tokenLinkStep(hash: string, inUse: string | null): { kind: 'open'; to: string } | { kind: 'reload' } | null {
+  const link = readTokenLink(hash);
+  if (!link) return null;
+  return inUse !== null && link.token === inUse ? { kind: 'open', to: link.open } : { kind: 'reload' };
+}
+
 /** `g` then one of these, within 0.9 s, goes to a page. */
 export const GO_KEYS: Readonly<Record<string, string>> = { o: '#/', r: '#/runs', c: '#/compare', f: '#/fixes', t: '#/tests', a: '#/training', s: '#/settings' };
 export const GO_WINDOW_MS = 900;

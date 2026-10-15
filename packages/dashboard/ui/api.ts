@@ -46,6 +46,7 @@ export class ApiError extends Error {
 // ---------------------------------------------------------------------------------------------- token
 
 const TOKEN_KEY = 'shadowlap-dashboard-token';
+let inUse: string | null = null;
 
 /**
  * The session token arrives in the URL fragment once, from the link `shadowlap dashboard` prints. It
@@ -60,13 +61,20 @@ export function takeToken(): string | null {
       // storage unavailable: the token lives in memory for this page
     }
     history.replaceState(null, '', `${location.pathname}${location.search}${link.open}`);
-    return link.token;
+    inUse = link.token;
+    return inUse;
   }
   try {
-    return sessionStorage.getItem(TOKEN_KEY);
+    inUse = sessionStorage.getItem(TOKEN_KEY);
   } catch {
-    return null;
+    inUse = null;
   }
+  return inUse;
+}
+
+/** The session token this page started with; null for an exported copy, or a link that had none. */
+export function tokenInUse(): string | null {
+  return inUse;
 }
 
 // ---------------------------------------------------------------------------------------------- client

@@ -3,6 +3,7 @@ import { CmdLine } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { copyText } from '../dom.js';
 import { clock } from '../format.js';
+import { readTokenLink } from '../route.js';
 import { useApp } from '../state.js';
 
 /**
@@ -77,6 +78,14 @@ export function ExpiredCard() {
 
 /** A link with no session token: nothing to show, and where the right link comes from. */
 export function Gate() {
+  // The right link, pasted over this one, starts the page again with its token.
+  useEffect(() => {
+    const on = () => {
+      if (readTokenLink(location.hash)) location.reload();
+    };
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
   return (
     <div className="connblock gate" role="alertdialog" aria-labelledby="gateT">
       <div className="cb">

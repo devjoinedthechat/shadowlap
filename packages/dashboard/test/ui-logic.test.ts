@@ -8,7 +8,7 @@ import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
-import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref } from '../ui/route.js';
+import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
 import { inScope, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
@@ -54,6 +54,15 @@ describe('routes', () => {
     expect(readTokenLink('#token=abc')).toEqual({ token: 'abc', open: '#/' });
     expect(readTokenLink('#/runs')).toBeNull();
     expect(parseRoute(readTokenLink('#token=t&open=/run/01K5CQ4P2R/call/17')!.open)).toMatchObject({ page: 'run', call: 17 });
+  });
+
+  it('opens a token link pasted over an open page: its view with the same token, a fresh start with a new one', () => {
+    // The link a restarted dashboard printed, pasted over the expired one: only the fragment changes.
+    expect(tokenLinkStep('#token=new&open=/run/01K5CQ4P2R/call/17', 'old')).toEqual({ kind: 'reload' });
+    expect(tokenLinkStep('#token=same&open=/run/01K5CQ4P2R/call/17', 'same')).toEqual({ kind: 'open', to: '#/run/01K5CQ4P2R/call/17' });
+    // A page that never had a token starts again, so the link's token is taken as on a first open.
+    expect(tokenLinkStep('#token=t', null)).toEqual({ kind: 'reload' });
+    expect(tokenLinkStep('#/runs', 'same')).toBeNull();
   });
 
   it('has a g-key for every page and cycles the five views without Provenance', () => {

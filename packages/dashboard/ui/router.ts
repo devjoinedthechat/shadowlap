@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { parseRoute, routeHref, type Route } from './route.js';
+import { tokenInUse } from './api.js';
+import { parseRoute, routeHref, tokenLinkStep, type Route } from './route.js';
 
 /**
  * Follows the address bar. Routes are parsed in `route.ts`; this only listens. A replace (selecting
@@ -28,6 +29,10 @@ export function useRoute(): Route {
   const [route, setRoute] = useState(currentRoute);
   useEffect(() => {
     const on = () => {
+      // The link a dashboard printed, opened over this page: its view, or a fresh start with its token.
+      const step = tokenLinkStep(location.hash, tokenInUse());
+      if (step?.kind === 'reload') return location.reload();
+      if (step?.kind === 'open') history.replaceState(history.state, '', `${location.pathname}${location.search}${step.to}`);
       const next = currentRoute();
       setRoute((prev) => (routeHref(prev) === routeHref(next) ? prev : next));
     };
