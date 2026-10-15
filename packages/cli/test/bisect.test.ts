@@ -141,6 +141,19 @@ describe('shadowlap bisect', () => {
     expect(report.tokens).toBeGreaterThan(0);
   });
 
+  it('tells a dashboard job what it found and where that shows', async () => {
+    const events = await new Promise<Array<Record<string, unknown>>>((resolve) => {
+      const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--json'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+      let raw = '';
+      child.stdout!.resume();
+      child.stderr!.resume();
+      (child.stdio[3] as NodeJS.ReadableStream).on('data', (d: Buffer) => (raw += d.toString()));
+      child.on('close', () => resolve(raw.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)));
+    });
+    expect((events.find((e) => e.type === 'result')!.data as { first: { short: string } }).first.short).toBe(rev['Ask for brevity']);
+    expect(events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Open Tests', href: '#/tests' });
+  });
+
   it('says when there is nothing to find, or the good commit already fails', async () => {
     const passes = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--bad', rev['Add usage']!]);
     expect(passes.code).toBe(1);

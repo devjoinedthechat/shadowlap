@@ -276,6 +276,8 @@ export function register(program: Command): void {
         if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
         else process.stdout.write(formatBisect(report, p) + '\n');
         emitJobEvent({ type: 'result', data: report });
+        // Where the answer shows: above a golden's buttons on Tests, or on the run's page.
+        emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: '#/tests' } : { type: 'link', label: 'Open the run', href: `#/run/${report.target.runId}` });
         process.exitCode = report.outcome === 'found' ? 0 : 1;
       } catch (err) {
         if (!(err instanceof BisectError)) throw err;
