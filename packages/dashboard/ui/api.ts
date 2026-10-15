@@ -4,7 +4,7 @@ import type { RunNote } from '../../engine/src/types.js';
 import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload, TestsView } from './types.js';
+import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload, TestRunView, TestsView } from './types.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -113,6 +113,11 @@ export interface Client {
   // ---- Tests
   /** The goldens on disk and how each did (`/api/tests`). */
   tests(): Promise<TestsView>;
+  /**
+   * A run's test banner (a replay `shadowlap test` made that diverged) and Find the commit's choices
+   * (`/api/tests/runs/:id`); `before` limits the good commits to runs before it, as the calendar's days do.
+   */
+  testRun(id: string, before?: number): Promise<TestRunView>;
   /** Settings → CI's two panels for the options given; those left out take the server's defaults (`/api/ci/workflows`). */
   ciWorkflows(options?: Partial<CiWorkflowOptions>): Promise<CiWorkflowsView>;
 }
@@ -237,6 +242,7 @@ export function createClient(token: string): Client {
       }
     },
     tests: () => request<TestsView>('tests'),
+    testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
   };
 }
@@ -282,6 +288,7 @@ export function createExportedClient(data: StaticPayload): Client {
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
     tests: () => get<TestsView>('tests'),
+    testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
   };
 }

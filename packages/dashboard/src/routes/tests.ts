@@ -4,15 +4,18 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import type { Router } from '../router.js';
-import { bisectJob, normalizeAndTestJob, runTestsJob, testPatterns, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob } from '../tests.js';
+import { bisectChoices, bisectJob, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob } from '../tests.js';
 
 /**
- * Tests: the goldens and how they did (`GET /api/tests`), the workflow steps Settings → CI shows
+ * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
+ * replay and Find the commit (`GET /api/tests/runs/:id`), the workflow steps Settings → CI shows
  * (`GET /api/ci/workflows`), and the jobs the Tests screen starts:
  *
- *   test                 { golden? }                    every golden (the server expands goldens/*), or one
+ *   test                 { golden? }                    every golden on disk (the goldens folder's pattern, which the CLI
+ *                                                       expands without a shell, and each pack named elsewhere), or one
  *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
- *   bisect               { golden | runId, good, bad? }  Find the commit: replays at each commit, halving the range
+ *   bisect               { golden | runId, good, bad? }  Find the commit: replays at each commit, halving the range;
+ *                                                       for a run, as `GET /api/tests/runs/:id` offers it
  *   normalize-and-test   { golden | runId, path? }       `normalize add` for each value made anew on every run, then `test` on the golden
  *
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
@@ -48,6 +51,17 @@ export function register(router: Router, ctx: RouteContext): void {
       // the screen still shows the goldens
     }
     r.tagged(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers }));
+  });
+
+  // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's
+  // choices for any run (`before`: the calendar's first day picked, in milliseconds).
+  router.get('/tests/runs/:id', (r) => {
+    const run = ctx.store.getRun(r.params.id!);
+    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    const raw = r.query.get('before');
+    const before = raw === null || raw === '' ? undefined : Number(raw);
+    if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
+    r.tagged({ banner: testRunBanner(ctx.store, run.runId), bisect: bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) }) });
   });
 
   router.get('/ci/workflows', (r) => {

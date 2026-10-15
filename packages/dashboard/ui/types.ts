@@ -293,6 +293,11 @@ export interface StaticPayload {
 // ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
-export type { BisectRange, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestsSessionView, TestsVerdict, TestsView } from '../src/tests.js';
+export type { BisectChoices, BisectRange, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestRunBanner, TestsSessionView, TestsVerdict, TestsView } from '../src/tests.js';
+/** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find the commit's choices. */
+export interface TestRunView {
+  banner: import('../src/tests.js').TestRunBanner | null;
+  bisect: import('../src/tests.js').BisectChoices | null;
+}
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
 export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';

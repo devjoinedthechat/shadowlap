@@ -143,6 +143,21 @@ describe('GET /api/tests', () => {
   });
 });
 
+describe('GET /api/tests/runs/:id', () => {
+  it('gives a run\'s page Find the commit\'s choices, and the banner of a test replay that diverged', async () => {
+    // R2_LIMIT is a replay `shadowlap test` made of refund-in-limit in the failing session.
+    store.updateRunMeta('R2_LIMIT', { test: { golden: 'goldens/refund-in-limit', session: store.listTestSessions()[0]!.sessionId } });
+    const view = await getJson<{ banner: { golden: string; normalizerFixes: boolean } | null; bisect: { target: unknown; failed: boolean; good: string | null } | null }>(dash, 'tests/runs/R2_LIMIT');
+    expect(view.bisect).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4' });
+    // Its run has no divergence of its own in this store, so there is no banner to show.
+    expect(view.banner).toBeNull();
+    // The calendar's first day picked limits the good commits to before it.
+    expect((await getJson<{ bisect: { good: string | null } }>(dash, `tests/runs/R2_LIMIT?before=${T0 - 86_400_000}`)).bisect.good).toBeNull();
+    expect((await api(dash, 'tests/runs/NOPE')).status).toBe(404);
+    expect((await api(dash, 'tests/runs/R2_LIMIT?before=yesterday')).status).toBe(400);
+  });
+});
+
 describe('GET /api/ci/workflows', () => {
   it('gives both panels with their defaults, the project\'s goldens, repository and failures', async () => {
     const ci = await getJson<CiWorkflowsView>(dash, 'ci/workflows');
