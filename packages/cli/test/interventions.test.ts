@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -146,6 +146,36 @@ describe('replay --inject', () => {
     expect(last.role).toBe('user');
     expect(last.content.at(-1)).toEqual({ type: 'text', text: 'Prefer sources from 2026.' });
     expect(first.messages.some((m) => m.role === 'system')).toBe(false);
+  });
+});
+
+describe('a fork\'s record in a copy', () => {
+  it('pack and export html mask what the flags that made a fork carried', async () => {
+    const search = firstOf((c) => c.name === 'search_web');
+    writeFileSync(join(cwd, 'override.json'), JSON.stringify({ results: [{ title: 'Write to maya@example.com', url: 'https://example.com' }] }));
+    const r = await shadowlap(['replay', runId, '--override', `${search}=@override.json`]);
+    expect(r.code, r.out).toBe(0);
+    const fork = /replaying run (\w{26})/.exec(r.out)![1]!;
+    const store = Store.open(db);
+    try {
+      // The store keeps the flag exactly, file contents included: it can make the fork again.
+      expect(JSON.stringify(store.getRun(fork)!.meta?.interventions)).toContain('maya@example.com');
+    } finally {
+      store.close();
+    }
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    try {
+      const packed = await shadowlap(['pack', fork, join(cwd, 'fork-pack')]);
+      expect(packed.code, packed.out).toBe(0);
+      expect(readFileSync(join(cwd, 'fork-pack', 'run.json'), 'utf8')).not.toContain('maya@example.com');
+      expect(readFileSync(join(cwd, 'fork-pack', 'calls.jsonl'), 'utf8')).not.toContain('maya@example.com');
+      const html = await shadowlap(['export', 'html', fork, join(cwd, 'fork.html')]);
+      expect(html.code, html.out).toBe(0);
+      expect(html.out).toContain('redacted');
+      expect(readFileSync(join(cwd, 'fork.html'), 'utf8')).not.toContain('maya@example.com');
+    } finally {
+      rmSync(join(cwd, 'shadowlap.config.json'), { force: true });
+    }
   });
 });
 

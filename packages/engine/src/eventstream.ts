@@ -1,4 +1,46 @@
+import { crc32 } from 'node:zlib';
+
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** One AWS event stream frame: its header bytes, its payload, and the frame as it was. */
+export interface EventStreamFrame {
+  headers: Buffer;
+  payload: Buffer;
+  raw: Buffer;
+}
+
+/**
+ * The frames of an AWS event stream with both checksums of each verified, or null when `body` is not
+ * one: the frames must cover it exactly. Strict on purpose, so a binary body that only looks like a
+ * stream is never taken apart and written back.
+ */
+export function eventStreamFrames(body: Buffer): EventStreamFrame[] | null {
+  const frames: EventStreamFrame[] = [];
+  let at = 0;
+  while (at < body.length) {
+    if (at + 16 > body.length) return null;
+    const total = body.readUInt32BE(at);
+    const headerLength = body.readUInt32BE(at + 4);
+    if (total < 16 || at + total > body.length || 16 + headerLength > total) return null;
+    if (body.readUInt32BE(at + 8) !== crc32(body.subarray(at, at + 8))) return null;
+    if (body.readUInt32BE(at + total - 4) !== crc32(body.subarray(at, at + total - 4))) return null;
+    frames.push({ headers: body.subarray(at + 12, at + 12 + headerLength), payload: body.subarray(at + 12 + headerLength, at + total - 4), raw: body.subarray(at, at + total) });
+    at += total;
+  }
+  return frames.length ? frames : null;
+}
+
+/** One event stream frame with the given header bytes and payload, its checksums computed. */
+export function encodeEventStreamFrame(headers: Buffer, payload: Buffer): Buffer {
+  const prelude = Buffer.alloc(12);
+  prelude.writeUInt32BE(16 + headers.length + payload.length, 0);
+  prelude.writeUInt32BE(headers.length, 4);
+  prelude.writeUInt32BE(crc32(prelude.subarray(0, 8)), 8);
+  const message = Buffer.concat([prelude, headers, payload]);
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32BE(crc32(message), 0);
+  return Buffer.concat([message, tail]);
+}
 
 /**
  * AWS event stream frames: a 12-byte prelude (total length, header length, CRC), headers, payload,

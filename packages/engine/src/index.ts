@@ -42,7 +42,7 @@ export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, 
 export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';
 export { parseSse } from './sse.js';
-export { eventStreamMessages } from './eventstream.js';
+export { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages, type EventStreamFrame } from './eventstream.js';
 export type { SseEvent } from './sse.js';
 export { normalizeConversation } from './conversation.js';
 export type { Conversation, Turn, TurnBlock } from './conversation.js';

@@ -159,15 +159,22 @@ export interface RunMeta {
   test?: { golden: string; session: string };
   /** What a replay changed, as the flags that change it: what made a fork, and how to make it again. */
   interventions?: RunIntervention[];
+  /**
+   * The checks a replay was judged by when they were given with `--expect` (checks from the config
+   * are found again from the recording), so making the fork again judges it the same way.
+   */
+  expect?: Record<string, unknown>;
 }
 
 /**
  * One change a replay made, as its flag. `at` is the parent run's call number it applies at, or null
- * for a policy (`--writes stub`) or a tool named by name (`--live-tool`). `flag` is for display, with
- * long values shortened; `args` are the exact CLI arguments, left out when a value is too large to keep.
+ * for a policy (`--writes stub`), a tool named by name (`--live-tool`) or another command (`command`:
+ * the replay ran `-- <command>` instead of its parent's, which the run's own record holds). `flag` is
+ * for display, with long values shortened; `args` are the exact CLI arguments, left out when a value
+ * is too large to keep (and for `command`).
  */
 export interface RunIntervention {
-  kind: 'inject' | 'set' | 'model' | 'override' | 'plant' | 'fail' | 'diverge' | 'prompt-from' | 'live-tool' | 'writes' | 'reads';
+  kind: 'inject' | 'set' | 'model' | 'override' | 'plant' | 'fail' | 'diverge' | 'prompt-from' | 'live-tool' | 'writes' | 'reads' | 'command';
   at: number | null;
   flag: string;
   args?: string[];

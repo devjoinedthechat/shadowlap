@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { Store, type Normalizer } from '@shadowlap/engine';
+import { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages, storeApiRequest, Store, type Normalizer } from '@shadowlap/engine';
 import { runToHar } from '../src/export-har.js';
 import { importHar } from '../src/import-har.js';
 
@@ -175,5 +175,49 @@ describe('export har: redaction', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('export har: redaction of Bedrock streams', () => {
+  /** One AWS event stream frame, as Bedrock sends it. */
+  const frame = (type: string, payload: unknown) => {
+    const header = (name: string, value: string) => {
+      const n = Buffer.from(name);
+      const v = Buffer.from(value);
+      const b = Buffer.alloc(4 + n.length + v.length);
+      b.writeUInt8(n.length, 0);
+      n.copy(b, 1);
+      b.writeUInt8(7, 1 + n.length);
+      b.writeUInt16BE(v.length, 2 + n.length);
+      v.copy(b, 4 + n.length);
+      return b;
+    };
+    return encodeEventStreamFrame(Buffer.concat([header(':event-type', type), header(':message-type', 'event')]), Buffer.from(JSON.stringify(payload)));
+  };
+
+  it('masks a secret inside a ConverseStream and an InvokeModelWithResponseStream response, frames intact', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+    const streams = [
+      { name: 'POST /model/anthropic.claude-haiku-4-5-v1%3A0/converse-stream', body: Buffer.concat([frame('messageStart', { role: 'assistant' }), frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: `Rotated ${SECRET}.` } })]) },
+      { name: 'POST /model/anthropic.claude-haiku-4-5-v1%3A0/invoke-with-response-stream', body: frame('chunk', { bytes: Buffer.from(JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text: `Rotated ${SECRET}.` } })).toString('base64') }) },
+    ];
+    streams.forEach((c, i) => {
+      const identity = { kind: 'api' as const, name: c.name, fingerprint: String(i).repeat(64), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo: i + 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, { messages: [{ role: 'user', content: [{ text: 'rotate' }] }] }), meta: { provider: 'bedrock' }, at: 1 });
+      store.appendCallEnd(identity, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putBlob(c.body), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/vnd.amazon.eventstream' } }, at: 2 });
+    });
+    store.endRun(run.runId, 'completed');
+
+    const { har: out } = runToHar(store, store.getRun(run.runId)!, store.getCalls(run.runId), { redact: RULES });
+    const bodies = (out as { log: { entries: Array<{ response: { content: { text: string } } }> } }).log.entries.map((e) => Buffer.from(e.response.content.text, 'base64'));
+    expect(bodies).toHaveLength(2);
+    for (const body of bodies) {
+      expect(eventStreamFrames(body)).not.toBeNull();
+      const text = JSON.stringify([...eventStreamMessages(body)].map((m) => m.payload));
+      expect(text).not.toContain(SECRET);
+      expect(text).toContain('Rotated <KEY>.');
+    }
+    store.close();
   });
 });
