@@ -6,6 +6,7 @@ import { register as registerInspect } from './commands/inspect.js';
 import { register as registerRecord } from './commands/record.js';
 import { register as registerSetup } from './commands/setup.js';
 import { register as registerTesting } from './commands/testing.js';
+import { register as registerTraining } from './commands/training.js';
 import { VERSION } from './shared.js';
 
 export { captureConfig, guardEnv, placeholderAwsCredentials, type GuardMode } from './run-agent.js';
@@ -31,6 +32,8 @@ export async function main(argv: string[]): Promise<void> {
   program.helpCommand(true); // listed under "Set up:" rather than a group of its own
   registerImport(program);
   registerData(program);
+  // After data: `export pairs` joins the export command it registers.
+  registerTraining(program);
 
   await program.parseAsync(argv);
 }

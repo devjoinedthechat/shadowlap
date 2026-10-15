@@ -120,11 +120,13 @@ async function getJson(fetchImpl: typeof fetch, url: string, headers: Record<str
   return (await res.json()) as unknown;
 }
 
-function reason(err: unknown, what: string): string {
-  const e = err as { name?: string; message?: string; cause?: { code?: string } };
-  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return `${what} didn't answer in time`;
-  if (e?.cause?.code === 'ECONNREFUSED') return `${what} isn't running`;
-  return `${what} couldn't be listed (${e?.message ?? String(err)})`;
+/** Why a provider couldn't be listed, in a few words: the group it belongs to says whose list it is. */
+function reason(err: unknown): string {
+  const e = err as { name?: string; message?: string; cause?: { code?: string; message?: string } };
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return "didn't answer in time";
+  if (e?.cause?.code === 'ECONNREFUSED') return "isn't running";
+  if (/is not set$/.test(e?.message ?? '')) return e.message!;
+  return `couldn't be listed (${[e?.message ?? String(err), e?.cause?.message].filter(Boolean).join(': ')})`;
 }
 
 const recordedProvider = (input: ListModelsInput) => {
@@ -190,8 +192,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
       for (const c of r.value) add(c);
       if (!r.value.length) notes.push({ group: names[i]!, note: i === 2 ? 'no models installed' : 'no models listed' });
     } else {
-      const err = r.reason as Error;
-      notes.push({ group: names[i]!, note: /is not set$/.test(err?.message ?? '') ? err.message : reason(err, i === 2 ? 'Ollama' : names[i]!) });
+      notes.push({ group: names[i]!, note: reason(r.reason) });
     }
   });
 

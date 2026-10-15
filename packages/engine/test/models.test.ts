@@ -64,8 +64,8 @@ describe('models to score', () => {
     expect(listing.choices).toEqual([{ group: 'Recorded with', id: 'gpt-5-mini', via: 'the recorded model', baseUrl: null, flags: ['--model', 'gpt-5-mini'], perAttempt: null, local: false }]);
     expect(listing.notes).toEqual([
       { group: 'Anthropic API', note: 'ANTHROPIC_API_KEY is not set' },
-      { group: 'OpenAI API', note: "OpenAI API didn't answer in time" },
-      { group: 'Ollama, on this machine', note: "Ollama isn't running" },
+      { group: 'OpenAI API', note: "didn't answer in time" },
+      { group: 'Ollama, on this machine', note: "isn't running" },
     ]);
     // No key, no request: nothing is sent to a provider without one.
     expect(asked.some((u) => u.includes('anthropic'))).toBe(false);

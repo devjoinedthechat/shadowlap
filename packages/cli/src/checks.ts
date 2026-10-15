@@ -187,7 +187,8 @@ function parseText(value: unknown, where: string): TextCheck {
 
 function parseSpec(raw: unknown, where: string): TestSpec {
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
-  onlyKeys(raw, ['fork', 'repeat', 'passes', 'expect'], where);
+  // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts).
+  onlyKeys(raw, ['fork', 'repeat', 'passes', 'expect', 'task'], where);
   if (raw.fork !== undefined && typeof raw.fork !== 'boolean') throw new Error(`${where}.fork must be true or false`);
   const repeat = raw.repeat ?? 1;
   if (typeof repeat !== 'number' || !Number.isInteger(repeat) || repeat < 1 || repeat > 100) throw new Error(`${where}.repeat must be a whole number from 1 to 100`);

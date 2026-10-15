@@ -1,0 +1,362 @@
+import { randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { Command, InvalidArgumentError } from 'commander';
+import {
+  averageTokens,
+  countPairs,
+  findPairs,
+  findTask,
+  formatTokens,
+  formatUsd,
+  listModelChoices,
+  PAIR_FORMATS,
+  PAIR_SHAPES,
+  pairRows,
+  projectPath,
+  recordEvent,
+  resolveAuthor,
+  safeLine,
+  type PairFormat,
+  type ReadPolicy,
+  type Store,
+} from '@shadowlap/engine';
+import { formatBudget } from '../attempts.js';
+import { loadConfig } from '../config.js';
+import { emitJobEvent } from '../job-events.js';
+import { type GuardMode } from '../run-agent.js';
+import { serveTasks } from '../serve-tasks.js';
+import { openStore, parseChoice, parseIntArg, type GlobalOpts } from '../shared.js';
+import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
+import { cannotScore, keepScores, loadTasks, scoreTask, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
+import { palette as p, shortId } from '../ui.js';
+
+/**
+ * Training: preference pairs read from the attempts blame, verify and --repeat left in the store,
+ * goldens as tasks a model is scored on, and the HTTP endpoint a training loop asks for rewards.
+ * Nothing is collected for any of it, and nothing leaves the machine until it is exported.
+ */
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const STATUS: Record<string, string> = { ready: 'ready', blocked: 'blocked', 'not-a-task': 'not a task', 'no-golden': 'no golden' };
+
+function parseUsd(value: string): number {
+  const n = Number(value.replace(/^\$/, ''));
+  if (!Number.isFinite(n) || n <= 0) throw new InvalidArgumentError('must be an amount in USD, such as 0.50');
+  return n;
+}
+
+function parsePort(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new InvalidArgumentError('must be a port number');
+  return n;
+}
+
+/** The redaction line every copy that leaves the machine prints. */
+function redactionLine(rules: number, skipped: boolean): string {
+  if (skipped) return p.yellow('  redaction skipped (--no-redact): the copy holds what was recorded');
+  if (!rules) return p.yellow('  no redaction rules: the copy holds what was recorded (shadowlap redact add)');
+  return `  redaction: ${plural(rules, 'rule')} applied to the copy (rules without a path to every string, path rules to the message fields kept); the store is unchanged`;
+}
+
+function author(): string | null {
+  return resolveAuthor({ cwd: process.cwd() });
+}
+
+function withStore<T>(opts: GlobalOpts, fn: (store: Store) => T): T {
+  const store = openStore(opts);
+  try {
+    return fn(store);
+  } finally {
+    store.close();
+  }
+}
+
+/** A task as `shadowlap tasks` lists it. */
+function describeRow(t: LoadedTask): string[] {
+  const status = t.status === 'ready' ? p.green('ready') : t.status === 'blocked' ? p.yellow('blocked') : p.dim(STATUS[t.status]!);
+  const lines = [`  ${safeLine(t.golden)}  ${status}${t.note ? p.dim(` · ${safeLine(t.note)}`) : ''}`];
+  if (t.takeover) lines.push(p.dim(`      takes over at #${t.takeover.callNo} · ${safeLine(t.takeover.why)} · #1–#${t.takeover.callNo - 1} replay free`.replace('#1–#0 replay free', 'nothing replays first')));
+  if (t.rewards) lines.push(p.dim(`      rewards: ${safeLine(t.rewards)}`));
+  const checks = t.checks.filter((c) => !c.cap);
+  if (t.status === 'ready' || t.status === 'blocked') lines.push(p.dim(`      scored by: the agent exits 0${checks.map((c) => `; ${safeLine(c.label)}`).join('')}`));
+  if (t.after.live.length || t.after.stubbed.length) lines.push(p.dim(`      after the takeover: ${[...t.after.live.map((n) => `${safeLine(n)} live`), ...t.after.stubbed.map((n) => `${safeLine(n)} stubbed`)].join(', ')}`));
+  return lines;
+}
+
+function checkLine(a: ScoredAttempt): string {
+  return a.checks.map((c) => (c.pass ? `${p.green('✓')} ${safeLine(c.check)}` : `${p.red('✗')} ${safeLine(c.check)}`)).join(' · ');
+}
+
+function scoreJson(target: ModelTarget, via: string, session: string, scores: TaskScore[], skipped: Array<{ task: string; reason: string }>) {
+  const all = scores.flatMap((s) => s.attempts);
+  return {
+    model: target.model,
+    baseUrl: target.scoreBase,
+    via,
+    session,
+    tasks: scores.map((s) => ({ task: s.task, takeover: s.takeover, why: s.why, replayed: s.prefix, attempts: s.attempts.map((a) => ({ attempt: a.attempt, run: a.runId, score: a.score, checks: a.checks, spent: a.spent, exitCode: a.exitCode })), mean: s.mean, spent: s.spent, stopped: s.stopped, dropped: s.dropped })),
+    mean: all.length ? all.reduce((x, a) => x + a.score, 0) / all.length : null,
+    attempts: all.length,
+    spent: scores.reduce((x, s) => x + s.spent, 0),
+    unknownModels: [...new Set(scores.flatMap((s) => s.unknownModels))],
+    skipped,
+  };
+}
+
+export function register(program: Command): void {
+  // ---- export pairs, beside the other exports ----
+  const exportCmd = program.commands.find((c) => c.name() === 'export') ?? program.command('export').description('Export a run in another format');
+  exportCmd
+    .command('pairs')
+    .description('Preference pairs read from blame, verify and --repeat attempts (JSON Lines): the conversation at a model call, an answer to prefer and one to avoid, for preference fine-tuning')
+    .option('--min-confidence <level>', 'high: answers blame proved decided the run; medium: also where a failing and a passing attempt first differ', parseChoice(['high', 'medium'] as const), 'high')
+    .option('--format <format>', 'openai-preference (OpenAI preference fine-tuning) | trl (prompt, chosen, rejected)', parseChoice(PAIR_FORMATS), 'openai-preference')
+    .option('--out <file>', 'write here instead of stdout')
+    .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
+    .action((flags: { minConfidence: 'high' | 'medium'; format: PairFormat; out?: string; redact: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      // The pairs go to stdout without --out, so the report goes to stderr then.
+      const say = (line: string) => (flags.out ? process.stdout : process.stderr).write(`${line}\n`);
+      withStore(opts, (store) => {
+        const { pairs, sources } = findPairs(store);
+        const counts = countPairs(pairs);
+        const kept = pairs.filter((x) => flags.minConfidence === 'medium' || x.confidence === 'high');
+        const leftOut = pairs.length - kept.length;
+        const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
+        say(`▸ reading blame, verify and --repeat attempts from the store: ${plural(sources.length, 'source')}`);
+        const width = Math.max(0, ...sources.map((s) => safeLine(s.label).length));
+        for (const s of sources) say(p.dim(`    ${safeLine(s.label).padEnd(width)}  ${s.made ? `${plural(s.made, 'pair')}, ${s.confidence}` : `none: ${safeLine(s.why)}`}`));
+        if (!pairs.length) {
+          say(`  No pairs yet: blame a failing run, and the answer it was lost on and one that went on to pass make a pair.`);
+          say(p.dim('    shadowlap blame <run> --expect <checks>'));
+        }
+        say(`  ${plural(kept.length, 'pair')} at confidence ${flags.minConfidence === 'high' ? 'high' : 'high or medium'}${leftOut ? ` · ${leftOut} medium left out` : ''} · identical answers count once${counts.all ? p.dim(` (${counts.high} high, ${counts.medium} medium in all)`) : ''}`);
+        say('  each: the conversation as the model saw it at that call, and two answers to it');
+        say(`  ${flags.format}: ${PAIR_SHAPES[flags.format]}`);
+        say(redactionLine(rules.length, !flags.redact));
+        const rows = pairRows(store, kept, { format: flags.format, redact: rules });
+        const body = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
+        if (flags.out) writeFileSync(flags.out, body);
+        else process.stdout.write(body);
+        const file = flags.out ?? '-';
+        if (rows.length < kept.length) say(p.yellow(`  ${kept.length - rows.length} pair${kept.length - rows.length === 1 ? '' : 's'} left out: the request at that call can't be read`));
+        say(`${p.green('✓')} ${flags.out ? `wrote ${flags.out}` : 'wrote to stdout'} · ${plural(rows.length, 'pair')}`);
+        if (!rows.length) return;
+        const data = { format: flags.format, minConfidence: flags.minConfidence, leftOut, redaction: flags.redact ? rules.length : null, sources: sources.filter((s) => s.made).map((s) => ({ key: s.key, label: s.label, made: s.made })) };
+        const record = store.addPairsExport({ pairs: rows.length, file, format: flags.format, minConfidence: flags.minConfidence, leftOut, actor: author(), data: { redaction: data.redaction, sources: data.sources } });
+        recordEvent(store, { kind: 'pairs.exported', actor: record.actor, ref: file, data: { count: rows.length, ...data } });
+        if (flags.out) emitJobEvent({ type: 'file', path: resolve(flags.out), label: flags.out });
+        emitJobEvent({ type: 'link', label: 'Open Training', href: '#/training' });
+        emitJobEvent({ type: 'result', data: { exportId: record.exportId, pairs: rows.length, file, ...data } });
+      });
+    });
+
+  // ---- tasks ----
+  program.commandsGroup('Train:');
+  const tasks = program
+    .command('tasks')
+    .description('Goldens as tasks a model can be scored on: a model takes over at one call, the calls before it replay free, and the checks score what it did')
+    .enablePositionalOptions();
+
+  tasks
+    .command('ls', { isDefault: true })
+    .description('List the tasks: where a model takes over and why, what each rewards, and whether it can be scored')
+    .option('--json', 'print them as JSON')
+    .action((flags: { json?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      const { tasks: list, oneSided } = withStore(opts, (store) => loadTasks(process.cwd(), store));
+      if (flags.json) {
+        process.stdout.write(JSON.stringify({ tasks: list.map(({ pack: _pack, spec: _spec, dir: _dir, ...t }) => t), oneSided }, null, 2) + '\n');
+        return;
+      }
+      if (!list.length) {
+        process.stdout.write('No tasks yet. A golden with outcome checks is a task: a model takes over at one call, and the checks score what it did.\n');
+        process.stdout.write(p.dim('  shadowlap pack <run> goldens/<name>, then add its checks under "tests" in shadowlap.config.json\n'));
+        return;
+      }
+      const ready = list.filter((t) => t.status === 'ready').length;
+      const counts = (['blocked', 'not-a-task', 'no-golden'] as const).map((s) => [s, list.filter((t) => t.status === s).length] as const).filter(([, n]) => n);
+      process.stdout.write(`${p.bold(`${ready} of ${plural(list.length, 'task')} ready`)}${counts.length ? p.dim(` · ${counts.map(([s, n]) => `${n} ${STATUS[s]}`).join(' · ')}`) : ''}\n`);
+      for (const t of list) process.stdout.write(describeRow(t).join('\n') + '\n');
+      if (oneSided) {
+        const o = oneSided.opposite;
+        process.stdout.write(`\n${p.yellow('!')} One-sided: every ready task rewards "${safeLine(oneSided.rewards)}", so a model that learned only that would score full marks.${o ? ` ${safeLine(o.golden)} rewards "${safeLine(o.rewards)}" once it is ready (${STATUS[o.status]}${o.note ? `: ${safeLine(o.note)}` : ''}).` : ''}\n`);
+      }
+    });
+
+  tasks
+    .command('score')
+    .description('Score a model on the tasks: each attempt replays a golden up to its takeover for free, the model answers from there with writes stubbed, and the checks score it. Every attempt is a run; a model scored again replaces its scores')
+    .argument('[goldens...]', 'golden directories, or folders of them (default: every ready task)')
+    .requiredOption('--model <model>', 'the model to score: a name for the recording\'s own provider, anthropic:<model> or openai:<model> for that API, or a name at --base-url')
+    .option('--base-url <url>', 'an OpenAI-compatible endpoint to ask (Ollama, vLLM, your training server), such as http://127.0.0.1:8000/v1')
+    .option('--key-env <name>', 'the environment variable holding the endpoint\'s key (default: OPENAI_API_KEY for api.openai.com, ANTHROPIC_API_KEY for anthropic:)')
+    .option('--attempts <n>', 'attempts per task', parseIntArg, 5)
+    .option('--reads <policy>', 'what read tools do after the takeover: live (the services must be up) or replay (served from the recording when they match)', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
+    .option('--concurrency <n>', 'attempts of one task running at once', parseIntArg, 1)
+    .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
+    .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
+    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('--json', 'print the scores as JSON (progress still goes to stderr)')
+    .action(async (goldens: string[], flags: { model: string; baseUrl?: string; keyEnv?: string; attempts: number; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; json?: boolean }) => {
+      const opts = program.opts<GlobalOpts>();
+      if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
+      let target: ModelTarget;
+      try {
+        target = resolveTarget({ model: flags.model, baseUrl: flags.baseUrl, keyEnv: flags.keyEnv });
+      } catch (err) {
+        throw new InvalidArgumentError((err as Error).message);
+      }
+      const root = process.cwd();
+      const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
+      const skipped: Array<{ task: string; reason: string }> = [];
+      let chosen: LoadedTask[];
+      if (goldens.length) {
+        chosen = [];
+        for (const g of goldens) {
+          const path = projectPath(root, g);
+          const inside = all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`));
+          const found = inside.length ? inside : [findTask(all, g)].filter((t): t is LoadedTask => t !== null);
+          if (!found.length) skipped.push({ task: g, reason: `${g} is not a golden of this project (see shadowlap tasks)` });
+          for (const t of found) if (!chosen.includes(t)) chosen.push(t);
+        }
+      } else chosen = all.filter((t) => t.status === 'ready');
+      const scorable: LoadedTask[] = [];
+      for (const t of chosen) {
+        const why = cannotScore(t, target);
+        if (why) skipped.push({ task: t.golden, reason: why });
+        else scorable.push(t);
+      }
+      const log = (line: string) => process.stderr.write(`${line}\n`);
+      for (const s of skipped) log(`${p.yellow('!')} skipped ${safeLine(s.reason)}`);
+      if (!scorable.length) {
+        log(all.length ? 'No task to score: a task is ready when its golden passes and its checks say whether the agent was right (shadowlap tasks).' : 'No tasks yet: pack a run as a golden and give it outcome checks (shadowlap tasks).');
+        if (flags.json) process.stdout.write(JSON.stringify(scoreJson(target, targetVia(target, null), '', [], skipped), null, 2) + '\n');
+        process.exitCode = 1;
+        return;
+      }
+      const session = `score-${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+      const via = targetVia(target, scorable[0]!.provider);
+      log(`${p.yellow('⑂')} Scoring ${p.bold(safeLine(target.model))} ${p.dim(`(${safeLine(via)})`)} on ${plural(scorable.length, 'task')} · ${plural(flags.attempts, 'attempt')} each`);
+      log(p.dim(`  each attempt replays the golden up to the takeover for free; from there ${safeLine(target.model)} answers · writes stubbed · reads ${flags.reads}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
+
+      const scores: TaskScore[] = [];
+      let spent = 0;
+      for (const t of scorable) {
+        const k = t.takeover!.callNo;
+        log(`▸ ${safeLine(t.name)} · ${k > 1 ? `#1–#${k - 1} replayed` : 'nothing replayed first'} · ${safeLine(target.model)} from #${k} · writes stubbed ${p.dim(`(${safeLine(t.takeover!.why)})`)}`);
+        let score: TaskScore;
+        try {
+          score = await scoreTask(opts, t, target, { attempts: flags.attempts, reads: flags.reads, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard }, { id: session, spentBefore: spent }, (a) => {
+            log(`  ${String(a.attempt).padStart(2)} · ${checkLine(a)} · ${a.score === 1 ? p.green(a.score.toFixed(2)) : a.score > 0 ? p.yellow(a.score.toFixed(2)) : p.red(a.score.toFixed(2))} ${p.dim(shortId(a.runId))}`);
+            emitJobEvent({ type: 'run', runId: a.runId, role: 'attempt' });
+          });
+        } catch (err) {
+          log(`  ${p.red('✗')} ${(err as Error).message}`);
+          skipped.push({ task: t.golden, reason: (err as Error).message });
+          continue;
+        }
+        spent += score.spent;
+        scores.push(score);
+        if (score.dropped.length) log(p.dim(`  the conversation went to ${safeLine(target.model)} without: ${score.dropped.join(', ')}`));
+        if (score.stopped) log(`  ${p.yellow('!')} ${score.stopped.split('\n').map(safeLine).join('\n    ')}`);
+        if (score.mean !== null) log(p.dim(`  mean ${score.mean.toFixed(2)} over ${plural(score.attempts.length, 'attempt')}`));
+        if (flags.budget && spent >= flags.budget) {
+          log(p.yellow(`  the budget of ${formatBudget(flags.budget)} is spent`));
+          break;
+        }
+      }
+
+      const report = scoreJson(target, via, session, scores, skipped);
+      const done = scores.filter((s) => s.attempts.length);
+      withStore(opts, (store) => {
+        for (const s of done) keepScores(store, target, s, session);
+        if (done.length) recordEvent(store, { kind: 'model.scored', actor: author(), ref: target.model, data: { model: target.model, baseUrl: target.scoreBase, via, tasks: done.length, attempts: report.attempts, mean: report.mean, spent: report.spent, session } });
+      });
+      const unpriced = report.unknownModels.length ? p.dim(` (no price for ${report.unknownModels.map(safeLine).join(', ')}: add it under "prices" in shadowlap.config.json)`) : '';
+      const cost = target.local ? '$0, on this machine' : `≈${formatUsd(report.spent)} spent${unpriced}`;
+      if (report.mean !== null) {
+        const line = `${p.green('✓')} ${safeLine(target.model)} · mean ${report.mean.toFixed(2)} · ${plural(report.attempts, 'attempt')} on ${plural(done.length, 'task')} · ${cost} · every call before a takeover replayed`;
+        if (flags.json) log(line);
+        else process.stdout.write(`${line}\n`);
+      } else log(`${p.red('✗')} no attempt was scored`);
+      emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
+      emitJobEvent({ type: 'result', data: report });
+      if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+      process.exitCode = report.mean !== null && !skipped.length && scores.every((s) => !s.stopped) ? 0 : 1;
+    });
+
+  tasks
+    .command('serve')
+    .description('Serve the tasks to a training loop: one attempt per HTTP request, answered with each check\'s result, the score to use as the reward, the run and its cost. Listens on 127.0.0.1 and needs the token it prints')
+    .argument('[goldens...]', 'golden directories, or folders of them (default: every task)')
+    .option('--port <port>', 'port to listen on (default 4779, or a free one if it is taken)', parsePort)
+    .option('--concurrency <n>', 'attempts running at once; more requests wait their turn', parseIntArg, 2)
+    .option('--reads <policy>', 'what read tools do after the takeover, unless a request says: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
+    .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
+    .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; timeout?: number; guard: GuardMode }) => {
+      const opts = program.opts<GlobalOpts>();
+      const root = process.cwd();
+      const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
+      const only = goldens.flatMap((g) => {
+        const path = projectPath(root, g);
+        return all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`)).map((t) => t.golden);
+      });
+      if (goldens.length && !only.length) throw new InvalidArgumentError(`${goldens.join(', ')}: no golden of this project there (see shadowlap tasks)`);
+      const token = process.env.SHADOWLAP_TASKS_TOKEN?.trim() || randomBytes(24).toString('hex');
+      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
+      const served = goldens.length ? all.filter((t) => only.includes(t.golden)) : all;
+      const ready = served.filter((t) => t.status === 'ready');
+      process.stdout.write(`Serving ${plural(ready.length, 'ready task')} on ${server.url}\n`);
+      process.stdout.write(`  token: ${token}\n`);
+      process.stdout.write(p.dim(`  POST ${server.url}/v1/tasks/<task>/attempts  {"model":"my-finetune","baseUrl":"http://127.0.0.1:8000/v1"}\n  with Authorization: Bearer <token>; GET /v1/tasks lists them. Ctrl-C stops.\n`));
+      for (const t of ready) process.stdout.write(p.dim(`  ${safeLine(t.name)}: takes over at #${t.takeover!.callNo}\n`));
+      await new Promise<void>((done) => {
+        process.once('SIGINT', () => done());
+        process.once('SIGTERM', () => done());
+      });
+      await server.close();
+    });
+
+  tasks
+    .command('models')
+    .description('Models to score: the one the recordings used, each configured provider\'s models (Anthropic and OpenAI with the keys in the environment, Ollama on this machine) and endpoints scored before, each with what an attempt costs')
+    .option('--json', 'print them as JSON')
+    .option('--timeout <ms>', 'how long to wait for each provider\'s list', parseIntArg, 1500)
+    .action(async (flags: { json?: boolean; timeout: number }) => {
+      const opts = program.opts<GlobalOpts>();
+      const config = loadConfig(process.cwd());
+      const { list, scores } = withStore(opts, (store) => ({ list: loadTasks(process.cwd(), store).tasks, scores: store.listTaskScores() }));
+      const ready = list.filter((t) => t.status === 'ready');
+      const recorded = [...new Map(ready.filter((t) => t.model).map((t) => [`${t.model}\n${t.provider}`, { model: t.model!, provider: t.provider }])).values()];
+      const scored = [...new Map(scores.map((s) => [`${s.model}\n${s.baseUrl}`, { model: s.model, baseUrl: s.baseUrl, via: s.via }])).values()];
+      const tokens = averageTokens(ready);
+      const listing = await listModelChoices({ recorded, scored, tokens, ...(config.prices ? { prices: config.prices } : {}), timeoutMs: flags.timeout });
+      const readyGoldens = new Set(ready.map((t) => t.golden));
+      const meanOf = (model: string, base: string | null) => {
+        const rows = scores.filter((s) => s.model === model && s.baseUrl === base && readyGoldens.has(s.golden));
+        return rows.length ? rows.reduce((x, r) => x + r.score, 0) / rows.length : null;
+      };
+      const choices = listing.choices.map((c) => ({ ...c, lastScore: meanOf(c.id, c.baseUrl) }));
+      if (flags.json) {
+        process.stdout.write(JSON.stringify({ choices, notes: listing.notes, tokens: listing.tokens, tasks: ready.length }, null, 2) + '\n');
+        return;
+      }
+      const t = listing.tokens;
+      process.stdout.write(`Models to score on ${plural(ready.length, 'ready task')}${t ? p.dim(` · an attempt uses about ${formatTokens(t.inputTokens + (t.cacheReadInputTokens ?? 0) + (t.cacheCreationInputTokens ?? 0))} input and ${formatTokens(t.outputTokens)} output tokens after its takeover`) : ''}\n`);
+      const groups = [...new Set(choices.map((c) => c.group))];
+      for (const g of groups) {
+        process.stdout.write(`${p.bold(safeLine(g))}\n`);
+        const rows = choices.filter((c) => c.group === g);
+        const width = Math.max(...rows.map((c) => safeLine(c.id).length));
+        for (const c of rows) {
+          const cost = c.local ? '$0, not a paid API' : c.perAttempt === null ? 'no price' : `≈${formatUsd(c.perAttempt)} an attempt`;
+          process.stdout.write(`  ${safeLine(c.id).padEnd(width)}  ${p.dim(cost)}${c.lastScore !== null ? ` · scored ${c.lastScore.toFixed(2)}` : ''}\n`);
+        }
+      }
+      for (const n of listing.notes) process.stdout.write(p.dim(`${safeLine(n.group)}: ${safeLine(n.note)}\n`));
+      process.stdout.write(p.dim(`Your own endpoint: shadowlap tasks score --model <name> --base-url <url>\n`));
+    });
+}
