@@ -4,13 +4,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { normalizeResponse, Store, storeApiRequest } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from '@shadowlap-testing/mock-openai';
+import { parseTests } from '../src/checks.js';
 import { needsTakeover, resolveTarget, startTakeover, targetVia } from '../src/takeover.js';
-import { askedModel } from '../src/tasks.js';
+import { askedModel, taskChecks } from '../src/tasks.js';
 
 /**
- * The model under test and how a recorded conversation reaches it: what --model, --base-url and
- * --key-env ask for, when a takeover upstream translates, the upstream itself against the mock
- * providers in both directions, and how a score checks which model the takeover call asked.
+ * The CLI's training parts on their own: the task block under tests, the model under test and how a
+ * recorded conversation reaches it (what --model, --base-url and --key-env ask for, when a takeover
+ * upstream translates, the upstream itself against the mock providers in both directions), and how a
+ * score checks which model the takeover call asked.
  */
 
 let anthropic: MockServer;
@@ -59,6 +61,25 @@ const OPENAI_REQUEST = {
   ],
   tools: [{ type: 'function', function: { name: 'escalate', parameters: { type: 'object', properties: { reason: { type: 'string' } } } } }],
 };
+
+describe('the task block under tests', () => {
+  it('is checked wherever tests are read, so shadowlap test and doctor report a mistake in it', () => {
+    expect(parseTests({ 'goldens/a': { expect: { tools: { escalate: 1 } }, task: { takeover: 5, why: 'decides', rewards: 'escalate above the limit' } } })).toHaveLength(1);
+    expect(() => parseTests({ 'goldens/a': { task: { takeover: 'five' } } })).toThrow('shadowlap.config.json: tests["goldens/a"].task.takeover must be a model call number');
+    expect(() => parseTests({ 'goldens/a': { task: { teaches: 'x' } } })).toThrow('has an unknown key "teaches"');
+  });
+
+  it('scores the outcome checks, and lists token and cost budgets as caps', () => {
+    const [entry] = parseTests({ 'goldens/a': { expect: { tools: { issue_refund: 0 }, modelCalls: '<= 12', inputTokens: '<= 60000', cost: '<= 0.05' } } });
+    expect(taskChecks(entry!.spec)).toEqual([
+      { label: 'issue_refund called 0 times', cap: false },
+      { label: 'at most 12 model calls', cap: false },
+      { label: 'at most 60000 input tokens', cap: true },
+      { label: 'cost at most $0.05', cap: true },
+    ]);
+    expect(taskChecks(null)).toEqual([]);
+  });
+});
 
 describe('the model under test', () => {
   it('is the recording\'s provider by name, a provider by prefix, or an OpenAI-compatible endpoint', () => {

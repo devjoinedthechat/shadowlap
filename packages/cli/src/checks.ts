@@ -1,5 +1,5 @@
 import { resolve, sep } from 'node:path';
-import { formatUsd, type CallRecord } from '@shadowlap/engine';
+import { formatUsd, parseTaskFields, type CallRecord } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -187,8 +187,10 @@ function parseText(value: unknown, where: string): TextCheck {
 
 function parseSpec(raw: unknown, where: string): TestSpec {
   if (!isObject(raw)) throw new Error(`${where} must be an object`);
-  // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts).
+  // `task` (where a model takes over, why, what it rewards) is read by `shadowlap tasks` (tasks.ts);
+  // a mistake in it fails here too, as any other mistake under `tests` does.
   onlyKeys(raw, ['fork', 'repeat', 'passes', 'expect', 'task'], where);
+  parseTaskFields(raw.task, `${where}.task`);
   if (raw.fork !== undefined && typeof raw.fork !== 'boolean') throw new Error(`${where}.fork must be true or false`);
   const repeat = raw.repeat ?? 1;
   if (typeof repeat !== 'number' || !Number.isInteger(repeat) || repeat < 1 || repeat > 100) throw new Error(`${where}.repeat must be a whole number from 1 to 100`);
