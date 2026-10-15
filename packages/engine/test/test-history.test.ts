@@ -37,6 +37,26 @@ describe('test history in the store', () => {
     store.close();
   });
 
+  it('finds each golden\'s newest result, and the runs test made for a golden', () => {
+    const store = Store.open(':memory:');
+    const a = store.startTestSession({ command: ['shadowlap', 'test'], startedAt: 1 });
+    store.addTestResult({ sessionId: a.sessionId, golden: 'g1', ok: true, at: 10 });
+    store.addTestResult({ sessionId: a.sessionId, golden: 'g2', ok: false, failure: 'check', at: 11 });
+    const b = store.startTestSession({ command: ['shadowlap', 'test'], startedAt: 20 });
+    store.addTestResult({ sessionId: b.sessionId, golden: 'g1', ok: false, failure: 'diverged', at: 30 });
+    expect(store.latestTestResults().map((r) => [r.golden, r.ok])).toEqual([['g1', false], ['g2', false]]);
+    expect(store.latestTestResults({ until: 15 }).map((r) => [r.golden, r.ok])).toEqual([['g2', false], ['g1', true]]);
+    expect(store.listTestResults({ sessionIds: [a.sessionId] }).map((r) => r.golden)).toEqual(['g2', 'g1']);
+    expect(store.listTestResults({ sessionIds: [] })).toEqual([]);
+
+    const replay = store.createRun({ mode: 'replay', command: { argv: ['node'], cwd: '/' }, meta: { test: { golden: 'g1', session: b.sessionId } } });
+    store.createRun({ mode: 'replay', command: { argv: ['node'], cwd: '/' }, meta: { test: { golden: 'g2', session: b.sessionId } } });
+    store.createRun({ mode: 'record', command: { argv: ['node'], cwd: '/' } });
+    expect(store.testReplays(['g1']).map((r) => r.runId)).toEqual([replay.runId]);
+    expect(store.testReplays([])).toEqual([]);
+    store.close();
+  });
+
   it('keeps history when the runs it names are deleted', () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/' } });

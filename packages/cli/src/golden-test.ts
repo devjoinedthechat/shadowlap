@@ -265,7 +265,7 @@ export function junitCase(o: GoldenOutcome): JunitCase {
  */
 export function pruneReplays(store: Store, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): number {
   const byGolden = new Map<string, RunRecord[]>();
-  for (const run of store.allRuns()) {
+  for (const run of store.testReplays([...tested.keys()])) {
     const t = run.meta?.test;
     if (!t || t.session === session.sessionId || !tested.has(t.golden)) continue;
     const list = byGolden.get(t.golden);
@@ -278,6 +278,7 @@ export function pruneReplays(store: Store, session: { sessionId: string; started
     return ended.get(id)!;
   };
   let deleted = 0;
+  let live = false;
   for (const [golden, runs] of byGolden) {
     const now = tested.get(golden)!;
     const passing = runs.filter((r) => r.status === 'completed' && !r.meta?.checks?.some((c) => !c.ok) && (!r.divergence || now.fork));
@@ -285,9 +286,13 @@ export function pruneReplays(store: Store, session: { sessionId: string; started
       const at = endedAt(run.meta!.test!.session);
       if (at === null || at > session.startedAt) continue;
       if (run.meta?.labels?.length || run.meta?.notes?.length || store.childRuns(run.runId).length) continue;
+      // A replay that went live (a golden that may fork) has answers of its own to collect.
+      live ||= store.getCalls(run.runId).some((c) => c.origin === 'live');
       store.deleteRun(run.runId);
       deleted++;
     }
   }
+  // A clean offline replay's answers are the golden's own, so only a live one leaves blobs behind.
+  if (live) store.gcBlobs();
   return deleted;
 }

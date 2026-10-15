@@ -524,13 +524,18 @@ export class Store {
     return result;
   }
 
-  /** Results, newest first: of one session, of one golden, or of every session (`limit`, default 1000). */
-  listTestResults(options: { sessionId?: string; golden?: string; since?: number; limit?: number } = {}): TestResult[] {
+  /** Results, newest first: of one session or several, of one golden, or of every session (`limit`, default 1000). */
+  listTestResults(options: { sessionId?: string; sessionIds?: readonly string[]; golden?: string; since?: number; limit?: number } = {}): TestResult[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.sessionId !== undefined) {
       where.push('session_id = ?');
       params.push(options.sessionId);
+    }
+    if (options.sessionIds !== undefined) {
+      if (!options.sessionIds.length) return [];
+      where.push(`session_id IN (${options.sessionIds.map(() => '?').join(', ')})`);
+      params.push(...options.sessionIds);
     }
     if (options.golden !== undefined) {
       where.push('golden = ?');
@@ -545,6 +550,24 @@ export class Store {
       .prepare(`SELECT * FROM test_results ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, session_id DESC, golden ASC LIMIT ?`)
       .all(...params)
       .map(rowToTestResult);
+  }
+
+  /** The newest result of each golden, at or before `until` when given: one row per golden, newest first. */
+  latestTestResults(options: { until?: number } = {}): TestResult[] {
+    const where = options.until !== undefined ? 'WHERE at <= ?' : '';
+    return this.db
+      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY golden ORDER BY at DESC, session_id DESC) AS n FROM test_results ${where}) WHERE n = 1 ORDER BY at DESC, golden ASC`)
+      .all(...(options.until !== undefined ? [options.until] : []))
+      .map(rowToTestResult);
+  }
+
+  /** The runs `shadowlap test` made for these goldens (`meta.test.golden`), newest first. */
+  testReplays(goldens: readonly string[]): RunRecord[] {
+    if (!goldens.length) return [];
+    return this.db
+      .prepare(`SELECT * FROM runs WHERE json_extract(meta, '$.test.golden') IN (${goldens.map(() => '?').join(', ')}) ORDER BY started_at DESC, run_id DESC`)
+      .all(...goldens)
+      .map(rowToRun);
   }
 
   // ---- runs ----

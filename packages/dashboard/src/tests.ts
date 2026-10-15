@@ -284,8 +284,6 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
 export function testsView(store: Store, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
   const sessions = store.listTestSessions({ limit: 500, finished: true });
-  const results = store.listTestResults({ limit: 20_000 });
-  const history = byGolden(results);
   const last = sessions[0] ?? null;
 
   // Columns: the revisions of the most recent sessions, oldest first.
@@ -295,10 +293,14 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     if (revisions.length >= (options.revisions ?? 6)) break;
   }
   revisions.reverse();
+  // Only what the page shows is read: each golden's newest result, and the results of the sessions
+  // at the revisions it has columns for.
+  const latestOf = new Map(store.latestTestResults().map((r) => [r.golden, r]));
+  const history = byGolden(store.listTestResults({ sessionIds: sessions.filter((s) => revisions.includes(s.revision)).map((s) => s.sessionId), limit: 100_000 }));
 
   const rows: GoldenRow[] = goldens.map((g) => {
     const list = history.get(g.path) ?? [];
-    const latest = list[0] ?? null;
+    const latest = latestOf.get(g.path) ?? null;
     const sourceRun = runIfKept(store, g.runId);
     const recorded = sourceRun ? store.getRun(sourceRun) : null;
     const mode = modeOf(g);
@@ -326,9 +328,9 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   const failures: FailureView[] = [];
   const commits = foundCommits(store);
   for (const row of rows) {
-    const latest = history.get(row.path)?.[0];
+    const latest = latestOf.get(row.path);
     if (!latest || latest.ok) continue;
-    const bisect = bisectFor(row.path, history.get(row.path) ?? [], latest);
+    const bisect = bisectFor(row.path, store.listTestResults({ golden: row.path, limit: 1000 }), latest);
     const seen = commits.get(row.path);
     const found = seen && seen.at >= latest.at ? seen : null;
     const d = latest.failure === 'diverged' ? divergenceOf(latest) : null;
@@ -357,7 +359,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
 
   let verdict: TestsVerdict | null = null;
   if (last) {
-    const inSession = results.filter((r) => r.sessionId === last.sessionId).sort((a, b) => a.at - b.at);
+    const inSession = store.listTestResults({ sessionId: last.sessionId, limit: 100_000 }).sort((a, b) => a.at - b.at);
     const failed = inSession.filter((r) => !r.ok);
     const first = failed[0] ?? null;
     const total = last.passed + last.failed;
@@ -391,15 +393,10 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
   };
 }
 
-/** The latest result of each golden, as of a time. */
+/** The latest result of each golden, as of a time, of the goldens given (default: every one tested). */
 function latestResults(store: Store, options: { goldens?: readonly string[]; until?: number } = {}): Map<string, TestResult> {
-  const out = new Map<string, TestResult>();
-  for (const r of store.listTestResults({ limit: 20_000 })) {
-    if (options.until !== undefined && r.at > options.until) continue;
-    if (options.goldens && !options.goldens.includes(r.golden)) continue;
-    if (!out.has(r.golden)) out.set(r.golden, r);
-  }
-  return out;
+  const keep = options.goldens ? new Set(options.goldens) : null;
+  return new Map(store.latestTestResults(options.until !== undefined ? { until: options.until } : {}).filter((r) => !keep || keep.has(r.golden)).map((r) => [r.golden, r]));
 }
 
 export interface TestsSummary {
