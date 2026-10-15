@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDbPath } from './paths.js';
 import { isLiveRun } from './setup.js';
@@ -7,8 +7,23 @@ import { readStore } from './store-reader.js';
 /**
  * Deleting a project's recordings: its store, `.shadowlap/shadowlap.db` and the files SQLite keeps
  * beside it. Nothing else: the folder and its code, `shadowlap.config.json` and the goldens in the
- * repository are never touched.
+ * repository are never touched, and neither are the files other commands made from the runs in
+ * `.shadowlap/` ({@link MADE_FOLDERS}), which the Remove dialog names.
  */
+
+/** Folders in `.shadowlap/` that hold what commands made from the runs: repair reports and their goldens, exports, files sent to dashboard jobs. */
+export const MADE_FOLDERS = ['repairs', 'exports', 'uploads'] as const;
+
+/** Those of {@link MADE_FOLDERS} a project's folder has, as `.shadowlap/repairs`: deleting the recordings leaves them. */
+export function madeFiles(folder: string): string[] {
+  return MADE_FOLDERS.map((name) => `.shadowlap/${name}`).filter((rel) => {
+    try {
+      return lstatSync(join(folder, rel)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
 
 export class RecordingsError extends Error {
   constructor(
@@ -85,6 +100,12 @@ export function storeFilesToDelete(folder: string, now: number = Date.now()): st
   };
   // The files are checked before the store is opened to look for a live run, and listed again after.
   if (!present().length) return [];
+  // A folder this process can't write to can't lose a file: said before the project leaves the list.
+  try {
+    accessSync(dir, constants.W_OK);
+  } catch (err) {
+    throw new RecordingsError('store', `Shadowlap can’t delete files in ${dir}: ${(err as Error).message}. Delete the recordings yourself.`);
+  }
   if (recordingInProgress(folder, now)) throw new RecordingsError('recording', 'A run is being recorded in this folder. Let it finish or stop it, then delete the recordings.');
   return present();
 }

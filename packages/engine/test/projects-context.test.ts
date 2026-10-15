@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -168,11 +168,20 @@ describe('ProjectHost', () => {
     const gone = files(join(registry.home, 'gone-agent'), { 'package.json': '{}' });
     registry.add('~/gone-agent');
     rmSync(gone, { recursive: true, force: true });
+    mkdirSync(join(triage, '.shadowlap', 'repairs', 'rp-1'), { recursive: true });
     expect(host.stats()).toEqual({
-      'support-agent': { runs: 0, attempts: 0, goldens: 0, missing: false },
-      'triage-bot': { runs: 1, attempts: 1, goldens: 1, missing: false },
-      'gone-agent': { runs: 0, attempts: 0, goldens: 0, missing: true },
+      'support-agent': { runs: 0, attempts: 0, goldens: 0, missing: false, settingUp: true, unreadable: null, madeFiles: [] },
+      'triage-bot': { runs: 1, attempts: 1, goldens: 1, missing: false, settingUp: true, unreadable: null, madeFiles: ['.shadowlap/repairs'] },
+      'gone-agent': { runs: 0, attempts: 0, goldens: 0, missing: true, settingUp: true, unreadable: null, madeFiles: [] },
     });
+    // Finished with runs, it is set up; with none left, its setup shows again.
+    registry.finishSetup('triage-bot', { skipped: true });
+    expect(host.stats()['triage-bot']).toMatchObject({ settingUp: false });
+    const empty = files(join(registry.home, 'empty-agent'), { 'package.json': '{}' });
+    registry.add('~/empty-agent');
+    registry.finishSetup('empty-agent', { skipped: true });
+    expect(existsSync(empty)).toBe(true);
+    expect(host.stats()['empty-agent']).toMatchObject({ runs: 0, settingUp: true });
     host.close();
   });
 
@@ -254,11 +263,39 @@ describe('ProjectHost: what it reads and keeps', () => {
     check.close();
     expect(existsSync(join(triage, '.shadowlap', '.gitignore'))).toBe(false);
 
-    // One written by a newer Shadowlap is listed, with nothing counted.
+    // One written by a newer Shadowlap is listed, with nothing counted and the reason said.
     const newer = new DatabaseSync(db);
     newer.exec(`UPDATE meta SET value = '99' WHERE key = 'schema_version'`);
     newer.close();
-    expect(host.stats()['triage-bot']).toMatchObject({ runs: 0, missing: false });
+    expect(host.stats()['triage-bot']).toMatchObject({ runs: 0, missing: false, unreadable: expect.stringMatching(/written by a newer Shadowlap/) });
+    // Reading its setup says so too, as a store error the dashboard answers with its status.
+    expect(() => host.setup('triage-bot')).toThrow(expect.objectContaining({ name: 'ProjectError', code: 'store', status: 409, message: expect.stringMatching(/^Shadowlap can’t read triage-bot’s store: .*newer Shadowlap/) }));
+    host.close();
+  });
+
+  // Permissions don't hold back root, and work otherwise on Windows.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reads a store in a folder it can’t write to', () => {
+    const { registry, loadConfig, support, triage } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    const store = Store.open(projectDbPath(triage));
+    const runId = recordInto(store, triage);
+    store.close();
+    // A clean close leaves no shared-memory file, which SQLite can't make in a read-only folder.
+    expect(existsSync(`${projectDbPath(triage)}-shm`)).toBe(false);
+    chmodSync(join(triage, '.shadowlap'), 0o555);
+    try {
+      expect(host.stats()['triage-bot']).toMatchObject({ runs: 1, unreadable: null });
+      expect(host.setup('triage-bot')).toMatchObject({ stage: 'recorded', run: { runId, calls: 2 } });
+      // Removed and added again, its runs come back.
+      registry.remove('triage-bot');
+      expect(registry.add('~/triage-bot')).toMatchObject({ again: true, runs: 1 });
+      // Its recordings can't be deleted there: said before it leaves the list.
+      expect(() => registry.remove('triage-bot', { deleteRecordings: true, typedName: 'triage-bot' })).toThrow(expect.objectContaining({ code: 'store', message: expect.stringMatching(/can’t delete files in/) }));
+      expect(registry.get('triage-bot')).not.toBeNull();
+    } finally {
+      chmodSync(join(triage, '.shadowlap'), 0o755);
+    }
     host.close();
   });
 

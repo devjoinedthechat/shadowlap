@@ -27,7 +27,7 @@ import {
  * project paths are real paths: paths under it show as `~/…`.
  */
 
-/** What the switcher and the Remove dialog need from a project's store and folder. */
+/** What the switcher and the Remove dialog need from a project's store and folder (`ProjectHost.stats()` gives all of it). */
 export interface ProjectStats {
   /** Runs, attempts left out. */
   runs: number;
@@ -36,6 +36,12 @@ export interface ProjectStats {
   goldens: number;
   /** The folder is gone from disk. */
   missing?: boolean;
+  /** Its setup shows, as `deriveSetup` has it (a finished project with no runs left starts again); without it, what the list says. */
+  settingUp?: boolean;
+  /** Why its store can't be read: the switcher says so rather than "no runs yet". */
+  unreadable?: string | null;
+  /** Folders beside the store with what was made from its runs (`.shadowlap/repairs`, …), which deleting the recordings leaves. */
+  madeFiles?: readonly string[];
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
@@ -46,8 +52,8 @@ const approx = (usd: number) => (usd ? `≈$${usd < 1 ? usd.toFixed(3) : usd.toF
 const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 /** `a`, `a and b`, `a, b and c`. */
 const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
-/** The letter on a project's badge. */
-const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name)?.[0] ?? '?').toUpperCase();
+/** The letter on a project's badge: `Ü` for a folder macOS named `U` and a combining diaeresis. */
+const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name.normalize('NFC'))?.[0] ?? '?').toUpperCase();
 /** A run id as the setup shows it: the first ten characters, which every command takes. */
 const short = (runId: string) => runId.slice(0, 10);
 
@@ -66,6 +72,9 @@ export interface SwitcherItem {
   settingUp: boolean;
   /** Its folder is gone from disk. */
   missing: boolean;
+  /** Its store can't be read (from a newer Shadowlap, or not a database): `why` says so, on hover. */
+  unreadable: boolean;
+  why?: string;
   /** The line under the name: `~/triage-bot · no runs yet · setting up`. */
   detail: string;
   /** The × that removes it: shown only while there is more than one project. */
@@ -88,8 +97,9 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
   const items = input.projects.map((p): SwitcherItem => {
     const stats = input.stats[p.id] ?? { runs: 0, attempts: 0, goldens: 0 };
     const path = tildePath(p.path, input.home);
-    const settingUp = p.setup.stage !== 'done';
+    const settingUp = stats.settingUp ?? p.setup.stage !== 'done';
     const missing = !!stats.missing;
+    const unreadable = !missing && !!stats.unreadable;
     return {
       id: p.id,
       name: p.name,
@@ -99,7 +109,9 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
       current: p.id === input.current,
       settingUp,
       missing,
-      detail: [path, missing ? 'folder not found' : runsLabel(stats.runs), ...(settingUp && !missing ? ['setting up'] : [])].join(' · '),
+      unreadable,
+      detail: [path, missing ? 'folder not found' : unreadable ? 'store can’t be read' : runsLabel(stats.runs), ...(settingUp && !missing && !unreadable ? ['setting up'] : [])].join(' · '),
+      ...(unreadable ? { why: stats.unreadable! } : {}),
       removable,
       removeLabel: `Remove ${p.name} from the dashboard`,
     };
@@ -518,10 +530,14 @@ export function setupView(input: SetupInput): SetupView {
 // Removing a project
 
 export interface OnDiskRow {
-  key: 'code' | 'rec' | 'cfg' | 'gold';
+  /** `made`: what commands made from its runs in `.shadowlap/` (repair reports, exports), which stays even when the recordings go. */
+  key: 'code' | 'rec' | 'cfg' | 'gold' | 'made';
   label: string;
   path: string;
 }
+
+/** What each folder of {@link ProjectStats.madeFiles} holds, as the Remove dialog names it. */
+const MADE_NAMES: Record<string, string> = { '.shadowlap/repairs': 'repair reports', '.shadowlap/exports': 'exports', '.shadowlap/uploads': 'files sent to jobs' };
 
 /** What the dialog says and does, with or without "Also delete its recordings" ticked. */
 export interface RemoveMode {
@@ -552,11 +568,15 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
   const { project, stats } = input;
   const path = tildePath(project.path, input.home);
   const canRemove = input.projects > 1;
+  // Copies of what was recorded that deleting the recordings leaves: said in both places, so nobody deleting for privacy is surprised.
+  const made = (stats.madeFiles ?? []).filter((m) => MADE_NAMES[m]);
+  const madeText = listed(made.map((m) => MADE_NAMES[m]!));
   const onDisk: OnDiskRow[] = [
     { key: 'code', label: 'The folder and its code', path },
     { key: 'rec', label: stats.runs ? 'Its recordings' : 'Its store, empty so far', path: '.shadowlap/shadowlap.db' },
     { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
     ...(stats.goldens ? [{ key: 'gold' as const, label: stats.goldens === 1 ? 'Its golden' : `Its ${stats.goldens} goldens`, path: 'goldens/' }] : []),
+    ...(made.length ? [{ key: 'made' as const, label: `Its ${madeText}`, path: made.map((m) => `${m}/`).join(' · ') }] : []),
   ];
   return {
     title: `Remove ${project.name} from the dashboard?`,
@@ -572,7 +592,7 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
     deleteZone: stats.runs
       ? {
           label: 'Also delete its recordings',
-          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}`,
+          detail: `${runsLabel(stats.runs)} and ${stats.runs === 1 ? 'its' : 'their'} attempts.${stats.goldens ? ` ${stats.goldens === 1 ? 'The golden is' : 'The goldens are'} in your repository and ${stats.goldens === 1 ? 'stays' : 'stay'}.` : ''}${made.length ? ` Its ${madeText} in .shadowlap/ stay too: delete them yourself if they hold what you mean to delete.` : ''}`,
           confirm: `Type ${project.name} to confirm. This can’t be undone.`,
           placeholder: project.name,
           name: project.name,

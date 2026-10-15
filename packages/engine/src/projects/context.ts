@@ -4,6 +4,7 @@ import { Store } from '../store.js';
 import { countGoldens, listPacks } from './folders.js';
 import { displayPath, projectDbPath } from './paths.js';
 import { freeGoldenPath, planRecording, type RecordPlanResult } from './record.js';
+import { madeFiles } from './recordings.js';
 import { ProjectError, type AddedProject, type ProjectEntry, type ProjectRegistry, type RemovedProject } from './registry.js';
 import { deriveSetup, emptyStoreFacts, storeFacts, type EffectiveSetup, type PackFact, type StoreFacts } from './setup.js';
 import { readStoreFacts } from './store-reader.js';
@@ -34,7 +35,8 @@ export interface ProjectContext<C = unknown> {
   /**
    * What the store says about runs and the setup; empty facts while there is no store. From the
    * open store when there is one, else read without opening it for writing: counting another
-   * project's runs never migrates its store. `keep` is the setup's recording.
+   * project's runs never migrates its store. `keep` is the setup's recording. A store that can't be
+   * read (from a newer Shadowlap, or not a database) throws a `ProjectError` with code `store`.
    */
   facts(options?: { keep?: string | null }): StoreFacts;
   /** Goldens in the project's repository (packs under `goldens/`). */
@@ -100,7 +102,12 @@ class Context<C> implements ProjectContext<C> {
 
   facts(options: { keep?: string | null } = {}): StoreFacts {
     if (this.opened) return storeFacts(this.opened, Date.now(), options);
-    return existsSync(this.path) ? readStoreFacts(this.dbPath, Date.now(), options) : emptyStoreFacts();
+    if (!existsSync(this.path)) return emptyStoreFacts();
+    try {
+      return readStoreFacts(this.dbPath, Date.now(), options);
+    } catch (err) {
+      throw new ProjectError('store', `Shadowlap can’t read ${this.name}’s store: ${(err as Error).message}`);
+    }
   }
 
   goldens(): number {
@@ -152,6 +159,18 @@ export interface ProjectCounts {
   goldens: number;
   /** The folder is gone from disk. */
   missing: boolean;
+  /**
+   * Its setup shows ("setting up"): not finished, or finished with no runs left, which starts it
+   * again (`deriveSetup`). While its store can't be read, what the list says.
+   */
+  settingUp: boolean;
+  /** Why its store can't be read, or null: the switcher says so rather than "no runs yet". */
+  unreadable: string | null;
+  /**
+   * Folders beside the store with what Shadowlap made from its runs (`.shadowlap/repairs`,
+   * `.shadowlap/exports`), which deleting the recordings leaves: the Remove dialog says so.
+   */
+  madeFiles: string[];
 }
 
 export class ProjectHost<C = unknown> {
@@ -291,20 +310,28 @@ export class ProjectHost<C = unknown> {
     return ctx;
   }
 
-  /** Runs, attempts and goldens for every project, for the switcher and the Remove dialog. A store that can't be read counts nothing. */
+  /**
+   * Runs, attempts and goldens for every project, whether its setup shows, and what deleting its
+   * recordings would leave, for the switcher and the Remove dialog. A store that can't be read
+   * counts nothing and says why (`unreadable`); the switcher still lists the project.
+   */
   stats(): Record<string, ProjectCounts> {
     const out: Record<string, ProjectCounts> = {};
     for (const p of this.entries()) {
       const missing = !existsSync(p.path);
       let facts: StoreFacts = emptyStoreFacts();
+      let unreadable: string | null = null;
       if (!missing) {
         try {
           facts = this.context(p.id).facts();
-        } catch {
-          // a store from a newer version, or one that isn't a database: the switcher still lists it
+        } catch (err) {
+          // a store from a newer version, or one that isn't a database
+          unreadable = (err as Error).message;
         }
       }
-      out[p.id] = { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing };
+      // As `deriveSetup` has it: done only once finished with runs; a finished project with none left starts again.
+      const settingUp = unreadable ? p.setup.stage !== 'done' : !(p.setup.stage === 'done' && facts.runs > 0);
+      out[p.id] = { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing, settingUp, unreadable, madeFiles: missing ? [] : madeFiles(p.path) };
     }
     return out;
   }

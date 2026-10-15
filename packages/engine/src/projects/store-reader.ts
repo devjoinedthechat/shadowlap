@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { SCHEMA_VERSION, rowToRun, type StoredEvent } from '../store.js';
 import type { RunRecord } from '../types.js';
 import { emptyStoreFacts, storeFacts, type FactsSource, type StoreFacts } from './setup.js';
@@ -88,26 +89,46 @@ function parseData(raw: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Runs `read` over the store at `path`, opened read-only and closed afterwards. Throws when the file
- * can't be opened, isn't a database, or was written by a newer Shadowlap.
+ * SQLite's SQLITE_READONLY and SQLITE_CANTOPEN, with any extended code: in a folder this process
+ * can't write to, SQLite can't create the shared-memory file it reads a write-ahead-logged store
+ * with (each clean close removes it).
+ */
+function cantWriteBeside(err: unknown): boolean {
+  const code = (err as { errcode?: unknown } | null)?.errcode;
+  return typeof code === 'number' && ((code & 0xff) === 8 || (code & 0xff) === 14);
+}
+
+/**
+ * Runs `read` over the store at `path`, opened read-only and closed afterwards. A store in a folder
+ * this process can't write to (a shared checkout, another user's project) is read as the file it
+ * is on disk, unchanging: nobody can be writing there, though what a crashed writer left in its
+ * write-ahead log isn't seen. Throws when the file can't be opened, isn't a database, or was
+ * written by a newer Shadowlap.
  */
 export function readStore<T>(path: string, read: (store: StoreReader) => T): T {
   const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options: { readOnly: boolean }) => ReadOnlyDatabase };
-  const db = new DatabaseSync(path, { readOnly: true });
+  const over = (db: ReadOnlyDatabase): T => {
+    try {
+      // Another process may be writing (a recording): wait for it rather than fail.
+      db.exec('PRAGMA busy_timeout = 10000');
+      const tables = new Set(
+        db
+          .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+          .all()
+          .map((r) => String(r.name)),
+      );
+      const version = tables.has('meta') ? Number(db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get()?.value) : Number.NaN;
+      if (Number.isInteger(version) && version > SCHEMA_VERSION) throw new Error(`${path} was written by a newer Shadowlap (store schema v${version}; this build understands v${SCHEMA_VERSION}). Upgrade Shadowlap to read it.`);
+      return read(new StoreReader(db, tables));
+    } finally {
+      db.close();
+    }
+  };
   try {
-    // Another process may be writing (a recording): wait for it rather than fail.
-    db.exec('PRAGMA busy_timeout = 10000');
-    const tables = new Set(
-      db
-        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
-        .all()
-        .map((r) => String(r.name)),
-    );
-    const version = tables.has('meta') ? Number(db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get()?.value) : Number.NaN;
-    if (Number.isInteger(version) && version > SCHEMA_VERSION) throw new Error(`${path} was written by a newer Shadowlap (store schema v${version}; this build understands v${SCHEMA_VERSION}). Upgrade Shadowlap to read it.`);
-    return read(new StoreReader(db, tables));
-  } finally {
-    db.close();
+    return over(new DatabaseSync(path, { readOnly: true }));
+  } catch (err) {
+    if (!cantWriteBeside(err) || !existsSync(path)) throw err;
+    return over(new DatabaseSync(`${pathToFileURL(path).href}?immutable=1`, { readOnly: true }));
   }
 }
 

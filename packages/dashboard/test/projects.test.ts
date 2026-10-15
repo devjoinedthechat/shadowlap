@@ -59,6 +59,28 @@ describe('projectSwitcher', () => {
     const one = projectSwitcher({ projects: [entry('agent', { stage: 'done' })], current: 'agent', stats: { agent: { runs: 1, attempts: 0, goldens: 0, missing: true } }, home: HOME });
     expect(one.items[0]).toMatchObject({ removable: false, missing: true, detail: '~/agent · folder not found' });
   });
+
+  it('says setting up as the setup shows it, and when a store can’t be read', () => {
+    const v = projectSwitcher({
+      projects: [entry('agent', { stage: 'done' }), entry('newer', { stage: 'done' }), entry('Übung')],
+      current: 'agent',
+      stats: {
+        // Finished, its runs since deleted: the setup shows again.
+        agent: { runs: 0, attempts: 0, goldens: 0, settingUp: true },
+        newer: { runs: 0, attempts: 0, goldens: 0, settingUp: false, unreadable: 'it was written by a newer Shadowlap' },
+        'Übung': { runs: 0, attempts: 0, goldens: 0, settingUp: true },
+      },
+      home: HOME,
+    });
+    expect(v.items.map((i) => [i.id, i.detail, i.settingUp, i.unreadable])).toEqual([
+      ['agent', '~/agent · no runs yet · setting up', true, false],
+      ['newer', '~/newer · store can’t be read', false, true],
+      ['Übung', '~/Übung · no runs yet · setting up', true, false],
+    ]);
+    expect(v.items[1]!.why).toBe('it was written by a newer Shadowlap');
+    // A name macOS keeps decomposed gets its letter whole on the badge.
+    expect(projectSwitcher({ projects: [{ ...entry('ubung'), name: 'U\u0308bung' }], current: 'ubung', stats: {}, home: HOME }).current.initial).toBe('Ü');
+  });
 });
 
 describe('addProjectPage', () => {
@@ -395,10 +417,21 @@ describe('removeDialog', () => {
     expect(v.deleteZone!.detail).toBe('1 run and its attempts. The golden is in your repository and stays.');
   });
 
-  it('confirms by the exact name', () => {
+  it('confirms by the exact name, however it is composed', () => {
     expect(nameMatches(' support-agent ', 'support-agent')).toBe(true);
     expect(nameMatches('support-agen', 'support-agent')).toBe(false);
     expect(nameMatches('Support-agent', 'support-agent')).toBe(false);
+    expect(nameMatches('Bücher-agent', 'Bu\u0308cher-agent')).toBe(true);
+  });
+
+  it('names the repair reports and exports that deleting the recordings leaves', () => {
+    const v = removeDialog({ project: entry('support-agent', { stage: 'done' }), stats: { runs: 3, attempts: 0, goldens: 0, madeFiles: ['.shadowlap/repairs', '.shadowlap/exports'] }, projects: 2, home: HOME });
+    expect(v.onDisk.at(-1)).toEqual({ key: 'made', label: 'Its repair reports and exports', path: '.shadowlap/repairs/ · .shadowlap/exports/' });
+    expect(v.deleteZone!.detail).toBe('3 runs and their attempts. Its repair reports and exports in .shadowlap/ stay too: delete them yourself if they hold what you mean to delete.');
+    // Ticked, only the store is crossed out.
+    expect(v.deleteZone!.mode.crossedOut).toBe('rec');
+    const one = removeDialog({ project: entry('support-agent'), stats: { runs: 1, attempts: 0, goldens: 0, madeFiles: ['.shadowlap/uploads'] }, projects: 2, home: HOME });
+    expect(one.onDisk.at(-1)).toEqual({ key: 'made', label: 'Its files sent to jobs', path: '.shadowlap/uploads/' });
   });
 });
 

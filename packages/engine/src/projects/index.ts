@@ -9,7 +9,7 @@ export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, Proj
 export { displayPath, expandHome, isWithin, projectDbPath, realpathOrNull, shadowlapHome, shadowlapHomeProblem, tildePath } from './paths.js';
 export { COMMAND_LIMITS, UPSTREAM_ENV, defaultGolden, freeGoldenPath, goldenPath, isConfirmedCommand, modelServerFinding, parseAgentCommand, planRecording, sameArgv, setupCommands, setupJobArgs, shortRunId, upstreamUrl } from './record.js';
 export type { GoldenPathResult, ModelServer, ParsedCommand, RecordConfirmation, RecordPlan, RecordPlanResult } from './record.js';
-export { RecordingsError, deleteRecordings, recordingInProgress, storeFilesToDelete } from './recordings.js';
+export { MADE_FOLDERS, RecordingsError, deleteRecordings, madeFiles, recordingInProgress, storeFilesToDelete } from './recordings.js';
 export { ProjectError, ProjectRegistry, REGISTRY_FILE, REGISTRY_VERSION, emptySetup, nameConfirms, projectSlug, setupRunOf } from './registry.js';
 export type { AddedProject, ConfirmedCommand, ProjectEntry, ProjectErrorCode, ProjectSetup, RegistryOptions, RemovedEntry, RemovedProject, SetupPatch } from './registry.js';
 export { LIVE_RUN_MS, SETUP_STAGES, calibrationOutcome, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isAttempt, isLiveRun, isRecording, isSetupStage, laterStage, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './setup.js';
