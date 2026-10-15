@@ -81,6 +81,19 @@ export function recordingLine(runId: string, calls: number): { id: string; rest:
   return { id: runId.slice(0, 10), rest: ` · ${calls.toLocaleString('en-US')} ${calls === 1 ? 'call' : 'calls'} so far` };
 }
 
+/** What the record step's terminal line says until a command is found or typed (`setupCommands`). */
+const RECORD_PLACEHOLDER = '<the command that starts your agent>';
+
+/**
+ * The record step's "or in a terminal" line with the command as typed in the field, in place of
+ * the one the setup found (or the placeholder when it found none): what Record would run.
+ */
+export function terminalLine(cli: readonly string[], found: string, typed: string | null): readonly string[] {
+  const now = typed?.trim();
+  if (!now || now === found) return cli;
+  return cli.map((line) => line.replace(found || RECORD_PLACEHOLDER, now));
+}
+
 /**
  * Where the golden's sentence sends people for redaction rules: the text around the word Settings,
  * so it can be the link the mock makes it.

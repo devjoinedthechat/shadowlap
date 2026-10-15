@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ConfirmDialog } from '../components/Dialog.js';
-import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
+import { EmptyState, Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
-import { aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass } from '../projects.js';
+import { aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
+import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useApp } from '../state.js';
 
 /**
@@ -153,6 +154,9 @@ export function SetupPage() {
     }
   }, [jobs, load, start, client, hasKind]);
 
+  const problem = meta?.project?.id && meta.project.problem ? meta.project : null;
+  if (problem) return <ProjectProblem id={problem.id!} name={problem.name} problem={problem.problem!} />;
+
   if (view === null) {
     // A dashboard that serves one store: the steps and their commands.
     const name = projectOf(meta)?.name ?? 'this project';
@@ -256,6 +260,29 @@ export function SetupPage() {
   );
 }
 
+/**
+ * A project whose store can't be opened (its folder is gone, or the store is from a newer
+ * Shadowlap): what is wrong, in place of a setup it couldn't run, and Remove. The switcher still
+ * works, and once the folder is back the project's pages come back with it.
+ */
+function ProjectProblem({ id, name, problem }: { id: string; name: string; problem: string }) {
+  const { actionsOff } = useApp();
+  const [removing, setRemoving] = useState(false);
+  return (
+    <Page>
+      <PageHeader eyebrow={name} eyebrowTone="err" title={`Can’t open ${name}`} text={problem} />
+      <EmptyState title="Its runs are in that folder" text="Put the folder back and this page shows them again. Removing the project only forgets the folder.">
+        <div className="actions">
+          <button className="btn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => setRemoving(true)}>
+            Remove from the dashboard
+          </button>
+        </div>
+      </EmptyState>
+      {removing ? <RemoveProjectDialog id={id} onClose={() => setRemoving(false)} /> : null}
+    </Page>
+  );
+}
+
 function SetupHeader({ view, onSkip }: { view: SetupView; onSkip: (() => void) | null }) {
   return (
     <div className="ph">
@@ -321,7 +348,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       ) : null}
       {found && step.folded ? (
         <details className="foundsum">
-          <summary>{step.summary}</summary>
+          <summary>
+            <Coded text={step.summary ?? ''} names={step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []} />
+          </summary>
           {found}
         </details>
       ) : (
@@ -465,7 +494,7 @@ function RecordBody({
     );
   }
   return (
-    <SetupStep n={2} state={step.state} title={step.title} cli={step.cli}>
+    <SetupStep n={2} state={step.state} title={step.title} cli={terminalLine(step.cli, field?.value ?? '', command)}>
       {body}
       {step.empty ? (
         <p className="fieldnote warn">
