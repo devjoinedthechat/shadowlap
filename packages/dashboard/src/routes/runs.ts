@@ -1,11 +1,11 @@
-import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, runDetail } from '../api.js';
+import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, provenance, runDetail } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { deleteRuns } from '../runs-list.js';
 import { exportHtml, withAncestors } from '../static.js';
 
-/** Runs: the list, one run, its calls and family, labels and notes, the HTML download, delete. */
+/** Runs: the list, one run, its calls, family and provenance, labels and notes, the HTML download, delete. */
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;
 
@@ -33,6 +33,15 @@ export function register(router: Router, ctx: RouteContext): void {
     const d = Number.isInteger(n) ? callDetail(store, r.params.id!, n, ctx.read) : null;
     if (!d) throw new HttpError(404, `no call #${r.params.n} in run ${r.params.id}`);
     r.tagged(d);
+  });
+
+  // The run's record for the Provenance tab, with what a copy made now would mask under the
+  // project's redaction rules, read afresh as the download reads them.
+  router.get('/runs/:id/provenance', (r) => {
+    const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
+    const p = provenance(store, r.params.id!, { ...ctx.read, ...(redact.length ? { redact } : {}) });
+    if (!p) throw new HttpError(404, `no run ${r.params.id}`);
+    r.tagged(p);
   });
 
   router.get('/runs/:id/lineage', (r) => {

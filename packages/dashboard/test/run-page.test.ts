@@ -425,6 +425,10 @@ describe('the run endpoint', () => {
       const [, , lookup] = byTicket.get(2)!;
       const call = await get(`runs/${runId}/calls/${lookup}`);
       expect(call).toMatchObject({ call: { conversation: 2, requestedBy: lookup! - 1, toolUseId: 'toolu_2_1' }, conversation: { fromCallNo: lookup! - 1, n: 2 } });
+      // A run in no fix says so; the Provenance tab's record has its own endpoint, as the read model gives it.
+      expect(d.fix).toBeNull();
+      expect(await get(`runs/${runId}/provenance`)).toEqual(JSON.parse(JSON.stringify(provenance(store, runId))));
+      expect((await fetch(`${dash.url}/api/runs/01NOSUCHRUN0000000000000000/provenance`, { headers: { 'x-shadowlap-token': dash.token } })).status).toBe(404);
     } finally {
       await dash.close();
       rmSync(uiDir, { recursive: true, force: true });
