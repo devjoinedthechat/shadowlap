@@ -65,13 +65,15 @@ export interface BisectStep {
   short: string;
   subject: string;
   ok: boolean;
+  /** The commit could not be tested (it would not check out, or `--build` failed), so it says nothing either way. */
+  skipped: boolean;
   /** What the replay did: `replayed clean`, `diverged at call 1 (api POST /v1/messages) · $.metadata.user_id`. */
   result: string;
   seconds: number;
 }
 
 export interface BisectReport {
-  outcome: 'found' | 'passes-at-bad' | 'fails-at-good' | 'stopped';
+  outcome: 'found' | 'passes-at-bad' | 'fails-at-good' | 'untestable' | 'stopped';
   target: { kind: 'golden' | 'run'; name: string; runId: string };
   good: BisectCommit;
   bad: BisectCommit;
@@ -81,6 +83,8 @@ export interface BisectReport {
   steps: BisectStep[];
   /** The first commit where it fails, and why. */
   first: (BisectCommit & { why: string }) | null;
+  /** Commits just before it that could not be tested: the first bad one may be among them. */
+  untested: BisectCommit[];
   /** Why there is no answer, when there is none. */
   why: string | null;
   replays: number;
@@ -193,10 +197,23 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   }
   const inRepo = relative(root, input.cwd);
   if (inRepo.startsWith('..') || isAbsolute(inRepo)) throw new BisectError(`the working directory ${input.cwd} is not inside the repository at ${root}`);
-  const goodRev = resolveRev(root, input.good, '--good');
+  let goodRev = resolveRev(root, input.good, '--good');
   const badRev = resolveRev(root, input.bad, '--bad');
   if (goodRev === badRev) throw new BisectError('--good and --bad are the same commit: there is nothing between them to search');
-  if (!gitOk(root, ['merge-base', '--is-ancestor', goodRev, badRev])) throw new BisectError(`--good ${input.good} is not an ancestor of --bad ${input.bad}: the good commit has to come first`);
+  let fromBase: string | null = null;
+  if (!gitOk(root, ['merge-base', '--is-ancestor', goodRev, badRev])) {
+    if (gitOk(root, ['merge-base', '--is-ancestor', badRev, goodRev])) throw new BisectError(`--good ${input.good} comes after --bad ${input.bad}: the good commit has to come first`);
+    // A good commit on another branch: search from where the two histories meet, which is checked like any good commit.
+    let base = '';
+    try {
+      base = git(root, ['merge-base', goodRev, badRev]).trim();
+    } catch {
+      // no common history
+    }
+    if (!base) throw new BisectError(`--good ${input.good} and --bad ${input.bad} have no history in common`);
+    fromBase = `--good ${input.good} is not an ancestor of --bad ${input.bad}: searching from where their histories meet`;
+    goodRev = base;
+  }
   const commits = git(root, ['rev-list', '--first-parent', '--reverse', `${goodRev}..${badRev}`]).split('\n').filter(Boolean);
   if (commits.at(-1) !== badRev) commits.push(badRev);
   const good = commitInfo(root, goodRev);
@@ -221,7 +238,8 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   const given = input.spec === undefined ? fromConfig : input.spec ? { ...input.spec, fork: false } : null;
   const spec: TestSpec | null = input.fork ? { ...(given ?? { repeat: 1, passes: 1, tools: [] }), fork: true } : given;
 
-  const report: BisectReport = { outcome: 'stopped', target: { kind: target.kind, name: target.name, runId: target.run.runId }, good, bad, commits: commits.length, steps: [], first: null, why: null, replays: 0, tokens: 0, upstreamRequests: 0, spent: 0, seconds: 0 };
+  const report: BisectReport = { outcome: 'stopped', target: { kind: target.kind, name: target.name, runId: target.run.runId }, good, bad, commits: commits.length, steps: [], first: null, untested: [], why: null, replays: 0, tokens: 0, upstreamRequests: 0, spent: 0, seconds: 0 };
+  if (fromBase) input.log(`  ${fromBase}, ${good.short}`);
   input.log(`▸ ${target.name} · good ${good.short} · bad ${bad.short} · ${commits.length} commit${commits.length === 1 ? '' : 's'} apart`);
   if (input.bad === 'HEAD' && git(root, ['status', '--porcelain', '--untracked-files=no']).trim()) input.log('  uncommitted changes are not part of it: each replay runs a commit as committed');
 
@@ -250,7 +268,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
         buildTail = `${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ');
       }
       if (!built) {
-        step = { rev, short: info.short, subject: info.subject, ok: false, result: `the build failed: ${buildTail}`, seconds: (Date.now() - t0) / 1000 };
+        step = { rev, short: info.short, subject: info.subject, ok: false, skipped: true, result: `could not be built: ${buildTail}`, seconds: (Date.now() - t0) / 1000 };
       } else {
         const argv = mapArgv(target.run.command.argv, { root, worktree, cwd: input.cwd, worktreeCwd });
         const outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs });
@@ -264,10 +282,10 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
             if (u) report.tokens += u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) + u.outputTokens;
           }
         }
-        step = { rev, short: info.short, subject: info.subject, ok: !outcome.failure, result: describeResult(outcome), seconds: (Date.now() - t0) / 1000 };
+        step = { rev, short: info.short, subject: info.subject, ok: !outcome.failure, skipped: false, result: describeResult(outcome), seconds: (Date.now() - t0) / 1000 };
       }
     } catch (err) {
-      step = { rev, short: info.short, subject: info.subject, ok: false, result: `could not check it out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`, seconds: (Date.now() - t0) / 1000 };
+      step = { rev, short: info.short, subject: info.subject, ok: false, skipped: true, result: `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`, seconds: (Date.now() - t0) / 1000 };
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {
         rmSync(worktree, { recursive: true, force: true });
@@ -275,7 +293,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       }
     }
     report.steps.push(step);
-    input.log(`  replay at ${step.short}  ${step.ok ? step.result : `✗ ${step.result}`}`);
+    input.log(`  replay at ${step.short}  ${step.ok ? step.result : step.skipped ? `– skipped: ${step.result}` : `✗ ${step.result}`}`);
     return step;
   };
 
@@ -283,6 +301,11 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     // A replay cut short by Ctrl-C is no evidence either way, so nothing is concluded from it.
     const atBad = await probe(badRev);
     if (stopped) return report;
+    if (atBad.skipped) {
+      report.outcome = 'untestable';
+      report.why = `${bad.short} ${atBad.result}`;
+      return report;
+    }
     if (atBad.ok) {
       report.outcome = 'passes-at-bad';
       report.why = `it passes at ${bad.short}, so there is nothing to find`;
@@ -290,26 +313,38 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     }
     const atGood = await probe(goodRev);
     if (stopped) return report;
+    if (atGood.skipped) {
+      report.outcome = 'untestable';
+      report.why = `${good.short} ${atGood.result}`;
+      return report;
+    }
     if (!atGood.ok) {
       report.outcome = 'fails-at-good';
       report.why = `it already fails at ${good.short}: ${atGood.result}. Give an older --good, or, when the agent can't start in a fresh checkout, --build with what it needs`;
       return report;
     }
+    // Halving the range; a commit that can't be tested is skipped, and the nearest other one tried.
     let lo = -1;
     let hi = commits.length - 1;
     let why = atBad.result;
-    while (hi - lo > 1) {
+    const skipped = new Set<number>();
+    for (;;) {
       const mid = (lo + hi) >> 1;
-      const step = await probe(commits[mid]!);
+      let pick = -1;
+      for (let i = lo + 1; i < hi; i++) if (!skipped.has(i) && (pick < 0 || Math.abs(i - mid) < Math.abs(pick - mid))) pick = i;
+      if (pick < 0) break;
+      const step = await probe(commits[pick]!);
       if (stopped) return report;
-      if (step.ok) lo = mid;
+      if (step.skipped) skipped.add(pick);
+      else if (step.ok) lo = pick;
       else {
-        hi = mid;
+        hi = pick;
         why = step.result;
       }
     }
     report.outcome = 'found';
     report.first = { ...commitInfo(root, commits[hi]!), why };
+    report.untested = [...skipped].filter((i) => i > lo && i < hi).sort((a, b) => a - b).map((i) => commitInfo(root, commits[i]!));
     return report;
   } finally {
     process.off('SIGINT', onSignal);
@@ -334,7 +369,7 @@ function record(input: BisectInput, projectDir: string, report: BisectReport): v
       actor: resolveAuthor({ cwd: projectDir }),
       ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}),
       ref: report.target.name,
-      data: { good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
+      data: { good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
     });
   } catch {
     // the find is printed either way
@@ -348,5 +383,6 @@ export function formatBisect(r: BisectReport, p: Palette = plain): string {
   const cost = `${r.replays} replay${r.replays === 1 ? '' : 's'} · ${r.tokens.toLocaleString('en-US')} tokens · ${r.upstreamRequests} upstream request${r.upstreamRequests === 1 ? '' : 's'}${r.spent > 0 ? ` · ${formatUsd(r.spent)}` : ''} · ${formatDuration(r.seconds * 1000)}`;
   if (r.outcome !== 'found' || !r.first) return `${p.red('✗')} no first bad commit: ${r.why ?? r.outcome}\n  ${p.dim(cost)}`;
   const f = r.first;
-  return `${p.green('✓')} first bad commit ${f.short} · ${f.subject} · ${f.author} · ${f.date.slice(0, 10)}\n  ${f.why} · ${p.dim(cost)}`;
+  const unsure = r.untested.length ? `\n  ${p.yellow(`or one just before it, which could not be tested: ${r.untested.map((c) => `${c.short} (${c.subject})`).join(', ')}`)}` : '';
+  return `${p.green('✓')} first bad commit ${f.short} · ${f.subject} · ${f.author} · ${f.date.slice(0, 10)}\n  ${f.why} · ${p.dim(cost)}${unsure}`;
 }

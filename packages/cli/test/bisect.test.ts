@@ -39,8 +39,11 @@ let recordedRun = '';
 let briefRun = '';
 
 const sh = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
-function commit(name: string, files: Record<string, string>, author = 'Test'): void {
-  for (const [f, content] of Object.entries(files)) writeFileSync(join(project, f), content);
+function commit(name: string, files: Record<string, string | null>, author = 'Test'): void {
+  for (const [f, content] of Object.entries(files)) {
+    if (content === null) rmSync(join(project, f));
+    else writeFileSync(join(project, f), content);
+  }
   sh('git', ['add', '.']);
   sh('git', ['-c', `user.name=${author}`, 'commit', '-q', '-m', name]);
   rev[name] = sh('git', ['rev-parse', '--short', 'HEAD']);
@@ -74,13 +77,18 @@ beforeAll(async () => {
   recordedRun = /recording run (\w{26})/.exec(recorded.out)![1]!;
   expect((await shadowlap(['pack', recordedRun, 'goldens/summary'])).code).toBe(0);
   commit('Describe the agent', { 'README.md': 'Ticket agent: one model call.\n' });
-  commit('Add usage', { 'README.md': 'Ticket agent: one model call.\n\nnode agent.mjs\n' });
-  commit('Ask for brevity', { 'prompt.txt': 'You summarize support tickets. Be brief.\n' }, 'Ravi');
+  // BROKEN makes the build step some tests give fail, at this commit only.
+  commit('Add usage', { 'README.md': 'Ticket agent: one model call.\n\nnode agent.mjs\n', BROKEN: 'x\n' });
+  commit('Ask for brevity', { 'prompt.txt': 'You summarize support tickets. Be brief.\n', BROKEN: null }, 'Ravi');
   commit('Mention the prompt', { 'README.md': 'Ticket agent: one model call; the prompt is prompt.txt.\n' });
   const second = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
   briefRun = /recording run (\w{26})/.exec(second.out)![1]!;
   expect((await shadowlap(['pack', briefRun, 'goldens/brief'])).code).toBe(0);
   commit('Mark summaries as drafts', { 'marker.txt': 'DRAFT: \n' }, 'Jonas');
+  // A branch off 'Describe the agent' where the golden passes too, never merged.
+  sh('git', ['checkout', '-q', '-b', 'side', rev['Describe the agent']!]);
+  commit('Side note', { 'NOTES.md': 'side\n' });
+  sh('git', ['checkout', '-q', 'main']);
 });
 afterAll(async () => {
   await mock.close();
@@ -142,10 +150,31 @@ describe('shadowlap bisect', () => {
     expect(fails.stdout).toContain(`no first bad commit: it already fails at ${rev['Ask for brevity']}: diverged at call 1`);
     const backwards = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Mention the prompt']!, '--bad', rev['Describe the agent']!]);
     expect(backwards.code).toBe(1);
-    expect(backwards.out).toContain('is not an ancestor of --bad');
+    expect(backwards.out).toContain(`--good ${rev['Mention the prompt']} comes after --bad ${rev['Describe the agent']}`);
     const unknown = await shadowlap(['bisect', 'goldens/nothing', '--good', 'HEAD~1']);
     expect(unknown.out).toContain('goldens/nothing is neither a golden');
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
+  });
+});
+
+describe('commits bisect cannot test', () => {
+  it('skips a commit that won\'t build and names it when the first bad commit could be it', async () => {
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'test ! -f BROKEN', '--json']);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(`replay at ${rev['Add usage']}  – skipped: could not be built`);
+    const report = JSON.parse(r.stdout) as { first: { short: string }; untested: Array<{ short: string; subject: string }>; steps: Array<{ short: string; skipped: boolean }> };
+    expect(report.first.short).toBe(rev['Ask for brevity']);
+    expect(report.untested).toEqual([expect.objectContaining({ short: rev['Add usage'], subject: 'Add usage' })]);
+    expect(report.steps.find((x) => x.short === rev['Add usage'])!.skipped).toBe(true);
+    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'test ! -f BROKEN']);
+    expect(text.stdout).toContain(`or one just before it, which could not be tested: ${rev['Add usage']} (Add usage)`);
+  });
+
+  it('searches from where the histories meet when the good commit is on another branch', async () => {
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Side note']!]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(`--good ${rev['Side note']} is not an ancestor of --bad HEAD: searching from where their histories meet, ${rev['Describe the agent']}`);
+    expect(r.stdout).toContain(`first bad commit ${rev['Ask for brevity']}`);
   });
 });
 
