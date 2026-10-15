@@ -1,12 +1,34 @@
-import { displayOrigin, emptyOriginCounts, estimateCost, ORIGIN_CODE, summarizeRun, type Origin, type OriginCounts, type Outcome, type Price, type SqlValue, type Store } from '@shadowlap/engine';
+import { countOrigins, displayOrigin, estimateCost, ORIGIN_CODE, type CallRecord, type Origin, type OriginCounts, type Outcome, type Price, type RunKind, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/tui/data';
 import type { IndexedRun, RunIndex } from './run-index.js';
 
 /**
- * What a run's calls add up to, aggregated in SQL rather than by loading the calls: how many came
- * from where, what the live ones cost and the replayed ones saved, and how long the replayed ones
- * would have taken. A finished run never changes, so its numbers are kept per store once worked out.
+ * What a run's calls add up to: where each answer came from, the tokens each model used live,
+ * replayed and captured, how long the replayed calls would have taken, and where the prompt cache
+ * stopped hitting. Worked out in one pass over the run's calls. A finished run's totals never
+ * change, so they are kept in the store (`run_stats`) and read back as one row per run, in this
+ * process and the next: every run's calls are read once in the store's life. Prices are applied
+ * on reading, so changing them needs no rework.
  */
+
+/** A run's totals before prices: what `run_stats` keeps, as JSON. */
+export interface CallTotals {
+  /** One character per call, in call order: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
+  codes: string;
+  /** Tokens per model and bucket: `l` spent live, `r` replayed (not re-spent), `c` captured (an imported recording's calls). */
+  models: Array<[bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number]>;
+  /**
+   * Time not waited: for every replayed call, how long it took when it was recorded. A replayed call
+   * that carries it (`meta.recordedMs`) says so itself; otherwise its recording is the parent's call,
+   * or further back for a replay of a replay.
+   */
+  notWaitedMs: number;
+  /** Live model calls with usage (an imported recording's left out): their whole input, and the part read from the prompt cache. */
+  liveInput: number;
+  liveCacheRead: number;
+  /** Live model calls where the prompt cache stopped hitting: the call, its scope, and the tokens sent again. */
+  misses: Array<[callNo: number, scope: string | null, tokens: number]>;
+}
 
 export interface RunStats {
   calls: number;
@@ -18,13 +40,7 @@ export interface RunStats {
   captured: number;
   /** Models with usage but no price: their calls are not in the sums. */
   unknownModels: string[];
-  /**
-   * Time not waited: for every replayed call, the duration it took when it was recorded. A replayed
-   * call that carries it (`meta.recordedMs`) says so itself; otherwise its recording is the parent's
-   * call, or further back for a replay of a replay.
-   */
   notWaitedMs: number;
-  /** Live model calls with usage (imported runs left out): their whole input, and the part read from the prompt cache. */
   liveInput: number;
   liveCacheRead: number;
 }
@@ -33,31 +49,42 @@ export interface StatsOptions {
   prices?: Record<string, Price>;
 }
 
+/** A live model call where the prompt cache stopped hitting. */
+export interface CacheMiss {
+  runId: string;
+  /** The run's kind, for the icon beside it. */
+  kind: RunKind;
+  callNo: number;
+  scope: string | null;
+  /** Input tokens sent again: the previous call's whole input, less what this call read from the cache. */
+  tokens: number;
+}
+
+/** A miss must send at least this many tokens again: smaller drops are noise. */
+export const CACHE_MISS_MIN_TOKENS = 1024;
+
+/** Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked out again. */
+const FORMAT = 't1';
+
+/** What a run's totals were worked out from: a finished run's never change. */
+const keyOf = (r: IndexedRun) => `${FORMAT}|${r.status}|${r.endedAt}|${r.calls}`;
+
 /** The final answer of each call: its end row with the highest attempt. */
 const FINAL_END = `LEFT JOIN call_events e ON e.run_id = s.run_id AND e.call_no = s.call_no AND e.phase = 'end'
   AND e.attempt = (SELECT MAX(x.attempt) FROM call_events x WHERE x.run_id = s.run_id AND x.call_no = s.call_no AND x.phase = 'end')`;
 
-const STATS_SQL = `
-SELECT s.run_id AS run, s.kind AS kind, s.origin AS origin, e.outcome AS outcome,
-       CASE WHEN e.outcome = 'error' THEN e.meta ->> '$.injected' END AS injected,
-       CASE WHEN s.kind = 'api' THEN COALESCE(e.meta ->> '$.model', s.meta ->> '$.model') END AS model,
-       COUNT(*) AS n,
-       SUM(CASE WHEN s.kind = 'api' AND e.meta -> '$.usage' IS NOT NULL THEN 1 ELSE 0 END) AS with_usage,
-       SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.inputTokens' END) AS input,
-       SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.outputTokens' END) AS output,
-       SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.cacheReadInputTokens' END) AS cache_read,
-       SUM(CASE WHEN s.kind = 'api' THEN e.meta ->> '$.usage.cacheCreationInputTokens' END) AS cache_write,
-       SUM(CASE WHEN s.origin = 'replayed' THEN e.meta ->> '$.recordedMs' END) AS recorded_ms,
-       group_concat(CASE WHEN s.origin = 'replayed' AND e.meta ->> '$.recordedMs' IS NULL THEN e.meta ->> '$.replayedFrom' END) AS sources
+/** Every call of the runs asked for, in call order, with the few fields of its final answer the totals read (one JSON parse each). */
+const CALLS_SQL = `
+SELECT s.run_id AS run, s.call_no AS call, s.kind AS kind, s.origin AS origin, s.name AS name,
+       CASE WHEN s.kind = 'api' THEN s.request_ref END AS req,
+       s.meta ->> '$.scope' AS scope, s.meta ->> '$.model' AS smodel, e.outcome AS outcome,
+       json_extract(e.meta, '$.model', '$.usage', '$.recordedMs', '$.replayedFrom', '$.injected', '$.latencyMs') AS j
 FROM call_events s
 ${FINAL_END}
 WHERE s.phase = 'start' AND s.run_id IN (SELECT value FROM json_each(?))
-GROUP BY s.run_id, s.kind, s.origin, e.outcome, injected, model`;
+ORDER BY s.run_id, s.call_no`;
 
-/**
- * Each call's recorded duration and, for a replayed call that does not carry its own, the parent's
- * call it was replayed from.
- */
+/** Each call's recorded duration and, for a replayed call that does not carry its own, the parent's call it was replayed from. */
 const DURATIONS_SQL = `
 SELECT s.run_id AS run, s.call_no AS call, COALESCE(e.meta ->> '$.recordedMs', e.meta ->> '$.latencyMs') AS latency,
        CASE WHEN s.origin = 'replayed' AND e.meta ->> '$.recordedMs' IS NULL THEN e.meta ->> '$.replayedFrom' END AS source
@@ -65,12 +92,7 @@ FROM call_events s
 ${FINAL_END}
 WHERE s.phase = 'start' AND s.run_id IN (SELECT value FROM json_each(?))`;
 
-const ORIGINS_SQL = `
-SELECT s.run_id AS run, s.origin AS origin, e.outcome AS outcome, CASE WHEN e.outcome = 'error' THEN e.meta ->> '$.injected' END AS injected
-FROM call_events s
-${FINAL_END}
-WHERE s.phase = 'start' AND s.run_id IN (SELECT value FROM json_each(?))
-ORDER BY s.run_id, s.call_no`;
+const KEPT_SQL = `SELECT run_id AS id, key, stats FROM run_stats WHERE run_id IN (SELECT value FROM json_each(?))`;
 
 const BATCH = 800;
 
@@ -80,185 +102,216 @@ function* batches<T>(items: readonly T[], size = BATCH): Generator<T[]> {
 
 const ids = (list: readonly string[]): SqlValue => JSON.stringify(list);
 const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 
-/** The one-character origin of a call, from its stored origin and its final answer. */
-function codeOf(origin: unknown, outcome: unknown, injected: unknown): string {
-  return ORIGIN_CODE[displayOrigin(origin as Origin, outcome === null || outcome === undefined ? null : { outcome: outcome as Outcome, injected: injected === 1 })];
+interface Kept {
+  memory: Map<string, { key: string; totals: CallTotals }>;
+  /** Runs whose calls were read to work out their totals, for tests that check how much a read model reads. */
+  runsRead: number;
 }
 
-const cache = new WeakMap<Store, Map<string, { key: string; stats: RunStats }>>();
+const kept = new WeakMap<Store, Kept>();
 
-/** What the numbers of a run depend on: a finished run's are fixed until the prices change. */
-const keyOf = (r: IndexedRun, prices: string) => `${r.status}|${r.endedAt}|${r.calls}|${prices}`;
-
-/** The call statistics of `runs`. */
-export function runStats(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, options: StatsOptions = {}): Map<string, RunStats> {
-  const prices = options.prices ? JSON.stringify(options.prices) : '';
-  let kept = cache.get(store);
-  if (!kept) {
-    kept = new Map();
-    cache.set(store, kept);
+function keptFor(store: Store): Kept {
+  let k = kept.get(store);
+  if (!k) {
+    k = { memory: new Map(), runsRead: 0 };
+    kept.set(store, k);
   }
-  const out = new Map<string, RunStats>();
-  const todo: IndexedRun[] = [];
+  return k;
+}
+
+/** How many runs' calls this store's read models have read so far: none for a finished run whose totals were kept. */
+export function runsRead(store: Store): number {
+  return keptFor(store).runsRead;
+}
+
+const EMPTY: CallTotals = { codes: '', models: [], notWaitedMs: 0, liveInput: 0, liveCacheRead: 0, misses: [] };
+
+/** A run's totals as `run_stats` keeps them, or null for anything else. */
+function readTotals(json: unknown): CallTotals | null {
+  if (typeof json !== 'string') return null;
+  try {
+    const t = JSON.parse(json) as Partial<CallTotals>;
+    if (typeof t.codes !== 'string' || !Array.isArray(t.models) || !Array.isArray(t.misses)) return null;
+    const models = t.models.filter((m) => Array.isArray(m) && m.length === 6 && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'));
+    const misses = t.misses.filter((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[2] === 'number');
+    return { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs), liveInput: n(t.liveInput), liveCacheRead: n(t.liveCacheRead), misses };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The totals of `runs`: from memory, from the store, or worked out from their calls (and then kept,
+ * for a finished run).
+ */
+export function callTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>): Map<string, CallTotals> {
+  const k = keptFor(store);
+  const out = new Map<string, CallTotals>();
+  const unknown: IndexedRun[] = [];
   for (const r of runs) {
     if (out.has(r.runId)) continue;
-    const hit = kept.get(r.runId);
-    if (hit && hit.key === keyOf(r, prices)) out.set(r.runId, hit.stats);
-    else if (r.calls === 0) out.set(r.runId, empty());
-    else todo.push(r);
+    const hit = k.memory.get(r.runId);
+    if (hit && hit.key === keyOf(r)) out.set(r.runId, hit.totals);
+    else if (r.calls === 0) out.set(r.runId, EMPTY);
+    else unknown.push(r);
   }
+  if (!unknown.length) return out;
+
+  // Kept in the store by an earlier read, here or in another process.
+  const finished = unknown.filter((r) => r.status !== 'running');
+  const found = new Set<string>();
+  for (const batch of batches(finished.map((r) => r.runId))) {
+    for (const row of store.query(KEPT_SQL, ids(batch))) {
+      const run = index.byId.get(String(row.id));
+      const totals = run && row.key === keyOf(run) ? readTotals(row.stats) : null;
+      if (!run || !totals) continue;
+      out.set(run.runId, totals);
+      remember(k, run, totals);
+      found.add(run.runId);
+    }
+  }
+  const todo = unknown.filter((r) => !found.has(r.runId));
   if (!todo.length) return out;
 
-  const fresh = new Map<string, RunStats>(todo.map((r) => [r.runId, empty()]));
-  const sources = new Map<string, number[]>();
-  const legacy = new Set<string>();
-  for (const batch of batches(todo.map((r) => r.runId))) {
-    for (const row of store.query(STATS_SQL, ids(batch))) {
+  const fresh = sumCalls(store, index, todo);
+  k.runsRead += todo.length;
+  const keep: Array<{ runId: string; key: string; stats: string }> = [];
+  for (const r of todo) {
+    const totals = fresh.get(r.runId) ?? EMPTY;
+    out.set(r.runId, totals);
+    if (r.status === 'running') continue;
+    remember(k, r, totals);
+    keep.push({ runId: r.runId, key: keyOf(r), stats: JSON.stringify(totals) });
+  }
+  // A store that can't be written just now keeps them in memory only.
+  store.saveRunStats(keep);
+  return out;
+}
+
+function remember(k: Kept, r: IndexedRun, totals: CallTotals): void {
+  if (k.memory.size > 50_000) k.memory.clear();
+  k.memory.set(r.runId, { key: keyOf(r), totals });
+}
+
+interface Building {
+  codes: string[];
+  models: Map<string, [bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number]>;
+  notWaitedMs: number;
+  liveInput: number;
+  liveCacheRead: number;
+  misses: Array<[number, string | null, number]>;
+  /** Per scope, the previous model call with usage: its whole input and the part cached. */
+  previous: Map<string, { whole: number; cached: number }>;
+  /** Replayed calls that don't carry their recorded duration: the parent's calls they came from. */
+  sources: number[];
+}
+
+/** One pass over the calls of `runs`, in call order. */
+function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): Map<string, CallTotals> {
+  const building = new Map<string, Building>();
+  // The runs whose calls a replayed call may point back to: kept while reading, so a parent read in
+  // this pass is not read again for its replays' durations.
+  const parents = new Set(runs.map((r) => r.parentRunId).filter((p): p is string => !!p));
+  const durations = new Map<string, Map<number, { latency: number; source: number | null }>>();
+  const resolve = modelResolver(store);
+
+  for (const batch of batches(runs.map((r) => r.runId))) {
+    for (const row of store.query(CALLS_SQL, ids(batch))) {
       const runId = String(row.run);
-      const st = fresh.get(runId)!;
-      const run = index.byId.get(runId)!;
-      const count = n(row.n);
-      st.calls += count;
-      st.origins[codeOf(row.origin, row.outcome, row.injected) as keyof OriginCounts] += count;
-      st.notWaitedMs += n(row.recorded_ms);
-      if (row.origin === 'replayed' && typeof row.sources === 'string' && row.sources) {
-        const list = sources.get(runId) ?? [];
-        for (const s of row.sources.split(',')) {
-          const k = Number(s);
-          if (Number.isInteger(k)) list.push(k);
-        }
-        sources.set(runId, list);
+      const run = index.byId.get(runId);
+      if (!run) continue;
+      let b = building.get(runId);
+      if (!b) {
+        b = { codes: [], models: new Map(), notWaitedMs: 0, liveInput: 0, liveCacheRead: 0, misses: [], previous: new Map(), sources: [] };
+        building.set(runId, b);
       }
-      if (row.kind !== 'api' || n(row.with_usage) === 0) continue;
-      // Recorded before the model was kept per call: the request has to be read for it.
-      if (typeof row.model !== 'string') {
-        legacy.add(runId);
-        continue;
+      const origin = row.origin as Origin;
+      const outcome = (row.outcome ?? null) as Outcome | null;
+      const j = typeof row.j === 'string' ? (JSON.parse(row.j) as [unknown, unknown, unknown, unknown, unknown, unknown]) : null;
+      const injected = outcome === 'error' && j?.[4] === true;
+      b.codes.push(ORIGIN_CODE[displayOrigin(origin, outcome === null ? null : { outcome, injected })]);
+
+      const recordedMs = j && typeof j[2] === 'number' ? j[2] : null;
+      const replayedFrom = j ? int(j[3]) : null;
+      if (origin === 'replayed') {
+        if (recordedMs !== null) b.notWaitedMs += recordedMs;
+        else if (replayedFrom !== null) b.sources.push(replayedFrom);
       }
-      const usage = { inputTokens: n(row.input), outputTokens: n(row.output), cacheReadInputTokens: n(row.cache_read), cacheCreationInputTokens: n(row.cache_write) };
+      if (parents.has(runId)) {
+        let table = durations.get(runId);
+        if (!table) durations.set(runId, (table = new Map()));
+        table.set(Number(row.call), { latency: recordedMs ?? n(j?.[5]), source: origin === 'replayed' && recordedMs === null ? replayedFrom : null });
+      }
+
+      const usage = j && typeof j[1] === 'object' && j[1] !== null ? (j[1] as Partial<Usage>) : null;
+      if (row.kind !== 'api' || !usage) continue;
+      const input = n(usage.inputTokens);
+      const cacheRead = n(usage.cacheReadInputTokens);
+      const cacheWrite = n(usage.cacheCreationInputTokens);
       const imported = !!run.meta.imported && run.mode === 'record';
-      if (row.origin === 'live' && !imported) {
-        st.liveInput += usage.inputTokens + usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
-        st.liveCacheRead += usage.cacheReadInputTokens;
+      if (origin === 'live' && !imported) {
+        b.liveInput += input + cacheRead + cacheWrite;
+        b.liveCacheRead += cacheRead;
       }
-      const usd = estimateCost(row.model, usage, options.prices);
-      if (usd === null) {
-        if (!st.unknownModels.includes(row.model)) st.unknownModels.push(row.model);
-      } else if (row.origin === 'replayed') st.saved += usd;
-      else if (row.origin === 'live' && imported) st.captured += usd;
-      else if (row.origin === 'live') st.spent += usd;
+      // The prompt cache: a live call that read less from it than the previous model call's whole
+      // input in the same scope, by at least 1,024 tokens. Two guards stand in for conversation
+      // boundaries until calls carry them: the previous call used the cache (so it was hitting), and
+      // this call's input is no smaller than the previous one's (a smaller one starts over).
+      const scope = typeof row.scope === 'string' ? row.scope : null;
+      const whole = input + cacheRead + cacheWrite;
+      const prev = b.previous.get(scope ?? '');
+      if (origin === 'live' && prev && prev.cached > 0 && whole >= prev.whole && prev.whole - cacheRead >= CACHE_MISS_MIN_TOKENS) b.misses.push([Number(row.call), scope, prev.whole - cacheRead]);
+      b.previous.set(scope ?? '', { whole, cached: cacheRead + cacheWrite });
+
+      const bucket = origin === 'replayed' ? 'r' : origin === 'live' ? (imported ? 'c' : 'l') : null;
+      if (!bucket) continue;
+      // Recorded before the model was kept per call: the request says which.
+      const model =
+        (typeof j?.[0] === 'string' ? j[0] : null) ??
+        (typeof row.smodel === 'string' ? row.smodel : null) ??
+        (typeof row.req === 'string' ? resolve({ kind: 'api', requestRef: row.req, name: String(row.name) } as CallRecord) : null);
+      if (!model) continue;
+      const key = `${bucket}\u0000${model}`;
+      const m = b.models.get(key) ?? [bucket, model, 0, 0, 0, 0];
+      m[2] += input;
+      m[3] += n(usage.outputTokens);
+      m[4] += cacheRead;
+      m[5] += cacheWrite;
+      b.models.set(key, m);
     }
   }
 
-  // Costs of old recordings, call by call, as the run page sums them.
-  for (const runId of legacy) {
-    const run = store.getRun(runId);
-    if (!run) continue;
-    const s = summarizeRun(run, store.getCalls(runId), [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
-    Object.assign(fresh.get(runId)!, { spent: s.cost.spent, saved: s.cost.saved, captured: s.cost.captured, unknownModels: s.cost.unknownModels });
-  }
-
-  const durations = recordedDurations(store, index, [...sources.keys()].map((id) => index.byId.get(id)?.parentRunId ?? null));
-  for (const [runId, list] of sources) {
-    const parent = index.byId.get(runId)?.parentRunId ?? null;
-    let ms = 0;
-    for (const k of list) ms += durations.of(parent, k);
-    fresh.get(runId)!.notWaitedMs += ms;
-  }
-
-  for (const r of todo) {
-    const st = fresh.get(r.runId)!;
-    out.set(r.runId, st);
-    if (r.status !== 'running') kept.set(r.runId, { key: keyOf(r, prices), stats: st });
-  }
-  if (kept.size > 50_000) kept.clear();
-  return out;
-}
-
-const SPENT_SQL = `
-SELECT s.run_id AS run, COALESCE(e.meta ->> '$.model', s.meta ->> '$.model') AS model,
-       COUNT(e.meta ->> '$.usage.outputTokens') AS with_usage,
-       SUM(e.meta ->> '$.usage.inputTokens') AS input,
-       SUM(e.meta ->> '$.usage.outputTokens') AS output,
-       SUM(e.meta ->> '$.usage.cacheReadInputTokens') AS cache_read,
-       SUM(e.meta ->> '$.usage.cacheCreationInputTokens') AS cache_write
-FROM call_events s
-${FINAL_END}
-WHERE s.phase = 'start' AND s.kind = 'api' AND s.origin = 'live' AND s.run_id IN (SELECT value FROM json_each(?))
-GROUP BY s.run_id, model`;
-
-const spentCache = new WeakMap<Store, Map<string, { key: string; spent: number }>>();
-
-/**
- * What each run spent live, for sorting the Runs table by it: read from the runs' statistics when
- * they are known, and otherwise from their live model calls alone, which is much less to read.
- */
-export function spentOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): Map<string, number> {
-  const prices = options.prices ? JSON.stringify(options.prices) : '';
-  const stats = cache.get(store);
-  let kept = spentCache.get(store);
-  if (!kept) {
-    kept = new Map();
-    spentCache.set(store, kept);
-  }
-  const out = new Map<string, number>();
-  const todo: IndexedRun[] = [];
+  const of = recordedDurations(store, index, durations, runs.filter((r) => building.get(r.runId)?.sources.length).map((r) => r.parentRunId));
+  const out = new Map<string, CallTotals>();
   for (const r of runs) {
-    const key = keyOf(r, prices);
-    const known = stats?.get(r.runId);
-    const hit = kept.get(r.runId);
-    if (known?.key === key) out.set(r.runId, known.stats.spent);
-    else if (hit?.key === key) out.set(r.runId, hit.spent);
-    // An imported recording's calls were paid for where they were made.
-    else if (r.calls === 0 || (r.meta.imported && r.mode === 'record')) out.set(r.runId, 0);
-    else todo.push(r);
+    const b = building.get(r.runId);
+    if (!b) continue;
+    let notWaitedMs = b.notWaitedMs;
+    for (const callNo of b.sources) notWaitedMs += of(r.parentRunId, callNo);
+    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], notWaitedMs, liveInput: b.liveInput, liveCacheRead: b.liveCacheRead, misses: b.misses });
   }
-  const legacy: IndexedRun[] = [];
-  for (const batch of batches(todo.map((r) => r.runId))) {
-    for (const row of store.query(SPENT_SQL, ids(batch))) {
-      const runId = String(row.run);
-      if (n(row.with_usage) === 0) continue;
-      if (typeof row.model !== 'string') {
-        legacy.push(index.byId.get(runId)!);
-        continue;
-      }
-      const usd = estimateCost(row.model, { inputTokens: n(row.input), outputTokens: n(row.output), cacheReadInputTokens: n(row.cache_read), cacheCreationInputTokens: n(row.cache_write) }, options.prices);
-      out.set(runId, (out.get(runId) ?? 0) + (usd ?? 0));
-    }
-  }
-  if (legacy.length) for (const [runId, st] of runStats(store, index, legacy, options)) out.set(runId, st.spent);
-  for (const r of todo) {
-    if (!out.has(r.runId)) out.set(r.runId, 0);
-    if (r.status !== 'running') kept.set(r.runId, { key: keyOf(r, prices), spent: out.get(r.runId)! });
-  }
-  if (kept.size > 50_000) kept.clear();
   return out;
 }
 
-function empty(): RunStats {
-  return { calls: 0, origins: emptyOriginCounts(), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: 0, liveInput: 0, liveCacheRead: 0 };
-}
-
 /**
- * The recorded duration of calls in `runs`, following replayed calls back through their parents:
+ * The recorded duration of a parent's calls, following replayed calls back through their parents:
  * each run's calls are read once, level by level, and resolved from memory.
  */
-function recordedDurations(store: Store, index: RunIndex, runs: Array<string | null>): { of: (runId: string | null, callNo: number) => number } {
-  const tables = new Map<string, Map<number, { latency: number; source: number | null }>>();
+function recordedDurations(store: Store, index: RunIndex, tables: Map<string, Map<number, { latency: number; source: number | null }>>, runs: Array<string | null>): (runId: string | null, callNo: number) => number {
   let wanted = new Set(runs.filter((r): r is string => !!r));
+  // Parents already read whose calls point further back.
+  for (const [runId, table] of tables) for (const e of table.values()) if (e.source !== null) addParent(index, runId, tables, wanted);
   for (let level = 0; wanted.size && level < 32; level++) {
     const load = [...wanted].filter((id) => !tables.has(id));
     wanted = new Set();
     for (const id of load) tables.set(id, new Map());
     for (const batch of batches(load)) {
       for (const row of store.query(DURATIONS_SQL, ids(batch))) {
-        const source = typeof row.source === 'number' && Number.isInteger(row.source) ? row.source : null;
+        const source = int(row.source);
         tables.get(String(row.run))!.set(Number(row.call), { latency: n(row.latency), source });
-        if (source !== null) {
-          const parent = index.byId.get(String(row.run))?.parentRunId;
-          if (parent && !tables.has(parent)) wanted.add(parent);
-        }
+        if (source !== null) addParent(index, String(row.run), tables, wanted);
       }
     }
   }
@@ -273,21 +326,52 @@ function recordedDurations(store: Store, index: RunIndex, runs: Array<string | n
     memo.set(key, ms);
     return ms;
   };
-  return { of: (runId, callNo) => of(runId, callNo) };
+  return (runId, callNo) => of(runId, callNo);
+}
+
+function addParent(index: RunIndex, runId: string, tables: Map<string, unknown>, wanted: Set<string>): void {
+  const parent = index.byId.get(runId)?.parentRunId;
+  if (parent && !tables.has(parent)) wanted.add(parent);
+}
+
+/** A run's statistics under the prices given. */
+export function priced(t: CallTotals, prices?: Record<string, Price>): RunStats {
+  const s: RunStats = { calls: t.codes.length, origins: countOrigins(t.codes), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: t.notWaitedMs, liveInput: t.liveInput, liveCacheRead: t.liveCacheRead };
+  for (const [bucket, model, input, output, cacheRead, cacheWrite] of t.models) {
+    const usd = estimateCost(model, { inputTokens: input, outputTokens: output, cacheReadInputTokens: cacheRead, cacheCreationInputTokens: cacheWrite }, prices);
+    if (usd === null) {
+      if (!s.unknownModels.includes(model)) s.unknownModels.push(model);
+    } else if (bucket === 'r') s.saved += usd;
+    else if (bucket === 'c') s.captured += usd;
+    else s.spent += usd;
+  }
+  return s;
+}
+
+/** The call statistics of `runs`. */
+export function runStats(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, options: StatsOptions = {}): Map<string, RunStats> {
+  const out = new Map<string, RunStats>();
+  for (const [runId, t] of callTotals(store, index, runs)) out.set(runId, priced(t, options.prices));
+  return out;
+}
+
+/** What each run spent live, for sorting the Runs table by it. */
+export function spentOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [runId, s] of runStats(store, index, runs, options)) out.set(runId, s.spent);
+  return out;
 }
 
 /** Every call's origin, one character per call in call order, for each run asked for. */
-export function originStrings(store: Store, runIds: readonly string[]): Map<string, string> {
-  const parts = new Map<string, string[]>(runIds.map((id) => [id, []]));
-  for (const batch of batches([...new Set(runIds)])) {
-    for (const row of store.query(ORIGINS_SQL, ids(batch))) parts.get(String(row.run))?.push(codeOf(row.origin, row.outcome, row.injected));
-  }
-  return new Map([...parts].map(([id, codes]) => [id, codes.join('')]));
+export function originStrings(store: Store, index: RunIndex, runs: readonly IndexedRun[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [runId, t] of callTotals(store, index, runs)) out.set(runId, t.codes);
+  return out;
 }
 
 /** Sums of several runs' statistics. */
 export function sumStats(list: Iterable<RunStats>): RunStats {
-  const total = empty();
+  const total: RunStats = { calls: 0, origins: countOrigins(''), spent: 0, saved: 0, captured: 0, unknownModels: [], notWaitedMs: 0, liveInput: 0, liveCacheRead: 0 };
   for (const s of list) {
     total.calls += s.calls;
     for (const k of Object.keys(total.origins) as Array<keyof OriginCounts>) total.origins[k] += s.origins[k];
@@ -302,69 +386,16 @@ export function sumStats(list: Iterable<RunStats>): RunStats {
   return total;
 }
 
-/** A live model call where the prompt cache stopped hitting. */
-export interface CacheMiss {
-  runId: string;
-  callNo: number;
-  scope: string | null;
-  /** Input tokens sent again: the previous call's whole input, less what this call read from the cache. */
-  tokens: number;
-}
-
-/** A miss must send at least this many tokens again: smaller drops are noise. */
-export const CACHE_MISS_MIN_TOKENS = 1024;
-
-const MISSES_SQL = `
-WITH calls AS (
-  SELECT s.run_id AS run, s.call_no AS call, s.origin AS origin, s.meta ->> '$.scope' AS scope,
-         COALESCE(e.meta ->> '$.usage.inputTokens', 0) AS uin,
-         COALESCE(e.meta ->> '$.usage.cacheReadInputTokens', 0) AS cr,
-         COALESCE(e.meta ->> '$.usage.cacheCreationInputTokens', 0) AS cw
-  FROM call_events s
-  ${FINAL_END}
-  WHERE s.phase = 'start' AND s.kind = 'api' AND s.run_id IN (SELECT value FROM json_each(?)) AND e.meta -> '$.usage' IS NOT NULL
-), seq AS (
-  SELECT run, call, origin, scope, cr, uin + cr + cw AS whole,
-         LAG(uin + cr + cw) OVER w AS prev_whole, LAG(cr + cw) OVER w AS prev_cached
-  FROM calls
-  WINDOW w AS (PARTITION BY run, scope ORDER BY call)
-)
-SELECT run, call, scope, prev_whole - cr AS tokens FROM seq
-WHERE origin = 'live' AND prev_whole IS NOT NULL AND prev_cached > 0 AND whole >= prev_whole AND prev_whole - cr >= ?
-ORDER BY tokens DESC, run, call`;
-
 /**
  * Live model calls where the prompt cache stopped hitting, largest first: a call misses when it read
  * less from the cache than the previous model call's whole input in the same scope, by at least
- * 1,024 tokens. Two guards stand in for conversation boundaries until calls carry them: the previous
- * call used the cache (so it was hitting), and this call's input is no smaller than the previous
- * one's (a smaller one starts a new conversation).
+ * 1,024 tokens (see `sumCalls` for the two guards that stand in for conversation boundaries).
  */
-export function cacheMisses(store: Store, runs: readonly IndexedRun[]): CacheMiss[] {
-  let kept = missCache.get(store);
-  if (!kept) {
-    kept = new Map();
-    missCache.set(store, kept);
+export function cacheMisses(store: Store, index: RunIndex, runs: readonly IndexedRun[]): CacheMiss[] {
+  const out: CacheMiss[] = [];
+  const kinds = new Map(runs.map((r) => [r.runId, r.kind]));
+  for (const [runId, t] of callTotals(store, index, runs)) {
+    for (const [callNo, scope, tokens] of t.misses) out.push({ runId, kind: kinds.get(runId) ?? 'recording', callNo, scope, tokens });
   }
-  const found = new Map<string, CacheMiss[]>();
-  const todo: IndexedRun[] = [];
-  for (const r of runs) {
-    if (found.has(r.runId)) continue;
-    const hit = kept.get(r.runId);
-    if (hit && hit.key === keyOf(r, '')) found.set(r.runId, hit.misses);
-    else {
-      found.set(r.runId, []);
-      todo.push(r);
-    }
-  }
-  for (const batch of batches(todo.map((r) => r.runId))) {
-    for (const row of store.query(MISSES_SQL, ids(batch), CACHE_MISS_MIN_TOKENS)) {
-      found.get(String(row.run))!.push({ runId: String(row.run), callNo: Number(row.call), scope: typeof row.scope === 'string' ? row.scope : null, tokens: n(row.tokens) });
-    }
-  }
-  for (const r of todo) if (r.status !== 'running') kept.set(r.runId, { key: keyOf(r, ''), misses: found.get(r.runId)! });
-  if (kept.size > 50_000) kept.clear();
-  return [...found.values()].flat().sort((a, b) => b.tokens - a.tokens || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : a.callNo - b.callNo));
+  return out.sort((a, b) => b.tokens - a.tokens || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : a.callNo - b.callNo));
 }
-
-const missCache = new WeakMap<Store, Map<string, { key: string; misses: CacheMiss[] }>>();

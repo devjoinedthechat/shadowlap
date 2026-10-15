@@ -1,13 +1,14 @@
 import { checksOf, cleanLabel, lostAt, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
-import { lookupRun, type RunListItem } from './api.js';
+import type { RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
 import { classifiable, depthOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { originStrings, runStats, spentOf, type StatsOptions } from './run-stats.js';
+import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
 
 /**
  * The Runs page: a page of the table at a time, the 12-week calendar above it, and the bulk
- * actions. Attempts (`--repeat`, blame probes, verify attempts) are not rows: each run says how many
- * it bundles, and `includeAttempts` lists them for a view that wants them.
+ * actions; and the sidebar's Recent runs. Attempts (`--repeat`, blame probes, verify attempts) are
+ * not rows: each run says how many it bundles, and `includeAttempts` lists them for a view that
+ * wants them.
  */
 
 /** The table's type chips. The kinds add up (forks or clean replays); Failed narrows to failures. */
@@ -43,6 +44,10 @@ export interface RunsPageOptions extends RunFilter, StatsOptions {
   limit?: number;
   /** `next` from the page before. */
   cursor?: string | null;
+  /**
+   * Newest first by default. By calls or by spent, most first, with runs still in progress on top:
+   * their numbers grow while they run, so they are kept apart and a page never skips one.
+   */
   sort?: RunSort;
 }
 
@@ -126,14 +131,16 @@ export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) 
 
 interface SortKey {
   s: RunSort;
+  /** 1 for a run still in progress, kept on top in the sorts by calls and spent; 0 otherwise. */
+  g: 0 | 1;
   v: number;
   t: number;
   id: string;
 }
 
-/** Descending by the sort's value, then by start time and id, so every row has one place. */
+/** Runs in progress first, then descending by the sort's value, then by start time and id, so every row has one place. */
 function compareKeys(a: SortKey, b: SortKey): number {
-  return b.v - a.v || b.t - a.t || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+  return b.g - a.g || b.v - a.v || b.t - a.t || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 }
 
 function encodeCursor(k: SortKey): string {
@@ -143,7 +150,7 @@ function encodeCursor(k: SortKey): string {
 function decodeCursor(cursor: string, sort: RunSort): SortKey {
   try {
     const k = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<SortKey>;
-    if (k.s === sort && typeof k.v === 'number' && typeof k.t === 'number' && typeof k.id === 'string') return { s: sort, v: k.v, t: k.t, id: k.id };
+    if (k.s === sort && (k.g === 0 || k.g === 1) && typeof k.v === 'number' && typeof k.t === 'number' && typeof k.id === 'string') return { s: sort, g: k.g, v: k.v, t: k.t, id: k.id };
   } catch {
     // reported below
   }
@@ -157,8 +164,12 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
   const m = matcher(options);
   const matching = index.runs.filter(m.matches);
-  const spent = sort === 'spent' ? spentOf(store, index, matching, options) : null;
-  const keyOf = (r: IndexedRun): SortKey => ({ s: sort, v: sort === 'when' ? 0 : sort === 'calls' ? r.calls : (spent!.get(r.runId) ?? 0), t: r.startedAt, id: r.runId });
+  const spent = sort === 'spent' ? spentOf(store, index, matching.filter((r) => r.status !== 'running'), options) : null;
+  const keyOf = (r: IndexedRun): SortKey => {
+    // A run in progress is still adding calls and cost: it sorts by when it started, on top.
+    if (sort === 'when' || r.status === 'running') return { s: sort, g: sort === 'when' ? 0 : 1, v: 0, t: r.startedAt, id: r.runId };
+    return { s: sort, g: 0, v: sort === 'calls' ? r.calls : (spent!.get(r.runId) ?? 0), t: r.startedAt, id: r.runId };
+  };
   const keyed = matching.map((r) => ({ r, k: keyOf(r) }));
   // The index is newest first already; the other sorts reorder it.
   if (sort !== 'when') keyed.sort((a, b) => compareKeys(a.k, b.k));
@@ -180,10 +191,10 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
 
 /** Rows of the table for these runs, with their statistics and origins. */
 export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): RunRow[] {
-  const stats = runStats(store, index, runs, options);
-  const origins = originStrings(store, runs.map((r) => r.runId));
+  const totals = callTotals(store, index, runs);
   return runs.map((r) => {
-    const s = stats.get(r.runId);
+    const t = totals.get(r.runId);
+    const s = t ? priced(t, options.prices) : null;
     const c = classifiable(r);
     return {
       runId: r.runId,
@@ -211,13 +222,69 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       rescues: r.rescues,
       outcome: r.outcome,
       failed: r.failed,
-      origins: origins.get(r.runId) ?? '',
+      origins: t?.codes ?? '',
       attempts: index.attempts.get(r.runId)?.length ?? 0,
       lostAt: lostAt(c),
       checks: checksOf(c),
       author: r.meta.author,
     };
   });
+}
+
+// ---- the sidebar ----
+
+export interface RecentRunsOptions extends StatsOptions {
+  /** How many of the newest runs to list: 500 unless asked. */
+  limit?: number;
+  /** List attempts too, each under the run it came from. */
+  includeAttempts?: boolean;
+  /** List these runs only, attempts among them included, however old: what an exported copy holds. */
+  ids?: readonly string[];
+}
+
+/**
+ * The sidebar's Recent runs, served as `/api/runs`: the newest runs as a tree, each family's first
+ * run with its replays and forks under it, oldest family first (the sidebar shows the newest
+ * first). Attempts are bundled as on the Runs page: each run says how many it has, and a run made
+ * from an attempt is listed under the run the attempt came from.
+ */
+export function recentRuns(store: Store, options: RecentRunsOptions = {}): RunRow[] {
+  const index = loadRunIndex(store);
+  const limit = Math.max(1, Math.min(5000, Math.floor(options.limit ?? 500) || 500));
+  const only = options.ids ? new Set(options.ids) : null;
+  const listed = only ? index.runs.filter((r) => only.has(r.runId)) : index.runs.filter((r) => options.includeAttempts || !r.bundled).slice(0, limit);
+  const ids = new Set(listed.map((r) => r.runId));
+  // The listed run a run hangs under: its parent, or past an attempt left out, the run that attempt came from.
+  const anchorOf = (r: IndexedRun): string | null => {
+    let p = r.parentRunId;
+    for (let i = 0; p && i < 1000; i++) {
+      if (ids.has(p)) return p;
+      const parent = index.byId.get(p);
+      if (!parent?.bundled) return null;
+      p = parent.parentRunId;
+    }
+    return null;
+  };
+  const under = new Map<string, IndexedRun[]>();
+  const roots: IndexedRun[] = [];
+  // Oldest first, so each family and each run's children come in the order they were made.
+  for (const r of [...listed].reverse()) {
+    const anchor = anchorOf(r);
+    if (!anchor) roots.push(r);
+    else {
+      const list = under.get(anchor);
+      if (list) list.push(r);
+      else under.set(anchor, [r]);
+    }
+  }
+  const order: Array<{ run: IndexedRun; depth: number }> = [];
+  const walk = (run: IndexedRun, depth: number) => {
+    order.push({ run, depth });
+    if (depth < 64) for (const child of under.get(run.runId) ?? []) walk(child, depth + 1);
+  };
+  for (const r of roots) walk(r, 0);
+  const out = rows(store, index, order.map((x) => x.run), options);
+  return out.map((row, i) => ({ ...row, depth: order[i]!.depth }));
 }
 
 // ---- the calendar ----
@@ -315,6 +382,7 @@ export interface BulkSkip {
 
 export const BULK_MAX = 1000;
 
+/** The run ids of a bulk request: full ids, as the table hands them out. A prefix is not one. */
 function idList(ids: unknown): string[] | { error: string } {
   if (!Array.isArray(ids) || !ids.length) return { error: 'ids: pick at least one run' };
   if (ids.length > BULK_MAX) return { error: `ids: at most ${BULK_MAX} runs at once` };
@@ -337,16 +405,13 @@ export function labelRuns(store: Store, ids: unknown, add: unknown, remove: unkn
   if (!adding.length && !removing.length) return { error: 'nothing to change: add or remove a label' };
   const done: Array<{ runId: string; labels: string[] }> = [];
   const skipped: BulkSkip[] = [];
-  const seen = new Set<string>();
   store.transaction(() => {
     for (const id of list) {
-      const run = lookupRun(store, id);
+      const run = store.getRun(id);
       if (!run) {
         skipped.push({ runId: id, reason: 'no such run' });
         continue;
       }
-      if (seen.has(run.runId)) continue;
-      seen.add(run.runId);
       try {
         const labels = withLabels(run.meta?.labels, adding, removing);
         store.updateRunMeta(run.runId, { labels });
@@ -371,33 +436,38 @@ export interface DeleteResult {
 }
 
 /**
- * Deletes several runs, with the attempts bundled under each. A run still recording is left alone,
- * as is one with an attempt still running; forks of a deleted run keep their own data and lose the
- * link to it.
+ * Deletes several runs, with the attempts bundled under each. A run still in progress is left alone,
+ * as is one a run in progress reads from: an attempt of it, or a replay or fork of it, would lose the
+ * answers it has yet to serve. Forks of a deleted run keep their own data and lose the link to it.
  */
 export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: string } {
   const list = idList(ids);
   if ('error' in list) return list;
   const index = loadRunIndex(store);
+  // A replay serves its answers from its parent's calls as it goes: the parents of runs in progress.
+  const readFrom = new Set(index.runs.filter((r) => r.status === 'running' && r.parentRunId).map((r) => r.parentRunId!));
   const done: string[] = [];
   const attempts: string[] = [];
   const skipped: BulkSkip[] = [];
   const doomed = new Set<string>();
   for (const id of list) {
-    const found = lookupRun(store, id);
-    const run = found ? index.byId.get(found.runId) : undefined;
+    const run = index.byId.get(id);
     if (!run) {
       skipped.push({ runId: id, reason: 'no such run' });
       continue;
     }
     if (doomed.has(run.runId)) continue;
     if (run.status === 'running') {
-      skipped.push({ runId: run.runId, reason: 'still recording' });
+      skipped.push({ runId: run.runId, reason: run.mode === 'record' ? 'still recording' : 'still running' });
       continue;
     }
     const bundle = index.attempts.get(run.runId) ?? [];
     if (bundle.some((a) => a.status === 'running')) {
       skipped.push({ runId: run.runId, reason: 'an attempt of it is still running' });
+      continue;
+    }
+    if (readFrom.has(run.runId) || bundle.some((a) => readFrom.has(a.runId))) {
+      skipped.push({ runId: run.runId, reason: 'a replay of it is still running' });
       continue;
     }
     doomed.add(run.runId);
@@ -473,3 +543,4 @@ export function runsByDayOptions(params: URLSearchParams): RunsByDayOptions | { 
   }
   return out;
 }
+

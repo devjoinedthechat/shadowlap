@@ -4,12 +4,18 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
-import { listRunsPage, runsByDay } from '../src/runs-list.js';
+import { runsRead } from '../src/run-stats.js';
+import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
 
 /**
- * The read models at scale: 5,000 runs averaging 60 calls, one of them 1,200 calls long, spread
- * evenly over the calendar's twelve weeks (about 830 of them in the two weeks the Overview reads).
- * Each read model is timed on a store opened afresh, so nothing it worked out before helps it.
+ * The read models at scale: 5,000 runs averaging 60 calls, one of them 1,200 calls long, every one
+ * of them in the two weeks the Overview reads (the most it ever has to add up).
+ *
+ * Every run's calls are read once in the store's life: the first look works out each run's totals
+ * and keeps them in the store. After that, each read model on a store opened afresh (a new
+ * dashboard process) reads one row per run and none of their calls. The test checks that work
+ * directly, and bounds each read by the CPU time it takes, which a busy machine does not inflate
+ * the way it does wall-clock time. Both are printed.
  */
 
 const RUNS = 5000;
@@ -45,7 +51,7 @@ beforeAll(() => {
   };
   store.transaction(() => {
     for (let i = 0; i < RUNS; i++) {
-      const startedAt = i === 0 ? NOW - 3 * DAY : NOW - Math.floor(rnd() * 83 * DAY);
+      const startedAt = i === 0 ? NOW - 3 * DAY : NOW - Math.floor(rnd() * 13 * DAY);
       const n = i === 0 ? 1200 : 20 + Math.floor(rnd() * 81);
       const pick = rnd();
       if (recordings.length && pick < 0.45) {
@@ -70,23 +76,32 @@ beforeAll(() => {
     }
   });
   store.close();
-}, 120_000);
+}, 180_000);
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-/**
- * Times one read on a store opened afresh, nothing kept from an earlier read. The best of three
- * such reads is what the code costs; the others measure whatever else the machine was doing.
- */
-function timed<T>(read: (store: Store) => T): { ms: number; out: T } {
-  let best: { ms: number; out: T } | null = null;
-  for (let i = 0; i < 3; i++) {
+interface Timed<T> {
+  out: T;
+  /** CPU time the read took, in ms: what the code costs, whatever else the machine is doing. */
+  cpu: number;
+  wall: number;
+  /** Runs whose calls the read had to read. */
+  read: number;
+}
+
+/** One read on a store opened afresh, as a new dashboard process would; the best of `times`. */
+function timed<T>(read: (store: Store) => T, times = 3): Timed<T> {
+  let best: Timed<T> | null = null;
+  for (let i = 0; i < times; i++) {
     const store = Store.open(path);
     try {
+      const c0 = process.cpuUsage();
       const t0 = performance.now();
       const out = read(store);
-      const ms = performance.now() - t0;
-      if (!best || ms < best.ms) best = { ms, out };
+      const wall = performance.now() - t0;
+      const c = process.cpuUsage(c0);
+      const t = { out, cpu: (c.user + c.system) / 1000, wall, read: runsRead(store) };
+      if (!best || t.cpu < best.cpu) best = t;
     } finally {
       store.close();
     }
@@ -94,22 +109,45 @@ function timed<T>(read: (store: Store) => T): { ms: number; out: T } {
   return best!;
 }
 
+const ms = (t: { cpu: number; wall: number }) => `${Math.round(t.cpu)} ms CPU, ${Math.round(t.wall)} ms`;
+
 describe('read models at scale', () => {
-  it('answer for 5,000 runs and 300,000 calls in well under a second each', () => {
+  it('read every run’s calls once, then answer for 5,000 runs and 300,000 calls from a row per run', () => {
     expect(calls).toBeGreaterThan(RUNS * 55);
+    const first = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
+    expect(first.read).toBe(RUNS);
+    // Once in the store's life; bounded only against a pass that grew worse than linear.
+    expect(first.cpu, `the first look took ${ms(first)}`).toBeLessThan(10_000);
+
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));
+    const bySpent = timed((s) => listRunsPage(s, { sort: 'spent' }));
+    const byCalls = timed((s) => listRunsPage(s, { sort: 'calls' }));
     const failures = timed((s) => listRunsPage(s, { types: ['failed'], q: 'agent' }));
     const calendar = timed((s) => runsByDay(s, { tz: 'Europe/Berlin', now: NOW }));
-    expect(summary.out.sums.week.runs + summary.out.sums.lastWeek.runs).toBeGreaterThan(600);
+    const sidebar = timed((s) => recentRuns(s));
+
+    expect(summary.out).toEqual(first.out);
+    expect(summary.out.sums.week.runs + summary.out.sums.lastWeek.runs).toBeGreaterThan(4500);
     expect(summary.out.grid.families.length).toBeGreaterThan(0);
+    expect(summary.out.grid.shown).toBeLessThanOrEqual(40);
     expect(page.out.runs).toHaveLength(50);
-    expect(page.out.total).toBeGreaterThan(4000);
-    expect(page.out.runs.some((r) => r.origins.length === r.calls && r.calls > 0)).toBe(true);
+    expect(page.out.total).toBeGreaterThan(4500);
+    expect(page.out.runs.every((r) => r.origins.length === r.calls)).toBe(true);
+    const spent = bySpent.out.runs.map((r) => r.spent);
+    expect(spent).toEqual([...spent].sort((a, b) => b - a));
+    expect(byCalls.out.runs[0]!.calls).toBe(1200);
     expect(failures.out.total).toBeGreaterThan(0);
-    expect(calendar.out.totals.runs).toBeGreaterThan(4000);
-    // Alone, the summary takes about 400 ms and the others under 100 ms; the bound leaves room for a busy machine.
-    for (const [name, t] of Object.entries({ summary, page, failures, calendar })) expect(t.ms, `${name} took ${Math.round(t.ms)} ms`).toBeLessThan(1000);
-    process.stdout.write(`read models on ${RUNS} runs, ${calls} calls: summary ${Math.round(summary.ms)} ms, page ${Math.round(page.ms)} ms, failed page ${Math.round(failures.ms)} ms, calendar ${Math.round(calendar.ms)} ms\n`);
+    expect(calendar.out.totals.runs).toBeGreaterThan(4500);
+    expect(sidebar.out).toHaveLength(500);
+
+    const reads = { summary, page, bySpent, byCalls, failures, calendar, sidebar };
+    process.stdout.write(`read models on ${RUNS} runs, ${calls} calls: first look ${ms(first)}; then ${Object.entries(reads).map(([name, t]) => `${name} ${ms(t)}`).join(', ')}\n`);
+    for (const [name, t] of Object.entries(reads)) {
+      // No read model reads a finished run's calls again.
+      expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
+      // Alone, each takes 60 to 130 ms of CPU time; the bound leaves room for a slower machine.
+      expect(t.cpu, `${name} took ${ms(t)}`).toBeLessThan(1000);
+    }
   });
 });

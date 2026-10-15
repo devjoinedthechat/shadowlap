@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
-import { countRuns, deleteRuns, labelRuns, listRunsPage, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
+import { loadRunIndex } from '../src/run-index.js';
+import { countRuns, deleteRuns, labelRuns, listRunsPage, recentRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
-import { addRun, blameOf, capture, DAY, HOUR } from './read-model-store.js';
+import { addRun, blameOf, capture, DAY, HOUR, OFFLINE } from './read-model-store.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC: 12:15 in Berlin.
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -159,14 +163,45 @@ describe('the Runs table', () => {
         if (!cursor) break;
       }
       expect(seen.map((r) => r.runId).sort()).toEqual(all().runs.map((r) => r.runId).sort());
-      if (sort === 'calls') expect(seen.map((r) => r.calls)).toEqual([...seen.map((r) => r.calls)].sort((a, b) => b - a));
-      if (sort === 'spent') expect(seen.map((r) => r.spent)).toEqual([...seen.map((r) => r.spent)].sort((a, b) => b - a));
+      // By calls or spent, the run in progress comes first (its numbers still grow), then the most first.
+      const finished = seen.filter((r) => r.status !== 'running');
+      if (sort !== 'when') expect(seen[0]!.runId).toBe(id.live);
+      if (sort === 'calls') expect(finished.map((r) => r.calls)).toEqual([...finished.map((r) => r.calls)].sort((a, b) => b - a));
+      if (sort === 'spent') expect(finished.map((r) => r.spent)).toEqual([...finished.map((r) => r.spent)].sort((a, b) => b - a));
     }
     expect(() => listRunsPage(store, { cursor: 'not-a-cursor' })).toThrow(RangeError);
     expect(listRunsPage(store, { limit: Number.NaN }).runs).toHaveLength(14);
     expect(listRunsPage(store, { limit: -5 }).runs).toHaveLength(1);
     const whenCursor = listRunsPage(store, { limit: 2 }).next!;
     expect(() => listRunsPage(store, { cursor: whenCursor, sort: 'calls' })).toThrow(RangeError);
+  });
+
+  it('never skips a run in progress that gains calls between pages', () => {
+    const local = Store.open(':memory:');
+    try {
+      const made = [5, 9, 2, 7, 4, 6].map((n, i) => addRun(local, { startedAt: NOW - (i + 2) * HOUR, calls: 'l'.repeat(n) }));
+      const live = addRun(local, { startedAt: NOW - HOUR, status: 'running', calls: 'lll' });
+      for (const sort of ['calls', 'spent'] as const) {
+        const first = listRunsPage(local, { limit: 3, sort });
+        // The recording goes on: 10 calls now, more than any run already listed.
+        const more = 10 - local.countCalls(live);
+        for (let k = 0; k < more; k++) {
+          const callNo = local.countCalls(live) + 1;
+          local.appendCallStart({ runId: live, callNo, kind: 'tool', name: 't', fingerprint: `x${sort}${callNo}`, occurrence: 1, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: NOW });
+        }
+        const seen = [...first.runs];
+        for (let cursor = first.next; cursor; ) {
+          const page = listRunsPage(local, { limit: 3, sort, cursor });
+          seen.push(...page.runs);
+          cursor = page.next;
+        }
+        expect(new Set(seen.map((r) => r.runId))).toEqual(new Set([...made, live]));
+        expect(seen).toHaveLength(7);
+        expect(seen[0]!.runId).toBe(live);
+      }
+    } finally {
+      local.close();
+    }
   });
 
   it('reads its options from a query string, and refuses what it does not know', () => {
@@ -212,6 +247,16 @@ describe('the calendar', () => {
     expect(runsByDay(store, { tz: 'UTC', now: NOW, q: 'nothing-like-this' }).thresholds).toBeNull();
     expect(() => runsByDay(store, { tz: 'Mars/Olympus' })).toThrow(RangeError);
   });
+
+  it('counts attempts only when asked', () => {
+    const d = (o: Parameters<typeof runsByDay>[1]) => new Map(runsByDay(store, { tz: 'Europe/Berlin', now: NOW, ...o }).days.map((x) => [x.day, x]));
+    // Sep 29: the blamed run and its rescued probe, and the two probes that did not rescue it.
+    expect(d({}).get('2026-09-29')).toMatchObject({ runs: 2, byKind: { recording: 1, fork: 1 } });
+    expect(d({ includeAttempts: true }).get('2026-09-29')).toMatchObject({ runs: 4, byKind: { recording: 1, fork: 3 } });
+    // Sep 30: the recording, and the two --repeat attempts and the verify attempt replaying it.
+    expect(d({ includeAttempts: true }).get('2026-09-30')).toMatchObject({ runs: 4, byKind: { recording: 1, clean: 3 } });
+    expect(runsByDay(store, { tz: 'Europe/Berlin', now: NOW, includeAttempts: true }).totals.runs).toBe(18);
+  });
 });
 
 describe('local days', () => {
@@ -244,6 +289,30 @@ describe('bulk actions', () => {
     expect(labelRuns(store, [id.fork], [], [])).toMatchObject({ error: expect.stringContaining('nothing to change') });
   });
 
+  it('takes full run ids only: a prefix names no run', () => {
+    expect(labelRuns(store, [id.fork.slice(0, 6)], ['x'], [])).toEqual({ done: [], skipped: [{ runId: id.fork.slice(0, 6), reason: 'no such run' }] });
+    const local = Store.open(':memory:');
+    try {
+      const only = addRun(local, { startedAt: NOW, calls: 'l' });
+      expect(deleteRuns(local, [only.slice(0, 1)])).toMatchObject({ done: [], skipped: [{ runId: only.slice(0, 1), reason: 'no such run' }] });
+      expect(local.getRun(only)).not.toBeNull();
+    } finally {
+      local.close();
+    }
+  });
+
+  it('skips a run that cannot take another label, and labels the rest', () => {
+    const local = Store.open(':memory:');
+    try {
+      const full = addRun(local, { startedAt: NOW, calls: 'l', meta: { labels: Array.from({ length: 50 }, (_, i) => `l${i}`) } });
+      const other = addRun(local, { startedAt: NOW + 1, calls: 'l' });
+      expect(labelRuns(local, [full, other], ['one-more'], [])).toEqual({ done: [{ runId: other, labels: ['one-more'] }], skipped: [{ runId: full, reason: 'a run has at most 50 labels' }] });
+      expect(local.getRun(full)!.meta?.labels).toHaveLength(50);
+    } finally {
+      local.close();
+    }
+  });
+
   it('deletes runs with their attempts, leaves a run still recording, and unlinks forks', () => {
     const local = Store.open(':memory:');
     try {
@@ -262,6 +331,150 @@ describe('bulk actions', () => {
       expect(deleteRuns(local, [live])).toMatchObject({ done: [], skipped: [{ runId: live, reason: 'still recording' }] });
     } finally {
       local.close();
+    }
+  });
+
+  it('leaves a run alone while a replay of it, or an attempt of it, still runs', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llllll' });
+      // Replaying it now: two calls served, four still to come from the recording.
+      const replay = addRun(local, { parent: rec, startedAt: NOW - 5 * MIN, status: 'running', calls: 'rr' });
+      const other = addRun(local, { startedAt: NOW - DAY + HOUR, calls: 'llll', status: 'failed' });
+      const probe = addRun(local, { parent: other, startedAt: NOW - MIN, status: 'running', divergence: 3, calls: 'rr', meta: { repeat: { group: 'g-3', attempt: 1, of: 4 }, probe: { of: other, callNo: 3, passed: false } } });
+      const out = deleteRuns(local, [rec, other, replay, probe]);
+      expect(out).toMatchObject({
+        done: [],
+        skipped: [
+          { runId: rec, reason: 'a replay of it is still running' },
+          { runId: other, reason: 'an attempt of it is still running' },
+          { runId: replay, reason: 'still running' },
+          { runId: probe, reason: 'still running' },
+        ],
+      });
+      expect(local.getRun(rec)).not.toBeNull();
+      local.endRun(replay, 'completed', NOW);
+      expect(deleteRuns(local, [rec])).toMatchObject({ done: [rec], skipped: [] });
+    } finally {
+      local.close();
+    }
+  });
+});
+
+describe('the sidebar’s recent runs', () => {
+  it('lists the runs as a tree, each family under its first run, attempts bundled', () => {
+    const tree = recentRuns(store);
+    expect(tree.map((r) => r.runId).sort()).toEqual(all().runs.map((r) => r.runId).sort());
+    const at = new Map(tree.map((r, i) => [r.runId, i]));
+    // Oldest family first; a run's replays and forks right under it, deeper by one.
+    expect(tree[0]!.runId).toBe(id.old);
+    for (const r of tree) {
+      if (!r.parentRunId || !at.has(r.parentRunId)) expect(r.depth).toBe(0);
+      else {
+        expect(at.get(r.runId)!).toBeGreaterThan(at.get(r.parentRunId)!);
+        expect(r.depth).toBe(tree[at.get(r.parentRunId)!]!.depth + 1);
+      }
+    }
+    expect(tree.find((r) => r.runId === id.fork2)!.depth).toBe(2);
+    expect(tree.find((r) => r.runId === id.rec)).toMatchObject({ attempts: 3, kind: 'recording' });
+    expect(tree.find((r) => r.runId === id.failed)).toMatchObject({ outcome: { kind: 'lost', callNo: 5 }, lostAt: 5, origins: 'llllllll' });
+  });
+
+  it('lists attempts when asked, and only the runs named for an exported copy', () => {
+    expect(recentRuns(store, { includeAttempts: true })).toHaveLength(19);
+    const two = recentRuns(store, { ids: [id.p2, id.failed] });
+    expect(two.map((r) => [r.runId, r.depth, r.attemptKind])).toEqual([
+      [id.failed, 0, null],
+      [id.p2, 1, 'probe'],
+    ]);
+    expect(recentRuns(store, { limit: 2 }).map((r) => r.runId).sort()).toEqual([id.live, id.failat].sort());
+  });
+
+  it('hangs a run made from an attempt under the run that attempt came from', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, calls: 'llll' });
+      const attempt = addRun(local, { parent: rec, startedAt: NOW - HOUR, calls: 'rrrr', meta: { repeat: { group: 'g', attempt: 1, of: 2 } } });
+      const forkOfAttempt = addRun(local, { parent: attempt, startedAt: NOW, divergence: 2, calls: 'rlll' });
+      expect(recentRuns(local).map((r) => [r.runId, r.depth])).toEqual([
+        [rec, 0],
+        [forkOfAttempt, 1],
+      ]);
+      expect(recentRuns(local, { includeAttempts: true }).map((r) => [r.runId, r.depth])).toEqual([
+        [rec, 0],
+        [attempt, 1],
+        [forkOfAttempt, 2],
+      ]);
+    } finally {
+      local.close();
+    }
+  });
+});
+
+describe('what the index works out about a run', () => {
+  it('calls a replay that reproduced its failing recording a clean replay whose check failed', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: 'llllllll' });
+      const reproduced = addRun(local, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrrrrrr' });
+      // Stopped at call 3 of 8, for some reason of its own: not the recorded failure.
+      const short = addRun(local, { parent: rec, startedAt: NOW - 30 * MIN, status: 'failed', calls: 'rrr' });
+      const rows = byId(listRunsPage(local).runs);
+      expect(rows.get(reproduced)).toMatchObject({ kind: 'clean', label: 'clean replay', outcome: { kind: 'check-failed', check: null }, failed: true });
+      expect(rows.get(short)).toMatchObject({ kind: 'replay', label: 'replay' });
+      expect(listRunsPage(local, { types: ['clean'] }).runs.map((r) => r.runId)).toEqual([reproduced]);
+    } finally {
+      local.close();
+    }
+  });
+
+  it('says a test that left its golden offline diverged, whatever its checks', () => {
+    const local = Store.open(':memory:');
+    try {
+      const golden = addRun(local, { startedAt: NOW - 10 * DAY, calls: 'llll', meta: { imported: { at: NOW - 10 * DAY, from: 'goldens/refund-in-limit' } } });
+      const checks = [
+        { ok: true, label: 'issue_refund called once', detail: null },
+        { ok: false, label: 'send_email called once', detail: 'it was called 0 times' },
+      ];
+      const offline = addRun(local, { parent: golden, startedAt: NOW - HOUR, status: 'failed', divergence: 1, calls: [{ code: 'f', endMeta: OFFLINE }], meta: { test: { golden: 'goldens/refund-in-limit', session: 's1' }, checks } });
+      const live = addRun(local, { parent: golden, startedAt: NOW - 30 * MIN, divergence: 1, calls: 'llll', meta: { test: { golden: 'goldens/refund-over', session: 's1' }, checks: checks.map((c) => ({ ...c, ok: true })) } });
+      const rows = byId(listRunsPage(local).runs);
+      expect(rows.get(offline)).toMatchObject({ kind: 'test', label: 'test', outcome: { kind: 'diverged', callNo: 1 }, failed: true });
+      expect(rows.get(live)).toMatchObject({ kind: 'test', outcome: { kind: 'passed', checks: 2 }, failed: false });
+    } finally {
+      local.close();
+    }
+  });
+});
+
+describe('the run index', () => {
+  it('is read again only after something wrote to the store, here or in another process', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shadowlap-run-index-'));
+    const path = join(dir, 'shadowlap.db');
+    const here = Store.open(path);
+    const other = Store.open(path);
+    try {
+      const rec = addRun(here, { startedAt: NOW - DAY, calls: 'll' });
+      const first = loadRunIndex(here);
+      expect(loadRunIndex(here)).toBe(first);
+      // Another process records a run: this one sees it on its next read.
+      const theirs = addRun(other, { startedAt: NOW, calls: 'l' });
+      const second = loadRunIndex(here);
+      expect(second).not.toBe(first);
+      expect(second.byId.has(theirs)).toBe(true);
+      expect(loadRunIndex(here)).toBe(second);
+      // So does a write of its own.
+      labelRuns(here, [rec], ['bug'], []);
+      expect(loadRunIndex(here).byId.get(rec)!.meta.labels).toEqual(['bug']);
+      // A call added to a run in progress changes its count.
+      const live = addRun(other, { startedAt: NOW + 1, calls: 'l', status: 'running' });
+      expect(loadRunIndex(here).byId.get(live)!.calls).toBe(1);
+      other.appendCallStart({ runId: live, callNo: 2, kind: 'tool', name: 't', fingerprint: 'f', occurrence: 1, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: NOW });
+      expect(loadRunIndex(here).byId.get(live)!.calls).toBe(2);
+    } finally {
+      here.close();
+      other.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

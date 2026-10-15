@@ -1,7 +1,7 @@
-import { emptyOriginCounts, lostAt, originCells, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { countOrigins, emptyOriginCounts, lostAt, originCells, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { cacheMisses, originStrings, runStats, sumStats, type CacheMiss, type RunStats, type StatsOptions } from './run-stats.js';
+import { cacheMisses, callTotals, runStats, sumStats, type CacheMiss, type RunStats, type StatsOptions } from './run-stats.js';
 
 /**
  * The Overview, worked out on the server: this week against last week, the last seven days, what
@@ -9,8 +9,9 @@ import { cacheMisses, originStrings, runStats, sumStats, type CacheMiss, type Ru
  * is the last seven of the viewer's days, today included; last week is the seven before.
  *
  * Runs and calls are counted without attempts (`--repeat`, blame probes, verify), which are bundled
- * under the run they came from. Money and time are not: what an attempt spent live was spent, and
- * what it replayed was not re-spent.
+ * under the run they came from: the grid, the week's calls, Calls by origin and Today count runs.
+ * The week's money and time are not: what an attempt spent live was spent, and what it replayed
+ * was not re-spent.
  */
 
 export interface TimeWindow {
@@ -26,9 +27,9 @@ export interface WeekSums {
   origins: OriginCounts;
   /** Approximate USD spent on live model calls, attempts included. */
   spent: number;
-  /** What replaying did not spend again: the recorded cost of every replayed model call. */
+  /** What replaying did not spend again: the recorded cost of every replayed model call, attempts included. */
   notRespent: number;
-  /** The recorded duration of every replayed call: time not waited. */
+  /** The recorded duration of every replayed call, attempts included: time not waited. */
   notWaitedMs: number;
   /** Attempts that started in the window, and what they spent live. */
   attempts: number;
@@ -39,24 +40,25 @@ export interface DaySums {
   /** `YYYY-MM-DD` in the viewer's zone. */
   day: string;
   start: number;
+  /** Spent live and not re-spent that day, attempts included, as the week's sums. */
   spent: number;
   notRespent: number;
 }
 
 export interface TodayPanel {
   day: string;
-  /** Calls served from recordings today, attempts included, and what that did not re-spend. */
+  /** Calls today's runs were served from recordings, and what those calls did not re-spend. Attempts are left out, as in every count of calls. */
   served: number;
   notRespent: number;
   /** Recordings in progress, with their calls so far. */
   recording: Array<{ runId: string; command: string; calls: number; startedAt: number }>;
   /** Clean replays today. */
   replays: number;
-  /** Forks today, the calls that went live in them, and the writes they blocked. */
+  /** Forks today (the one blame rescued a run with among them), the calls that went live in them, and the writes they blocked. */
   forks: { count: number; live: number; blocked: number };
   /** Test runs today, the failures among them, and the newest failure. */
   tests: { count: number; failed: number; latestFailure: { runId: string; outcome: RunOutcome } | null };
-  /** Blame today: the calls it probed, the attempts it ran, and the runs it blamed with where each was lost. */
+  /** Blame today: the model calls it probed, its attempts (bundled under the run they probed), and the runs it probed with where each was lost. */
   blame: { probes: number; attempts: number; runs: Array<{ runId: string; lostAt: number | null }> };
 }
 
@@ -65,6 +67,11 @@ export interface GridRow {
   parentRunId: string | null;
   /** Indent under the family's first run. */
   depth: number;
+  /**
+   * A run from before this week, shown so the week's runs hang under the recording they came from
+   * and their replayed prefixes line up under it. It is not one of the week's runs.
+   */
+  context: boolean;
   kind: RunKind;
   status: RunStatus;
   outcome: RunOutcome;
@@ -83,7 +90,7 @@ export interface GridRow {
 export interface GridFamily {
   /** Calls per cell: 1 up to 60 calls, then a cell stands for a range and shows its most notable origin. */
   size: number;
-  /** Cells the family's scale spans: at least 30 calls, so a fork's replayed prefix lines up under its parent. */
+  /** Cells the family's scale spans: its longest run, at least 30 calls, so a fork's replayed prefix lines up under its parent. */
   cols: number;
   rows: GridRow[];
 }
@@ -93,9 +100,9 @@ export interface RunGrid {
   runs: number;
   calls: number;
   origins: OriginCounts;
-  /** Newest family first; each a recording (or a run whose parent is older) with what came from it this week. */
+  /** Newest family first: the recording the runs came from (a context row when it is older), with the week's runs made from it under it. */
   families: GridFamily[];
-  /** Rows shown, and runs of the week left for All runs. */
+  /** The week's runs shown (context rows aside), and those left for All runs. */
   shown: number;
   more: number;
 }
@@ -116,6 +123,7 @@ export interface TestsSummary {
   passing: number;
   /** Passing as the tests stood when this week started; null when there were none yet. */
   lastWeek: number | null;
+  /** Goldens failing now: the regressions the tests caught. */
   regressions: number;
   lastRunAt: number | null;
 }
@@ -130,22 +138,42 @@ export interface CacheUse {
   missCount: number;
 }
 
+/** How far each failure got towards a fix. Every step counts failures, the unit fixes are made of. */
 export interface FixesFunnel {
-  /** Every failure so far (runs, attempts left out), how many blame reproduced, how many have a verified fix, and how many are applied. */
+  /**
+   * Failures on their way to a fix, and those blame has reproduced. A fix starts from a blame, so
+   * until the fixes slice groups runs into failures each blamed run is one failure.
+   */
   failures: number;
   blamed: number;
+  /** Failures with a verified fix, and those applied. Null until fixes report them. */
   verified: number | null;
   applied: number | null;
   open: number;
+  /** Failed runs (tests aside) no blame has looked at yet: not fixes yet, for Needs a look. */
+  notBlamed: number;
   /** The blame probes and verify attempts behind them, and what they spent live. */
   attempts: number;
   spent: number;
 }
 
+/** What the fixes slice knows: each count in failures (fixes), plus verify verdicts for the strip. */
+export interface FixesHookResult {
+  failures: number;
+  blamed: number;
+  verified: number;
+  applied: number;
+  open: number;
+  /** Verify verdicts accepted this week and last, and rejected. */
+  accepted: number;
+  acceptedLastWeek: number;
+  rejected: number;
+}
+
 /** What other slices know better. Until they hook in, the narrow local versions here stand in. */
 export interface OverviewHooks {
-  /** Fixes (stored verdicts, fixes grouped by failure): replaces the funnel's verified and applied, and the open count. */
-  fixes?: (windows: { week: TimeWindow; lastWeek: TimeWindow }) => { accepted: number; acceptedLastWeek: number; rejected: number; open: number; verified: number; applied: number } | null;
+  /** Fixes (stored verdicts, runs grouped into failures): replaces the funnel, the open count and Fixes verified. */
+  fixes?: (windows: { week: TimeWindow; lastWeek: TimeWindow }) => FixesHookResult | null;
   /** Tests (sessions and golden results): replaces the summary read from test runs' metadata. */
   tests?: (asOf: { now: number; weekStart: number }) => TestsSummary | null;
   /** The run page's cache rule, once conversations are marked per call: replaces the local miss search. */
@@ -227,9 +255,9 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   const thisWeek = inWindow.filter((r) => r.startedAt >= week.from && !r.bundled);
   const hooks = options.hooks ?? {};
   const fixHook = hooks.fixes?.({ week, lastWeek }) ?? null;
-  const blamedEver = index.runs.filter((r) => r.meta.blame).length;
-  const open = fixHook?.open ?? blamedEver;
-  const blamedIn = (w: TimeWindow) => index.runs.filter((r) => r.meta.blame && r.meta.blame.at >= w.from && r.meta.blame.at < w.to).length;
+  const blamed = index.runs.filter((r) => r.meta.blame && !r.bundled);
+  const open = fixHook?.open ?? blamed.length;
+  const blamedIn = (w: TimeWindow) => blamed.filter((r) => r.meta.blame!.at >= w.from && r.meta.blame!.at < w.to).length;
 
   return {
     tz,
@@ -246,8 +274,8 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
       testsPassing: hooks.tests ? hooks.tests({ now, weekStart: week.from }) : testsSummary(index, now, week.from),
       spent: { value: sums.week.spent, lastWeek: sums.lastWeek.spent, notRespent: sums.week.notRespent, notWaitedMs: sums.week.notWaitedMs },
     },
-    cache: hooks.cache?.(thisWeek.map((r) => r.runId)) ?? cacheUse(store, thisWeek, stats),
-    fixes: fixesFunnel(store, index, options, { open, verified: fixHook?.verified ?? null, applied: fixHook?.applied ?? null }),
+    cache: hooks.cache?.(thisWeek.map((r) => r.runId)) ?? cacheUse(store, index, thisWeek, stats),
+    fixes: fixesFunnel(store, index, options, blamed.length, fixHook),
   };
 }
 
@@ -259,20 +287,21 @@ function todayPanel(index: RunIndex, inWindow: IndexedRun[], stats: Map<string, 
   const forks = of('fork');
   const tests = of('test');
   const failedTests = tests.filter((r) => r.failed);
-  const probes = runs.filter((r) => r.meta.probe);
-  const blamed = [...new Set(probes.map((r) => r.meta.probe!.of))];
+  // Blame's runs today: the attempts bundled under the run they probed, and the fork it rescued a run with.
+  const probes = runs.filter((r) => r.meta.probe && ((r.bundled && r.attemptKind === 'probe') || r.rescues));
+  const probedRun = (r: IndexedRun) => r.rescues ?? r.attemptOf!;
   return {
     day: today.key,
-    served: sum(runs, (s) => s.origins.r),
-    notRespent: sum(runs, (s) => s.saved),
+    served: sum(shown, (s) => s.origins.r),
+    notRespent: sum(shown, (s) => s.saved),
     recording: index.runs.filter((r) => r.status === 'running' && r.mode === 'record' && !r.bundled).map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt })),
     replays: of('clean').length,
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
     tests: { count: tests.length, failed: failedTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
     blame: {
-      probes: new Set(probes.map((r) => `${r.meta.probe!.of}#${r.meta.probe!.callNo}`)).size,
-      attempts: probes.length,
-      runs: blamed.map((runId) => {
+      probes: new Set(probes.map((r) => `${probedRun(r)}#${r.meta.probe!.callNo}`)).size,
+      attempts: probes.filter((r) => r.bundled).length,
+      runs: [...new Set(probes.map(probedRun))].map((runId) => {
         const run = index.byId.get(runId);
         return { runId, lostAt: run ? lostAt(classifiable(run)) : null };
       }),
@@ -281,29 +310,54 @@ function todayPanel(index: RunIndex, inWindow: IndexedRun[], stats: Map<string, 
 }
 
 /**
- * This week's runs as rows of calls, grouped under the run they came from. Families come newest
- * first (by their newest run) and are added whole while they fit; one family too large for the
- * grid shows its first rows.
+ * This week's runs as rows of calls, grouped under the recording they came from: the first run of
+ * their lineage, shown as a context row when it is older than the week, as is any older run between
+ * it and the week's runs. Families come newest first (by their newest run of the week) and are
+ * added whole while they fit; one family too large for the grid shows its first rows.
  */
 function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>, maxRows: number): RunGrid {
-  const ids = new Set(runs.map((r) => r.runId));
-  const children = new Map<string, IndexedRun[]>();
+  const week = new Set(runs.map((r) => r.runId));
+  // The run each row hangs under: its parent, or past an attempt (attempts are not rows), the run that attempt came from.
+  const shownParent = (r: IndexedRun): IndexedRun | null => {
+    let p = r.parentRunId ? index.byId.get(r.parentRunId) : undefined;
+    for (let i = 0; p && p.bundled && i < 64; i++) p = p.parentRunId ? index.byId.get(p.parentRunId) : undefined;
+    return p ?? null;
+  };
+  const members = new Map<string, IndexedRun>();
+  const rootOf = new Map<string, IndexedRun>();
   for (const r of runs) {
-    if (!r.parentRunId || !ids.has(r.parentRunId)) continue;
-    const list = children.get(r.parentRunId) ?? [];
-    list.push(r);
-    children.set(r.parentRunId, list);
+    let cur = r;
+    members.set(cur.runId, cur);
+    for (let i = 0; i < 64; i++) {
+      const p = shownParent(cur);
+      if (!p || p.runId === r.runId) break;
+      members.set(p.runId, p);
+      cur = p;
+    }
+    rootOf.set(r.runId, cur);
   }
-  const families = runs
-    .filter((r) => !r.parentRunId || !ids.has(r.parentRunId))
+  const children = new Map<string, IndexedRun[]>();
+  for (const m of members.values()) {
+    const p = shownParent(m);
+    if (!p || !members.has(p.runId)) continue;
+    const list = children.get(p.runId) ?? [];
+    list.push(m);
+    children.set(p.runId, list);
+  }
+  const roots = new Map<string, IndexedRun>();
+  for (const root of rootOf.values()) roots.set(root.runId, root);
+  const families = [...roots.values()]
     .map((root) => {
       const rows: Array<{ run: IndexedRun; depth: number }> = [];
+      const seen = new Set<string>();
       const walk = (run: IndexedRun, depth: number) => {
+        if (seen.has(run.runId)) return;
+        seen.add(run.runId);
         rows.push({ run, depth });
-        for (const c of (children.get(run.runId) ?? []).sort((a, b) => a.startedAt - b.startedAt)) if (depth < 64) walk(c, depth + 1);
+        for (const c of (children.get(run.runId) ?? []).sort((a, b) => a.startedAt - b.startedAt || (a.runId < b.runId ? -1 : 1))) if (depth < 64) walk(c, depth + 1);
       };
       walk(root, 0);
-      return { rows, newest: rows.reduce((t, x) => Math.max(t, x.run.startedAt), 0) };
+      return { rows, newest: rows.reduce((t, x) => (week.has(x.run.runId) ? Math.max(t, x.run.startedAt) : t), 0) };
     })
     .sort((a, b) => b.newest - a.newest);
 
@@ -318,8 +372,9 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
     used += f.rows.length;
   }
   const shownRuns = picked.flat();
-  const codes = originStrings(store, shownRuns.map((x) => x.run.runId));
+  const totals = callTotals(store, index, shownRuns.map((x) => x.run));
   const total = sumStats(runs.map((r) => stats.get(r.runId)).filter((s): s is RunStats => !!s));
+  const shown = shownRuns.filter((x) => week.has(x.run.runId)).length;
   return {
     runs: runs.length,
     calls: total.calls,
@@ -334,6 +389,7 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
           runId: run.runId,
           parentRunId: run.parentRunId,
           depth,
+          context: !week.has(run.runId),
           kind: run.kind,
           status: run.status,
           outcome: run.outcome,
@@ -342,42 +398,53 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
           rescues: run.rescues,
           startedAt: run.startedAt,
           calls: run.calls,
-          cells: originCells(codes.get(run.runId) ?? '', size),
+          cells: originCells(totals.get(run.runId)?.codes ?? '', size),
           forkCell: run.kind === 'fork' && run.divergence ? Math.floor((run.divergence.callNo - 1) / size) : null,
-          origins: stats.get(run.runId)?.origins ?? emptyOriginCounts(),
+          origins: countOrigins(totals.get(run.runId)?.codes ?? ''),
         })),
       };
     }),
-    shown: shownRuns.length,
-    more: runs.length - shownRuns.length,
+    shown,
+    more: runs.length - shown,
   };
 }
 
 /**
- * Goldens passing, from the runs `shadowlap test` made (`meta.test`): each golden's latest finished
- * run passes unless it failed. A week ago is the same question asked of the runs before this week.
+ * Goldens passing, from the runs `shadowlap test` made (`meta.test`): each golden's latest session
+ * passes when enough of its attempts passed (`meta.test.passes` when the run says, otherwise all of
+ * them). An attempt passes when it exited 0 and came out clean or with its checks passed; one that
+ * was interrupted or timed out did not pass. A week ago is the same question asked of the runs
+ * before this week.
  */
 function testsSummary(index: RunIndex, now: number, weekStart: number): TestsSummary | null {
   const tests = index.runs.filter((r) => r.meta.test?.golden && r.status !== 'running' && r.startedAt <= now);
   if (!tests.length) return null;
-  const latest = (before: number) => {
-    const out = new Map<string, IndexedRun>();
-    for (const r of tests) if (r.startedAt < before && !out.has(r.meta.test!.golden)) out.set(r.meta.test!.golden, r); // newest first
+  const verdicts = (before: number) => {
+    const latest = new Map<string, { session: string; runs: IndexedRun[] }>();
+    // Newest first: a golden's first run seen names its latest session.
+    for (const r of tests) {
+      if (r.startedAt >= before) continue;
+      const { golden, session } = r.meta.test!;
+      const found = latest.get(golden);
+      if (!found) latest.set(golden, { session, runs: [r] });
+      else if (found.session === session) found.runs.push(r);
+    }
+    const out = new Map<string, boolean>();
+    for (const [golden, { runs }] of latest) {
+      const passed = runs.filter((r) => r.status === 'completed' && !r.failed).length;
+      const required = runs.find((r) => r.meta.test!.passes !== null)?.meta.test!.passes ?? runs.length;
+      out.set(golden, passed >= required);
+    }
     return out;
   };
-  const current = latest(Number.POSITIVE_INFINITY);
-  const passing = [...current.values()].filter((r) => !r.failed).length;
-  const before = latest(weekStart);
-  return {
-    goldens: current.size,
-    passing,
-    lastWeek: before.size ? [...before.values()].filter((r) => !r.failed).length : null,
-    regressions: current.size - passing,
-    lastRunAt: tests[0]!.startedAt,
-  };
+  const count = (m: Map<string, boolean>) => [...m.values()].filter(Boolean).length;
+  const current = verdicts(Number.POSITIVE_INFINITY);
+  const before = verdicts(weekStart);
+  const passing = count(current);
+  return { goldens: current.size, passing, lastWeek: before.size ? count(before) : null, regressions: current.size - passing, lastRunAt: tests[0]!.startedAt };
 }
 
-function cacheUse(store: Store, runs: IndexedRun[], stats: Map<string, RunStats>): CacheUse {
+function cacheUse(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>): CacheUse {
   let input = 0;
   let cacheRead = 0;
   const cached: IndexedRun[] = [];
@@ -388,19 +455,20 @@ function cacheUse(store: Store, runs: IndexedRun[], stats: Map<string, RunStats>
     cacheRead += s.liveCacheRead;
     cached.push(r);
   }
-  const misses = cached.length ? cacheMisses(store, cached) : [];
+  const misses = cached.length ? cacheMisses(store, index, cached) : [];
   return { input, cacheRead, misses: misses.slice(0, 4), sentAgain: misses.reduce((t, m) => t + m.tokens, 0), missCount: misses.length };
 }
 
-function fixesFunnel(store: Store, index: RunIndex, options: StatsOptions, known: { open: number; verified: number | null; applied: number | null }): FixesFunnel {
+function fixesFunnel(store: Store, index: RunIndex, options: StatsOptions, blamed: number, hook: FixesHookResult | null): FixesFunnel {
   const attempts = index.runs.filter((r) => r.meta.probe || r.meta.verify);
   const stats = runStats(store, index, attempts, options);
   return {
-    failures: index.runs.filter((r) => r.failed && !r.bundled).length,
-    blamed: index.runs.filter((r) => r.meta.blame).length,
-    verified: known.verified,
-    applied: known.applied,
-    open: known.open,
+    failures: hook?.failures ?? blamed,
+    blamed: hook?.blamed ?? blamed,
+    verified: hook?.verified ?? null,
+    applied: hook?.applied ?? null,
+    open: hook?.open ?? blamed,
+    notBlamed: index.runs.filter((r) => r.failed && !r.bundled && r.kind !== 'test' && !r.meta.blame).length,
     attempts: attempts.length,
     spent: attempts.reduce((t, r) => t + (stats.get(r.runId)?.spent ?? 0), 0),
   };

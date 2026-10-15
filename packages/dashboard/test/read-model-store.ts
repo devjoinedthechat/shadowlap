@@ -1,4 +1,4 @@
-import { NO_COMMAND, type CallKind, type Effect, type Origin, type Outcome, type RunMeta, type RunStatus, type Store, type Usage } from '@shadowlap/engine';
+import { NO_COMMAND, storeApiRequest, type CallKind, type Effect, type Origin, type Outcome, type RunMeta, type RunStatus, type Store, type Usage } from '@shadowlap/engine';
 
 /**
  * Builds runs for the read-model tests from compact call strings: one character per call, as the
@@ -17,8 +17,13 @@ export interface CallSpec {
   latencyMs?: number;
   replayedFrom?: number;
   usage?: Usage | null;
+  /** The model on the answer; null for a call recorded before the model was kept per call. */
   model?: string | null;
   scope?: string;
+  /** Kept as the call's request, so the model can be read from it. */
+  request?: unknown;
+  /** More of the answer's metadata. */
+  endMeta?: Record<string, unknown>;
 }
 
 export interface RunSpec {
@@ -60,7 +65,8 @@ export function addRun(store: Store, spec: RunSpec): string {
     if (!origin) throw new Error(`unknown call code ${c.code}`);
     const identity = { kind, name: kind === 'api' ? 'POST /v1/messages' : 'issue_refund', fingerprint: `fp${callNo}`, occurrence: 1 };
     const effect: Effect | null = kind === 'tool' ? 'write' : null;
-    store.appendCallStart({ runId: run.runId, callNo, ...identity, origin, effect, requestRef: null, meta: c.scope ? { scope: c.scope } : {}, at: (at += 10) });
+    const requestRef = c.request === undefined ? null : storeApiRequest(store, c.request);
+    store.appendCallStart({ runId: run.runId, callNo, ...identity, origin, effect, requestRef, meta: c.scope ? { scope: c.scope } : {}, at: (at += 10) });
     const replayed = c.code === 'r';
     const outcome: Outcome = c.code === 'i' || c.code === 'f' || c.code === 'b' ? 'error' : 'ok';
     const meta: Record<string, unknown> = { latencyMs: replayed || c.code === 'i' ? 0 : (c.latencyMs ?? (kind === 'api' ? 2000 : 100)) };
@@ -72,6 +78,7 @@ export function addRun(store: Store, spec: RunSpec): string {
     }
     if (c.code === 'i') Object.assign(meta, { injected: true, status: 529 });
     if (replayed) meta.replayedFrom = c.replayedFrom ?? callNo;
+    if (c.endMeta) Object.assign(meta, c.endMeta);
     store.appendCallEnd(identity, { runId: run.runId, callNo, attempt: 0, responseRef: null, outcome, meta, at: (at += 10) });
   });
   if (spec.divergence) {
@@ -95,3 +102,6 @@ export const blameOf = (callNo: number | null, rescuedRunId: string | null, at: 
   probes: [],
   spent: 0.1,
 });
+
+/** The answer `shadowlap test` gives a call it refused because it runs offline. */
+export const OFFLINE = { status: 503, offline: true, error: { name: 'Error', message: 'shadowlap is offline: call #1 was not served from the recording and would need the network' } };
