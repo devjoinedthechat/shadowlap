@@ -137,9 +137,35 @@ describe('ProjectRegistry: adding', () => {
     const anywhere = tempDir('sl-anywhere-');
     const first = registry.ensure(anywhere);
     expect(first.path).toBe(anywhere);
+    expect(first.setup.stage).toBe('added');
     expect(registry.ensure(anywhere)).toEqual(first);
     expect(registry.list()).toHaveLength(1);
     expect(() => registry.ensure(join(anywhere, 'missing'))).toThrow(ProjectError);
+  });
+
+  it('counts a folder the dashboard starts in as set up when Shadowlap is already in use there', () => {
+    const { registry, agent } = setup();
+    const used = agent('used-agent');
+    record(used);
+    expect(registry.ensure(used).setup.stage).toBe('done');
+    // Picked in the dashboard instead, the same folder would start its setup.
+    const picked = agent('picked-agent');
+    record(picked);
+    expect(registry.add('~/picked-agent').project.setup.stage).toBe('added');
+  });
+
+  it('reads the store --db names, and logs the add there', () => {
+    const { registry } = setup();
+    const folder = tempDir('sl-dbflag-');
+    const custom = join(tempDir('sl-dbflag-store-'), 'runs.db');
+    const store = Store.open(custom);
+    store.endRun(store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: folder } }).runId, 'completed');
+    store.close();
+    expect(registry.ensure(folder, { dbPath: custom }).setup.stage).toBe('done');
+    expect(existsSync(projectDbPath(folder))).toBe(false);
+    const check = Store.open(custom);
+    expect(check.listEvents({ kinds: ['project.added'] })).toHaveLength(1);
+    check.close();
   });
 });
 

@@ -196,13 +196,16 @@ export function deriveSetup(state: SetupState, facts: StoreFacts): EffectiveSetu
  * Where a folder's setup starts when it is added, from its store: finished when the store says the
  * setup was (a folder removed and added again), or when it already has recordings and goldens (set up
  * in a terminal); otherwise at the start, which {@link deriveSetup} moves on past any recording.
+ * `inUse` is for the folder a dashboard starts in: any runs there mean Shadowlap is already in use,
+ * and the Overview shouldn't turn into a setup.
  */
-export function initialSetup(facts: StoreFacts, goldens: number): { stage: SetupStage; runId: string | null; golden: string | null } {
+export function initialSetup(facts: StoreFacts, goldens: number, options: { inUse?: boolean } = {}): { stage: SetupStage; runId: string | null; golden: string | null } {
   const event = facts.setupEvent;
   if (event) {
     const golden = typeof event.data?.golden === 'string' ? event.data.golden : null;
     return { stage: 'done', runId: event.runId, golden };
   }
+  if (options.inUse && facts.runs > 0) return { stage: 'done', runId: null, golden: null };
   if (goldens > 0 && facts.recordings.some((r) => r.status !== 'running')) return { stage: 'done', runId: null, golden: null };
   return { stage: 'added', runId: null, golden: null };
 }

@@ -136,7 +136,7 @@ export class ProjectHost<C = unknown> {
    * `dbPath` is the store `--db` named, if any.
    */
   static open<C>(folder: string, options: Omit<ProjectHostOptions<C>, 'current'> & { dbPath?: string }): ProjectHost<C> {
-    const entry = options.registry.ensure(folder);
+    const entry = options.registry.ensure(folder, options.dbPath ? { dbPath: options.dbPath } : {});
     const { dbPath, ...rest } = options;
     const dbPaths = { ...(options.dbPaths ?? {}), ...(dbPath && resolve(dbPath) !== projectDbPath(entry.path) ? { [entry.id]: resolve(dbPath) } : {}) };
     return new ProjectHost<C>({ ...rest, dbPaths, current: entry.id });

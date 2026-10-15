@@ -61,6 +61,9 @@ describe('initialSetup', () => {
     expect(initialSetup(facts({ runs: 1, recordings: [fact('R')] }), 2)).toEqual({ stage: 'done', runId: null, golden: null });
     expect(initialSetup(facts({ runs: 1, recordings: [fact('R')] }), 0)).toEqual({ stage: 'added', runId: null, golden: null });
     expect(initialSetup(facts(), 3)).toEqual({ stage: 'added', runId: null, golden: null });
+    // The folder a dashboard starts in: any runs there mean it is in use already.
+    expect(initialSetup(facts({ runs: 2 }), 0, { inUse: true })).toEqual({ stage: 'done', runId: null, golden: null });
+    expect(initialSetup(facts(), 0, { inUse: true })).toEqual({ stage: 'added', runId: null, golden: null });
   });
 });
 

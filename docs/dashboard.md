@@ -33,6 +33,42 @@ shadowlap dashboard --no-open    # print the link instead
 
 Labels and notes are saved to the store, and, like actions, only from a dashboard started with `shadowlap dashboard`. **Replay** re-runs the recorded command. **Fork at #n** offers what the terminal UI's actions palette offers for the selected call: force a tool live, override a tool's result, inject an instruction, fork with your changed prompt from here, answer a model call with an HTTP failure (`--fail-at`), switch the model, or diverge here; and for the run, stub writes, repeat the replay and compare the attempts (`--repeat`), add the suggested normalizer, or pack the run. A run imported from a capture has no command, so **Replay** asks for yours; the forks that ask for something else are greyed out until that replay exists, since it records every kind of call and every fork works on it. Each runs the CLI in the directory the dashboard was started from; its output streams into a panel, and when it created a run, **Open run** takes you there. **Delete** removes a run and the recorded data nothing else uses.
 
+## Projects
+
+A project is a folder with your agent's code. Its store is in that folder (`.shadowlap/shadowlap.db`), so each project has its own runs, fixes, tests, configuration and activity, and one dashboard serves several: switching projects switches the store it reads, and every action runs in that project's folder, against its store. The folder `shadowlap dashboard` starts in is always one of them.
+
+The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` moves the folder). It holds no recordings: for each project its name, folder and when it was added, how far its setup got, and the commands you confirmed for recording there. It is written atomically and readable only by you, and keys it doesn't know are kept.
+
+### Adding a project
+
+**Add project…** asks for the folder your agent's code is in. As you type, it suggests folders and says what each holds (`Python · uv · pyproject.toml`, `Node · npm · package.json`). A folder without a `pyproject.toml`, `package.json`, requirements file or other project file can't be added, and says so. Adding a folder that was a project before brings its runs back, and its setup if it was finished.
+
+Suggesting folders means the dashboard lists directories, so it does that within limits a web page can't stretch:
+
+- Suggestions and adding answer only requests that carry the session token, from the dashboard's own origin, like everything else.
+- They reach your home folder, and roots you add: `"roots": ["/work/agents"]` in `projects.json`, or `SHADOWLAP_PROJECT_ROOTS` (separated like `PATH`). A root can't be `/`, a system folder, or a folder that holds your home folder. A path that leads elsewhere, through `..` or a symbolic link, lists nothing.
+- They list one folder level at a time, folder names and what kind of project each is; never files. Hidden folders (`~/.ssh`) and system folders (`~/Library`, `AppData`, `node_modules`) are never listed or entered.
+- At most 2,000 entries are read from a folder, and 100 suggestions returned.
+
+### Setting it up
+
+A project with no runs shows its setup on every page but Settings; one that is partway through shows it on the Overview. There are four steps, and each runs the command beside it in the project's folder, the same one you could type in a terminal:
+
+| Step | Command |
+|---|---|
+| Inspect the folder: SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged with the code to wrap them | `shadowlap init` (the dashboard reads [`init --json`](./cli.md#init)) |
+| Record a first run | `shadowlap run -- <command>` |
+| Make the replay clean | `shadowlap calibrate <run> --write` |
+| Keep it as a test | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
+
+Running `init` or recording in a terminal moves the setup on as well. **Skip the rest** appears after the first recording.
+
+The browser never sends a command line, with one exception that already exists for a capture's replay: the command that starts your agent, which only ever goes after `--` in `shadowlap run -- <command>`. The server splits it into arguments without a shell, so a pipe, `&&`, a redirection, `$VAR`, `~` or a wildcard outside quotes is refused rather than passed on as text; put those in a script. The first time a command runs in a folder, the dashboard asks before running it; the same command in the same folder doesn't ask again.
+
+### Removing a project
+
+**Remove from dashboard** forgets the folder. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay, so adding the folder again undoes it. **Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it) once you type the project's name. It won't while a run is recording there, and it never touches the goldens in your repository. The only project can't be removed.
+
 ## Keys
 
 | Key | |
@@ -60,7 +96,8 @@ Recordings hold prompts and tool data, so the dashboard is built to stay local:
 - It listens on 127.0.0.1 only, and refuses requests whose `Host` is not localhost, so a web page on another name that resolves to your machine cannot read it.
 - Every data request needs the session token that `shadowlap dashboard` generates at start and puts in the link's fragment (the part after `#`, which browsers never send to servers or in a Referer). Restarting the dashboard invalidates old links.
 - Requests that change something are refused when they come from another origin.
-- The browser never sends a command line: it names an action, and the server builds the CLI arguments from the run and call. The command you give a capture's replay is placed only after `--`.
+- The browser never sends a command line: it names an action, and the server builds the CLI arguments from the run and call. The command you give a capture's replay, or a project's first recording, is placed only after `--`, split without a shell.
+- Folder suggestions for a new project list only folder names under your home folder and the roots you add, one level at a time, never hidden or system folders ([limits](#adding-a-project)).
 - The page loads nothing from the network (fonts are bundled) and runs under a Content-Security-Policy that allows only its own script.
 
 To use it on a remote machine, forward the port over SSH (`ssh -L 4777:127.0.0.1:4777 host`) rather than binding it to a public interface.

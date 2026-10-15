@@ -274,15 +274,17 @@ export class ProjectRegistry {
   /**
    * The project for a folder the user chose outside the dashboard (`shadowlap dashboard` started
    * there): added if it isn't in the list yet, without the dashboard's limits on where it may be.
+   * Runs already in its store mean Shadowlap is in use there, so it counts as set up. `dbPath` is
+   * the store `--db` named, when the dashboard reads another one than the folder's.
    */
-  ensure(folder: string): ProjectEntry {
+  ensure(folder: string, options: { dbPath?: string } = {}): ProjectEntry {
     const existing = this.find(folder);
     if (existing) return existing;
     const abs = resolve(expandHome(folder, this.home));
     const real = realpathOrNull(abs);
     if (!real || !statSync(real).isDirectory()) throw new ProjectError('folder', `${this.display(abs)} isn’t a folder.`);
     try {
-      return this.addFolder(real).project;
+      return this.addFolder(real, { inUse: true, ...(options.dbPath ? { dbPath: resolve(options.dbPath) } : {}) }).project;
     } catch (err) {
       // Another process added it in between.
       const now = err instanceof ProjectError && err.code === 'exists' ? this.find(real) : null;
@@ -291,10 +293,11 @@ export class ProjectRegistry {
     }
   }
 
-  private addFolder(real: string): AddedProject {
+  private addFolder(real: string, options: { inUse?: boolean; dbPath?: string } = {}): AddedProject {
+    const dbPath = options.dbPath ?? projectDbPath(real);
     // The store is read before taking the lock: opening it may wait on SQLite.
-    const facts = this.factsOf(real);
-    const start = initialSetup(facts, countGoldens(real));
+    const facts = this.factsOf(dbPath);
+    const start = initialSetup(facts, countGoldens(real), { inUse: !!options.inUse });
     const at = this.now();
     const project = this.mutate((state) => {
       if (state.projects.some((p) => p.path === real)) throw new ProjectError('exists', `${this.display(real)} is already in the dashboard.`);
@@ -310,7 +313,7 @@ export class ProjectRegistry {
       return entry;
     });
     const again = facts.addedBefore;
-    this.activity(project, { kind: 'project.added', ref: project.id, data: { path: this.display(real), name: project.name, ...(again ? { again: true } : {}) } }, true);
+    this.activity(project, { kind: 'project.added', ref: project.id, data: { path: this.display(real), name: project.name, ...(again ? { again: true } : {}) } }, true, dbPath);
     return { project, again, runs: facts.runs };
   }
 
@@ -478,9 +481,8 @@ export class ProjectRegistry {
     }
   }
 
-  /** What a folder's store says, without creating a store where there is none. */
-  private factsOf(folder: string): StoreFacts {
-    const db = projectDbPath(folder);
+  /** What a store says, without creating one where there is none. */
+  private factsOf(db: string): StoreFacts {
     if (!existsSync(db)) return emptyStoreFacts();
     try {
       const store = Store.open(db);
@@ -495,8 +497,7 @@ export class ProjectRegistry {
   }
 
   /** Records an activity event in the project's store. Never fails the change it describes. */
-  private activity(project: ProjectEntry, event: RecordEventInput, createStore: boolean): void {
-    const db = projectDbPath(project.path);
+  private activity(project: ProjectEntry, event: RecordEventInput, createStore: boolean, db: string = projectDbPath(project.path)): void {
     if (!createStore && !existsSync(db)) return;
     try {
       const store = Store.open(db);

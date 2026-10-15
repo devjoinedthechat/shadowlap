@@ -19,7 +19,7 @@ Reads the project in the current directory and prints the steps to a first recor
 
 It warns about a model client constructed with a literal base URL: `shadowlap run` cannot redirect it, so its calls would not be recorded.
 
-`init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON.
+`init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter (`wrap`). Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done.
 
 ## run
 
@@ -469,4 +469,6 @@ A run as one OpenTelemetry trace: a span for the run and a child span per call, 
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
 | `SHADOWLAP_TELEMETRY_URL` | Send telemetry to another collector |
+| `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects) (default `~/.shadowlap`) |
+| `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` |
 | `NO_COLOR` | Plain output |
