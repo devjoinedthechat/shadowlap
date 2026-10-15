@@ -250,9 +250,11 @@ export class JobManager {
       throw new HttpError(built.status ?? 400, built.error);
     }
     let cwd: string | null;
+    let title: string;
     try {
       if (!Array.isArray(built.args) || !built.args.length || built.args.some((a) => typeof a !== 'string' || a.includes('\0'))) throw new HttpError(500, `job kind "${kind}" built no command`);
       cwd = this.jobCwd(built.cwd);
+      title = clean(built.title ?? def.title(req), 120) || kind;
       if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
     } catch (err) {
       uploads?.release(id);
@@ -262,7 +264,7 @@ export class JobManager {
     const job: Job = {
       id,
       kind,
-      title: built.title ?? def.title(req),
+      title,
       args: [...built.args],
       runId: built.runId ?? null,
       opensRun: built.opensRun ?? false,

@@ -13,6 +13,7 @@ export interface MetaInput {
   readOnlyReason: string | null;
   address: string | null;
   jobKinds: string[];
+  uploadLimit: number | null;
   project: ProjectView | null;
 }
 
@@ -51,6 +52,7 @@ export function metaView(store: Store, input: MetaInput): MetaView {
     counts: { runs: index.runs.length - index.attempts, attempts: index.attempts },
     live: liveRuns(store),
     jobKinds: input.jobKinds,
+    uploadLimit: input.uploadLimit,
     project: input.project,
   };
 }

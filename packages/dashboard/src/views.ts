@@ -100,6 +100,8 @@ export interface MetaView {
   live: LiveRun[];
   /** The job kinds `POST /api/jobs` accepts. */
   jobKinds: string[];
+  /** The most `POST /api/uploads` takes, in bytes; null when uploads are not possible (no project folder, read-only, an exported copy). */
+  uploadLimit: number | null;
   /** The project folder, or null. */
   project: ProjectView | null;
   /** An exported HTML copy: recorded data only, no server behind it. */

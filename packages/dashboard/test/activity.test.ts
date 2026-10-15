@@ -62,6 +62,9 @@ function build(): { store: Store; ids: Record<string, string> } {
   run('packChild', { mode: 'replay', parentRunId: root, startedAt: 70, meta: { imported: { at: 6500, from: 'goldens/refund' } } }, { at: 80 });
   const logged = run('logged', { startedAt: 300, meta: { imported: { at: 6600, from: 'traffic.har' }, covers: ['api'] } }, { at: 400 });
   recordEvent(store, { kind: 'capture.imported', runId: logged, ref: 'traffic.har', data: { source: 'traffic.har', calls: 12 }, actor: 'jonas', at: 6600 });
+  // One LiteLLM log made two runs, and its event lists both.
+  const lite = [run('lite1', { startedAt: 500, meta: { imported: { at: 6700, from: 'proxy.jsonl' }, covers: ['api'] } }, { at: 510 }), run('lite2', { startedAt: 520, meta: { imported: { at: 6700, from: 'proxy.jsonl' }, covers: ['api'] } }, { at: 530 })];
+  recordEvent(store, { kind: 'capture.imported', ref: 'proxy.jsonl', data: { source: 'proxy.jsonl', calls: 4, runIds: lite }, at: 6700 });
 
   // Tests: one passing with its checks, one failing a check; and blame probes, which are bundled away.
   const passed: RunMeta = { test: { golden: 'goldens/refund-over-limit', session: 's1' }, checks: [{ ok: true, label: 'issue_refund never called', detail: null }, { ok: true, label: 'exits 0', detail: null }] };
@@ -109,6 +112,7 @@ describe('the activity feed', () => {
     expect(byId(items, `r:${ids.packRoot}:import`)).toMatchObject({ kind: 'cap', at: 6500, text: 'Unpacked refund · 2 runs' });
     expect(items.some((i) => i.runId === ids.packChild)).toBe(false);
     expect(items.filter((i) => i.runId === ids.logged).map((i) => [i.text, i.actor])).toEqual([['Imported traffic.har · 12 model calls', 'jonas']]);
+    expect(items.filter((i) => i.at === 6700).map((i) => i.text)).toEqual(['Imported proxy.jsonl · 4 model calls']);
   });
 
   it('tells test runs by their golden and checks', () => {

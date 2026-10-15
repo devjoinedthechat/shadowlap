@@ -75,6 +75,13 @@ describe('a command started by a dashboard job', () => {
     expect(withStore((s) => s.getRun(recordingId)!.meta?.author)).toBe('maya@example.com');
   });
 
+  it('keeps the agent out of the job\'s pipe: an agent that runs shadowlap itself reports nothing into it', async () => {
+    const r = await shadowlap(['run', '--', process.execPath, '-e', 'console.log("events fd: " + (process.env.SHADOWLAP_EVENTS_FD ?? "unset"))']);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain('events fd: unset');
+    expect(r.events.map((e) => e.type)).toEqual(['run', 'result', 'link']);
+  });
+
   it('replay --repeat: reports every attempt as an attempt, the report, and where to see them', async () => {
     const r = await shadowlap(['replay', recordingId, '--repeat', '2']);
     expect(r.code, r.out).toBe(0);

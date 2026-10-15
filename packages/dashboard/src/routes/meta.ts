@@ -14,6 +14,7 @@ export function register(router: Router, ctx: RouteContext): void {
         readOnlyReason: ctx.readOnlyReason,
         address: ctx.address(),
         jobKinds: ctx.jobs.kindNames(),
+        uploadLimit: ctx.project && !ctx.readOnly ? ctx.uploads.maxBytes : null,
         project: ctx.project,
       }),
     ),

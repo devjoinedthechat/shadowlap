@@ -326,8 +326,11 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
 function coveredByEvents(store: Store): Set<string> {
   const out = new Set<string>();
   for (const e of store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 })) {
-    if (!e.runId) continue;
-    out.add(`${e.kind === 'blame.done' ? 'blame' : 'import'}:${e.runId}`);
+    const what = e.kind === 'blame.done' ? 'blame' : 'import';
+    if (e.runId) out.add(`${what}:${e.runId}`);
+    // One import can make several runs (a LiteLLM log, one per conversation): its event lists them.
+    const listed = e.data?.runIds;
+    if (Array.isArray(listed)) for (const id of listed) if (typeof id === 'string') out.add(`${what}:${id}`);
   }
   return out;
 }
