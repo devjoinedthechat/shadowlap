@@ -104,8 +104,8 @@ export function loadConfig(cwd: string): ShadowlapConfig {
 
 /**
  * A list of rules as a property that checks it the first time a command reads it. It behaves as a
- * plain property otherwise: a command may replace the list (to put other rules
- * in front of the project's), copy the config or spread it.
+ * plain property otherwise: a command may replace the list (to put rules in front of the project's),
+ * copy the config or spread it.
  */
 function checkedOnFirstUse(list: 'normalize' | 'redact', raw: unknown): PropertyDescriptor {
   let rules: Normalizer[] | undefined;

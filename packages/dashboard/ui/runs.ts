@@ -91,7 +91,7 @@ export function runCounts(r: RunLike): OriginCounts | null {
   return o ? countOrigins(o) : null;
 }
 
-export type GlyphKind = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train' | 'release';
+export type GlyphKind = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
 
 /** The icon a run shows, with the words that go with it. */
 export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {

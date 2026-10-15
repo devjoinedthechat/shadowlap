@@ -8,7 +8,6 @@ import { FixesPage } from '../pages/Fixes.js';
 import { NewProjectPage } from '../pages/NewProject.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { OverviewPage } from '../pages/Overview.js';
-import { ReleasesPage } from '../pages/Releases.js';
 import { RunPage } from '../pages/Run.js';
 import { RunsPage } from '../pages/Runs.js';
 import { SettingsPage } from '../pages/Settings.js';
@@ -92,8 +91,6 @@ function PageFor({ route }: { route: Route }) {
       return <NewProjectPage />;
     case 'setup':
       return <SetupPage />;
-    case 'releases':
-      return <ReleasesPage id={route.id} />;
     default:
       return <NotFoundPage />;
   }

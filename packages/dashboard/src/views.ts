@@ -116,7 +116,7 @@ export interface MetaView {
 }
 
 /** The icon an activity entry shows, as in the mock (each comes with its words beside it or on hover). */
-export type ActivityIcon = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train' | 'release';
+export type ActivityIcon = 'live' | 'rec' | 'fail' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
 
 /** One entry of the activity feed. */
 export interface ActivityItem {

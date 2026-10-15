@@ -7,7 +7,7 @@
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view (the old #/run/<id>/call/<n> still opens)
  *   #/compare[/<a>/<b>]                  Compare
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
- *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/releases[/<id>]
+ *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup
  */
 
 export type View = 'calls' | 'turns' | 'context' | 'timeline' | 'forks' | 'provenance';
@@ -26,7 +26,6 @@ export type Route =
   | { page: 'settings'; tab: string | null }
   | { page: 'new' }
   | { page: 'setup' }
-  | { page: 'releases'; id: string | null }
   | { page: 'notfound'; path: string };
 
 export type Page = Route['page'];
@@ -90,8 +89,6 @@ export function parseRoute(hash: string): Route {
       return { page: 'new' };
     case 'setup':
       return { page: 'setup' };
-    case 'releases':
-      return { page: 'releases', id: a && SEGMENT.test(a) ? a : null };
     default:
       return { page: 'notfound', path: raw };
   }
@@ -114,7 +111,6 @@ export const href = {
   settings: (tab?: string | null) => (tab ? `#/settings/${enc(tab)}` : '#/settings'),
   newProject: () => '#/new',
   setup: () => '#/setup',
-  releases: (id?: string | null) => (id ? `#/releases/${enc(id)}` : '#/releases'),
 };
 
 /** The fragment for a route, so a parsed route can be written back. */
@@ -140,8 +136,6 @@ export function routeHref(r: Route): string {
       return href.newProject();
     case 'setup':
       return href.setup();
-    case 'releases':
-      return href.releases(r.id);
     case 'notfound':
       return `#/${r.path}`;
   }
@@ -181,7 +175,7 @@ export function nextView(v: View | null): View {
 }
 
 /** Which nav entry a route sits under. */
-export function navSection(r: Route): 'overview' | 'runs' | 'compare' | 'fixes' | 'tests' | 'training' | 'settings' | 'releases' | null {
+export function navSection(r: Route): 'overview' | 'runs' | 'compare' | 'fixes' | 'tests' | 'training' | 'settings' | null {
   switch (r.page) {
     case 'overview':
       return 'overview';
@@ -193,7 +187,6 @@ export function navSection(r: Route): 'overview' | 'runs' | 'compare' | 'fixes' 
     case 'tests':
     case 'training':
     case 'settings':
-    case 'releases':
       return r.page;
     default:
       return null;

@@ -38,7 +38,7 @@ describe('validateBatch', () => {
   });
   it('rejects unknown fields, free text and out-of-range values', () => {
     expect(() => validateBatch(batch([event({ prompt: 'secret' })]))).toThrow(/unexpected field "prompt"/);
-    expect(() => validateBatch({ ...batch([event()]), path: '/Users/x' })).toThrow(/unexpected field "path"/);
+    expect(() => validateBatch({ ...batch([event()]), path: '/home/x' })).toThrow(/unexpected field "path"/);
     expect(() => validateBatch(batch([event({ os: 'my-laptop' })]))).toThrow(/os must be one of/);
     expect(() => validateBatch(batch([event({ providers: ['cohere'] })]))).toThrow(/providers must be one of/);
     expect(() => validateBatch(batch([event({ version: 'v1 (custom build)' })]))).toThrow(/version/);

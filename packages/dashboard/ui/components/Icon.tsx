@@ -29,7 +29,6 @@ export type IconName =
   | 'clock'
   | 'bell'
   | 'loop'
-  | 'seal'
   | 'target';
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
@@ -162,10 +161,6 @@ export function Sprite() {
       </symbol>
       <symbol id="i-loop" viewBox="0 0 16 16">
         <path d="M11.2 8a3.6 3.6 0 1 1-3.6-3.6h6" fill="none" stroke="currentColor" strokeWidth="1.6" />
-      </symbol>
-      <symbol id="i-seal" viewBox="0 0 16 16">
-        <circle cx="8" cy="6.6" r="4.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M5.7 10.2L4.9 14.3 8 12.8l3.1 1.5-.8-4.1" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
       </symbol>
       <symbol id="i-target" viewBox="0 0 16 16">
         <circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" strokeWidth="1.4" />

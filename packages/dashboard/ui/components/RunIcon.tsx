@@ -5,8 +5,7 @@ import { Icon } from './Icon.js';
 /**
  * One set of icons for runs and events, each with the same words beside it or on hover: a pulsing
  * dot (recording now), a ring (recording), a crossed circle (failed), replay, fork, import (capture)
- * and tests; events add Fixes, a folder (project), sliders (settings), a target (training) and a seal
- * (release).
+ * and tests; events add Fixes, a folder (project), sliders (settings) and a target (training).
  */
 
 export const EVENT_LABEL: Record<GlyphKind, string> = {
@@ -23,7 +22,6 @@ export const EVENT_LABEL: Record<GlyphKind, string> = {
   project: 'Project',
   setting: 'Settings',
   train: 'Training',
-  release: 'Release',
 };
 
 function Mark({ kind }: { kind: GlyphKind }) {
@@ -61,8 +59,6 @@ function Mark({ kind }: { kind: GlyphKind }) {
       return <Icon name="gear" />;
     case 'train':
       return <Icon name="target" />;
-    case 'release':
-      return <Icon name="seal" />;
   }
 }
 

@@ -21,7 +21,7 @@ describe('loadConfig', () => {
     expect(() => config.redact).toThrow(/shadowlap\.config\.json: redaction rule #1: unknown pattern "emial"/);
   });
 
-  it('lets a command replace a list, to put other rules in front of the project\'s', () => {
+  it('lets a command replace a list, to put rules in front of the project\'s', () => {
     write({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] });
     const config = loadConfig(cwd);
     const org = { kind: 'tool' as const, path: '$.args.iban', replace: '<IBAN>' };

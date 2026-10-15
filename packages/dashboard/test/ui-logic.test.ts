@@ -32,7 +32,6 @@ describe('routes', () => {
     expect(parseRoute('#/training/tasks')).toEqual({ page: 'training', tab: 'tasks' });
     expect(parseRoute('#/training')).toEqual({ page: 'training', tab: 'pairs' });
     expect(parseRoute('#/settings/redaction')).toEqual({ page: 'settings', tab: 'redaction' });
-    expect(parseRoute('#/releases/v2.4.0')).toEqual({ page: 'releases', id: 'v2.4.0' });
     expect(parseRoute('#/new')).toEqual({ page: 'new' });
     expect(parseRoute('#/setup')).toEqual({ page: 'setup' });
     expect(parseRoute('#/nowhere')).toEqual({ page: 'notfound', path: 'nowhere' });
@@ -44,7 +43,7 @@ describe('routes', () => {
     expect(href.run('01K5CQ4P2R', 17, 'calls')).toBe('#/run/01K5CQ4P2R/17');
     expect(href.run('01K5CQ4P2R', 17, 'forks')).toBe('#/run/01K5CQ4P2R/17/forks');
     expect(href.run('01K5CQ4P2R', null, 'context')).toBe('#/run/01K5CQ4P2R/context');
-    for (const h of ['#/', '#/runs', '#/run/01K5CQ4P2R/3/turns', '#/compare/01A/01B', '#/compare', '#/fixes/fx-1/repair', '#/tests', '#/training/tasks', '#/settings/project', '#/new', '#/setup', '#/releases/v1']) {
+    for (const h of ['#/', '#/runs', '#/run/01K5CQ4P2R/3/turns', '#/compare/01A/01B', '#/compare', '#/fixes/fx-1/repair', '#/tests', '#/training/tasks', '#/settings/project', '#/new', '#/setup']) {
       expect(routeHref(parseRoute(h))).toBe(h);
     }
   });

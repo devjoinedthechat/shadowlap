@@ -124,7 +124,6 @@ const EVENT_TEXT = new Map<string, Describe>([
   ],
   ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.failed) ? `${num(d.failed)} failed` : null) })],
   ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
-  ['release.tagged', (e) => ({ kind: 'release', text: `Release ${e.ref ?? ''} tagged`, href: e.ref ? `#/releases/${e.ref}` : '#/releases' })],
 ]);
 
 /** A verify's page: under its fix, at the verdict when the event names it. */

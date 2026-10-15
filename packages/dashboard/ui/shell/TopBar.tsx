@@ -12,12 +12,7 @@ export const SETTINGS_TABS: Readonly<Record<string, string>> = {
   agents: 'Coding agents',
   tools: 'Tools',
   project: 'Project',
-  plan: 'Plan',
   store: 'Store',
-  server: 'Server',
-  members: 'Members',
-  policies: 'Policies',
-  audit: 'Audit log',
 };
 
 type Crumb = { label: string; href?: string; mono?: boolean };
@@ -42,8 +37,6 @@ function crumbsFor(route: Route, parentOf: (id: string) => string | null): Crumb
       const tab = route.tab ?? 'matching';
       return [{ label: 'Settings', href: href.settings() }, { label: SETTINGS_TABS[tab] ?? tab, mono: true }];
     }
-    case 'releases':
-      return route.id ? [{ label: 'Releases', href: href.releases() }, { label: route.id, mono: true }] : [{ label: 'Releases' }];
     case 'new':
       return [{ label: 'Add a project' }];
     case 'setup':
