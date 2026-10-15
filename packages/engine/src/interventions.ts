@@ -84,6 +84,26 @@ export type Refusal = { refused: string };
 export const refused = (r: unknown): r is Refusal => isObject(r) && typeof r.refused === 'string';
 
 /**
+ * A text value as `--inject-result` and `--override` take it on the command line, where a leading `@`
+ * names a file to read: text that itself starts with `@` is written `@@…`. What someone types into
+ * the fork menu goes through this, so a value from the browser is always text, never a file the
+ * server reads.
+ */
+export function literalValue(text: string): string {
+  return text.startsWith('@') ? `@${text}` : text;
+}
+
+/** Gemini and Vertex accept a model as `models/<name>` or by its publisher path; the URL carries the name alone. */
+function pathModelName(provider: string | null | undefined, model: string): string | Refusal {
+  if (provider === 'gemini' || provider === 'vertex') {
+    const name = model.replace(/^(?:projects\/[^/]+\/locations\/[^/]+\/)?publishers\/[^/]+\/models\//, '').replace(/^models\//, '');
+    return name && !name.includes('/') ? name : { refused: `"${model}" is not a model name the request's path can carry; give the model's own name, such as gemini-2.5-pro` };
+  }
+  if (provider === 'azure' && (!model || model.includes('/'))) return { refused: `"${model}" is not an Azure deployment name; give the name of the deployment to send to, such as gpt-4o-mini` };
+  return model;
+}
+
+/**
  * Switches the model of one request: in the path where the provider names it there (an Azure
  * deployment, a Bedrock model id or inference profile, a Gemini or Vertex model), otherwise the
  * body's `model`. A body that also carries `model` gets it in both places, so they never disagree.
@@ -92,14 +112,18 @@ export function switchModel(provider: string | null | undefined, path: string, b
   const at = modelInRequest(provider, path, body);
   if (!at) return { refused: 'the request names no model, in its path or its body' };
   let nextPath = path;
+  let name = model;
   if (at.where === 'path') {
-    if (provider === 'bedrock') nextPath = path.replace(/\/model\/[^/]+\//, () => `/model/${encodeURIComponent(model)}/`);
-    else if (provider === 'azure') nextPath = path.replace(/\/deployments\/[^/]+\//, () => `/deployments/${encodeURIComponent(model)}/`);
-    else nextPath = path.replace(/\/models\/[^/:]+:/, () => `/models/${segment(model)}:`);
+    const named = pathModelName(provider, model);
+    if (refused(named)) return named;
+    name = named;
+    if (provider === 'bedrock') nextPath = path.replace(/\/model\/[^/]+\//, () => `/model/${encodeURIComponent(name)}/`);
+    else if (provider === 'azure') nextPath = path.replace(/\/deployments\/[^/]+\//, () => `/deployments/${encodeURIComponent(name)}/`);
+    else nextPath = path.replace(/\/models\/[^/:]+:/, () => `/models/${segment(name)}:`);
   }
   const next = isObject(body) ? { ...body } : body;
-  if (isObject(next) && (at.where === 'body' || typeof next.model === 'string')) next.model = model;
-  return { path: nextPath, body: next, changed: at.model !== model };
+  if (isObject(next) && (at.where === 'body' || typeof next.model === 'string')) next.model = name;
+  return { path: nextPath, body: next, changed: at.model !== name };
 }
 
 // ---- request fields ----
@@ -272,14 +296,27 @@ const roleOf = (shape: RequestShape, turn: unknown): string | null => {
 };
 
 /**
+ * Gemini's older form (Vertex's first SDKs, LangChain) sends function responses in a turn of their own,
+ * role `function` (or `tool`): that turn is on the user's side of the conversation, like a user turn.
+ */
+const GEMINI_USER_SIDE = new Set(['user', 'function', 'tool']);
+
+/**
+ * Models that reject a system message after the conversation has started: the provider answers such a
+ * request with a 400, so an instruction for them goes in the user turn.
+ */
+const NO_LATE_SYSTEM: Array<{ model: RegExp; name: string }> = [{ model: /claude-sonnet-5(?!\d)/i, name: 'Claude Sonnet 5' }];
+
+/**
  * Where an instruction goes in this request, or why it can't go in. As `user`, it joins the user turn
  * the request ends with: a block appended to the last user message (Anthropic, Gemini and Converse put
  * tool results in a user turn, so that is the turn the model answers next), or, where the request ends
- * on tool output (OpenAI chat and Responses), a user message of its own after it. As `system`, it is a
- * system message at the end of the conversation, which Gemini and Converse can't express: they take
- * system instructions only ahead of the conversation.
+ * on tool output (OpenAI chat and Responses, Gemini's `function` turns), a user message of its own
+ * after it. As `system`, it is a system message at the end of the conversation, which Gemini and
+ * Converse can't express (they take system instructions only ahead of the conversation) and some
+ * models reject; `model` is the one the request names, when known.
  */
-export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs): InjectionPlace | Refusal {
+export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs, model?: string | null): InjectionPlace | Refusal {
   if (!isObject(body)) return { refused: 'the request body is not a JSON object' };
   if (shape === 'other') return { refused: 'the request is not a conversation (an embeddings call, or a model\'s native body), so there is no turn to add an instruction to' };
   const turns = turnsOf(shape, body);
@@ -287,6 +324,8 @@ export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs)
   if (as === 'system') {
     if (shape === 'gemini') return { refused: 'Gemini takes system instructions only in systemInstruction, ahead of the conversation, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
     if (shape === 'converse') return { refused: 'Bedrock Converse takes system prompts only in system, ahead of the conversation, and its messages are user and assistant turns, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
+    const strict = model ? NO_LATE_SYSTEM.find((m) => m.model.test(model)) : undefined;
+    if (strict) return { refused: `${strict.name} (${model}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
     return { mode: 'insert', index: turns.length, prefix: prefixHash(turns, turns.length) };
   }
   // OpenAI chat and Responses carry tool output as turns of their own: after them comes a new user turn.
@@ -296,7 +335,11 @@ export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs)
     return { mode: 'insert', index: turns.length, prefix: prefixHash(turns, turns.length) };
   }
   for (let i = turns.length - 1; i >= 0; i--) {
-    if (roleOf(shape, turns[i]) === 'user') return { mode: 'extend', index: i, prefix: prefixHash(turns, i + 1) };
+    const role = roleOf(shape, turns[i]);
+    if (role === 'user') return { mode: 'extend', index: i, prefix: prefixHash(turns, i + 1) };
+    // Function responses in a turn of their own: the instruction is a user turn after them, never an
+    // edit to an earlier user turn the model has already answered.
+    if (shape === 'gemini' && role && GEMINI_USER_SIDE.has(role)) return { mode: 'insert', index: i + 1, prefix: prefixHash(turns, i + 1) };
   }
   return { mode: 'insert', index: turns.length, prefix: prefixHash(turns, turns.length) };
 }

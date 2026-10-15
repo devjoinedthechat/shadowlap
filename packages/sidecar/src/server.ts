@@ -39,7 +39,7 @@ import {
   type ToolFailure,
 } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, type HttpResult, type HttpRule } from './http.js';
-import { describeInterventions, RequestInterventions, type Interventions } from './interventions.js';
+import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
@@ -133,12 +133,10 @@ interface TrackedCall {
 
 class RunContext {
   nextCallNo = 1;
-  /** Model calls so far, retries not counted: the place of the next one among the run's model calls. */
-  apiCalls = 0;
   readonly calls = new Map<number, TrackedCall>();
   readonly lastByFingerprint = new Map<string, number>();
   /** With request interventions: the last model call by scope and the fingerprint of its request before any rewrite, so a retry keeps its call's place. */
-  readonly lastByRequest = new Map<string, { callNo: number; apiIndex: number }>();
+  readonly lastByRequest = new Map<string, { callNo: number; place: CallPlace }>();
   readonly warnings: string[] = [];
   readonly providersUsed = new Set<string>();
   readonly sdksSeen = new Set<string>();
@@ -628,17 +626,18 @@ export class Sidecar {
     let forced: { by: string; counterpart: number } | undefined;
     let changedBy: string | undefined;
     let refusal: string | undefined;
-    let counted: { key: string; apiIndex: number } | undefined;
+    let counted: { key: string; place: CallPlace } | undefined;
     if (ctx.interventions?.active) {
-      // A flag names a model call by its place among the recording's model calls, counted the way the
-      // recording counts them: every one, whatever it sends (an embeddings call too), and a retry as
-      // the call it retries. A retry is told apart as the recording tells it, by its fingerprint, here
-      // of the request before any rewrite, so it gets the same rewrite as the attempt it repeats.
+      // A flag names a model call by its place among the recording's model calls (of its scope, when
+      // the recording has scopes), counted the way the recording counts them: every one, whatever it
+      // sends (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
+      // recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
+      // same rewrite as the attempt it repeats.
       const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt }).fingerprint}`;
       const same = ctx.lastByRequest.get(key);
       const repeats = same !== undefined && ctx.calls.get(same.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
-      counted = { key, apiIndex: repeats ? same!.apiIndex : ctx.apiCalls++ };
-      const rewrite = ctx.interventions.apply(counted.apiIndex, provider.id, subpath, body);
+      counted = { key, place: repeats ? same!.place : ctx.interventions.next(scope) };
+      const rewrite = ctx.interventions.apply(counted.place, provider.id, subpath, body);
       if ('refused' in rewrite) refusal = rewrite.refused;
       else {
         // At the call a flag named: a changed body diverges on its own, and its diff shows the
@@ -699,8 +698,8 @@ export class Sidecar {
         at: Date.now(),
       });
     }
-    if (counted) ctx.lastByRequest.set(counted.key, { callNo, apiIndex: counted.apiIndex });
-    if (refusal !== undefined) return this.serveRefusal(ctx, res, callNo, tracked, refusal);
+    if (counted) ctx.lastByRequest.set(counted.key, { callNo, place: counted.place });
+    if (refusal !== undefined) return this.serveRefusal(ctx, res, provider, callNo, tracked, refusal);
 
     // Checked after the retry branch and keyed by call number, so every attempt of an injected
     // failure fails. The interesting question is what the agent does when a call cannot succeed;
@@ -735,10 +734,13 @@ export class Sidecar {
    * Answers a model call an intervention could not be applied to, with the reason, instead of
    * sending it as the agent wrote it: a fork that silently isn't one is worse than an error.
    */
-  private serveRefusal(ctx: RunContext, res: ServerResponse, callNo: number, tracked: TrackedCall, reason: string): void {
+  private serveRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, reason: string): void {
     const message = `shadowlap could not apply ${reason}`;
-    const bytes = Buffer.from(JSON.stringify({ type: 'error', error: { type: 'shadowlap_intervention_refused', message } }), 'utf8');
-    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused' });
+    // In the provider's own error shape, so its client shows the reason: AWS clients read a top-level
+    // message and the error type from a header; the others read error.message.
+    const aws = provider.id === 'bedrock';
+    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_intervention_refused', message } }), 'utf8');
+    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused', ...(aws ? { 'x-amzn-errortype': 'ValidationException' } : {}) });
     res.end(bytes);
     const error: SerializedError = { name: 'ShadowlapInterventionRefused', message };
     this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: tracked.ends++, responseRef: this.store.putBlob(bytes), outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 }, at: Date.now() });

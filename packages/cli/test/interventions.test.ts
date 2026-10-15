@@ -205,6 +205,21 @@ describe('checks before a replay starts', () => {
     store.close();
   });
 
+  it('refuses a system message on a model that takes none mid-conversation, by the model the call recorded', () => {
+    const store = Store.open(':memory:');
+    const recorded = [
+      stored(store, 1, 'POST /v1/messages', 'anthropic', { model: 'claude-sonnet-5', max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] }),
+      stored(store, 2, 'POST /v1/messages', 'anthropic', { model: 'claude-opus-5', max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] }),
+      stored(store, 3, 'POST /model/anthropic.claude-sonnet-5-v1%3A0/invoke', 'bedrock', { anthropic_version: 'bedrock-2023-05-31', max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] }),
+    ];
+    const check = (atCall: number) => () => checkRequestInterventions(store, recorded, { inject: { atCall, text: 'x', as: 'system' } });
+    expect(check(1)).toThrow(/--inject 1 --inject-as system: Claude Sonnet 5 \(claude-sonnet-5\) takes no system message after the conversation has started/);
+    expect(check(2)).not.toThrow();
+    // On Bedrock the model is in the path.
+    expect(check(3)).toThrow(/Claude Sonnet 5 \(anthropic\.claude-sonnet-5-v1:0\)/);
+    store.close();
+  });
+
   it('refuses a plant in a result with no text, or one that failed', () => {
     const store = Store.open(':memory:');
     const tool = (callNo: number, outcome: 'ok' | 'error', payload: unknown): CallRecord => ({

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { estimateCost, finalAnswer, loadApiRequest, placeInjection, plantInToolResult, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { estimateCost, finalAnswer, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -96,7 +96,7 @@ export function checkRequestInterventions(store: Store, parentCalls: CallRecord[
   if (interventions.inject) {
     const { atCall, as } = interventions.inject;
     const r = requestOf(atCall);
-    const place = placeInjection(r.shape, r.body, as);
+    const place = placeInjection(r.shape, r.body, as, modelInRequest(r.provider, r.path, r.body)?.model ?? null);
     if (refused(place)) throw new Error(`--inject ${atCall}${as === 'system' ? ' --inject-as system' : ''}: ${place.refused}`);
   }
   if (interventions.set) {

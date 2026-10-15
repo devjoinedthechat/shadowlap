@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyInjection,
   formatToolFailure,
+  literalValue,
   modelInRequest,
   parseToolFailure,
   placeInjection,
@@ -70,6 +71,17 @@ describe('switchModel', () => {
 
   it('refuses a request that names no model', () => {
     expect(switchModel('openai', '/v1/chat/completions', { messages: [] }, 'gpt-5')).toEqual({ refused: expect.stringContaining('names no model') });
+  });
+
+  it('takes a Gemini model as its SDKs name it, and refuses what a path segment cannot carry', () => {
+    const path = '/v1beta/models/gemini-2.5-flash:generateContent';
+    expect(switchModel('gemini', path, { contents: [] }, 'models/gemini-2.5-pro')).toMatchObject({ path: '/v1beta/models/gemini-2.5-pro:generateContent', changed: true });
+    expect(switchModel('gemini', path, { contents: [] }, 'models/gemini-2.5-flash')).toMatchObject({ changed: false });
+    const vertex = '/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent';
+    expect(switchModel('vertex', vertex, { contents: [] }, 'publishers/google/models/gemini-2.5-pro')).toMatchObject({ path: '/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent' });
+    expect(switchModel('vertex', vertex, { contents: [] }, 'projects/p/locations/us-central1/publishers/google/models/gemini-2.5-pro')).toMatchObject({ path: '/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent' });
+    expect(switchModel('gemini', path, { contents: [] }, 'tunedModels/my-model')).toEqual({ refused: expect.stringContaining('model\'s own name') });
+    expect(switchModel('azure', '/openai/deployments/gpt-4o/chat/completions', { messages: [] }, 'team/gpt-4o-mini')).toEqual({ refused: expect.stringContaining('not an Azure deployment name') });
   });
 });
 
@@ -197,6 +209,33 @@ describe('an injected instruction', () => {
     expect(placeInjection('gemini', body, 'system')).toEqual({ refused: expect.stringContaining('systemInstruction') });
   });
 
+  it('Gemini, function responses in a turn of their own: a user turn after them, never an edit to an earlier one', () => {
+    const body = {
+      contents: [
+        { role: 'user', parts: [{ text: 'go' }] },
+        { role: 'model', parts: [{ functionCall: { name: 'f', args: {} } }] },
+        { role: 'function', parts: [{ functionResponse: { name: 'f', response: { ok: true } } }] },
+      ],
+    };
+    const { body: out, place } = inject('gemini', body, 'Escalate.');
+    expect(out.contents).toEqual([...body.contents, { role: 'user', parts: [{ text: 'Escalate.' }] }]);
+    expect(place).toMatchObject({ mode: 'insert', index: 3 });
+    // A later request of the conversation keeps it in that place.
+    const later = { contents: [...body.contents, { role: 'model', parts: [{ text: 'Done.' }] }, { role: 'user', parts: [{ text: 'thanks' }] }] };
+    expect((applyInjection('gemini', later, 'Escalate.', 'user', place)!.contents as Array<{ role: string }>).map((t) => t.role)).toEqual(['user', 'model', 'function', 'user', 'model', 'user']);
+    const tool = { contents: [body.contents[0], body.contents[1], { role: 'tool', parts: [{ functionResponse: { name: 'f', response: {} } }] }] };
+    expect(placeInjection('gemini', tool, 'user')).toMatchObject({ mode: 'insert', index: 3 });
+  });
+
+  it('refuses a system message mid-conversation on a model that rejects one, naming the model', () => {
+    const body = { model: 'claude-sonnet-5', messages: [{ role: 'user', content: 'go' }] };
+    expect(placeInjection('anthropic', body, 'system', 'claude-sonnet-5')).toEqual({ refused: expect.stringContaining('Claude Sonnet 5 (claude-sonnet-5) takes no system message') });
+    expect(placeInjection('anthropic', body, 'system', 'anthropic.claude-sonnet-5-20260115-v1:0')).toMatchObject({ refused: expect.stringContaining('--inject-as user') });
+    expect(placeInjection('anthropic', body, 'system', 'claude-opus-5')).toMatchObject({ mode: 'insert' });
+    // As the user it goes in on every model.
+    expect(placeInjection('anthropic', body, 'user', 'claude-sonnet-5')).toMatchObject({ mode: 'extend' });
+  });
+
   it('Bedrock Converse: an untyped text block on the user turn; no system message mid-conversation', () => {
     const body = { system: [{ text: 's' }], messages: [{ role: 'user', content: [{ toolResult: { toolUseId: 't', content: [{ text: 'r' }] } }] }] };
     expect(inject('converse', body, 'Escalate.').body.messages).toEqual([{ role: 'user', content: [{ toolResult: { toolUseId: 't', content: [{ text: 'r' }] } }, { text: 'Escalate.' }] }]);
@@ -205,6 +244,14 @@ describe('an injected instruction', () => {
 
   it('refuses a request that is not a conversation', () => {
     expect(placeInjection('other', { input: 'embed me' }, 'user')).toEqual({ refused: expect.stringContaining('not a conversation') });
+  });
+});
+
+describe('literalValue', () => {
+  it('doubles a leading @, which the CLI reads as text rather than a file name', () => {
+    expect(literalValue('@/etc/hosts')).toBe('@@/etc/hosts');
+    expect(literalValue('@@x')).toBe('@@@x');
+    expect(literalValue('plain text with @ inside')).toBe('plain text with @ inside');
   });
 });
 

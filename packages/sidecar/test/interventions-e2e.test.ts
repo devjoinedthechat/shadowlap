@@ -36,16 +36,34 @@ describe('Anthropic', () => {
   let sidecar: Sidecar;
   let parent: string;
 
-  // Look an order up, then answer: two model calls, the second after a tool result.
-  async function agent(sc: Sidecar, run: Run): Promise<string> {
-    const client = new Anthropic({ apiKey: 'k', baseURL: sc.envFor(run.runId).ANTHROPIC_BASE_URL, maxRetries: 0 });
+  /** A recording made with Claude Opus 5, which takes a system message mid-conversation. */
+  let opusParent: string;
+
+  /**
+   * Look an order up, then answer: two model calls, the second after a tool result. `scope` names the
+   * sub-agent it runs as; `step` runs only its first or second call, so sub-agents can interleave.
+   */
+  function support(sc: Sidecar, run: Run, model = 'claude-sonnet-5', scope?: string, order = 42) {
+    const client = new Anthropic({ apiKey: 'k', baseURL: sc.envFor(run.runId).ANTHROPIC_BASE_URL, maxRetries: 0, ...(scope ? { defaultHeaders: { 'x-shadowlap-scope': scope } } : {}) });
     const tools = [{ name: 'lookup_order', input_schema: { type: 'object' as const, properties: { id: { type: 'number' } } } }];
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: 'Refund order 42.' }];
-    const first = await client.messages.create({ model: 'claude-sonnet-5', max_tokens: 64, system: 'You are support.', tools, messages });
-    const use = first.content.find((b) => b.type === 'tool_use')!;
-    messages.push({ role: 'assistant', content: first.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: use.id, content: 'order 42: $240' }] });
-    const second = await client.messages.create({ model: 'claude-sonnet-5', max_tokens: 64, system: 'You are support.', tools, messages });
-    return second.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: `Refund order ${order}.` }];
+    return {
+      async first() {
+        const first = await client.messages.create({ model, max_tokens: 64, system: 'You are support.', tools, messages });
+        const use = first.content.find((b) => b.type === 'tool_use')!;
+        messages.push({ role: 'assistant', content: first.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: use.id, content: `order ${order}: $240` }] });
+      },
+      async second() {
+        const second = await client.messages.create({ model, max_tokens: 64, system: 'You are support.', tools, messages });
+        return second.content.map((b) => (b.type === 'text' ? b.text : '')).join('');
+      },
+    };
+  }
+
+  async function agent(sc: Sidecar, run: Run, model = 'claude-sonnet-5'): Promise<string> {
+    const a = support(sc, run, model);
+    await a.first();
+    return a.second();
   }
 
   beforeAll(async () => {
@@ -56,6 +74,10 @@ describe('Anthropic', () => {
     await agent(sidecar, run);
     sidecar.endRun(run.runId, 'completed');
     parent = run.runId;
+    const opus = sidecar.startRun({ mode: 'record', command });
+    await agent(sidecar, opus, 'claude-opus-5');
+    sidecar.endRun(opus.runId, 'completed');
+    opusParent = opus.runId;
   });
   afterAll(async () => {
     await sidecar.close();
@@ -76,9 +98,48 @@ describe('Anthropic', () => {
     expect(summary.divergence!.hints).toBeUndefined();
   });
 
-  it('injects as a system message after the conversation with --inject-as system', async () => {
-    await replay(sidecar, parent, { inject: { atCall: 2, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run));
+  it('injects as a system message after the conversation with --inject-as system, on a model that takes one', async () => {
+    await replay(sidecar, opusParent, { inject: { atCall: 2, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run, 'claude-opus-5'));
     expect(mock.requests.at(-1)!.body.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'system']);
+  });
+
+  it('refuses a system message on Sonnet 5, which takes none mid-conversation, and says so once', async () => {
+    const before = mock.requests.length;
+    const { error, summary } = await replay(sidecar, parent, { inject: { atCall: 2, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run));
+    expect(String(error)).toContain('Claude Sonnet 5 (claude-sonnet-5) takes no system message after the conversation has started');
+    expect(mock.requests.length).toBe(before);
+    expect(summary.warnings.filter((w) => w.includes('--inject 2'))).toEqual([expect.stringMatching(/^Not applied: --inject 2 --inject-as system: Claude Sonnet 5/)]);
+    // Answered by Shadowlap with the reason: neither live nor sent upstream.
+    expect([summary.refused, summary.upstreamRequests]).toEqual([1, 0]);
+  });
+
+  it('finds the call a flag names among its own sub-agent\'s calls, whatever order the sub-agents send them in', async () => {
+    // Recorded: a1, b1, a2, b2. Replayed: b1, a1, b2, a2. Call 3 is a's second call either way.
+    const rec = sidecar.startRun({ mode: 'record', command });
+    const a = support(sidecar, rec, 'claude-sonnet-5', 'a', 42);
+    const b = support(sidecar, rec, 'claude-sonnet-5', 'b', 43);
+    await a.first();
+    await b.first();
+    await a.second();
+    await b.second();
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getCalls(rec.runId).map((c) => c.meta.scope)).toEqual(['a', 'b', 'a', 'b']);
+    const before = mock.requests.length;
+    const { summary } = await replay(sidecar, rec.runId, { inject: { atCall: 3, text: 'Escalate refunds above $200.', as: 'user' } }, async (run) => {
+      const a2 = support(sidecar, run, 'claude-sonnet-5', 'a', 42);
+      const b2 = support(sidecar, run, 'claude-sonnet-5', 'b', 43);
+      await b2.first();
+      await a2.first();
+      await b2.second();
+      await a2.second();
+    });
+    // Only a's second call reached the provider, with the instruction; b's replayed as recorded.
+    const sent = mock.requests.slice(before);
+    expect(sent).toHaveLength(1);
+    expect(JSON.stringify(sent[0]!.body.messages)).toContain('Refund order 42.');
+    expect(sent[0]!.body.messages.at(-1)!.content).toEqual([expect.objectContaining({ type: 'tool_result' }), { type: 'text', text: 'Escalate refunds above $200.' }]);
+    expect(summary.divergence).toMatchObject({ type: 'request_changed', counterpart: { callNo: 3 }, reason: 'changed by --inject 3: an instruction added to the user turn' });
+    expect(summary.warnings).toEqual([]);
   });
 
   it('still forks at the call named when the request already had the setting', async () => {
@@ -92,7 +153,7 @@ describe('Anthropic', () => {
   it('forks at the named call even when --prompt-from hides the injected system message from matching', async () => {
     const before = mock.requests.length;
     // --prompt-from matches earlier calls without their system messages, which hides this injection.
-    const { summary } = await replay(sidecar, parent, { inject: { atCall: 1, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run), { promptFrom: 2 });
+    const { summary } = await replay(sidecar, opusParent, { inject: { atCall: 1, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run, 'claude-opus-5'), { promptFrom: 2 });
     expect(mock.requests.length - before).toBe(2);
     expect(mock.requests[before]!.body.messages.at(-1)).toEqual({ role: 'system', content: 'Prefer store credit.' });
     expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 1, reason: 'forced live by --inject 1 --inject-as system: an instruction added as a system message, a change the normalizers or --prompt-from hide from matching' });
@@ -266,7 +327,9 @@ describe('Gemini', () => {
     const { error, summary, run } = await replay(sidecar, parent, { inject: { atCall: 2, text: 'x', as: 'system' } }, (r) => agent(sidecar, r));
     expect(String(error)).toContain('Gemini takes system instructions only in systemInstruction');
     expect(mock.requests.length).toBe(before);
-    expect(summary.warnings.join('\n')).toContain('Not applied: --inject 2 --inject-as system');
+    // Said once, as not applied: the call was reached, so nothing claims it was not.
+    expect(summary.warnings.filter((w) => w.includes('--inject 2'))).toEqual([expect.stringMatching(/^Not applied: --inject 2 --inject-as system/)]);
+    expect([summary.refused, summary.upstreamRequests]).toEqual([1, 0]);
     expect(store.getCalls(run.runId).find((c) => c.callNo === 2)!.end).toMatchObject({ outcome: 'error', meta: { status: 400, refused: true } });
   });
 
@@ -339,7 +402,7 @@ describe('Bedrock, Vertex and Azure', () => {
     const signed = resign({ method: 'POST', path, query: '', headers: unsigned, body, host: SIGNED_HOST }, () => AWS);
     if ('error' in signed) throw new Error(signed.error);
     const res = await fetch(`${sc.url}/r/${run.runId}/bedrock${path}`, { method: 'POST', headers: { ...signed.headers, 'x-shadowlap-upstream': `https://${SIGNED_HOST}` }, body });
-    return { status: res.status, body: (await res.json()) as { output?: { message: { content: Array<{ text: string }> } }; error?: { message: string } } };
+    return { status: res.status, errorType: res.headers.get('x-amzn-errortype'), body: (await res.json()) as { output?: { message: { content: Array<{ text: string }> } }; message?: string } };
   }
 
   it('Bedrock Converse: changes path and body, signs the request again, and the provider accepts the signature', async () => {
@@ -376,11 +439,15 @@ describe('Bedrock, Vertex and Azure', () => {
       const requests = cloud.stats.requests;
       const { summary } = await replay(sidecar, rec.runId, { set: { fromCall: 1, fields: { temperature: 0 } } }, async (r) => {
         const answer = await converse(sidecar, r, resignSigV4);
-        expect(answer.status).toBe(400);
-        expect(answer.body.error?.message).toContain(`signed it with AWS access key ${AWS.accessKeyId}`);
+        // As AWS answers a request it rejects, so the AWS SDK shows the reason.
+        expect([answer.status, answer.errorType]).toEqual([400, 'ValidationException']);
+        expect(answer.body.message).toContain(`signed it with the AWS access key ending in ${AWS.accessKeyId.slice(-4)}`);
+        // The key itself never goes into the answer, the recording or the warnings.
+        expect(answer.body.message).not.toContain(AWS.accessKeyId);
       });
       expect(cloud.stats.requests).toBe(requests);
       expect(summary.warnings.some((w) => w.startsWith('Not applied: --set 1:temperature=0'))).toBe(true);
+      expect(summary.warnings.join('\n')).not.toContain(AWS.accessKeyId);
     } finally {
       await sidecar.close();
     }

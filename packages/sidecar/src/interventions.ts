@@ -1,4 +1,4 @@
-import { applyInjection, formatToolFailure, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
+import { applyInjection, formatToolFailure, literalValue, modelInRequest, placeInjection, refused, requestShape, setRequestFields, switchModel, type CallRecord, type InjectAs, type InjectionPlace, type ReplayOptions, type RequestShape, type RunIntervention } from '@shadowlap/engine';
 
 /**
  * Request-level interventions for a replay. Both are append-only with respect to the conversation
@@ -44,26 +44,46 @@ function fieldValue(v: unknown): string {
 }
 
 /**
+ * A model call's place in a run: the n-th model call (counting from 0) of its scope. A recording made
+ * without scopes has one scope, `''`, so there the place is the call's place among the run's model calls.
+ */
+export interface CallPlace {
+  scope: string;
+  index: number;
+}
+
+/** `model call 3`, or `model call 3 of scope researcher`. */
+const callLabel = (at: CallPlace) => `model call ${at.index + 1}${at.scope ? ` of scope ${at.scope}` : ''}`;
+
+/**
  * One run's interventions, resolved against its parent. A model call is found by its place among the
  * recording's model calls (the 15th, say), counted the same way on both sides: every model call,
- * whatever it sends (an embeddings call too), and a retry as the call it retries. Each intervention
- * applies to the provider its target call went to, so a model id or a sampling setting meant for one
- * provider never reaches another.
+ * whatever it sends (an embeddings call too), and a retry as the call it retries. A recording made
+ * with scopes is counted per scope, the way the session matches its calls, because sub-agents running
+ * at once can send their requests in another order than they were recorded in: the 15th call is then
+ * the 4th of its scope. Each intervention applies to the provider its target call went to, so a model
+ * id or a sampling setting meant for one provider never reaches another.
  */
 export class RequestInterventions {
-  private readonly inject?: { apiIndex: number; callNo: number; provider: string | null; text: string; as: InjectAs; place?: InjectionPlace; shape?: RequestShape; reached: boolean };
-  private readonly set?: { apiIndex: number; callNo: number; provider: string | null; fields: Record<string, unknown>; model?: string; reached: boolean };
+  private readonly inject?: { at: CallPlace; callNo: number; provider: string | null; text: string; as: InjectAs; place?: InjectionPlace; shape?: RequestShape; reached: boolean };
+  private readonly set?: { at: CallPlace; callNo: number; provider: string | null; fields: Record<string, unknown>; model?: string; reached: boolean };
   /** Problems with requests after the first, said once each. */
   readonly warnings: string[] = [];
-  private modelCalls = 0;
+  /** Whether the recording used scopes; if it didn't, scopes are ignored, as the session ignores them. */
+  private readonly scoped: boolean;
+  /** Model calls the replay has made so far, retries not counted, per scope. */
+  private readonly counts = new Map<string, number>();
 
   constructor(parentCalls: CallRecord[], interventions: Interventions, onError: (message: string) => never) {
+    this.scoped = parentCalls.some((c) => typeof c.meta.scope === 'string');
     const api = parentCalls.filter((c) => c.kind === 'api');
     const find = (callNo: number, flag: string) => {
-      const i = api.findIndex((c) => c.callNo === callNo);
-      if (i < 0) onError(`${flag}: call #${callNo} is not a model call of the recording`);
-      const provider = api[i]!.meta.provider;
-      return { apiIndex: i, provider: typeof provider === 'string' ? provider : null };
+      const call = api.find((c) => c.callNo === callNo);
+      if (!call) onError(`${flag}: call #${callNo} is not a model call of the recording`);
+      const scope = this.scopeOf(call!.meta.scope);
+      const index = api.filter((c) => c.callNo < callNo && this.scopeOf(c.meta.scope) === scope).length;
+      const provider = call!.meta.provider;
+      return { at: { scope, index }, provider: typeof provider === 'string' ? provider : null };
     };
     if (interventions.inject) {
       const { atCall, text, as } = interventions.inject;
@@ -81,6 +101,18 @@ export class RequestInterventions {
     return !!this.inject || !!this.set;
   }
 
+  private scopeOf(scope: unknown): string {
+    return this.scoped && typeof scope === 'string' ? scope : '';
+  }
+
+  /** The place of a new model call made in `scope` (not a retry: a retry keeps the place of the call it retries). */
+  next(scope: string | undefined): CallPlace {
+    const key = this.scopeOf(scope);
+    const index = this.counts.get(key) ?? 0;
+    this.counts.set(key, index + 1);
+    return { scope: key, index };
+  }
+
   /** The flags as one line, for a divergence report. */
   private setFlags(): string {
     const s = this.set!;
@@ -88,13 +120,14 @@ export class RequestInterventions {
   }
 
   /**
-   * One model request, as the run's interventions have it: `apiIndex` is its place among the run's
-   * model calls (a retry keeps the place of the call it retries). Refuses the target call when its
-   * request can't take the change, with the reason; a later request that can't is left as it is,
-   * with a warning.
+   * One model request at `place`, as the run's interventions have it. Refuses the target call when its
+   * request can't take the change, with the reason; a later request that can't is left as it is, with
+   * a warning. "From the call on" means later calls of the target's scope, and once the target has been
+   * reached, calls of every other scope too.
    */
-  apply(apiIndex: number, provider: string, path: string, body: unknown): Rewrite {
-    this.modelCalls = Math.max(this.modelCalls, apiIndex + 1);
+  apply(place: CallPlace, provider: string, path: string, body: unknown): Rewrite {
+    const isTarget = (at: CallPlace) => place.scope === at.scope && place.index === at.index;
+    const fromOn = (t: { at: CallPlace; reached: boolean }) => (place.scope === t.at.scope ? place.index >= t.at.index : t.reached);
     let nextPath = path;
     let nextBody = body;
     // A setting the request already had is no change: the caller forces such a call live instead.
@@ -102,37 +135,38 @@ export class RequestInterventions {
     const forced: string[] = [];
     const shape = requestShape(provider, path, body);
     const inj = this.inject;
-    if (inj && apiIndex >= inj.apiIndex && (inj.provider === null || inj.provider === provider)) {
-      if (apiIndex === inj.apiIndex) {
-        const place = placeInjection(shape, body, inj.as);
-        if (refused(place)) return { refused: `--inject ${inj.callNo}${inj.as === 'system' ? ' --inject-as system' : ''}: ${place.refused}` };
-        inj.place = place;
-        inj.shape = shape;
+    if (inj && fromOn(inj) && (inj.provider === null || inj.provider === provider)) {
+      if (isTarget(inj.at)) {
+        // Reached, even when refused: the refusal says why, and `unapplied` must not say it again.
         inj.reached = true;
+        const placed = placeInjection(shape, body, inj.as, modelInRequest(provider, path, body)?.model ?? null);
+        if (refused(placed)) return { refused: `--inject ${inj.callNo}${inj.as === 'system' ? ' --inject-as system' : ''}: ${placed.refused}` };
+        inj.place = placed;
+        inj.shape = shape;
       }
       if (inj.place && inj.shape === shape) {
         const injected = applyInjection(shape, nextBody, inj.text, inj.as, inj.place);
         if (injected) {
           nextBody = injected;
           changed = true;
-          if (apiIndex === inj.apiIndex) forced.push(`--inject ${inj.callNo}${inj.as === 'system' ? ' --inject-as system: an instruction added as a system message' : ': an instruction added to the user turn'}`);
+          if (isTarget(inj.at)) forced.push(`--inject ${inj.callNo}${inj.as === 'system' ? ' --inject-as system: an instruction added as a system message' : ': an instruction added to the user turn'}`);
         }
       }
     }
     const set = this.set;
-    if (set && apiIndex >= set.apiIndex && (set.provider === null || set.provider === provider)) {
-      const target = apiIndex === set.apiIndex;
+    if (set && fromOn(set) && (set.provider === null || set.provider === provider)) {
+      const target = isTarget(set.at);
       if (target) set.reached = true;
       if (shape === 'other') {
         // Sampling settings and models belong to generation: an embeddings call keeps its own. Only the
         // target's is worth a word, since the CLI refuses that before a replay starts.
-        if (target) this.warnOnce(`${this.setFlags()} left model call ${apiIndex + 1} as it was: it is not a conversation (an embeddings call, or a model's native body)`);
+        if (target) this.warnOnce(`${this.setFlags()} left ${callLabel(place)} as it was: it is not a conversation (an embeddings call, or a model's native body)`);
       } else {
         if (Object.keys(set.fields).length) {
           const patched = setRequestFields(shape, nextBody, set.fields);
           if (refused(patched)) {
             if (target) return { refused: `--set ${set.callNo}: ${patched.refused}` };
-            this.warnOnce(`--set ${set.callNo} left model call ${apiIndex + 1} as it was: ${patched.refused}`);
+            this.warnOnce(`--set ${set.callNo} left ${callLabel(place)} as it was: ${patched.refused}`);
           } else {
             nextBody = patched.body;
             changed ||= patched.changed;
@@ -142,7 +176,7 @@ export class RequestInterventions {
           const switched = switchModel(provider, nextPath, nextBody, set.model);
           if (refused(switched)) {
             if (target) return { refused: `--model ${set.callNo}:${set.model}: ${switched.refused}` };
-            this.warnOnce(`--model ${set.callNo}:${set.model} left model call ${apiIndex + 1} as it was: ${switched.refused}`);
+            this.warnOnce(`--model ${set.callNo}:${set.model} left ${callLabel(place)} as it was: ${switched.refused}`);
           } else {
             nextPath = switched.path;
             nextBody = switched.body;
@@ -152,7 +186,7 @@ export class RequestInterventions {
         if (target) forced.push(this.setFlags());
       }
     }
-    const counterpart = inj && apiIndex === inj.apiIndex ? inj.callNo : (set?.callNo ?? 0);
+    const counterpart = inj && isTarget(inj.at) ? inj.callNo : (set?.callNo ?? 0);
     return { path: nextPath, body: nextBody, changed, ...(forced.length ? { target: { by: forced.join('; '), counterpart } } : {}) };
   }
 
@@ -163,10 +197,15 @@ export class RequestInterventions {
   /** Interventions whose call the run never reached, as sentences for the summary. */
   unapplied(): string[] {
     const out: string[] = [];
-    const why = (apiIndex: number, provider: string | null) =>
-      this.modelCalls <= apiIndex ? `the replay made ${this.modelCalls} model call${this.modelCalls === 1 ? '' : 's'}, and it is model call ${apiIndex + 1} of the recording` : `the replay sent its model call ${apiIndex + 1} to another provider than the recording's ${provider ?? ''}`.trimEnd();
-    if (this.inject && !this.inject.reached) out.push(`--inject ${this.inject.callNo} changed nothing: ${why(this.inject.apiIndex, this.inject.provider)}`);
-    if (this.set && !this.set.reached) out.push(`${this.setFlags()} changed nothing: ${why(this.set.apiIndex, this.set.provider)}`);
+    const why = (t: { at: CallPlace; provider: string | null }) => {
+      const made = this.counts.get(t.at.scope) ?? 0;
+      const of = t.at.scope ? ` of scope ${t.at.scope}` : '';
+      return made <= t.at.index
+        ? `the replay made ${made} model call${made === 1 ? '' : 's'}${of}, and it is ${callLabel(t.at)} of the recording`
+        : `the replay sent its ${callLabel(t.at)} to another provider than the recording's ${t.provider ?? ''}`.trimEnd();
+    };
+    if (this.inject && !this.inject.reached) out.push(`--inject ${this.inject.callNo} changed nothing: ${why(this.inject)}`);
+    if (this.set && !this.set.reached) out.push(`${this.setFlags()} changed nothing: ${why(this.set)}`);
     return out;
   }
 }

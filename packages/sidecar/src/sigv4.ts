@@ -97,15 +97,17 @@ export function resignSigV4(input: SignInput, credentialsFor: CredentialsFor): {
   const m = AUTH.exec(input.headers.authorization ?? '');
   if (!m) return { error: 'the request carries no AWS Signature Version 4 to sign again' };
   const [, keyId, date, region, service, signedHeaders] = m as unknown as [string, string, string, string, string, string];
+  // The reason is stored with the run and travels in packs: the key is named by its last characters only.
+  const named = `the AWS access key ending in ${keyId.slice(-4)}`;
   const credentials = credentialsFor(keyId);
   if (!credentials) {
     return {
-      error: `the agent signed it with AWS access key ${keyId}, whose secret is in neither the environment nor the shared credentials files, so Shadowlap can't sign the changed request again. Credentials from an SSO session or an assumed role live only in the client: export them for the replay (aws configure export-credentials --format env) and run it again`,
+      error: `the agent signed it with ${named}, whose secret is in neither the environment nor the shared credentials files, so Shadowlap can't sign the changed request again. Credentials from an SSO session or an assumed role live only in the client: export them for the replay (aws configure export-credentials --format env) and run it again`,
     };
   }
   const token = input.headers['x-amz-security-token'];
   if (token !== undefined && credentials.sessionToken !== undefined && token !== credentials.sessionToken) {
-    return { error: `the session token found for AWS access key ${keyId} is not the one the agent signed with, so the changed request can't be signed again` };
+    return { error: `the session token found for ${named} is not the one the agent signed with, so the changed request can't be signed again` };
   }
   const amzDate = input.headers['x-amz-date'];
   if (!amzDate) return { error: 'the request carries no x-amz-date to sign with' };
