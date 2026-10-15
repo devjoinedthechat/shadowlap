@@ -563,7 +563,7 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
           try {
             for (const g of out.goldens) cpSync(join(cwd, g), join(goldensDir, basename(g)), { recursive: true });
           } catch (err) {
-            throw new RepairError(`the fix is in the working tree, but copying its recordings to ${goldens} failed: ${(err as Error).message}`);
+            throw new RepairError(`the fix is in the working tree, but copying its recordings to ${goldens} failed: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         if (input.settings.build) {
@@ -579,7 +579,7 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
       }
     } catch (err) {
       // Whatever stopped it, the repair ran and its verdict stands: it is kept, with where the hand-over stopped.
-      failed = err instanceof RepairError ? err : new RepairError((err as Error).message);
+      failed = err instanceof RepairError ? err : new RepairError(err instanceof Error ? err.message : String(err));
       report.warnings.push(`handing the fix over stopped: ${failed.message}`);
     }
   }
