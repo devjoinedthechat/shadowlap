@@ -1,7 +1,7 @@
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, shortModel, Store, summarizeRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { Telemetry, type EventInput } from './telemetry.js';
@@ -46,6 +46,37 @@ export interface GlobalOpts {
 
 export function openStore(opts: GlobalOpts): Store {
   return Store.open(opts.db ?? defaultDbPath(process.cwd()));
+}
+
+/**
+ * The store, or null when the project has none yet: for commands that only read it or clean it up
+ * (`gc`, `redact preview`, `calibrate`), which must not leave an empty store behind.
+ */
+export function openStoreIfExists(opts: GlobalOpts): Store | null {
+  const dbPath = opts.db ?? defaultDbPath(process.cwd());
+  return existsSync(dbPath) ? Store.open(dbPath) : null;
+}
+
+/**
+ * Records what a command changed in the project's activity log (a rule added or removed, old runs
+ * cleaned up). Only into a store that exists: editing shadowlap.config.json never creates one. Never
+ * fails the command, whose work is already done.
+ */
+export function recordEvents(opts: GlobalOpts, events: Array<Omit<RecordEventInput, 'actor'>>): void {
+  if (!events.length) return;
+  const dbPath = opts.db ?? defaultDbPath(process.cwd());
+  if (!existsSync(dbPath)) return;
+  try {
+    const store = Store.open(dbPath);
+    try {
+      const actor = resolveAuthor({ cwd: process.cwd() });
+      for (const event of events) recordEvent(store, { ...event, actor });
+    } finally {
+      store.close();
+    }
+  } catch {
+    // a store from a newer Shadowlap, or one this user can't write: the activity line is lost, not the edit
+  }
 }
 
 export function formatBytes(n: number): string {

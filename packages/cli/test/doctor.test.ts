@@ -35,7 +35,9 @@ describe('shadowlap doctor', () => {
     writeFileSync(join(dir, '.shadowlap', 'active.json'), JSON.stringify({ url: 'http://127.0.0.1:1/t', runId: '01STALE', pid: 2 ** 22 - 1 }));
     writeFileSync(join(dir, '.shadowlap', 'repair-journal.json'), JSON.stringify({ pid: 2 ** 22 - 1, files: [{ path: join(dir, 'agent.mjs'), original: '', patched: '' }] }));
     const store = Store.open(join(dir, '.shadowlap', 'shadowlap.db'));
-    store.createRun({ mode: 'record', command: { argv: ['x'], cwd: dir } }); // never ended
+    // A run its process left running two days ago, and one this process is recording: only the first is a problem.
+    store.importRun({ runId: '01ABANDONED000000000000000', parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['x'], cwd: dir }, codeVersion: null, startedAt: Date.now() - 2 * 86_400_000, endedAt: null });
+    store.createRun({ mode: 'record', command: { argv: ['x'], cwd: dir } });
     store.close();
     const checks = runDoctor({
       cwd: dir,
@@ -55,8 +57,8 @@ describe('shadowlap doctor', () => {
     expect(byName.config?.detail).toMatch(/prices\["m"\]/);
     expect(byName['active run']?.verdict).toBe('warn');
     expect(byName.repair).toMatchObject({ verdict: 'warn', detail: expect.stringContaining('agent.mjs') });
-    expect(byName['runs still marked running']?.verdict).toBe('warn');
-    expect(byName.store?.detail).toMatch(/1 run/);
+    expect(byName['runs still marked running']).toMatchObject({ verdict: 'warn', detail: '01ABANDONE', fix: expect.stringContaining('shadowlap gc marks them interrupted') });
+    expect(byName.store?.detail).toMatch(/2 runs/);
     expect(byName.NODE_OPTIONS?.verdict).toBe('warn');
     expect(byName.telemetry?.detail).toContain('off');
     const text = formatDoctor(checks, plain);

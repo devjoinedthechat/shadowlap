@@ -53,6 +53,15 @@ describe('shadowlap.config.json schema', () => {
     for (const bad of ['many', '', '1-', '>=']) expect(re.test(bad), bad).toBe(false);
   });
 
+  it('accepts every pattern form a rule can have, and flags a named pattern that does not exist', () => {
+    const rule = schema.$defs.rule as { required: string[]; properties: { pattern: { pattern: string }; path: { pattern: string } } };
+    const re = new RegExp(rule.properties.pattern.pattern);
+    for (const ok of ['uuid', 'ulid', 'iso-date', 'iso-datetime', 'number', 'email', '/req_[a-z0-9]+/', '/a\\/b/gi', '/x/s']) expect(re.test(ok), ok).toBe(true);
+    for (const bad of ['uuidd', 'UUID', '', '/a/x', 'req_.*']) expect(re.test(bad), bad).toBe(false);
+    // A path alone (the whole value) and a pattern alone (every string) are both rules: only replace is required.
+    expect(rule.required).toEqual(['replace']);
+  });
+
   it('accepts the host forms the parser accepts', () => {
     const { pattern } = (schema.properties.http as { propertyNames: { pattern: string } }).propertyNames;
     const re = new RegExp(pattern);

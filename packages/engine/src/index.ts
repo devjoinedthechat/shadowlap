@@ -1,9 +1,9 @@
 export * from './types.js';
 export { canonicalize } from './canonical.js';
 export { ulid, sha256 } from './ids.js';
-export { applyNormalizers, compilePattern, namedPatterns, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, stripKeysDeep } from './normalize.js';
-export { redactBytes, redactRun } from './redact.js';
-export { covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
+export { applyNormalizers, compilePattern, namedPatterns, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, stripKeysDeep, type RewriteObserver } from './normalize.js';
+export { REDACTION_EXPORTS, clipChange, previewRedaction, redactBytes, redactRun, redactRunDetails, redactRunWithDetails, type RedactionExport, type RedactionPreview, type RedactionRulePreview } from './redact.js';
+export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, type ClockMode } from './clock.js';
 export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
@@ -17,6 +17,11 @@ export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResult
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
+// Whether a run still `running` has a process recording it (gc, Settings).
+export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type RunOwner } from './liveness.js';
+// shadowlap.config.json as a file the CLI and the dashboard both edit.
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, ruleNoun, setClock, validateRule } from './config-file.js';
+export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { describeChanges, type RunChanges } from './changes.js';

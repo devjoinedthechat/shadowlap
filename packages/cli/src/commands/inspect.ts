@@ -45,7 +45,6 @@ export function register(program: Command): void {
         loadConfig: () => loadConfig(cwd),
         version: VERSION,
         ...(config.prices ? { prices: config.prices } : {}),
-        ...(config.redact.length ? { redact: config.redact } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}),
       });
       telemetry().record({ type: 'ui' });
@@ -93,7 +92,7 @@ export function register(program: Command): void {
       const dashboard = embeddedDashboard(async () => {
         const { cliSpawner, startDashboard } = await import('@shadowlap/dashboard');
         // The dashboard's jobs get the events pipe; the terminal UI reads its actions' output as it always did.
-        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.redact.length ? { redact: uiConfig.redact } : {}) });
+        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
       });
       const openDashboard = async (id: string, callNo?: number) => {
         const { openInBrowser } = await import('@shadowlap/dashboard');

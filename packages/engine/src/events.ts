@@ -9,8 +9,12 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  * activity feed reads (packages/dashboard/src/activity.ts words them; a field it reads is a contract):
  * - `normalizer.added`, `normalizer.removed`: ref the rule's path; data the rule as stored (kind,
  *   name, path, pattern, replace), with `via: 'calibrate'` from `calibrate --write`
- * - `redaction.added`, `redaction.removed`: ref the replacement; data the rule without its pattern
- * - `clock.set`: data { clock, was }; `runs.cleaned`: data { runs, blobs, bytes, olderThanDays, keep }
+ * - `redaction.added`, `redaction.removed`: ref the replacement; data the rule without its pattern,
+ *   which can hold what the rule hides
+ * - `clock.set`: ref the mode (auto or exact); data { clock, was }. These and the rules above are
+ *   edits to shadowlap.config.json, from the CLI or Settings
+ * - `runs.cleaned`: data { runs, blobs, bytes, interrupted, olderThanDays, keep }: `shadowlap gc`
+ *   deleted old runs or marked abandoned recordings interrupted
  * - `golden.packed` (a pack in a goldens folder or named in the config's tests), `run.packed` (any
  *   other pack): runId, ref the folder relative to the project (its name alone when outside it,
  *   with `outside: true`); data { runs, calls, redacted }

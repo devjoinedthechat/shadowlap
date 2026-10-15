@@ -7,6 +7,7 @@ import { sha256, ulid } from './ids.js';
 import type { BlameReport } from './blame.js';
 import type { RepairOutcome, RepairReport } from './repair.js';
 import type { VerifyOutcome, VerifyReport } from './verify.js';
+import { currentOwner, recorderGone, type RunOwner } from './liveness.js';
 import type {
   CallEndRow,
   CallKind,
@@ -229,6 +230,14 @@ CREATE TABLE IF NOT EXISTS test_results (
   PRIMARY KEY (session_id, golden)
 );
 CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
+
+-- v4: settings. The process recording each run still running, so a clean-up can tell a recording
+-- from a run whose process was killed. The row goes when its run ends or is deleted.
+CREATE TABLE IF NOT EXISTS run_owners (
+  run_id  TEXT    PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+  pid     INTEGER NOT NULL,
+  host    TEXT    NOT NULL
+);
 `;
 
 // ---- tests (v4): the shapes of the test tables ----
@@ -552,7 +561,17 @@ export class Store {
     // The CLI, the TUI, the dashboard and test workers may open one store at once; wait for a lock
     // rather than fail. First, because switching a new database to WAL already needs one.
     db.exec('PRAGMA busy_timeout = 10000');
-    db.exec('PRAGMA journal_mode = WAL');
+    // SQLite answers "database is locked" at once, without the busy handler, when several processes
+    // switch a new database to WAL in the same instant. Wait a little and ask again.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        db.exec('PRAGMA journal_mode = WAL');
+        break;
+      } catch (err) {
+        if (attempt >= 100 || (err as { errcode?: number }).errcode !== 5) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + Math.floor(Math.random() * 40));
+      }
+    }
     db.exec('PRAGMA foreign_keys = ON');
     db.exec('PRAGMA synchronous = NORMAL');
     // Schema and migrations under one write lock: two processes opening the same old store must not
@@ -975,6 +994,9 @@ export class Store {
     };
     this.stmts.insertRun.run(run.runId, run.parentRunId, run.mode, JSON.stringify(run.command), run.codeVersion, run.startedAt);
     if (input.meta) this.db.prepare(`UPDATE runs SET meta = ? WHERE run_id = ?`).run(JSON.stringify(input.meta), run.runId);
+    // settings: who records it, until it ends (recordingRuns).
+    const owner = currentOwner();
+    this.db.prepare(`INSERT OR REPLACE INTO run_owners (run_id, pid, host) VALUES (?, ?, ?)`).run(run.runId, owner.pid, owner.host);
     return run;
   }
 
@@ -1002,6 +1024,7 @@ export class Store {
 
   endRun(runId: string, status: Exclude<RunStatus, 'running'>, endedAt: number = Date.now()): void {
     this.stmts.endRun.run(status, endedAt, runId);
+    this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);
   }
 
   setDivergence(runId: string, report: DivergenceReport): void {
@@ -1074,37 +1097,242 @@ export class Store {
 
   /**
    * Deletes blobs that no call references (a run's rows go with `deleteRun`; its blobs are shared by
-   * content, so they are collected here). Returns what was removed.
+   * content, so they are collected here). Returns what was removed: `bytes` uncompressed, `stored`
+   * as the store keeps them.
+   *
+   * Never while a run is recording, in this process or another: a recording stores a blob a moment
+   * before the call row that references it, and a call whose content is already stored references
+   * the existing blob without writing it again, so a blob that looks unreferenced may be one a
+   * recording is about to use. With a run still recording, nothing is deleted and `recording` names
+   * the runs. A run its process left `running` (killed, out of memory) is not recording and holds
+   * nothing up (recordingRuns). The check and the deletes share one write transaction, so no run
+   * can start between them; the slow part, reading every request manifest, happens before it, and
+   * only what changed meanwhile is read again under the lock. `among` limits the collection to
+   * those blobs (calibrate collects only what its own attempts wrote).
    */
-  gcBlobs(): { removed: number; bytes: number } {
+  gcBlobs(options: { among?: Iterable<string> } = {}): { removed: number; bytes: number; stored: number; recording: string[] } {
+    const recordingNow = () => this.recordingRuns().live.map((r) => r.run.runId);
+    const early = recordingNow();
+    if (early.length) return { removed: 0, bytes: 0, stored: 0, recording: early };
+    const manifests = new Map<string, string[]>();
+    const among = options.among ? new Set(options.among) : null;
+    const candidates = this.blobsNotIn(this.referencedBlobs(new Set(), manifests)).filter((b) => !among || among.has(b.hash));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const recording = recordingNow();
+      let removed = 0;
+      let bytes = 0;
+      let stored = 0;
+      if (!recording.length && candidates.length) {
+        // Calls committed since the first read may reference a candidate now: read their rows again.
+        const referenced = this.referencedBlobs(new Set(), manifests);
+        const del = this.db.prepare(`DELETE FROM blobs WHERE hash = ?`);
+        for (const b of candidates) {
+          if (referenced.has(b.hash)) continue;
+          if (Number(del.run(b.hash).changes) === 0) continue;
+          removed++;
+          bytes += b.size;
+          stored += b.stored;
+        }
+      }
+      this.db.exec('COMMIT');
+      return { removed, bytes, stored, recording };
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
+  /**
+   * Gives freed pages back to the filesystem, then checkpoints the write-ahead log so the file on
+   * disk shrinks now rather than at the next checkpoint (as far as readers on other connections
+   * allow; `size()` doesn't depend on it).
+   */
+  vacuum(): void {
+    this.db.exec('VACUUM');
+    try {
+      this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+    } catch {
+      // a reader kept part of the log: the next checkpoint finishes it
+    }
+  }
+
+  /**
+   * The store's size as SQLite counts it, whatever its write-ahead log holds: `bytes` is every page
+   * of the database, `free` the pages a vacuum would give back. Another connection holding the
+   * store open (a dashboard) can keep the files on disk larger for a while; this is what they
+   * come back to.
+   */
+  size(): { bytes: number; free: number } {
+    const pageSize = Number(this.db.prepare('PRAGMA page_size').get()?.page_size ?? 0);
+    const pages = Number(this.db.prepare('PRAGMA page_count').get()?.page_count ?? 0);
+    const free = Number(this.db.prepare('PRAGMA freelist_count').get()?.freelist_count ?? 0);
+    return { bytes: pages * pageSize, free: free * pageSize };
+  }
+
+  // ---- settings: tools across runs, counts, cleanup ----
+
+  /** Every blob the calls of a run reference, the parts of its request manifests included. */
+  runBlobRefs(runId: string): string[] {
+    const refs = new Set<string>();
+    for (const r of this.db.prepare(`SELECT kind, request_ref, response_ref FROM call_events WHERE run_id = ?`).all(runId)) {
+      const req = r.request_ref as string | null;
+      const res = r.response_ref as string | null;
+      if (res) refs.add(res);
+      if (req) {
+        refs.add(req);
+        if (r.kind === 'api') for (const h of manifestRefs(this, req)) refs.add(h);
+      }
+    }
+    return [...refs];
+  }
+
+  /**
+   * The blobs some call references, leaving out the runs in `skip`. A request manifest never
+   * changes (it is stored by its content), so `manifests` keeps what each one lists between reads.
+   */
+  private referencedBlobs(skip: Set<string>, manifests: Map<string, string[]>): Set<string> {
     const referenced = new Set<string>();
-    for (const r of this.db.prepare(`SELECT kind, request_ref, response_ref FROM call_events`).all()) {
+    for (const r of this.db.prepare(`SELECT run_id, kind, request_ref, response_ref FROM call_events`).all()) {
+      if (skip.has(String(r.run_id))) continue;
       const req = r.request_ref as string | null;
       const res = r.response_ref as string | null;
       if (res) referenced.add(res);
       if (req) {
         referenced.add(req);
-        if (r.kind === 'api') for (const h of manifestRefs(this, req)) referenced.add(h);
+        if (r.kind !== 'api') continue;
+        let parts = manifests.get(req);
+        if (!parts) {
+          parts = manifestRefs(this, req);
+          manifests.set(req, parts);
+        }
+        for (const h of parts) referenced.add(h);
       }
     }
-    const del = this.db.prepare(`DELETE FROM blobs WHERE hash = ?`);
-    let removed = 0;
-    let bytes = 0;
-    this.transaction(() => {
-      for (const b of this.db.prepare(`SELECT hash, size FROM blobs`).all()) {
-        const hash = String(b.hash);
-        if (referenced.has(hash)) continue;
-        del.run(hash);
-        removed++;
-        bytes += Number(b.size);
-      }
-    });
-    return { removed, bytes };
+    return referenced;
   }
 
-  /** Gives freed pages back to the filesystem. */
-  vacuum(): void {
-    this.db.exec('VACUUM');
+  private blobsNotIn(referenced: Set<string>): Array<{ hash: string; size: number; stored: number }> {
+    const out: Array<{ hash: string; size: number; stored: number }> = [];
+    for (const b of this.db.prepare(`SELECT hash, size, length(bytes) AS stored FROM blobs`).all()) {
+      const hash = String(b.hash);
+      if (!referenced.has(hash)) out.push({ hash, size: Number(b.size), stored: Number(b.stored) });
+    }
+    return out;
+  }
+
+  /**
+   * The blobs no call would reference once the runs in `without` are deleted, those nothing
+   * references now included: what `gcBlobs` removes after those runs go (once no run is
+   * recording), found without deleting anything. `bytes` is what they take in the store, `size`
+   * their uncompressed length.
+   */
+  unreferencedBlobs(without: Iterable<string> = []): { hashes: string[]; bytes: number; size: number } {
+    const blobs = this.blobsNotIn(this.referencedBlobs(new Set(without), new Map()));
+    return { hashes: blobs.map((b) => b.hash), bytes: blobs.reduce((n, b) => n + b.stored, 0), size: blobs.reduce((n, b) => n + b.size, 0) };
+  }
+
+  /**
+   * Every tool name called in any run, by the effect it was called with: how many calls, in how many
+   * runs, and the latest. One query over all runs, for the Settings page's tools.
+   */
+  toolUsage(): Array<{ name: string; effect: Effect | null; calls: number; runs: number; lastAt: number }> {
+    const rows = this.db
+      .prepare(`SELECT name, effect, COUNT(*) AS calls, COUNT(DISTINCT run_id) AS runs, MAX(at) AS last_at FROM call_events WHERE phase = 'start' AND kind = 'tool' GROUP BY name, effect ORDER BY name`)
+      .all();
+    return rows.map((r) => ({ name: String(r.name), effect: (r.effect as Effect | null) ?? null, calls: Number(r.calls), runs: Number(r.runs), lastAt: Number(r.last_at) }));
+  }
+
+  /**
+   * How many runs the store holds: `attempts` are the runs blame, verify and `replay --repeat` make
+   * (marked `probe`, `verify` or `repeat`), and `running` the runs not ended yet.
+   */
+  runCounts(): { runs: number; attempts: number; running: number } {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN json_valid(meta) THEN (json_type(meta, '$.probe') IS NOT NULL OR json_type(meta, '$.verify') IS NOT NULL OR json_type(meta, '$.repeat') IS NOT NULL) ELSE 0 END) AS attempts,
+                SUM(status = 'running') AS running
+         FROM runs`,
+      )
+      .get();
+    const total = Number(row?.total ?? 0);
+    const attempts = Number(row?.attempts ?? 0);
+    return { runs: total - attempts, attempts, running: Number(row?.running ?? 0) };
+  }
+
+  /** Recordings that ran to an end (completed or failed), newest first. */
+  finishedRecordings(limit = 50): RunRecord[] {
+    return this.db
+      .prepare(`SELECT * FROM runs WHERE mode = 'record' AND status IN ('completed', 'failed') ORDER BY started_at DESC, run_id DESC LIMIT ?`)
+      .all(limit)
+      .map(rowToRun);
+  }
+
+  /**
+   * The runs still `running`, oldest first: `live` ones a process is recording, and `abandoned` ones
+   * whose process stopped without ending them (see liveness.ts). `lastAt` is the run's start or its
+   * latest call, whichever is later.
+   */
+  recordingRuns(now = Date.now()): { live: Array<{ run: RunRecord; lastAt: number }>; abandoned: Array<{ run: RunRecord; lastAt: number }> } {
+    const rows = this.db
+      .prepare(
+        `SELECT r.*, o.pid AS owner_pid, o.host AS owner_host, (SELECT MAX(c.at) FROM call_events c WHERE c.run_id = r.run_id) AS last_call
+         FROM runs r LEFT JOIN run_owners o ON o.run_id = r.run_id
+         WHERE r.status = 'running' ORDER BY r.started_at, r.run_id`,
+      )
+      .all();
+    const live: Array<{ run: RunRecord; lastAt: number }> = [];
+    const abandoned: Array<{ run: RunRecord; lastAt: number }> = [];
+    for (const row of rows) {
+      const run = rowToRun(row);
+      const lastAt = Math.max(run.startedAt, Number(row.last_call ?? 0));
+      const owner: RunOwner | null = row.owner_pid === null || row.owner_pid === undefined ? null : { pid: Number(row.owner_pid), host: String(row.owner_host) };
+      (recorderGone(owner, lastAt, now) ? abandoned : live).push({ run, lastAt });
+    }
+    return { live, abandoned };
+  }
+
+  /**
+   * The MCP servers recorded tool calls came through (`shadowlap mcp` names each in the call's
+   * `meta.mcp`): per server, its calls, the latest, and the tools it offered when last listed,
+   * with their effects, or null when no call carried the list. One query over all runs.
+   */
+  mcpServerUsage(): Array<{ transport: string; server: string; calls: number; lastAt: number; tools: Array<{ name: string; effect: Effect }> | null; called: Array<{ name: string; effect: Effect | null }> }> {
+    // CASE, so a meta that isn't JSON is never handed to json_type, whatever order SQLite tries the terms in.
+    const where = `phase = 'start' AND kind = 'tool' AND (CASE WHEN json_valid(meta) THEN json_type(meta, '$.mcp.server') END) = 'text'`;
+    const servers = new Map<string, { transport: string; server: string; calls: number; lastAt: number; tools: Array<{ name: string; effect: Effect }> | null; called: Array<{ name: string; effect: Effect | null }> }>();
+    const key = (transport: unknown, server: unknown) => `${String(transport)}\u0000${String(server)}`;
+    for (const r of this.db
+      .prepare(`SELECT json_extract(meta, '$.mcp.transport') AS transport, json_extract(meta, '$.mcp.server') AS server, name, effect, COUNT(*) AS calls, MAX(at) AS last_at FROM call_events WHERE ${where} GROUP BY transport, server, name, effect ORDER BY name`)
+      .all()) {
+      const k = key(r.transport, r.server);
+      const s = servers.get(k) ?? { transport: String(r.transport), server: String(r.server), calls: 0, lastAt: 0, tools: null, called: [] };
+      s.calls += Number(r.calls);
+      s.lastAt = Math.max(s.lastAt, Number(r.last_at));
+      s.called.push({ name: String(r.name), effect: (r.effect as Effect | null) ?? null });
+      servers.set(k, s);
+    }
+    // The tools each server offered, from the latest call that listed them.
+    for (const r of this.db
+      .prepare(
+        `SELECT transport, server, tools FROM (
+           SELECT json_extract(meta, '$.mcp.transport') AS transport, json_extract(meta, '$.mcp.server') AS server, json_extract(meta, '$.mcp.tools') AS tools,
+                  ROW_NUMBER() OVER (PARTITION BY json_extract(meta, '$.mcp.transport'), json_extract(meta, '$.mcp.server') ORDER BY at DESC, run_id DESC, call_no DESC) AS latest
+           FROM call_events WHERE ${where} AND (CASE WHEN json_valid(meta) THEN json_type(meta, '$.mcp.tools') END) = 'array'
+         ) WHERE latest = 1`,
+      )
+      .all()) {
+      const s = servers.get(key(r.transport, r.server));
+      if (!s) continue;
+      try {
+        const listed = JSON.parse(String(r.tools)) as unknown[];
+        s.tools = listed.flatMap((t) => (typeof t === 'object' && t !== null && typeof (t as { name?: unknown }).name === 'string' && ['pure', 'read', 'write'].includes(String((t as { effect?: unknown }).effect)) ? [{ name: (t as { name: string }).name, effect: (t as { effect: Effect }).effect }] : []));
+      } catch {
+        s.tools = null;
+      }
+    }
+    return [...servers.values()].sort((a, b) => a.server.localeCompare(b.server));
   }
 
   // ---- read models (the dashboard's overview, run list and calendar) ----

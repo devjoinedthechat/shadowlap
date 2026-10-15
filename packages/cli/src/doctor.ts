@@ -104,13 +104,14 @@ export function runDoctor(options: DoctorOptions): Check[] {
     try {
       const store = Store.open(dbPath);
       const runs = store.allRuns();
-      const running = runs.filter((r) => r.status === 'running');
+      // Runs a process is recording are fine; one whose process stopped without ending it is not.
+      const abandoned = store.recordingRuns().abandoned.map((a) => a.run);
       // The version in the file, not the one this build was compiled with.
       const schema = store.schemaVersion();
       store.close();
       const size = statSync(dbPath).size + (statSync(`${dbPath}-wal`, { throwIfNoEntry: false })?.size ?? 0);
       push('store', 'ok', `${dbPath}: ${runs.length} run${runs.length === 1 ? '' : 's'}, ${bytes(size)}, schema v${schema}${schema === SCHEMA_VERSION ? '' : ` (this build writes v${SCHEMA_VERSION})`}`);
-      if (running.length) push('runs still marked running', 'warn', running.map((r) => r.runId.slice(0, 10)).join(', '), 'A run stays "running" when shadowlap was killed before it could end it; shadowlap rm <run> removes it, or shadowlap gc --older-than 1 later.');
+      if (abandoned.length) push('runs still marked running', 'warn', abandoned.map((r) => r.runId.slice(0, 10)).join(', '), 'Their recording process stopped without ending them (killed, or out of memory). shadowlap gc marks them interrupted; shadowlap rm <run> removes one.');
       if (size > 512 * 1024 * 1024) push('store size', 'warn', `${bytes(size)}`, 'shadowlap gc --older-than 30 deletes old runs and compacts the file.');
     } catch (err) {
       push('store', 'fail', `${dbPath}: ${err instanceof Error ? err.message : String(err)}`, 'The file is not a Shadowlap store or is damaged; move it aside and record again, or point --db elsewhere.');

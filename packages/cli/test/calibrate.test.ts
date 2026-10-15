@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { Store } from '@shadowlap/engine';
 
 /** `shadowlap calibrate` through the CLI, on an agent that sends a new UUID and a random temp path every run. */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
@@ -54,6 +55,11 @@ describe('shadowlap calibrate', () => {
 
     const written = await shadowlap(['calibrate', runId, '--write']);
     expect(written.code, written.out).toBe(0);
+    expect(written.out).toMatch(/Added to .*shadowlap\.config\.json as normalizers #1, #2, #3\./);
+    const log = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
+    // Each rule calibrate added is in the activity log, named by its path and marked as calibrate's.
+    expect(log.listEvents().map((e) => [e.kind, e.runId, e.ref, e.data?.via])).toEqual(['$.args.path', '$.system', '$.metadata.user_id'].map((path) => ['normalizer.added', runId, path, 'calibrate']));
+    log.close();
     const config = JSON.parse(readFileSync(join(cwd, 'shadowlap.config.json'), 'utf8')) as { normalize: Array<{ kind?: string; name?: string; path: string }> };
     expect(config.normalize.map((n) => [n.kind, n.name, n.path])).toEqual([
       ['api', undefined, '$.metadata.user_id'],
@@ -64,9 +70,10 @@ describe('shadowlap calibrate', () => {
     const after = await shadowlap(['replay', runId, '--strict']);
     expect(after.code, after.out).toBe(0);
     expect(after.out).toMatch(/Replay clean: 2\/2 calls replayed/);
-    expect((await shadowlap(['calibrate', runId])).out).toMatch(/Replays clean as it is: nothing to calibrate/);
-    const json = JSON.parse((await shadowlap(['calibrate', runId, '--json'])).out) as { clean: boolean; rounds: unknown[]; normalizers: unknown[]; stopped: unknown };
-    expect(json).toMatchObject({ clean: true, normalizers: [], stopped: null });
+    expect((await shadowlap(['calibrate', runId])).out).toMatch(/This recording replays clean with the current rules\. Nothing to add\./);
+    // Without a run named, it takes the newest finished recording, and says which it took.
+    const json = JSON.parse((await shadowlap(['calibrate', '--json'])).out) as { runId: string; source: string; clean: boolean; rounds: unknown[]; normalizers: unknown[]; stopped: unknown };
+    expect(json).toMatchObject({ runId, source: 'newest', clean: true, normalizers: [], stopped: null, written: false, added: [] });
     expect(json.rounds).toHaveLength(1);
 
     const summaryFile = join(cwd, 'summary.json');

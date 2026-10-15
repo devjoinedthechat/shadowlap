@@ -21,8 +21,11 @@ describe('gcBlobs', () => {
     start(store, doomed, 3, 'api', doomedManifest);
     start(store, kept, 1, 'tool', shared);
     start(store, kept, 2, 'api', manifest);
+    // Finished recordings: while a run is still recording, gcBlobs collects nothing.
+    store.endRun(doomed.runId, 'completed');
+    store.endRun(kept.runId, 'completed');
     expect(manifestRefs(store, manifest)).toHaveLength(2); // system and one message; the tools slot is null
-    expect(store.gcBlobs()).toEqual({ removed: 0, bytes: 0 });
+    expect(store.gcBlobs()).toEqual({ removed: 0, bytes: 0, stored: 0, recording: [] });
 
     store.deleteRun(doomed.runId);
     const gc = store.gcBlobs();

@@ -471,10 +471,10 @@ dashboard, the command also reports each run to the job that started it.
 ## calibrate
 
 ```sh
-shadowlap calibrate [run] [--write] [--max-rounds <n>]
+shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json]
 ```
 
-Replays a recording (default: the latest) offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. `--write` adds the proposals to `shadowlap.config.json`. No model calls; writes are blocked. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `newest` when it picked one), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 
@@ -497,7 +497,7 @@ Replays a recording (default: the latest) offline, repeatedly, and proposes a no
 | Key | What it does |
 |---|---|
 | `normalize` | Masks values before fingerprinting, so a generated id or today's date does not fork a replay ([details](./normalizers-and-redaction.md)) |
-| `redact` | Masks stored content on `shadowlap pack`; a redacted pack still replays |
+| `redact` | Masks stored content in the copy of a run that leaves the machine (`pack` and every export; [where](./normalizers-and-redaction.md#where-the-rules-apply)); a redacted pack still replays |
 | `clock` | `auto` (default) matches dates near each run's start across days; `exact` requires equality |
 | `http` | Hosts called straight from a client library, recorded as tool calls with an effect ([details](./sdk.md#http-services-without-wrapping)) |
 | `mcp.effects` | Effects by MCP tool name, overriding the server's annotations ([details](./mcp.md)) |
@@ -516,13 +516,24 @@ written for a newer version still works, while the schema rejects it — which i
 ## normalize, redact
 
 ```sh
-shadowlap normalize add --path '$.system[0].text' --pattern iso-date [--kind api] [--name <tool>] [--replace <text>]
-shadowlap normalize ls
-shadowlap redact add --pattern email [--path <jsonpath>] [--kind api|tool] [--name <tool>] [--replace <text>]
-shadowlap redact ls
+shadowlap normalize add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool|clock|random] [--name <name>] [--replace <text>] [--expect <version>]
+shadowlap normalize rm <n|name> [--expect <version>]
+shadowlap normalize ls [--json]
+shadowlap redact add [--path <jsonpath>] [--pattern <pattern>] [--kind api|tool] [--name <name>] [--replace <text>] [--expect <version>]
+shadowlap redact rm <n|name> [--expect <version>]
+shadowlap redact ls [--json]
+shadowlap redact preview [run] [--json]
 ```
 
-Both write to `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content on export.
+Both edit `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content when a run leaves the machine.
+
+- `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string; a path alone replaces the whole value there; `--name` scopes the rule to one tool or call. It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
+- `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.
+- `ls --json` prints `{ file, exists, version, rules }`, each rule with its number `n`; one the config can't load has `error` instead.
+- `--expect <version>` refuses the edit when the file is no longer the version `ls --json` printed.
+- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, as `pack` applies them, and on a line of its own what they match in the run's command line, labels and notes (`details`), which `export html`, `dataset` and `otel` mask and `pack` keeps. Nothing is written. [Preview](./normalizers-and-redaction.md#preview).
+
+Each add and rm is recorded in the project's activity, in a store that exists.
 
 ## serve
 
@@ -563,16 +574,34 @@ A local web UI over the store: runs and forks, a timeline of calls by origin, th
 shadowlap doctor [--json]
 ```
 
-Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH, the store (runs, size, schema, runs still marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking.
+Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH, the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking.
 
 ## rm, gc
 
 ```sh
 shadowlap rm <run...> [--forks]
-shadowlap gc [--older-than <days>] [--keep <n>] [--dry-run]
+shadowlap gc [--older-than <days> | --before <time>] [--keep <n>] [--expect <count>-<digest>] [--dry-run] [--json]
 ```
 
 `rm` deletes runs; their forks keep their data but lose the link. `gc` deletes old runs (`--older-than 30`, `--keep 200`; runs still recording are never touched), removes blobs nothing references any more, and vacuums the store. The TUI's `x` does the same as `rm` for one run.
+
+While any run is still recording, in this project's store and from any process, no blob is collected and the store isn't vacuumed: a recording stores a blob just before the call that references it, and reuses a blob already stored, so a blob that looks unreferenced may be one it is about to use. `gc` still deletes the old runs, says which runs are recording, and frees their blobs on a later run. `rm` collects blobs under the same rule.
+
+A run whose recording process was killed (`kill -9`, out of memory, a machine that went away) stays marked running, but it isn't recording, and it holds nothing up. The store names the process that records each run until the run ends: a run whose process is gone from this machine is abandoned at once; one whose process can't be asked (it ran on another machine) is abandoned after a day without a call, and one whose process is still there after a week without one. `gc` lists abandoned runs, marks them interrupted as of the last thing they recorded, and deletes them like any other run when they match `--older-than` or `--keep`.
+
+`--dry-run` changes nothing and says what a real run would free:
+
+```
+▸ runs older than 30 days: 3 of 120 · runs still recording are never touched
+    01M2R1HDVD  record  completed  41d ago  node agent.js
+    …
+  blobs nothing would reference: 14 · 2.1 MB
+✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
+```
+
+The size is what those blobs take in the store. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the store's size `before` and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
+
+To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids), and refuses, deleting nothing, when the runs that match now are different, even the same number of others. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
 
 ## export html
 
@@ -605,7 +634,7 @@ Recordings as an eval or fine-tuning dataset, one JSON line per example. Select 
 | `--format openai-chat` | `{ messages }`, the recorded answer as the last assistant message |
 | `--no-redact` | Skip the redaction rules |
 
-Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. Redaction rules without a path apply to every string; rules with a path apply to stored requests only, so they are skipped here.
+Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. The redaction rules apply to each model call's request and response as `pack` applies them, path rules included, before its conversation and answer are read; then the rules without a path apply to every string of the row, its command line, labels and notes too. A rule that can't be read stops the export.
 
 ## export har
 
@@ -635,9 +664,12 @@ masked text is spread back over the same events. The rules are named in the log
 shadowlap export otel <run>                                   # OTLP JSON to stdout
 shadowlap export otel <run> --out trace.json
 shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER_OTLP_ENDPOINT
+shadowlap export otel <run> --no-redact                       # skip the config's redaction rules
 ```
 
 A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved.
+
+A trace carries no prompt text, tool arguments or results. The redaction rules without a path apply to what it does carry from the run: span names, the command line (`process.command_args`), model and tool names, and error messages; Shadowlap's own ids and fixed values stay as they are. A rule that can't be read stops the export.
 
 ## Environment
 

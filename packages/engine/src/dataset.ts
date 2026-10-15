@@ -6,7 +6,8 @@
  */
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
 import { loadApiRequest } from './manifest.js';
-import { compilePattern } from './normalize.js';
+import { compilePattern, parsePath } from './normalize.js';
+import { redactedRequest, redactedResponse } from './redact.js';
 import { normalizeResponse } from './responses.js';
 import type { Store } from './store.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
@@ -18,7 +19,11 @@ export interface DatasetOptions {
   /** `final`: each run's last model call. `model`: every model call. */
   calls: 'final' | 'model';
   format: DatasetFormat;
-  /** Pattern rules without a path, applied to every string of every row. */
+  /**
+   * Redaction rules. Each model call's request and response get them as `pack` applies them, path
+   * rules included, before its conversation and answer are read; then the rules without a path
+   * apply to every string of the row (its command line, labels and notes too).
+   */
   redact?: Normalizer[];
 }
 
@@ -72,12 +77,14 @@ function messagesOf(turns: Turn[]): DatasetMessage[] {
   return out;
 }
 
-function example(store: Store, run: RunRecord, call: CallRecord): DatasetExample | null {
+function example(store: Store, run: RunRecord, call: CallRecord, rules: Normalizer[]): DatasetExample | null {
   if (!call.requestRef || !call.end?.responseRef) return null;
-  const conv = normalizeConversation(loadApiRequest(store, call.requestRef));
+  const conv = normalizeConversation(rules.length ? redactedRequest(store, call, rules) : loadApiRequest(store, call.requestRef));
   if (!conv) return null;
   const provider = call.end.meta.provider ?? call.meta.provider;
-  const response = normalizeResponse(store.getBlob(call.end.responseRef), call.end.meta.headers?.['content-type'], call.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
+  const stored = store.getBlob(call.end.responseRef);
+  const bytes = stored && rules.length ? redactedResponse(stored, rules) : stored;
+  const response = normalizeResponse(bytes, call.end.meta.headers?.['content-type'], call.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
   const checks = run.meta?.checks;
   return {
     input: { messages: messagesOf(conv.turns), tools: conv.tools },
@@ -130,7 +137,17 @@ function shape(e: DatasetExample, format: DatasetFormat): unknown {
 }
 
 export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOptions): unknown[] {
-  const rules = (opts.redact ?? []).filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));
+  const redact = opts.redact ?? [];
+  // A rule that can't be read fails the export: an unreadable call's row is left out, but a row must never go out unredacted.
+  redact.forEach((r, i) => {
+    try {
+      if (r.pattern !== undefined) compilePattern(r.pattern);
+      if (r.path !== undefined) parsePath(r.path);
+    } catch (err) {
+      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+  const rules = redact.filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));
   const rows: unknown[] = [];
   for (const run of runs) {
     const models = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.end?.outcome === 'ok');
@@ -138,7 +155,7 @@ export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOption
     for (const call of chosen) {
       let e: DatasetExample | null = null;
       try {
-        e = example(store, run, call);
+        e = example(store, run, call, redact);
       } catch {
         e = null; // an unreadable request or response is left out
       }
