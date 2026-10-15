@@ -9,7 +9,7 @@ import type { ProjectConfig, RouteContext } from './context.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli } from './jobs.js';
 import { Router, routeRequest } from './router.js';
-import { registerRoutes, type RouteModule } from './routes/index.js';
+import { ROUTE_MODULES, type RouteModule } from './routes/index.js';
 import { UploadStore } from './uploads.js';
 import type { ProjectView } from './views.js';
 
@@ -271,9 +271,24 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       instance: `${boot}.${createHash('sha1').update(pc.dbPath).digest('base64url').slice(0, 10)}${problem ? '.0' : ''}`,
     };
   };
-  const registerAll = (router: Router, ctx: RouteContext) => {
-    registerRoutes(router, ctx);
-    for (const m of opts.routes ?? []) m.register(router, ctx);
+  const modules: RouteModule[] = [...ROUTE_MODULES, ...(opts.routes ?? [])];
+  /**
+   * Registers every module with a context. For the project the dashboard opens on (and a dashboard
+   * that serves one store) a module that fails stops it starting, as before; for a project opened
+   * later it is logged and left out, so the switcher and the rest still serve that project.
+   */
+  const registerAll = (router: Router, ctx: RouteContext, later: string | null = null) => {
+    for (const m of modules) {
+      if (!later) {
+        m.register(router, ctx);
+        continue;
+      }
+      try {
+        m.register(router, ctx);
+      } catch (err) {
+        log(`a route module could not register for ${later}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   };
   /** The instance serving a project: made the first time it is current, again when its context or store changes. */
   const serve = (pc: ProjectContext<ProjectConfig>): Served => {
@@ -287,7 +302,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     if (known && known.source === pc && known.problem === problem) return known;
     const kinds = new Map<string, JobKind>();
     const router = new Router();
-    registerAll(router, contextOf(pc, kinds, problem));
+    registerAll(router, contextOf(pc, kinds, problem), served.size ? pc.id : null);
     const s: Served = { source: pc, router, kinds, problem };
     served.set(pc.id, s);
     return s;

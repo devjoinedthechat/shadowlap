@@ -218,6 +218,30 @@ describe('the switcher', () => {
     expect((await w.api('kept')).body).toEqual({ runs: 2, project: 'support-agent', folder: w.support });
   });
 
+  it('leaves out a module that fails to register for a project opened later, and serves it the rest', async () => {
+    const picky: RouteModule = {
+      register: (router, ctx) => {
+        if (ctx.project?.name === 'triage-bot') throw new Error('not for this one');
+        router.get('/picky', (r) => r.json({ ok: true }));
+      },
+    };
+    const w = await world({ routes: [picky] });
+    w.registry.add(w.triage);
+    expect((await w.api('picky')).status).toBe(200);
+    await w.api('projects/triage-bot/select', { method: 'POST' });
+    expect((await w.api('picky')).status).toBe(404);
+    expect((await w.api<{ project: { id: string } }>('meta')).body.project.id).toBe('triage-bot');
+    expect((await w.api('projects')).status).toBe(200);
+    // The project the dashboard opens on is strict: a module that fails there stops it starting.
+    const home = tempDir('sl-proj-strict-');
+    const folder = files(join(home, 'agent'), { 'package.json': '{}' });
+    const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, '.sl') }, actor: () => null });
+    const host = ProjectHost.open<ProjectConfig>(folder, { registry, loadConfig: () => ({ normalize: [], redact: [] }) });
+    const broken: RouteModule = { register: () => { throw new Error('broken module'); } };
+    await expect(startDashboard({ projects: host, routes: [broken] })).rejects.toThrow('broken module');
+    host.close();
+  });
+
   it('shows an empty stand-in for a project whose folder is gone, so the switcher still works, and refuses its jobs with the reason', async () => {
     const w = await world();
     const gone = files(join(w.home, 'old-agent'), { 'package.json': '{}' });
