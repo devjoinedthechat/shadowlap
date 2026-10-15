@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CmdLine, CopyButton, Seg } from '../../components/bits.js';
+import { CopyButton, Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
 import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
@@ -7,7 +7,7 @@ import { num, whenShort } from '../../format.js';
 import { useLoad } from '../../hooks.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { LoadProblem, Loading, useSettingsData } from './common.js';
+import { CommandLine, LoadProblem, Loading, useSettingsData } from './common.js';
 import { mcpEntryText, mcpRows, type McpRow } from './logic.js';
 
 /**
@@ -260,7 +260,7 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
           <input value={target} placeholder={transport === 'http' ? 'https://mcp.linear.app/mcp' : 'npx -y @modelcontextprotocol/server-github'} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => setTarget(e.target.value)} />
         </label>
       </div>
-      <CmdLine>{shown?.line ?? placeholder}</CmdLine>
+      <CommandLine command={shown?.line ?? placeholder} />
       <p className="muted mcphow">
         {transport === 'http' ? 'The client starts the proxy, and the proxy talks to the remote server over Streamable HTTP.' : 'The client starts the proxy, and the proxy starts the server.'} Each tool’s effect comes from its readOnlyHint; anything else is a write.
       </p>

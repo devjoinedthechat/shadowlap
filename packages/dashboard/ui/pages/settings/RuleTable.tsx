@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { ApiError } from '../../api.js';
-import { CmdLine, Seg } from '../../components/bits.js';
+import { Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, editErrorText } from './common.js';
+import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
 import { emptyRuleForm, ruleCommand, ruleInput, ruleProblem, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 
 /**
@@ -232,7 +232,7 @@ export function RuleDialog({
           </p>
         </div>
       ) : null}
-      <CmdLine>{ruleCommand(list, f)}</CmdLine>
+      <CommandLine command={ruleCommand(list, f)} />
       {error || problem ? <p className={`fieldnote ${error ? 'err' : 'warn'}`}>{error ?? problem}</p> : null}
     </Dialog>
   );

@@ -1617,7 +1617,8 @@ code.tipped { cursor: help; }
 .dialog .advpart { margin-top: 10px; display: grid; gap: 10px; }
 .dialog .advpart .form:empty { display: none; }
 .dialog .advpart .advnote { margin: 0; }
-.dialog.ruledlg .cmdline { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialog.ruledlg .cmdline { margin-top: 14px; }
+.cmdline.words > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
 .dialog .advpart .seg { justify-self: start; }
 .dialog .mcpform { margin-top: 12px; }
 .dialog .mcphow { margin: 10px 0 0; }

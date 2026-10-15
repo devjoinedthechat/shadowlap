@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { useApp, type AppState } from '../../state.js';
 import { onSettingsChanged } from './events.js';
+import { shellWords } from './logic.js';
 
 /**
  * What every Settings tab shares: its data, read again when it may have changed (runs moved, the
@@ -99,5 +100,24 @@ export function Loading({ title }: { title: string }) {
         <p className="muted">Loading…</p>
       </div>
     </section>
+  );
+}
+
+/**
+ * A shell command as the page shows it (`.cmdline`), wrapping only between its words: a flag, a
+ * quoted value or a token breaks inside itself only when it is wider than the box. Copied, it
+ * reads as the command.
+ */
+export function CommandLine({ command }: { command: string }) {
+  return (
+    <div className="cmdline words">
+      <b>$</b>
+      {shellWords(command).map((w, i) => (
+        <Fragment key={i}>
+          {i ? ' ' : null}
+          <span>{w}</span>
+        </Fragment>
+      ))}
+    </div>
   );
 }

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { JOB_KINDS } from '../../api.js';
-import { ConfirmDialog } from '../../components/Dialog.js';
+import { Dialog } from '../../components/Dialog.js';
 import { addJobFooter } from '../../job-actions.js';
 import { addPaletteSource } from '../../palette-sources.js';
 import type { JobView } from '../../types.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, editErrorText } from './common.js';
+import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
 import { bytesText, gcDeleteCommand, gcDryRun, proposedCount } from './logic.js';
 import { settingsChanged } from './events.js';
 
@@ -56,19 +56,20 @@ function CleanupFooter({ job }: { job: JobView }) {
       </button>
       {/* Over the page, not inside the drawer, whose header and footer styles would reach it. */}
       {asking ? createPortal(
-        <ConfirmDialog
+        <Dialog
           title={`Delete ${runs}?`}
           text={`${since} Blobs no other run uses go with them${dry.bytes ? `, freeing ${bytesText(dry.bytes)}` : ''}. Runs still recording are never touched. This can’t be undone; if other runs match by now, nothing is deleted.`}
           ok={`Delete ${runs}`}
-          danger
-          command={gcDeleteCommand(dry)}
+          tone="danger"
           onClose={() => setAsking(false)}
           onOk={() => {
             setAsking(false);
             setStarted(true);
             app.watchJob(app.client.startJob(JOB_KINDS.gc, { confirm: job.id }));
           }}
-        />,
+        >
+          <CommandLine command={gcDeleteCommand(dry)} />
+        </Dialog>,
         document.body,
       ) : null}
     </>
