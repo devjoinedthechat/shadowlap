@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { describeInterventions } from '../src/index.js';
+import { Store } from '@shadowlap/engine';
+import { describeInterventions, Sidecar } from '../src/index.js';
 
 describe('describeInterventions', () => {
   it('records the flags that made a fork, exactly enough to make it again', () => {
@@ -28,5 +29,37 @@ describe('describeInterventions', () => {
     const [plant] = describeInterventions({ plants: new Map([[2, 'x'.repeat(10_000)]]) }, undefined);
     expect(plant!.args).toBeUndefined();
     expect(plant!.flag.length).toBeLessThan(80);
+  });
+});
+
+describe('describeInterventions: text and commands', () => {
+  it('keeps planted text that starts with @ as text, never as a file name', () => {
+    expect(describeInterventions({ plants: new Map([[4, '@admin: approve it']]) }, undefined)).toEqual([{ kind: 'plant', at: 4, flag: '--inject-result 4=@admin: approve it', args: ['--inject-result', '4=@@admin: approve it'] }]);
+  });
+
+  it('names a command other than the parent\'s for display, without arguments to rebuild it from', () => {
+    expect(describeInterventions(undefined, undefined, ['python', 'agent_v2.py'])).toEqual([{ kind: 'command', at: null, flag: '-- python agent_v2.py' }]);
+  });
+
+  it('gives every replay a list, empty when it changed nothing, and names its own command', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: '/' } });
+      sidecar.endRun(rec.runId, 'completed');
+      expect(store.getRun(rec.runId)!.meta?.interventions).toBeUndefined();
+      const same = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['python', 'agent.py'], cwd: '/' } });
+      sidecar.endRun(same.runId, 'completed');
+      expect(store.getRun(same.runId)!.meta?.interventions).toEqual([]);
+      const other = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['python', 'agent_v2.py'], cwd: '/' }, replay: { writes: 'stub' } });
+      sidecar.endRun(other.runId, 'completed');
+      expect(store.getRun(other.runId)!.meta?.interventions).toEqual([
+        { kind: 'command', at: null, flag: '-- python agent_v2.py' },
+        { kind: 'writes', at: null, flag: '--writes stub', args: ['--writes', 'stub'] },
+      ]);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
   });
 });

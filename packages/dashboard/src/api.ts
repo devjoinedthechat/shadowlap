@@ -98,8 +98,12 @@ export interface ActionItem {
   key: string;
   label: string;
   opensRun: boolean;
-  /** `choices`: answers to offer as a list (a tool error's kinds); any other answer is accepted too. */
-  prompt: { label: string; placeholder?: string; initial?: string; choices?: Array<{ value: string; label: string }> } | null;
+  /**
+   * `choices`: answers to offer as a list (a tool error's kinds); any other answer is accepted too. A
+   * choice with `text` needs a few words more: show a field labelled `text` and send the choice's value
+   * followed by what was typed (`error:` + `connection reset`).
+   */
+  prompt: { label: string; placeholder?: string; initial?: string; choices?: Array<{ value: string; label: string; text?: string }> } | null;
   /** Why the action cannot run on this run, shown in its place; null when it can. */
   disabled: string | null;
   /** The flag, shown on the right of the action's line: `--fail-at 19=429`. */

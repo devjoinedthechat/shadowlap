@@ -215,10 +215,12 @@ const ARG_LIMIT = 8_192;
 /**
  * A replay's interventions as the flags that make them, for the run's record: what made this fork
  * (a banner can name it), and how to make it again (`--repeat` from the fork menu). `args` is left
- * out when a value is too large to keep on the run.
+ * out when a value is too large to keep on the run. `command` is the replay's command when it is not
+ * its parent's (`-- <command>`): named for display only, since the run records its command anyway.
  */
-export function describeInterventions(replay: Partial<ReplayOptions> | undefined, interventions: Interventions | undefined): RunIntervention[] {
+export function describeInterventions(replay: Partial<ReplayOptions> | undefined, interventions: Interventions | undefined, command?: string[]): RunIntervention[] {
   const out: RunIntervention[] = [];
+  if (command?.length) out.push({ kind: 'command', at: null, flag: short(`-- ${command.join(' ')}`, 80) });
   const add = (kind: RunIntervention['kind'], at: number | null, args: string[], flag?: string) => {
     const display = flag ?? args.map((a) => (a.startsWith('--') ? a : short(a, 60))).join(' ');
     out.push({ kind, at, flag: display, ...(args.every((a) => a.length <= ARG_LIMIT) ? { args } : {}) });
@@ -237,7 +239,8 @@ export function describeInterventions(replay: Partial<ReplayOptions> | undefined
   for (const [callNo, status] of replay?.failAt ?? []) add('fail', callNo, ['--fail-at', `${callNo}=${status}`]);
   for (const [callNo, failure] of replay?.toolFailures ?? []) add('fail', callNo, ['--fail-at', `${callNo}=${formatToolFailure(failure)}`]);
   for (const [callNo, value] of replay?.overrides ?? []) add('override', callNo, ['--override', `${callNo}=${JSON.stringify(value)}`], `--override ${callNo}=…`);
-  for (const [callNo, text] of replay?.plants ?? []) add('plant', callNo, ['--inject-result', `${callNo}=${text}`], `--inject-result ${callNo}=${short(text)}`);
+  // Text that starts with `@` is kept as text, never read back as a file name.
+  for (const [callNo, text] of replay?.plants ?? []) add('plant', callNo, ['--inject-result', `${callNo}=${literalValue(text)}`], `--inject-result ${callNo}=${short(text)}`);
   if (replay?.divergeAt !== undefined) add('diverge', replay.divergeAt, ['--diverge-at', String(replay.divergeAt)]);
   if (replay?.promptFrom !== undefined) add('prompt-from', replay.promptFrom, ['--prompt-from', String(replay.promptFrom)]);
   for (const name of replay?.liveTools ?? []) add('live-tool', null, ['--live-tool', name]);

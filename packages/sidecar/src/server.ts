@@ -367,10 +367,14 @@ export class Sidecar {
     let parentCalls: CallRecord[] | undefined;
     let parentStartedAt: number | undefined;
     let normalizers = this.normalizers;
+    // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
+    let ownCommand: string[] | undefined;
     if (input.mode === 'replay') {
       if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
       const parent = this.store.getRun(input.parentRunId);
       if (!parent) throw new HttpError(404, `unknown run ${input.parentRunId}`);
+      const argv = input.command.argv;
+      if (argv.length && (argv.length !== parent.command.argv.length || argv.some((a, i) => a !== parent.command.argv[i]))) ownCommand = argv;
       // A redacted recording matches only if the live request is masked the same way.
       if (parent.meta?.redactions?.length) normalizers = [...normalizers, ...parent.meta.redactions];
       const stored = this.store.getCalls(input.parentRunId);
@@ -392,7 +396,9 @@ export class Sidecar {
     const requestInterventions = input.interventions && parentCalls ? new RequestInterventions(parentCalls, input.interventions, (message) => {
       throw new HttpError(400, message);
     }) : null;
-    const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions) : [];
+    // Every replay keeps the list, empty when it changed nothing, so a run made before replays kept
+    // their flags (no list) is never taken for one that had none.
+    const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand) : null;
     const run = this.store.createRun({
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
@@ -401,7 +407,7 @@ export class Sidecar {
       meta: {
         normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
         ...(input.commandFromImport ? { commandFromImport: true } : {}),
-        ...(described.length ? { interventions: described } : {}),
+        ...(described ? { interventions: described } : {}),
       },
     });
     const clockRef = this.clock === 'auto' ? run.startedAt : undefined;

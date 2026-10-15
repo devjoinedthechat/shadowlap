@@ -162,7 +162,8 @@ export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<
     const call = parentCalls.find((c) => c.callNo === callNo);
     if (!call) throw new Error(`--override: the recording has no call #${callNo}`);
     if (call.kind !== 'tool') throw new Error(`--override: call #${callNo} is a ${call.kind} call; only tool results can be overridden`);
-    const raw = m[2]!.startsWith('@') ? readFileSync(m[2]!.slice(1), 'utf8') : m[2]!;
+    // `@@…` is text starting with `@` (which is no JSON either), never a file name.
+    const raw = m[2]!.startsWith('@@') ? m[2]!.slice(1) : m[2]!.startsWith('@') ? readFileSync(m[2]!.slice(1), 'utf8') : m[2]!;
     try {
       out.set(callNo, JSON.parse(raw));
     } catch {

@@ -3,7 +3,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig, saveConfig } from '../config.js';
-import { checkRequestInterventions, checksOfRun, judgeRun, parsePlants, refuseOverlaps, storedResult } from '../interventions.js';
+import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
@@ -146,14 +146,17 @@ export function register(program: Command): void {
       // A check on what the agent printed needs its output; nothing else does.
       const capture = !!checks?.spec.output;
       const config = checks ? loadConfig(process.cwd()) : null;
+      const given = flags.expect ? expectJson(flags.expect) : undefined;
       const judge = (runId: string, output: string): CheckResult[] => {
         const reader = openStore(opts);
         try {
-          return judgeRun(reader, runId, checks!.spec, output, config?.prices);
+          return judgeRun(reader, runId, checks!.spec, output, config?.prices, given);
         } finally {
           reader.close();
         }
       };
+      // Planted text with nothing to say whether the agent obeyed it: say so, and how to add a check.
+      const unjudged = plants.size > 0 && !checks;
       if (flags.repeat !== undefined && flags.repeat > 1) {
         if (flags.repeat > 100) throw new InvalidArgumentError('--repeat is at most 100');
         if (flags.watch) throw new InvalidArgumentError('--watch and --repeat both re-run the replay; use one of them');
@@ -186,6 +189,7 @@ export function register(program: Command): void {
         const first = attempts.find((a) => a.summary.divergence)?.summary.divergence;
         process.stderr.write('\n' + (first ? formatDivergence(first, p) + '\n\n' : '') + formatRepeats(report, p) + '\n');
         if (checks) process.stderr.write('\n' + formatCheckTally(judged, checks.source) + '\n');
+        if (unjudged) process.stderr.write('\n' + p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report }, null, 2) + '\n');
         const anyDiverged = attempts.some((a) => a.summary.divergence);
         const checksFailed = judged.some((c) => c.some((x) => !x.ok));
@@ -203,6 +207,7 @@ export function register(program: Command): void {
         printOutcome(summary);
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
+        if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}) }, null, 2) + '\n');
         process.exitCode = flags.strict && summary.divergence ? 1 : judged?.some((c) => !c.ok) ? 1 : code;
       };

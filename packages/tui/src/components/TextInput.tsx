@@ -10,6 +10,9 @@ interface Props {
   onCancel: () => void;
 }
 
+/** Characters of the value shown while editing. */
+const SHOWN = 240;
+
 /** A single-line editor: printable keys append, backspace deletes, Enter submits, Esc cancels. */
 export function TextInput({ label, initial = '', placeholder = '', active, onSubmit, onCancel }: Props) {
   const [value, setValue] = useState(initial);
@@ -29,10 +32,12 @@ export function TextInput({ label, initial = '', placeholder = '', active, onSub
     },
     { isActive: active },
   );
+  // A long value (a recorded tool result to edit) shows its end, where typing happens.
+  const shown = value.length > SHOWN ? `…${value.slice(-(SHOWN - 1))}` : value;
   return (
     <Box>
       <Text bold>{label} </Text>
-      {value ? <Text>{value}</Text> : <Text color="gray">{placeholder}</Text>}
+      {value ? <Text>{shown}</Text> : <Text color="gray">{placeholder}</Text>}
       <Text inverse> </Text>
       <Text color="gray">  Enter to confirm · Esc to cancel</Text>
     </Box>

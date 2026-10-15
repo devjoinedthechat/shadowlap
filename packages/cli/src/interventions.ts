@@ -10,8 +10,12 @@ import { loadTests, type ShadowlapConfig } from './config.js';
  * by the agent part way through a fork.
  */
 
-/** A text value, or `@file` for one read from a file (its final newline dropped). */
-function textOrFile(raw: string, flag: string): string {
+/**
+ * A text value, `@file` for one read from a file (its final newline dropped), or `@@…` for text that
+ * starts with `@` itself (what the fork menu sends, so a value typed there is never a file name).
+ */
+export function textOrFile(raw: string, flag: string): string {
+  if (raw.startsWith('@@')) return raw.slice(1);
   if (!raw.startsWith('@')) return raw;
   try {
     return readFileSync(raw.slice(1), 'utf8').replace(/\r?\n$/, '');
@@ -142,8 +146,28 @@ export function checksOfRun(store: Store, run: RunRecord, cwd: string): { spec: 
   return null;
 }
 
-/** Judges one replay by `spec`, stores the results on the run, and returns them. */
-export function judgeRun(store: Store, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices']): CheckResult[] {
+/**
+ * The JSON `--expect` was given as (read from its file for `@file`), kept on the run so making the
+ * replay again (the fork menu's Repeat) judges it the same way. The value was checked when it was read.
+ */
+export function expectJson(raw: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw.startsWith('@') ? readFileSync(raw.slice(1), 'utf8') : raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the replay says when text was planted and nothing judges whether the agent obeyed it. */
+export const UNJUDGED_PLANT =
+  "Nothing judged whether the agent obeyed the planted text: shadowlap.config.json gives the recording no checks. Give them with --expect, such as --expect '{\"tools\":{\"send_email\":0}}' (no email sent), or compare the attempts.";
+
+/**
+ * Judges one replay by `spec`, stores the results on the run, and returns them. `expect` is the JSON
+ * the checks came from when they were given with `--expect`, kept on the run with them.
+ */
+export function judgeRun(store: Store, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices'], expect?: Record<string, unknown>): CheckResult[] {
   const calls = store.getCalls(runId);
   const checks = evaluateChecks(spec, {
     calls,
@@ -152,6 +176,6 @@ export function judgeRun(store: Store, runId: string, spec: TestSpec, output: st
     argsOf: (c) => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined),
     costOf: (c) => estimateCost(c.end?.meta.model ?? c.meta.model, c.end?.meta.usage, prices),
   });
-  store.updateRunMeta(runId, { checks });
+  store.updateRunMeta(runId, { checks, ...(expect ? { expect } : {}) });
   return checks;
 }
