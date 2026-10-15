@@ -9,7 +9,7 @@ import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
-import { compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
+import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, matchesChip, matchesText, runOutcome, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
@@ -325,10 +325,21 @@ describe('runs', () => {
     expect(runOutcome(base)).toEqual({ tone: 'n', text: '—' });
     expect(runSubline(fork)).toBe('fork @17 of 01K5CQ4N7G · python refund_agent.py');
     expect(runSubline(capture)).toBe('capture · traffic.har');
+    // The table sets the command (or the capture's file) apart, in code.
+    expect(runSublineParts(fork)).toEqual({ what: 'fork @17 of 01K5CQ4N7G', source: 'python refund_agent.py' });
     expect(sideLine(fork)).toEqual({ text: 'fork @17 · 13 live · 1 blocked' });
     expect(sideLine(clean)).toEqual({ text: 'clean replay · 30/30' });
     expect(sideLine(live)).toEqual({ text: 'recording · 9 calls so far' });
     expect(sideLine(test)).toEqual({ err: 'test failed', text: ' · diverged at #1' });
+  });
+
+  it('says attempts are bundled only when the run list tells them apart', () => {
+    // Today's list: an attempt of --repeat is a row like any other, so Runs says nothing about bundles.
+    expect(bundlesAttempts([base, fork, clean])).toBe(false);
+    // A list that bundles them counts each run's attempts, or names the run an attempt belongs to.
+    expect(bundlesAttempts([{ ...base, attempts: 3 } as RunLike])).toBe(true);
+    expect(bundlesAttempts([{ ...fork, attemptOf: base.runId } as RunLike])).toBe(true);
+    expect(bundlesAttempts([{ ...fork, repeat: { group: 'g', attempt: 1, of: 3 } }])).toBe(true);
   });
 
   it('filters by type chip and text, and sorts by calls, spent or when', () => {

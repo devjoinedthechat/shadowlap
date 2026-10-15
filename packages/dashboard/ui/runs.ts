@@ -52,6 +52,15 @@ export function isAttempt(r: RunLike): boolean {
   return !!(r.attempt || r.repeat || r.probe || r.verify);
 }
 
+/**
+ * Whether the run list tells attempts apart, so Runs can say they are bundled under the run they came
+ * from: the server bundles them (a row counts its `attempts`, or names the run it is an attempt of),
+ * or marks them, and the lists leave them out.
+ */
+export function bundlesAttempts(runs: readonly (RunLike & { attempts?: unknown; attemptOf?: unknown })[]): boolean {
+  return runs.some((r) => typeof r.attempts === 'number' || typeof r.attemptOf === 'string' || isAttempt(r));
+}
+
 /** The server's kinds, in the words of the chips: a recording from a pack is a recording. */
 const SERVER_KINDS: Readonly<Record<string, RunType>> = { recording: 'recording', pack: 'recording', capture: 'capture', fork: 'fork', clean: 'clean', replay: 'replay', test: 'test' };
 
@@ -122,9 +131,15 @@ export function runSource(r: RunLike): string {
   return r.source ? r.source : r.command;
 }
 
+/** The Runs table's line under the id, in its two parts: what the run is ("fork @17 of 01K5CQ4N7G"), and its command or capture. */
+export function runSublineParts(r: RunLike): { what: string; source: string } {
+  return { what: `${kindWord(r)}${r.parentRunId ? ` of ${shortId(r.parentRunId)}` : ''}`, source: runSource(r) };
+}
+
 /** The Runs table's line under the id: "fork @17 of 01K5CQ4N7G · python refund_agent.py". */
 export function runSubline(r: RunLike): string {
-  return `${kindWord(r)}${r.parentRunId ? ` of ${shortId(r.parentRunId)}` : ''} · ${runSource(r)}`;
+  const p = runSublineParts(r);
+  return `${p.what} · ${p.source}`;
 }
 
 /** The sidebar's line: what happened, in a few words. */

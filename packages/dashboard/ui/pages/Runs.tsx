@@ -10,7 +10,7 @@ import { rowOpen, ShowMore, SortTh } from '../components/Table.js';
 import { compactPath, num, shortId, whenShort } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { isAttempt, isLive, matchesChip, matchesText, RUN_CHIPS, runOrigins, runOutcome, runSpent, runSubline, sortRuns, type RunChip, type RunSort } from '../runs.js';
+import { bundlesAttempts, isAttempt, isLive, matchesChip, matchesText, RUN_CHIPS, runOrigins, runOutcome, runSpent, runSublineParts, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
 
@@ -54,6 +54,7 @@ export function RunsPage() {
   };
 
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
+  const bundled = useMemo(() => bundlesAttempts(runs ?? []), [runs]);
   const counts = useMemo(() => Object.fromEntries(RUN_CHIPS.map(([k]) => [k, listed.filter((r) => matchesChip(r, k)).length])) as Record<RunChip, number>, [listed]);
   const matched = useMemo(() => sortRuns(listed.filter((r) => matchesChip(r, chip) && matchesText(r, query)), sort), [listed, chip, query, sort]);
   const shown = matched.slice(0, limit);
@@ -72,7 +73,19 @@ export function RunsPage() {
 
   return (
     <Page>
-      <PageHeader eyebrow={exported ? 'exported copy' : p ? compactPath(p.path) : 'runs'} title="Runs" text="Recordings, and the replays and forks made from them." />
+      <PageHeader
+        eyebrow={exported ? 'exported copy' : p ? compactPath(p.path) : 'runs'}
+        title="Runs"
+        text={
+          bundled ? (
+            <>
+              Recordings, and the replays and forks made from them. Attempts from <code>--repeat</code>, blame and verify are bundled under the run they came from.
+            </>
+          ) : (
+            'Recordings, and the replays and forks made from them.'
+          )
+        }
+      />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
         <label className="tin">
@@ -114,6 +127,7 @@ export function RunsPage() {
           <tbody>
             {shown.map((r) => {
               const out = runOutcome(r);
+              const sub = runSublineParts(r);
               const spent = runSpent(r);
               const origins = runOrigins(r);
               const on = picked.has(r.runId);
@@ -132,7 +146,7 @@ export function RunsPage() {
                       </a>
                     </span>
                     <span className="rsub" title={r.source ? `from ${r.source}` : r.command}>
-                      {runSubline(r)}
+                      {sub.what} · <code>{sub.source}</code>
                     </span>
                   </td>
                   <td className="hide-lg labcell">
@@ -150,7 +164,7 @@ export function RunsPage() {
                   </td>
                   <td>
                     <span className={`st ${out.tone}`} aria-label={out.tone === 'n' ? 'nothing to report' : undefined}>
-                      <i />
+                      {out.tone === 'n' ? null : <i />}
                       {out.text}
                     </span>
                   </td>

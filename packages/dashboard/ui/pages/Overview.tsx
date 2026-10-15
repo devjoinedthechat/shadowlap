@@ -5,7 +5,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
 import { EventIcon, RunIcon } from '../components/RunIcon.js';
 import { GridStrip } from '../components/Strip.js';
-import { approx, money, num, plural, shortId, whenShort } from '../format.js';
+import { cents, num, plural, shortId, whenShort } from '../format.js';
 import { ORIGIN_COLOR, ORIGIN_NAME, countOrigins, emptyCounts, presentOrigins, type OriginCounts } from '../origins.js';
 import { href } from '../route.js';
 import { isAttempt, isFailed, isLive, kindWord, runOrigins, runTree, runType, sideLine } from '../runs.js';
@@ -90,7 +90,7 @@ function Outcomes({ runs }: { runs: RunListItem[] }) {
       />
       <Kpi k="Forks" value={num(forks)} pill={last ? <DeltaPill now={forks} then={count(last, (r) => runType(r) === 'fork')} /> : null} note={forks ? `from ${plural(recordings, 'recording')}` : 'none this week'} href={href.runs()} />
       <Kpi k="Clean replays" value={num(clean)} tone={clean ? 'lime' : ''} pill={last ? <DeltaPill now={clean} then={count(last, (r) => runType(r) === 'clean')} good="up" /> : null} note="every call matched the recording" href={href.runs()} />
-      <Kpi k="Spent live" value={approx(spent)} pill={last ? <DeltaPill now={spent} then={last.reduce((s, r) => s + r.spent, 0)} format={(n) => `$${n.toFixed(2)}`} good="down" /> : null} note={`${money(saved)} not re-spent`} />
+      <Kpi k="Spent live" value={cents(spent)} pill={last ? <DeltaPill now={spent} then={last.reduce((s, r) => s + r.spent, 0)} format={cents} good="down" /> : null} note={`${cents(saved)} not re-spent`} />
     </div>
   );
 }
@@ -202,7 +202,7 @@ function Today({ runs }: { runs: RunListItem[] }) {
         <div className="ovbig">
           <b>{num(today.length)}</b>
           <span>
-            {today.length === 1 ? 'run' : 'runs'} today{replayed ? ` · ${num(replayed)} calls served from recordings` : ''} · <em>{money(saved)}</em> not re-spent
+            {today.length === 1 ? 'run' : 'runs'} today{replayed ? ` · ${num(replayed)} calls served from recordings` : ''} · <em>{cents(saved)}</em> not re-spent
           </span>
         </div>
       </div>
