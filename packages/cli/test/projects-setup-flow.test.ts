@@ -106,6 +106,10 @@ describe('a project’s setup, step by step through the CLI', () => {
     const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
     registry.noteRecording(id, runId, plan.argv);
     expect(host.setup(id)).toMatchObject({ stage: 'recorded', run: { runId, calls: 2 }, own: true, shows: 'overview' });
+    // Calibrate with no run named takes the setup's own recording.
+    const unnamed = await calibrate(ctx, ['calibrate'], env);
+    expect(unnamed.job.code, unnamed.job.out).toBe(0);
+    expect(unnamed.result).toMatchObject({ runId, source: 'setup' });
 
     // 3 · Calibrate streams its rounds; what it proposes is offered, then written with --write.
     const streamed = await job(ctx, setupJobArgs.calibrate(runId), env);

@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
-import { addRules, calibrationTarget, commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { addRules, calibrationTarget, commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
@@ -254,8 +254,8 @@ export function register(program: Command): void {
       const store = openStoreIfExists(opts);
       if (!store) throw new Error(recordFirst);
       try {
-        // Hook: the project's setup run, once the projects registry knows it, goes in as setupRunId.
-        const target = runArg ? { run: requireRun(store, runArg), source: 'given' as const } : calibrationTarget(store);
+        // Without a run named: the run the dashboard's setup recorded for this project, else the newest recording.
+        const target = runArg ? { run: requireRun(store, runArg), source: 'given' as const } : calibrationTarget(store, { setupRunId: setupRunOf(process.cwd()) });
         if (!target) throw new Error(recordFirst);
         const parent = target.run;
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent.runId, parent.command.argv))) {
