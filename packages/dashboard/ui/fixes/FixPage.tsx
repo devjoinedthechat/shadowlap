@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { JOB_KINDS, ApiError } from '../api.js';
-import { Badge } from '../components/bits.js';
-import { CmdLine } from '../components/bits.js';
+import { Badge, CmdLine } from '../components/bits.js';
 import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Page } from '../components/Page.js';
+import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
@@ -28,11 +28,11 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
     if (fix) rememberFix(fix, id);
   }, [fix, id]);
   if (!fix) {
-    const missing = loaded.error instanceof ApiError && loaded.error.status === 404;
+    if (loaded.error instanceof ApiError && loaded.error.status === 404) return <NotFoundPage what={`No fix ${id}.`} />;
     return (
       <Page>
         <div className="empty tall">
-          {loaded.error ? (missing ? `No fix ${id}. ` : `Could not load the fix: ${loaded.error.message}. `) : 'Loading the fix…'}
+          {loaded.error ? `Could not load the fix: ${loaded.error.message}. ` : 'Loading the fix…'}
           {loaded.error ? (
             <a className="more" href={href.fixes()}>
               All fixes

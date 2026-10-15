@@ -47,7 +47,7 @@ function FixList() {
     return (
       <Page>
         {header}
-        <EmptyState title="No fixes here." text="A fix starts from a failed run: blame it with what a passing run must do, and it finds the model call where the run was lost and opens a fix. Repair proposes a change for it, and verify proves the change holds." command={BLAME} />
+        <EmptyState title="No fixes here." text="A fix starts from a failed run: blame finds the model call where it was lost and opens a fix, repair proposes a change, and verify proves it holds." command={BLAME} />
       </Page>
     );
   const shown = list.fixes.filter((f) => chipKeeps(chip, f));
