@@ -287,7 +287,8 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
             ))}
           </div>
           {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} /> : null}
-          <div className="vbody" tabIndex={-1}>
+          {/* Each view starts at its top; Calls centres the selected call. */}
+          <div className="vbody" tabIndex={-1} key={v}>
             {v === 'calls' ? <CallsTable calls={visible} selected={selected} scoped={scoped} forkAt={forkAt} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
