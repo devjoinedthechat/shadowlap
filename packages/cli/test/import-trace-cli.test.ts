@@ -103,6 +103,13 @@ describe('shadowlap import otel', () => {
     expect(r.out).toContain('A trace says what was sent, not what sent it.');
   });
 
+  it('shows which tools the trace covers, and that the others run live', async () => {
+    const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
+    const shown = await shadowlap(['show', imported.runs[0].runId]);
+    expect(shown.out).toContain('partial recording: api, tool:lookup_order only\u2009\u2014\u2009other tool, clock, random calls run live on replay');
+    expect(shown.out).toContain('imported, otel');
+  });
+
   it('replays your agent against a trace that kept everything it sends, with nothing live', async () => {
     const imported = JSON.parse((await shadowlap(['import', 'otel', 'otel-traces.json', '--json'])).out);
     const runId = imported.runs[0].runId as string;
