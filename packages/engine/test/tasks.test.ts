@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, packRun } from '../src/pack.js';
 import { Store } from '../src/store.js';
-import { attemptScore, averageTokens, describeTask, entryFor, goldenPaths, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
+import { attemptScore, averageTokens, describeTask, entryFor, goldenPaths, isModelRequest, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, readGolden, type Task, type TaskCheck } from '../src/tasks.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from './training-fixtures.js';
 
 /** Goldens as tasks: where a model takes over, why, what the task rewards, and whether it can be scored. */
@@ -94,8 +94,36 @@ describe('tasks', () => {
     const g2 = readGolden(join(root, 'goldens', 'plain'), 'goldens/plain');
     expect(describeTask({ path: 'goldens/plain', golden: g2, fields: {}, checks: OUTCOME, testFailed: false }).takeover).toEqual({ callNo: 1, why: 'the first model call: the model plays the whole run', from: 'first' });
     expect(describeTask({ path: 'goldens/plain', golden: g2, fields: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' }, checks: OUTCOME, testFailed: false })).toMatchObject({ takeover: { callNo: 5, why: 'decides between refunding and escalating', from: 'config' }, rewards: 'escalate above the limit', prefix: 4 });
-    expect(describeTask({ path: 'goldens/plain', golden: g2, fields: { takeover: 2 }, checks: OUTCOME, testFailed: false })).toMatchObject({ status: 'not-a-task', note: "#2 is not a model call of the golden's run" });
+    expect(describeTask({ path: 'goldens/plain', golden: g2, fields: { takeover: 2 }, checks: OUTCOME, testFailed: false })).toMatchObject({ status: 'not-a-task', note: "#2 is not a model call of the golden's run (lookup_order)" });
     store.close();
+  });
+
+  it('never take over at an API call that asks a model nothing: a model list, an embedding, a token count', () => {
+    const { root, store } = project();
+    // A retrieval agent: it lists the models, embeds the question, then talks to the model.
+    const rag = recordRun(store, [LOOKUP, POLICY, ESCALATE], {
+      before: [
+        { kind: 'api', name: 'GET /v1/models', result: { data: [{ id: 'claude-sonnet-5', type: 'model' }] } },
+        { kind: 'api', name: 'POST /v1/embeddings', provider: 'openai', result: { object: 'list', data: [{ embedding: [0.1, 0.2] }] } },
+        { kind: 'api', name: 'POST /v1/messages/count_tokens', result: { input_tokens: 42 } },
+      ],
+    }).run;
+    packRun(store, rag.runId, join(root, 'goldens', 'rag'));
+    const golden = readGolden(join(root, 'goldens', 'rag'), 'goldens/rag');
+    expect(golden.calls.slice(0, 4).map((c) => c.name)).toEqual(['GET /v1/models', 'POST /v1/embeddings', 'POST /v1/messages/count_tokens', 'POST /v1/messages']);
+    const task = describeTask({ path: 'goldens/rag', golden, fields: {}, checks: OUTCOME, testFailed: false });
+    expect(task).toMatchObject({ status: 'ready', takeover: { callNo: 4, why: 'the first model call: the model plays the whole run', from: 'first' }, prefix: 3, callName: 'POST /v1/messages' });
+    for (const k of [1, 2, 3]) expect(describeTask({ path: 'goldens/rag', golden, fields: { takeover: k }, checks: OUTCOME, testFailed: false })).toMatchObject({ status: 'not-a-task', note: `#${k} is not a model call of the golden's run (${golden.calls[k - 1]!.name})` });
+    store.close();
+  });
+
+  it('know a model call from the endpoint it was made at', () => {
+    for (const name of ['POST /v1/messages', 'POST /anthropic/v1/messages', 'POST /v1/chat/completions', 'POST /openai/deployments/gpt-prod/chat/completions', 'POST /v1/completions', 'POST /v1/responses', 'POST /v1beta/models/gemini-2.5-flash:generateContent', 'POST /v1beta/models/gemini-2.5-flash:streamGenerateContent', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5:streamRawPredict', 'POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'POST /model/anthropic.claude-sonnet-5-v1%3A0/invoke-with-response-stream', 'POST /api/chat']) {
+      expect(isModelRequest(name), name).toBe(true);
+    }
+    for (const name of ['GET /v1/models', 'GET /v1/responses/resp_1', 'POST /v1/messages/count_tokens', 'POST /v1/messages/batches', 'POST /v1/embeddings', 'POST /v1/moderations', 'POST /v1/files', 'POST /v1/threads/thread_1/messages', 'POST /v1/responses/input_tokens', 'POST /v1beta/models/text-embedding-004:embedContent', 'POST /v1beta/models/gemini-2.5-flash:countTokens']) {
+      expect(isModelRequest(name), name).toBe(false);
+    }
   });
 
   it('are ready, blocked, not a task or without a golden', () => {

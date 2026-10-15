@@ -9,7 +9,7 @@ import { loadApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern } from './normalize.js';
 import { normalizeResponse } from './responses.js';
 import type { Store } from './store.js';
-import { answersNothing } from './tasks.js';
+import { isModelRequest } from './tasks.js';
 import { openAITools } from './translate.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
 
@@ -177,6 +177,33 @@ export function contextLine(turns: readonly Turn[], width = 140): string {
   return last ? cut(`${head} · ${last}`, width) : head;
 }
 
+/** A message's turn key as an Anthropic-shaped message and as an OpenAI-shaped one, and whether only OpenAI's shape has it. */
+type MessageKeys = { anthropic: string; openai: string; openAIOnly: boolean };
+
+/**
+ * The keys pairs are read by, kept per store: a conversation's by its request's hash, a message's by
+ * its hash, an answer's by its response's hash, and a pair's context line by its request's hash. Blobs are addressed by their content, so a key never
+ * goes stale, and a store read again (an attempt ended, a blame finished) keys only what is new. A
+ * map that grows past KEY_LIMIT entries starts over.
+ */
+interface KeyCache {
+  conversations: Map<string, string | null>;
+  messages: Map<string, MessageKeys | null>;
+  parts: Map<string, string | string[] | null>;
+  answers: Map<string, string>;
+  /** A pair's conversation in one line, by its request's hash. */
+  contexts: Map<string, string | null>;
+}
+const KEY_LIMIT = 50_000;
+const keyCaches = new WeakMap<Store, KeyCache>();
+
+function keyCache(store: Store): KeyCache {
+  let cache = keyCaches.get(store);
+  if (!cache) keyCaches.set(store, (cache = { conversations: new Map(), messages: new Map(), parts: new Map(), answers: new Map(), contexts: new Map() }));
+  for (const map of [cache.conversations, cache.messages, cache.parts, cache.answers, cache.contexts]) if (map.size > KEY_LIMIT) map.clear();
+  return cache;
+}
+
 /**
  * Reads what pairs need from the store, each thing once. A model request is stored as its messages
  * plus a list of them, so a conversation's key is made from its messages' keys, each message read
@@ -186,13 +213,13 @@ export function contextLine(turns: readonly Turn[], width = 140): string {
 class Reader {
   private readonly calls = new Map<string, CallRecord[]>();
   private readonly models = new Map<string, ModelCall[]>();
-  private readonly keys = new Map<string, string | null>();
-  /** A message's turn key as an Anthropic-shaped message and as an OpenAI-shaped one, and whether only OpenAI's shape has it. */
-  private readonly messages = new Map<string, { anthropic: string; openai: string; openAIOnly: boolean } | null>();
-  private readonly parts = new Map<string, string | string[] | null>();
+  private readonly keys: KeyCache;
+  /** The turn keys of the requests halving compared, to check they are one conversation growing. */
+  private readonly turnLists = new Map<string, string[] | null>();
   private readonly answers = new Map<string, Block[]>();
-  private readonly answerKeys = new Map<string, string>();
-  constructor(readonly store: Store) {}
+  constructor(readonly store: Store) {
+    this.keys = keyCache(store);
+  }
 
   callsOf(runId: string): CallRecord[] {
     let calls = this.calls.get(runId);
@@ -207,7 +234,7 @@ class Reader {
     if (!calls) {
       calls =
         scope === null
-          ? this.callsOf(runId).filter((c): c is ModelCall => c.kind === 'api' && !!c.requestRef && c.end !== null && c.end.outcome === 'ok' && !!c.end.responseRef && !answersNothing(c.name))
+          ? this.callsOf(runId).filter((c): c is ModelCall => c.kind === 'api' && !!c.requestRef && c.end !== null && c.end.outcome === 'ok' && !!c.end.responseRef && isModelRequest(c.name))
           : this.modelCalls(runId).filter((c) => c.meta.scope === scope);
       this.models.set(id, calls);
     }
@@ -225,51 +252,68 @@ class Reader {
 
   /** The conversation a model call answered, as a key; null when its request can't be read as one. */
   key(call: ModelCall): string | null {
-    const ref = call.requestRef!;
-    let key = this.keys.get(ref);
-    if (key !== undefined) return key;
-    key = null;
-    try {
-      const manifest = this.store.getJson<RequestManifest>(ref);
-      if (manifest?.kind === 'chunked') key = this.chunkedKey(manifest);
-      else if (manifest) {
-        const conv = normalizeConversation(loadApiRequest(this.store, ref));
-        if (conv) key = conversationKey(conv.turns, conv.tools);
-      }
-    } catch {
-      key = null;
-    }
-    this.keys.set(ref, key);
-    return key;
+    const known = this.keys.conversations.get(call.requestRef!);
+    return known !== undefined ? known : (this.read(call.requestRef!)?.key ?? null);
   }
 
-  /** The key conversationKey would give the stored request, from its messages' keys. */
-  private chunkedKey(m: ChunkedManifest): string | null {
+  /**
+   * A model call's conversation as its turns' keys in order, the system prompt's first: what halving
+   * checks to know the calls it compared are one conversation, each the one before it plus what came
+   * since. Null when its request can't be read as a conversation.
+   */
+  turnKeys(call: ModelCall): string[] | null {
+    const ref = call.requestRef!;
+    let turns = this.turnLists.get(ref);
+    if (turns === undefined) this.turnLists.set(ref, (turns = this.read(ref)?.turns ?? null));
+    return turns;
+  }
+
+  /** Reads a stored request once: its conversation's key (kept for the store) and its turns' keys. */
+  private read(ref: string): { key: string; turns: string[] } | null {
+    let out: { key: string; turns: string[] } | null = null;
+    try {
+      const manifest = this.store.getJson<RequestManifest>(ref);
+      if (manifest?.kind === 'chunked') out = this.chunked(manifest);
+      else if (manifest) {
+        const conv = normalizeConversation(loadApiRequest(this.store, ref));
+        if (conv) out = { key: conversationKey(conv.turns, conv.tools), turns: conv.turns.map(turnKey).filter(Boolean) };
+      }
+    } catch {
+      out = null;
+    }
+    this.keys.conversations.set(ref, out?.key ?? null);
+    return out;
+  }
+
+  /** What conversationKey would give the stored request, and its turns' keys, from its messages' keys. */
+  private chunked(m: ChunkedManifest): { key: string; turns: string[] } | null {
     const messages = m.messages.map((hash) => this.message(hash));
     if (messages.some((x) => x === null)) return null;
     // normalizeConversation reads a body as OpenAI's chat when it has no system field and a message only OpenAI's shape has.
     const openai = m.system === null && messages.some((x) => x!.openAIOnly);
     const tools = this.part(`tools\n${m.tools ?? ''}\n${m.fields.toolConfig === undefined ? '' : JSON.stringify(m.fields.toolConfig)}`, () => normalizeConversation({ ...(m.tools !== null ? { tools: this.store.getJson(m.tools) } : {}), ...(m.fields.toolConfig !== undefined ? { toolConfig: m.fields.toolConfig } : {}), messages: [] })?.tools ?? []);
     if (tools === null) return null;
-    const h = startKey(tools as string[]);
+    const turns: string[] = [];
     if (m.system !== null) {
       const system = this.part(`system\n${m.system}`, () => {
         const turn = normalizeConversation({ system: this.store.getJson(m.system!), messages: [] })?.turns[0];
         return turn ? turnKey(turn) : '';
       });
       if (system === null) return null;
-      if (system) h.update(`${system as string}\n`);
+      if (system) turns.push(system as string);
     }
     for (const x of messages) {
       const k = openai ? x!.openai : x!.anthropic;
-      if (k) h.update(`${k}\n`);
+      if (k) turns.push(k);
     }
-    return h.digest('hex');
+    const h = startKey(tools as string[]);
+    for (const k of turns) h.update(`${k}\n`);
+    return { key: h.digest('hex'), turns };
   }
 
   /** One stored message's turn, keyed under each shape a request can give it (normalizeConversation decides the shape from the whole body). */
-  private message(hash: string): { anthropic: string; openai: string; openAIOnly: boolean } | null {
-    let v = this.messages.get(hash);
+  private message(hash: string): MessageKeys | null {
+    let v = this.keys.messages.get(hash);
     if (v !== undefined) return v;
     v = null;
     try {
@@ -282,29 +326,36 @@ class Reader {
     } catch {
       v = null;
     }
-    this.messages.set(hash, v);
+    this.keys.messages.set(hash, v);
     return v;
   }
 
   private part(id: string, make: () => string | string[]): string | string[] | null {
-    let v = this.parts.get(id);
+    let v = this.keys.parts.get(id);
     if (v !== undefined) return v;
     try {
       v = make();
     } catch {
       v = null;
     }
-    this.parts.set(id, v);
+    this.keys.parts.set(id, v);
     return v;
   }
 
-  /** The conversation a model call answered, as turns: rebuilt only for the calls pairs come from. */
-  turns(call: ModelCall): Turn[] | null {
-    try {
-      return normalizeConversation(loadApiRequest(this.store, call.requestRef!))?.turns ?? null;
-    } catch {
-      return null;
+  /** The conversation a model call answered, in one line (contextLine): read only for the calls pairs come from, and kept for the store. */
+  context(call: ModelCall): string | null {
+    const ref = call.requestRef!;
+    let line = this.keys.contexts.get(ref);
+    if (line === undefined) {
+      try {
+        const turns = normalizeConversation(loadApiRequest(this.store, ref))?.turns;
+        line = turns ? contextLine(turns) : null;
+      } catch {
+        line = null;
+      }
+      this.keys.contexts.set(ref, line);
     }
+    return line;
   }
 
   /** Whether two model calls answered the same conversation: the same stored request, or the same key. */
@@ -331,14 +382,15 @@ class Reader {
 
   answerKey(call: ModelCall): string {
     const id = this.answerId(call);
-    let key = this.answerKeys.get(id);
-    if (key === undefined) this.answerKeys.set(id, (key = answerKey(this.answer(call))));
+    let key = this.keys.answers.get(id);
+    if (key === undefined) this.keys.answers.set(id, (key = answerKey(this.answer(call))));
     return key;
   }
 
+  /** What an answer is read by: its bytes, the provider that parses them, and how they were sent. */
   private answerId(call: ModelCall): string {
     const provider = call.end.meta.provider ?? call.meta.provider;
-    return `${call.end.responseRef!}:${typeof provider === 'string' ? provider : ''}`;
+    return `${call.end.responseRef!}:${typeof provider === 'string' ? provider : ''}:${call.end.meta.headers?.['content-type'] ?? ''}`;
   }
 
   modelOf(call: ModelCall): string | null {
@@ -355,30 +407,48 @@ interface Candidate {
 /** Runs up to this many model calls are compared call by call; longer ones by halving. */
 const WALK = 64;
 
+type Difference = { kind: 'pair'; i: number; ca: ModelCall; cb: ModelCall } | { kind: 'same' } | { kind: 'paths'; at: number };
+
+/** Whether one conversation's turns begin with another's: the later call carries on the earlier one. */
+function carriesOn(earlier: string[] | null, later: string[] | null): boolean {
+  return earlier !== null && later !== null && earlier.length <= later.length && earlier.every((k, i) => k === later[i]);
+}
+
+/** Two attempts compared call by call, up to the first call where their conversations or their answers differ. */
+function walk(r: Reader, ma: ModelCall[], mb: ModelCall[], n: number): Difference {
+  for (let i = 0; i < n; i++) {
+    if (!r.samePrompt(ma[i]!, mb[i]!)) return { kind: 'paths', at: ma[i]!.callNo };
+    if (r.answerKey(ma[i]!) !== r.answerKey(mb[i]!)) return { kind: 'pair', i, ca: ma[i]!, cb: mb[i]! };
+  }
+  return { kind: 'same' };
+}
+
 /**
  * The model call where two attempts first answered the same conversation differently, among the
  * calls made in `scope` (all of them when null). They pair there when their answers differ; when the
  * conversations part first, a read returned something else and their paths parted.
  *
- * A short run is compared call by call. A long one is not: a conversation only grows, so once two
- * attempts' conversations part they stay parted, and the last call where they agree is found by
- * halving, keying a handful of calls rather than every one. (An agent that drops old messages can
- * make two conversations agree again; in a long run, the pair is then looked for where they agree last.)
+ * A short run is compared call by call. A long one is halved: while an agent's conversation grows,
+ * two attempts whose conversations parted stay parted, so the last call where they agree is found by
+ * keying a handful of calls rather than every one. That holds only while each call carries on the
+ * one before it, so halving checks it on every call it read, in both attempts: a call that starts
+ * another conversation (a sub-agent, a context that was cut or rewritten) sends the comparison back
+ * to call by call. What halving can't see is a side conversation between the calls it read whose
+ * answer never comes back into the main one.
  */
-function firstDifference(r: Reader, a: RunRecord, b: RunRecord, scope: string | null): { kind: 'pair'; i: number; ca: ModelCall; cb: ModelCall } | { kind: 'same' } | { kind: 'paths'; at: number } {
+function firstDifference(r: Reader, a: RunRecord, b: RunRecord, scope: string | null): Difference {
   const ma = r.modelCalls(a.runId, scope);
   const mb = r.modelCalls(b.runId, scope);
   const n = Math.min(ma.length, mb.length);
-  const agree = (i: number) => r.samePrompt(ma[i]!, mb[i]!);
-  const at = (i: number) => (r.answerKey(ma[i]!) !== r.answerKey(mb[i]!) ? { kind: 'pair' as const, i, ca: ma[i]!, cb: mb[i]! } : null);
-  if (n <= WALK) {
-    for (let i = 0; i < n; i++) {
-      if (!agree(i)) return { kind: 'paths', at: ma[i]!.callNo };
-      const pair = at(i);
-      if (pair) return pair;
-    }
-    return { kind: 'same' };
-  }
+  if (n <= WALK) return walk(r, ma, mb, n);
+  const read = new Set<number>();
+  const agree = (i: number) => {
+    read.add(i);
+    // Their turns first: one read of each request gives both its key and its turns.
+    r.turnKeys(ma[i]!);
+    r.turnKeys(mb[i]!);
+    return r.samePrompt(ma[i]!, mb[i]!);
+  };
   if (!agree(0)) return { kind: 'paths', at: ma[0]!.callNo };
   let lo = 0;
   let hi = n - 1;
@@ -388,7 +458,12 @@ function firstDifference(r: Reader, a: RunRecord, b: RunRecord, scope: string | 
     if (agree(mid)) lo = mid;
     else hi = mid;
   }
-  return at(lo) ?? (lo === n - 1 ? { kind: 'same' } : { kind: 'paths', at: ma[lo + 1]!.callNo });
+  // Up to the first call where they disagree, each call read must carry on the one read before it.
+  const chain = [...read].filter((i) => i <= lo + 1).sort((x, y) => x - y);
+  const grows = (calls: ModelCall[]) => chain.every((i, j) => j === 0 || carriesOn(r.turnKeys(calls[chain[j - 1]!]!), r.turnKeys(calls[i]!)));
+  if (!grows(ma) || !grows(mb)) return walk(r, ma, mb, n);
+  if (r.answerKey(ma[lo]!) !== r.answerKey(mb[lo]!)) return { kind: 'pair', i: lo, ca: ma[lo]!, cb: mb[lo]! };
+  return lo === n - 1 ? { kind: 'same' } : { kind: 'paths', at: ma[lo + 1]!.callNo };
 }
 
 function answerOf(r: Reader, run: RunRecord, call: ModelCall, what: string): PairAnswer {
@@ -398,8 +473,8 @@ function answerOf(r: Reader, run: RunRecord, call: ModelCall, what: string): Pai
 
 function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate): Pair | null {
   const key = r.key(c.rejected.call);
-  const turns = key === null ? null : r.turns(c.rejected.call);
-  if (key === null || !turns) return null;
+  const context = key === null ? null : r.context(c.rejected.call);
+  if (key === null || context === null) return null;
   const rejected = answerOf(r, c.rejected.run, c.rejected.call, c.rejected.what);
   const chosen = answerOf(r, c.chosen.run, c.chosen.call, c.chosen.what);
   return {
@@ -410,7 +485,7 @@ function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate)
     sourceKind: source.kind,
     runId: about.runId,
     callNo: c.rejected.call.callNo,
-    context: contextLine(turns),
+    context,
     model: r.modelOf(c.rejected.call),
     rejected,
     chosen,
@@ -490,7 +565,35 @@ function verifyInvocation(run: RunRecord): string {
   return group.endsWith(`-${parent}`) ? group.slice(0, -(parent.length + 1)) : group;
 }
 
-const day = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** A time on this machine's clock, to the minute or to the second: `2026-10-15 13:07`. */
+function localTime(ms: number, seconds = false): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}${seconds ? `:${pad(d.getSeconds())}` : ''}`;
+}
+
+/**
+ * Verify sources are named by the code they verified (`verify · 370712a+dirty`), else by when they
+ * ran. Two verifies of the same code, or in the same minute, are told apart by the second they
+ * started, and past that by their order.
+ */
+function nameVerifies(sources: PairSource[], versions: Map<PairSource, string | null>): void {
+  const verifies = sources.filter((s) => s.kind === 'verify');
+  const count = (label: string) => verifies.filter((s) => s.label === label).length;
+  const clashing = verifies.filter((s) => count(s.label) > 1);
+  for (const s of clashing) {
+    const version = versions.get(s) ?? null;
+    s.label = version ? `verify · ${version} · ${localTime(s.at, true).slice(11)}` : `verify · ${localTime(s.at, true)}`;
+  }
+  const seen = new Map<string, number>();
+  for (const s of [...clashing].sort((x, y) => x.at - y.at)) {
+    if (count(s.label) < 2) continue;
+    const n = (seen.get(s.label) ?? 0) + 1;
+    seen.set(s.label, n);
+    if (n > 1) s.label = `${s.label} (${n})`;
+  }
+}
 
 const scopeList = (scopes: Array<string | null>) => scopes.map((s) => (s === null ? 'no scope' : s)).join(', ');
 
@@ -519,17 +622,21 @@ function agentScope(r: Reader, store: Store, byId: Map<string, RunRecord>, recor
  */
 const memo = new WeakMap<Store, { signature: string; result: PairsResult }>();
 
-/** What pairs are read from: each run's place, outcome and meta (blame, probes, verify, repeat groups), and a running run's calls so far. */
-function signature(store: Store, runs: readonly RunRecord[]): string {
+/**
+ * What pairs are read from: each run's place, outcome and meta (blame, probes, verify, repeat
+ * groups). A run still recording is never read for pairs (blame, verify and --repeat read only
+ * attempts that ended), so the calls it records change nothing until it ends, and its status says so.
+ */
+function signature(runs: readonly RunRecord[]): string {
   const h = createHash('sha256');
-  for (const r of runs) h.update(`${r.runId}|${r.parentRunId ?? ''}|${r.status}|${r.startedAt}|${r.endedAt ?? ''}|${r.codeVersion ?? ''}|${JSON.stringify(r.meta ?? null)}|${r.status === 'running' ? store.countCalls(r.runId) : ''}\n`);
+  for (const r of runs) h.update(`${r.runId}|${r.parentRunId ?? ''}|${r.status}|${r.startedAt}|${r.endedAt ?? ''}|${r.codeVersion ?? ''}|${JSON.stringify(r.meta ?? null)}\n`);
   return h.digest('hex');
 }
 
 /** Every pair the attempts in the store make, and every source read, including those that made none. */
 export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): PairsResult {
   const runs = options.runs ?? store.allRuns();
-  const sig = options.runs ? null : signature(store, runs);
+  const sig = options.runs ? null : signature(runs);
   const known = sig === null ? undefined : memo.get(store);
   if (known && known.signature === sig) return { pairs: [...known.result.pairs], sources: [...known.result.sources] };
   const result = readPairs(store, runs);
@@ -607,6 +714,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
   }
 
   // ---- verify: medium ----
+  const verifyVersions = new Map<PairSource, string | null>();
   const invocations = new Map<string, RunRecord[]>();
   for (const run of runs) {
     if (!run.meta?.verify || !run.parentRunId) continue;
@@ -619,8 +727,9 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     for (const a of attempts) byRun.set(a.parentRunId!, [...(byRun.get(a.parentRunId!) ?? []), a]);
     const first = attempts[0]!;
     const versions = [...new Set(attempts.map((a) => a.codeVersion).filter((v): v is string => !!v))];
-    const source: PairSource = { key: `verify:${key}`, kind: 'verify', runId: first.parentRunId!, runIds: [...byRun.keys()], label: `verify · ${versions[0] ?? day(first.startedAt)}`, confidence: 'medium', made: 0, attempts: attempts.length, callNo: null, why: '', at: first.startedAt };
+    const source: PairSource = { key: `verify:${key}`, kind: 'verify', runId: first.parentRunId!, runIds: [...byRun.keys()], label: `verify · ${versions[0] ?? localTime(first.startedAt)}`, confidence: 'medium', made: 0, attempts: attempts.length, callNo: null, why: '', at: first.startedAt };
     sources.push(source);
+    verifyVersions.set(source, versions[0] ?? null);
     // One verify checks one fix to one agent: a blame of any run it replayed says which scope is the agent's.
     const scope = agentScope(r, store, byId, [...byRun.keys()], attempts);
     const mixed: string[] = [];
@@ -649,6 +758,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     }
     source.why = whyContrast(mixed, n, 'several' in scope ? scope.several : [], source.made, 'No run both passed and failed: each passed every attempt or none.');
   }
+  nameVerifies(sources, verifyVersions);
 
   // ---- --repeat: medium, by exit status ----
   const groups = new Map<string, RunRecord[]>();

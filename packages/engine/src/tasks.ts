@@ -277,13 +277,33 @@ function runName(run: RunRecord): string {
   return safeLine(run.meta?.labels?.[0] ?? run.runId.slice(0, 10));
 }
 
-/** A model call that answers no conversation: embeddings and token counts decide nothing, so nothing takes over there. */
+/**
+ * The endpoints a model answers a conversation at: Anthropic's messages; OpenAI's chat completions,
+ * completions and Responses API (Azure's deployments too); Gemini's and Vertex AI's generateContent,
+ * and the rawPredict Vertex serves partner models at; Bedrock's converse and invoke; Ollama's chat.
+ */
+const MODEL_ENDPOINT = /(\/messages|\/chat\/completions|\/completions|\/responses|\/converse|\/converse-stream|\/invoke|\/invoke-with-response-stream|\/api\/chat|\/api\/generate|:(stream)?generatecontent|:(stream)?rawpredict)$/i;
+
+/**
+ * Whether a recorded API call asked a model for an answer: a POST to a conversation endpoint. An
+ * embeddings call, a token count, a model list, a file upload or a moderation decides nothing, so a
+ * model never takes over there, and no pair is read from it.
+ */
+export function isModelRequest(callName: string): boolean {
+  const m = /^([A-Z]+)\s+(.*)$/.exec(callName);
+  if (m && m[1] !== 'POST') return false;
+  const path = (m ? m[2]! : callName).split('?')[0] ?? '';
+  // The Assistants API posts a thread's messages: a message to keep, not a question to a model.
+  return MODEL_ENDPOINT.test(path) && !/\/threads\/[^/]+\/messages$/.test(path);
+}
+
+/** A recorded API call that asked a model nothing (see isModelRequest). */
 export function answersNothing(callName: string): boolean {
-  return /(\/embeddings|\/count_tokens|:(batchEmbedContents|embedContent|countTokens))$/.test(callName.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '');
+  return !isModelRequest(callName);
 }
 
 function modelCalls(calls: readonly CallRecord[]): CallRecord[] {
-  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && !answersNothing(c.name));
+  return calls.filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && isModelRequest(c.name));
 }
 
 const scopeOf = (c: CallRecord): string | null => (typeof c.meta.scope === 'string' ? c.meta.scope : null);
@@ -355,7 +375,7 @@ export function describeTask(input: TaskInput): Task {
   let takeover: Takeover | null;
   if (fields.takeover !== undefined) {
     const call = golden.calls.find((c) => c.callNo === fields.takeover);
-    if (!call || call.kind !== 'api' || answersNothing(call.name)) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is not a model call of the golden's run` };
+    if (!call || call.kind !== 'api' || !isModelRequest(call.name)) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is not a model call of the golden's run${call ? ` (${safeLine(call.name)})` : ''}` };
     if (base.scope !== null && scopeOf(call) !== base.scope) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is made in ${scopeOf(call) === null ? 'no scope' : `scope ${scopeOf(call)}`}, not the agent's (${base.scope})` };
     takeover = { callNo: fields.takeover, why: fields.why ?? 'set in shadowlap.config.json', from: 'config' };
   } else {

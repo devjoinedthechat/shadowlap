@@ -92,6 +92,31 @@ describe('pairs from verify and --repeat', () => {
     store.close();
   });
 
+  it('names verify sources by the code they verified, and tells apart two of the same code', () => {
+    const store = Store.open(':memory:');
+    const target = recordRun(store, LOST, { status: 'failed' }).run;
+    const verify = (group: string, codeVersion: string | null, startedAt: number) =>
+      recordRun(store, SAVED, { parentRunId: target.runId, codeVersion, startedAt, meta: { verify: { role: 'target', passed: true }, repeat: { group: `${group}-${target.runId}`, attempt: 1, of: 1 } } });
+    const at = new Date(2026, 9, 15, 13, 7, 5).getTime();
+    verify('v1', '370712a+dirty', at);
+    verify('v2', '370712a+dirty', at + 42_000);
+    verify('v3', 'b7e40c2', at + 60_000);
+    // No code version: named by when it ran, on this machine's clock, and told apart by the second.
+    verify('v4', null, at + 120_000);
+    verify('v5', null, at + 125_000);
+    verify('v6', null, at + 125_000);
+    const labels = findPairs(store).sources.filter((s) => s.kind === 'verify').map((s) => s.label).sort();
+    expect(labels).toEqual([
+      'verify · 2026-10-15 13:09:05',
+      'verify · 2026-10-15 13:09:10',
+      'verify · 2026-10-15 13:09:10 (2)',
+      'verify · 370712a+dirty · 13:07:05',
+      'verify · 370712a+dirty · 13:07:47',
+      'verify · b7e40c2',
+    ]);
+    store.close();
+  });
+
   it('pairs --repeat attempts by exit status, and leaves out those whose paths parted before their answers', () => {
     const store = Store.open(':memory:');
     const rec = recordRun(store, SAVED).run;
@@ -311,8 +336,9 @@ describe('reading pairs', () => {
     const manifests = read.mock.results.filter((x) => (x.value as { kind?: unknown } | null)?.kind === 'chunked').length;
     expect(pairs).toHaveLength(1);
     expect(pairs[0]).toMatchObject({ callNo: N, rejected: { text: '"Gave up."' }, chosen: { text: '"All done."' } });
-    // Reading every call of five 400-call runs would read 2,000 requests, each the whole conversation so far.
-    expect(manifests).toBeLessThan(150);
+    // Reading every call of five 400-call runs would read 2,000 requests, each the whole conversation so far:
+    // halving reads each attempt's first and last call, and the context line one more.
+    expect(manifests).toBeLessThanOrEqual(9);
     expect(ms).toBeLessThan(5_000);
     // Read again, nothing changed: nothing is read.
     read.mockClear();
@@ -346,9 +372,103 @@ describe('reading pairs', () => {
     record({ parentRunId: target.runId, status: 'failed', meta: repeat('read', 1), ids: 'c', result: (i) => (i === 40 ? 'the queue is down' : `filed ${i}`) });
     record({ parentRunId: target.runId, status: 'completed', meta: repeat('read', 2), ids: 'd' });
 
+    const read = vi.spyOn(store, 'getJson');
     const { pairs, sources } = findPairs(store);
     expect(pairs).toEqual([expect.objectContaining({ source: 'repeat:answer', callNo: 31, rejected: expect.objectContaining({ runId: lost.runId, text: '"Ticket 30: closed as spam.", file({"n":30})' }), chosen: expect.objectContaining({ text: '"Ticket 30: filed.", file({"n":30})' }) })]);
+    // Two comparisons of 100 calls, each halved: a handful of requests read in each attempt, not a hundred.
+    expect(read.mock.results.filter((x) => (x.value as { kind?: unknown } | null)?.kind === 'chunked').length).toBeLessThan(45);
     expect(sources.find((x) => x.key === 'repeat:read')!.why).toContain('Once the attempts saw different conversations before their answers differed');
+    store.close();
+  });
+
+  it('keeps what it read while another run records, and keys only what is new once a run ends', () => {
+    const store = Store.open(':memory:');
+    const N = 120;
+    // A long run, verified three times: the attempts answer alike until the last call.
+    const record = (last: string, o: { parentRunId?: string; status: Exclude<RunStatus, 'running'>; meta?: RunMeta; ids: string }) => {
+      const run = store.createRun({ runId: testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: 'c5', ...(o.meta ? { meta: o.meta } : {}) });
+      const messages: unknown[] = [{ role: 'user', content: 'Work through the backlog.' }];
+      for (let i = 0; i < N; i++) {
+        const final = i === N - 1;
+        const content = [{ type: 'text', text: final ? last : `Step ${i}.` }, ...(final ? [] : [{ type: 'tool_use', id: `toolu_${o.ids}_${i}`, name: 'step', input: { n: i } }])];
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`${o.ids}${i}`), occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo: i + 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'claude-sonnet-5', system: 'You are an agent.', messages }), meta: { provider: 'anthropic' }, at: i });
+        store.appendCallEnd(identity, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putJson({ type: 'message', role: 'assistant', model: 'claude-sonnet-5', content, stop_reason: final ? 'end_turn' : 'tool_use' }), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic' }, at: i });
+        messages.push({ role: 'assistant', content });
+        if (!final) messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_${o.ids}_${i}`, content: `item ${i} done` }] });
+      }
+      store.endRun(run.runId, o.status);
+      return run;
+    };
+    const target = record('Gave up.', { status: 'failed', ids: 't' });
+    const attempt = (n: number, passed: boolean) => record(passed ? 'All done.' : 'Gave up.', { parentRunId: target.runId, status: passed ? 'completed' : 'failed', ids: `a${n}`, meta: { verify: { role: 'target', passed }, repeat: { group: `v1-${target.runId}`, attempt: n, of: 3 } } });
+    attempt(1, false);
+    attempt(2, true);
+    const read = vi.spyOn(store, 'getJson');
+    expect(findPairs(store).pairs).toHaveLength(1);
+    const first = new Set(read.mock.calls.map((c) => c[0]));
+    const isManifest = (v: unknown) => (v as { kind?: unknown } | null)?.kind === 'chunked';
+
+    // Another run starts: the store is read again, but what was keyed is kept, so only the requests compared are read.
+    const live = store.createRun({ runId: testRunId(), mode: 'record', command: { argv: ['node', 'other.mjs'], cwd: '/work' }, codeVersion: 'c5' });
+    const liveCall = (i: number) => {
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`live${i}`), occurrence: 1 };
+      store.appendCallStart({ runId: live.runId, callNo: i, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'claude-sonnet-5', messages: [{ role: 'user', content: `hi ${i}` }] }), meta: { provider: 'anthropic' }, at: i });
+    };
+    liveCall(1);
+    read.mockClear();
+    expect(findPairs(store).pairs).toHaveLength(1);
+    expect(read.mock.results.every((r) => isManifest(r.value))).toBe(true);
+    expect(read.mock.calls.length).toBeLessThan(30);
+    // While it records, nothing pairs are read from changes, so nothing is read at all.
+    read.mockClear();
+    for (let i = 2; i <= 4; i++) {
+      liveCall(i);
+      expect(findPairs(store).pairs).toHaveLength(1);
+    }
+    expect(read).not.toHaveBeenCalled();
+
+    // A third attempt ends: the store is read again, but no message keyed before is read twice.
+    attempt(3, true);
+    read.mockClear();
+    expect(findPairs(store).pairs).toHaveLength(1);
+    const again = read.mock.calls.map((c, i) => ({ hash: c[0], manifest: isManifest(read.mock.results[i]!.value) }));
+    expect(again.length).toBeGreaterThan(0);
+    expect(again.filter((x) => !x.manifest && first.has(x.hash))).toEqual([]);
+    store.close();
+  });
+
+  it('halves a long run only while its calls are one growing conversation, and compares a run with side conversations call by call', () => {
+    const store = Store.open(':memory:');
+    // 110 model calls: a ticket queue, and after every ninth ticket a side conversation that summarizes it, which never comes back.
+    const record = (o: { parentRunId?: string; status: Exclude<RunStatus, 'running'>; meta?: RunMeta; ids: string; answer?: (i: number) => string; summary?: (i: number) => string }) => {
+      const run = store.createRun({ runId: testRunId(), parentRunId: o.parentRunId ?? null, mode: o.parentRunId ? 'replay' : 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, codeVersion: 'c6', ...(o.meta ? { meta: o.meta } : {}) });
+      const messages: unknown[] = [{ role: 'user', content: 'Sort the tickets.' }];
+      let callNo = 0;
+      const call = (body: unknown, content: unknown[]) => {
+        callNo++;
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: sha256(`${o.ids}${callNo}`), occurrence: 1 };
+        store.appendCallStart({ runId: run.runId, callNo, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, body), meta: { provider: 'anthropic' }, at: callNo });
+        store.appendCallEnd(identity, { runId: run.runId, callNo, attempt: 0, responseRef: store.putJson({ type: 'message', role: 'assistant', model: 'claude-sonnet-5', content, stop_reason: 'end_turn' }), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider: 'anthropic' }, at: callNo });
+      };
+      for (let i = 0; i < 100; i++) {
+        const content = [{ type: 'text', text: o.answer?.(i) ?? `Ticket ${i}: filed.` }, { type: 'tool_use', id: `toolu_${o.ids}_${i}`, name: 'file', input: { n: i } }];
+        call({ model: 'claude-sonnet-5', system: 'Sort them.', messages }, content);
+        messages.push({ role: 'assistant', content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_${o.ids}_${i}`, content: `filed ${i}` }] });
+        if (i % 9 === 8 || i === 99) call({ model: 'claude-sonnet-5', system: 'Summarize a ticket.', messages: [{ role: 'user', content: `Summarize ticket ${i}.` }] }, [{ type: 'text', text: o.summary?.(i) ?? `Ticket ${i} is routine.` }]);
+      }
+      store.endRun(run.runId, o.status);
+      return run;
+    };
+    const target = record({ status: 'failed', ids: 't' });
+    const repeat = (n: number): RunMeta => ({ repeat: { group: 'side', attempt: n, of: 2 } });
+    // The failing attempt closes ticket 30 as spam; the last summaries differ in their wording too, which decides nothing.
+    const lost = record({ parentRunId: target.runId, status: 'failed', meta: repeat(1), ids: 'a', answer: (i) => (i === 30 ? 'Ticket 30: closed as spam.' : `Ticket ${i}: filed.`), summary: (i) => (i === 99 ? 'Routine.' : `Ticket ${i} is routine.`) });
+    record({ parentRunId: target.runId, status: 'completed', meta: repeat(2), ids: 'b' });
+
+    const { pairs } = findPairs(store);
+    // Halving would have read the first call and the last, a summary both attempts were asked alike, and paired its wording.
+    expect(pairs).toEqual([expect.objectContaining({ source: 'repeat:side', callNo: 34, rejected: expect.objectContaining({ runId: lost.runId, text: '"Ticket 30: closed as spam.", file({"n":30})' }), chosen: expect.objectContaining({ text: '"Ticket 30: filed.", file({"n":30})' }) })]);
     store.close();
   });
 

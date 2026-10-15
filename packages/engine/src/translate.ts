@@ -35,7 +35,8 @@ export function untranslatable(provider: string | null | undefined, callName: st
   if (provider === 'bedrock') return 'it goes through Amazon Bedrock';
   if (provider === 'vertex') return 'it goes through Vertex AI';
   if (provider === 'azure') return 'it goes through Azure OpenAI';
-  return `it is a ${provider ?? 'non-chat'} request (${path})`;
+  const what = provider ?? 'non-chat';
+  return `it is ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} request (${path})`;
 }
 
 // ---- tool definitions ----

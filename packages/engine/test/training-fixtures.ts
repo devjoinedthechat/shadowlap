@@ -47,8 +47,11 @@ export interface RecordOptions {
   /** Tool-use ids carry this, so runs differ in ids as real ones do. */
   ids?: string;
   results?: (name: string, input: Record<string, unknown>) => unknown;
-  /** Calls before the model's first one, such as a recorded user input. */
-  before?: Array<{ name: string; result: unknown }>;
+  /**
+   * Calls before the model's first one: a recorded user input (a tool), or an API call that asks a
+   * model nothing, such as a model list or an embedding (`kind: 'api'`, named `GET /v1/models`).
+   */
+  before?: Array<{ name: string; result: unknown; kind?: 'tool' | 'api'; provider?: string }>;
   usage?: Usage;
   /** The scope each model call is made in, by its place among them (`scope()` in the SDKs). */
   scopes?: (i: number) => string | undefined;
@@ -77,6 +80,13 @@ export function recordRun(store: Store, steps: Step[], o: RecordOptions = {}): {
   const at = () => startedAt + callNo;
   for (const b of o.before ?? []) {
     callNo++;
+    if (b.kind === 'api') {
+      const identity = { kind: 'api' as const, name: b.name, fingerprint: sha256(`${b.name}${callNo}`), occurrence: 1 };
+      const provider = b.provider ?? 'anthropic';
+      store.appendCallStart({ runId: run.runId, callNo, ...identity, origin: o.parentRunId ? 'replayed' : 'live', effect: null, requestRef: b.name.startsWith('GET ') ? null : storeApiRequest(store, { model: 'text-embedding-3-small', input: 'refund policy' }), meta: { provider }, at: at() });
+      store.appendCallEnd(identity, { runId: run.runId, callNo, attempt: 0, responseRef: store.putJson(b.result), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' }, provider }, at: at() });
+      continue;
+    }
     store.appendCallStart({ runId: run.runId, callNo, kind: 'tool', name: b.name, fingerprint: sha256(`${b.name}${callNo}`), occurrence: 1, origin: 'live', effect: EFFECTS[b.name] ?? 'read', requestRef: store.putJson({ args: {} }), meta: {}, at: at() });
     store.appendCallEnd({ kind: 'tool', name: b.name, fingerprint: sha256(`${b.name}${callNo}`), occurrence: 1 }, { runId: run.runId, callNo, attempt: 0, responseRef: store.putJson({ result: b.result }), outcome: 'ok', meta: {}, at: at() });
   }

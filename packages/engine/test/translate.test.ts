@@ -167,6 +167,8 @@ describe('what can be translated', () => {
     expect(untranslatable('openai', 'POST /v1/responses')).toBe('it uses the OpenAI Responses API');
     expect(untranslatable('gemini', 'POST /v1beta/models/x:streamGenerateContent')).toBe('it uses the Gemini API');
     expect(untranslatable('bedrock', 'POST /model/x/converse')).toBe('it goes through Amazon Bedrock');
+    expect(untranslatable('openai', 'POST /v1/completions')).toBe('it is an openai request (/v1/completions)');
+    expect(untranslatable('mistral', 'POST /v1/fim/completions')).toBe('it is a mistral request (/v1/fim/completions)');
   });
 
   it('reads tool definitions from every provider shape', () => {
