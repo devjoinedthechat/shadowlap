@@ -660,13 +660,20 @@ export function hideSecrets(argv: readonly string[]): string[] {
   });
 }
 
-/** A URL without its user, password, query values or fragment, and with path segments that look like keys hidden. */
+/**
+ * A path segment shown as it is: a short lowercase word such as `mcp`, `sse`, `v1` or `github`.
+ * Anything else (capitals, a long run of letters and digits, a token's shape) may be a key, as in
+ * Zapier's MCP URLs, and is hidden.
+ */
+const plainSegment = (segment: string) => segment === '' || (/^[a-z0-9][a-z0-9._-]{0,23}$/.test(segment) && !keyLike(segment));
+
+/** A URL without its user, password, query values or fragment, and with path segments that may be keys hidden. */
 export function hideUrlSecrets(url: string): string {
   try {
     const u = new URL(url);
     const path = u.pathname
       .split('/')
-      .map((segment) => (keyLike(segment) ? HIDDEN : segment))
+      .map((segment) => (plainSegment(segment) ? segment : HIDDEN))
       .join('/');
     if (!u.username && !u.password && !u.search && !u.hash && path === u.pathname) return url;
     const query = [...new Set(u.searchParams.keys())].map((k) => `${encodeURIComponent(k)}=${HIDDEN}`).join('&');

@@ -407,7 +407,8 @@ describe('secrets in commands and URLs', () => {
       [['DefaultEndpointsProtocol=https;AccountName=x;AccountKey=SECRETKEY'], ['DefaultEndpointsProtocol=https;AccountName=x;AccountKey=•••']],
       [['https://actions.zapier.com/mcp/sk-ak-SECRETPATH/sse'], ['https://actions.zapier.com/mcp/•••/sse']],
       [['https://mcp.zapier.com/api/mcp/s/NmE5ZDEzNjctYTFhZC00ODk0LWI3ZjMtZDE2MjZjZTY0YjA0/mcp'], ['https://mcp.zapier.com/api/mcp/s/•••/mcp']],
-      [['https://mcp.example.com/v1/sse', '--keyboard', 'us'], ['https://mcp.example.com/v1/sse', '--keyboard', 'us']],
+      [['https://mcp.zapier.com/api/mcp/s/SECRETPATH/mcp'], ['https://mcp.zapier.com/api/mcp/s/•••/mcp']],
+      [['https://mcp.composio.dev/partner/composio/github/mcp', 'https://mcp.example.com/v1/sse', '--keyboard', 'us'], ['https://mcp.composio.dev/partner/composio/github/mcp', 'https://mcp.example.com/v1/sse', '--keyboard', 'us']],
     ];
     for (const [argv, shown] of cases) expect(hideSecrets(argv), argv.join(' ')).toEqual(shown);
   });
