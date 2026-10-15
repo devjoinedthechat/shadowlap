@@ -7,6 +7,7 @@ import copy
 import json
 import os
 import pickle
+import socket
 import sys
 import unittest
 
@@ -59,7 +60,9 @@ class InjectedFailures(unittest.TestCase):
             search_web("refunds")
         err = caught.exception
         self.assertIsInstance(err, ShadowlapInjectedTimeout)
+        # Classes of their own before Python 3.11: an agent catching either still catches it.
         self.assertIsInstance(err, asyncio.TimeoutError)
+        self.assertIsInstance(err, socket.timeout)
         self.assertEqual(str(err), "search_web timed out")
         self.assertEqual((err.tool, err.tool_args, err.kind, err.injected), ("search_web", {"query": "refunds"}, "timeout", True))
         self.assertEqual(self.ran, [])
@@ -101,11 +104,31 @@ class InjectedFailures(unittest.TestCase):
         self.assertEqual(asyncio.run(main()), "fetch timed out")
         self.assertEqual(ran, [])
 
+    def test_an_agent_that_catches_asyncio_timeout_around_wait_for_catches_it(self):
+        shadowlap._post = Sidecar(injected("timeout", {"name": "TimeoutError", "message": "fetch timed out"}))
+
+        @tool(effect="read")
+        async def fetch(url: str) -> str:
+            return "page"
+
+        async def main():
+            try:
+                return await asyncio.wait_for(fetch("https://example.com"), timeout=5)
+            except asyncio.TimeoutError:
+                return "gave up"
+
+        self.assertEqual(asyncio.run(main()), "gave up")
+
     def test_the_errors_survive_copy_and_pickle(self):
         err = shadowlap._injected("t", {"a": 1}, {"kind": "status", "status": 503}, {"name": "HTTPError", "message": "HTTP 503 Service Unavailable"})
         for again in (copy.copy(err), pickle.loads(pickle.dumps(err))):
             self.assertIsInstance(again, ShadowlapInjectedHTTPError)
             self.assertEqual((str(again), again.status_code, again.tool_args), ("HTTP 503 Service Unavailable", 503, {"a": 1}))
+        timeout = shadowlap._injected("t", {}, {"kind": "timeout"}, {"name": "TimeoutError", "message": "t timed out", "code": "ETIMEDOUT"})
+        for again in (copy.copy(timeout), pickle.loads(pickle.dumps(timeout))):
+            self.assertIsInstance(again, ShadowlapInjectedTimeout)
+            self.assertIsInstance(again, asyncio.TimeoutError)
+            self.assertEqual((str(again), again.code), ("t timed out", "ETIMEDOUT"))
 
     def test_an_origin_this_sdk_does_not_know_is_an_error_not_a_reason_to_run_the_tool(self):
         shadowlap._post = Sidecar({"origin": "teleported", "callNo": 1})

@@ -99,9 +99,22 @@ class ShadowlapInjectedFailure(Exception):
         return (type(self), (self.tool, self.tool_args, self.failure, {"name": self.name, "message": str(self), "code": self.code}))
 
 
-class ShadowlapInjectedTimeout(ShadowlapInjectedFailure, TimeoutError):
-    """A tool timeout ``--fail-at <call>=timeout`` asked for: ``except TimeoutError`` catches it
-    (``asyncio.TimeoutError`` and ``socket.timeout`` are the same class)."""
+def _timeout_classes() -> tuple:
+    """The classes an agent may catch a timeout as. From Python 3.11 ``asyncio.TimeoutError`` and
+    ``socket.timeout`` are ``TimeoutError`` itself; before that they are classes of their own, and an
+    agent's ``except asyncio.TimeoutError`` around ``asyncio.wait_for`` must catch the injected one too."""
+    import socket
+
+    classes = [ShadowlapInjectedFailure, TimeoutError]
+    for cls in (asyncio.TimeoutError, socket.timeout):
+        if not any(issubclass(c, cls) for c in classes):
+            classes.append(cls)
+    return tuple(classes)
+
+
+class ShadowlapInjectedTimeout(*_timeout_classes()):  # type: ignore[misc]
+    """A tool timeout ``--fail-at <call>=timeout`` asked for: ``except TimeoutError`` catches it, and
+    so do ``except asyncio.TimeoutError`` and ``except socket.timeout`` on every Python the SDK runs on."""
 
 
 class _InjectedResponse:

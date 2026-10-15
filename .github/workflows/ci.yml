@@ -77,3 +77,20 @@ jobs:
             shadowlap-junit.xml
           if-no-files-found: ignore
           retention-days: 14
+
+  # The Python SDK supports 3.9 onward, and some of what it promises (an injected timeout is an
+  # asyncio.TimeoutError) differs before 3.11: its own tests run on the oldest version and a current one.
+  python-sdk:
+    name: python sdk on ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.10', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --quiet pytest -e sdks/python
+      - run: python -m pytest -q sdks/python/tests
