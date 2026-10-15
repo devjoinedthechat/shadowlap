@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runsQueryString } from '../ui/api.js';
+import { runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
