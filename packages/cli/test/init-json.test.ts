@@ -71,6 +71,28 @@ describe('shadowlap init --json', () => {
     expect(j.config).toMatchObject({ existed: false, created: true });
   });
 
+  it('gives the Python SDK’s version as the project declares it when no lock pins it', () => {
+    const sdk = (files: Record<string, string>) => json(project({ 'agent.py': 'import anthropic\n', ...files })).summary.sdk;
+    // A lock that doesn't list it: the declared pin.
+    expect(sdk({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic==0.69.0"]\n', 'uv.lock': 'version = 1\n' })).toBe('anthropic 0.69.0');
+    // A lower bound, or a compatible release, names the release it starts from.
+    expect(sdk({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = [\n  "anthropic[bedrock]>=0.69,<1 ; python_version >= \'3.9\'",\n]\n' })).toBe('anthropic 0.69');
+    expect(sdk({ 'requirements.txt': 'anthropic~=0.69.0\n' })).toBe('anthropic 0.69.0');
+    // Another package whose name starts the same is not it.
+    expect(sdk({ 'requirements.txt': 'anthropic-bedrock==1.0.0\nanthropic>=0.70\n' })).toBe('anthropic 0.70');
+    // An exact pin wins over a bound declared elsewhere.
+    expect(sdk({ 'requirements.txt': 'anthropic>=0.60\n', 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic==0.69.1"]\n' })).toBe('anthropic 0.69.1');
+    // Poetry's and Pipfile's values.
+    expect(sdk({ 'pyproject.toml': '[tool.poetry]\nname = "x"\n\n[tool.poetry.dependencies]\npython = "^3.12"\nanthropic = "^0.69.0"\n' })).toBe('anthropic 0.69.0');
+    expect(sdk({ 'pyproject.toml': '[tool.poetry.dependencies]\nanthropic = { version = "~0.69", extras = ["bedrock"] }\n' })).toBe('anthropic 0.69');
+    expect(sdk({ Pipfile: '[packages]\nanthropic = "==0.69.0"\n' })).toBe('anthropic 0.69.0');
+    // A comment in the array isn't a requirement.
+    expect(sdk({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = [\n  # was "anthropic==0.1.0"\n  "anthropic>=0.71",\n]\n' })).toBe('anthropic 0.71');
+    // Nothing that names a version: the name alone.
+    expect(sdk({ Pipfile: '[packages]\nanthropic = "*"\n' })).toBe('anthropic');
+    expect(sdk({ 'requirements.txt': 'anthropic\n' })).toBe('anthropic');
+  });
+
   it('flags every tool that isn’t wrapped, with the code to wrap it for that language', () => {
     const j = json(project(RESEARCH));
     expect(j.tools.map((t) => [t.name, t.suggested, t.wrapped])).toEqual([

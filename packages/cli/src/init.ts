@@ -110,6 +110,19 @@ function installedVersion(cwd: string, pkg: string): string | null {
   return typeof v === 'string' ? v : null;
 }
 
+/**
+ * The quoted requirements in pyproject.toml's arrays with these keys (`dependencies = [...]`), read
+ * a string at a time: extras (`"pydantic-ai-slim[openai]"`) put brackets inside the quotes, and a
+ * marker (`; python_version >= '3.9'`) the other kind of quote.
+ */
+function tomlRequirements(text: string, keys: readonly string[]): string[] {
+  const specs: string[] = [];
+  const array = new RegExp(`(?:^|\\n)\\s*(?:${keys.join('|')})\\s*=\\s*\\[((?:"[^"\\n]*"|'[^'\\n]*'|#[^\\n]*|[^\\]"'#])*)\\]`, 'g');
+  // A comment in the array is passed over, quotes and all.
+  for (const block of text.matchAll(array)) for (const s of block[1]!.matchAll(/"([^"\n]*)"|'([^'\n]*)'|#[^\n]*/g)) if (s[1] !== undefined || s[2] !== undefined) specs.push(s[1] ?? s[2]!);
+  return specs;
+}
+
 /** Python dependency names from pyproject.toml, requirements files and Pipfile, lowercased and normalized. */
 function pythonDependencies(cwd: string): Set<string> {
   const names = new Set<string>();
@@ -120,8 +133,7 @@ function pythonDependencies(cwd: string): Set<string> {
   const pyproject = join(cwd, 'pyproject.toml');
   if (existsSync(pyproject)) {
     const text = readFileSync(pyproject, 'utf8');
-    // An array of quoted specs; extras like "pydantic-ai-slim[openai]" put brackets inside the quotes.
-    for (const block of text.matchAll(/(?:^|\n)\s*(?:dependencies|requires)\s*=\s*\[((?:\s*(?:#[^\n]*)?\s*["'][^"']*["']\s*,?)*)\s*\]/g)) for (const s of block[1]!.matchAll(/["']([^"']+)["']/g)) add(s[1]!);
+    for (const spec of tomlRequirements(text, ['dependencies', 'requires'])) add(spec);
     for (const section of text.matchAll(/\[tool\.poetry(?:\.group\.\w+)?\.dependencies\]([\s\S]*?)(?=\n\[|$)/g)) for (const line of section[1]!.split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
   }
   for (const f of ['requirements.txt', 'requirements-dev.txt', 'requirements.in']) {
@@ -617,21 +629,79 @@ function pinnedVersion(cwd: string, files: string[], minor: boolean): string | n
 
 const cleanVersion = (v: string) => v.replace(/^[\^~>=<v\s]+/, '').split(/[\s,|]/)[0]!;
 
-/** A package's version: installed (Node), pinned in a lockfile or requirements file (Python), or the declared range. */
+/** A Python package's name as a pattern: `-`, `_` and `.` are the same to pip, in any run (PEP 503). */
+const pythonName = (name: string) => name.split(/[-_.]+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[-_.]+');
+
+/**
+ * The version a Python requirement's specifiers name with one of `ops`: an exact pin (`==0.69.0`),
+ * or the release a compatible (`~=0.69.0`) or lower bound (`>=0.69`) names. Wildcards, upper bounds
+ * and exclusions name none; an environment marker after `;` is left out.
+ */
+function specifiedVersion(specifiers: string, ops: readonly string[]): string | null {
+  const found = [...specifiers.split(';')[0]!.matchAll(/(===|==|~=|>=)\s*([0-9][\w.+!-]*)/g)];
+  for (const op of ops) {
+    const hit = found.find((m) => m[1] === op && !m[2]!.endsWith('*'));
+    if (hit) return hit[2]!;
+  }
+  return null;
+}
+
+/**
+ * Where a Python project declares a package, as specifier text: PEP 508 lines in requirements files
+ * and `[project]` dependencies in pyproject.toml (`anthropic>=0.69`), and the value Poetry and
+ * Pipfile give it (`anthropic = "^0.69.0"`, or `{ version = "^0.69.0" }`).
+ */
+function pythonDeclarations(cwd: string, name: string): { pep508: string[]; values: string[] } {
+  // The name whole: `anthropic` is not `anthropic-bedrock`.
+  const escaped = `${pythonName(name)}(?![A-Za-z0-9._-])`;
+  const requirement = new RegExp(`^\\s*${escaped}\\s*(?:\\[[^\\]]*\\])?\\s*([^#]*)`, 'i');
+  const pep508: string[] = [];
+  for (const req of ['requirements.txt', 'requirements.in', 'requirements-dev.txt']) {
+    for (const line of readText(join(cwd, req)).split('\n')) {
+      const m = requirement.exec(line);
+      if (m) pep508.push(m[1]!);
+    }
+  }
+  const pyproject = readText(join(cwd, 'pyproject.toml'));
+  for (const spec of tomlRequirements(pyproject, ['dependencies'])) {
+    const m = requirement.exec(spec);
+    if (m) pep508.push(m[1]!);
+  }
+  const values: string[] = [];
+  const assignment = new RegExp(`^\\s*["']?${escaped}["']?\\s*=\\s*(?:"([^"]*)"|'([^']*)'|\\{[^}]*\\bversion\\s*=\\s*"([^"]*)")`, 'im');
+  for (const section of pyproject.matchAll(/\[tool\.poetry(?:\.group\.[\w-]+)?\.dependencies\]([\s\S]*?)(?=\n\[|$)/g)) {
+    const m = assignment.exec(section[1]!);
+    if (m) values.push(m[1] ?? m[2] ?? m[3] ?? '');
+  }
+  const pipfile = assignment.exec(readText(join(cwd, 'Pipfile')));
+  if (pipfile) values.push(pipfile[1] ?? pipfile[2] ?? pipfile[3] ?? '');
+  return { pep508, values };
+}
+
+/**
+ * A package's version: installed (Node), pinned in a lockfile (Python), or as the project declares
+ * it: package.json's range, a requirement's pin or lower bound, Poetry's or Pipfile's value.
+ */
 function packageVersion(cwd: string, name: string): string | null {
   const installed = installedVersion(cwd, name);
   if (installed) return installed;
   const pkg = readJson(join(cwd, 'package.json'));
   const declared = ((pkg?.dependencies ?? {}) as Record<string, string>)[name] ?? ((pkg?.devDependencies ?? {}) as Record<string, string>)[name];
   if (typeof declared === 'string' && /\d/.test(declared)) return cleanVersion(declared);
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_.]/g, '[-_.]');
+  const escaped = pythonName(name);
   for (const lock of ['uv.lock', 'poetry.lock', 'pdm.lock']) {
     const m = new RegExp(`\\bname\\s*=\\s*"${escaped}"\\s*\\nversion\\s*=\\s*"([^"]+)"`, 'i').exec(readText(join(cwd, lock)));
     if (m) return m[1]!;
   }
-  for (const req of ['requirements.txt', 'requirements.in']) {
-    const m = new RegExp(`^\\s*${escaped}(?:\\[[^\\]]*\\])?\\s*==\\s*([\\w.]+)`, 'im').exec(readText(join(cwd, req)));
-    if (m) return m[1]!;
+  const { pep508, values } = pythonDeclarations(cwd, name);
+  // Poetry's `^0.69.0` and `~0.69` name their lowest release, as a lower bound does.
+  const specs = [...pep508, ...values.map((v) => (/(?:===|==|~=|>=)/.test(v) ? v : `>=${cleanVersion(v)}`))];
+  // An exact pin wherever it is declared, then a bound.
+  for (const ops of [['===', '=='], ['~=', '>=']]) {
+    for (const s of specs) {
+      const version = specifiedVersion(s, ops);
+      if (version) return version;
+    }
   }
   return null;
 }
