@@ -349,13 +349,11 @@ describe('events as each feature records them', () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 10 }).runId;
     store.endRun(run, 'failed', 20);
-    // The team slice: push, pull, share links.
+    // The team store: push, pull, share links.
     recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 2, updated: 1, queued: 0, refused: 0, blobs: 10, bytes: 1234 }, at: 2000 });
     recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, queued: 2, refused: 1, blobs: 1, bytes: 10 }, at: 2010 });
     recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, refused: 0, queued: true }, at: 2020 });
     recordEvent(store, { kind: 'store.pulled', actor: 'maya@example.com', ref: 's3://northwind/agent', data: { pulled: 3, merged: 1, failed: 0, byAuthor: { 'dana@example.com': 3 } }, at: 2100 });
-    recordEvent(store, { kind: 'org.noted', ref: 'org-2026-1', data: { group: 'team', size: 5, end: '2027-10-01', organisation: 'Northwind GmbH' }, at: 2200 });
-    recordEvent(store, { kind: 'org.noted', ref: 'org-2026-2', data: { group: 'team', size: 5, end: '2027-11-01', refreshed: true }, at: 2210 });
     recordEvent(store, { kind: 'run.shared', runId: run, ref: 'reports/01k5cq.html', data: { expiresAt: 9_999_999, redacted: true, runs: 2 }, at: 2300 });
     // The fixes slice: blame, repair, verify, apply.
     recordEvent(store, { kind: 'blame.done', runId: run, ref: 'fx-double-email', data: { outcome: 'blamed', callNo: 9, confidence: 'high', title: 'confirmation email sent twice', opened: true }, at: 3000 });
@@ -386,8 +384,6 @@ describe('events as each feature records them', () => {
     const items = activity(store, { limit: 200 }).items;
     const at = (t: number) => items.find((i) => i.at === t);
     expect([2000, 2010, 2020, 2100].map((t) => at(t)?.text)).toEqual(['Pushed 3 runs to the store', 'Pushed 1 run to the store · 2 waiting · 1 refused', 'Pushed 1 run to the store', 'Pulled 3 runs from the store']);
-    expect(at(2200)).toMatchObject({ kind: 'setting', text: 'Organisation noted · Northwind GmbH · Team', href: '#/settings/store' });
-    expect(at(2210)?.text).toBe('Organisation renewed · Team');
     expect(at(2300)).toMatchObject({ kind: 'project', text: `Shared ${run.slice(0, 10)} as a link · with 1 more run · redacted`, href: `#/run/${run}` });
     expect(at(3000)).toMatchObject({ kind: 'blame', text: 'Blamed · confirmation email sent twice, lost at model call #9', href: '#/fixes/fx-double-email/blame', runId: run });
     expect(at(3010)?.text).toBe('Blamed model call #5 · confidence high');

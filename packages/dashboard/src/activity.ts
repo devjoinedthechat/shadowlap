@@ -34,7 +34,6 @@ const short = (runId: string) => runId.slice(0, 10);
 const FIX_ID = /^fx-[\w-]+$/;
 const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : []);
-const capital = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 /** Words joined by the feed's separator, the empty ones left out. */
 const parts = (...words: Array<string | null | false | undefined>) => words.filter(Boolean).join(' · ');
 
@@ -104,15 +103,6 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: '#/training/tasks' })],
   // In the projects pages' own words, so the feed and the project list say the same.
   ...(['project.added', 'project.setup', 'project.removed'] as const).map((kind): [string, Describe] => [kind, (e) => ({ kind: 'project', text: projectEventText(e) ?? kind, href: '#/' })]),
-  [
-    'org.noted',
-    (e, d) => {
-      const group = str(d.group);
-      const href = '#/settings/store';
-      if (d.refreshed === true) return { kind: 'setting', text: parts('Organisation renewed', group && capital(group)), href };
-      return { kind: 'setting', text: `Organisation noted · ${parts(str(d.organisation) ?? str(d.org), group && capital(group)) || (e.ref ?? '')}`, href };
-    },
-  ],
   [
     'store.pushed',
     (_e, d) => {
