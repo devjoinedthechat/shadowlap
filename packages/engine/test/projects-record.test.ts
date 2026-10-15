@@ -30,6 +30,51 @@ describe('parseAgentCommand', () => {
     expect(argv('node agent.mjs {} {x}')).toEqual(['node', 'agent.mjs', '{}', '{x}']);
   });
 
+  it('reads a backslash as a terminal does, and keeps one in a Windows path', () => {
+    // The form quoteArgv writes an apostrophe in, and the ones people type.
+    expect(argv(`python agent.py 'What'\\''s the refund policy?'`)).toEqual(['python', 'agent.py', "What's the refund policy?"]);
+    expect(argv(`node a.mjs --name=O\\'Brien`)).toEqual(['node', 'a.mjs', "--name=O'Brien"]);
+    expect(argv('node a.mjs my\\ file.txt')).toEqual(['node', 'a.mjs', 'my file.txt']);
+    expect(argv('node a.mjs \\"x\\"')).toEqual(['node', 'a.mjs', '"x"']);
+    expect(argv('node a.mjs "say \\"hi\\""')).toEqual(['node', 'a.mjs', 'say "hi"']);
+    // Escaped, shell syntax is text, as in a terminal.
+    expect(argv('node a.mjs a\\|b \\$HOME \\~ \\#x costs\\ \\$5 \\{a,b\\}')).toEqual(['node', 'a.mjs', 'a|b', '$HOME', '~', '#x', 'costs $5', '{a,b}']);
+    // Inside double quotes a backslash escapes only ", $ and a backquote; before anything else it stays.
+    expect(argv('node a.mjs "costs \\$5" "C:\\Program Files\\agent.py" "\\`x\\`"')).toEqual(['node', 'a.mjs', 'costs $5', 'C:\\Program Files\\agent.py', '`x`']);
+    // A Windows path keeps its backslashes, whatever language its folders are named in.
+    expect(argv('python C:\\Users\\Ünal\\agent.py')).toEqual(['python', 'C:\\Users\\Ünal\\agent.py']);
+    // Only a space or a tab separates arguments: a no-break space is text, as in a terminal.
+    expect(argv('node a.mjs a\u00a0b')).toEqual(['node', 'a.mjs', 'a\u00a0b']);
+    // A # or a ~ inside a word is text.
+    expect(argv('node a.mjs issue#42 a~b --path=~/x')).toEqual(['node', 'a.mjs', 'issue#42', 'a~b', '--path=~/x']);
+  });
+
+  it('reads back every line quoteArgv writes as the same arguments', () => {
+    // Arguments with every character a shell treats specially, and some it doesn't.
+    const pool = Array.from("aZ09 _-./:=,+@%'\"\\$`*?;|&<>(){}[]~#!^\té’\u00a0😀");
+    let seed = 7;
+    const random = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const programs = ['node', 'python', 'uv', './agent', 'C:\\agents\\run.exe', 'npm'];
+    const cases: string[][] = [
+      ['python', 'agent.py', "What's the refund policy?"],
+      ['node', 'a.mjs', "--name=O'Brien", '', '$HOME', '*', ';', 'a b', '"quoted"', "it's \"both\""],
+      ['node', 'a.mjs', '\\\\server\\share', 'C:\\agents\\', "'", "''", '\\', '~/x', '#1', '{a,b}', '$(date)', '`date`'],
+    ];
+    for (let n = 0; n < 2000; n++) {
+      const args = Array.from({ length: 1 + random(5) }, () => Array.from({ length: random(9) }, () => pool[random(pool.length)]!).join(''));
+      cases.push([programs[random(programs.length)]!, ...args]);
+    }
+    for (const c of cases) {
+      const line = quoteArgv(c);
+      expect(parseAgentCommand(line), line).toEqual({ ok: true, argv: c });
+      // And as the step shows it for a terminal, pasted whole.
+      expect(parseAgentCommand(`shadowlap run -- ${line}`), line).toEqual({ ok: true, argv: c });
+    }
+  });
+
   it('drops a pasted shadowlap run --, and refuses a shadowlap command', () => {
     expect(argv('shadowlap run -- node triage.mjs')).toEqual(['node', 'triage.mjs']);
     expect(argv('npx shadowlap run -- pnpm start')).toEqual(['pnpm', 'start']);
@@ -53,9 +98,22 @@ describe('parseAgentCommand', () => {
       ['node a.mjs "$(date)"', /inside double quotes would not be expanded/],
       ['node a.mjs "`date`"', /inside double quotes would not be expanded/],
       ['node a.mjs "costs $5"', /inside double quotes would not be expanded/],
-      ['node a.mjs my\\ file.txt', /a backslash before a space or a quote/],
-      ['node a.mjs \\"x\\"', /a backslash before a space or a quote/],
-      ['node a.mjs "say \\"hi\\""', /a backslash before a space or a quote/],
+      ['node a.mjs "$-"', /inside double quotes would not be expanded/],
+      ['node a.mjs $-', /a variable/],
+      // Quoting forms that change the text in bash.
+      ["node a.mjs $'\\x41'", /\$'…' and \$"…" would not do what they do/],
+      ['node a.mjs $"hi"', /\$'…' and \$"…" would not do what they do/],
+      ["node a.mjs a$'b'", /\$'…' and \$"…"/],
+      // A terminal would wait for the line's continuation.
+      ['node a.mjs \\', /a backslash at the end would carry the command on/],
+      ['node a.mjs x\\', /a backslash at the end/],
+      // One backslash in a terminal on macOS and Linux, two on Windows.
+      ['node a.mjs a\\\\b', /two backslashes in a row/],
+      ['node a.mjs \\\\server\\share', /two backslashes in a row/],
+      ['node a.mjs "C:\\\\agents"', /two backslashes in a row/],
+      ['"" a.mjs', /starts with an empty argument/],
+      ["'' a.mjs", /starts with an empty argument/],
+      ['node a.mjs name=~/x', /~ would not mean your home folder/],
       ['python *.py', /a wildcard/],
       ['python agent.py data/[ab].json', /a wildcard/],
       ['node run.js --in=data/{a,b}.json', /a brace expansion/],
@@ -261,5 +319,16 @@ describe('setup commands', () => {
 
   it('quotes arguments as a terminal would take them back', () => {
     expect(quoteArgv(['node', 'a b', "it's", 'x=1'])).toBe("node 'a b' 'it'\\''s' x=1");
+    expect(parseAgentCommand(quoteArgv(['node', 'a b', "it's", 'x=1']))).toEqual({ ok: true, argv: ['node', 'a b', "it's", 'x=1'] });
+  });
+
+  it('records again with the command it shows, apostrophes and all', () => {
+    const argv = ['python', 'agent.py', "What's the refund policy?"];
+    const first = planRecording({ path: '/home/dana/support', confirmed: [] }, `python agent.py "What's the refund policy?"`, { home: '/home/dana' });
+    expect(first.ok && first.plan.argv).toEqual(argv);
+    // The setup fills in Record again with quoteArgv(argv), and shows the plan's line for a terminal.
+    const again = planRecording({ path: '/home/dana/support', confirmed: [{ argv }] }, quoteArgv(argv), { home: '/home/dana' });
+    expect(again).toMatchObject({ ok: true, plan: { argv, confirm: null } });
+    expect(first.ok && planRecording({ path: '/home/dana/support', confirmed: [{ argv }] }, first.plan.display)).toMatchObject({ ok: true, plan: { argv, confirm: null } });
   });
 });

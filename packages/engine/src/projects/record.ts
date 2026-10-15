@@ -18,91 +18,133 @@ export const COMMAND_LIMITS = Object.freeze({ chars: 4000, args: 200 });
 
 export type ParsedCommand = { ok: true; argv: string[] } | { ok: false; error: string };
 
-/** Shell syntax that would change what runs, or with which arguments, if a shell ran the line. */
+/**
+ * Shell syntax in the text outside quotes (escaped characters left out) that would change what
+ * runs, or with which arguments, if a shell ran the line.
+ */
 const SHELL_SYNTAX: ReadonlyArray<readonly [RegExp, string]> = [
   [/[|]/, 'a pipe'],
   [/[;&]/, 'chained commands'],
   [/[<>]/, 'a redirection'],
   [/[`]|\$[({]/, 'a substitution'],
-  [/\$[A-Za-z0-9_@#!$]/, 'a variable'],
+  [/\$[A-Za-z0-9_@#!$*?-]/, 'a variable'],
   [/[()]/, 'a subshell'],
   [/[*?[]/, 'a wildcard'],
   [/\{[^{} ]*(?:,|\.\.)[^{} ]*\}/, 'a brace expansion'],
-  [/(?:^| )#/, 'a comment'],
 ];
 
+/** What follows `$` when a terminal expands it: a name, a digit, a special parameter, `${` or `$(`. */
+const EXPANDS = /[A-Za-z0-9_@#!$*?{(-]/;
+/** After a backslash outside quotes, characters a Windows path has there: the backslash is kept. */
+const PATH_CHAR = /[\p{L}\p{N}._-]/u;
+
+const refuse = (error: string): ParsedCommand => ({ ok: false, error });
+const NO_SHELL = 'Shadowlap runs the command without a shell, so';
+
 /**
- * Splits the agent's command into arguments, honouring single and double quotes as the terminal
- * UI's prompt does (backslashes are kept as typed, so Windows paths survive). No shell runs it, so
- * shell syntax is refused rather than passed on as literal text: outside quotes a pipe, `&&`, a
- * redirection, `$VAR`, `~`, a wildcard or a leading `NAME=value`, and inside double quotes `$VAR`
- * or a substitution, which a terminal expands there too; a backslash escaping a space or a quote
- * would split the line differently. Single quotes keep text as it is, as in a terminal. A leading
- * `shadowlap run --` is dropped: it is what the step's command line shows.
+ * Splits the agent's command into arguments as a terminal on macOS or Linux would, so the line it
+ * shows (`quoteArgv`) reads back as the same arguments. No shell runs it, so what only a shell would
+ * understand is refused rather than passed on as text: outside quotes a pipe, `&&`, a redirection,
+ * `$VAR`, a leading `~`, a wildcard, a comment or a leading `NAME=value`; inside double quotes `$VAR`
+ * or a substitution, which a terminal expands there too; `$'…'` and `$"…"`; and a backslash ending
+ * the line. Quotes work as in a terminal: single quotes keep text as it is, a backslash makes the
+ * next character text (`it'\''s`, `my\ file`, `"say \"hi\""`). One difference, so a Windows path
+ * survives: a backslash before a letter, a digit, `.`, `_` or `-` is kept (`C:\agents\run.py`),
+ * and two backslashes in a row, one character in a terminal on macOS and Linux but two on Windows,
+ * are refused. Spaces and tabs separate arguments. A leading `shadowlap run --` is dropped: it is
+ * what the step's command line shows.
  */
 export function parseAgentCommand(line: string): ParsedCommand {
-  if (line.length > COMMAND_LIMITS.chars) return { ok: false, error: `The command is longer than ${COMMAND_LIMITS.chars} characters.` };
+  if (line.length > COMMAND_LIMITS.chars) return refuse(`The command is longer than ${COMMAND_LIMITS.chars} characters.`);
   // Control characters (a newline among them) have no place in one command line.
-  if (/[\u0000-\u001f\u007f]/.test(line.replace(/\t/g, ' '))) return { ok: false, error: 'The command has a line break or a control character in it: give one line.' };
+  if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(line)) return refuse('The command has a line break or a control character in it: give one line.');
+  const chars = Array.from(line.replace(/^[ \t]+|[ \t]+$/g, ''));
   const args: string[] = [];
   let current = '';
-  let quote: '"' | "'" | null = null;
   let started = false;
+  /** The text outside quotes, escaped characters left out: where shell syntax would act. */
   let bare = '';
-  // What double quotes held, where a terminal still expands `$` and backquotes.
-  let doubleQuoted = '';
-  let prev = '';
-  const escape = { ok: false as const, error: 'Shadowlap runs the command without a shell, so a backslash before a space or a quote would not do what it does in a terminal. Put the argument in single quotes instead.' };
-  const flush = () => {
-    if (started) args.push(current);
-    current = '';
-    started = false;
-  };
-  for (const ch of line.trim()) {
-    const escaped = prev === '\\';
-    prev = ch;
-    if (quote) {
-      if (ch === quote) {
-        // In a terminal, \" inside double quotes is a quote, not the end of them.
-        if (escaped && quote === '"') return escape;
-        quote = null;
-        if (ch === '"') doubleQuoted += ' ';
-      } else {
+  const twoBackslashes = refuse(`${NO_SHELL} two backslashes in a row would be one in a terminal on macOS and Linux, and two on Windows. Put the argument in single quotes to keep it as typed.`);
+  const expandsInDoubleQuotes = refuse(`${NO_SHELL} a variable or a substitution inside double quotes would not be expanded as in a terminal. Type the value itself, use single quotes to keep the text as it is, or put the command in a script.`);
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
+    const next = chars[i + 1];
+    if (ch === ' ' || ch === '\t') {
+      if (started) args.push(current);
+      current = '';
+      started = false;
+      bare += ' ';
+      continue;
+    }
+    if (ch === "'") {
+      const end = chars.indexOf("'", i + 1);
+      if (end < 0) return refuse('A single quote is never closed.');
+      current += chars.slice(i + 1, end).join('');
+      started = true;
+      i = end;
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      for (; j < chars.length && chars[j] !== '"'; j++) {
+        const c = chars[j]!;
+        const after = chars[j + 1];
+        if (c === '\\') {
+          if (after === '\\') return twoBackslashes;
+          // Inside double quotes a backslash makes `"`, `$` and a backquote text; before anything else it stays, as in a terminal.
+          if (after === '"' || after === '$' || after === '`') {
+            current += after;
+            j++;
+          } else current += c;
+          continue;
+        }
+        if (c === '`' || (c === '$' && after !== undefined && EXPANDS.test(after))) return expandsInDoubleQuotes;
+        current += c;
+      }
+      if (j >= chars.length) return refuse('A double quote is never closed.');
+      started = true;
+      i = j;
+      continue;
+    }
+    if (ch === '\\') {
+      if (next === undefined) return refuse(`${NO_SHELL} a backslash at the end would carry the command on to the next line in a terminal. Give the command on one line.`);
+      if (next === '\\') return twoBackslashes;
+      started = true;
+      // Kept before what a Windows path has there; before anything else, the next character is text.
+      if (PATH_CHAR.test(next)) {
         current += ch;
-        if (quote === '"') doubleQuoted += ch;
+        bare += ch;
+      } else {
+        current += next;
+        bare += '_';
+        i++;
       }
       continue;
     }
-    if (escaped && (ch === '"' || ch === "'" || /\s/.test(ch))) return escape;
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      started = true;
-    } else if (/\s/.test(ch)) {
-      flush();
-      bare += ' ';
-    } else {
-      if (ch === '~' && !started) return { ok: false, error: 'Shadowlap runs the command without a shell, so ~ would not mean your home folder. Give the path from the project folder, or in full.' };
-      current += ch;
-      started = true;
-      bare += ch;
-    }
+    if (!started && ch === '~') return refuse(`${NO_SHELL} ~ would not mean your home folder. Give the path from the project folder, or in full.`);
+    if (!started && ch === '#') return refuse(`${NO_SHELL} a comment would not do what it does in a terminal. Leave it out, or quote the text.`);
+    if (ch === '$' && (next === "'" || next === '"')) return refuse(`${NO_SHELL} $'…' and $"…" would not do what they do in a terminal. Put the text in single quotes.`);
+    current += ch;
+    started = true;
+    bare += ch;
   }
-  if (quote) return { ok: false, error: `A ${quote === '"' ? 'double' : 'single'} quote is never closed.` };
-  flush();
+  if (started) args.push(current);
   for (const [re, what] of SHELL_SYNTAX) {
-    if (re.test(bare)) return { ok: false, error: `Shadowlap runs the command without a shell, so ${what} would not do what it does in a terminal. Put it in a script and give the script, or quote the text.` };
+    if (re.test(bare)) return refuse(`${NO_SHELL} ${what} would not do what it does in a terminal. Put it in a script and give the script, or quote the text.`);
   }
-  if (/[`]|\$[A-Za-z0-9_{(@#!$*?]/.test(doubleQuoted)) return { ok: false, error: 'Shadowlap runs the command without a shell, so a variable or a substitution inside double quotes would not be expanded as in a terminal. Type the value itself, use single quotes to keep the text as it is, or put the command in a script.' };
+  // `name=~/x` gets the home folder in bash, as a leading ~ does.
+  if (/(?:^| )[A-Za-z_][A-Za-z0-9_]*=~/.test(bare)) return refuse(`${NO_SHELL} ~ would not mean your home folder. Give the path from the project folder, or in full.`);
   // What the step shows in full: `shadowlap run -- <command>`. Pasting that is fine.
   const lead = args[0] === 'npx' ? 1 : 0;
   if (args[lead] === 'shadowlap' && args[lead + 1] === 'run' && args[lead + 2] === '--') args.splice(0, lead + 3);
-  if (!args.length) return { ok: false, error: 'Give the command that starts your agent.' };
-  if (args[0] === 'shadowlap' || (args[0] === 'npx' && args[1] === 'shadowlap')) return { ok: false, error: 'Give the command that starts your agent: Shadowlap runs it with shadowlap run.' };
+  if (!args.length) return refuse('Give the command that starts your agent.');
+  if (!args[0]) return refuse('The command starts with an empty argument: give the program that starts your agent first.');
+  if (args[0] === 'shadowlap' || (args[0] === 'npx' && args[1] === 'shadowlap')) return refuse('Give the command that starts your agent: Shadowlap runs it with shadowlap run.');
   // The step's command for a project on its own model server starts with the upstream; the dashboard sets that itself.
-  const upstream = /^(SHADOWLAP_UPSTREAM_[A-Z0-9_]+)=/.exec(args[0]!);
-  if (upstream) return { ok: false, error: `Leave out ${upstream[1]}=…: the dashboard records through the model server init finds in the project. To record through another one, use a terminal.` };
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(args[0]!)) return { ok: false, error: 'Shadowlap runs the command without a shell, so NAME=value before it would not set a variable. Set it before starting the dashboard, or in a script.' };
-  if (args.length > COMMAND_LIMITS.args) return { ok: false, error: `The command has more than ${COMMAND_LIMITS.args} arguments.` };
+  const upstream = /^(SHADOWLAP_UPSTREAM_[A-Z0-9_]+)=/.exec(args[0]);
+  if (upstream) return refuse(`Leave out ${upstream[1]}=…: the dashboard records through the model server init finds in the project. To record through another one, use a terminal.`);
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(args[0])) return refuse(`${NO_SHELL} NAME=value before it would not set a variable. Set it before starting the dashboard, or in a script.`);
+  if (args.length > COMMAND_LIMITS.args) return refuse(`The command has more than ${COMMAND_LIMITS.args} arguments.`);
   return { ok: true, argv: args };
 }
 
