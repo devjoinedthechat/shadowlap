@@ -319,20 +319,20 @@ function contrast(r: Reader, failing: RunRecord[], passing: RunRecord[], whatFai
  */
 function addPairs(r: Reader, pairs: Pair[], seen: Map<string, PairSource>, source: PairSource, about: RunRecord, candidates: Candidate[]): { made: number; elsewhere: number } {
   let made = 0;
-  let elsewhere = 0;
+  const elsewhere = new Set<string>();
   for (const c of candidates) {
     const pair = makePair(r, source, about, c);
     if (!pair) continue;
     const owner = seen.get(pair.id);
     if (owner) {
-      if (owner !== source) elsewhere++;
+      if (owner !== source) elsewhere.add(pair.id);
       continue;
     }
     seen.set(pair.id, source);
     pairs.push(pair);
     made++;
   }
-  return { made, elsewhere };
+  return { made, elsewhere: elsewhere.size };
 }
 
 const already = (n: number) => `${n === 1 ? 'One pair was' : `${n} pairs were`} already made by another source, so ${n === 1 ? 'it counts' : 'they count'} once.`;
