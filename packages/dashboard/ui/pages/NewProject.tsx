@@ -56,7 +56,10 @@ export function NewProjectPage() {
     return () => clearTimeout(timer);
   }, [client, query, pick, oneStore]);
 
-  useEffect(() => input.current?.focus(), []);
+  // Ready to type a path, where a keyboard is at hand; a phone keeps its keyboard down until asked.
+  useEffect(() => {
+    if (matchMedia('(pointer: fine)').matches) input.current?.focus();
+  }, []);
 
   if (unsupported || oneStore)
     return (
