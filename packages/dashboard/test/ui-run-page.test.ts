@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { choiceAnswer, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
 import { normalizeActions } from '../ui/normalize.js';
 import { placePop } from '../ui/place.js';
+import { conversationLink } from '../ui/run/calls.js';
 
 // The fork menu and the dialog each action asks in: the server's action list arranged and worded,
 // and an instruction said to go in as a user message only when the server's flag says so.
@@ -142,5 +143,21 @@ describe('a menu’s place', () => {
     // Near the right and bottom edges, and wider than the opener's left side allows.
     expect(placePop({ left: 1400, right: 1430, bottom: 800 }, { width: 330, height: 300 }, view, 'left')).toEqual({ top: 588, left: 1098 });
     expect(placePop({ left: 10, right: 60, bottom: 40 }, { width: 330, height: 300 }, view)).toEqual({ top: 46, left: 12 });
+  });
+});
+
+describe('a tool call’s own conversation', () => {
+  const batch = [{ conversation: 1 }, { conversation: 2 }, { conversation: 3 }, { conversation: 4 }];
+  it('leads to the model call that asked for it, and says which conversation in a batch', () => {
+    expect(conversationLink({ callNo: 76, kind: 'tool', requestedBy: 74, conversation: 3 }, { fromCallNo: 74, n: 3 }, batch)).toEqual({ callNo: 74, text: 'Asked for by #74 · conversation 3 of 4' });
+    expect(conversationLink({ callNo: 5, kind: 'tool', requestedBy: 4, conversation: 1 }, { fromCallNo: 4, n: 1 }, [{ conversation: 1 }])).toEqual({ callNo: 4, text: 'Asked for by #4' });
+  });
+  it('names the request it feeds or follows when no model call asked for it', () => {
+    expect(conversationLink({ callNo: 61, kind: 'clock', conversation: 3 }, { fromCallNo: 63, n: 3 }, batch)).toEqual({ callNo: 63, text: 'Before #63, which reads it · conversation 3 of 4' });
+    expect(conversationLink({ callNo: 80, kind: 'tool', requestedBy: null, conversation: 3 }, { fromCallNo: 77, n: 3 }, batch)).toEqual({ callNo: 77, text: 'After #77 · conversation 3 of 4' });
+  });
+  it('says nothing for a model call, or when the server names no conversation', () => {
+    expect(conversationLink({ callNo: 74, kind: 'api', conversation: 3 }, { fromCallNo: 74, n: 3 }, batch)).toBeNull();
+    expect(conversationLink({ callNo: 9, kind: 'tool' }, null, [])).toBeNull();
   });
 });

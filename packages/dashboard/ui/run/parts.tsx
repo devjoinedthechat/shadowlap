@@ -9,6 +9,7 @@ import { scopeDepth, scopeLeaf, scopeCount } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
+import { refusedOffline } from './calls.js';
 import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
 import { blameCommand, blameSource } from './offers.js';
@@ -27,6 +28,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     capture: runType(runLikeOf(run)) === 'capture',
     live: run.run.status === 'running',
     notWaitedMs,
+    refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   return (
     <section className="metrics" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>

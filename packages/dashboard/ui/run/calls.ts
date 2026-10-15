@@ -208,3 +208,26 @@ export function turnCalls(
 export function callTitle(c: Pick<CallLike, 'callNo' | 'kind' | 'name'>): string {
   return `#${c.callNo} ${callName(c.kind, c.name)}`;
 }
+
+/**
+ * Where a call that is not a model call sits in its own conversation, for its Conversation tab: the
+ * model call that asked for it, else the one whose request the server shows for it (the latest before
+ * it in the same conversation, or the first after it for a call made before its conversation's first
+ * model call); in a batch, which conversation. Null when the server names none: never a guess from
+ * the order of calls, which in a batch can be another ticket's.
+ */
+export function conversationLink(
+  call: { callNo: number; kind: string; requestedBy?: number | null; conversation?: number | null },
+  conv: { fromCallNo: number; n?: number | null } | null,
+  calls: ReadonlyArray<{ conversation?: number | null }>,
+): { callNo: number; text: string } | null {
+  if (call.kind === 'api') return null;
+  const by = call.requestedBy ?? null;
+  const at = by ?? conv?.fromCallNo ?? null;
+  if (at === null || at === call.callNo) return null;
+  const all = calls.reduce((n, x) => Math.max(n, x.conversation ?? 0), 0);
+  const n = conv?.n ?? call.conversation ?? null;
+  const which = n && all > 1 ? ` · conversation ${n.toLocaleString('en-US')} of ${all.toLocaleString('en-US')}` : '';
+  const how = by !== null ? `Asked for by #${by}` : at > call.callNo ? `Before #${at}, which reads it` : `After #${at}`;
+  return { callNo: at, text: `${how}${which}` };
+}

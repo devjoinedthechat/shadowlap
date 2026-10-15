@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { receiptDuration } from '../ui/format.js';
 import { countOrigins, type Origin7 } from '../ui/origins.js';
-import { bannerFor, failedCheckText, failureText, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
+import { bannerFor, failedCheckShort, failedCheckText, failureText, fixCheckShort, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
 import { metricItems, type MetricInput } from '../ui/run/metrics.js';
 import { blameOf, checksOf } from '../ui/run/model.js';
 
@@ -36,6 +36,13 @@ describe('the run’s numbers', () => {
     expect(metricItems(input({ cost: { spent: 0, saved: 0, captured: 0, unknownModels: ['local-llama'] } })).at(-1)).toEqual(['—', 'spent · no price for local-llama']);
   });
 
+  it('says refused for calls an offline replay refused, and failed for any other failure', () => {
+    const test = input({ counts: counts('rrfff'), total: 5, upstreamRequests: 0, cost: { spent: 0, saved: 0, captured: 0, unknownModels: [] } });
+    expect(metricItems({ ...test, refused: 3 })).toContainEqual([3, 'refused', 'err']);
+    expect(metricItems({ ...test, refused: 2 })).toContainEqual([3, 'failed', 'err']);
+    expect(metricItems(test)).toContainEqual([3, 'failed', 'err']);
+  });
+
   it('ends a fork on what replaying saved, as a quiet receipt, with short times that never read 0s', () => {
     const items = metricItems(input({ counts: counts(`${'r'.repeat(16)}${'l'.repeat(13)}b`), upstreamRequests: 7, cost: { spent: 0.03, saved: 0.021, captured: 0, unknownModels: [] }, tokensNotRespent: 41_200, notWaitedMs: 340 }));
     expect(items).toEqual([
@@ -68,7 +75,7 @@ describe('the run’s banner', () => {
     const failAt = { ...base, type: 'fork' as const, divergence: { ...fork, callNo: 19, replayedBefore: 18 }, intervention: { flag: '--fail-at', value: '19=529', callNo: 19 } };
     expect(bannerFor({ ...failAt, flagCall: { kind: 'api', name: 'POST /v1/messages', attempts: 2 }, interventions: [failAt.intervention, { flag: '--writes', value: 'stub', callNo: null }] })).toMatchObject({
       kind: 'fork',
-      why: 'answered with HTTP 529 by --fail-at 19=529 · nothing sent · the SDK tried 3 times, then gave up · writes stubbed · 18 calls replayed before it',
+      why: 'answered with HTTP 529 by --fail-at 19=529 · nothing sent · the SDK tried 3 times, then gave up · writes stubbed',
       flag: '--fail-at 19=529',
     });
     expect(bannerFor({ ...failAt, intervention: { flag: '--fail-at', value: '4=timeout', callNo: 4 }, flagCall: { kind: 'tool', name: 'search_web', attempts: 0 } })).toMatchObject({ why: 'search_web answered with a timeout by --fail-at 4=timeout · the tool didn’t run · 18 calls replayed before it' });
@@ -89,6 +96,16 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, type: 'test', divergence: { ...fork, callNo: 3, replayedBefore: 2 }, volatile: { looks: 'a date' } })).toMatchObject({ kind: 'diverged', why: '2 calls replayed before it · this looks like a date' });
     expect(bannerFor({ ...base, checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called 0 times, but called 1 time · not blamed yet' });
     expect(failedCheckText({ label: 'at most 12 model calls' })).toBe('check failed: at most 12 model calls');
+    // The line under the run's id says what the run did, as the design does; the banner, what was expected too.
+    expect(failedCheckShort({ label: 'send_email called 0 times', detail: 'called 1 time' })).toBe('check failed: send_email called 1 time');
+    expect(failedCheckShort({ label: 'issue_refund with {"amount":80} called 0 times', detail: 'called 2 times (1 blocked or stubbed); 1 call with other arguments' })).toBe('check failed: issue_refund with {"amount":80} called 2 times (1 blocked or stubbed)');
+    expect(failedCheckShort({ label: 'at most 12 model calls', detail: '13 model calls' })).toBe('check failed: at most 12 model calls, but 13 model calls');
+    expect(failureText({ status: 'completed', checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }], blame: null }, true)).toBe('check failed: send_email called 1 time');
+    // A run with no checks of its own, failed by its fix's check: what it did, counted from its calls.
+    const calls = [{ kind: 'api', name: 'POST /v1/messages' }, { kind: 'tool', name: 'send_email' }, { kind: 'tool', name: 'send_email' }];
+    expect(fixCheckShort('send_email never called', calls)).toBe('check failed: send_email called 2 times');
+    expect(fixCheckShort('send_email called at least 1 time', [])).toBe('check failed: send_email called 0 times');
+    expect(fixCheckShort('the agent exits 0', calls)).toBe('check failed: “the agent exits 0”');
     expect(failureText({ status: 'crashed', checks: [], blame: null })).toBe('the run was interrupted');
     expect(failureText({ status: 'completed', checks: [{ label: 'x', ok: true }], blame: null })).toBeNull();
   });

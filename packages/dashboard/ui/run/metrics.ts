@@ -20,6 +20,8 @@ export interface MetricInput {
   live: boolean;
   /** Every replayed call's recorded duration, summed. */
   notWaitedMs: number | null;
+  /** Of the failed calls, those an offline replay refused (not in the recording: HTTP 503, nothing sent). */
+  refused?: number;
 }
 
 /** A number (or its words), what it counts, and its tone: `lime`, `err`, or `q` for the quiet receipt. */
@@ -31,13 +33,15 @@ export function metricItems(m: MetricInput): MetricItem[] {
   const spent: MetricItem = m.capture ? [money(m.cost.captured), 'as captured'] : unpriced ? ['—', `spent · no price for ${m.cost.unknownModels[0]}`] : [approx(m.cost.spent), 'spent'];
   const upstream: MetricItem = [m.upstreamRequests, m.upstreamRequests === 1 ? 'upstream request' : 'upstream requests'];
   const plain = !n.rep && !n.block && !n.stub && !n.inject && !n.over;
+  // Calls an offline replay refused are "refused", as the design says; any other failure, "failed".
+  const failed: MetricItem = [n.fail, n.fail && m.refused === n.fail ? 'refused' : 'failed', 'err'];
   if (plain) {
     const items: MetricItem[] = [
       [m.total, m.live ? (m.total === 1 ? 'call so far' : 'calls so far') : m.total === 1 ? 'call' : 'calls'],
       [m.byKind.api, m.byKind.api === 1 ? 'model call' : 'model calls'],
       [m.byKind.tool, m.byKind.tool === 1 ? 'tool call' : 'tool calls'],
     ];
-    if (n.fail) items.push([n.fail, 'failed', 'err']);
+    if (n.fail) items.push(failed);
     items.push(upstream, spent);
     return items;
   }
@@ -48,7 +52,7 @@ export function metricItems(m: MetricInput): MetricItem[] {
   ];
   if (n.over) items.push([n.over, 'overridden']);
   if (n.inject) items.push([n.inject, 'injected']);
-  if (n.fail) items.push([n.fail, 'failed', 'err']);
+  if (n.fail) items.push(failed);
   if (n.block + n.stub) items.push([n.block + n.stub, n.block && n.stub ? 'fenced' : n.stub ? 'stubbed' : 'blocked']);
   items.push(upstream, spent);
   if (m.cost.saved || m.tokensNotRespent) items.push([money(m.cost.saved), `not re-spent${m.tokensNotRespent ? ` · ${ktok(m.tokensNotRespent)} tokens` : ''}`, 'q']);

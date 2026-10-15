@@ -1560,6 +1560,8 @@ table.ledger tbody tr:hover td { background: var(--hover); }
 table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .checks .bad { color: var(--err); }
 .prov > .actions { margin-top: 14px; }
+/* a tool call's Conversation tab: the model call of its own conversation, under its result */
+.ibar.convlink { margin-top: 12px; }
 
 /* compare */
 .pickers .arrow { color: var(--faint); }

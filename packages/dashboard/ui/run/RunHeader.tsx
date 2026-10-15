@@ -11,7 +11,7 @@ import { navigate } from '../router.js';
 import { compareTarget, isFailed, runTag, runType } from '../runs.js';
 import { useApp } from '../state.js';
 import { ForkMenu, type PendingAction } from './actions.js';
-import { failureText } from './banner.js';
+import { failureText, fixCheckShort } from './banner.js';
 import { checksOf, runLikeOf } from './model.js';
 import { ShareMenu } from './ShareMenu.js';
 
@@ -33,14 +33,14 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const pair = compareTarget(r, run.children);
   const parent = run.parent ? <a href={href.run(run.parent.runId)}>{shortId(run.parent.runId)}</a> : null;
   const failed = isFailed(like);
-  // Why it failed, in the CLI's words: the check it failed, the agent's exit, an interruption.
-  // A test that diverged failed there, as `shadowlap test` says it; otherwise the check's words alone
-  // (the banner adds what happened), the agent's exit, or the check of the fix blame found it in.
+  // Why it failed, in a few words: what the run did against the check it failed ("send_email called
+  // 1 time"; the banner says what was expected), the agent's exit, an interruption. A test that
+  // diverged failed there, as `shadowlap test` says it; else the check of the fix blame found it in.
   const d = r.divergence;
   const failure =
     type === 'test' && d && failed
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
-      : (failureText({ status: r.status, checks: checksOf(run).map((c) => ({ label: c.label, ok: c.ok })), blame: null }) ?? (run.fix?.check && failed ? `check failed: ${run.fix.check}` : null));
+      : (failureText({ status: r.status, checks: checksOf(run), blame: null }, true) ?? (run.fix?.check && failed ? fixCheckShort(run.fix.check, run.calls) : null));
   const checkFailed = !!failure?.startsWith('check failed');
   const eyebrow = live ? (
     <Eyebrow>recording now</Eyebrow>

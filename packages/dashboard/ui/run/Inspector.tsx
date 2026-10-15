@@ -8,7 +8,7 @@ import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { useApp } from '../state.js';
 import { refusedOffline } from './calls.js';
-import { originOf, tokensText, turnCalls } from './model.js';
+import { conversationLink, originOf, tokensText, turnCalls } from './model.js';
 
 /**
  * The inspector for the selected call: Conversation (as the model saw it, thinking included, with
@@ -36,9 +36,11 @@ export interface InspectorProps {
   live: boolean;
   /** The flag that made the fork, as the run names it (`--fail-at 19=529`), for a call Shadowlap answered. */
   flag?: string | null;
+  /** Selects another call: a tool call's Conversation tab leads to the model call of its own conversation. */
+  onSelect?: (n: number) => void;
 }
 
-export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live, flag }: InspectorProps) {
+export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live, flag, onSelect }: InspectorProps) {
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -72,7 +74,7 @@ export function Inspector({ runId, call, calls, detail, error, tab, onTab, onSte
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
       </div>
     </section>
   );
@@ -107,7 +109,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, calls, change, flag }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null; flag: string | null }) {
+function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -128,6 +130,7 @@ function ConversationTab({ detail, calls, change, flag }: { detail: CallDetail; 
         <div className="ibar">A {c.kind === 'tool' ? 'tool' : c.kind} call has no conversation. Its arguments, then its result:</div>
         <div className="jbox">{jsonText(args ?? {}, format)}</div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null, format) : c.outcome === null ? 'no result yet' : 'no result'}</div>
+        <ConversationLink detail={detail} calls={calls} onSelect={onSelect} />
       </>
     );
   }
@@ -200,6 +203,26 @@ function ConversationTab({ detail, calls, change, flag }: { detail: CallDetail; 
         </Fragment>
       ))}
     </>
+  );
+}
+
+/**
+ * Under a tool call's arguments and result: the model call of its own conversation that asked for it
+ * (or that its result feeds), and in a batch which conversation it is, with a way to that call's
+ * conversation. Only from what the server says, so it never leads to another ticket's.
+ */
+function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; onSelect?: ((n: number) => void) | undefined }) {
+  const link = conversationLink(detail.call, detail.conversation, calls);
+  if (!link) return null;
+  return (
+    <div className="ibar convlink">
+      <span>{link.text}</span>
+      {onSelect ? (
+        <button className="linkbtn" type="button" onClick={() => onSelect(link.callNo)}>
+          Show its conversation
+        </button>
+      ) : null}
+    </div>
   );
 }
 

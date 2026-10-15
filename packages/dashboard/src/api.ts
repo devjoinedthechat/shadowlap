@@ -80,6 +80,8 @@ export interface CallRow extends CallFacts {
    * for a clock read or a random value, the value it gave, shown beside it; null for model calls.
    */
   resultShort: string | null;
+  /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
+  input?: true;
 }
 
 export interface RunDetail extends RunPageFacts {

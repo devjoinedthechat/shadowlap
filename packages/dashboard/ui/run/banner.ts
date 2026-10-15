@@ -141,10 +141,34 @@ export function failedCheckText(c: { label: string; detail?: string | null }): s
   return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
 }
 
+/**
+ * A failed check as the line under the run's id says it: what happened. A check's label is what was
+ * expected (`send_email called 0 times`) and its detail what the run did (`called 1 time`), so a
+ * tool's count reads `send_email called 1 time`; any other check, the CLI's own words.
+ */
+export function failedCheckShort(c: { label: string; detail?: string | null }): string {
+  const did = c.detail?.split(';')[0]?.trim();
+  const at = c.label.lastIndexOf(' called ');
+  if (did?.startsWith('called ') && at > 0) return `check failed: ${c.label.slice(0, at)} ${did}`;
+  return failedCheckText(c);
+}
+
+/**
+ * The check of the fix a failed run belongs to (`send_email never called`), when the run kept none of
+ * its own, as what the run did: a tool's count from the run's calls (`send_email called 1 time`);
+ * any other check named as one, so it never reads as what happened.
+ */
+export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string; name: string }>): string {
+  const m = /^(\S+) (?:never called|called .+)$/.exec(check);
+  if (!m) return `check failed: “${check}”`;
+  const n = calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length;
+  return `check failed: ${m[1]} called ${n === 1 ? '1 time' : `${num(n)} times`}`;
+}
+
 /** Why a run failed, in a few words, for the banner and the line under the run's id; null when it didn't. */
-export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame'>): string | null {
+export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame'>, short = false): string | null {
   const failedCheck = i.checks.find((c) => !c.ok);
-  if (failedCheck) return failedCheckText(failedCheck);
+  if (failedCheck) return short ? failedCheckShort(failedCheck) : failedCheckText(failedCheck);
   if (i.status === 'failed') return 'the agent exited with an error';
   if (i.status === 'crashed') return 'the run was interrupted';
   return i.blame ? 'blame confirmed it fails' : null;
@@ -166,7 +190,9 @@ export function bannerFor(i: BannerInput): Banner | null {
     // The flag names what the fork changed, and how the writes after it went; a fork without one is a change in the code.
     const writes = iv && iv.flag !== '--writes' ? writesWord(i.interventions) : null;
     const what = iv ? `${flagWhy(iv, i.flagCall ?? null)}${writes ? ` · ${writes}` : ''}` : (forced ?? DIVERGED[d.type] ?? d.type);
-    return { kind: 'fork', callNo: d.callNo, name: d.name, why: `${what} · ${replayedBefore(d.replayedBefore)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff };
+    // A model call answered with a failure says what the SDK did instead, as the design's line does; any other fork, what it replayed first.
+    const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
+    return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${replayedBefore(d.replayedBefore)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff };
   }
   const b = i.blame;
   if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };

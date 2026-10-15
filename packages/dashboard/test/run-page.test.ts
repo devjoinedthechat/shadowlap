@@ -158,6 +158,19 @@ describe('the run page: time not waited, blobs and results', () => {
     expect(reads).toBe(0);
     store.close();
   });
+
+  it('tags a person’s answer the agent read as input, and only that', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const asked = b.tool('user_input', { prompt: 'Customer: ' }, { text: 'Order A-1042 arrived damaged.' }, { meta: { input: true } });
+    const looked = b.tool('lookup_order', { order_id: 'A-1042' }, { status: 'delivered' });
+    b.end();
+    const d = runDetail(store, b.runId)!;
+    expect(d.calls.find((c) => c.callNo === asked)).toMatchObject({ input: true, effect: 'read', resultShort: '{"text":"Order A-1042 arrived damaged."}' });
+    expect(d.calls.find((c) => c.callNo === looked)).not.toHaveProperty('input');
+    expect(callDetail(store, b.runId, asked)!.call.input).toBe(true);
+    store.close();
+  });
 });
 
 describe('the run page: header and banners', () => {

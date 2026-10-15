@@ -152,9 +152,13 @@ function valueLineOf(store: Store, c: CallRecord): string | null {
   return line;
 }
 
-/** What a call row shows that is the call's own: its blobs, its fingerprint and a tool's result in a line. */
-export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null } {
-  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c) };
+/**
+ * What a call row shows that is the call's own: its blobs, its fingerprint, a tool's result in a
+ * line, and whether it is a person's answer the agent read (`userInput()`, or stdin through the
+ * preload), which Calls tags "input" and the fork menu answers differently.
+ */
+export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true } {
+  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c), ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}) };
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
