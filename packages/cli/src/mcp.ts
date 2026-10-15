@@ -206,7 +206,7 @@ export function stdioServerName(command: string, args: readonly string[]): strin
   return name;
 }
 
-/** The pattern a sidecar-bound text is cut to. */
+/** A text bound for the sidecar: control characters as spaces, cut to `max`. */
 const bounded = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max);
 
 /**
@@ -245,16 +245,18 @@ class ToolCalls {
     return this.effects?.[name] ?? this.tools.get(name)?.effect ?? 'write';
   }
 
-  /** Where the call came from, and the server's tools with their effects when they changed since the last call. */
-  private mcpMeta(): Record<string, unknown> {
+  /**
+   * Where the call came from, and the server's tools with their effects when they changed since
+   * the sidecar last got them; `sent` marks them as got, once the sidecar has answered.
+   */
+  private mcpMeta(): { meta: Record<string, unknown>; sent: () => void } {
     const tools = [...this.tools.keys()]
       .sort()
       .slice(0, 1000)
       .map((name) => ({ name: bounded(name, 200), effect: this.effectOf(name) }));
     const json = JSON.stringify(tools);
     const fresh = tools.length > 0 && json !== this.sentTools;
-    if (fresh) this.sentTools = json;
-    return { transport: this.origin.transport, server: bounded(this.origin.server, 200), ...(fresh ? { tools } : {}) };
+    return { meta: { transport: this.origin.transport, server: bounded(this.origin.server, 200), ...(fresh ? { tools } : {}) }, sent: () => void (this.sentTools = json) };
   }
 
   /**
@@ -270,8 +272,10 @@ class ToolCalls {
     if ('unusable' in this.sidecar) return this.unrecorded(m, name, effect, this.sidecar.unusable);
     const sidecar = this.sidecar;
     let r: ResolveResponse;
+    const mcp = this.mcpMeta();
     try {
-      r = await post<ResolveResponse>(sidecar, '/v1/calls/resolve', { kind: 'tool', name, effect, args, ...(known ? { implHash: known.implHash } : {}), mcp: this.mcpMeta() });
+      r = await post<ResolveResponse>(sidecar, '/v1/calls/resolve', { kind: 'tool', name, effect, args, ...(known ? { implHash: known.implHash } : {}), mcp: mcp.meta });
+      mcp.sent();
     } catch (err) {
       return this.unrecorded(m, name, effect, `Shadowlap's sidecar could not be asked (${err instanceof Error ? err.message : String(err)})`);
     }
