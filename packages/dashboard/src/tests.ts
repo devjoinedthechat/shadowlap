@@ -87,6 +87,19 @@ export interface GoldenRow {
   error: string | null;
 }
 
+/** The first bad commit `shadowlap bisect` found for a golden: the card above its buttons. */
+export interface FoundCommit {
+  rev: string;
+  subject: string;
+  author: string;
+  date: string;
+  /** Why it fails there. */
+  why: string;
+  replays: number;
+  tokens: number;
+  at: number;
+}
+
 /** A golden whose last replay diverged, as the CLI prints it, with what each button runs. */
 export interface DivergenceView {
   golden: string;
@@ -106,6 +119,8 @@ export interface DivergenceView {
   update: string[];
   /** Find the commit: from the last revision where it passed to the one where it failed (null: HEAD). */
   bisect: { good: string; bad: string | null; args: string[] } | null;
+  /** What Find the commit found, once it has run since this failure. */
+  found: FoundCommit | null;
 }
 
 /** A golden that failed for another reason: a check, an exit, no calls. As `test --markdown` prints it. */
@@ -118,6 +133,7 @@ export interface FailureView {
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   details: string | null;
   bisect: { good: string; bad: string | null; args: string[] } | null;
+  found: FoundCommit | null;
 }
 
 export interface TestsView {
@@ -234,6 +250,17 @@ function bisectFor(golden: string, history: readonly TestResult[], failed: TestR
   return { good: goodRev, bad, args: ['bisect', golden, '--good', goodRev, ...(bad ? ['--bad', bad] : [])] };
 }
 
+/** The newest first bad commit bisect found for each golden (from the `bisect.found` activity events). */
+function foundCommits(store: Store): Map<string, FoundCommit> {
+  const out = new Map<string, FoundCommit>();
+  for (const e of store.listEvents({ kinds: ['bisect.found'], limit: 500 })) {
+    const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; replays?: unknown; tokens?: unknown } | null;
+    if (!e.ref || out.has(e.ref) || typeof d?.first?.rev !== 'string') continue;
+    out.set(e.ref, { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at });
+  }
+  return out;
+}
+
 /** Results newest first, grouped by golden. */
 function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
   const out = new Map<string, TestResult[]>();
@@ -289,14 +316,17 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
 
   const divergences: DivergenceView[] = [];
   const failures: FailureView[] = [];
+  const commits = foundCommits(store);
   for (const row of rows) {
     const latest = history.get(row.path)?.[0];
     if (!latest || latest.ok) continue;
     const bisect = bisectFor(row.path, history.get(row.path) ?? [], latest);
+    const seen = commits.get(row.path);
+    const found = seen && seen.at >= latest.at ? seen : null;
     const d = latest.failure === 'diverged' ? divergenceOf(latest) : null;
     if (d) {
-      const found = volatileValues(d);
-      const v = found.values[0];
+      const volatile = volatileValues(d);
+      const v = volatile.values[0];
       divergences.push({
         golden: row.path,
         name: row.name,
@@ -306,13 +336,14 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         callName: d.name,
         text: `✗ ${row.name}: ${latest.reason ?? `diverged at call ${d.callNo}`}\n${(latest.data?.divergence?.text ?? '').split('\n').map((l) => `    ${l}`).join('\n')}`,
         volatile: v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null,
-        normalizerFixes: found.explainsAll,
+        normalizerFixes: volatile.explainsAll,
         rerun: ['test', row.path],
         update: ['test', row.path, '--update'],
         bisect,
+        found,
       });
     } else {
-      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, bisect });
+      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, bisect, found });
     }
   }
 

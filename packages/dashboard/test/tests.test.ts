@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Store, type TestResultData } from '@shadowlap/engine';
+import { recordEvent, Store, type TestResultData } from '@shadowlap/engine';
 import { failingTests, testRunBanner, testsSummary, testsView, type GoldenSource } from '../src/tests.js';
 
 /**
@@ -110,7 +110,11 @@ describe('the Tests screen', () => {
     expect(d!.rerun).toEqual(['test', 'goldens/refund-in-limit']);
     expect(d!.update).toEqual(['test', 'goldens/refund-in-limit', '--update']);
     expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'] });
+    expect(d!.found).toBeNull();
     expect(view.failures).toEqual([]);
+    // Once Find the commit has run, its answer shows above the buttons.
+    recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', at: T0 + 60_000, data: { good: 'c91d0f4', bad: 'd2e8a1f', first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00' }, why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, upstreamRequests: 0 } });
+    expect(testsView(store, goldens).divergences[0]!.found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, at: T0 + 60_000 });
     expect(view.commands).toEqual({ ci: 'shadowlap test goldens/* --junit report.xml', inCi: 'shadowlap test goldens/* --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
     store.close();
   });
@@ -123,7 +127,7 @@ describe('the Tests screen', () => {
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
     expect(view.verdict!.title).toBe('x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
-    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', bisect: null }]);
+    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', bisect: null, found: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
     store.close();
   });
