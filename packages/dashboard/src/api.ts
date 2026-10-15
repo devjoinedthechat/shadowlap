@@ -1,6 +1,7 @@
 import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { fixForRun, type FixForRun } from './fixes.js';
 import { captureSource } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
@@ -89,6 +90,8 @@ export interface RunDetail extends RunPageFacts {
   children: Array<{ runId: string; label: string; startedAt: number }>;
   /** Actions that need no selected call: replay, stub writes, add the suggested normalizer, pack. */
   actions: ActionItem[];
+  /** The fix the run takes part in, and how (Fixes' fixForRun): the banner's fix, blame and Run blame. */
+  fix: FixForRun | null;
 }
 
 export interface CallDetail {
@@ -211,6 +214,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt })),
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
+    fix: fixForRun(store, run.runId),
   };
 }
 

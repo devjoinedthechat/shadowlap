@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { runDetail } from '../src/api.js';
 import { fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
 
 let store: Store;
@@ -322,6 +323,8 @@ describe('fixes for the other views', () => {
     expect(fix).toMatchObject({ role: 'failing', fix: { fixId, status: 'verified', href: `#/fixes/${fixId}`, label: 'refund-bug' }, probe: null, verify: null });
     expect(fix.blame).toMatchObject({ lostAt: 5, step: 3, steps: 4, confidence: 'high', short: 'asked again, it calls escalate instead', href: `#/fixes/${fixId}/blame` });
     expect(fixForRun(store, good)).toMatchObject({ role: 'good', fix: { fixId } });
+    // The run page's own answer carries it: its banner reads the fix there.
+    expect(runDetail(store, failing)!.fix).toEqual(fix);
 
     // Attempts are runs too: a blame probe, the fork it rescued the run with, a verify attempt.
     const kept = store.blamesOfRun(failing)[0]!.report;
