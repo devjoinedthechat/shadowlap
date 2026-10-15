@@ -34,9 +34,11 @@ export interface InspectorProps {
   /** The turn this fork changed, and the call the change was first sent at. */
   change: { turn: number; firstAt: number } | null;
   live: boolean;
+  /** The flag that made the fork, as the run names it (`--fail-at 19=529`), for a call Shadowlap answered. */
+  flag?: string | null;
 }
 
-export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live }: InspectorProps) {
+export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live, flag }: InspectorProps) {
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -70,7 +72,7 @@ export function Inspector({ runId, call, calls, detail, error, tab, onTab, onSte
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
       </div>
     </section>
   );
@@ -105,7 +107,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null }) {
+function ConversationTab({ detail, calls, change, flag }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null; flag: string | null }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -136,7 +138,7 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
     <div className={`inote ${injected ? 'inj' : 'err'}`}>
       {injected ? (
         <>
-          <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (--fail-at). This is the conversation the agent would have sent.
+          <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (<code>{flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at'}</code>){c.attempts ? `, ${c.attempts + 1} attempts` : ''}. This is the conversation the agent would have sent.
         </>
       ) : refusedOffline(c) ? (
         <>

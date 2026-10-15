@@ -44,26 +44,32 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
  * One line: the explanation gives way first, cut with "…" and shown in full on hover. The flag that
  * made a fork, when it is part of the line, is set as code.
  */
-function Why({ children, code }: { children: string; code?: string | null }) {
+function Why({ children, code }: { children: string; code?: string | readonly string[] | null }) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el) el.title = el.textContent ?? '';
   });
-  const at = code ? children.indexOf(code) : -1;
   return (
     <span className="why" ref={ref}>
-      {at < 0 || !code ? (
-        children
-      ) : (
-        <>
-          {children.slice(0, at)}
-          <code>{code}</code>
-          {children.slice(at + code.length)}
-        </>
-      )}
+      {codeParts(children, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? p : <code key={i}>{p.code}</code>))}
     </span>
   );
+}
+
+/** A line split around the names in it that read as code (a flag, a tool, a host), each at its first place after the one before. */
+function codeParts(text: string, codes: readonly string[]): Array<string | { code: string }> {
+  const out: Array<string | { code: string }> = [];
+  let from = 0;
+  for (const c of codes) {
+    const at = c ? text.indexOf(c, from) : -1;
+    if (at < 0) continue;
+    if (at > from) out.push(text.slice(from, at));
+    out.push({ code: c });
+    from = at + c.length;
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
 }
 
 export interface BannerProps {
@@ -235,7 +241,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
       return (
         <section className="banner blame">
           <span className="bk">not recorded</span>
-          <Why>{b.why}</Why>
+          <Why code={[...(run.notRecorded?.tools ?? []), ...(run.notRecorded?.hosts ?? []).map((h) => h.target)]}>{b.why}</Why>
         </section>
       );
     case 'checks':

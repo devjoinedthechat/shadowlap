@@ -18,6 +18,7 @@ import { CallsTable, CallsToolbar, matchesFilter, type OriginFilter } from '../r
 import { ContextView } from '../run/ContextView.js';
 import { ForksView } from '../run/ForksView.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
+import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
 import { blameOf, checksOf, forkAtOf, originOf } from '../run/model.js';
 import { Banner, DiffPanel, Metrics, ScopeBar } from '../run/parts.js';
@@ -309,7 +310,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <Inspector runId={runId} call={selectedRow} calls={calls} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} />
+        <Inspector runId={runId} call={selectedRow} calls={calls} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} />
       </div>
       {actions.dialog}
     </div>
