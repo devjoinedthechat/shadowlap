@@ -59,7 +59,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--model <call>:<model>` | Switch the model from model call *n* on |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
 
-See [Interventions](./interventions.md) for what each one does to the conversation prefix. The replay keeps the options that change what it does (`--fail-at`, `--override`, `--inject`, `--model`, `--set`, `--prompt-from`, `--diverge-at`, `--live-tool`, and `--writes` or `--reads` when not the default), so its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from) names what made the fork.
+See [Interventions](./interventions.md) for what each one does to the conversation prefix. The replay keeps the options that change what it does (`--fail-at`, `--override`, `--inject`, `--model`, `--set`, `--prompt-from`, `--diverge-at`, `--live-tool`, and `--writes` or `--reads` when not the default), so its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from) names what made the fork. It keeps them without what they carried in: `--override 16=@policy.json` keeps the file's name, never the result, and `--inject` and `--set` keep the call (and the key) they apply to; the fork's own calls hold the rest, and a redacted copy masks it there.
 
 ### Repeating a fork
 
