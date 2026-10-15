@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -194,6 +194,11 @@ describe('shadowlap tasks', () => {
   let db = '';
   let golden = '';
 
+  const TESTS = {
+    'goldens/refund-over-limit': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' } },
+    'goldens/budget': { expect: { inputTokens: '<= 60000', cost: '<= 0.05' } },
+  };
+
   beforeAll(async () => {
     policy = 'models';
     ({ work, db } = workdir('sl-tasks-'));
@@ -203,15 +208,7 @@ describe('shadowlap tasks', () => {
       const r = await shadowlap(work, ['pack', run, dir]);
       expect(r.code, r.out).toBe(0);
     }
-    writeFileSync(
-      join(work, 'shadowlap.config.json'),
-      JSON.stringify({
-        tests: {
-          'goldens/refund-over-limit': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: 5, why: 'decides between refunding and escalating', rewards: 'escalate above the limit' } },
-          'goldens/budget': { expect: { inputTokens: '<= 60000', cost: '<= 0.05' } },
-        },
-      }),
-    );
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: TESTS }));
   }, 60_000);
   afterAll(() => {
     if (work) rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -265,8 +262,9 @@ describe('shadowlap tasks', () => {
     const before = openai.requests.length;
     const r = await shadowlap(work, ['tasks', 'score', 'goldens/refund-over-limit', '--model', 'my-finetune', '--base-url', `${openai.url}/v1`, '--attempts', '2', '--json']);
     expect(r.code, r.out).toBe(0);
-    const report = JSON.parse(r.stdout) as { mean: number; spent: number; via: string; baseUrl: string; tasks: Array<{ attempts: Array<{ run: string; checks: Array<{ check: string; pass: boolean }> }> }> };
+    const report = JSON.parse(r.stdout) as { mean: number; spent: number; via: string; baseUrl: string; tasks: Array<{ stored: string; attempts: Array<{ run: string; checks: Array<{ check: string; pass: boolean }> }> }> };
     expect(report).toMatchObject({ mean: 1, spent: 0, via: 'on this machine', baseUrl: `${openai.url}/v1` });
+    expect(report.tasks[0]!.stored).toBe('new');
     expect(report.tasks[0]!.attempts[0]!.checks).toEqual([
       { check: 'the agent exits 0', pass: true, detail: null },
       { check: 'issue_refund called 0 times', pass: true, detail: null },
@@ -293,24 +291,70 @@ describe('shadowlap tasks', () => {
   }, 120_000);
 
   it('replaces a model\'s scores when it is scored again, and logs each scoring', async () => {
-    const r = await shadowlap(work, ['tasks', 'score', '--model', 'weak-model', '--attempts', '3']);
+    const r = await shadowlap(work, ['tasks', 'score', '--model', 'weak-model', '--attempts', '3', '--concurrency', '2']);
     expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain('refund-over-limit: replaced 2 earlier attempts (0.33) with these 3');
     withStore(db, (s) => {
       const rows = s.listTaskScores();
       expect(rows.filter((x) => x.model === 'weak-model').map((x) => x.attempt)).toEqual([1, 2, 3]);
       expect(rows.filter((x) => x.model === 'my-finetune')).toHaveLength(2);
       expect(s.listEvents({ kinds: ['model.scored'] }).map((e) => e.ref)).toEqual(['weak-model', 'my-finetune', 'weak-model']);
+      // Every attempt, run two at a time, is a run marked with its score.
+      for (const row of rows.filter((x) => x.model === 'weak-model')) expect(s.getRun(row.runId!)!.meta?.task).toMatchObject({ model: 'weak-model', attempt: row.attempt, of: 3, score: row.score });
     });
+  }, 120_000);
+
+  it('keeps a whole score when a re-score stops short, and says the budget ran out once', async () => {
+    const first = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2']);
+    expect(first.code, first.out).toBe(0);
+    const scored = () => withStore(db, (s) => s.listTaskScores().filter((x) => x.model === 'claude-haiku-4-5').map((x) => x.runId));
+    const before = scored();
+    expect(before).toHaveLength(2);
+    // An attempt costs more than the budget: the second never starts.
+    const cut = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--budget', '0.001']);
+    expect(cut.code).toBe(1);
+    expect(cut.out.match(/the budget of \$0\.0010 is spent/g)).toHaveLength(1);
+    expect(cut.out).toContain('refund-over-limit: kept the earlier score (0.33 over 2 attempts): this one stopped after 1 of 2');
+    expect(scored()).toEqual(before);
   }, 120_000);
 
   it('refuses what can\'t be scored, and says why', async () => {
     const r = await shadowlap(work, ['tasks', 'score', 'goldens/budget', '--model', 'weak-model']);
     expect(r.code).toBe(1);
     expect(r.out).toContain('skipped goldens/budget is not a task: its checks only cap tokens and cost');
-    const down = await shadowlap(work, ['tasks', 'score', '--model', 'my-finetune', '--base-url', 'http://127.0.0.1:9/v1', '--attempts', '1']);
+    // Nothing answers at the endpoint: the first attempt runs alone and stops the task, whatever the concurrency.
+    const down = await shadowlap(work, ['tasks', 'score', '--model', 'my-finetune', '--base-url', 'http://127.0.0.1:9/v1', '--attempts', '3', '--concurrency', '3']);
     expect(down.code).toBe(1);
     expect(down.out).toContain("my-finetune didn't answer #5");
     expect(down.out).toContain("isn't reachable");
+    withStore(db, (s) => {
+      const stopped = s.allRuns().filter((x) => x.meta?.task?.baseUrl === 'http://127.0.0.1:9/v1');
+      expect(stopped).toHaveLength(1);
+      expect(stopped[0]!.meta?.task).toMatchObject({ model: 'my-finetune', attempt: 1, score: null, stopped: expect.stringContaining("my-finetune didn't answer #5") });
+    });
+    // An attempt that stopped is a scoring attempt still: pairs don't read it as a --repeat that failed.
+    const pairs = await shadowlap(work, ['export', 'pairs']);
+    expect(pairs.code, pairs.out).toBe(0);
+    expect(pairs.out).toContain('from the store: 0 sources');
+
+    // A golden packed straight from a capture can't start its agent: blocked, and refused before anything runs.
+    cpSync(join(work, 'goldens', 'refund-over-limit'), join(work, 'goldens', 'captured'), { recursive: true });
+    const manifest = JSON.parse(readFileSync(join(work, 'goldens', 'captured', 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+    manifest.runs.at(-1)!.command.argv = ['<no-recorded-command>'];
+    writeFileSync(join(work, 'goldens', 'captured', 'run.json'), JSON.stringify(manifest));
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { ...TESTS, 'goldens/captured': { expect: { tools: { issue_refund: 0 } } } } }));
+    try {
+      const listed = JSON.parse((await shadowlap(work, ['tasks', '--json'])).stdout) as { tasks: Array<{ golden: string; status: string; note: string }> };
+      expect(listed.tasks.find((t) => t.golden === 'goldens/captured')).toMatchObject({ status: 'blocked', note: expect.stringContaining('imported from a capture and has no command to run') });
+      const runs = withStore(db, (s) => s.allRuns().length);
+      const captured = await shadowlap(work, ['tasks', 'score', 'goldens/captured', '--model', 'weak-model', '--attempts', '1']);
+      expect(captured.code).toBe(1);
+      expect(captured.out).toContain('skipped goldens/captured is blocked: it was imported from a capture and has no command to run');
+      expect(withStore(db, (s) => s.allRuns().length)).toBe(runs);
+    } finally {
+      rmSync(join(work, 'goldens', 'captured'), { recursive: true, force: true });
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: TESTS }));
+    }
   }, 120_000);
 
   it('lists models to score with a price per attempt, and the scores they have', async () => {
@@ -376,6 +420,10 @@ describe('shadowlap tasks', () => {
       expect(attempt.body.run).toMatch(/^\w{26}$/);
       const weak = await call('/v1/tasks/goldens%2Frefund-over-limit/attempts', { method: 'POST', body: { model: 'weak-model' } });
       expect(weak.body.score).toBeCloseTo(1 / 3);
+      // A body over 64 KB gets its 413; a path that isn't percent-encoded right is a bad request.
+      const big = await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'm', pad: 'x'.repeat(100_000) } });
+      expect(big).toMatchObject({ status: 413, body: { error: 'the request is over 64 KB' } });
+      expect(await call('/v1/tasks/%E0%A4%A/attempts', { method: 'POST', body: { model: 'm' } })).toMatchObject({ status: 400, body: { error: expect.stringContaining('percent-encoded') } });
 
       expect((await call('/v1/tasks', { token: null })).status).toBe(401);
       expect((await call('/v1/tasks', { token: 'wrong' })).status).toBe(401);
@@ -392,6 +440,68 @@ describe('shadowlap tasks', () => {
       });
     } finally {
       child.kill('SIGTERM');
+    }
+  }, 120_000);
+});
+
+describe('shadowlap tasks serve, started with an endpoint', () => {
+  it('asks it for requests that name none, sends its key there and nowhere else, and refuses a short token', async () => {
+    policy = 'models';
+    const { work } = workdir('sl-serve-');
+    try {
+      const runId = await record(work, [AGENT]);
+      expect((await shadowlap(work, ['pack', runId, 'goldens/refund'])).code).toBe(0);
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund': { expect: { tools: { issue_refund: 0 } }, task: { takeover: 5 } } } }));
+      // Refused before it listens: a token anyone could guess, and a key with no endpoint of its own.
+      const short = await shadowlap(work, ['tasks', 'serve'], { SHADOWLAP_TASKS_TOKEN: 'short' });
+      expect(short.code).not.toBe(0);
+      expect(short.out).toContain('SHADOWLAP_TASKS_TOKEN must be at least 16 characters');
+      const keyed = await shadowlap(work, ['tasks', 'serve', '--key-env', 'TRAIN_KEY']);
+      expect(keyed.code).not.toBe(0);
+      expect(keyed.out).toContain('--key-env needs --base-url');
+
+      const token = 'tok-' + 'y'.repeat(20);
+      const child = spawn(process.execPath, [CLI, 'tasks', 'serve', '--base-url', `${openai.url}/v1`, '--key-env', 'TRAIN_KEY'], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_TASKS_TOKEN: token, TRAIN_KEY: 'train-secret', AGENT_OUTBOX: join(work, 'outbox.jsonl') }, stdio: ['ignore', 'pipe', 'pipe'] });
+      try {
+        const url = await new Promise<string>((resolve, reject) => {
+          let out = '';
+          child.stdout!.on('data', (d: Buffer) => {
+            out += d.toString();
+            const m = /on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+            if (m) resolve(m[1]!);
+          });
+          child.on('exit', () => reject(new Error(`tasks serve exited: ${out}`)));
+        });
+        const attempt = (body: unknown) =>
+          new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+            const u = new URL('/v1/tasks/refund/attempts', url);
+            const req = httpRequest(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` } }, (res) => {
+              let data = '';
+              res.on('data', (d: Buffer) => (data += d.toString()));
+              res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) as Record<string, unknown> }));
+            });
+            req.on('error', reject);
+            req.end(JSON.stringify(body));
+          });
+        const before = openai.requests.length;
+        const own = await attempt({ model: 'my-finetune' });
+        expect(own.status, JSON.stringify(own.body)).toBe(200);
+        expect(own.body).toMatchObject({ model: 'my-finetune', score: 1 });
+        const mine = openai.requests.slice(before);
+        expect(mine.length).toBeGreaterThan(0);
+        expect(mine.every((r) => r.headers.authorization === 'Bearer train-secret')).toBe(true);
+        // The same server under another name is another origin: it is asked, without the key.
+        const elsewhere = openai.requests.length;
+        const other = await attempt({ model: 'my-finetune', baseUrl: `${openai.url.replace('127.0.0.1', 'localhost')}/v1` });
+        expect(other.status, JSON.stringify(other.body)).toBe(200);
+        const theirs = openai.requests.slice(elsewhere);
+        expect(theirs.length).toBeGreaterThan(0);
+        expect(theirs.every((r) => r.headers.authorization === undefined)).toBe(true);
+      } finally {
+        child.kill('SIGTERM');
+      }
+    } finally {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }, 120_000);
 });

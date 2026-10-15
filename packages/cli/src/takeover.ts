@@ -25,8 +25,10 @@ import {
  * anthropic:<name>` and `--model openai:<name>` ask that provider's API, and `--base-url` an
  * OpenAI-compatible server (Ollama, vLLM, the server of a model being trained). When that isn't the
  * API the recording spoke, a takeover upstream sits where the provider would be: the sidecar sends
- * it the agent's requests from the takeover call on, and it translates each one for the model and
- * the answer back for the agent.
+ * it the agent's requests to that provider from the takeover call on. It translates the model calls
+ * (Anthropic's `/v1/messages`, OpenAI's `/chat/completions`) for the model and the answer back for
+ * the agent, and passes anything else (embeddings, token counts) to the provider unchanged, as the
+ * sidecar would have.
  */
 
 export interface ModelTarget {
@@ -61,6 +63,8 @@ export function resolveTarget(spec: { model: string; baseUrl?: string | undefine
       throw new Error(`--base-url must be a URL, such as http://127.0.0.1:8000/v1`);
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('--base-url must be an http or https URL');
+    // A key in the URL would be kept with every score, run and log line that names the endpoint.
+    if (url.username || url.password) throw new Error('--base-url must not carry credentials: put the key in an environment variable and name it with --key-env');
     const base = url.toString().replace(/\/+$/, '');
     const model = raw.replace(/^openai:/, '');
     return { model, route: 'openai-chat', baseUrl: base, keyEnv: spec.keyEnv ?? (url.origin === new URL(OFFICIAL.openai).origin ? 'OPENAI_API_KEY' : null), local: isLoopback(base), scoreBase: base, via: endpointVia(base) };
@@ -132,12 +136,29 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
+
+/** The path of the recorded API's model call: the one request the model under test answers. */
+function isModelCall(recorded: ChatShape, path: string): boolean {
+  return recorded === 'anthropic' ? /^\/(v1\/)?messages$/.test(path) : /\/chat\/completions$/.test(path);
+}
+
 function parse(bytes: Buffer): unknown {
   try {
     return JSON.parse(bytes.toString('utf8'));
   } catch {
     return bytes.toString('utf8');
   }
+}
+
+export interface TakeoverOptions {
+  env?: NodeJS.ProcessEnv;
+  /**
+   * Where the recording's provider is, for the requests that aren't its model call (embeddings, token
+   * counts): they go there unchanged, with the agent's own headers. Null: they are refused, naming
+   * the endpoint.
+   */
+  upstream?: string | null;
 }
 
 export interface Takeover {
@@ -152,10 +173,13 @@ export interface Takeover {
 
 /**
  * Starts the upstream for one target: the recording speaks `recorded`, the model under test the
- * target's API. It listens on this machine, under a random path, and sends only to the target.
+ * target's API. It listens on this machine, under a random path. Model calls go to the target, and
+ * everything else to the provider's own upstream.
  */
-export async function startTakeover(recorded: ChatShape, target: ModelTarget, env: NodeJS.ProcessEnv = process.env): Promise<Takeover> {
+export async function startTakeover(recorded: ChatShape, target: ModelTarget, options: TakeoverOptions = {}): Promise<Takeover> {
   if (target.route === 'same' || !target.baseUrl) throw new Error('a takeover upstream needs a model at an endpoint');
+  const env = options.env ?? process.env;
+  const upstream = options.upstream ? options.upstream.replace(/\/+$/, '') : null;
   const base = target.baseUrl;
   const key = target.keyEnv ? env[target.keyEnv]?.trim() : undefined;
   if (target.keyEnv && !key && !target.local) throw new Error(`${target.keyEnv} is not set: ${target.model} at ${base} needs its key in the environment`);
@@ -177,9 +201,43 @@ export async function startTakeover(recorded: ChatShape, target: ModelTarget, en
   };
   const fail = (res: ServerResponse, status: number, message: string) => reply(res, status, 'application/json', JSON.stringify(errorBody(recorded, status, message)));
 
+  /** A request that isn't the model call, sent on to the provider as the agent made it, and its answer back as it came. */
+  const passOn = async (req: IncomingMessage, res: ServerResponse, rest: string) => {
+    const name = `${req.method ?? 'GET'} ${rest.split('?')[0]}`;
+    if (!upstream) return fail(res, 501, `${name} isn't sent anywhere while ${target.model} takes over: only the model call is`);
+    const body = await readBody(req);
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !HOP_BY_HOP.has(k)) headers[k] = v;
+    const url = new URL(`${upstream}${rest}`);
+    const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
+    await new Promise<void>((resolve) => {
+      const out = send(url, { method: req.method ?? 'GET', headers: { ...headers, ...(body.length ? { 'content-length': String(body.length) } : {}) } }, (up) => {
+        const back: Record<string, string> = {};
+        for (const [k, v] of Object.entries(up.headers)) if (typeof v === 'string' && !HOP_BY_HOP.has(k)) back[k] = v;
+        res.writeHead(up.statusCode ?? 502, back);
+        up.pipe(res);
+        up.on('end', resolve);
+        up.on('error', () => {
+          res.destroy();
+          resolve();
+        });
+      });
+      out.on('error', (err) => {
+        if (!res.headersSent) fail(res, 502, `${name} couldn't reach ${url.origin}: ${err.message}`);
+        else res.destroy();
+        resolve();
+      });
+      out.end(body.length ? body : undefined);
+    });
+  };
+
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
-    const path = new URL(req.url ?? '/', 'http://takeover').pathname;
-    if (req.method !== 'POST' || !path.startsWith(`/t/${token}/`)) return fail(res, 404, 'not found');
+    const url = new URL(req.url ?? '/', 'http://takeover');
+    const prefix = `/t/${token}`;
+    if (!url.pathname.startsWith(`${prefix}/`)) return fail(res, 404, 'not found');
+    const rest = url.pathname.slice(prefix.length);
+    // Only the recorded API's model call is the model under test's; an embeddings call or a token count is the provider's, as recorded.
+    if (req.method !== 'POST' || !isModelCall(recorded, rest)) return passOn(req, res, `${rest}${url.search}`);
     const request = parse(await readBody(req));
     if (typeof request !== 'object' || request === null || Array.isArray(request)) return fail(res, 400, 'the request is not JSON');
     const body = request as Record<string, unknown>;

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { findTask, type ReadPolicy, type Store } from '@shadowlap/engine';
+import { matchTask, type ReadPolicy, type Store } from '@shadowlap/engine';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { resolveTarget } from './takeover.js';
@@ -29,8 +29,14 @@ export interface ServeSettings {
   /** Only these tasks, by golden path; every ready one when empty. */
   goldens: string[];
   /**
-   * The environment variable whose key goes to a request's `baseUrl` (`--key-env`). A request can't
-   * name one itself: it could send any key in the environment to any address.
+   * The endpoint of the model being trained (`--base-url`): a request that names no `baseUrl` (and no
+   * provider, as `anthropic:<model>` does) asks it, and `keyEnv`'s key goes to it alone.
+   */
+  baseUrl?: string;
+  /**
+   * The environment variable whose key goes to `baseUrl` (`--key-env`). A request can't name one
+   * itself, and the key never goes to an endpoint a request names elsewhere: either would let a
+   * request send a key from the environment to an address of its choosing.
    */
   keyEnv?: string;
 }
@@ -42,6 +48,8 @@ export interface TasksServer {
 }
 
 const BODY_LIMIT = 64 * 1024;
+/** Past the limit the rest of a body is read and dropped, so the 413 reaches the client; this far past it, the connection is cut. */
+const DRAIN_LIMIT = 16 * BODY_LIMIT;
 
 function send(res: ServerResponse, status: number, value: unknown): void {
   const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
@@ -55,17 +63,22 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
     let size = 0;
     req.on('data', (c: Buffer) => {
       size += c.length;
-      if (size > BODY_LIMIT) {
-        reject(Object.assign(new Error(`the request is over ${BODY_LIMIT / 1024} KB`), { status: 413 }));
-        req.destroy();
-        return;
-      }
-      chunks.push(c);
+      if (size <= BODY_LIMIT) chunks.push(c);
+      else if (size - c.length <= BODY_LIMIT) reject(Object.assign(new Error(`the request is over ${BODY_LIMIT / 1024} KB`), { status: 413 }));
+      else if (size > DRAIN_LIMIT) req.destroy();
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
+
+const sameOrigin = (a: string, b: string) => {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+};
 
 function tokenMatches(header: string | undefined, token: string): boolean {
   const m = /^Bearer\s+(.+)$/i.exec(header ?? '');
@@ -76,7 +89,7 @@ function tokenMatches(header: string | undefined, token: string): boolean {
 }
 
 function taskView(t: LoadedTask) {
-  return { task: t.name, golden: t.golden, status: t.status, note: t.note, takeover: t.takeover?.callNo ?? null, why: t.takeover?.why ?? null, rewards: t.rewards, checks: ['the agent exits 0', ...t.checks.filter((c) => !c.cap).map((c) => c.label)], run: t.runId };
+  return { task: t.name, golden: t.golden, status: t.status, note: t.note, takeover: t.takeover?.callNo ?? null, why: t.takeover?.why ?? null, scope: t.scope, rewards: t.rewards, checks: ['the agent exits 0', ...t.checks.filter((c) => !c.cap).map((c) => c.label)], run: t.runId };
 }
 
 export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSettings, log: (line: string) => void): Promise<TasksServer> {
@@ -121,19 +134,30 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
       body = parsed as Record<string, unknown>;
     } catch (err) {
       const status = (err as { status?: number }).status ?? 400;
+      // Over the limit: said, and the connection closed once the rest of the body is dropped.
+      if (status === 413) res.setHeader('connection', 'close');
       return send(res, status, { error: err instanceof SyntaxError ? 'the body is not JSON' : (err as Error).message });
     }
-    const name = decodeURIComponent(m[1]!);
-    const task = findTask(tasks(), name);
-    if (!task) return send(res, 404, { error: `no task "${name}" (GET /v1/tasks lists them)` });
+    let name: string;
+    try {
+      name = decodeURIComponent(m[1]!);
+    } catch {
+      return send(res, 400, { error: 'the task in the path is not a valid percent-encoded name' });
+    }
+    const match = matchTask(tasks(), name);
+    if (!match) return send(res, 404, { error: `no task "${name}" (GET /v1/tasks lists them)` });
+    if ('ambiguous' in match) return send(res, 409, { error: `"${name}" names more than one golden: give its path, such as ${encodeURIComponent(match.ambiguous[0]!)}`, ambiguous: match.ambiguous });
+    const { task } = match;
     if (typeof body.model !== 'string' || !body.model) return send(res, 400, { error: '"model" is required: the model to ask, such as "my-finetune"' });
     if (body.baseUrl !== undefined && typeof body.baseUrl !== 'string') return send(res, 400, { error: '"baseUrl" must be a string' });
     if (body.keyEnv !== undefined) return send(res, 400, { error: '"keyEnv" is set when tasks serve starts (--key-env), not per request' });
     if (body.from !== undefined && (typeof body.from !== 'number' || !Number.isSafeInteger(body.from) || body.from < 1)) return send(res, 400, { error: '"from" must be a model call number' });
     if (body.reads !== undefined && body.reads !== 'live' && body.reads !== 'replay') return send(res, 400, { error: '"reads" must be "live" or "replay"' });
+    // The endpoint tasks serve was started with, unless the request names another one or a provider.
+    const baseUrl = (body.baseUrl as string | undefined) ?? (s.baseUrl && !/^(anthropic|openai):/.test(body.model.trim()) ? s.baseUrl : undefined);
     let target: ReturnType<typeof resolveTarget>;
     try {
-      target = resolveTarget({ model: body.model, baseUrl: body.baseUrl as string | undefined, keyEnv: body.baseUrl !== undefined ? s.keyEnv : undefined });
+      target = resolveTarget({ model: body.model, baseUrl, keyEnv: s.keyEnv && s.baseUrl && baseUrl && sameOrigin(baseUrl, s.baseUrl) ? s.keyEnv : undefined });
     } catch (err) {
       return send(res, 400, { error: (err as Error).message });
     }

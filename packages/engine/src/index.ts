@@ -52,7 +52,7 @@ export type { Palette } from './report.js';
 // translation that lets a model of another provider take over a recorded conversation.
 export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES } from './pairs.js';
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
-export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, findTask, goldenPaths, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
+export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
 export { anthropicBase, endpointVia, isLoopback, listingInput, listModelChoices, ollamaBase, openAIBase, OFFICIAL } from './models.js';
 export type { ListModelsInput, ModelChoice, ModelListing } from './models.js';

@@ -436,9 +436,3 @@ export function matchTask<T extends Pick<Task, 'golden' | 'name'>>(tasks: readon
   if (named.length === 1) return { task: named[0]! };
   return named.length ? { ambiguous: named.map((t) => t.golden) } : null;
 }
-
-/** The one task a golden's path or name refers to: null when there is none, or more than one. */
-export function findTask<T extends Pick<Task, 'golden' | 'name'>>(tasks: readonly T[], name: string): T | null {
-  const m = matchTask(tasks, name);
-  return m && 'task' in m ? m.task : null;
-}

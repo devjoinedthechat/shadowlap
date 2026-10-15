@@ -5,11 +5,11 @@ import { Command, InvalidArgumentError } from 'commander';
 import {
   countPairs,
   findPairs,
-  findTask,
   formatTokens,
   formatUsd,
   listingInput,
   listModelChoices,
+  matchTask,
   PAIR_FORMATS,
   PAIR_SHAPES,
   pairRows,
@@ -28,7 +28,7 @@ import { type GuardMode } from '../run-agent.js';
 import { serveTasks } from '../serve-tasks.js';
 import { openStore, parseChoice, parseIntArg, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
-import { cannotScore, keepScores, loadTasks, scoreTask, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
+import { cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
 import { palette as p, shortId } from '../ui.js';
 
 /**
@@ -76,7 +76,9 @@ function withStore<T>(opts: GlobalOpts, fn: (store: Store) => T): T {
 function describeRow(t: LoadedTask): string[] {
   const status = t.status === 'ready' ? p.green('ready') : t.status === 'blocked' ? p.yellow('blocked') : p.dim(STATUS[t.status]!);
   const lines = [`  ${safeLine(t.golden)}  ${status}${t.note ? p.dim(` · ${safeLine(t.note)}`) : ''}`];
-  if (t.takeover) lines.push(p.dim(`      takes over at #${t.takeover.callNo} · ${safeLine(t.takeover.why)} · #1–#${t.takeover.callNo - 1} replay free`.replace('#1–#0 replay free', 'nothing replays first')));
+  // Which scope the model plays matters only when another one answers too, as a simulated user does.
+  const scope = t.scope !== null && t.scopes.length > 1 ? ` · plays scope ${safeLine(t.scope)}` : '';
+  if (t.takeover) lines.push(p.dim(`      takes over at #${t.takeover.callNo} · ${safeLine(t.takeover.why)}${scope} · #1–#${t.takeover.callNo - 1} replay free`.replace('#1–#0 replay free', 'nothing replays first')));
   if (t.rewards) lines.push(p.dim(`      rewards: ${safeLine(t.rewards)}`));
   const checks = t.checks.filter((c) => !c.cap);
   if (t.status === 'ready' || t.status === 'blocked') lines.push(p.dim(`      scored by: the agent exits 0${checks.map((c) => `; ${safeLine(c.label)}`).join('')}`));
@@ -84,18 +86,30 @@ function describeRow(t: LoadedTask): string[] {
   return lines;
 }
 
+/** What became of a model's earlier score on a task, when it had one. */
+function keptLine(s: TaskScore, k: KeptScores, asked: number): string | null {
+  const name = s.task.split('/').at(-1) ?? s.task;
+  const mean = (rows: Array<{ score: number }>) => (rows.reduce((x, r) => x + r.score, 0) / rows.length).toFixed(2);
+  if (k.outcome === 'replaced') return `${name}: replaced ${plural(k.before.length, 'earlier attempt')} (${mean(k.before)}) with these ${s.attempts.length}`;
+  if (k.outcome === 'kept') return `${name}: kept the earlier score (${mean(k.before)} over ${plural(k.before.length, 'attempt')}): this one stopped after ${s.attempts.length} of ${asked}`;
+  return null;
+}
+
 function checkLine(a: ScoredAttempt): string {
   return a.checks.map((c) => (c.pass ? `${p.green('✓')} ${safeLine(c.check)}` : `${p.red('✗')} ${safeLine(c.check)}`)).join(' · ');
 }
 
-function scoreJson(target: ModelTarget, via: string, session: string, scores: TaskScore[], skipped: Array<{ task: string; reason: string }>) {
+/** What became of the model's score on each task: `new`, `replaced`, the earlier one `kept` (this one stopped short), or `none` (nothing was scored). */
+const STORED: Record<KeptScores['outcome'], string> = { new: 'new', replaced: 'replaced', kept: 'kept-earlier', none: 'none' };
+
+function scoreJson(target: ModelTarget, via: string, session: string, scores: TaskScore[], skipped: Array<{ task: string; reason: string }>, kept: Map<TaskScore, KeptScores> = new Map()) {
   const all = scores.flatMap((s) => s.attempts);
   return {
     model: target.model,
     baseUrl: target.scoreBase,
     via,
     session,
-    tasks: scores.map((s) => ({ task: s.task, takeover: s.takeover, why: s.why, replayed: s.prefix, attempts: s.attempts.map((a) => ({ attempt: a.attempt, run: a.runId, score: a.score, checks: a.checks, spent: a.spent, exitCode: a.exitCode })), mean: s.mean, spent: s.spent, stopped: s.stopped, dropped: s.dropped })),
+    tasks: scores.map((s) => ({ task: s.task, takeover: s.takeover, why: s.why, replayed: s.prefix, attempts: s.attempts.map((a) => ({ attempt: a.attempt, run: a.runId, score: a.score, checks: a.checks, spent: a.spent, exitCode: a.exitCode })), mean: s.mean, spent: s.spent, stopped: s.stopped, dropped: s.dropped, stored: STORED[kept.get(s)?.outcome ?? 'none'] })),
     mean: all.length ? all.reduce((x, a) => x + a.score, 0) / all.length : null,
     attempts: all.length,
     spent: scores.reduce((x, s) => x + s.spent, 0),
@@ -220,8 +234,10 @@ export function register(program: Command): void {
         for (const g of goldens) {
           const path = projectPath(root, g);
           const inside = all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`));
-          const found = inside.length ? inside : [findTask(all, g)].filter((t): t is LoadedTask => t !== null);
-          if (!found.length) skipped.push({ task: g, reason: `${g} is not a golden of this project (see shadowlap tasks)` });
+          const match = inside.length ? null : matchTask(all, g);
+          const found = inside.length ? inside : match && 'task' in match ? [match.task] : [];
+          if (match && 'ambiguous' in match) skipped.push({ task: g, reason: `${g} names more than one golden (${match.ambiguous.join(', ')}): give its path` });
+          else if (!found.length) skipped.push({ task: g, reason: `${g} is not a golden of this project (see shadowlap tasks)` });
           for (const t of found) if (!chosen.includes(t)) chosen.push(t);
         }
       } else chosen = all.filter((t) => t.status === 'ready');
@@ -246,6 +262,7 @@ export function register(program: Command): void {
 
       const scores: TaskScore[] = [];
       let spent = 0;
+      const budgetSpent = flags.budget ? `the budget of ${formatBudget(flags.budget)} is spent` : null;
       for (const t of scorable) {
         const k = t.takeover!.callNo;
         log(`▸ ${safeLine(t.name)} · ${k > 1 ? `#1–#${k - 1} replayed` : 'nothing replayed first'} · ${safeLine(target.model)} from #${k} · writes stubbed ${p.dim(`(${safeLine(t.takeover!.why)})`)}`);
@@ -265,18 +282,21 @@ export function register(program: Command): void {
         if (score.dropped.length) log(p.dim(`  the conversation went to ${safeLine(target.model)} without: ${score.dropped.join(', ')}`));
         if (score.stopped) log(`  ${p.yellow('!')} ${score.stopped.split('\n').map(safeLine).join('\n    ')}`);
         if (score.mean !== null) log(p.dim(`  mean ${score.mean.toFixed(2)} over ${plural(score.attempts.length, 'attempt')}`));
-        if (flags.budget && spent >= flags.budget) {
-          log(p.yellow(`  the budget of ${formatBudget(flags.budget)} is spent`));
+        if (budgetSpent && spent >= flags.budget!) {
+          // Said once: a task the budget stopped has said it already.
+          if (score.stopped !== budgetSpent) log(p.yellow(`  ${budgetSpent}`));
           break;
         }
       }
 
-      const report = scoreJson(target, via, session, scores, skipped);
       const done = scores.filter((s) => s.attempts.length);
-      withStore(opts, (store) => {
-        for (const s of done) keepScores(store, target, s, session);
-        if (done.length) recordEvent(store, { kind: 'model.scored', actor: author(), ref: target.model, data: { model: target.model, baseUrl: target.scoreBase, via, tasks: done.length, attempts: report.attempts, mean: report.mean, spent: report.spent, session } });
-      });
+      const kept = withStore(opts, (store) => new Map(done.map((s) => [s, keepScores(store, target, s, session, flags.attempts)] as const)));
+      const report = scoreJson(target, via, session, scores, skipped, kept);
+      if (done.length) withStore(opts, (store) => recordEvent(store, { kind: 'model.scored', actor: author(), ref: target.model, data: { model: target.model, baseUrl: target.scoreBase, via, tasks: done.length, attempts: report.attempts, mean: report.mean, spent: report.spent, session } }));
+      for (const [s, k] of kept) {
+        const line = keptLine(s, k, flags.attempts);
+        if (line) log(p.dim(`  ${line}`));
+      }
       const unpriced = report.unknownModels.length ? p.dim(` (no price for ${report.unknownModels.map(safeLine).join(', ')}: add it under "prices" in shadowlap.config.json)`) : '';
       const cost = target.local ? '$0, on this machine' : `≈${formatUsd(report.spent)} spent${unpriced}`;
       if (report.mean !== null) {
@@ -297,10 +317,11 @@ export function register(program: Command): void {
     .option('--port <port>', 'port to listen on (default 4779, or a free one if it is taken)', parsePort)
     .option('--concurrency <n>', 'attempts running at once; more requests wait their turn', parseIntArg, 2)
     .option('--reads <policy>', 'what read tools do after the takeover, unless a request says: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
-    .option('--key-env <name>', 'the environment variable holding the key of the endpoints requests name (a request can\'t name one itself)')
+    .option('--base-url <url>', 'the OpenAI-compatible endpoint of the model being trained: requests that name no baseUrl ask it')
+    .option('--key-env <name>', 'the environment variable holding the key of --base-url, sent there and nowhere else (a request can\'t name one)')
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; keyEnv?: string; timeout?: number; guard: GuardMode }) => {
+    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; baseUrl?: string; keyEnv?: string; timeout?: number; guard: GuardMode }) => {
       const opts = program.opts<GlobalOpts>();
       const root = process.cwd();
       const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
@@ -310,13 +331,25 @@ export function register(program: Command): void {
       });
       if (goldens.length && !only.length) throw new InvalidArgumentError(`${goldens.join(', ')}: no golden of this project there (see shadowlap tasks)`);
       if (flags.keyEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(flags.keyEnv)) throw new InvalidArgumentError('--key-env takes the name of an environment variable, such as VLLM_API_KEY');
-      const token = process.env.SHADOWLAP_TASKS_TOKEN?.trim() || randomBytes(24).toString('hex');
-      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only, ...(flags.keyEnv ? { keyEnv: flags.keyEnv } : {}) }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
+      if (flags.keyEnv !== undefined && flags.baseUrl === undefined) throw new InvalidArgumentError('--key-env needs --base-url: the key goes to that endpoint and nowhere else');
+      let baseUrl: string | undefined;
+      if (flags.baseUrl !== undefined) {
+        try {
+          baseUrl = resolveTarget({ model: 'm', baseUrl: flags.baseUrl }).baseUrl!;
+        } catch (err) {
+          throw new InvalidArgumentError((err as Error).message);
+        }
+      }
+      // Anyone on this machine can try a token against a loopback port: one that short is guessed.
+      const given = process.env.SHADOWLAP_TASKS_TOKEN?.trim();
+      if (given !== undefined && given !== '' && given.length < 16) throw new InvalidArgumentError('SHADOWLAP_TASKS_TOKEN must be at least 16 characters; leave it unset for a random one');
+      const token = given || randomBytes(24).toString('hex');
+      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only, ...(baseUrl ? { baseUrl } : {}), ...(flags.keyEnv ? { keyEnv: flags.keyEnv } : {}) }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
       const served = goldens.length ? all.filter((t) => only.includes(t.golden)) : all;
       const ready = served.filter((t) => t.status === 'ready');
       process.stdout.write(`Serving ${plural(ready.length, 'ready task')} on ${server.url}\n`);
       process.stdout.write(`  token: ${token}\n`);
-      process.stdout.write(p.dim(`  POST ${server.url}/v1/tasks/<task>/attempts  {"model":"my-finetune","baseUrl":"http://127.0.0.1:8000/v1"}\n  with Authorization: Bearer <token>; GET /v1/tasks lists them. Ctrl-C stops.\n`));
+      process.stdout.write(p.dim(`  POST ${server.url}/v1/tasks/<task>/attempts  ${baseUrl ? `{"model":"my-finetune"} (asks ${baseUrl})` : '{"model":"my-finetune","baseUrl":"http://127.0.0.1:8000/v1"}'}\n  with Authorization: Bearer <token>; GET /v1/tasks lists them. Ctrl-C stops.\n`));
       for (const t of ready) process.stdout.write(p.dim(`  ${safeLine(t.name)}: takes over at #${t.takeover!.callNo}\n`));
       await new Promise<void>((done) => {
         process.once('SIGINT', () => done());
