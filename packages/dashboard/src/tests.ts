@@ -446,15 +446,18 @@ export interface TestsSummary {
   lastWeek: { passing: number; total: number } | null;
 }
 
-/** The Overview's Tests passing tile. `goldens` (the packs on disk) limits it to goldens that still exist. */
-export function testsSummary(store: Store, options: { goldens?: readonly string[]; now?: number } = {}): TestsSummary {
+/**
+ * The Overview's Tests passing tile. `goldens` (the packs on disk) limits it to goldens that still
+ * exist; `weekStart` is when the comparison with last week is made (default: 7 days before `now`).
+ */
+export function testsSummary(store: Store, options: { goldens?: readonly string[]; now?: number; weekStart?: number } = {}): TestsSummary {
   const now = options.now ?? Date.now();
   const latest = latestResults(store, options.goldens ? { goldens: options.goldens } : {});
   const total = options.goldens ? options.goldens.length : latest.size;
   const passing = [...latest.values()].filter((r) => r.ok).length;
   const failing = latest.size - passing;
   const session = store.listTestSessions({ limit: 1, finished: true })[0] ?? null;
-  const weekAgo = latestResults(store, { ...(options.goldens ? { goldens: options.goldens } : {}), until: now - 7 * 24 * 60 * 60 * 1000 });
+  const weekAgo = latestResults(store, { ...(options.goldens ? { goldens: options.goldens } : {}), until: options.weekStart ?? now - 7 * 24 * 60 * 60 * 1000 });
   return {
     empty: total === 0,
     total,
@@ -465,6 +468,17 @@ export function testsSummary(store: Store, options: { goldens?: readonly string[
     lastRunAt: session ? (session.endedAt ?? session.startedAt) : null,
     lastWeek: weekAgo.size ? { passing: [...weekAgo.values()].filter((r) => r.ok).length, total: weekAgo.size } : null,
   };
+}
+
+/**
+ * The Tests passing number of the Overview's outcome strip, in the shape its `tests` hook takes:
+ * goldens with a result, how many pass, how many passed when this week started, the regressions
+ * caught, and when the tests last ran. Null when there are no goldens yet.
+ */
+export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens?: readonly string[] } = {}): { goldens: number; passing: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
+  const s = testsSummary(store, { ...options, now: asOf.now, weekStart: asOf.weekStart });
+  if (s.empty) return null;
+  return { goldens: s.total, passing: s.passing, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
 }
 
 export interface FailingTest {

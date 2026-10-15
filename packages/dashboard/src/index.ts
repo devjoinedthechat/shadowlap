@@ -5,7 +5,7 @@ export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
 // Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
-export { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob } from './tests.js';
+export { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob } from './tests.js';
 export type { BisectChoices, DivergenceView, FailingTest, FailureView, FoundCommit, GoldenRow, GoldenSource, HistoryCell, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
 export { ACTION, ALERT_FAILURES, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
 export type { AlertsSettings, FixOnFailureSettings } from './ci-yaml.js';

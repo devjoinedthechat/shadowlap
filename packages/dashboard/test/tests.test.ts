@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { recordEvent, Store, type TestResultData } from '@shadowlap/engine';
-import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
+import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
  * The Tests screen's read model over a store with three sessions at three revisions: one golden that
@@ -211,6 +211,10 @@ describe('tests on the Overview and in Needs a look', () => {
     expect(testsSummary(store, { now: T0 + DAY })).toEqual({ empty: false, total: 3, passing: 2, failing: 1, untested: 0, line: '1 regression caught', lastRunAt: T0 + 100, lastWeek: { passing: 1, total: 1 } });
     expect(testsSummary(store, { goldens: ['goldens/refund-flow', 'goldens/new'], now: T0 + DAY })).toMatchObject({ total: 2, passing: 1, failing: 0, untested: 1, line: 'no regressions' });
     expect(testsSummary(Store.open(':memory:'))).toMatchObject({ empty: true, total: 0, line: 'no goldens yet', lastRunAt: null, lastWeek: null });
+    // The Overview's outcome strip compares with when its week started.
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - DAY })).toEqual({ goldens: 3, passing: 2, lastWeek: 2, regressions: 1, lastRunAt: T0 + 100 });
+    expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY })).toMatchObject({ lastWeek: 1 });
+    expect(overviewTests(Store.open(':memory:'), { now: T0, weekStart: T0 - DAY })).toBeNull();
     store.close();
   });
 
