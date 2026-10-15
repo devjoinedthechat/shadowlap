@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
-import { cacheMisses, cacheReadShare, steadyCacheNote, type UsageCall } from '../ui/cache.js';
+import { cacheMisses, cacheNote, cacheReadShare, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, tildePath, whenShort } from '../ui/format.js';
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
@@ -217,14 +217,25 @@ describe('cache misses', () => {
     expect(cacheReadShare([m(1, 0, 100), m(2, 300, 100)])).toBeCloseTo(300 / 500);
   });
 
-  it('does not judge a conversation that never used the cache', () => {
-    expect(cacheMisses([m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)])).toEqual([]);
+  it('counts every turn of an agent that never caches its prompt, as the run page’s read model does', () => {
+    // Each turn sent the history again: decision 2 has no exception for a conversation that never cached.
+    expect(cacheMisses([m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)])).toEqual([
+      { callNo: 2, tokens: 2000 },
+      { callNo: 3, tokens: 2400 },
+    ]);
   });
 
-  it('says calls that never used the cache had nothing to miss, rather than that they read from it', () => {
-    expect(steadyCacheNote([m(1, 0, 2000), m(2, 0, 2400)])).toBe('No model call here wrote to the prompt cache or read from it, so there was nothing to miss.');
-    expect(steadyCacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)])).toBe('Every model call read the previous prompt from the cache.');
-    expect(steadyCacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)])).toMatch(/^Each conversation starts its own context/);
+  it('says where the cache stopped hitting, and for calls that never used it that each turn sent the history again', () => {
+    const cached = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700, 500)];
+    expect(cacheNote(cached, cacheMisses(cached))).toEqual({ lead: 'The cache stopped hitting at #17.', text: '2,300 tokens were sent again. A change early in the prompt does this to every call after it.' });
+    const never = [m(1, 0, 2000), m(2, 0, 2400), m(3, 0, 2800)];
+    expect(cacheNote(never, cacheMisses(never))).toEqual({ lead: 'No model call here read from the prompt cache.', text: 'Each turn sent the conversation so far again: 4,400 tokens.' });
+    const many = Array.from({ length: 10 }, (_, i) => ({ callNo: i + 1, tokens: 1100 }));
+    expect(cacheNote(cached, many).lead).toBe('The cache stopped hitting at #1, #2, #3, #4, #5, #6, #7, #8 and 2 more.');
+    // No misses: the calls read the previous prompt from the cache, or nothing used it.
+    expect(cacheNote([m(1, 0, 200, 3000), m(3, 3000, 100, 400)], [])).toEqual({ lead: null, text: 'Every model call read the previous prompt from the cache.' });
+    expect(cacheNote([m(1, 0, 200, 3000, undefined, 1), m(3, 3000, 100, 400, undefined, 1)], []).text).toMatch(/^Each conversation starts its own context/);
+    expect(cacheNote([m(1, 0, 300), m(2, 0, 500)], []).text).toBe('No model call here wrote to the prompt cache or read from it, and none sent 1,024 tokens of its conversation again.');
   });
 });
 

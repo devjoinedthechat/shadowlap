@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { CallRow, RunDetail } from '../api.js';
 import { Seg } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
-import { cacheMisses, cacheReadShare, steadyCacheNote, wholeInput } from '../cache.js';
+import { cacheMisses, cacheNote, cacheReadShare, wholeInput } from '../cache.js';
 import { ktok, num } from '../format.js';
 
 /**
@@ -22,9 +22,13 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   };
   const ms = calls.filter((c) => c.kind === 'api' && c.usage && c.outcome !== 'error');
   if (!ms.length) return <div className="empty">{calls.some((c) => c.kind === 'api') ? 'No model call reported token usage, so there is no context to show.' : 'No model calls yet.'}</div>;
-  // The server's misses when it judged them (for the whole run, or on each call); the same rule here otherwise.
+  // The server's misses when it judged them (for the whole run, or on each call); the same rule here
+  // otherwise. Only those among the calls shown (the scope picked) count.
   const judged = run.cache?.misses ?? (ms.some((c) => c.cacheMiss !== undefined) ? ms.flatMap((c) => (c.cacheMiss ? [{ callNo: c.callNo, tokens: c.cacheMiss.sentAgain }] : [])) : null);
-  const misses = new Map((judged ?? cacheMisses(ms)).map((m) => [m.callNo, m.tokens]));
+  const shownNos = new Set(ms.map((c) => c.callNo));
+  const shownMisses = (judged ?? cacheMisses(ms)).filter((m) => shownNos.has(m.callNo));
+  const misses = new Map(shownMisses.map((m) => [m.callNo, m.tokens]));
+  const note = cacheNote(ms, shownMisses);
   const max = Math.max(1, ...ms.map((c) => wholeInput(c.usage!)));
   const outMax = Math.max(1, ...ms.map((c) => c.usage!.output));
   const big = ms.reduce((a, b) => (wholeInput(b.usage!) > wholeInput(a.usage!) ? b : a));
@@ -32,7 +36,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   const many = ms.length > 80;
   const every = Math.ceil(ms.length / 12);
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
-  const missList = [...misses.keys()].filter((n) => ms.some((c) => c.callNo === n));
+  const missList = [...misses.keys()];
   return (
     <>
       <div className="cstats">
@@ -144,13 +148,14 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
             </div>
           </>
         )}
-        {missList.length ? (
-          <p className="cnote">
-            <b>The cache stopped hitting at {missList.slice(0, 8).map((n) => `#${n}`).join(', ')}.</b> {num([...misses.values()].reduce((s, n) => s + n, 0))} tokens were sent again. A change early in the prompt does this to every call after it.
-          </p>
-        ) : (
-          <p className="cnote">{steadyCacheNote(ms)}</p>
-        )}
+        <p className="cnote">
+          {note.lead ? (
+            <>
+              <b>{note.lead}</b>{' '}
+            </>
+          ) : null}
+          {note.text}
+        </p>
       </div>
     </>
   );
