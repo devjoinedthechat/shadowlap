@@ -317,23 +317,30 @@ export class ProjectHost<C = unknown> {
    */
   stats(): Record<string, ProjectCounts> {
     const out: Record<string, ProjectCounts> = {};
-    for (const p of this.entries()) {
-      const missing = !existsSync(p.path);
-      let facts: StoreFacts = emptyStoreFacts();
-      let unreadable: string | null = null;
-      if (!missing) {
-        try {
-          facts = this.context(p.id).facts();
-        } catch (err) {
-          // a store from a newer version, or one that isn't a database
-          unreadable = (err as Error).message;
-        }
-      }
-      // As `deriveSetup` has it: done only once finished with runs; a finished project with none left starts again.
-      const settingUp = unreadable ? p.setup.stage !== 'done' : !(p.setup.stage === 'done' && facts.runs > 0);
-      out[p.id] = { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing, settingUp, unreadable, madeFiles: missing ? [] : madeFiles(p.path) };
-    }
+    for (const p of this.entries()) out[p.id] = this.counts(p);
     return out;
+  }
+
+  /** One project's counts, as {@link stats} gives every project's: for the Remove dialog, which needs only its own. */
+  statsOf(id: string): ProjectCounts {
+    return this.counts(this.need(id));
+  }
+
+  private counts(p: ProjectEntry): ProjectCounts {
+    const missing = !existsSync(p.path);
+    let facts: StoreFacts = emptyStoreFacts();
+    let unreadable: string | null = null;
+    if (!missing) {
+      try {
+        facts = this.context(p.id).facts();
+      } catch (err) {
+        // a store from a newer version, or one that isn't a database
+        unreadable = (err as Error).message;
+      }
+    }
+    // As `deriveSetup` has it: done only once finished with runs; a finished project with none left starts again.
+    const settingUp = unreadable ? p.setup.stage !== 'done' : !(p.setup.stage === 'done' && facts.runs > 0);
+    return { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing, settingUp, unreadable, madeFiles: missing ? [] : madeFiles(p.path) };
   }
 
   /** Where a project's setup is, from the list, its store and the goldens in its repository. */

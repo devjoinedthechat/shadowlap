@@ -81,7 +81,8 @@ const SLEEPER = [
 
 beforeAll(() => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-')));
-  env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_AUTHOR: 'priya@example.com' };
+  // The dashboard keeps its list of projects in SHADOWLAP_HOME: the test's own, never the real one.
+  env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_AUTHOR: 'priya@example.com', SHADOWLAP_HOME: realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-home-'))) };
   const rec = spawnSync(process.execPath, [CLI, 'run', '--', process.execPath, '-e', 'console.log("agent ran")'], { cwd, env, encoding: 'utf8' });
   runId = /recording run (\w{26})/.exec(rec.stderr + rec.stdout)![1]!;
 });
@@ -95,6 +96,7 @@ afterAll(() => {
     }
   }
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  rmSync(env.SHADOWLAP_HOME!, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 describe('shadowlap dashboard', () => {
@@ -103,7 +105,8 @@ describe('shadowlap dashboard', () => {
     const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
     try {
       const meta = (await (await api('meta')).json()) as { actions: boolean; readOnly: boolean; project: { name: string; path: string }; jobKinds: string[] };
-      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: ['action'] });
+      // It serves the projects on this machine, opening on the folder it starts in, and can inspect and record there.
+      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { id: basename(cwd).toLowerCase(), name: basename(cwd), path: cwd }, jobKinds: ['action', 'init', 'record'] });
       let job = (await (await api(`runs/${runId}/actions`, { method: 'POST', body: JSON.stringify({ key: 'r' }) })).json()) as { id: string; done: boolean; code: number | null; newRunId: string | null; links: Array<{ href: string }>; result: { exitCode?: number } | null; title: string };
       expect(job.title).toBe('Replaying');
       for (let i = 0; i < 400 && !job.done; i++) {

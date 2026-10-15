@@ -6,6 +6,7 @@ import * as compare from './compare.js';
 import * as files from './files.js';
 import * as jobs from './jobs.js';
 import * as meta from './meta.js';
+import * as projects from './projects.js';
 import * as runs from './runs.js';
 import * as search from './search.js';
 import * as uploads from './uploads.js';
@@ -29,6 +30,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   files,
   uploads,
   activity,
+  // Several projects behind one dashboard: the switcher, Add a project, the setup, removing one.
+  projects,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

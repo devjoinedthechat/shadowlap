@@ -202,7 +202,8 @@ const doctor = fp(['doctor'], env);
 check('runs doctor', /node|Node/.test(doctor.out), doctor.out);
 
 // ---- 5. The dashboard: its bundled UI and API from the installed package.
-const dash = spawn(bin, ['dashboard', '--no-open', '--port', '4799'], { cwd: app, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
+// Its list of projects goes in the rehearsal's own folder, not the real ~/.shadowlap.
+const dash = spawn(bin, ['dashboard', '--no-open', '--port', '4799'], { cwd: app, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_HOME: join(work, 'sl-home') }, stdio: ['ignore', 'ignore', 'pipe'] });
 children.push(dash);
 let dashLog = '';
 dash.stderr.on('data', (c) => (dashLog += c));

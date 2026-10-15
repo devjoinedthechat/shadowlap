@@ -81,6 +81,10 @@ export interface ProjectView {
   name: string;
   /** Its absolute path. */
   path: string;
+  /** Its id in the dashboard's project list, on a dashboard that serves several (`GET /api/projects`). */
+  id?: string;
+  /** Its setup isn't finished: once it has runs, the Overview shows the setup. */
+  settingUp?: boolean;
 }
 
 /** `GET /api/meta`: what the shell needs once, and the status bar. */

@@ -1,16 +1,17 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Normalizer, Price, Store } from '@shadowlap/engine';
+import { ProjectError, type Normalizer, type Price, type ProjectHost, type Store } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from './context.js';
 import { HttpError, json, sameToken } from './http.js';
-import { JobManager, type SpawnCli } from './jobs.js';
+import { JobManager, type JobPlace, type SpawnCli } from './jobs.js';
 import { Router, routeRequest } from './router.js';
 import { registerRoutes, type RouteModule } from './routes/index.js';
 import { UploadStore } from './uploads.js';
+import type { ProjectView } from './views.js';
 
 export type { SpawnCli, SpawnCliOptions } from './jobs.js';
 
@@ -26,7 +27,16 @@ export type { SpawnCli, SpawnCliOptions } from './jobs.js';
  */
 
 export interface DashboardOptions {
-  store: Store;
+  /** The store it serves. With `projects`, each project's store comes from there instead. */
+  store?: Store;
+  /**
+   * Several projects behind one dashboard, as `shadowlap dashboard` serves them: the project list,
+   * which one is current, and each one's store, config and folder (the engine's `ProjectHost`).
+   * Every route reads the current project's store and config, and every job runs in its folder,
+   * against its store; switching projects swaps them all at once. Without it the dashboard serves
+   * `store` and `project` alone.
+   */
+  projects?: ProjectHost<ProjectConfig>;
   /** Shown in the status bar; its size on disk is reported too. */
   dbPath?: string;
   host?: string;
@@ -86,8 +96,54 @@ export interface Dashboard {
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8' };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
+/** What the dashboard serves right now: the current project, its store, and its config. */
+interface Current {
+  /** The project's id in the list; null for a dashboard that serves one store. */
+  id: string | null;
+  store: Store;
+  dbPath: string | null;
+  project: ProjectView | null;
+  /** The project's config as the CLI reads it; an HttpError naming the file when it can't be read. */
+  config(): ProjectConfig;
+}
+
+function readConfig(load: () => ProjectConfig): ProjectConfig {
+  try {
+    return load();
+  } catch (err) {
+    throw new HttpError(500, `could not read the project's shadowlap.config.json: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * The options as route modules read them, on a dashboard that serves several projects: the store,
+ * its path, the project folder and its config are the current project's, read each time, so a
+ * module written for one store follows a switch without knowing about projects.
+ */
+function followingOptions(opts: DashboardOptions, current: () => Current): DashboardOptions {
+  const options: DashboardOptions = { ...opts };
+  Object.defineProperties(options, {
+    store: { get: () => current().store, enumerable: true, configurable: true },
+    dbPath: { get: () => current().dbPath ?? undefined, enumerable: true, configurable: true },
+    project: { get: () => current().project ?? undefined, enumerable: true, configurable: true },
+    loadConfig: { value: () => current().config(), enumerable: true, configurable: true },
+    prices: { get: () => pricesOf(current) ?? undefined, enumerable: true, configurable: true },
+  });
+  return options;
+}
+
+/** The current project's price table, from its config; none while the config can't be read (its pages say why). */
+function pricesOf(current: () => Current): Record<string, Price> | null {
+  try {
+    return current().config().prices ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function startDashboard(opts: DashboardOptions): Promise<Dashboard> {
-  const store = opts.store;
+  const projects = opts.projects ?? null;
+  if (!projects && !opts.store) throw new Error('startDashboard needs a store, or projects');
   const token = opts.token ?? randomBytes(24).toString('base64url');
   const host = opts.host ?? '127.0.0.1';
   const uiDir = opts.uiDir ?? fileURLToPath(new URL('./ui/', import.meta.url));
@@ -96,39 +152,98 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   const readOnlyReason = !readOnly ? null : opts.readOnly ? 'this dashboard is read-only (started with --read-only): it shows runs and changes nothing' : 'this dashboard is read-only: start it with shadowlap dashboard to change runs and run actions';
   const projectPath = opts.project ? resolve(opts.project.path) : null;
   const project = projectPath ? { name: opts.project?.name ?? basename(projectPath), path: projectPath } : null;
-  const uploads = new UploadStore({ project, limit: opts.uploadLimit, maxIdleMs: opts.uploadMaxIdleMs, readOnly });
-  const jobs = new JobManager({ store, spawnCli: opts.spawnCli, project, uploads, log, stopGraceMs: opts.jobStopGraceMs });
+  const singleConfig = (): ProjectConfig => (opts.loadConfig ? readConfig(opts.loadConfig) : { normalize: [], redact: opts.redact ?? [], ...(opts.prices ? { prices: opts.prices } : {}) });
+
+  // With several projects, everything below asks for the current one each time: a switch (here, or
+  // another dashboard or the CLI changing the list) moves the store, config and folder together.
+  const current = (): Current => {
+    if (!projects) return { id: null, store: opts.store!, dbPath: opts.dbPath ?? null, project, config: singleConfig };
+    try {
+      const c = projects.current();
+      const entry = projects.registry.get(c.id);
+      return { id: c.id, store: c.store(), dbPath: c.dbPath, project: { id: c.id, name: c.name, path: c.path, settingUp: entry ? entry.setup.stage !== 'done' : false }, config: () => readConfig(() => c.config()) };
+    } catch (err) {
+      // The current project's folder is gone, or its store can't be opened: the switcher still works.
+      if (err instanceof ProjectError) throw new HttpError(err.status, err.message);
+      throw err;
+    }
+  };
+  const currentProject = (): ProjectView | null => {
+    try {
+      return current().project;
+    } catch {
+      return null;
+    }
+  };
+  const options = projects ? followingOptions(opts, current) : opts;
+  const uploads = new UploadStore({
+    get project() {
+      return currentProject();
+    },
+    limit: opts.uploadLimit,
+    maxIdleMs: opts.uploadMaxIdleMs,
+    readOnly,
+  });
+  const place = (): JobPlace => {
+    const c = current();
+    return { store: c.store, project: c.project, dbPath: c.dbPath, projectId: c.id };
+  };
+  const jobs = new JobManager({ store: opts.store ?? current().store, spawnCli: opts.spawnCli, project, uploads, log, stopGraceMs: opts.jobStopGraceMs, ...(projects ? { place } : {}) });
   let port = 0;
 
   const address = () => `${host === '::1' ? '[::1]' : host}:${port}`;
   const allowedHosts = () => new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
 
+  // A route module that keeps the store or the project from registration would serve the first
+  // project forever after a switch: with several projects, reading them then is refused.
+  let registering = true;
+  const live = (what: string) => {
+    if (registering && projects) throw new Error(`a route module read ctx.${what} while registering: read it inside each handler, as it changes when the project does`);
+  };
+  const boot = randomBytes(6).toString('hex');
   const ctx: RouteContext = {
-    store,
-    options: opts,
+    get store() {
+      live('store');
+      return current().store;
+    },
+    options,
     jobs,
     uploads,
-    read: opts.prices ? { prices: opts.prices } : {},
-    project,
-    config: () => {
-      if (!opts.loadConfig) return { normalize: [], redact: opts.redact ?? [], ...(opts.prices ? { prices: opts.prices } : {}) };
-      try {
-        return opts.loadConfig();
-      } catch (err) {
-        throw new HttpError(500, `could not read the project's shadowlap.config.json: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    get read() {
+      const prices = projects ? pricesOf(current) : (opts.prices ?? null);
+      return prices ? { prices } : {};
     },
+    get project() {
+      live('project');
+      return current().project;
+    },
+    config: () => current().config(),
     readOnly,
     readOnlyReason,
     requireWritable: () => {
       if (readOnlyReason) throw new HttpError(403, readOnlyReason);
     },
     address,
-    instance: randomBytes(6).toString('hex'),
+    // Cursors carry it: what the browser learned from another project's store no longer holds once
+    // the project changes, as after a restart.
+    get instance() {
+      if (!projects) return boot;
+      let dbPath = '';
+      try {
+        dbPath = projects.current().dbPath;
+      } catch {
+        // the list can't be read: a tag of its own
+      }
+      return `${boot}.${createHash('sha1').update(dbPath).digest('base64url').slice(0, 10)}`;
+    },
   };
   const router = new Router();
-  registerRoutes(router, ctx);
-  for (const m of opts.routes ?? []) m.register(router, ctx);
+  try {
+    registerRoutes(router, ctx);
+    for (const m of opts.routes ?? []) m.register(router, ctx);
+  } finally {
+    registering = false;
+  }
 
   function serveStatic(res: ServerResponse, pathname: string): void {
     const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
@@ -175,7 +290,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method not allowed');
       return serveStatic(res, url.pathname);
     })().catch((err: unknown) => {
-      const status = err instanceof HttpError ? err.status : 500;
+      // A change to the project list that can't be made says why, with its own status.
+      const status = err instanceof HttpError || err instanceof ProjectError ? err.status : 500;
       if (status === 500) log(`error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
       if (res.headersSent) return res.destroy();
       // A body refused part way is not read to its end: close the connection so the client stops sending it.

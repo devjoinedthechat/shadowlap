@@ -378,13 +378,14 @@ export function shortRunId(runId: string): string {
 
 /**
  * The CLI arguments for each setup step, as the dashboard's jobs run them (each in the project's
- * folder, with `--db` added by the server). Pack and test are two jobs, test after pack. Calibrate
- * runs without `--json`, so its rounds stream into the job's output; its result is the job's
- * `result` event (the object `--json` prints), read with `calibrationOutcome(result, { write })`.
- * `init --json` writes its findings to the project list itself.
+ * folder, with `--db` added by the server). Pack and test are two jobs, test after pack. Init and
+ * calibrate run without `--json`, so what they find and each round stream into the job's output in
+ * words; the result of each is the job's `result` event (the object `--json` prints), read with
+ * `calibrationOutcome(result, { write })` for calibrate. Init writes its findings to the project
+ * list itself, and its result says whether the setup took them (`project: { id, noted, why }`).
  */
 export const setupJobArgs = {
-  inspect: (): string[] => ['init', '--json'],
+  inspect: (): string[] => ['init'],
   calibrate: (runId: string, write = false): string[] => ['calibrate', runId, ...(write ? ['--write'] : [])],
   pack: (runId: string, golden: string): string[] => ['pack', runId, golden],
   test: (golden: string): string[] => ['test', golden],

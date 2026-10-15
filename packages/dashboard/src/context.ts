@@ -19,18 +19,27 @@ export interface ProjectConfig {
   repair?: { repairer?: string; baseUrl?: string };
 }
 
-/** What every route module gets from the server: `register(router, ctx)`. */
+/**
+ * What every route module gets from the server: `register(router, ctx)`.
+ *
+ * A dashboard can serve several projects (`DashboardOptions.projects`), one of them current. Then
+ * `store`, `project`, `read`, `config()` and `instance` are the current project's, worked out on
+ * every read, and so are `options.store`, `options.dbPath`, `options.project`, `options.prices` and
+ * `options.loadConfig`: read them inside each handler, never once in `register` (reading `store` or
+ * `project` there throws). Caches keyed by the `Store` object follow a switch by themselves, as
+ * each project keeps its own store open.
+ */
 export interface RouteContext {
   store: Store;
-  /** The options the dashboard was started with, as given. */
+  /** The options the dashboard was started with; with several projects, their store, path, folder and config are the current project's. */
   options: DashboardOptions;
-  /** Starts and tracks CLI jobs; `ctx.jobs.registerJobKind(kind, …)` adds a kind. */
+  /** Starts and tracks CLI jobs; `ctx.jobs.registerJobKind(kind, …)` adds a kind. A job runs in the project current when it starts. */
   jobs: JobManager;
   /** Files the browser sent for jobs. */
   uploads: UploadStore;
   /** What read models take: the price table for costs. */
   read: ReadOptions;
-  /** The project folder jobs run in, or null. */
+  /** The project folder jobs run in, or null; its `id` with several projects. */
   project: ProjectInfo | null;
   /**
    * The project's config, read fresh on every call (Settings edits it, so does the CLI). Throws a

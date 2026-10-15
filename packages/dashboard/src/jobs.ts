@@ -42,6 +42,13 @@ export interface SpawnCliOptions {
   cwd?: string;
   /** Open fd 3 as a pipe and set SHADOWLAP_EVENTS_FD=3, for the job's structured events. */
   events?: boolean;
+  /**
+   * The store the job reads and writes, for `--db`: the project's it runs in, on a dashboard that
+   * serves several. Without it, the spawner's own.
+   */
+  dbPath?: string;
+  /** Variables the job's command gets besides the dashboard's environment (`JobBuild.env`). */
+  env?: Record<string, string>;
 }
 
 /** Starts the CLI with these arguments (the spawner adds `--db <store>`); stdout and stderr must be pipes. */
@@ -57,10 +64,11 @@ export function cliSpawner(o: { command: string[]; dbPath?: string; cwd: string;
   const [cmd, ...pre] = o.command;
   if (!cmd) throw new Error('cliSpawner needs a command');
   return (args, so = {}) => {
-    const env: NodeJS.ProcessEnv = { ...(o.env ?? process.env), NO_COLOR: '1' };
+    const env: NodeJS.ProcessEnv = { ...(o.env ?? process.env), ...(so.env ?? {}), NO_COLOR: '1' };
     delete env.SHADOWLAP_EVENTS_FD;
     if (so.events) env.SHADOWLAP_EVENTS_FD = '3';
-    return spawn(cmd, [...pre, ...(o.dbPath ? ['--db', o.dbPath] : []), ...args], {
+    const dbPath = so.dbPath ?? o.dbPath;
+    return spawn(cmd, [...pre, ...(dbPath ? ['--db', dbPath] : []), ...args], {
       cwd: so.cwd ?? o.cwd,
       env,
       stdio: so.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
@@ -120,14 +128,48 @@ export interface JobBuild {
   opensRun?: boolean;
   /** Overrides the kind's title, when the request says more than the kind does. */
   title?: string;
+  /**
+   * Variables the command gets besides the dashboard's environment, such as the model server a
+   * recording forwards to. Built on the server, like the arguments; names are capitals, digits and
+   * underscores, and the events pipe's own can't be set.
+   */
+  env?: Record<string, string>;
 }
 
 export type JobBuildResult = JobBuild | { error: string; status?: number };
+
+/**
+ * Where a job runs: the project that is current when it starts, with its store and the store's
+ * path. The job keeps it to the end, so switching projects while it runs changes nothing for it:
+ * its files, its runs and its working directory stay that project's.
+ */
+export interface JobPlace {
+  store: Store;
+  project: ProjectInfo | null;
+  /** The store's path, passed to the spawner for `--db`; null keeps the spawner's own. */
+  dbPath: string | null;
+  /** The project's id in the dashboard's list; null for a dashboard that serves one store. */
+  projectId: string | null;
+}
+
+/** What `JobManager.onJob` listeners hear: a job reported a run, or ended. */
+export interface JobNotice {
+  type: 'run' | 'end';
+  /** The job as the API shows it, with its result. */
+  job: JobView;
+  /** The project it runs in ({@link JobPlace.projectId}). */
+  projectId: string | null;
+  /** For `run`: the run it reported, with its role. */
+  runId?: string;
+  role?: string | null;
+}
 
 /** What a builder can use besides what its route module closed over. */
 export interface JobBuildContext {
   store: Store;
   project: ProjectInfo | null;
+  /** The project's id in the dashboard's list, or null ({@link JobPlace.projectId}). */
+  projectId: string | null;
   /**
    * A file the browser sent with `POST /api/uploads`, claimed for this job: its path, or null for
    * an unknown id. It is deleted when the job ends.
@@ -205,6 +247,25 @@ interface Job {
   /** Resolves when the job is done. */
   ended: Promise<void>;
   markEnded: () => void;
+  /** The project it runs in, its store and the store's path, as they were when it started. */
+  place: JobPlace;
+  /** That project's folder, resolved through links once: files the job reports must be inside it. */
+  root?: string | null;
+}
+
+/** Names a job's command may set (`JobBuild.env`): not the events pipe's, which the spawner sets. */
+const ENV_NAME = /^[A-Z_][A-Z0-9_]{0,63}$/;
+
+function checkedEnv(env: unknown): Record<string, string> {
+  if (env === undefined) return {};
+  if (typeof env !== 'object' || env === null || Array.isArray(env)) throw new Error('env must map names to values');
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (!ENV_NAME.test(name) || name === 'SHADOWLAP_EVENTS_FD') throw new Error(`env: ${name.slice(0, 64)} can't be set for a job`);
+    if (typeof value !== 'string' || value.includes('\0') || value.length > 8192) throw new Error(`env: ${name} must be a short string`);
+    out[name] = value;
+  }
+  return out;
 }
 
 /**
@@ -241,11 +302,34 @@ export function lines(stream: Readable | null | undefined, max: number, onLine: 
 
 const clean = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 
+/** A project's folder resolved through symbolic links, or null without one (or when it is gone). */
+function realRoot(project: ProjectInfo | null): string | null {
+  if (!project) return null;
+  try {
+    return realpathSync(project.path);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `path` (resolved through symbolic links) is inside the folder `root` (a real path). */
+function within(root: string | null, path: string): boolean {
+  if (!root) return false;
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    return false;
+  }
+  const rel = relative(root, real);
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+}
+
 export class JobManager {
   private readonly kinds = new Map<string, JobKind>();
   private readonly jobs = new Map<string, Job>();
   private readonly files = new Map<string, { path: string; jobId: string; name: string }>();
-  private projectReal: string | null | undefined;
+  private readonly listeners = new Set<(notice: JobNotice) => void>();
   /**
    * Goes up whenever a job starts, ends, or reports a run, link, file or result: `/api/changes`
    * reads it. Output lines do not move it; a page follows a running job's output with
@@ -265,9 +349,41 @@ export class JobManager {
       log?: ((line: string) => void) | undefined;
       /** How long a stopped job has to end before it is killed (5 s). */
       stopGraceMs?: number | undefined;
+      /**
+       * Where the next job runs, on a dashboard that serves several projects: asked when a job
+       * starts, and kept by it to the end. Without it, `store` and `project`.
+       */
+      place?: (() => JobPlace) | undefined;
     },
   ) {
     this.stopGraceMs = o.stopGraceMs ?? STOP_GRACE_MS;
+  }
+
+  /** Where a job starting now runs. */
+  private here(): JobPlace {
+    return this.o.place?.() ?? { store: this.o.store, project: this.o.project, dbPath: null, projectId: null };
+  }
+
+  /**
+   * Hears every job's runs and its end, whichever kind it is: what a feature keeps up to date from
+   * other features' jobs (the setup notes a recording, a calibration, a test). A listener that
+   * throws is logged and skipped. Returns a function that stops listening.
+   */
+  onJob(listener: (notice: JobNotice) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify(job: Job, notice: Omit<JobNotice, 'job' | 'projectId'>): void {
+    if (!this.listeners.size) return;
+    const full: JobNotice = { ...notice, job: this.view(job), projectId: job.place.projectId };
+    for (const listener of this.listeners) {
+      try {
+        listener(full);
+      } catch (err) {
+        this.o.log?.(`a job listener failed on job ${job.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   /**
@@ -308,11 +424,19 @@ export class JobManager {
 
     const id = randomBytes(8).toString('hex');
     const uploads = this.o.uploads;
+    // The project current now: the builder reads its store, and the job runs there to the end.
+    let place: JobPlace;
+    try {
+      place = this.here();
+    } catch (err) {
+      throw err instanceof HttpError ? err : new HttpError(409, err instanceof Error ? err.message : String(err));
+    }
     let built: JobBuildResult;
     try {
       built = await def.build(req, {
-        store: this.o.store,
-        project: this.o.project,
+        store: place.store,
+        project: place.project,
+        projectId: place.projectId,
         upload: (uploadId) => uploads?.claim(uploadId, id) ?? null,
       });
     } catch (err) {
@@ -326,11 +450,14 @@ export class JobManager {
     }
     let cwd: string | null;
     let title: string;
+    let env: Record<string, string>;
+    const root: { value?: string | null } = {};
     try {
       // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
       if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
       if (!Array.isArray(built.args) || !built.args.length || built.args.some((a) => typeof a !== 'string' || a.includes('\0'))) throw new HttpError(500, `job kind "${kind}" built no command`);
-      cwd = this.jobCwd(built.cwd);
+      cwd = this.jobCwd(built.cwd, place.project, root);
+      env = checkedEnv(built.env);
       title = clean(built.title ?? def.title(req), 120) || kind;
       if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
     } catch (err) {
@@ -367,6 +494,8 @@ export class JobManager {
       killTimer: null,
       ended,
       markEnded,
+      place,
+      ...('value' in root ? { root: root.value } : {}),
     };
     this.jobs.set(id, job);
     this.evict();
@@ -374,7 +503,7 @@ export class JobManager {
 
     let child: ChildProcess;
     try {
-      child = spawnCli(job.args, { events: true, ...(cwd ? { cwd } : {}) });
+      child = spawnCli(job.args, { events: true, ...(cwd ? { cwd } : {}), ...(place.dbPath ? { dbPath: place.dbPath } : {}), ...(Object.keys(env).length ? { env } : {}) });
     } catch (err) {
       this.push(job, `failed to start: ${err instanceof Error ? err.message : String(err)}`);
       this.finish(job, 127);
@@ -415,38 +544,20 @@ export class JobManager {
     return this.view(job);
   }
 
-  private jobCwd(asked: string | undefined): string | null {
-    const project = this.o.project;
+  /** The job's working directory: its project's folder, or a folder inside it the builder asked for. `root` keeps the folder's real path once worked out. */
+  private jobCwd(asked: string | undefined, project: ProjectInfo | null, root: { value?: string | null }): string | null {
     if (asked === undefined) return project?.path ?? null;
     if (!project) throw new HttpError(500, 'a job asked for a working directory, but the dashboard has no project folder');
     const dir = resolve(project.path, asked);
-    if (!this.inProject(dir)) throw new HttpError(400, 'the working directory must be inside the project folder');
+    root.value = realRoot(project);
+    if (!within(root.value, dir)) throw new HttpError(400, 'the working directory must be inside the project folder');
     return dir;
   }
 
-  /** Whether `path` (resolved through symbolic links) is inside the project folder. */
-  private inProject(path: string): boolean {
-    const root = this.projectRoot();
-    if (!root) return false;
-    let real: string;
-    try {
-      real = realpathSync(path);
-    } catch {
-      return false;
-    }
-    const rel = relative(root, real);
-    return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
-  }
-
-  private projectRoot(): string | null {
-    if (this.projectReal === undefined) {
-      try {
-        this.projectReal = this.o.project ? realpathSync(this.o.project.path) : null;
-      } catch {
-        this.projectReal = null;
-      }
-    }
-    return this.projectReal;
+  /** The real path of the folder of the project a job runs in, worked out once per job. */
+  private projectRoot(job: Job): string | null {
+    if (job.root === undefined) job.root = realRoot(job.place.project);
+    return job.root;
   }
 
   /**
@@ -502,6 +613,7 @@ export class JobManager {
           job.newRunId = ev.runId;
           this.version++;
         }
+        this.notify(job, { type: 'run', runId: ev.runId, role });
         return;
       }
       case 'link': {
@@ -533,10 +645,10 @@ export class JobManager {
 
   /** Names a file or folder the job wrote, if it is inside the project folder; a file is offered for download. */
   private addFile(job: Job, path: string, label: string | null): void {
-    const root = this.projectRoot();
+    const root = this.projectRoot(job);
     if (!root) return;
     const abs = resolve(job.cwd ?? root, path);
-    if (!this.inProject(abs)) {
+    if (!within(root, abs)) {
       this.push(job, `(${basename(path)} is outside the project folder, so the dashboard does not offer it)`);
       return;
     }
@@ -569,8 +681,9 @@ export class JobManager {
    */
   openFile(fileId: string): { fd: number; name: string; bytes: number } {
     const f = /^[0-9a-f]{24}$/.test(fileId) ? this.files.get(fileId) : undefined;
-    if (!f || !this.jobs.has(f.jobId)) throw new HttpError(404, 'no such file: the dashboard offers only files its jobs reported, while it remembers the job');
-    if (!this.inProject(f.path)) throw new HttpError(404, `${f.name} is no longer inside the project folder`);
+    const job = f ? this.jobs.get(f.jobId) : undefined;
+    if (!f || !job) throw new HttpError(404, 'no such file: the dashboard offers only files its jobs reported, while it remembers the job');
+    if (!within(this.projectRoot(job), f.path)) throw new HttpError(404, `${f.name} is no longer inside the project folder`);
     let fd: number;
     try {
       fd = openSync(f.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -600,18 +713,21 @@ export class JobManager {
     this.o.uploads?.discard(job.id);
     this.version++;
     this.o.log?.(`job ${job.id} (${job.kind}: shadowlap ${job.args.join(' ')}) exited ${code}`);
+    this.notify(job, { type: 'end' });
     job.markEnded();
   }
 
   /**
    * The command is gone, so a run it made that is still recording (it was killed before it could
    * end it) never will be: it ends as crashed, as an interrupted run does, and stops showing as live.
+   * In the store of the project the job ran in, whichever is current now.
    */
   private endOrphanedRuns(job: Job): void {
+    const store = job.place.store;
     for (const runId of job.made) {
       try {
-        if (this.o.store.getRun(runId)?.status !== 'running') continue;
-        this.o.store.endRun(runId, 'crashed');
+        if (store.getRun(runId)?.status !== 'running') continue;
+        store.endRun(runId, 'crashed');
         this.push(job, `(run ${runId} was still recording when the command ended; it is marked as interrupted)`);
       } catch {
         // the store is closing; the run stays as it is
