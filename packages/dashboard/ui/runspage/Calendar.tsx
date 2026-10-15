@@ -21,6 +21,7 @@ export function Calendar({
   onPick,
   byPerson,
   onFindCommit,
+  actionsOff = null,
 }: {
   data: RunsByDay | null;
   chip: RunChip;
@@ -30,6 +31,8 @@ export function Calendar({
   byPerson: boolean;
   /** Find the commit, offered with Failed picked and days chosen that failed; null hides it. */
   onFindCommit: ((range: [number, number]) => void) | null;
+  /** Why actions can't run here (a read-only dashboard): Find the commit is off, saying why. */
+  actionsOff?: string | null;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -173,7 +176,7 @@ export function Calendar({
             </button>
           ) : null}
           {range && onFindCommit && chip === 'failed' && sum.failed > 0 ? (
-            <button className="linkbtn" type="button" onClick={() => onFindCommit(range)}>
+            <button className="linkbtn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => onFindCommit(range)}>
               Find the commit
             </button>
           ) : null}

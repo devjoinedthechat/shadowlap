@@ -1605,5 +1605,8 @@ table.daytable tbody tr:hover td { background: none; }
 .calgrid button.cd:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
 .feed .w { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
 .ovtoday .attn .d.cmd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-wrap: nowrap; }
+/* Find the commit on a dashboard that changes nothing: off, saying why on hover */
+.calside .linkbtn[disabled] { opacity: .5; cursor: not-allowed; }
+.calside .linkbtn[disabled]:hover { background: none; color: var(--accent); }
 /* a long command in a line of Needs a look stops at two lines */
 .needs .attn .d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }

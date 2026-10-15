@@ -246,7 +246,7 @@ function ServerRuns() {
           </>
         }
       />
-      {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} /> : null}
+      {cal.data ? <Calendar data={cal.data} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} actionsOff={actionsOff} /> : null}
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">
