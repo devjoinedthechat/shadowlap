@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { buildActions, notRun } from '@shadowlap/tui/actions';
-import { modelResolver, runLabel } from '@shadowlap/tui/data';
+import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { recentRuns, type RunRow } from './runs-list.js';
 
 /**
@@ -177,12 +177,12 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   return {
     run,
-    label: runLabel(run, calls.length),
+    label: runLabel(run, kindFacts(store, run, calls.length)),
     source: captureSource(run),
     summary,
     calls: calls.map((c) => row(store, c, options)),
-    parent: parent ? { runId: parent.runId, label: runLabel(parent, store.countCalls(parent.runId)) } : null,
-    children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, store.countCalls(r.runId)), startedAt: r.startedAt })),
+    parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
+    children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt })),
     actions: actionsFor(run, undefined),
   };
 }
@@ -365,7 +365,7 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       depth,
       mode: r.mode,
       status: r.status,
-      label: runLabel(r, calls.length),
+      label: runLabel(r, kindFacts(store, r, calls.length)),
       divergence: r.divergence ? { callNo: r.divergence.callNo, type: r.divergence.type } : null,
       calls: calls.length,
       spent: s.cost.spent,

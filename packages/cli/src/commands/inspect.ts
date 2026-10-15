@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
+import { kindFacts } from '@shadowlap/tui/data';
 import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, runKind, runsDiffer, searchCalls, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
@@ -198,7 +199,7 @@ export function register(program: Command): void {
       const row = (r: RunRecord, indent: string): string[] => {
         const state = r.status === 'running' ? p.yellow(r.status) : r.status === 'completed' ? p.green(r.status) : p.red(r.status);
         const calls = store.countCalls(r.runId);
-        const k = runKind(r, { calls });
+        const k = runKind(r, kindFacts(store, r, calls));
         const kind = k === 'fork' ? p.yellow(kindLabel(k, r.divergence)) : k === 'clean' ? p.cyan(kindLabel(k, r.divergence)) : kindLabel(k, r.divergence);
         return [indent + shortId(r.runId), kind, state, `${calls} calls`, safe(r.codeVersion ?? ''), p.dim(ago(r.startedAt)), r.meta?.labels?.length ? p.cyan(safe(r.meta.labels.join(', '))) : ''];
       };

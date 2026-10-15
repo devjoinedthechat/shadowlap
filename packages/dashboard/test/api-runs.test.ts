@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import { listRuns } from '../src/api.js';
+import { lineage, listRuns, runDetail } from '../src/api.js';
 import { exportHtml, type StaticPayload } from '../src/index.js';
 import { recentRuns, type RunRow } from '../src/runs-list.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
@@ -54,5 +54,24 @@ describe('/api/runs', () => {
       [id.rec, 0, null],
       [id.probe, 1, 'probe'],
     ]);
+  });
+});
+
+describe('a run’s page and lineage', () => {
+  it('call a replay that reproduced its failing recording a clean replay, as the run list does', () => {
+    const local = Store.open(':memory:');
+    try {
+      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: 'llll' });
+      const again = addRun(local, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrr' });
+      expect(runDetail(local, again)).toMatchObject({ label: 'clean replay', parent: { runId: rec, label: 'recording' } });
+      expect(runDetail(local, rec)!.children).toEqual([{ runId: again, label: 'clean replay', startedAt: NOW - HOUR }]);
+      expect(lineage(local, again)!.map((n) => [n.runId, n.label])).toEqual([
+        [rec, 'recording'],
+        [again, 'clean replay'],
+      ]);
+      expect(listRuns(local).find((r) => r.runId === again)).toMatchObject({ label: 'clean replay', kind: 'clean' });
+    } finally {
+      local.close();
+    }
   });
 });
