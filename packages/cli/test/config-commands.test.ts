@@ -316,6 +316,14 @@ describe('shadowlap gc', () => {
     store.close();
   });
 
+  it('says when rm leaves blobs for a recording to finish', async () => {
+    const { done, live } = seedRuns();
+    const r = await shadowlap(['rm', done]);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain('0 blobs, 0 B freed');
+    expect(r.out).toContain(`blobs are left while a run is still recording (${live.slice(0, 10)}); shadowlap gc frees them once it ends`);
+  });
+
   it('cleans up nothing, and creates no store, in a project that has never recorded', async () => {
     const r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
     expect(r.code, r.err).toBe(0);
