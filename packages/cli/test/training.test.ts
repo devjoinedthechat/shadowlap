@@ -229,6 +229,30 @@ describe('shadowlap export pairs', () => {
   }, 120_000);
 });
 
+describe('shadowlap export pairs, with nothing to export', () => {
+  it('leaves the file alone, records nothing as gone, and tells the job', async () => {
+    const { work, db } = workdir('sl-nopairs-');
+    try {
+      writeFileSync(join(work, 'pairs.jsonl'), '{"earlier":true}\n');
+      const r = await shadowlap(work, ['export', 'pairs', '--out', 'pairs.jsonl']);
+      expect(r.code, r.out).toBe(0);
+      expect(r.stdout).toContain('No pairs yet');
+      expect(r.stdout).toContain('! nothing exported · pairs.jsonl left as it was');
+      expect(readFileSync(join(work, 'pairs.jsonl'), 'utf8')).toBe('{"earlier":true}\n');
+      expect(r.events).toEqual([
+        { type: 'link', label: 'Open Training', href: '#/training' },
+        { type: 'result', data: expect.objectContaining({ exportId: null, pairs: 0, file: null, minConfidence: 'high' }) },
+      ]);
+      withStore(db, (s) => {
+        expect(s.listPairsExports()).toEqual([]);
+        expect(s.listEvents({ kinds: ['pairs.exported'] })).toEqual([]);
+      });
+    } finally {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }, 60_000);
+});
+
 describe('shadowlap tasks', () => {
   let work = '';
   let db = '';
@@ -483,6 +507,15 @@ describe('shadowlap tasks', () => {
     } finally {
       child.kill('SIGTERM');
     }
+  }, 120_000);
+  // Last: it adds a model's scores, which the tests above count.
+  it('takes the project folder for every golden in it', async () => {
+    const r = await shadowlap(work, ['tasks', 'score', '.', '--model', 'gpt-small', '--base-url', `${openai.url}/v1`, '--attempts', '1']);
+    expect(r.out).not.toContain('is not a golden');
+    expect(r.out).toContain('▸ refund-over-limit · #1–#4 replayed · gpt-small from #5');
+    expect(r.out).toContain('skipped goldens/budget is not a task: its checks only cap tokens and cost');
+    // A golden that isn't a task was skipped, so not every task named was scored.
+    expect(r.code).toBe(1);
   }, 120_000);
 });
 

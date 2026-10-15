@@ -6,6 +6,7 @@ import { message, startMockAnthropic, text, toolUse, type MockServer } from '@sh
 import { functionCall, startMockGemini, turn as geminiTurn, type MockServer as GeminiServer } from '@shadowlap-testing/mock-gemini';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from '@shadowlap-testing/mock-openai';
 import { parseTests } from '../src/checks.js';
+import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
 import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
@@ -418,6 +419,21 @@ describe('keeping a model\'s scores', () => {
     expect(rows().map((r) => r[2])).toEqual([0.5, 0.5, 0.5, 0.5]);
     expect(keepScores(store, target, score(0, 0), 's4', 4).outcome).toBe('none');
     store.close();
+  });
+
+  it('says what it replaced or kept in words that count right', () => {
+    const score = (n: number): TaskScore => ({ task: 'goldens/g', takeover: 5, why: 'w', prefix: 4, via: 'Anthropic API', attempts: Array.from({ length: n }, (_, i) => ({ attempt: i + 1, runId: `run-${i}`, score: 1, checks: [], spent: 0, exitCode: 0, ms: 1 })), mean: 1, spent: 0, stopped: null, dropped: [], unknownModels: [] });
+    const before = [{ score: 0.5 }, { score: 0.25 }] as TaskScoreRow[];
+    expect(keptLine(score(1), { outcome: 'replaced', before }, 1)).toBe('g: replaced 2 earlier attempts (0.38) with this one');
+    expect(keptLine(score(3), { outcome: 'replaced', before: before.slice(0, 1) }, 3)).toBe('g: replaced 1 earlier attempt (0.50) with these 3');
+    expect(keptLine(score(1), { outcome: 'kept', before }, 4)).toBe('g: kept the earlier score (0.38 over 2 attempts): this one stopped after 1 of 4');
+    expect(keptLine(score(2), { outcome: 'new', before: [] }, 2)).toBeNull();
+  });
+
+  it('names the calls a takeover replays first', () => {
+    expect(replayedBefore(1)).toBeNull();
+    expect(replayedBefore(2)).toBe('#1');
+    expect(replayedBefore(5)).toBe('#1–#4');
   });
 });
 

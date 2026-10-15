@@ -72,13 +72,29 @@ function withStore<T>(opts: GlobalOpts, fn: (store: Store) => T): T {
   }
 }
 
+/** The calls before a takeover at #k, which replay from the recording: `#1–#4`, `#1`, or null for none. */
+export function replayedBefore(k: number): string | null {
+  return k <= 1 ? null : k === 2 ? '#1' : `#1–#${k - 1}`;
+}
+
+/** The goldens a list of paths names: each one, or every golden in a folder (`.` is the project). */
+function under(root: string, goldens: readonly string[], all: LoadedTask[]): Array<{ given: string; tasks: LoadedTask[] }> {
+  return goldens.map((g) => {
+    const path = projectPath(root, g);
+    return { given: g, tasks: path === '.' ? all : all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`)) };
+  });
+}
+
 /** A task as `shadowlap tasks` lists it. */
 function describeRow(t: LoadedTask): string[] {
   const status = t.status === 'ready' ? p.green('ready') : t.status === 'blocked' ? p.yellow('blocked') : p.dim(STATUS[t.status]!);
   const lines = [`  ${safeLine(t.golden)}  ${status}${t.note ? p.dim(` · ${safeLine(t.note)}`) : ''}`];
   // Which scope the model plays matters only when another one answers too, as a simulated user does.
   const scope = t.scope !== null && t.scopes.length > 1 ? ` · plays scope ${safeLine(t.scope)}` : '';
-  if (t.takeover) lines.push(p.dim(`      takes over at #${t.takeover.callNo} · ${safeLine(t.takeover.why)}${scope} · #1–#${t.takeover.callNo - 1} replay free`.replace('#1–#0 replay free', 'nothing replays first')));
+  if (t.takeover) {
+    const first = replayedBefore(t.takeover.callNo);
+    lines.push(p.dim(`      takes over at #${t.takeover.callNo} · ${safeLine(t.takeover.why)}${scope} · ${first ? `${first} ${t.takeover.callNo === 2 ? 'replays' : 'replay'} free` : 'nothing replays first'}`));
+  }
   if (t.rewards) lines.push(p.dim(`      rewards: ${safeLine(t.rewards)}`));
   const checks = t.checks.filter((c) => !c.cap);
   if (t.status === 'ready' || t.status === 'blocked') lines.push(p.dim(`      scored by: the agent exits 0${checks.map((c) => `; ${safeLine(c.label)}`).join('')}`));
@@ -87,10 +103,10 @@ function describeRow(t: LoadedTask): string[] {
 }
 
 /** What became of a model's earlier score on a task, when it had one. */
-function keptLine(s: TaskScore, k: KeptScores, asked: number): string | null {
+export function keptLine(s: TaskScore, k: KeptScores, asked: number): string | null {
   const name = s.task.split('/').at(-1) ?? s.task;
   const mean = (rows: Array<{ score: number }>) => (rows.reduce((x, r) => x + r.score, 0) / rows.length).toFixed(2);
-  if (k.outcome === 'replaced') return `${name}: replaced ${plural(k.before.length, 'earlier attempt')} (${mean(k.before)}) with these ${s.attempts.length}`;
+  if (k.outcome === 'replaced') return `${name}: replaced ${plural(k.before.length, 'earlier attempt')} (${mean(k.before)}) with ${s.attempts.length === 1 ? 'this one' : `these ${s.attempts.length}`}`;
   if (k.outcome === 'kept') return `${name}: kept the earlier score (${mean(k.before)} over ${plural(k.before.length, 'attempt')}): this one stopped after ${s.attempts.length} of ${asked}`;
   return null;
 }
@@ -150,17 +166,22 @@ export function register(program: Command): void {
         say(`  ${flags.format}: ${PAIR_SHAPES[flags.format]}`);
         say(redactionLine(rules.length, !flags.redact));
         const rows = pairRows(store, kept, { format: flags.format, redact: rules });
-        const body = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
+        if (rows.length < kept.length) say(p.yellow(`  ${kept.length - rows.length} pair${kept.length - rows.length === 1 ? '' : 's'} left out: the request at that call can't be read`));
+        const data = { format: flags.format, minConfidence: flags.minConfidence, leftOut, redaction: flags.redact ? rules.length : null, sources: sources.filter((s) => s.made).map((s) => ({ key: s.key, label: s.label, made: s.made })) };
+        if (!rows.length) {
+          // Nothing to write: a file already there keeps what an earlier export put in it, and nothing left the machine.
+          say(`${p.yellow('!')} nothing exported${flags.out ? ` · ${flags.out} left as it was` : ''}`);
+          emitJobEvent({ type: 'link', label: 'Open Training', href: '#/training' });
+          emitJobEvent({ type: 'result', data: { exportId: null, pairs: 0, file: null, ...data } });
+          return;
+        }
+        const body = rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
         if (flags.out) {
           mkdirSync(dirname(resolve(flags.out)), { recursive: true });
           writeFileSync(flags.out, body);
-        }
-        else process.stdout.write(body);
+        } else process.stdout.write(body);
         const file = flags.out ?? '-';
-        if (rows.length < kept.length) say(p.yellow(`  ${kept.length - rows.length} pair${kept.length - rows.length === 1 ? '' : 's'} left out: the request at that call can't be read`));
         say(`${p.green('✓')} ${flags.out ? `wrote ${flags.out}` : 'wrote to stdout'} · ${plural(rows.length, 'pair')}`);
-        if (!rows.length) return;
-        const data = { format: flags.format, minConfidence: flags.minConfidence, leftOut, redaction: flags.redact ? rules.length : null, sources: sources.filter((s) => s.made).map((s) => ({ key: s.key, label: s.label, made: s.made })) };
         const record = store.addPairsExport({ pairs: rows.length, file, format: flags.format, minConfidence: flags.minConfidence, leftOut, actor: author(), data: { redaction: data.redaction, sources: data.sources } });
         recordEvent(store, { kind: 'pairs.exported', actor: record.actor, ref: file, data: { count: rows.length, ...data } });
         if (flags.out) emitJobEvent({ type: 'file', path: resolve(flags.out), label: flags.out });
@@ -231,9 +252,7 @@ export function register(program: Command): void {
       let chosen: LoadedTask[];
       if (goldens.length) {
         chosen = [];
-        for (const g of goldens) {
-          const path = projectPath(root, g);
-          const inside = all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`));
+        for (const { given: g, tasks: inside } of under(root, goldens, all)) {
           const match = inside.length ? null : matchTask(all, g);
           const found = inside.length ? inside : match && 'task' in match ? [match.task] : [];
           if (match && 'ambiguous' in match) skipped.push({ task: g, reason: `${g} names more than one golden (${match.ambiguous.join(', ')}): give its path` });
@@ -265,7 +284,8 @@ export function register(program: Command): void {
       const budgetSpent = flags.budget ? `the budget of ${formatBudget(flags.budget)} is spent` : null;
       for (const t of scorable) {
         const k = t.takeover!.callNo;
-        log(`▸ ${safeLine(t.name)} · ${k > 1 ? `#1–#${k - 1} replayed` : 'nothing replayed first'} · ${safeLine(target.model)} from #${k} · writes stubbed ${p.dim(`(${safeLine(t.takeover!.why)})`)}`);
+        const first = replayedBefore(k);
+        log(`▸ ${safeLine(t.name)} · ${first ? `${first} replayed` : 'nothing replayed first'} · ${safeLine(target.model)} from #${k} · writes stubbed ${p.dim(`(${safeLine(t.takeover!.why)})`)}`);
         let score: TaskScore;
         try {
           score = await scoreTask(opts, t, target, { attempts: flags.attempts, reads: flags.reads, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard }, { id: session, spentBefore: spent }, (a) => {
@@ -326,10 +346,7 @@ export function register(program: Command): void {
       const opts = program.opts<GlobalOpts>();
       const root = process.cwd();
       const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
-      const only = goldens.flatMap((g) => {
-        const path = projectPath(root, g);
-        return all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`)).map((t) => t.golden);
-      });
+      const only = under(root, goldens, all).flatMap((x) => x.tasks.map((t) => t.golden));
       if (goldens.length && !only.length) throw new InvalidArgumentError(`${goldens.join(', ')}: no golden of this project there (see shadowlap tasks)`);
       if (flags.keyEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(flags.keyEnv)) throw new InvalidArgumentError('--key-env takes the name of an environment variable, such as VLLM_API_KEY');
       if (flags.keyEnv !== undefined && flags.baseUrl === undefined) throw new InvalidArgumentError('--key-env needs --base-url: the key goes to that endpoint and nowhere else');
