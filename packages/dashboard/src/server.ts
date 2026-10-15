@@ -9,6 +9,7 @@ import type { Normalizer, Price, Store } from '@shadowlap/engine';
 import { searchCalls } from '@shadowlap/engine';
 import { actionArgs, addNote, callDetail, changeLabels, lineage, compare, listRuns, lookupRun, runDetail } from './api.js';
 import { exportHtml, withAncestors } from './static.js';
+import { deleteRuns } from './runs-list.js';
 
 /**
  * `shadowlap dashboard`: a local web UI over the store. The server binds to loopback, answers only
@@ -218,12 +219,15 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         return jsonTagged(req, res, d);
       }
       if (method === 'DELETE') {
-        const run = store.getRun(path[1]!);
-        if (!run) throw new HttpError(404, `no run ${path[1]}`);
-        if (run.status === 'running') throw new HttpError(409, 'this run is still recording');
-        store.deleteRun(run.runId);
-        const gc = store.gcBlobs();
-        return json(res, 200, { deleted: run.runId, blobs: gc.removed, bytes: gc.bytes });
+        // Changes to the store, like actions: only from a dashboard started with them enabled.
+        if (!opts.spawnCli) throw new HttpError(403, 'this dashboard is read-only');
+        // As the Runs page deletes: the attempts bundled under the run go with it, and a run still
+        // recording, or one a replay in progress still serves answers from, is left alone.
+        const out = deleteRuns(store, [path[1]!]);
+        if ('error' in out) throw new HttpError(400, out.error);
+        const skipped = out.skipped[0];
+        if (skipped) throw skipped.reason === 'no such run' ? new HttpError(404, `no run ${path[1]}`) : new HttpError(409, `this run can't be deleted now: ${skipped.reason}`);
+        return json(res, 200, { deleted: out.done[0], attempts: out.attempts, blobs: out.blobs, bytes: out.bytes });
       }
     }
     if (method === 'GET' && path[0] === 'search' && path.length === 1) {

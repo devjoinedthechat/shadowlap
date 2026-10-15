@@ -208,6 +208,10 @@ describe('dashboard server: data', () => {
     try {
       const res = await fetch(`${readOnly.url}/api/runs/${runId}/labels`, { method: 'POST', headers: { 'x-shadowlap-token': readOnly.token, 'content-type': 'application/json' }, body: JSON.stringify({ add: ['bug'] }) });
       expect(res.status).toBe(403);
+      // Deleting is a change to the store too.
+      const del = await fetch(`${readOnly.url}/api/runs/${runId}`, { method: 'DELETE', headers: { 'x-shadowlap-token': readOnly.token } });
+      expect(del.status).toBe(403);
+      expect(store.getRun(runId)).not.toBeNull();
     } finally {
       await readOnly.close();
     }
@@ -327,6 +331,32 @@ describe('dashboard server: actions', () => {
       const d = (await (await api(`runs/${replay.runId}`)).json()) as { summary: { injected: number; upstreamRequests: number }; calls: Array<{ origin: string; status: number | null }> };
       expect(d.calls[0]).toMatchObject({ origin: 'injected' });
       expect(d.summary).toMatchObject({ injected: 1, upstreamRequests: 0 });
+    } finally {
+      store.deleteRun(replay.runId);
+    }
+  });
+
+  it('deletes a run with the attempts bundled under it, and leaves one a replay in progress still reads from', async () => {
+    const command = { argv: ['node', 'agent.js'], cwd: '.' };
+    const rec = store.createRun({ mode: 'record', command });
+    store.endRun(rec.runId, 'failed');
+    const attempt = store.createRun({ mode: 'replay', parentRunId: rec.runId, command, meta: { repeat: { group: 'g', attempt: 1, of: 2 } } });
+    store.endRun(attempt.runId, 'failed');
+    const replay = store.createRun({ mode: 'replay', parentRunId: rec.runId, command });
+    try {
+      // The replay still serves its answers from the recording.
+      const refused = await api(`runs/${rec.runId}`, { method: 'DELETE' });
+      expect(refused.status).toBe(409);
+      expect(((await refused.json()) as { error: string }).error).toContain('a replay of it is still running');
+      expect(store.getRun(rec.runId)).not.toBeNull();
+      store.endRun(replay.runId, 'completed');
+      const r = await api(`runs/${rec.runId}`, { method: 'DELETE' });
+      expect(r.status).toBe(200);
+      expect(await r.json()).toMatchObject({ deleted: rec.runId, attempts: [attempt.runId] });
+      expect(store.getRun(attempt.runId)).toBeNull();
+      // A replay keeps its own data and loses the link.
+      expect(store.getRun(replay.runId)!.parentRunId).toBeNull();
+      expect((await api(`runs/${rec.runId}`, { method: 'DELETE' })).status).toBe(404);
     } finally {
       store.deleteRun(replay.runId);
     }

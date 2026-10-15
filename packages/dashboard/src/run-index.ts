@@ -131,6 +131,11 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
   };
 }
 
+/** What a run with no command came from, shown where its command would be: the capture's file name. */
+export function captureSource(run: { command: { argv: readonly string[] }; meta?: { imported?: { from: string } | null } }): string | null {
+  return hasRecordedCommand(run) ? null : basename(run.meta?.imported?.from ?? '') || 'a capture';
+}
+
 /** The shape classification reads, from an indexed run. */
 export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode' | 'status' | 'divergence' | 'meta'>): ClassifiableRun {
   const m = r.meta;
@@ -210,7 +215,7 @@ function readRunIndex(store: Store): RunIndex {
       outcome,
       failed: isFailedOutcome(outcome),
       label: kindLabel(cls.kind, r.divergence),
-      source: hasRecordedCommand({ command: { argv: r.argv } }) ? null : basename(r.meta.imported?.from ?? '') || 'a capture',
+      source: captureSource({ command: { argv: r.argv }, meta: { imported: r.meta.imported } }),
     };
   });
   const byId = new Map(runs.map((r) => [r.runId, r]));

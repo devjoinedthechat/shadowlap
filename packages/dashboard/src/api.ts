@@ -1,7 +1,7 @@
-import { basename } from 'node:path';
-import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, hasRecordedCommand, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { buildActions, notRun } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
+import { captureSource } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 
 /**
@@ -151,11 +151,6 @@ function row(store: Store, c: CallRecord, options: ReadOptions): CallRow {
  */
 export function listRuns(store: Store, options: ReadOptions & { includeAttempts?: boolean; ids?: readonly string[] } = {}): RunRow[] {
   return recentRuns(store, options);
-}
-
-/** What a run with no command came from, shown where its command would be: the capture's file name. */
-function captureSource(run: RunRecord): string | null {
-  return hasRecordedCommand(run) ? null : basename(run.meta?.imported?.from ?? '') || 'a capture';
 }
 
 /** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
