@@ -54,7 +54,7 @@ function text(blocks: TurnBlock[]): string {
 }
 
 /** A provider's conversation as plain chat messages: text, tool calls with ids, tool results that answer them. */
-function messagesOf(turns: Turn[]): DatasetMessage[] {
+export function messagesOf(turns: Turn[]): DatasetMessage[] {
   const out: DatasetMessage[] = [];
   let n = 0;
   for (const t of turns) {

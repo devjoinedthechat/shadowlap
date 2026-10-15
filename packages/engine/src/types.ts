@@ -157,6 +157,11 @@ export interface RunMeta {
   author?: string;
   /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
   test?: { golden: string; session: string };
+  /**
+   * One attempt of `shadowlap tasks score` or `tasks serve`: the golden replayed up to the takeover
+   * call, the model that answered from there (and its endpoint), and the share of checks it passed.
+   */
+  task?: { golden: string; model: string; baseUrl?: string; takeover: number; attempt: number; of: number; score: number; session: string };
 }
 
 /** What `shadowlap blame` found, kept on the run it blamed. */

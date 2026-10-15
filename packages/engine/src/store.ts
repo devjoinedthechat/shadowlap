@@ -107,6 +107,38 @@ CREATE TABLE IF NOT EXISTS events (
   data      TEXT
 );
 CREATE INDEX IF NOT EXISTS events_at ON events (at);
+
+-- v4: training. Preference pairs are read from the attempts blame, verify and --repeat already left
+-- here, so nothing is stored for them; what is stored is each time pairs left the machine (an
+-- export: how many, the file, when), and each scored attempt of a model on a task. Scoring a model
+-- on a task again replaces its rows. No foreign key on run_id: a score outlives its attempt's run.
+CREATE TABLE IF NOT EXISTS pair_exports (
+  export_id       TEXT    PRIMARY KEY,
+  at              INTEGER NOT NULL,
+  pairs           INTEGER NOT NULL,
+  file            TEXT    NOT NULL,
+  format          TEXT    NOT NULL,
+  min_confidence  TEXT    NOT NULL,
+  left_out        INTEGER NOT NULL DEFAULT 0,
+  actor           TEXT,
+  data            TEXT
+);
+CREATE INDEX IF NOT EXISTS pair_exports_at ON pair_exports (at);
+
+CREATE TABLE IF NOT EXISTS task_scores (
+  model     TEXT    NOT NULL,
+  base_url  TEXT    NOT NULL DEFAULT '',
+  golden    TEXT    NOT NULL,
+  attempt   INTEGER NOT NULL,
+  run_id    TEXT,
+  score     REAL    NOT NULL,
+  checks    TEXT    NOT NULL,
+  spent     REAL    NOT NULL DEFAULT 0,
+  via       TEXT,
+  session   TEXT    NOT NULL,
+  at        INTEGER NOT NULL,
+  PRIMARY KEY (model, base_url, golden, attempt)
+);
 `;
 
 /** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
@@ -124,6 +156,45 @@ export interface StoredEvent {
 }
 
 export type NewStoredEvent = Partial<Pick<StoredEvent, 'eventId' | 'at' | 'actor' | 'runId' | 'ref' | 'data'>> & Pick<StoredEvent, 'kind'>;
+
+/** One `shadowlap export pairs` (v4 training): how many pairs left the machine, to which file, and when. */
+export interface PairsExport {
+  exportId: string;
+  at: number;
+  pairs: number;
+  /** The file written, as given (`pairs.jsonl`), or `-` for standard output. */
+  file: string;
+  format: string;
+  minConfidence: string;
+  /** Pairs below the confidence asked for, not written. */
+  leftOut: number;
+  actor: string | null;
+  data: Record<string, unknown> | null;
+}
+
+export type NewPairsExport = Pick<PairsExport, 'pairs' | 'file' | 'format' | 'minConfidence'> & Partial<Pick<PairsExport, 'exportId' | 'at' | 'leftOut' | 'actor' | 'data'>>;
+
+/** One scored attempt (v4 training): a model under test, a task (by its golden), and what the checks said. */
+export interface TaskScoreRow {
+  model: string;
+  /** The OpenAI-compatible endpoint the model was asked at, or null for a provider's own API. */
+  baseUrl: string | null;
+  /** The golden, as the project names it: `goldens/refund-over-limit`. */
+  golden: string;
+  attempt: number;
+  /** The attempt's run, kept in the store like any fork. */
+  runId: string | null;
+  /** The share of the task's checks the attempt passed, from 0 to 1. */
+  score: number;
+  checks: Array<{ label: string; ok: boolean; detail: string | null }>;
+  /** USD spent on the attempt's live model calls (0 on a model that isn't a paid API). */
+  spent: number;
+  /** Where the model ran, in words: `Anthropic API`, `Ollama, on this machine`. */
+  via: string | null;
+  /** The `tasks score` invocation that made it. */
+  session: string;
+  at: number;
+}
 
 export interface CreateRunInput {
   runId?: string;
@@ -339,6 +410,73 @@ export class Store {
       ref: r.ref === null ? null : String(r.ref),
       data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
     }));
+  }
+
+  // ---- training (v4): pairs exports and task scores ----
+
+  /** Records one pairs export; returns it as stored. */
+  addPairsExport(input: NewPairsExport): PairsExport {
+    const record: PairsExport = {
+      exportId: input.exportId ?? ulidNow(),
+      at: input.at ?? Date.now(),
+      pairs: input.pairs,
+      file: input.file,
+      format: input.format,
+      minConfidence: input.minConfidence,
+      leftOut: input.leftOut ?? 0,
+      actor: input.actor ?? null,
+      data: input.data ?? null,
+    };
+    this.db
+      .prepare(`INSERT INTO pair_exports (export_id, at, pairs, file, format, min_confidence, left_out, actor, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(record.exportId, record.at, record.pairs, record.file, record.format, record.minConfidence, record.leftOut, record.actor, record.data === null ? null : JSON.stringify(record.data));
+    return record;
+  }
+
+  /** Pairs exports, newest first: the first is what "left this machine" last. */
+  listPairsExports(limit = 20): PairsExport[] {
+    const rows = this.db.prepare(`SELECT * FROM pair_exports ORDER BY at DESC, export_id DESC LIMIT ?`).all(Math.max(1, Math.min(10_000, limit)));
+    return rows.map((r) => ({
+      exportId: String(r.export_id),
+      at: Number(r.at),
+      pairs: Number(r.pairs),
+      file: String(r.file),
+      format: String(r.format),
+      minConfidence: String(r.min_confidence),
+      leftOut: Number(r.left_out),
+      actor: r.actor === null ? null : String(r.actor),
+      data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
+    }));
+  }
+
+  /** A model's scores on one task, replacing whatever it scored there before. */
+  replaceTaskScores(model: string, baseUrl: string | null, golden: string, rows: Array<Omit<TaskScoreRow, 'model' | 'baseUrl' | 'golden'>>): void {
+    const base = baseUrl ?? '';
+    this.transaction(() => {
+      this.db.prepare(`DELETE FROM task_scores WHERE model = ? AND base_url = ? AND golden = ?`).run(model, base, golden);
+      const insert = this.db.prepare(`INSERT INTO task_scores (model, base_url, golden, attempt, run_id, score, checks, spent, via, session, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const r of rows) insert.run(model, base, golden, r.attempt, r.runId, r.score, JSON.stringify(r.checks), r.spent, r.via, r.session, r.at);
+    });
+  }
+
+  /** Every scored attempt, by model, task and attempt. */
+  listTaskScores(): TaskScoreRow[] {
+    return this.db
+      .prepare(`SELECT * FROM task_scores ORDER BY model, base_url, golden, attempt`)
+      .all()
+      .map((r) => ({
+        model: String(r.model),
+        baseUrl: r.base_url === '' || r.base_url === null ? null : String(r.base_url),
+        golden: String(r.golden),
+        attempt: Number(r.attempt),
+        runId: r.run_id === null ? null : String(r.run_id),
+        score: Number(r.score),
+        checks: JSON.parse(String(r.checks)) as TaskScoreRow['checks'],
+        spent: Number(r.spent),
+        via: r.via === null ? null : String(r.via),
+        session: String(r.session),
+        at: Number(r.at),
+      }));
   }
 
   // ---- runs ----
