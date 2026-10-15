@@ -183,11 +183,18 @@ describe('tests on the Overview and in Needs a look', () => {
 describe('the diverged-test banner on a run', () => {
   it('names the golden a test replay came from, and the normalizer that fixes its divergence', () => {
     const store = Store.open(':memory:');
-    const replay = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/refund-in-limit', session: 'S1' } } });
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'] });
+    const replay = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/refund-in-limit', session: s.sessionId } } });
     store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B }] });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', runId: replay.runId });
+    // A golden that may fork diverges by design; its replay gets no banner.
+    const fork = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/refund-over-limit', session: s.sessionId } } });
+    store.setDivergence(fork.runId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2 });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-over-limit', ok: true, runId: fork.runId });
+    expect(testRunBanner(store, fork.runId)).toBeNull();
     expect(testRunBanner(store, replay.runId)).toEqual({
       golden: 'goldens/refund-in-limit',
-      session: 'S1',
+      session: s.sessionId,
       volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, args: ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
       normalizerFixes: true,
       rerun: ['test', 'goldens/refund-in-limit'],

@@ -121,8 +121,9 @@ export function register(program: Command): void {
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .action(async (packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) {
       const opts = program.opts<GlobalOpts>();
+      const guardGiven = this.getOptionValueSource('guard') === 'cli';
       const projectDir = process.cwd();
       const config = loadConfig(projectDir);
       const tests = loadTests(projectDir);
@@ -180,7 +181,8 @@ export function register(program: Command): void {
                 store,
                 config,
                 cwd,
-                guard: 'warn',
+                // Live, as `run` records: the guard warns, unless --guard was given.
+                guard: guardGiven ? flags.guard : 'warn',
                 onRun: (runId) => {
                   process.stderr.write(p.dim(`[shadowlap] recording run ${runId}: ${golden} again, live, writes stubbed\n`));
                   emitJobEvent({ type: 'run', runId, role: 'new' });

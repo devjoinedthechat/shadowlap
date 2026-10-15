@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, unpackRun, volatileValues, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, unpackRun, volatileValues, type CallRecord, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -133,8 +133,9 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // The store may hold the run as it was recorded, before the pack redacted it. Replaying the pack
     // applies its redaction rules as normalizers, and so does replaying that copy, so a golden passes
     // or fails here as it does in CI, where only the pack exists.
+    // That copy may also carry an earlier pack's rules, when the run was packed again with more.
     const head = readPackHead(dir);
-    const packed = 'error' in head || parent.meta?.redactions?.length ? [] : head.redactions;
+    const packed = 'error' in head || JSON.stringify(parent.meta?.redactions ?? []) === JSON.stringify(head.redactions) ? [] : head.redactions;
     const result = await testRecording(parent, spec, packed.length ? { ...ctx, config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : ctx);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000 };
   } catch (err) {
@@ -143,16 +144,25 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
   }
 }
 
-/** Input tokens of a run's model requests, cache reads and writes included: what it costs to run live. */
-function inputTokens(store: Store, runId: string): number {
-  return store
-    .getCalls(runId)
-    .filter((c) => c.kind === 'api')
+/**
+ * Tokens of a run's model calls: input, cache reads and writes included, and with `output` the
+ * output too; with `live`, only calls that reached a provider. Every call's input is what the run
+ * costs to run live; the live calls' input and output are what a replay spent.
+ */
+export function tokensOf(calls: readonly CallRecord[], o: { live?: boolean; output?: boolean } = {}): number {
+  return calls
+    .filter((c) => c.kind === 'api' && (!o.live || c.origin === 'live'))
     .reduce((n, c) => {
       const u = c.end?.meta.usage;
-      return n + (u ? u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) : 0);
+      return n + (u ? u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) + (o.output ? u.outputTokens : 0) : 0);
     }, 0);
 }
+
+type Summary = TestAttempt['ended']['summary'];
+/** Calls by origin, as the reports and the history show them: overridden calls count as replayed. */
+const callsOf = (s: Summary) => ({ total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed });
+const notRespentOf = (s: Summary) => s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+const upstreamOf = (attempts: readonly TestAttempt[]) => attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests, 0);
 
 /** A changed value as the history keeps it: long strings and large objects cut to 2,000 characters. */
 function clipValue(v: unknown): unknown {
@@ -179,10 +189,10 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
     return data;
   }
   const s = r.shown.ended.summary;
-  data.calls = { total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed };
-  data.upstreamRequests = r.attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests, 0);
-  data.tokensNotRespent = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
-  data.inputTokens = inputTokens(store, s.runId);
+  data.calls = callsOf(s);
+  data.upstreamRequests = upstreamOf(r.attempts);
+  data.tokensNotRespent = notRespentOf(s);
+  data.inputTokens = tokensOf(store.getCalls(s.runId));
   if (r.shown.checks) data.checks = r.shown.checks;
   if (r.attempts.length > 1) data.attempts = { total: r.attempts.length, passed: r.passed, required: r.required, runs: r.attempts.map((a) => a.ended.summary.runId) };
   if (s.divergence) {
@@ -222,9 +232,9 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     runId: s?.runId ?? null,
     runs: r ? r.attempts.map((a) => ({ runId: a.ended.summary.runId, ok: !a.failure })) : [],
     goldenRunId: o.parent?.runId ?? null,
-    calls: s ? { total: s.total, replayed: s.byOrigin.replayed + s.byOrigin.overridden, live: s.byOrigin.live, blocked: s.byOrigin.blocked, stubbed: s.byOrigin.stubbed } : null,
-    upstreamRequests: s ? (r?.attempts.reduce((n, a) => n + a.ended.summary.upstreamRequests, 0) ?? 0) : null,
-    tokensNotRespent: s ? s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0) : null,
+    calls: s ? callsOf(s) : null,
+    upstreamRequests: r ? upstreamOf(r.attempts) : null,
+    tokensNotRespent: s ? notRespentOf(s) : null,
     divergence: s?.divergence ? { type: s.divergence.type, callNo: s.divergence.callNo, kind: s.divergence.kind, name: s.divergence.name } : null,
     checks: r?.shown.checks ?? null,
     attempts: r && r.attempts.length > 1 ? { total: r.attempts.length, passed: r.passed, required: r.required } : null,

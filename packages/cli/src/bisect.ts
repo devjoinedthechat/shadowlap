@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
-import { importGolden, testRecording } from './golden-test.js';
+import { importGolden, testRecording, tokensOf } from './golden-test.js';
 import { goldenName } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -251,50 +251,53 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
-  /** Replays the recording at one commit, in a worktree that is removed afterwards. */
+  /**
+   * Replays the recording at one commit, in a worktree that is removed afterwards. A commit that
+   * won't check out or build is skipped; an error that isn't about the commit (the sidecar couldn't
+   * start, say) ends the bisect with it, rather than being taken for the commit's verdict.
+   */
   const probe = async (rev: string): Promise<BisectStep> => {
     const t0 = Date.now();
     const info = commitInfo(root, rev);
     const worktree = join(base, info.short);
-    let step: BisectStep;
+    const done = (ok: boolean, skipped: boolean, result: string): BisectStep => {
+      const step: BisectStep = { rev, short: info.short, subject: info.subject, ok, skipped, result, seconds: (Date.now() - t0) / 1000 };
+      report.steps.push(step);
+      input.log(`  replay at ${step.short}  ${ok ? result : skipped ? `– skipped: ${result}` : `✗ ${result}`}`);
+      return step;
+    };
     try {
-      git(root, ['worktree', 'add', '--detach', '--force', worktree, rev]);
+      try {
+        git(root, ['worktree', 'add', '--detach', '--force', worktree, rev]);
+      } catch (err) {
+        return done(false, true, `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`);
+      }
       const worktreeCwd = join(worktree, inRepo);
-      let built = true;
-      let buildTail = '';
       if (input.build) {
         const b = spawnSync(input.build, { cwd: worktreeCwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-        built = b.status === 0;
-        buildTail = `${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ');
+        if (b.status !== 0) return done(false, true, `could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${input.build} exited ${b.status ?? b.signal}`}`);
       }
-      if (!built) {
-        step = { rev, short: info.short, subject: info.subject, ok: false, skipped: true, result: `could not be built: ${buildTail}`, seconds: (Date.now() - t0) / 1000 };
-      } else {
-        const argv = mapArgv(target.run.command.argv, { root, worktree, cwd: input.cwd, worktreeCwd });
-        const outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs });
-        report.replays += outcome.attempts.length;
-        for (const a of outcome.attempts) {
-          const s = a.ended.summary;
-          report.upstreamRequests += s.upstreamRequests;
-          report.spent += s.cost.spent;
-          for (const c of store.getCalls(s.runId)) {
-            const u = c.kind === 'api' && c.origin === 'live' ? c.end?.meta.usage : undefined;
-            if (u) report.tokens += u.inputTokens + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0) + u.outputTokens;
-          }
-        }
-        step = { rev, short: info.short, subject: info.subject, ok: !outcome.failure, skipped: false, result: describeResult(outcome), seconds: (Date.now() - t0) / 1000 };
+      const argv = mapArgv(target.run.command.argv, { root, worktree, cwd: input.cwd, worktreeCwd });
+      let outcome: Awaited<ReturnType<typeof testRecording>>;
+      try {
+        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs });
+      } catch (err) {
+        throw new BisectError(`the replay at ${info.short} could not run: ${(err as Error).message}`);
       }
-    } catch (err) {
-      step = { rev, short: info.short, subject: info.subject, ok: false, skipped: true, result: `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`, seconds: (Date.now() - t0) / 1000 };
+      report.replays += outcome.attempts.length;
+      for (const a of outcome.attempts) {
+        const s = a.ended.summary;
+        report.upstreamRequests += s.upstreamRequests;
+        report.spent += s.cost.spent;
+        report.tokens += tokensOf(store.getCalls(s.runId), { live: true, output: true });
+      }
+      return done(!outcome.failure, false, describeResult(outcome));
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {
         rmSync(worktree, { recursive: true, force: true });
         gitOk(root, ['worktree', 'prune']);
       }
     }
-    report.steps.push(step);
-    input.log(`  replay at ${step.short}  ${step.ok ? step.result : step.skipped ? `– skipped: ${step.result}` : `✗ ${step.result}`}`);
-    return step;
   };
 
   try {

@@ -478,11 +478,17 @@ export interface TestRunBanner {
   update: string[];
 }
 
-/** For a run made by `shadowlap test` that diverged: its golden and the actions on it. Null for any other run. */
+/**
+ * For a run made by `shadowlap test` whose golden failed because it diverged: its golden and the
+ * actions on it. Null for any other run, a replay of a golden that may fork (it diverges by design)
+ * included.
+ */
 export function testRunBanner(store: Store, runId: string): TestRunBanner | null {
   const run = store.getRun(runId);
   const test = run?.meta?.test;
   if (!run || !test || !run.divergence) return null;
+  const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
+  if (result?.failure !== 'diverged') return null;
   const found = volatileValues(run.divergence);
   const v = found.values[0];
   return {

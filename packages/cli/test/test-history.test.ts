@@ -152,6 +152,25 @@ describe('a redacted golden', () => {
     const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/redacted']);
     expect(ci.code, ci.out).toBe(0);
   });
+
+  it('applies the rules of the pack as it is now, when the run was packed again with more', async () => {
+    const scratch = { path: '$.system', pattern: '/agent-[A-Za-z0-9]+/', replace: 'agent-X' };
+    const masks = [{ kind: 'api', ...scratch }, { kind: 'tool', name: 'save_report', ...scratch, path: '$.args.path' }];
+    const userId = { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: masks, redact: [userId] }));
+    const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    expect((await shadowlap(['pack', runId, 'goldens/repacked'])).code).toBe(0);
+    // Another store imports the pack with its one rule.
+    expect((await shadowlap(['--db', 'other.db', 'test', 'goldens/repacked'])).code).toBe(0);
+    // The masks move from normalize to redact, and the run is packed again with all three rules.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [], redact: [userId, ...masks] }));
+    rmSync(join(work, 'goldens', 'repacked'), { recursive: true });
+    expect((await shadowlap(['pack', runId, 'goldens/repacked'])).out).toContain('with 3 redaction rules');
+    const again = await shadowlap(['--db', 'other.db', 'test', 'goldens/repacked']);
+    expect(again.code, again.out).toBe(0);
+    expect((await shadowlap(['--db', ':memory:', 'test', 'goldens/repacked'])).code).toBe(0);
+  });
 });
 
 describe('shadowlap test --update', () => {
