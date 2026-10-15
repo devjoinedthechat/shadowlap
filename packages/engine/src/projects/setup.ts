@@ -123,6 +123,11 @@ export interface RunFact {
   calls: number;
   /** A replay of it ended as it did, without a divergence and with calls replayed: the replay is clean. */
   replayedClean: boolean;
+  /**
+   * The tools it called, listed for the newest recording with calls and the setup's own: a tool
+   * whose calls it holds was wrapped when it was recorded, whatever `init` said before.
+   */
+  tools?: string[];
 }
 
 export interface StoreFacts {
@@ -145,6 +150,14 @@ export interface FactsSource {
   allRuns(): RunRecord[];
   countCalls(runId: string): number;
   listEvents(options: { kinds?: string[]; limit?: number }): StoredEvent[];
+  /** The names of the tools a run called; a `Store` answers from its calls. */
+  calledTools?(runId: string): string[];
+}
+
+function calledTools(store: FactsSource, runId: string): string[] {
+  if (store.calledTools) return store.calledTools(runId);
+  const calls = (store as { getCalls?: (id: string) => Array<{ kind: string; name: string }> }).getCalls?.(runId) ?? [];
+  return [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))];
 }
 
 /** An attempt rather than a run of its own: `replay --repeat`, a blame probe, a verify attempt. */
@@ -194,6 +207,9 @@ export function storeFacts(store: FactsSource, now: number = Date.now(), options
     const same = (replays.get(r.runId) ?? []).filter((x) => x.status === r.status).slice(0, MAX_REPLAYS_CHECKED);
     r.replayedClean = r.calls > 0 && same.some((x) => store.countCalls(x.runId) > 0);
   }
+  // The two recordings the setup may take: which tools each called.
+  const newest = facts.recordings.find((r) => !r.live && usable(r));
+  for (const r of facts.recordings) if (r.calls > 0 && (r === newest || r.runId === options.keep)) r.tools = calledTools(store, r.runId);
   facts.setupEvent = store.listEvents({ kinds: ['project.setup'], limit: 1 })[0] ?? null;
   facts.addedBefore = store.listEvents({ kinds: ['project.added'], limit: 1 }).length > 0;
   return facts;
@@ -282,14 +298,17 @@ function usable(r: RunFact): boolean {
   return r.live || ((r.status === 'completed' || r.status === 'failed') && r.calls > 0);
 }
 
-/** Which tools weren't wrapped when `run` was recorded: what the last `init` before it said. */
+/**
+ * Which tools weren't wrapped when `run` was recorded: what the last `init` before it said, less
+ * any tool the run called (its calls are in it, so it was wrapped by then).
+ */
 function unwrappedWhen(state: SetupState, run: RunFact, own: boolean): string[] {
   const known: Inspection[] = [...(state.inspections ?? [])];
   if (state.findings) known.push({ at: state.findings.at, unwrapped: unwrappedTools(state.findings).map((t) => t.name) });
   let last: Inspection | null = null;
   for (const i of known) if (i.at <= run.startedAt && (!last || i.at >= last.at)) last = i;
-  if (last) return [...last.unwrapped];
-  return own && state.unwrappedAtRecord ? [...state.unwrappedAtRecord] : [];
+  const said = last ? last.unwrapped : own && state.unwrappedAtRecord ? state.unwrappedAtRecord : [];
+  return said.filter((name) => !run.tools?.includes(name));
 }
 
 /**

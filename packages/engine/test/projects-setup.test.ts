@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, recordEvent } from '../src/index.js';
-import { LIVE_RUN_MS, calibrationOutcome, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
+import { LIVE_RUN_MS, calibrationOutcome, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, readStoreFacts, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -119,6 +119,8 @@ describe('deriveSetup', () => {
     expect(deriveSetup(state, facts({ runs: 2, recordings: [r2, r1] })).unwrappedAtRecord).toEqual([]);
     // Findings alone (a list from before inspections were kept) say it too.
     expect(deriveSetup({ stage: 'recorded', runId: null, findings: findings(50, ['send_email']) }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual(['send_email']);
+    // A tool the recording called was wrapped by then, whatever init said before.
+    expect(deriveSetup(state, facts({ runs: 1, recordings: [{ ...r1, tools: ['save_report', 'search'] }] })).unwrappedAtRecord).toEqual(['notify_slack']);
     // Inspected only after the recording: unknown, unless the list noted it when recording started.
     expect(deriveSetup({ stage: 'recorded', runId: 'R1', findings: findings(500, ['x']) }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual([]);
     expect(deriveSetup({ stage: 'recorded', runId: 'R1', unwrappedAtRecord: ['x'] }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual(['x']);
@@ -217,6 +219,31 @@ describe('storeFacts', () => {
     replay(otherEnding, 'failed');
     const byId = new Map(storeFacts(store).recordings.map((r) => [r.runId, r.replayedClean]));
     expect([byId.get(forked), byId.get(noCalls), byId.get(exitsWithError), byId.get(otherEnding)]).toEqual([false, false, true, false]);
+    store.close();
+  });
+
+  it('lists the tools the newest recording and the setup’s own called, from a store or read without changing it', () => {
+    const d = realpathSync(mkdtempSync(join(tmpdir(), 'sl-setup-tools-')));
+    dirs.push(d);
+    const db = join(d, 'shadowlap.db');
+    const store = Store.open(db);
+    const recordWith = (tools: string[], startedAt: number) => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: d }, startedAt });
+      addCalls(store, r.runId, 1);
+      tools.forEach((name, i) => store.appendCallStart({ runId: r.runId, callNo: 2 + i, kind: 'tool', name, fingerprint: `t${i}`, occurrence: 1, origin: 'live', effect: 'write', requestRef: null, meta: {}, at: startedAt }));
+      store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    const own = recordWith(['search'], 1000);
+    recordWith(['notify_slack'], 2000);
+    const newest = recordWith(['save_report', 'save_report', 'search'], 3000);
+    for (const f of [storeFacts(store, Date.now(), { keep: own }), readStoreFacts(db, Date.now(), { keep: own })]) {
+      expect(f.recordings.map((r) => [r.runId === newest ? 'newest' : r.runId === own ? 'own' : 'middle', r.tools?.sort()])).toEqual([
+        ['newest', ['save_report', 'search']],
+        ['middle', undefined],
+        ['own', ['search']],
+      ]);
+    }
     store.close();
   });
 

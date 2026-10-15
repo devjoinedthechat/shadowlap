@@ -52,6 +52,14 @@ export class StoreReader implements FactsSource {
     return Number(this.countStmt.get(runId)?.n ?? 0);
   }
 
+  calledTools(runId: string): string[] {
+    if (!this.tables.has('call_events')) return [];
+    return this.db
+      .prepare(`SELECT DISTINCT name FROM call_events WHERE run_id = ? AND kind = 'tool' AND phase = 'start'`)
+      .all(runId)
+      .map((r) => String(r.name));
+  }
+
   listEvents(options: { kinds?: string[]; limit?: number } = {}): StoredEvent[] {
     if (!this.tables.has('events')) return [];
     const kinds = options.kinds ?? [];
