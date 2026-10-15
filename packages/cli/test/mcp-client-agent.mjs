@@ -1,14 +1,23 @@
 // An agent whose MCP client starts `shadowlap mcp --url <server>` the way the official SDKs' stdio
-// clients start a server: with a minimal environment (PATH and HOME), so SHADOWLAP_URL and
-// SHADOWLAP_RUN_ID never reach the proxy. It reads a note, then sends one (a write), and prints
-// what the tools answered.
+// clients start a server: with a minimal environment, so SHADOWLAP_URL and SHADOWLAP_RUN_ID never
+// reach the proxy. It reads a note, then sends one (a write), and prints what the tools answered.
 //
-//   node mcp-client-agent.mjs <shadowlap bin> <server url> [proxy HOME]
+//   node mcp-client-agent.mjs <shadowlap bin> <server url> [proxy home folder]
 import { spawn } from 'node:child_process';
 
+// The variables the SDKs pass on (their getDefaultEnvironment), and nothing else. On Windows they
+// keep what the system needs: without SYSTEMROOT, for one, a process can't open a socket.
+const INHERITED =
+  process.platform === 'win32'
+    ? ['APPDATA', 'HOMEDRIVE', 'HOMEPATH', 'LOCALAPPDATA', 'PATH', 'PROCESSOR_ARCHITECTURE', 'SYSTEMDRIVE', 'SYSTEMROOT', 'TEMP', 'USERNAME', 'USERPROFILE', 'PROGRAMFILES']
+    : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
+const env = Object.fromEntries(INHERITED.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]]));
+
 const [cli, url, proxyHome] = process.argv.slice(2);
+// Another home folder for the proxy: HOME, or on Windows USERPROFILE, where Node looks for it there.
+if (proxyHome) env[process.platform === 'win32' ? 'USERPROFILE' : 'HOME'] = proxyHome;
 const proxy = spawn(process.execPath, [cli, 'mcp', '--url', url], {
-  env: { PATH: process.env.PATH ?? '', HOME: proxyHome ?? process.env.HOME ?? '' },
+  env,
   stdio: ['pipe', 'pipe', 'inherit'],
 });
 

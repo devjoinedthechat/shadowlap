@@ -573,7 +573,10 @@ describe('shadowlap tasks serve, started with an endpoint', () => {
         expect(theirs.length).toBeGreaterThan(0);
         expect(theirs.every((r) => r.headers.authorization === undefined)).toBe(true);
       } finally {
+        const gone = new Promise((resolve) => (child.exitCode !== null || child.signalCode !== null ? resolve(null) : child.once('exit', resolve)));
         child.kill('SIGTERM');
+        // Gone before its folder is removed: Windows keeps a folder a process still holds open.
+        await gone;
       }
     } finally {
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

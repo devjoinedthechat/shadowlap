@@ -276,6 +276,8 @@ describe('more commands a dashboard job runs', () => {
     expect(started, out).toMatchObject({ type: 'run', role: 'new' });
     withStore((s) => expect(s.getRun(started.runId)).toMatchObject({ status: 'running', meta: { author: 'maya@example.com' } }));
     child.kill('SIGTERM');
+    // Windows has no SIGTERM a process can catch: kill() ends it on the spot, before it can end its run.
+    if (process.platform === 'win32') return void (await exited);
     expect(await exited).toBe(0);
     withStore((s) => expect(s.getRun(started.runId)!.status).toBe('completed'));
   });

@@ -92,7 +92,8 @@ Input from the terminal is recorded with no code change, by the preloads `shadow
 
 Only the input `shadowlap` gave the agent counts: a terminal, the null device, or the pipe or file
 `shadowlap` itself was given. A child process reading a pipe from its parent, an MCP server for one,
-is left alone. Python's `getpass` is never recorded.
+is left alone. Python's `getpass` is never recorded. On Windows a pipe carries nothing that tells it
+apart from another, so input given through a pipe isn't recorded there; what is typed in a terminal is.
 
 For input that arrives some other way (a chat window, a message from a queue), wrap the read:
 

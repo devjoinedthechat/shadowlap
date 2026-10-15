@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,8 @@ const PACKAGE = fileURLToPath(new URL('..', import.meta.url));
 
 describe('the docs pages Settings reads', () => {
   it('ship in the dashboard package, as the repository has them', () => {
-    const out = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: PACKAGE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    // Through a shell: on Windows npm is npm.cmd, which Node runs only that way.
+    const out = execSync('npm pack --dry-run --json', { cwd: PACKAGE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     const files = (JSON.parse(out) as Array<{ files: Array<{ path: string }> }>)[0]!.files.map((f) => f.path);
     expect(files).toEqual(expect.arrayContaining(['dist/docs/agents.md', 'dist/docs/mcp.md']));
     for (const name of ['agents.md', 'mcp.md']) {

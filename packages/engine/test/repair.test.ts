@@ -98,6 +98,9 @@ describe('unifiedDiff', () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-diff-'));
     try {
       execFileSync('git', ['init', '-q'], { cwd: dir });
+      // The patch is what is tested, not the line endings: Git for Windows converts them on checkout
+      // and apply (core.autocrlf, set system-wide on Windows runners).
+      execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: dir });
       writeFileSync(join(dir, 'agent.mjs'), before);
       writeFileSync(join(dir, 'fix.patch'), unifiedDiff('agent.mjs', before, after));
       execFileSync('git', ['apply', 'fix.patch'], { cwd: dir });

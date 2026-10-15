@@ -33,6 +33,13 @@ function pythonAvailable(): string | null {
 }
 const PYTHON = pythonAvailable();
 
+/**
+ * The answers here are typed through a pipe, the one way to stand in for a person in CI. Windows
+ * gives a pipe nothing that tells it apart from another (Node and Python both see no inode), so
+ * there only what is typed in a terminal is recorded, never a pipe's input: these can't run there.
+ */
+const PIPE_INPUT_RECORDED = process.platform !== 'win32';
+
 let cwd: string;
 let db: string;
 let mock: MockServer;
@@ -136,7 +143,7 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-describe('recorded user input: Node readline', () => {
+describe.skipIf(!PIPE_INPUT_RECORDED)('recorded user input: Node readline', () => {
   for (const [style, prompt] of [
     ['promises', '> '],
     ['callback', '? '],
@@ -188,7 +195,7 @@ describe('recorded user input: Node readline', () => {
   });
 });
 
-describe.skipIf(!PYTHON)('recorded user input: Python', () => {
+describe.skipIf(!PYTHON || !PIPE_INPUT_RECORDED)('recorded user input: Python', () => {
   it('records each input() of the support chat, and replays the chat with no one typing', async () => {
     const rec = await piped(['run', '--', PYTHON!, CHAT], 'My blender arrived broken. Order A-1042.\nA replacement, please.\nNo, thanks!\n');
     expect(rec.code).toBe(0);
