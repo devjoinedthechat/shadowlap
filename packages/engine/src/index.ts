@@ -28,8 +28,8 @@ export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, commandIsImported, hasRecordedCo
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
-export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, lostAt, notableOrigin, originCells, outcomeLabel, runKind, runOutcome } from './classify.js';
-export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
+export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, runKind, runOutcome } from './classify.js';
+export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { withoutPrompt } from './prompt.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { MATCH_END, MATCH_START, searchCalls, searchExpression, updateSearchIndex, type SearchHit } from './search.js';

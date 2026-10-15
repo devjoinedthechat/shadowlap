@@ -2,15 +2,17 @@
  * What a run is, whether it is an attempt bundled under another run, how it came out, and what
  * happened to each of its calls: the words the Runs table, the Overview, the calendar and the status
  * bar count by. Pure functions over a run's record. No Node imports: the dashboard's browser bundle
- * uses this too.
+ * imports this module on its own (`@shadowlap/engine/classify`).
  */
 import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
 
 /**
  * - `recording`: recorded by `shadowlap run`.
  * - `fork`: a replay that left the recording at some call (`divergence`), on purpose or not.
- * - `clean`: a finished replay that matched the recording all the way.
- * - `replay`: any other replay: still running, interrupted, failed before it diverged, or empty.
+ * - `clean`: a finished replay that matched the recording all the way: it exited 0, or it served
+ *   every call of a recording that failed and failed the same way (it reproduced the failure).
+ * - `replay`: any other replay: still running, interrupted, empty, or one that failed short of
+ *   reproducing its recording.
  * - `test`: made by `shadowlap test` (`meta.test`).
  * - `capture`: imported from a capture or a trace: a partial recording with no command (`meta.covers`).
  * - `pack`: a recording that came from a pack someone else recorded (`meta.imported`).
@@ -22,7 +24,7 @@ export type AttemptKind = 'repeat' | 'probe' | 'verify';
 
 export interface RunClass {
   kind: RunKind;
-  /** The run an attempt is bundled under; null for a run that is not an attempt. */
+  /** The run an attempt is bundled under (the run it replayed); null for a run that is not an attempt, or one whose run is gone. */
   attemptOf: string | null;
   attemptKind: AttemptKind | null;
 }
@@ -52,9 +54,18 @@ export interface ClassifiableRun {
   meta?: ClassifiableMeta | undefined;
 }
 
-export interface ClassifyContext {
+/** What the kind of a run depends on, besides the run itself. */
+export interface KindFacts {
   /** The calls the run holds. A finished replay with none is not a clean replay. Unknown: assume it has some. */
   calls?: number;
+  /**
+   * The run it replayed: its calls and status. A replay that exited with an error is a clean replay
+   * only when it served every call of a recording that failed as well. Unknown or gone: it is not.
+   */
+  parent?: { calls: number; status: RunStatus } | null;
+}
+
+export interface ClassifyContext extends KindFacts {
   /**
    * The run is the fork blame rescued its run with (the blamed run's `meta.blame.rescuedRunId`).
    * Blame made it as a probe, but it is the path that passed, so it shows as a fork of its own.
@@ -64,30 +75,52 @@ export interface ClassifyContext {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** The kind of a run, from its mode, parent, divergence and metadata. */
-export function runKind(run: ClassifiableRun, calls?: number): RunKind {
+/** The kind of a run, from its mode, divergence, metadata and, for a replay that failed, the run it replayed. */
+export function runKind(run: Pick<ClassifiableRun, 'mode' | 'status' | 'divergence' | 'meta'>, facts: KindFacts = {}): RunKind {
   const m = run.meta;
   if (m?.test) return 'test';
   if (run.mode !== 'replay' && Array.isArray(m?.covers) && m.covers.length > 0) return 'capture';
   if (run.mode !== 'replay') return m?.imported ? 'pack' : 'recording';
   if (run.divergence) return 'fork';
-  return run.status === 'completed' && (calls === undefined || calls > 0) ? 'clean' : 'replay';
+  const { calls, parent } = facts;
+  if (calls === 0) return 'replay';
+  if (run.status === 'completed') return 'clean';
+  // It exited with an error, but nothing was left out: every call of a recording that failed too
+  // came from the recording, so this is that failure, reproduced exactly.
+  if (run.status === 'failed' && parent?.status === 'failed' && calls !== undefined && calls >= parent.calls) return 'clean';
+  return 'replay';
+}
+
+/** A kind as the run list's line under the id says it: recording, capture, fork @n, clean replay, replay or test. */
+export function kindLabel(kind: RunKind, divergence: { callNo: number } | null): string {
+  switch (kind) {
+    case 'fork':
+      return divergence ? `fork @${divergence.callNo}` : 'fork';
+    case 'clean':
+      return 'clean replay';
+    case 'pack':
+      return 'recording';
+    default:
+      return kind;
+  }
 }
 
 /**
- * A run's kind and, for an attempt, the run it is bundled under. Probes of `shadowlap blame` carry
- * `meta.probe`, attempts of `shadowlap verify` carry `meta.verify`, and the attempts of
- * `replay --repeat` carry `meta.repeat`; each belongs to the run it replayed. A test run is never an
- * attempt: it is the result of its golden in that session.
+ * A run's kind and, for an attempt, the run it is bundled under: the run it replayed. Probes of
+ * `shadowlap blame` carry `meta.probe`, attempts of `shadowlap verify` carry `meta.verify`, and the
+ * attempts of `replay --repeat` carry `meta.repeat`. A test run is never an attempt: it is the
+ * result of its golden in that session.
  */
 export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): RunClass {
-  const kind = runKind(run, ctx.calls);
+  const kind = runKind(run, ctx);
   const m = run.meta;
   if (!m || m.test || ctx.rescued) return { kind, attemptOf: null, attemptKind: null };
   const attemptKind: AttemptKind | null = isObject(m.probe) ? 'probe' : isObject(m.verify) ? 'verify' : isObject(m.repeat) ? 'repeat' : null;
   if (!attemptKind) return { kind, attemptOf: null, attemptKind: null };
-  const of = attemptKind === 'probe' && typeof m.probe?.of === 'string' ? m.probe.of : run.parentRunId;
-  return { kind, attemptOf: of ?? null, attemptKind };
+  // Blame always probes the run it replays. A probe naming another run did not come from blame here
+  // (a pack can carry anything), and must not hide under, or be deleted with, a run it names.
+  if (attemptKind === 'probe' && typeof m.probe?.of === 'string' && run.parentRunId !== null && m.probe.of !== run.parentRunId) return { kind, attemptOf: null, attemptKind: null };
+  return { kind, attemptOf: run.parentRunId, attemptKind };
 }
 
 /** The outcome checks a run carries (`meta.checks`, from `shadowlap test` or an attempt's oracle), passed of total. */
@@ -124,29 +157,46 @@ export type RunOutcome =
   | { kind: 'clean' }
   | { kind: 'none' };
 
-export interface OutcomeContext {
+export interface OutcomeContext extends KindFacts {
   /** The run's kind, when already known. */
   kind?: RunKind;
-  /** The calls the run holds, for its kind. */
-  calls?: number;
   /**
    * The run answered a call with an injected failure (`--fail-at`). An agent that then exits with an
    * error did what the fork asked of it: that exit is not a failure.
    */
   injected?: boolean;
+  /**
+   * A call of the run was refused because it ran offline, as `shadowlap test` runs a golden that may
+   * not fork: the replay left the recording and needed the network.
+   */
+  offline?: boolean;
+}
+
+/**
+ * Whether a test run's divergence is its outcome. `shadowlap test` fails a golden that diverges,
+ * whatever its checks say, unless the golden may fork (`"fork": true` under `tests`): then it goes
+ * live from the fork and its checks decide. A run that says which (`meta.test.fork`) is taken at its
+ * word; otherwise a call refused offline shows the golden was held to its recording, and a run with
+ * no checks has nothing else to be judged by.
+ */
+function divergenceDecides(run: ClassifiableRun, hasChecks: boolean, offline: boolean): boolean {
+  const test = run.meta?.test;
+  const fork = isObject(test) ? test.fork : undefined;
+  if (typeof fork === 'boolean') return !fork;
+  return !hasChecks || offline;
 }
 
 /** How a run came out. Reads `status`, `divergence`, `meta.blame` and `meta.checks`, as `ls --json` and lineage report them. */
 export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunOutcome {
   if (run.status === 'running') return { kind: 'running' };
-  const kind = ctx.kind ?? runKind(run, ctx.calls);
+  const kind = ctx.kind ?? runKind(run, ctx);
   const checks = checksOf(run);
   // Blame only records a result after replaying the run and seeing it fail.
   if (isObject(run.meta?.blame)) {
     const at = lostAt(run);
     return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstFailedCheck(run) };
   }
-  if (kind === 'test' && run.divergence && !checks) return { kind: 'diverged', callNo: run.divergence.callNo };
+  if (kind === 'test' && run.divergence && divergenceDecides(run, checks !== null, ctx.offline === true)) return { kind: 'diverged', callNo: run.divergence.callNo };
   if (checks && checks.passed < checks.total) return { kind: 'check-failed', check: firstFailedCheck(run) };
   if (run.status === 'failed' && !ctx.injected) return { kind: 'check-failed', check: null };
   if (checks) return { kind: 'passed', checks: checks.total };

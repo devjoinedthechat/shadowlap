@@ -6,6 +6,8 @@ const src = (pkg: string) => fileURLToPath(new URL(`./packages/${pkg}/src/index.
 export default defineConfig({
   resolve: {
     alias: {
+      // Before the package itself: the browser-safe classification module the dashboard UI imports.
+      '@shadowlap/engine/classify': fileURLToPath(new URL('./packages/engine/src/classify.ts', import.meta.url)),
       '@shadowlap/engine': src('engine'),
       '@shadowlap/sidecar': src('sidecar'),
       '@shadowlap/sdk': src('sdk'),

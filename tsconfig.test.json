@@ -12,6 +12,7 @@
     "noUncheckedIndexedAccess": false,
     "paths": {
       "@shadowlap/engine": ["./packages/engine/src/index.ts"],
+      "@shadowlap/engine/classify": ["./packages/engine/src/classify.ts"],
       "@shadowlap/sidecar": ["./packages/sidecar/src/index.ts"],
       "@shadowlap/sdk": ["./packages/sdk/src/index.ts"],
       "@shadowlap/adapters": ["./packages/adapters/src/index.ts"],

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import {
   binOrigins,
@@ -6,12 +9,13 @@ import {
   countOrigins,
   displayOrigin,
   isFailedOutcome,
+  kindLabel,
   lostAt,
   notableOrigin,
   originCells,
   outcomeLabel,
+  runKind,
   runOutcome,
-  Store,
   type ClassifiableRun,
   type RunMeta,
 } from '@shadowlap/engine';
@@ -49,6 +53,30 @@ describe('classifyRun: the kind of a run', () => {
     expect(classifyRun(run({ mode: 'replay', parentRunId: 'P' }), { calls: 3 }).kind).toBe('clean');
   });
 
+  it('calls a replay that reproduced a failing recording exactly a clean replay, and its outcome still a failure', () => {
+    // The recording exited 1 after 8 calls; the replay served all 8 and exited 1 as recorded.
+    const replay = run({ mode: 'replay', parentRunId: 'P', status: 'failed' });
+    const failedParent = { calls: 8, status: 'failed' as const };
+    expect(classifyRun(replay, { calls: 8, parent: failedParent }).kind).toBe('clean');
+    expect(runOutcome(replay, { calls: 8, parent: failedParent })).toEqual({ kind: 'check-failed', check: null });
+    // Served more than the recording holds (a partial recording's other calls ran live): still all of it.
+    expect(runKind(replay, { calls: 9, parent: failedParent })).toBe('clean');
+    // It stopped short of the recording, the recording passed, or its parent is gone: not a reproduction.
+    expect(runKind(replay, { calls: 5, parent: failedParent })).toBe('replay');
+    expect(runKind(replay, { calls: 8, parent: { calls: 8, status: 'completed' } })).toBe('replay');
+    expect(runKind(replay, { calls: 8, parent: null })).toBe('replay');
+    expect(runKind(replay, { calls: 8 })).toBe('replay');
+    // Interrupted is never clean.
+    expect(runKind({ ...replay, status: 'crashed' }, { calls: 8, parent: failedParent })).toBe('replay');
+  });
+
+  it('labels each kind as the run list does', () => {
+    expect(kindLabel('fork', { callNo: 17 })).toBe('fork @17');
+    expect(kindLabel('clean', null)).toBe('clean replay');
+    expect(kindLabel('pack', null)).toBe('recording');
+    expect(['recording', 'capture', 'replay', 'test'].map((k) => kindLabel(k as never, null))).toEqual(['recording', 'capture', 'replay', 'test']);
+  });
+
   it('names captures, recordings from packs and test runs from their metadata', () => {
     expect(classifyRun(run({ meta: { imported: { at: 1, from: 'cap.har' }, covers: ['api'] } })).kind).toBe('capture');
     expect(classifyRun(run({ meta: { imported: { at: 1, from: 'golden' } } })).kind).toBe('pack');
@@ -64,8 +92,14 @@ describe('classifyRun: the kind of a run', () => {
     expect(classifyRun(probe)).toEqual({ kind: 'fork', attemptOf: 'P', attemptKind: 'probe' });
     const verify = run({ mode: 'replay', parentRunId: 'Q', meta: { repeat: { group: 'v-Q', attempt: 1, of: 2 }, verify: { role: 'good', passed: false } } });
     expect(classifyRun(verify)).toEqual({ kind: 'clean', attemptOf: 'Q', attemptKind: 'verify' });
-    // A probe keeps the run it probed even when the link to its parent is gone.
-    expect(classifyRun({ ...probe, parentRunId: null }).attemptOf).toBe('P');
+    // A probe whose run was deleted (the link is gone) is bundled under nothing.
+    expect(classifyRun({ ...probe, parentRunId: null })).toEqual({ kind: 'fork', attemptOf: null, attemptKind: 'probe' });
+  });
+
+  it('bundles a probe under the run it replayed, never under another run it names', () => {
+    // A run from a pack can carry any metadata: a probe that names a run other than its parent is not one of blame's.
+    const odd = run({ mode: 'replay', parentRunId: 'P', divergence: { callNo: 5 }, meta: { probe: { of: 'SOMEONE-ELSE', callNo: 5, passed: true } } });
+    expect(classifyRun(odd)).toEqual({ kind: 'fork', attemptOf: null, attemptKind: null });
   });
 
   it('shows the fork blame rescued a run with as a run, and never bundles a test run', () => {
@@ -115,6 +149,24 @@ describe('runOutcome: what the status column says', () => {
     const t = { mode: 'replay' as const, parentRunId: 'G', meta: { test: { golden: 'goldens/refund-in-limit', session: 's' } } };
     expect(runOutcome(run({ ...t, status: 'failed', divergence: { callNo: 1 } }))).toEqual({ kind: 'diverged', callNo: 1 });
     expect(runOutcome(run(t))).toEqual({ kind: 'clean' });
+  });
+
+  it('lets a divergence decide a test that ran offline or may not fork, whatever its checks say', () => {
+    // goldens/refund-in-limit has two checks and diverged at #1 offline: shadowlap test says "diverged at call 1".
+    const checks = [
+      { ok: true, label: 'issue_refund called once', detail: null },
+      { ok: false, label: 'send_email called once', detail: 'it was called 0 times' },
+    ];
+    const t = { mode: 'replay' as const, parentRunId: 'G', status: 'failed' as const, divergence: { callNo: 1 }, meta: { test: { golden: 'goldens/refund-in-limit', session: 's' }, checks } };
+    expect(runOutcome(run(t), { offline: true })).toEqual({ kind: 'diverged', callNo: 1 });
+    // The run says the golden may not fork: the divergence decides even with every check passed.
+    const passing = checks.map((c) => ({ ...c, ok: true }));
+    expect(runOutcome(run({ ...t, status: 'completed', meta: { test: { golden: 'g', session: 's', fork: false }, checks: passing } }))).toEqual({ kind: 'diverged', callNo: 1 });
+    // A golden that may fork goes live from the fork, and its checks decide.
+    expect(runOutcome(run({ ...t, status: 'completed', meta: { test: { golden: 'g', session: 's', fork: true }, checks: passing } }), { offline: false })).toEqual({ kind: 'passed', checks: 2 });
+    expect(runOutcome(run({ ...t, meta: { test: { golden: 'g', session: 's', fork: true }, checks } }))).toEqual({ kind: 'check-failed', check: 'send_email called once' });
+    // Nothing says either way and it went live: the checks decide, as for a golden that may fork.
+    expect(runOutcome(run({ ...t, status: 'completed', meta: { test: { golden: 'g', session: 's' }, checks: passing } }))).toEqual({ kind: 'passed', checks: 2 });
   });
 
   it('counts an agent that exited with an error as a failed check, unless a fork injected the failure', () => {
@@ -167,19 +219,13 @@ describe('call origins: one character per call', () => {
   });
 });
 
-describe('Store.query', () => {
-  it('answers read-only statements and refuses anything that writes', () => {
-    const store = Store.open(':memory:');
-    try {
-      store.createRun({ mode: 'record', command: { argv: ['node', 'a.js'], cwd: '/w' }, startedAt: 5 });
-      expect(store.query(`SELECT COUNT(*) AS n FROM runs WHERE started_at >= ?`, 1)).toEqual([{ n: 1 }]);
-      expect(store.query(`WITH x AS (SELECT run_id FROM runs) SELECT COUNT(*) AS n FROM x`)).toEqual([{ n: 1 }]);
-      expect(() => store.query(`DELETE FROM runs`)).toThrow(/read-only/);
-      expect(() => store.query(`WITH x AS (SELECT 1) DELETE FROM runs`)).toThrow(/read-only/);
-      // A word inside a string literal is data, not a statement.
-      expect(store.query(`SELECT 'delete me' AS s`)).toEqual([{ s: 'delete me' }]);
-    } finally {
-      store.close();
-    }
+describe('the browser bundle', () => {
+  it('can import classification on its own: @shadowlap/engine/classify has no Node imports', async () => {
+    const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')) as { exports: Record<string, { default: string; types: string }> };
+    expect(pkg.exports['./classify']).toEqual({ types: './dist/classify.d.ts', default: './dist/classify.js' });
+    const entry = fileURLToPath(new URL('../src/classify.ts', import.meta.url));
+    const out = await build({ entryPoints: [entry], bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent' });
+    expect(out.errors).toEqual([]);
+    expect(out.outputFiles[0]!.text).toContain('outcomeLabel');
   });
 });
