@@ -28,6 +28,11 @@ export interface ServeSettings {
   guard: GuardMode;
   /** Only these tasks, by golden path; every ready one when empty. */
   goldens: string[];
+  /**
+   * The environment variable whose key goes to a request's `baseUrl` (`--key-env`). A request can't
+   * name one itself: it could send any key in the environment to any address.
+   */
+  keyEnv?: string;
 }
 
 export interface TasksServer {
@@ -122,12 +127,13 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     const task = findTask(tasks(), name);
     if (!task) return send(res, 404, { error: `no task "${name}" (GET /v1/tasks lists them)` });
     if (typeof body.model !== 'string' || !body.model) return send(res, 400, { error: '"model" is required: the model to ask, such as "my-finetune"' });
-    for (const key of ['baseUrl', 'keyEnv'] as const) if (body[key] !== undefined && typeof body[key] !== 'string') return send(res, 400, { error: `"${key}" must be a string` });
+    if (body.baseUrl !== undefined && typeof body.baseUrl !== 'string') return send(res, 400, { error: '"baseUrl" must be a string' });
+    if (body.keyEnv !== undefined) return send(res, 400, { error: '"keyEnv" is set when tasks serve starts (--key-env), not per request' });
     if (body.from !== undefined && (typeof body.from !== 'number' || !Number.isSafeInteger(body.from) || body.from < 1)) return send(res, 400, { error: '"from" must be a model call number' });
     if (body.reads !== undefined && body.reads !== 'live' && body.reads !== 'replay') return send(res, 400, { error: '"reads" must be "live" or "replay"' });
     let target: ReturnType<typeof resolveTarget>;
     try {
-      target = resolveTarget({ model: body.model, baseUrl: body.baseUrl as string | undefined, keyEnv: body.keyEnv as string | undefined });
+      target = resolveTarget({ model: body.model, baseUrl: body.baseUrl as string | undefined, keyEnv: body.baseUrl !== undefined ? s.keyEnv : undefined });
     } catch (err) {
       return send(res, 400, { error: (err as Error).message });
     }

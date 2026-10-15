@@ -230,11 +230,11 @@ Content-Type: application/json
 }
 ```
 
-The task is its golden's name or path (`escalate-over-limit`, or `goldens%2Fescalate-over-limit`). The body takes `model` (required) and, as `tasks score` does, `baseUrl`, `keyEnv`, `reads` (`live` or `replay`) and `from`, a model call to take over at instead of the task's. The response carries each check's result, the score, the attempt's run, what it cost in USD, the agent's exit code and how long it took, and `dropped` when a translation left something out. `GET /v1/tasks` lists the tasks with their status, takeover and checks.
+The task is its golden's name or path (`escalate-over-limit`, or `goldens%2Fescalate-over-limit`). The body takes `model` (required) and, as `tasks score` does, `baseUrl`, `reads` (`live` or `replay`) and `from`, a model call to take over at instead of the task's. An endpoint that needs a key gets it from the variable `tasks serve --key-env <name>` names when it starts; a request can't name one, since it could send any key in the environment to any address. The response carries each check's result, the score, the attempt's run, what it cost in USD, the agent's exit code and how long it took, and `dropped` when a translation left something out. `GET /v1/tasks` lists the tasks with their status, takeover and checks.
 
 | Status | Means |
 |---|---|
-| 400 | The body isn't a JSON object with a model name, or a field has the wrong type |
+| 400 | The body isn't a JSON object with a model name, a field has the wrong type, or it names a `keyEnv` |
 | 401 | No token, or the wrong one |
 | 403 | The request wasn't addressed to `127.0.0.1:<port>` or `localhost:<port>`, or it came from a web page |
 | 404 | No such task or route |

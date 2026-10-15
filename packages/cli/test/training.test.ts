@@ -383,6 +383,8 @@ describe('shadowlap tasks', () => {
       expect((await call('/v1/tasks/nope/attempts', { method: 'POST', body: { model: 'm' } })).status).toBe(404);
       expect(await call('/v1/tasks/budget/attempts', { method: 'POST', body: { model: 'm' } })).toMatchObject({ status: 409, body: { status: 'not-a-task' } });
       expect((await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { baseUrl: 'x' } })).status).toBe(400);
+      // A request can't send a key from the environment to an address it picks.
+      expect(await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'm', baseUrl: 'https://elsewhere.example/v1', keyEnv: 'ANTHROPIC_API_KEY' } })).toMatchObject({ status: 400, body: { error: expect.stringContaining('--key-env') } });
       // A training loop's attempts are runs, but not a model's scores.
       withStore(db, (s) => {
         expect(s.listTaskScores().filter((x) => x.model === 'my-finetune')).toHaveLength(2);

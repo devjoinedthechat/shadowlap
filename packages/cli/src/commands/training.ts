@@ -297,9 +297,10 @@ export function register(program: Command): void {
     .option('--port <port>', 'port to listen on (default 4779, or a free one if it is taken)', parsePort)
     .option('--concurrency <n>', 'attempts running at once; more requests wait their turn', parseIntArg, 2)
     .option('--reads <policy>', 'what read tools do after the takeover, unless a request says: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
+    .option('--key-env <name>', 'the environment variable holding the key of the endpoints requests name (a request can\'t name one itself)')
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; timeout?: number; guard: GuardMode }) => {
+    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; keyEnv?: string; timeout?: number; guard: GuardMode }) => {
       const opts = program.opts<GlobalOpts>();
       const root = process.cwd();
       const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
@@ -308,8 +309,9 @@ export function register(program: Command): void {
         return all.filter((t) => t.golden === path || t.golden.startsWith(`${path}/`)).map((t) => t.golden);
       });
       if (goldens.length && !only.length) throw new InvalidArgumentError(`${goldens.join(', ')}: no golden of this project there (see shadowlap tasks)`);
+      if (flags.keyEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(flags.keyEnv)) throw new InvalidArgumentError('--key-env takes the name of an environment variable, such as VLLM_API_KEY');
       const token = process.env.SHADOWLAP_TASKS_TOKEN?.trim() || randomBytes(24).toString('hex');
-      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
+      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only, ...(flags.keyEnv ? { keyEnv: flags.keyEnv } : {}) }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
       const served = goldens.length ? all.filter((t) => only.includes(t.golden)) : all;
       const ready = served.filter((t) => t.status === 'ready');
       process.stdout.write(`Serving ${plural(ready.length, 'ready task')} on ${server.url}\n`);

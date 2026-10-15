@@ -191,7 +191,7 @@ Goldens as tasks a model can be scored on: a model under test takes over at one 
 
 Exit status 0 when every task was scored in full, 1 when a task was skipped or stopped.
 
-`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it). Training (`docs/training.md`) shows a request and its response.
+`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it); `--key-env <name>` names the variable whose key goes to the endpoints requests name. Training (`docs/training.md`) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt and last score. A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
 
