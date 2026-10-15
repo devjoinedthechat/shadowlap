@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
-import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
+import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -593,6 +593,8 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
   unwrapped: string[];
   /** Code that wraps them, per language; empty when every tool is wrapped. */
   wrap: WrapSnippet[];
+  /** What the command did for the folder's setup in the dashboard ({@link noteInspected}); `shadowlap init` always says. */
+  project?: InspectedNote;
 }
 
 function readText(path: string, limit = 2 * 1024 * 1024): string {
@@ -734,19 +736,36 @@ export function initFindings(json: InitJson, at: number = Date.now()): SetupFind
   };
 }
 
+/** What `init` did for the dashboard's setup of the folder: `project` in `init --json`, and in the result a dashboard job hears. */
+export interface InspectedNote {
+  /** The project the folder is in the dashboard; null when it isn't one, or the project list can't be read. */
+  id: string | null;
+  /** The setup's first step took these findings. */
+  noted: boolean;
+  /** Why it didn't, when the folder is a project (the list was busy, or written by a newer Shadowlap) or the list can't be read. */
+  why: string | null;
+}
+
 /**
  * When the folder is a project in the dashboard, its setup's first step is done: the findings go
  * into the project list, so the setup shows them, in the dashboard or after `init` in a terminal.
- * Outside a project this reads the list and changes nothing; it never fails `init`.
+ * Outside a project this reads the list and changes nothing. It never fails `init`, and says what
+ * happened, so a dashboard job can explain a step that didn't move.
  */
-export function noteInspected(cwd: string, json: InitJson, env: NodeJS.ProcessEnv = process.env): string | null {
+export function noteInspected(cwd: string, json: InitJson, env: NodeJS.ProcessEnv = process.env, options: Pick<RegistryOptions, 'lockTimeoutMs' | 'home'> = {}): InspectedNote {
+  let registry: ProjectRegistry;
+  let id: string | null;
   try {
-    const registry = new ProjectRegistry({ env });
-    const project = registry.find(cwd);
-    if (!project) return null;
-    registry.noteInspected(project.id, initFindings(json));
-    return project.id;
-  } catch {
-    return null;
+    registry = new ProjectRegistry({ env, ...options });
+    id = registry.find(cwd)?.id ?? null;
+  } catch (err) {
+    return { id: null, noted: false, why: (err as Error).message };
+  }
+  if (!id) return { id: null, noted: false, why: null };
+  try {
+    registry.noteInspected(id, initFindings(json));
+    return { id, noted: true, why: null };
+  } catch (err) {
+    return { id, noted: false, why: (err as Error).message };
   }
 }

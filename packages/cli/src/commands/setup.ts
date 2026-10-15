@@ -18,11 +18,12 @@ export function register(program: Command): void {
     .action((flags: { json?: boolean }) => {
       const report = inspectProject(process.cwd());
       const wrote = report.languages.length ? writeInitialConfig(report) : false;
+      // A project in the dashboard has its first setup step done first, then a dashboard job hears the findings, and whether the step took them.
       const json = initJson(report, wrote);
-      process.stdout.write((flags.json ? JSON.stringify(json, null, 2) : formatInit(report, p, wrote)) + '\n');
-      // A dashboard job hears the findings; a project in the dashboard has its first setup step done.
-      emitJobEvent({ type: 'result', data: json });
-      noteInspected(process.cwd(), json);
+      const result = { ...json, project: noteInspected(process.cwd(), json) };
+      process.stdout.write((flags.json ? JSON.stringify(result, null, 2) : formatInit(report, p, wrote)) + '\n');
+      if (!flags.json && result.project.id && !result.project.noted) process.stderr.write(`${p.yellow('!')} The dashboard’s setup of ${result.project.id} didn’t take this in: ${result.project.why}\n`);
+      emitJobEvent({ type: 'result', data: result });
     });
 
   program

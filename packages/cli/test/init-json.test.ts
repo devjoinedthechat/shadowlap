@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ProjectRegistry } from '@shadowlap/engine';
-import { initFindings, initJson, inspectProject, writeInitialConfig, wrapSnippets, type InitJson } from '../src/init.js';
+import { initFindings, initJson, inspectProject, noteInspected, writeInitialConfig, wrapSnippets, type InitJson } from '../src/init.js';
 
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const dirs: string[] = [];
@@ -241,18 +241,67 @@ describe('shadowlap init in a dashboard project', () => {
     expect(text.stdout).toContain('SHADOWLAP_UPSTREAM_OPENAI=<your model server> shadowlap run -- uv run agent.py');
   });
 
-  it('tells a dashboard job its findings', async () => {
+  it('tells a dashboard job its findings, once the setup has taken them', async () => {
     const slHome = tempDir('sl-initjson-job-');
     const dir = project(RESEARCH);
+    new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null }).add(dir);
     const child = spawn(process.execPath, [CLI, 'init', '--json'], { cwd: dir, env: { ...env(slHome), SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
     const events: Buffer[] = [];
+    const out: Buffer[] = [];
     (child.stdio[3] as NodeJS.ReadableStream).on('data', (c: Buffer) => events.push(c));
-    child.stdout!.resume();
+    child.stdout!.on('data', (c: Buffer) => out.push(c));
     const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
     expect(code).toBe(0);
     const lines = Buffer.concat(events).toString('utf8').trim().split('\n').map((l) => JSON.parse(l) as { type: string; data: InitJson });
     expect(lines).toHaveLength(1);
     expect(lines[0]!.type).toBe('result');
     expect(lines[0]!.data.summary.command).toBe('uv run agent.py');
+    const id = new ProjectRegistry({ home: dirname(dir), dir: slHome }).find(dir)!.id;
+    expect(lines[0]!.data.project).toEqual({ id, noted: true, why: null });
+    expect((JSON.parse(Buffer.concat(out).toString('utf8')) as InitJson).project).toEqual({ id, noted: true, why: null });
+  });
+
+  it('says when the setup couldn’t take the findings, in the result and in a terminal', () => {
+    const slHome = tempDir('sl-initjson-newer-');
+    const dir = project(RESEARCH);
+    const registry = new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null });
+    const id = registry.add(dir).project.id;
+    // A newer Shadowlap wrote the list since: this one can read it, not change it.
+    const file = join(slHome, 'projects.json');
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), version: 99 }));
+    const out = spawnSync(process.execPath, [CLI, 'init', '--json'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
+    expect(out.status).toBe(0);
+    expect((JSON.parse(out.stdout) as InitJson).project).toEqual({ id, noted: false, why: expect.stringMatching(/written by a newer Shadowlap/) });
+    const text = spawnSync(process.execPath, [CLI, 'init'], { cwd: dir, encoding: 'utf8', env: env(slHome) });
+    expect(text.status).toBe(0);
+    expect(text.stderr).toMatch(new RegExp(`! The dashboard’s setup of ${id} didn’t take this in: .*written by a newer Shadowlap`));
+    // A folder that isn't a project says nothing of it.
+    const other = project(RESEARCH);
+    const none = spawnSync(process.execPath, [CLI, 'init'], { cwd: other, encoding: 'utf8', env: env(slHome) });
+    expect(none.stderr).not.toContain('dashboard’s setup');
+  });
+});
+
+describe('noteInspected', () => {
+  it('says what it did for the dashboard’s setup, and never fails init', () => {
+    const slHome = tempDir('sl-note-');
+    const dir = project(RESEARCH);
+    const env = { SHADOWLAP_HOME: slHome };
+    const j = json(dir);
+    expect(noteInspected(dir, j, env)).toEqual({ id: null, noted: false, why: null });
+    const registry = new ProjectRegistry({ home: dirname(dir), dir: slHome, actor: () => null });
+    const id = registry.add(dir).project.id;
+    expect(noteInspected(dir, j, env)).toEqual({ id, noted: true, why: null });
+    // Another process holds the list for longer than init waits.
+    const lock = join(slHome, 'projects.json.lock');
+    writeFileSync(lock, String(process.pid));
+    try {
+      expect(noteInspected(dir, j, env, { lockTimeoutMs: 50 })).toEqual({ id, noted: false, why: expect.stringMatching(/is held by another Shadowlap process/) });
+    } finally {
+      rmSync(lock, { force: true });
+    }
+    // A list that can't be read: whether the folder is a project can't be told.
+    writeFileSync(join(slHome, 'projects.json'), '{ not json');
+    expect(noteInspected(dir, j, env)).toEqual({ id: null, noted: false, why: expect.stringMatching(/isn’t valid JSON/) });
   });
 });
