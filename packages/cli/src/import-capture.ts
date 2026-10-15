@@ -118,6 +118,14 @@ const strip = (headers: Record<string, string>): Record<string, string> => {
   return out;
 };
 
+/**
+ * Appends every item to `to`. Never `to.push(...items)`: a file from anywhere can hold more entries
+ * than a function call takes arguments (about 110,000), and the import would fail on the spread.
+ */
+export function append<T>(to: T[], items: Iterable<T>): void {
+  for (const item of items) to.push(item);
+}
+
 /** Every imported run carries this label, so imports can be listed and filtered as one kind of run. */
 export const IMPORTED_LABEL = 'imported';
 
@@ -283,7 +291,7 @@ export class ImportWriter {
 export function importCaptured(store: Store, captured: Captured, opts: ImportOptions): ImportResult {
   const startedAt = captured.calls.find((c) => c.startedAt !== undefined)?.startedAt ?? Date.now();
   const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api'] });
-  writer.skipped.push(...captured.skipped);
+  append(writer.skipped, captured.skipped);
   for (const c of captured.calls) writer.api(c);
   return writer.finish();
 }

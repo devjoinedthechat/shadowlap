@@ -17,6 +17,7 @@ import {
   type TraceToolCall,
   type TraceUsage,
 } from './import-trace.js';
+import { append } from './import-capture.js';
 import { fetchJson, type TraceStoreOptions } from './import-fetch.js';
 
 /**
@@ -55,7 +56,7 @@ export async function fetchLangsmithRuns(traceId: string, o: LangsmithOptions): 
       },
     );
     const page = isObject(res) && Array.isArray(res.runs) ? res.runs.filter(isObject) : [];
-    runs.push(...page);
+    append(runs, page);
     const cursors = isObject(res) && isObject(res.cursors) ? res.cursors : {};
     cursor = page.length ? str(cursors.next) : null;
   } while (cursor && runs.length < MAX_RUNS);

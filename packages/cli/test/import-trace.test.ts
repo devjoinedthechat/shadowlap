@@ -251,6 +251,22 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(read.traces[0]!.calls[0]).toMatchObject({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }], output: { parts: [{ type: 'text', text: 'hello' }] } });
   });
+
+  it('reads a trace of many spans, and many log records for one span, in time that grows with the file', () => {
+    // A file from anywhere: 100,000 spans in one trace, and as many GenAI log records for one span.
+    // Grouping them by copying a list per entry took seconds here and minutes at a few times this.
+    const n = 100_000;
+    const spans: Array<Record<string, unknown>> = Array.from({ length: n }, (_, i) => ({ traceId: 't', spanId: `s${i}`, name: 'step' }));
+    spans[0] = { traceId: 't', spanId: 's0', name: 'chat', attributes: [{ key: 'gen_ai.operation.name', value: { stringValue: 'chat' } }] };
+    const logRecords = Array.from({ length: n }, () => ({ traceId: 't', spanId: 's0', eventName: 'gen_ai.user.message', body: { kvlistValue: { values: [{ key: 'content', value: { stringValue: 'hi' } }] } } }));
+    const started = Date.now();
+    const read = readOtel([{ resourceSpans: [{ scopeSpans: [{ spans }] }] }, { resourceLogs: [{ scopeLogs: [{ logRecords }] }] }]);
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(read.spans).toBe(n);
+    const [call] = read.traces[0]!.calls;
+    expect(call).toMatchObject({ kind: 'model' });
+    expect((call as { messages: unknown[] }).messages).toHaveLength(n);
+  });
 });
 
 describe("import otel: OpenInference's conventions (Arize Phoenix)", () => {

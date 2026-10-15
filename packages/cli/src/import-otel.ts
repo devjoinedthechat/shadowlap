@@ -365,7 +365,10 @@ function logEventsOf(requests: unknown[]): Map<string, SpanEvent[]> {
           const key = `${clean(record.traceId, 64)}/${record.spanId}`;
           const body = anyValue(record.body);
           const event: SpanEvent = { name, attrs: { ...attrs, ...(body !== undefined ? { body } : {}) }, time: nanosToMs(record.timeUnixNano ?? record.observedTimeUnixNano) };
-          out.set(key, [...(out.get(key) ?? []), event]);
+          // Appended in place: a copy per record is quadratic in a file's records for one span.
+          const list = out.get(key);
+          if (list) list.push(event);
+          else out.set(key, [event]);
         }
       }
     }
@@ -450,7 +453,11 @@ export function readOtel(payloads: unknown[]): OtelRead {
   const spans = spansOf(payloads);
   if (!spans.length) throw new Error('not an OpenTelemetry trace: no spans under "resourceSpans" (or "batches", as Tempo writes it)');
   const byTrace = new Map<string, Span[]>();
-  for (const s of spans) byTrace.set(s.traceId, [...(byTrace.get(s.traceId) ?? []), s]);
+  for (const s of spans) {
+    const list = byTrace.get(s.traceId);
+    if (list) list.push(s);
+    else byTrace.set(s.traceId, [s]);
+  }
 
   const traces: Trace[] = [];
   for (const [id, list] of byTrace) {

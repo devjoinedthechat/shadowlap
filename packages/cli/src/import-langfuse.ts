@@ -16,6 +16,7 @@ import {
   type TraceToolCall,
   type TraceUsage,
 } from './import-trace.js';
+import { append } from './import-capture.js';
 import { fetchJson, type TraceStoreOptions } from './import-fetch.js';
 
 /**
@@ -57,7 +58,7 @@ export async function fetchLangfuseTrace(traceId: string, o: LangfuseOptions): P
   for (let page = 1; observations.length < MAX_OBSERVATIONS; page++) {
     const res = await get(`/api/public/observations?traceId=${encodeURIComponent(traceId)}&page=${page}&limit=${PAGE}`);
     const data = isObject(res) && Array.isArray(res.data) ? res.data : [];
-    observations.push(...data);
+    append(observations, data);
     const meta = isObject(res) && isObject(res.meta) ? res.meta : {};
     const pages = num(meta.totalPages) ?? 1;
     if (!data.length || page >= pages) break;

@@ -1,5 +1,5 @@
 import { safeLine, type Store } from '@shadowlap/engine';
-import { ImportWriter, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
+import { append, ImportWriter, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 
 /**
  * Building a recording out of a trace: OpenTelemetry spans, a Langfuse trace, LangSmith runs.
@@ -485,7 +485,7 @@ function anthropicMessages(messages: TraceMessage[]): unknown[] {
     const prev = out[out.length - 1];
     // Consecutive tool results go back to the model as one user turn, which the API requires.
     if (m.role === 'tool' && prev?.role === 'user' && Array.isArray(prev.content) && prev.content.every((b) => isObject(b) && b.type === 'tool_result')) {
-      (prev.content as unknown[]).push(...blocks);
+      append(prev.content as unknown[], blocks);
       continue;
     }
     out.push({ role: 'user', content: blocks.length === 1 && blocks[0]!.type === 'text' ? blocks[0]!.text : blocks });
@@ -722,19 +722,26 @@ export interface TraceImport {
 export function importTrace(store: Store, trace: Trace, opts: ImportOptions): TraceImport {
   const calls = [...trace.calls].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
   const tools = calls.filter((c): c is TraceToolCall => c.kind === 'tool');
+  // Grouped in place and looked up in a set: a trace is a file from anywhere, and copying per call
+  // or scanning a list per call would be quadratic in its size.
   const byName = new Map<string, TraceToolCall[]>();
-  for (const t of tools) byName.set(t.name, [...(byName.get(t.name) ?? []), t]);
+  for (const t of tools) {
+    const list = byName.get(t.name);
+    if (list) list.push(t);
+    else byName.set(t.name, [t]);
+  }
   const covered = [...byName].filter(([, list]) => list.every(toolKept)).map(([name]) => name);
+  const coveredSet = new Set(covered);
 
   const startedAt = calls.find((c) => c.startedAt !== null)?.startedAt ?? Date.now();
   const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api', ...covered.map((name) => `tool:${name}` as const)] });
-  writer.skipped.push(...trace.skipped);
+  append(writer.skipped, trace.skipped);
   const counts = { modelCalls: 0, modelCallsImported: 0, withSettings: 0, withToolDefinitions: 0, toolCalls: tools.length, toolCallsKept: tools.filter(toolKept).length };
   const dialects: Record<string, number> = {};
   let n = 0;
   for (const c of calls) {
     if (c.kind === 'tool') {
-      if (!covered.includes(c.name)) continue;
+      if (!coveredSet.has(c.name)) continue;
       writer.tool({
         name: c.name,
         args: argsObject(c.args),

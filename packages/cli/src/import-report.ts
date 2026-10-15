@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { recordEvent, type Store } from '@shadowlap/engine';
-import type { ImportedCall, ImportResult, Skip } from './import-capture.js';
+import { append, type ImportedCall, type ImportResult, type Skip } from './import-capture.js';
 import { emitJobEvent } from './job-events.js';
 
 /**
@@ -87,7 +87,7 @@ export function settleImport(
   const skipped: Skip[] = [...(o.skipped ?? [])];
   const runs: ImportJsonRun[] = [];
   for (const { key, result } of o.runs) {
-    skipped.push(...result.skipped);
+    append(skipped, result.skipped);
     if (!result.imported.length) {
       store.deleteRun(result.run.runId);
       continue;

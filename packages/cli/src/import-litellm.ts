@@ -1,5 +1,5 @@
 import type { Store } from '@shadowlap/engine';
-import { headerMap, importCaptured, type Captured, type ImportResult, type Skip } from './import-capture.js';
+import { append, headerMap, importCaptured, type Captured, type ImportResult, type Skip } from './import-capture.js';
 
 /**
  * Captures written by `shadowlap.litellm_callback` on a LiteLLM proxy: one JSON object per line.
@@ -118,7 +118,7 @@ export function readLitellmGroups(contents: string): LitellmGroup[] {
   }
   // Whatever could not be read at all belongs to the file, not to any one run.
   const ordered = [...groups.values()];
-  if (ordered.length) ordered[0]!.skipped.push(...skipped);
+  if (ordered.length) append(ordered[0]!.skipped, skipped);
   else if (skipped.length) ordered.push({ key: null, calls: [], skipped });
   return ordered;
 }

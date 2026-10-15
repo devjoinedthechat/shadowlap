@@ -215,4 +215,17 @@ describe('settleImport', () => {
     expect(store.listEvents()).toHaveLength(1);
     store.close();
   });
+
+  it('takes a capture with more entries skipped than a function call takes arguments', () => {
+    // A long browser session: one model call among 150,000 requests to other hosts. Spreading the
+    // skipped entries into push() threw "Maximum call stack size exceeded" past about 110,000.
+    const store = Store.open(':memory:');
+    const other = harEntry('https://telemetry.example.com/v1/collect', 'x');
+    const entries = [harEntry('https://api.anthropic.com/v1/messages', 'hi'), ...Array.from({ length: 150_000 }, () => other)];
+    const result = importHar(store, { log: { entries } }, { source: 'session.har' });
+    const json = settleImport(store, { format: 'har', entries: entries.length, runs: [{ key: null, result }], env: {} });
+    expect(json.runs).toHaveLength(1);
+    expect(json.skipped).toHaveLength(150_000);
+    store.close();
+  });
 });

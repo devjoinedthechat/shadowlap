@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { resolveAuthor, type Store } from '@shadowlap/engine';
-import { importCaptured, type Captured, type ImportResult } from '../import-capture.js';
+import { append, importCaptured, type Captured, type ImportResult } from '../import-capture.js';
 import { readHar } from '../import-har.js';
 import { readNock } from '../import-nock.js';
 import { readVcr } from '../import-vcr.js';
@@ -183,8 +183,8 @@ export function register(program: Command): void {
             const merged = byKey.get(group.key);
             if (!merged) byKey.set(group.key, { group: { key: group.key, calls: [...group.calls], skipped: [...group.skipped] }, files: [path] });
             else {
-              merged.group.calls.push(...group.calls);
-              merged.group.skipped.push(...group.skipped);
+              append(merged.group.calls, group.calls);
+              append(merged.group.skipped, group.skipped);
               if (!merged.files.includes(path)) merged.files.push(path);
             }
           }
