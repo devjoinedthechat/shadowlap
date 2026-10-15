@@ -1,5 +1,7 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { displayPath } from './paths.js';
+import { join } from 'node:path';
+import { displayPath, isWithin, realpathOrNull } from './paths.js';
 
 /**
  * Recording from the dashboard. The browser never sends a command line to run, with one exception
@@ -141,9 +143,11 @@ export type GoldenPathResult = { ok: true; path: string } | { ok: false; error: 
 /**
  * Where the setup keeps its golden, as typed in its last step: a folder inside the project, such as
  * `goldens/triage-inbox`. A bare name goes under `goldens/`, where Tests finds packs. Never absolute,
- * never `..`, never hidden, plain characters only: `pack` writes there.
+ * never `..`, never hidden, plain characters only: `pack` writes there. Given the project's folder,
+ * it also checks that no part of the path that exists already is a link out of the folder, so a
+ * `goldens` link planted in a checkout can't send the pack somewhere else.
  */
-export function goldenPath(input: string): GoldenPathResult {
+export function goldenPath(input: string, options: { folder?: string } = {}): GoldenPathResult {
   let path = input.trim().replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
   if (!path) return { ok: false, error: 'Give the golden a folder, such as goldens/first-run.' };
   if (path.length > 200) return { ok: false, error: 'That path is longer than 200 characters.' };
@@ -155,6 +159,16 @@ export function goldenPath(input: string): GoldenPathResult {
     if (!s || s === '.' || s === '..') return { ok: false, error: 'The golden goes inside the project: no empty, . or .. parts.' };
     if (s.startsWith('.')) return { ok: false, error: 'The golden can’t go in a hidden folder.' };
     if (!/^[A-Za-z0-9._-]+$/.test(s)) return { ok: false, error: 'Use letters, digits, dots, dashes and underscores in the golden’s path.' };
+  }
+  if (options.folder) {
+    const root = realpathOrNull(options.folder);
+    if (!root) return { ok: false, error: 'The project’s folder doesn’t exist any more.' };
+    for (let i = 1; i <= segments.length; i++) {
+      const here = join(options.folder, ...segments.slice(0, i));
+      if (!existsSync(here)) break;
+      const real = realpathOrNull(here);
+      if (!real || !isWithin(real, root)) return { ok: false, error: `${segments.slice(0, i).join('/')} leads out of the project, so Shadowlap won’t pack there.` };
+    }
   }
   return { ok: true, path: segments.join('/') };
 }

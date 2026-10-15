@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { COMMAND_LIMITS, defaultGolden, goldenPath, parseAgentCommand, planRecording, quoteArgs, setupCommands, setupJobArgs } from '../src/index.js';
 
@@ -95,6 +98,25 @@ describe('goldenPath', () => {
     expect(goldenPath('tests\\packs\\x')).toEqual({ ok: true, path: 'tests/packs/x' });
     for (const bad of ['', '../outside', 'goldens/../../x', '/etc/x', 'C:/x', '~/x', 'goldens/.hidden', 'goldens/a b', 'goldens//x', 'a/b/c/d/e/f/g/h/i']) {
       expect(goldenPath(bad).ok, bad).toBe(false);
+    }
+  });
+
+  it('won’t pack through a link out of the project', () => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'sl-golden-')));
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'sl-golden-out-')));
+    try {
+      expect(goldenPath('goldens/first-run', { folder })).toEqual({ ok: true, path: 'goldens/first-run' });
+      mkdirSync(join(folder, 'goldens'));
+      symlinkSync(outside, join(folder, 'goldens', 'linked'));
+      expect(goldenPath('goldens/linked/x', { folder })).toEqual({ ok: false, error: 'goldens/linked leads out of the project, so Shadowlap won’t pack there.' });
+      // A link that stays inside the project is fine.
+      mkdirSync(join(folder, 'packs'));
+      symlinkSync(join(folder, 'packs'), join(folder, 'goldens', 'inside'));
+      expect(goldenPath('goldens/inside/x', { folder })).toEqual({ ok: true, path: 'goldens/inside/x' });
+      expect(goldenPath('goldens/x', { folder: join(folder, 'gone') })).toMatchObject({ ok: false });
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 
