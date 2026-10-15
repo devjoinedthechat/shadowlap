@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 
@@ -101,17 +102,8 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `Patch applied · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: '#/training' })],
   ['model.scored', (e, d) => ({ kind: 'train', text: parts(`Scored ${str(d.model) ?? e.ref ?? 'a model'} on ${plural(num(d.tasks) ?? 0, 'task')}`, num(d.mean) !== null && `mean ${num(d.mean)!.toFixed(2)}`), href: '#/training/tasks' })],
-  // The projects slice's words (projectEventText), so the feed reads the same whichever describes them.
-  ['project.added', (e, d) => ({ kind: 'project', text: `${d.again === true ? 'Project added back' : 'Project added'} · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
-  [
-    'project.setup',
-    (e, d) => {
-      const name = str(d.name) ?? e.ref ?? 'the project';
-      if (d.stage !== 'done' && d.config === 'created') return { kind: 'project', text: `Inspected ${name} · wrote shadowlap.config.json`, href: '#/' };
-      return { kind: 'project', text: `Set up ${name}${d.skipped === true ? ' · skipped the rest' : ''}`, href: '#/' };
-    },
-  ],
-  ['project.removed', (e, d) => ({ kind: 'project', text: `Removed from the dashboard · ${str(d.path) ?? e.ref ?? ''}`, href: '#/' })],
+  // In the projects pages' own words, so the feed and the project list say the same.
+  ...(['project.added', 'project.setup', 'project.removed'] as const).map((kind): [string, Describe] => [kind, (e) => ({ kind: 'project', text: projectEventText(e) ?? kind, href: '#/' })]),
   [
     'org.noted',
     (e, d) => {
