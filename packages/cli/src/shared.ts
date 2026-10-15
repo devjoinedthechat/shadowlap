@@ -49,6 +49,15 @@ export function openStore(opts: GlobalOpts): Store {
 }
 
 /**
+ * The store, or null when the project has none yet: for commands that only read it or clean it up
+ * (`gc`, `redact preview`, `calibrate`), which must not leave an empty store behind.
+ */
+export function openStoreIfExists(opts: GlobalOpts): Store | null {
+  const dbPath = opts.db ?? defaultDbPath(process.cwd());
+  return existsSync(dbPath) ? Store.open(dbPath) : null;
+}
+
+/**
  * Records what a command changed in the project's activity log (a rule added or removed, old runs
  * cleaned up). Only into a store that exists: editing shadowlap.config.json never creates one. Never
  * fails the command, whose work is already done.

@@ -4,7 +4,7 @@ import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
 import { formatInit, inspectProject, writeInitialConfig } from '../init.js';
 import { emitJobEvent } from '../job-events.js';
-import { openStore, parseChoice, recordActivity, requireRun, VERSION, type GlobalOpts } from '../shared.js';
+import { openStoreIfExists, parseChoice, recordActivity, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId, table } from '../ui.js';
 
 /** Project setup and the rules in shadowlap.config.json. */
@@ -136,10 +136,13 @@ function registerPreview(program: Command, cmd: Command): void {
     .option('--json', 'machine-readable output')
     .action((runArg: string | undefined, flags: { json?: boolean }) => {
       const rules = loadConfig(process.cwd()).redact;
-      const store = openStore(program.opts<GlobalOpts>());
+      const noRun = 'no run to preview: record one with shadowlap run -- <command>';
+      // Nothing recorded yet: say so without creating a store.
+      const store = openStoreIfExists(program.opts<GlobalOpts>());
+      if (!store) throw new Error(noRun);
       try {
         const run = runArg ? requireRun(store, runArg) : (store.listRuns(200).find((r) => r.status !== 'running') ?? null);
-        if (!run) throw new Error('no run to preview: record one with shadowlap run -- <command>');
+        if (!run) throw new Error(noRun);
         const preview = previewRedaction(store, run.runId, rules);
         emitJobEvent({ type: 'result', data: preview });
         if (flags.json) {

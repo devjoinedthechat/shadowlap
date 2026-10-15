@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -180,7 +181,7 @@ describe('shadowlap redact', () => {
 
 describe('shadowlap gc', () => {
   it('says what it would free before deleting anything, then deletes and logs it', async () => {
-    seedRuns();
+    const { live } = seedRuns();
     const store = Store.open(dbPath());
     const old = store.createRun({ mode: 'record', command: { argv: ['node', 'old.js'], cwd }, startedAt: Date.now() - 40 * 86_400_000 });
     store.appendCallStart({ runId: old.runId, callNo: 1, kind: 'tool', name: 't', fingerprint: 'c'.repeat(64), occurrence: 1, origin: 'live', effect: 'read', requestRef: store.putBlob(Buffer.from(`only the old run has this ${'z'.repeat(5000)}`)), meta: {}, at: 1 });
@@ -190,34 +191,77 @@ describe('shadowlap gc', () => {
 
     let r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
     expect(r.code, r.err).toBe(0);
-    const plan = JSON.parse(r.out) as { dryRun: boolean; total: number; runs: Array<{ runId: string }>; blobs: number; bytes: number; store: { before: number; after: null } };
-    expect(plan).toMatchObject({ dryRun: true, olderThanDays: 30, keep: null, total: 4, blobs: 1, store: { after: null } });
+    const plan = JSON.parse(r.out) as { dryRun: boolean; cutoff: number; total: number; runs: Array<{ runId: string }>; blobs: number; bytes: number; recording: Array<{ runId: string }>; store: { before: number; after: null } };
+    expect(plan).toMatchObject({ dryRun: true, olderThanDays: 30, keep: null, total: 4, blobs: 1, deferred: true, store: { after: null } });
     expect(plan.runs.map((x) => x.runId)).toEqual([old.runId]);
+    expect(plan.recording.map((x) => x.runId).sort()).toEqual([live, ancient.runId].sort());
+    expect(plan.cutoff).toBeGreaterThan(Date.now() - 31 * 86_400_000);
     expect(plan.bytes).toBeGreaterThan(0);
     expect(plan.store.before).toBeGreaterThan(0);
     expect(r.events).toEqual([{ type: 'result', data: plan }]);
 
     r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
     expect(r.out).toContain('▸ runs older than 30 days: 1 of 4 · runs still recording are never touched');
-    expect(r.out).toMatch(/blobs nothing would reference: 1 · \d/);
+    expect(r.out).toMatch(/blobs nothing would reference: 1 · \d.* · collected once no run is recording: 2 runs are still recording/);
     expect(r.out).toMatch(/✓ dry run: would delete 1 run and free .+\. Run it without --dry-run to delete\./);
     const check = Store.open(dbPath());
     expect(check.getRun(old.runId)).not.toBeNull();
     check.close();
 
-    r = await shadowlap(['gc', '--older-than', '30']);
+    // The dialog says "Delete 1 run": the run that confirms it deletes exactly the runs the dry run listed.
+    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '2']);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('gc would delete 1 run, not 2: the runs changed since the dry run. Nothing was deleted') });
+    r = await shadowlap(['gc', '--older-than', '30', '--before', String(plan.cutoff)]);
+    expect(r).toMatchObject({ code: 1, err: expect.stringContaining('give --older-than or --before, not both') });
+
+    // Runs are still recording: the old run goes, its blobs wait for a gc when nothing records.
+    r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', '1']);
     expect(r.code, r.err).toBe(0);
-    expect(r.out).toMatch(/✓ deleted 1 run and 1 blob · store .+ → .+/);
-    expect(r.events[0]).toMatchObject({ type: 'result', data: { dryRun: false, blobs: 1, store: { after: expect.any(Number) } } });
+    expect(r.out).toContain('no blobs collected: 2 runs are still recording');
+    expect(r.out).toMatch(/✓ deleted 1 run · store .+ → .+/);
+    expect(r.events[0]).toMatchObject({ type: 'result', data: { dryRun: false, blobs: 0, deferred: true, store: { after: expect.any(Number) } } });
     const after = Store.open(dbPath());
     expect(after.getRun(old.runId)).toBeNull();
     expect(after.getRun(ancient.runId)).not.toBeNull();
-    expect(after.listEvents()[0]).toMatchObject({ kind: 'runs.cleaned', actor: 'dana', data: { runs: 1, blobs: 1, olderThanDays: 30, keep: null } });
+    expect(after.listEvents()[0]).toMatchObject({ kind: 'runs.cleaned', actor: 'dana', data: { runs: 1, blobs: 0, olderThanDays: null, keep: null } });
+    after.endRun(live, 'completed');
+    after.endRun(ancient.runId, 'crashed');
     after.close();
 
+    r = await shadowlap(['gc', '--json']);
+    expect(JSON.parse(r.out)).toMatchObject({ runs: [], blobs: 1, deferred: false, recording: [] });
     r = await shadowlap(['gc', '--dry-run']);
     expect(r.out).toContain('▸ no runs to delete (--older-than <days> or --keep <n> picks them)');
     expect(r.out).toContain('✓ dry run: would free 0 B.');
+  });
+
+  it('reports the store as it will be, even while a dashboard holds it open', async () => {
+    const store = Store.open(dbPath());
+    const old = store.createRun({ mode: 'record', command: { argv: ['node', 'old.js'], cwd }, startedAt: Date.now() - 40 * 86_400_000 });
+    for (let i = 1; i <= 300; i++) {
+      store.appendCallStart({ runId: old.runId, callNo: i, kind: 'tool', name: 't', fingerprint: String(i).padStart(64, '0'), occurrence: 1, origin: 'live', effect: 'read', requestRef: store.putBlob(randomBytes(3000)), meta: {}, at: i });
+    }
+    store.endRun(old.runId, 'completed');
+    // Left open, reading now and then, as the dashboard's server does.
+    store.listRuns(5);
+    const r = await shadowlap(['gc', '--older-than', '30', '--json']);
+    expect(r.code, r.err).toBe(0);
+    const report = JSON.parse(r.out) as { blobs: number; store: { before: number; after: number } };
+    expect(report.blobs).toBe(300);
+    expect(report.store.before).toBeGreaterThan(300 * 3000);
+    expect(report.store.after).toBeLessThan(report.store.before / 10);
+    expect(store.size().bytes).toBe(report.store.after);
+    store.close();
+  });
+
+  it('cleans up nothing, and creates no store, in a project that has never recorded', async () => {
+    const r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
+    expect(r.code, r.err).toBe(0);
+    expect(JSON.parse(r.out)).toMatchObject({ dryRun: true, total: 0, runs: [], blobs: 0, store: { before: 0 } });
+    expect((await shadowlap(['gc', '--older-than', '30'])).code).toBe(0);
+    expect((await shadowlap(['redact', 'preview'])).err).toContain('no run to preview: record one with shadowlap run -- <command>');
+    expect((await shadowlap(['calibrate'])).err).toContain('Record a run first');
+    expect(existsSync(join(cwd, '.shadowlap'))).toBe(false);
   });
 });
 

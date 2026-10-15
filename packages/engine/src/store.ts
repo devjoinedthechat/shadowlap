@@ -457,31 +457,100 @@ export class Store {
 
   /**
    * Deletes blobs that no call references (a run's rows go with `deleteRun`; its blobs are shared by
-   * content, so they are collected here). Returns what was removed.
+   * content, so they are collected here). Returns what was removed: `bytes` uncompressed, `stored`
+   * as the store keeps them.
+   *
+   * Never while a run is recording, in this process or another: a recording stores a blob a moment
+   * before the call row that references it, and a call whose content is already stored references
+   * the existing blob without writing it again, so a blob that looks unreferenced may be one a
+   * recording is about to use. With a run still `running`, nothing is deleted and `recording` names
+   * the runs. The check and the deletes share one write transaction, so no run can start between
+   * them; the slow part, reading every request manifest, happens before it, and only what changed
+   * meanwhile is read again under the lock. `among` limits the collection to those blobs (calibrate
+   * collects only what its own attempts wrote).
    */
-  gcBlobs(): { removed: number; bytes: number } {
-    const { hashes, size } = this.unreferencedBlobs();
-    const del = this.db.prepare(`DELETE FROM blobs WHERE hash = ?`);
-    this.transaction(() => {
-      for (const hash of hashes) del.run(hash);
-    });
-    return { removed: hashes.length, bytes: size };
+  gcBlobs(options: { among?: Iterable<string> } = {}): { removed: number; bytes: number; stored: number; recording: string[] } {
+    const recordingNow = () => this.db.prepare(`SELECT run_id FROM runs WHERE status = 'running' ORDER BY started_at, run_id`).all().map((r) => String(r.run_id));
+    const early = recordingNow();
+    if (early.length) return { removed: 0, bytes: 0, stored: 0, recording: early };
+    const manifests = new Map<string, string[]>();
+    const among = options.among ? new Set(options.among) : null;
+    const candidates = this.blobsNotIn(this.referencedBlobs(new Set(), manifests)).filter((b) => !among || among.has(b.hash));
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const recording = recordingNow();
+      let removed = 0;
+      let bytes = 0;
+      let stored = 0;
+      if (!recording.length && candidates.length) {
+        // Calls committed since the first read may reference a candidate now: read their rows again.
+        const referenced = this.referencedBlobs(new Set(), manifests);
+        const del = this.db.prepare(`DELETE FROM blobs WHERE hash = ?`);
+        for (const b of candidates) {
+          if (referenced.has(b.hash)) continue;
+          if (Number(del.run(b.hash).changes) === 0) continue;
+          removed++;
+          bytes += b.size;
+          stored += b.stored;
+        }
+      }
+      this.db.exec('COMMIT');
+      return { removed, bytes, stored, recording };
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
-  /** Gives freed pages back to the filesystem. */
+  /**
+   * Gives freed pages back to the filesystem, then checkpoints the write-ahead log so the file on
+   * disk shrinks now rather than at the next checkpoint (as far as readers on other connections
+   * allow; `size()` doesn't depend on it).
+   */
   vacuum(): void {
     this.db.exec('VACUUM');
+    try {
+      this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+    } catch {
+      // a reader kept part of the log: the next checkpoint finishes it
+    }
+  }
+
+  /**
+   * The store's size as SQLite counts it, whatever its write-ahead log holds: `bytes` is every page
+   * of the database, `free` the pages a vacuum would give back. Another connection holding the
+   * store open (a dashboard) can keep the files on disk larger for a while; this is what they
+   * come back to.
+   */
+  size(): { bytes: number; free: number } {
+    const pageSize = Number(this.db.prepare('PRAGMA page_size').get()?.page_size ?? 0);
+    const pages = Number(this.db.prepare('PRAGMA page_count').get()?.page_count ?? 0);
+    const free = Number(this.db.prepare('PRAGMA freelist_count').get()?.freelist_count ?? 0);
+    return { bytes: pages * pageSize, free: free * pageSize };
   }
 
   // ---- settings: tools across runs, counts, cleanup ----
 
+  /** Every blob the calls of a run reference, the parts of its request manifests included. */
+  runBlobRefs(runId: string): string[] {
+    const refs = new Set<string>();
+    for (const r of this.db.prepare(`SELECT kind, request_ref, response_ref FROM call_events WHERE run_id = ?`).all(runId)) {
+      const req = r.request_ref as string | null;
+      const res = r.response_ref as string | null;
+      if (res) refs.add(res);
+      if (req) {
+        refs.add(req);
+        if (r.kind === 'api') for (const h of manifestRefs(this, req)) refs.add(h);
+      }
+    }
+    return [...refs];
+  }
+
   /**
-   * The blobs no call would reference once the runs in `without` are deleted, those nothing
-   * references now included: what `gcBlobs` removes after those runs go, found without deleting
-   * anything. `bytes` is what they take in the store, `size` their uncompressed length.
+   * The blobs some call references, leaving out the runs in `skip`. A request manifest never
+   * changes (it is stored by its content), so `manifests` keeps what each one lists between reads.
    */
-  unreferencedBlobs(without: Iterable<string> = []): { hashes: string[]; bytes: number; size: number } {
-    const skip = new Set(without);
+  private referencedBlobs(skip: Set<string>, manifests: Map<string, string[]>): Set<string> {
     const referenced = new Set<string>();
     for (const r of this.db.prepare(`SELECT run_id, kind, request_ref, response_ref FROM call_events`).all()) {
       if (skip.has(String(r.run_id))) continue;
@@ -490,20 +559,36 @@ export class Store {
       if (res) referenced.add(res);
       if (req) {
         referenced.add(req);
-        if (r.kind === 'api') for (const h of manifestRefs(this, req)) referenced.add(h);
+        if (r.kind !== 'api') continue;
+        let parts = manifests.get(req);
+        if (!parts) {
+          parts = manifestRefs(this, req);
+          manifests.set(req, parts);
+        }
+        for (const h of parts) referenced.add(h);
       }
     }
-    const hashes: string[] = [];
-    let bytes = 0;
-    let size = 0;
+    return referenced;
+  }
+
+  private blobsNotIn(referenced: Set<string>): Array<{ hash: string; size: number; stored: number }> {
+    const out: Array<{ hash: string; size: number; stored: number }> = [];
     for (const b of this.db.prepare(`SELECT hash, size, length(bytes) AS stored FROM blobs`).all()) {
       const hash = String(b.hash);
-      if (referenced.has(hash)) continue;
-      hashes.push(hash);
-      bytes += Number(b.stored);
-      size += Number(b.size);
+      if (!referenced.has(hash)) out.push({ hash, size: Number(b.size), stored: Number(b.stored) });
     }
-    return { hashes, bytes, size };
+    return out;
+  }
+
+  /**
+   * The blobs no call would reference once the runs in `without` are deleted, those nothing
+   * references now included: what `gcBlobs` removes after those runs go (once no run is
+   * recording), found without deleting anything. `bytes` is what they take in the store, `size`
+   * their uncompressed length.
+   */
+  unreferencedBlobs(without: Iterable<string> = []): { hashes: string[]; bytes: number; size: number } {
+    const blobs = this.blobsNotIn(this.referencedBlobs(new Set(without), new Map()));
+    return { hashes: blobs.map((b) => b.hash), bytes: blobs.reduce((n, b) => n + b.stored, 0), size: blobs.reduce((n, b) => n + b.size, 0) };
   }
 
   /**

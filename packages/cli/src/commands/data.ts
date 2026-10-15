@@ -6,7 +6,7 @@ import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent } from '../job-events.js';
 import { otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
-import { fileSize, formatBytes, openStore, parseChoice, parseIntArg, recordActivity, requireRun, VERSION, type GlobalOpts } from '../shared.js';
+import { fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordActivity, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Runs as data for other tools, and removing what is no longer needed. */
@@ -152,30 +152,52 @@ export function register(program: Command): void {
 
   program
     .command('gc')
-    .description('Clean up the store: delete old runs (--older-than, --keep), remove blobs nothing references, and vacuum. Runs still recording are never touched')
+    .description('Clean up the store: delete old runs (--older-than, --keep), remove blobs nothing references, and vacuum. Runs still recording are never touched, and while one is, blobs wait for a later gc')
     .option('--older-than <days>', 'delete runs that started more than <days> days ago', parseIntArg)
+    .option('--before <time>', 'delete runs that started before this time: epoch milliseconds (the cutoff a dry run prints) or an ISO date', parseTime)
     .option('--keep <n>', 'keep only the newest <n> runs', parseIntArg)
+    .option('--expect <runs>', 'delete only if exactly this many runs match, as the dry run said; refuse otherwise', parseCount)
     .option('--dry-run', 'show what it would delete and free, and change nothing')
     .option('--json', 'machine-readable output')
-    .action((flags: { olderThan?: number; keep?: number; dryRun?: boolean; json?: boolean }) => {
+    .action((flags: GcFlags & { json?: boolean }) => {
+      if (flags.olderThan !== undefined && flags.before !== undefined) throw new InvalidArgumentError('give --older-than or --before, not both');
       const opts = program.opts<GlobalOpts>();
       const dbPath = opts.db ?? defaultDbPath(process.cwd());
-      const store = openStore(opts);
+      // A project with nothing recorded has nothing to clean: say so without creating a store.
+      const store = openStoreIfExists(opts);
       let report: GcReport;
       try {
-        report = cleanUp(store, dbPath, flags);
+        report = store ? cleanUp(store, dbPath, flags) : emptyReport(dbPath, flags);
       } finally {
-        store.close();
+        store?.close();
       }
-      if (!report.dryRun) {
-        report.store.after = storeBytes(dbPath);
-        if (report.runs.length || report.blobs) {
-          recordActivity(opts, [{ kind: 'runs.cleaned', data: { runs: report.runs.length, blobs: report.blobs, bytes: report.bytes, olderThanDays: report.olderThanDays, keep: report.keep } }]);
-        }
+      if (!report.dryRun && (report.runs.length || report.blobs)) {
+        recordActivity(opts, [{ kind: 'runs.cleaned', data: { runs: report.runs.length, blobs: report.blobs, bytes: report.bytes, olderThanDays: report.olderThanDays, keep: report.keep } }]);
       }
       emitJobEvent({ type: 'result', data: report });
       process.stdout.write(flags.json ? JSON.stringify(report, null, 2) + '\n' : formatGc(report));
     });
+}
+
+interface GcFlags {
+  olderThan?: number;
+  before?: number;
+  keep?: number;
+  expect?: number;
+  dryRun?: boolean;
+}
+
+/** `--before`: epoch milliseconds, or anything Date.parse reads (2026-09-01, 2026-09-01T12:00:00Z). */
+function parseTime(value: string): number {
+  const ms = /^\d+$/.test(value.trim()) ? Number(value.trim()) : Date.parse(value);
+  if (!Number.isFinite(ms)) throw new InvalidArgumentError('must be epoch milliseconds or a date such as 2026-09-01');
+  return ms;
+}
+
+function parseCount(value: string): number {
+  const n = Number(value);
+  if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(n)) throw new InvalidArgumentError('must be a whole number');
+  return n;
 }
 
 /** What `gc` deleted, or with --dry-run would delete: the same object `--json` prints. */
@@ -183,51 +205,86 @@ export interface GcReport {
   dryRun: boolean;
   olderThanDays: number | null;
   keep: number | null;
+  /** Runs that started before this time (epoch ms) are deleted; null without --older-than or --before. A dry run's cutoff, passed back as --before, deletes exactly the runs it listed. */
+  cutoff: number | null;
   /** Runs in the store before. */
   total: number;
   /** Runs deleted (or that would be), newest first. */
   runs: Array<{ runId: string; mode: RunRecord['mode']; status: RunRecord['status']; startedAt: number; command: string }>;
-  /** Blobs nothing would reference any more, and the bytes they take in the store. */
+  /**
+   * Blobs freed and the bytes they took in the store; for a dry run, what deleting those runs frees.
+   * While a run is still recording no blob is collected (`deferred`), so a real run frees them on a
+   * later gc.
+   */
   blobs: number;
   bytes: number;
-  /** The store's size on disk before, and after a run that wasn't a dry run. */
+  /** Runs still recording, which gc never touches. */
+  recording: Array<{ runId: string; startedAt: number; command: string }>;
+  /** Blobs were left for a later gc because runs were still recording. */
+  deferred: boolean;
+  /**
+   * The store's size: every page of the database before, and after a real run (vacuumed), whatever
+   * its write-ahead log holds. A dashboard holding the store open can keep the files on disk larger
+   * until it lets go.
+   */
   store: { path: string; before: number; after: number | null };
 }
 
-/** The store file and its write-ahead log, which holds what was written since the last checkpoint. */
-function storeBytes(dbPath: string): number {
-  return fileSize(dbPath) + fileSize(`${dbPath}-wal`);
+function emptyReport(dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
+  if (flags.expect !== undefined && flags.expect !== 0) throw new Error(`gc would delete 0 runs, not ${flags.expect}: there is no store at ${dbPath}`);
+  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, runs: [], blobs: 0, bytes: 0, recording: [], deferred: false, store: { path: dbPath, before: 0, after: flags.dryRun ? null : 0 } };
 }
 
+function cutoffOf(flags: GcFlags, now: number): number | null {
+  return flags.before ?? (flags.olderThan !== undefined ? now - flags.olderThan * 86_400_000 : null);
+}
+
+const described = (r: RunRecord) => ({ runId: r.runId, startedAt: r.startedAt, command: quoteArgv(r.command.argv) });
+
 /** Picks the runs `gc` deletes, says what that frees, and deletes unless it is a dry run. */
-export function cleanUp(store: Store, dbPath: string, flags: { olderThan?: number; keep?: number; dryRun?: boolean }, now = Date.now()): GcReport {
+export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const runs = store.allRuns(); // newest first
-  const cutoff = flags.olderThan !== undefined ? now - flags.olderThan * 86_400_000 : null;
+  const cutoff = cutoffOf(flags, now);
   const doomed = runs.filter((r, i) => r.status !== 'running' && ((cutoff !== null && r.startedAt < cutoff) || (flags.keep !== undefined && i >= flags.keep)));
+  if (flags.expect !== undefined && doomed.length !== flags.expect) {
+    throw new Error(`gc would delete ${doomed.length} run${doomed.length === 1 ? '' : 's'}, not ${flags.expect}: the runs changed since the dry run. Nothing was deleted; run the dry run again.`);
+  }
+  const recording = runs.filter((r) => r.status === 'running').map(described);
   const freed = store.unreferencedBlobs(doomed.map((r) => r.runId));
   const report: GcReport = {
     dryRun: flags.dryRun === true,
     olderThanDays: flags.olderThan ?? null,
     keep: flags.keep ?? null,
+    cutoff,
     total: runs.length,
     runs: doomed.map((r) => ({ runId: r.runId, mode: r.mode, status: r.status, startedAt: r.startedAt, command: quoteArgv(r.command.argv) })),
     blobs: freed.hashes.length,
     bytes: freed.bytes,
-    store: { path: dbPath, before: storeBytes(dbPath), after: null },
+    recording,
+    deferred: recording.length > 0 && freed.hashes.length > 0,
+    store: { path: dbPath, before: store.size().bytes, after: null },
   };
   if (report.dryRun) return report;
   store.transaction(() => {
     for (const r of doomed) store.deleteRun(r.runId);
   });
-  store.gcBlobs();
-  store.vacuum();
+  const gc = store.gcBlobs();
+  report.blobs = gc.removed;
+  report.bytes = gc.stored;
+  report.recording = gc.recording.map((id) => recording.find((r) => r.runId === id) ?? { runId: id, startedAt: 0, command: '' });
+  report.deferred = gc.recording.length > 0;
+  // Vacuuming holds the store for as long as it takes, which a recording's next write would wait on.
+  if (!report.deferred) store.vacuum();
+  report.store.after = store.size().bytes;
   return report;
 }
 
 const SHOWN = 20;
 
 function formatGc(r: GcReport): string {
-  const criteria = [r.olderThanDays !== null ? `older than ${r.olderThanDays} day${r.olderThanDays === 1 ? '' : 's'}` : null, r.keep !== null ? `beyond the newest ${r.keep}` : null].filter(Boolean).join(' or ');
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const since = r.olderThanDays !== null ? `older than ${plural(r.olderThanDays, 'day')}` : r.cutoff !== null ? `started before ${new Date(r.cutoff).toISOString()}` : null;
+  const criteria = [since, r.keep !== null ? `beyond the newest ${r.keep}` : null].filter(Boolean).join(' or ');
   const lines: string[] = [];
   if (criteria) {
     const count = r.runs.length ? `${r.runs.length} of ${r.total}` : 'none';
@@ -237,12 +294,18 @@ function formatGc(r: GcReport): string {
   } else {
     lines.push(`${p.dim('▸')} no runs to delete ${p.dim('(--older-than <days> or --keep <n> picks them)')}`);
   }
-  lines.push(`  blobs nothing ${r.dryRun ? 'would reference' : 'referenced'}: ${r.blobs} · ${formatBytes(r.bytes)}`);
+  const live = r.recording.map((x) => shortId(x.runId)).join(', ');
+  const waiting = `${plural(r.recording.length, 'run')} ${r.recording.length === 1 ? 'is' : 'are'} still recording (${live})`;
   if (r.dryRun) {
-    const what = [r.runs.length ? `delete ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}` : null, `free ${formatBytes(r.bytes)}`].filter(Boolean).join(' and ');
+    lines.push(`  blobs nothing would reference: ${r.blobs} · ${formatBytes(r.bytes)}${r.deferred ? p.dim(` · collected once no run is recording: ${waiting}`) : ''}`);
+    const what = [r.runs.length ? `delete ${plural(r.runs.length, 'run')}` : null, `free ${formatBytes(r.bytes)}`].filter(Boolean).join(' and ');
     lines.push(`${p.green('✓')} dry run: would ${what}. Run it without --dry-run to delete.`);
+  } else if (r.deferred) {
+    lines.push(`  ${p.yellow('!')} no blobs collected: ${waiting}. A recording stores a blob just before the call that uses it, so gc leaves blobs alone until it ends; run gc again then. A run whose process was killed stays marked as recording: shadowlap rm <run> removes it.`);
+    lines.push(`${p.green('✓')} deleted ${plural(r.runs.length, 'run')} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
   } else {
-    lines.push(`${p.green('✓')} deleted ${r.runs.length} run${r.runs.length === 1 ? '' : 's'} and ${r.blobs} blob${r.blobs === 1 ? '' : 's'} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
+    lines.push(`  blobs nothing referenced: ${r.blobs} · ${formatBytes(r.bytes)}`);
+    lines.push(`${p.green('✓')} deleted ${plural(r.runs.length, 'run')} and ${plural(r.blobs, 'blob')} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
   }
   return lines.join('\n') + '\n';
 }

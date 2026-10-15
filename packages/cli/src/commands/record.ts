@@ -6,7 +6,7 @@ import { emitJobEvent } from '../job-events.js';
 import { discoverSidecar, parseEffectFlags, startMcpProxy } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, recordActivity, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordActivity, requireRun, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -177,11 +177,14 @@ export function register(program: Command): void {
       const opts = program.opts<GlobalOpts>();
       const cwd = process.cwd();
       const config = loadConfig(cwd);
-      const store = openStore(opts);
+      const recordFirst = 'Record a run first: shadowlap run -- <command>. Calibrate replays a finished recording made here.';
+      // Nothing recorded yet: say so without creating a store.
+      const store = openStoreIfExists(opts);
+      if (!store) throw new Error(recordFirst);
       try {
         // Hook: the project's setup run, once the projects registry knows it, goes in as setupRunId.
         const target = runArg ? { run: requireRun(store, runArg), source: 'given' as const } : calibrationTarget(store);
-        if (!target) throw new Error('Record a run first: shadowlap run -- <command>. Calibrate replays a finished recording made here.');
+        if (!target) throw new Error(recordFirst);
         const parent = target.run;
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent.runId, parent.command.argv))) {
           process.exitCode = 1;
@@ -190,11 +193,14 @@ export function register(program: Command): void {
         say(`${p.yellow('⑂')} Calibrating ${shortId(parent.runId)} (${safe(quoteArgv(parent.command.argv))}): replaying it offline until it is clean\n\n`);
         const offline = Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
         const proposals: Proposal[] = [];
+        // The blobs this calibration's own replays wrote: the only ones it collects afterwards.
+        const written = new Set<string>();
         let outcome: { clean: true; total: number } | { clean: false; why: string; details: string } | null = null;
         for (let round = 1; round <= flags.maxRounds && !outcome; round++) {
           const normalizers = [...config.normalize, ...proposals.map((x) => x.normalizer)];
           const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: {}, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null });
           const s = attempt.ended.summary;
+          for (const hash of store.runBlobRefs(attempt.ended.run.runId)) written.add(hash);
           store.deleteRun(attempt.ended.run.runId);
           const label = `  ${p.dim(`round ${round}`)}  `;
           const d = s.divergence;
@@ -224,12 +230,13 @@ export function register(program: Command): void {
             proposals.push(...step.proposals);
           }
         }
-        store.gcBlobs();
+        // Only blobs nothing else references, and none while a run is recording (gcBlobs checks).
+        store.gcBlobs({ among: written });
         if (!outcome) outcome = { clean: false, why: `still diverging after ${flags.maxRounds} rounds`, details: '' };
         const result = outcome;
-        let written: number[] = [];
+        let added: number[] = [];
         const emitJson = () => {
-          const data = { runId: parent.runId, source: target.source, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: written.length > 0, added: written, stopped: result.clean ? null : { why: result.why, details: result.details } };
+          const data = { runId: parent.runId, source: target.source, clean: result.clean, rounds, normalizers: proposals.map((x) => x.normalizer), written: added.length > 0, added, stopped: result.clean ? null : { why: result.why, details: result.details } };
           emitJobEvent({ type: 'result', data });
           if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
         };
@@ -244,10 +251,12 @@ export function register(program: Command): void {
           const commands = proposals.map(({ normalizer: n }) => `shadowlap normalize add${n.kind ? ` --kind ${n.kind}` : ''}${n.name ? ` --name ${quote(n.name)}` : ''}${n.path !== undefined ? ` --path ${quote(n.path)}` : ''}${n.pattern ? ` --pattern ${quote(n.pattern)}` : ''} --replace ${quote(n.replace)}`);
           const lead = outcome.clean ? `${p.green('✓')} ${proposals.length} normalizer${proposals.length === 1 ? '' : 's'} make${proposals.length === 1 ? 's' : ''} this recording replay clean.` : `${p.yellow('!')} ${proposals.length} normalizer${proposals.length === 1 ? '' : 's'} found before calibration stopped.`;
           if (flags.write) {
-            const added = addRules(cwd, 'normalize', proposals.map((x) => x.normalizer));
-            written = added.rules.map((r) => r.n);
-            recordActivity(opts, added.events.map((e) => ({ ...e, runId: parent.runId })));
-            say(`${lead} Added to ${configPath(cwd)} as normalizer${written.length === 1 ? '' : 's'} ${written.map((n) => `#${n}`).join(', ')}.\n`);
+            const saved = addRules(cwd, 'normalize', proposals.map((x) => x.normalizer));
+            added = saved.rules.filter((r) => r.added).map((r) => r.n);
+            const had = saved.rules.filter((r) => !r.added).map((r) => `#${r.n}`);
+            recordActivity(opts, saved.events.map((e) => ({ ...e, runId: parent.runId })));
+            const where = added.length ? `Added to ${configPath(cwd)} as normalizer${added.length === 1 ? '' : 's'} ${added.map((n) => `#${n}`).join(', ')}.` : `Nothing added to ${configPath(cwd)}.`;
+            say(`${lead} ${where}${had.length ? ` Already there: ${had.join(', ')}.` : ''}\n`);
           } else {
             say(`${lead} Add them with --write, or one by one:\n${commands.map((c) => `    ${safe(c)}`).join('\n')}\n`);
           }

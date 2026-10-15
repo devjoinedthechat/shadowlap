@@ -1,3 +1,7 @@
+import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { calibrationTarget } from '../src/calibrate.js';
 import { storeApiRequest } from '../src/manifest.js';
@@ -102,8 +106,71 @@ describe('unreferencedBlobs', () => {
     expect(store.getBlob(only)).not.toBeNull();
 
     store.deleteRun(old.runId);
-    expect(store.gcBlobs()).toEqual({ removed: 4, bytes: plan.size });
+    expect(store.gcBlobs()).toEqual({ removed: 4, bytes: plan.size, stored: plan.bytes, recording: [] });
     expect(store.getJson(shared)).toEqual({ args: { shared: true } });
     store.close();
+  });
+});
+
+describe('gcBlobs', () => {
+  it('collects nothing while a run is recording, because its next call may reference any blob', () => {
+    const store = Store.open(':memory:');
+    const done = run(store, { status: 'completed', at: 1 });
+    const orphan = store.putJson({ nobody: 'references this yet' });
+    const live = run(store, { status: 'running', at: 2 });
+    expect(store.gcBlobs()).toEqual({ removed: 0, bytes: 0, stored: 0, recording: [live.runId] });
+    expect(store.getJson(orphan)).not.toBeNull();
+    // The recording stores the blob, then the call that references it: still there.
+    tool(store, live.runId, 1, 't', 'read', 3, orphan);
+    store.endRun(live.runId, 'completed');
+    store.deleteRun(done.runId);
+    expect(store.gcBlobs()).toMatchObject({ removed: 0, recording: [] });
+    expect(store.getJson(orphan)).not.toBeNull();
+    store.close();
+  });
+
+  it('collects only the blobs it is given, and only those nothing references', () => {
+    const store = Store.open(':memory:');
+    const kept = run(store, { status: 'completed', at: 1 });
+    const attempt = run(store, { mode: 'replay', status: 'completed', at: 2 });
+    const shared = store.putJson({ args: { shared: true } });
+    const own = store.putJson({ args: { only: 'the attempt' } });
+    const unrelated = store.putJson({ written: 'by something else' });
+    tool(store, kept.runId, 1, 't', 'read', 1, shared);
+    tool(store, attempt.runId, 1, 't', 'read', 2, shared);
+    tool(store, attempt.runId, 2, 't', 'read', 3, own);
+    const refs = store.runBlobRefs(attempt.runId);
+    expect(refs.sort()).toEqual([shared, own].sort());
+    store.deleteRun(attempt.runId);
+    expect(store.gcBlobs({ among: refs })).toMatchObject({ removed: 1, recording: [] });
+    expect(store.getJson(own)).toBeNull();
+    expect(store.getJson(shared)).not.toBeNull();
+    expect(store.getJson(unrelated)).not.toBeNull();
+    store.close();
+  });
+});
+
+describe('size', () => {
+  it('counts the database pages whatever the write-ahead log holds, and shrinks with a vacuum', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-size-'));
+    const path = join(dir, 'store.db');
+    const store = Store.open(path);
+    // Another connection holding the store open, as a dashboard does, keeps the log from being folded back.
+    const holder = Store.open(path);
+    const r = run(store, { status: 'completed', at: 1 });
+    for (let i = 0; i < 200; i++) tool(store, r.runId, i + 1, 't', 'read', i, store.putBlob(randomBytes(4096)));
+    const before = store.size();
+    expect(before.bytes).toBeGreaterThan(200 * 4096);
+    expect(holder.size().bytes).toBe(before.bytes);
+    store.deleteRun(r.runId);
+    store.gcBlobs();
+    expect(store.size().free).toBeGreaterThan(100 * 4096);
+    store.vacuum();
+    const after = store.size();
+    expect(after.bytes).toBeLessThan(before.bytes / 10);
+    expect(after.free).toBe(0);
+    holder.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
