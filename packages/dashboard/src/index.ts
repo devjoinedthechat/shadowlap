@@ -4,6 +4,9 @@ export { actionArgs, actionsFor, callDetail, compare, listRuns, runDetail } from
 export { exportHtml, withAncestors } from './static.js';
 export type { ExportHtmlOptions, ExportHtmlResult, StaticPayload } from './static.js';
 export type { ActionItem, CallDetail, CallRow, RunDetail, RunListItem } from './api.js';
+// The Settings → CI workflow steps, shared with the browser bundle and docs/ci.md.
+export { ACTION, ALERT_FAILURES, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
+export type { AlertsSettings, FixOnFailureSettings } from './ci-yaml.js';
 // Provider-neutral parsing of requests and responses lives in the engine, shared with the terminal UI.
 export { applyDeltas, normalizeConversation, normalizeResponse } from '@shadowlap/engine';
 export type { Block, Conversation, Delta, NormalizedResponse, Turn, TurnBlock } from '@shadowlap/engine';
