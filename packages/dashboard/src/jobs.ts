@@ -207,8 +207,11 @@ interface Job {
   markEnded: () => void;
 }
 
-/** Splits a stream into lines, each cut at `max` characters. Returns a flush for the end. */
-function lines(stream: Readable | null | undefined, max: number, onLine: (line: string, cut: boolean) => void): () => void {
+/**
+ * Splits a stream into lines, each cut at `max` characters, whether it arrived in one chunk or many.
+ * Returns a flush for the end.
+ */
+export function lines(stream: Readable | null | undefined, max: number, onLine: (line: string, cut: boolean) => void): () => void {
   let buffer = '';
   let cutting = false;
   stream?.setEncoding('utf8');
@@ -219,6 +222,7 @@ function lines(stream: Readable | null | undefined, max: number, onLine: (line: 
       const line = buffer.slice(0, i);
       buffer = buffer.slice(i + 1);
       if (cutting) cutting = false;
+      else if (line.length > max) onLine(line.slice(0, max), true);
       else onLine(line.replace(/\r$/, ''), false);
     }
     if (buffer.length > max) {
@@ -249,6 +253,8 @@ export class JobManager {
    */
   version = 0;
   private readonly stopGraceMs: number;
+  /** The dashboard is stopping: no job starts any more. */
+  private closed = false;
 
   constructor(
     private readonly o: {
@@ -297,6 +303,7 @@ export class JobManager {
     if (!def) throw new HttpError(400, `no job kind "${kind.slice(0, 40)}" (this dashboard runs: ${this.kindNames().join(', ') || 'none'})`);
     const spawnCli = this.o.spawnCli;
     if (!spawnCli) throw new HttpError(501, 'actions are not available: start the dashboard with shadowlap dashboard');
+    if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
     if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
 
     const id = randomBytes(8).toString('hex');
@@ -320,6 +327,8 @@ export class JobManager {
     let cwd: string | null;
     let title: string;
     try {
+      // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
+      if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
       if (!Array.isArray(built.args) || !built.args.length || built.args.some((a) => typeof a !== 'string' || a.includes('\0'))) throw new HttpError(500, `job kind "${kind}" built no command`);
       cwd = this.jobCwd(built.cwd);
       title = clean(built.title ?? def.title(req), 120) || kind;
@@ -440,9 +449,14 @@ export class JobManager {
     return this.projectReal;
   }
 
+  /**
+   * Keeps a line of the job's output. The oldest are let go in batches, not one per line: shifting
+   * the whole list for every line of a chatty job would slow every request the dashboard answers.
+   * `view` shows the last MAX_LINES however many are held.
+   */
   private push(job: Job, line: string): void {
     job.lines.push(line);
-    if (job.lines.length > MAX_LINES) {
+    if (job.lines.length >= 2 * MAX_LINES) {
       const over = job.lines.length - MAX_LINES;
       job.lines.splice(0, over);
       job.dropped += over;
@@ -620,7 +634,9 @@ export class JobManager {
   view(idOrJob: string | Job, after = 0): JobView {
     const job = typeof idOrJob === 'string' ? this.jobs.get(idOrJob) : idOrJob;
     if (!job) throw new HttpError(404, 'no such job');
-    const from = Math.max(0, after - job.dropped);
+    // The last MAX_LINES lines; any older ones still held count as dropped.
+    const shown = Math.max(0, job.lines.length - MAX_LINES);
+    const from = Math.max(shown, after - job.dropped);
     return { ...this.item(job), result: job.result, lines: job.lines.slice(from) };
   }
 
@@ -665,6 +681,9 @@ export class JobManager {
     const child = job.child;
     if (!child || job.stopping) return;
     job.stopping = true;
+    // The CLI has exited and only its pipes are open (a process it left holds them): its group may be
+    // gone and its id another's by now. The drain closes the pipes and ends the job within seconds.
+    if (job.exited) return;
     signalJob(child, 'SIGTERM');
     job.killTimer = setTimeout(() => {
       job.killTimer = null;
@@ -681,6 +700,7 @@ export class JobManager {
    * process group may be gone, and its id taken by another.
    */
   kill(): void {
+    this.closed = true;
     for (const job of this.jobs.values()) {
       const child = job.child;
       if (job.done || !child) continue;
@@ -694,6 +714,8 @@ export class JobManager {
    * killed, and its runs still recording are marked as interrupted. Resolves when they are done.
    */
   async close(): Promise<void> {
+    // No job starts from here on, not even one whose builder is still at work.
+    this.closed = true;
     const running = [...this.jobs.values()].filter((j) => !j.done && j.child);
     for (const j of running) this.terminate(j);
     if (!running.length) return;
