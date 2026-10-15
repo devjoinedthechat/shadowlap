@@ -1,6 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ciProvider, recordEvent, resolveAuthor, safeText, Store, ulid, type RunRecord } from '@shadowlap/engine';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, resolveAuthor, safeText, Store, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -145,11 +144,21 @@ function withStore<T>(t: TeamEnv, fn: (store: Store) => T): T {
   }
 }
 
-/** Writes one key into shadowlap.config.json, keeping everything else as the user wrote it. */
+/**
+ * Writes one key into shadowlap.config.json as every other edit of it does (the engine's
+ * config-file): under its lock, so an edit from the dashboard's Settings at the same moment isn't
+ * lost, in one atomic replace, and with every other key, the indentation and the line endings as
+ * the user wrote them.
+ */
 function setConfigKey(cwd: string, key: string, value: unknown): void {
-  const path = configPath(cwd);
-  const existing = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>) : {};
-  writeFileSync(path, JSON.stringify({ ...existing, [key]: value }, null, 2) + '\n');
+  try {
+    editConfigFile(cwd, {}, (data) => {
+      data[key] = value;
+    });
+  } catch (err) {
+    if (err instanceof ConfigFileError || err instanceof ConfigConflictError) throw new TeamError(err.message);
+    throw err;
+  }
 }
 
 /** Where this machine writes: the store's folder, or in a pull request's CI job, that pull request's own. */

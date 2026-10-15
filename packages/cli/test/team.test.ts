@@ -417,6 +417,16 @@ describe('store setup', () => {
     expect(m.take().out).toContain('✓ Store set: r2://0123456789abcdef/agent-runs/support-agent (Cloudflare R2)');
   });
 
+  it("edits the config as the dashboard's Settings do: its own layout kept", () => {
+    const m = machine('setup-layout', 'x@northwind.example');
+    const file = join(m.cwd, 'shadowlap.config.json');
+    writeFileSync(file, '{\r\n    "clock": "exact",\r\n    "keyFromANewerVersion": 1\r\n}\r\n');
+    expect(storeSet(m, 'r2://0123456789abcdef/agent-runs/support-agent')).toBe(0);
+    expect(storePushFromCi(m, 'off')).toBe(0);
+    // Four spaces and CRLF as written, every key in its place, the new ones after them.
+    expect(readFileSync(file, 'utf8')).toBe('{\r\n    "clock": "exact",\r\n    "keyFromANewerVersion": 1,\r\n    "store": "r2://0123456789abcdef/agent-runs/support-agent",\r\n    "ciPush": false\r\n}\r\n');
+  });
+
   it('checks list, write, read and delete, and reports encryption, versioning and object lock', async () => {
     const m = machine('setup-check', 'dana@northwind.example');
     storeSet(m, storeUrl('checked'));
