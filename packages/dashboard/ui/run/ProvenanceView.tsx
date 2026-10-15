@@ -221,7 +221,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                       <Org origin={originOf(c)} />
                     </td>
                     <td>
-                      <code title={c.fingerprint ?? c.requestRef ?? undefined}>{c.fingerprint ? `${shortFingerprint(c.fingerprint)}…` : c.requestRef ? shortHash(c.requestRef) : '—'}</code>
+                      {/* The request blob is on the hover: the stored request, kept once like the response. */}
+                      <code title={[c.fingerprint ? `sha256:${c.fingerprint}` : null, c.requestRef ? `request blob ${c.requestRef}` : null].filter(Boolean).join('\n') || undefined}>{c.fingerprint ? `${shortFingerprint(c.fingerprint)}…` : c.requestRef ? shortHash(c.requestRef) : '—'}</code>
                     </td>
                     <td>
                       <code title={c.responseRef ?? undefined}>{c.responseRef ? shortHash(c.responseRef) : '—'}</code>

@@ -153,6 +153,19 @@ describe('what the run page offers', () => {
     expect(o.bisect).toMatchObject({ target: { kind: 'run', runId: id }, failed: false });
     expect(o.test).toBeNull();
   });
+
+  it('never bisects a run blame found failing as if it passed', () => {
+    // Exited 0 and kept no checks of its own, but blame confirmed it fails the check it was given.
+    const id = addRun(store, { startedAt: T0 + 31, calls: 'l', meta: { blame: blameOf(1, null, T0) } });
+    expect(runOffers(store, id, { redact: [], config: null })!.bisect).toMatchObject({
+      failed: true,
+      good: null,
+      bad: 'a7b3c2e',
+      fork: true,
+      args: null,
+      unavailable: expect.stringContaining(`shadowlap bisect ${id.slice(0, 10)} --good <commit> --bad a7b3c2e --expect '<checks>' --fork`),
+    });
+  });
 });
 
 describe('the Forks view’s marks and the Calls view’s values', () => {

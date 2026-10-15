@@ -110,6 +110,27 @@ export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameO
   return failed.length ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
 }
 
+/**
+ * Find the commit for a run blame found failing: one that exited 0 and kept no checks of its own
+ * failed the check blame was given, which the tests' read model can't see on the run, so it would
+ * look for where a passing run changes. Bisect needs that check (`--expect`, replayed with `--fork`),
+ * and the job takes none: the page says so, with the command to run instead.
+ */
+export function blamedBisect(run: RunRecord, b: BisectChoices | null): BisectChoices | null {
+  if (!b || b.failed || b.unavailable || b.target.kind !== 'run' || !run.meta?.blame) return b;
+  const bad = b.good;
+  return {
+    ...b,
+    failed: true,
+    good: null,
+    bad,
+    fork: true,
+    live: true,
+    args: null,
+    unavailable: `blame found this run failing a check that bisect can't know from the run: give it on the command line, shadowlap bisect ${run.runId.slice(0, 10)} --good <commit>${bad ? ` --bad ${bad}` : ''} --expect '<checks>' --fork`,
+  };
+}
+
 export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInput): RunOffers | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
@@ -118,7 +139,7 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     copies: copyRules(input.redact),
     team: teamOf(store, run, input.config?.store),
     blame: blameOffer(store, run, input.config?.tests),
-    bisect: bisectChoices(store, run.runId, { goldens: input.goldens ?? [] }),
+    bisect: blamedBisect(run, bisectChoices(store, run.runId, { goldens: input.goldens ?? [] })),
     test: testRunBanner(store, run.runId),
   };
 }
