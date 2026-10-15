@@ -32,10 +32,12 @@ Output:
           - "3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f"
           + "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
       hint: this looks like a UUID; to ignore it in matching, add a normalizer
-        shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid
+        shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'
 
 1 passed, 1 failed · 0 upstream requests
 ```
+
+Besides dates, UUIDs and ULIDs, the report names the normalizer for an id the agent makes anew on every run: one that looks generated (16 or more hex digits, a prefix with a random tail such as `req_8f3a2c1d9e7b`, a long random token), or one under a key that names a request, a trace, a span, a session, a nonce or an idempotency key. Any other id that changed, such as a customer's number or an order's code, may be a real change: the agent acting on another customer is what the test is there to catch. The report says so, and gives the normalizer only for when you know that id changes on every run; a normalizer would hide a real change from every later test.
 
 The JUnit report renders in GitHub, GitLab and most CI dashboards; each pack is a test case, and a failure carries the divergence report and the agent's output.
 
@@ -142,7 +144,7 @@ Each golden that diverged is re-recorded live from its first call, with every wr
 ✓ refund-flow: 31/31 replayed, 12k input tokens not re-spent (updated)
 ```
 
-Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. When what diverged is a value the agent makes anew on every run, such as a UUID, a date or a request id, updating only moves the problem to the next run, and `--update` says so, naming the path and the [normalizer](./normalizers-and-redaction.md) that fixes it for good:
+Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. When what diverged is a value the agent makes anew on every run, such as a UUID, a date or a request id, updating only moves the problem to the next run, and `--update` says so, naming the path and the [normalizer](./normalizers-and-redaction.md) that fixes it for good (for an id that may be a real change, it says that the update records the new one, and gives the normalizer for the case where it changes every run):
 
 ```
     ! $.metadata.user_id looks like a UUID, a value that changes every run: updating re-records it, and the next run diverges again. A normalizer fixes it for good:

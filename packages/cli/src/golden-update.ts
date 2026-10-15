@@ -70,16 +70,19 @@ export function describeChange(before: CallCounts, after: CallCounts): string {
 
 /**
  * Warnings that a divergence is a value the agent makes anew on every run, each naming its path and
- * the command that adds the normalizer that fixes it for good. Empty when it isn't.
+ * the command that adds the normalizer that fixes it for good, and that a changed id may be a real
+ * change, which the update records. Empty when there is neither.
  */
 export function volatileWarning(d: DivergenceReport | null, normalizers: readonly Normalizer[] = []): Array<{ text: string; command: string }> {
   if (!d) return [];
   const { values, explainsAll } = volatileValues(d, normalizers);
   return values.map((v) => ({
     text:
-      v.op === 'changed'
-        ? `${v.path} looks like ${v.looks}, a value that changes every run: updating re-records it, and the next run diverges again. ${explainsAll ? 'A normalizer fixes it for good:' : 'The update covers the rest of the change; a normalizer fixes this part for good:'}`
-        : `${v.path} is new in the request and looks like ${v.looks}, a value that changes every run: after this update the next run diverges on it, unless a normalizer masks it:`,
+      v.op === 'added'
+        ? `${v.path} is new in the request and looks like ${v.looks}, a value that changes every run: after this update the next run diverges on it, unless a normalizer masks it:`
+        : v.certain
+          ? `${v.path} looks like ${v.looks}, a value that changes every run: updating re-records it, and the next run diverges again. ${explainsAll ? 'A normalizer fixes it for good:' : 'The update covers the rest of the change; a normalizer fixes this part for good:'}`
+          : `${v.path} is an id that changed, which may be a real change (the agent acting on another customer or order): the update records the new one. If it is made anew on every run instead, the next run diverges again, and a normalizer fixes it for good:`,
     command: normalizeAddCommand(v.normalizer),
   }));
 }

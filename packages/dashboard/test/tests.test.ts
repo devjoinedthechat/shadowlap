@@ -180,6 +180,24 @@ describe('the Tests screen', () => {
     store.close();
   });
 
+  it('shows a changed business id as maybe a real change, leading with neither the update nor the normalizer', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    const diff = [{ path: '$.args.order_id', op: 'changed', before: 'A-1042', after: 'A-1043' }];
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'diverged', reason: 'diverged at call 2 (tool issue_refund)', data: { divergence: { type: 'request_changed', callNo: 2, kind: 'tool', name: 'issue_refund', replayedBefore: 1, diff, text: '✗ Diverged at call 2' } } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const goldensX: GoldenSource[] = [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    const view = testsView(store, goldensX);
+    const [d] = view.divergences;
+    expect(d).toMatchObject({ normalizerFixes: false, maybeReal: true, volatile: { path: '$.args.order_id', looks: 'an id', certain: false, command: "shadowlap normalize add --kind tool --name issue_refund --path '$.args.order_id' --replace '<ID>'" } });
+    // Should the person say it changes every run, its rule alone makes the replay match: no update after it.
+    expect(d!.normalizeAndTest).toEqual([['normalize', 'add', '--kind', 'tool', '--name', 'issue_refund', '--path', '$.args.order_id', '--replace', '<ID>'], ['test', 'goldens/x']]);
+    expect(view.rows[0]!.last.line).toBe('diverged at call 2 · $.args.order_id changed, an id that may be a real change');
+    expect(view.commands.updateAll).toEqual(['test', 'goldens/x', '--update']);
+    expect(normalizeAndTestJob(store, goldensX, { golden: 'goldens/x' })).toMatchObject({ title: 'Adding a normalizer', steps: d!.normalizeAndTest });
+    store.close();
+  });
+
   it('adds a rule for each value that changes every run before re-running, and bisects from a revision tested as committed', () => {
     const store = Store.open(':memory:');
     const day = (n: number, revision: string, ok: boolean, data?: TestResultData) => {
@@ -333,9 +351,10 @@ describe('the diverged-test banner on a run', () => {
     expect(testRunBanner(store, replay.runId)).toEqual({
       golden: 'goldens/refund-in-limit',
       session: s.sessionId,
-      volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, args: ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
+      volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true, normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, args: ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
       normalizerFixes: true,
-      values: { values: [{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } }], explainsAll: true },
+      maybeReal: false,
+      values: { values: [{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true, normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } }], explainsAll: true, coversAll: true },
       rerun: ['test', 'goldens/refund-in-limit'],
       update: ['test', 'goldens/refund-in-limit', '--update'],
       normalizeAndTest: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']],

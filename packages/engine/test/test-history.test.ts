@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskedChange, normalizeAddArgs, normalizeAddCommand, Store, volatileValues, type DivergenceReport } from '../src/index.js';
+import { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, Store, valueHints, volatileValues, type DivergenceReport } from '../src/index.js';
 
 describe('test history in the store', () => {
   it('keeps sessions and per-golden results, newest first, with what the Tests screen needs', () => {
@@ -106,20 +106,76 @@ describe('values that change every run', () => {
 
   it('names a changed UUID, date or id with the normalizer that masks it for good', () => {
     const uuid = volatileValues(divergence([{ path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' }]));
-    expect(uuid.explainsAll).toBe(true);
-    expect(uuid.values).toEqual([{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } }]);
+    expect(uuid).toMatchObject({ explainsAll: true, coversAll: true });
+    expect(uuid.values).toEqual([{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true, normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } }]);
     expect(normalizeAddCommand(uuid.values[0]!.normalizer)).toBe("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
     expect(normalizeAddArgs(uuid.values[0]!.normalizer)).toEqual(['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>']);
 
+    // A request's id is made for that request, whatever it looks like.
     const id = volatileValues(divergence([{ path: '$.args.request_id', op: 'changed', before: 'req_8f3a2c', after: 'req_19bd07' }], 'tool', 'lookup'));
-    expect(id.values[0]).toEqual({ path: '$.args.request_id', looks: 'an id', op: 'changed', normalizer: { kind: 'tool', name: 'lookup', path: '$.args.request_id', replace: '<ID>' } });
+    expect(id.values[0]).toEqual({ path: '$.args.request_id', looks: 'a generated id', op: 'changed', certain: true, normalizer: { kind: 'tool', name: 'lookup', path: '$.args.request_id', replace: '<ID>' } });
+    expect(id.explainsAll).toBe(true);
     expect(normalizeAddCommand(id.values[0]!.normalizer)).toBe("shadowlap normalize add --kind tool --name lookup --path '$.args.request_id' --replace '<ID>'");
+  });
+
+  it('never takes a changed business id for one made every run: it may be the agent acting on another customer', () => {
+    const user = volatileValues(divergence([{ path: '$.metadata.user_id', op: 'changed', before: 42, after: 43 }]));
+    expect(user.values).toEqual([{ path: '$.metadata.user_id', looks: 'an id', op: 'changed', certain: false, normalizer: { kind: 'api', path: '$.metadata.user_id', replace: '<ID>' } }]);
+    // A normalizer is not the fix, though one would make the replay match if the person says it is.
+    expect(user).toMatchObject({ explainsAll: false, coversAll: true });
+    const order = volatileValues(divergence([{ path: '$.args.order_id', op: 'changed', before: 'A-1042', after: 'A-1043' }], 'tool', 'issue_refund'));
+    expect(order.values).toMatchObject([{ path: '$.args.order_id', looks: 'an id', certain: false }]);
+    expect(order).toMatchObject({ explainsAll: false, coversAll: true });
+    for (const [before, after] of [['ORD-2024-000123', 'ORD-2024-000124'], ['user_1042', 'user_1043'], ['7', '8']]) {
+      expect(volatileValues(divergence([{ path: '$.args.customer_id', op: 'changed', before, after }])).values[0], before).toMatchObject({ certain: false });
+    }
+    // The same key holding values that look generated changes every run.
+    for (const [before, after] of [
+      ['a3f9c2e81b7d4f60', '1c0e7d9b2a4f8e35'],
+      ['cus_8f3a2c1d9e7b', 'cus_1b2c3d4e5f60'],
+      ['V1StGXR8_Z5jdHi6B-myT', 'Uakgb_J5m9g-0JDMbcJqL'],
+      ['01HZX3M7Q2ABCDEFGHJKMNPQRS', '01HZX3M7Q2ABCDEFGHJKMNPQRT'],
+    ]) {
+      const v = volatileValues(divergence([{ path: '$.args.customer_id', op: 'changed', before, after }]));
+      expect(v.values[0], before).toMatchObject({ certain: true });
+      expect(v.explainsAll, before).toBe(true);
+    }
+    // So does any id under a key that names a request, trace, span, session, nonce or idempotency key.
+    for (const key of ['requestId', 'x-request-id', 'trace_id', 'spanId', 'session_id', 'nonce', 'idempotency_key', 'correlationId']) {
+      expect(volatileValues(divergence([{ path: `$.meta.${key}`, op: 'changed', before: 41, after: 42 }])).values[0], key).toMatchObject({ certain: true });
+    }
+    // A mix of the two is no normalizer's whole fix.
+    expect(volatileValues(divergence([
+      { path: '$.metadata.request_id', op: 'changed', before: 'req_8f3a2c1d9e7b', after: 'req_1b2c3d4e5f60' },
+      { path: '$.metadata.user_id', op: 'changed', before: 42, after: 43 },
+    ]))).toMatchObject({ explainsAll: false, coversAll: true });
+    // A new field holding a business id is part of the change, not a value to mask.
+    expect(volatileValues(divergence([{ path: '$.args.order_id', op: 'added', after: 'A-1042' }])).values).toEqual([]);
+    expect(looksGenerated('A-1043')).toBe(false);
+    expect(looksGenerated('req_8f3a2c1d9e7b')).toBe(true);
+  });
+
+  it('hints at every value the engine\'s own hints leave out, with its normalizer', () => {
+    const d: DivergenceReport = {
+      ...divergence([
+        { path: '$.metadata.request_id', op: 'changed', before: 'req_8f3a2c1d9e7b', after: 'req_1b2c3d4e5f60' },
+        { path: '$.metadata.user_id', op: 'changed', before: 42, after: 43 },
+        { path: '$.metadata.sent_at', op: 'changed', before: '2026-09-01T10:00:00Z', after: '2026-09-02T11:00:00Z' },
+      ]),
+      hints: [{ message: 'this looks like a timestamp; to ignore it in matching, add a normalizer', normalizer: { kind: 'api', path: '$.metadata.sent_at', pattern: 'iso-datetime', replace: '<DATETIME>' } }],
+    };
+    expect(valueHints(d)).toEqual([
+      { message: '$.metadata.request_id looks like a generated id, made anew on every run; to ignore it in matching, add a normalizer', normalizer: { kind: 'api', path: '$.metadata.request_id', replace: '<ID>' } },
+      { message: '$.metadata.user_id is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer', normalizer: { kind: 'api', path: '$.metadata.user_id', replace: '<ID>' } },
+    ]);
+    const added = valueHints(divergence([{ path: '$.metadata.trace_id', op: 'added', after: 'a3f9c2e81b7d4f601c0e7d9b2a4f8e35' }]));
+    expect(added[0]!.message).toBe('$.metadata.trace_id is new in the request and looks like a generated id: if the change is meant, add this normalizer as well as updating the golden, or the next run diverges on it');
   });
 
   it('looks inside a field the request carries for the first time, but not inside an appended message', () => {
     const added = volatileValues(divergence([{ path: '$.metadata', op: 'added', after: { user_id: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', plan: 'pro', trace: { request_id: 'req_8f3a2c' }, tags: ['req_1a2b3c'] } }]));
     expect(added.values.map((v) => [v.path, v.looks, v.op])).toEqual([
-      ['$.metadata.trace.request_id', 'an id', 'added'],
+      ['$.metadata.trace.request_id', 'a generated id', 'added'],
       ['$.metadata.user_id', 'a UUID', 'added'],
     ]);
     expect(added.values[1]!.normalizer).toEqual({ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
@@ -138,7 +194,7 @@ describe('values that change every run', () => {
     expect(volatileValues(divergence([uuid, scratch]), masks)).toMatchObject({ values: [{ path: '$.metadata.user_id' }], explainsAll: true });
     // A UUID already masked is not offered again; what is left is a prompt change.
     const both = [...masks, { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }];
-    expect(volatileValues(divergence([uuid, scratch, { path: '$.messages[0].content', op: 'changed', before: 'triage', after: 'triage it' }]), both)).toEqual({ values: [], explainsAll: false });
+    expect(volatileValues(divergence([uuid, scratch, { path: '$.messages[0].content', op: 'changed', before: 'triage', after: 'triage it' }]), both)).toEqual({ values: [], explainsAll: false, coversAll: false });
     // Rules for another kind or tool, or a path elsewhere, mask nothing here.
     expect(maskedChange(scratch, [{ kind: 'tool', path: '$.system', pattern: '/agent-[A-Za-z0-9]+/', replace: 'X' }], { kind: 'api', name: 'POST /v1/messages' })).toBe(false);
     expect(maskedChange(scratch, [{ path: '$.other', replace: 'X' }], { kind: 'api', name: 'POST /v1/messages' })).toBe(false);
@@ -152,7 +208,7 @@ describe('values that change every run', () => {
     expect(added.values[0]).toMatchObject({ looks: 'a UUID', op: 'added', normalizer: { pattern: 'uuid' } });
 
     const prompt = volatileValues(divergence([{ path: '$.system', op: 'changed', before: 'You are a support agent.', after: 'You are a support agent. Be brief.' }]));
-    expect(prompt).toEqual({ values: [], explainsAll: false });
+    expect(prompt).toEqual({ values: [], explainsAll: false, coversAll: false });
     const both = volatileValues(divergence([
       { path: '$.system', op: 'changed', before: 'Be brief.', after: 'Be concise.' },
       { path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' },

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
@@ -194,6 +194,9 @@ export async function testAttempt(
     store.updateRunMeta(run.runId, { checks });
   }
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
+  // Every value the report lists that changes every run gets its normalizer, not only the dates and
+  // UUIDs the engine hints at: a request id too, and an id that may be a real change says so.
+  if (summary.divergence) summary.divergence.hints = [...(summary.divergence.hints ?? []), ...valueHints(summary.divergence, [...o.normalizers, ...(parent.meta?.redactions ?? [])])];
   const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
   let failure: JunitCase['failure'];
   let kind: TestAttempt['kind'] = null;

@@ -157,6 +157,55 @@ describe('shadowlap test history', () => {
   });
 });
 
+describe('ids in a divergence', () => {
+  // One model call with metadata: a request id made anew on every run when asked, and a customer's id.
+  const AGENT = `import { randomBytes } from 'node:crypto';
+const metadata = { customer_id: process.env.CUSTOMER ?? 'A-1042' };
+if (process.env.WITH_REQUEST_ID) metadata.request_id = 'req_' + randomBytes(6).toString('hex');
+const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 32, metadata, messages: [{ role: 'user', content: 'triage' }] }) });
+if (!res.ok) process.exit(1);
+console.log(JSON.stringify((await res.json()).content));
+`;
+
+  async function golden(env: NodeJS.ProcessEnv = {}): Promise<void> {
+    writeFileSync(join(work, 'agent.mjs'), AGENT);
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], env);
+    expect(recorded.code, recorded.out).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/ids'])).code).toBe(0);
+  }
+
+  it('names the normalizer for a request id made anew on every run, which is the whole advice', async () => {
+    await golden({ WITH_REQUEST_ID: '1' });
+    const r = await shadowlap(['test', 'goldens/ids'], { WITH_REQUEST_ID: '1' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('~ $.metadata.request_id');
+    expect(r.out).toContain('hint: $.metadata.request_id looks like a generated id, made anew on every run; to ignore it in matching, add a normalizer');
+    const command = "shadowlap normalize add --kind api --path '$.metadata.request_id' --replace '<ID>'";
+    expect(r.out).toContain(command);
+    // The normalizer is the fix, so no update is offered.
+    expect(r.out).not.toContain('If the change was intended');
+    const s = store();
+    expect(s.listTestResults({ golden: 'goldens/ids' })[0]!.data!.divergence).toMatchObject({ volatile: { explainsAll: true, values: [{ path: '$.metadata.request_id', certain: true }] }, hints: [{ normalizer: { path: '$.metadata.request_id', replace: '<ID>' } }] });
+    s.close();
+    // As printed, it fixes it.
+    expect((await shadowlap(command.split(' ').slice(1).map((a) => a.replace(/^'|'$/g, '')))).code).toBe(0);
+    expect((await shadowlap(['test', 'goldens/ids'], { WITH_REQUEST_ID: '1' })).code).toBe(0);
+  });
+
+  it('says a changed customer id may be a real change, and offers the update as well as the normalizer', async () => {
+    await golden();
+    const r = await shadowlap(['test', 'goldens/ids'], { CUSTOMER: 'A-1043' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('hint: $.metadata.customer_id is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer');
+    expect(r.out).toContain("shadowlap normalize add --kind api --path '$.metadata.customer_id' --replace '<ID>'");
+    expect(r.out).toContain('If the change was intended, update it: shadowlap test goldens/ids --update');
+    const u = await shadowlap(['test', 'goldens/ids', '--update'], { CUSTOMER: 'A-1043' });
+    expect(u.out).toContain('! $.metadata.customer_id is an id that changed, which may be a real change (the agent acting on another customer or order): the update records the new one.');
+    expect(u.out).toContain('replaced goldens/ids in the working tree');
+    expect(u.code, u.out).toBe(0);
+  });
+});
+
 // Signals to a process group, and an agent that must be gone afterwards: POSIX only.
 describe.skipIf(process.platform === 'win32')('a test session a signal stops', () => {
   // One model call, then, replaying as "slow" with SLOW_MS set, a long wait. It writes its pid first.

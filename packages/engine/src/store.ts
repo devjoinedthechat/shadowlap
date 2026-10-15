@@ -198,7 +198,7 @@ export interface TestResultData {
     diff?: Array<{ path: string; op: string; before?: unknown; after?: unknown }>;
     entries?: number;
     hints?: Array<{ message: string; normalizer?: Normalizer }>;
-    volatile?: { values: Array<{ path: string; looks: string; op: 'changed' | 'added'; normalizer: Normalizer }>; explainsAll: boolean };
+    volatile?: { values: Array<{ path: string; looks: string; op: 'changed' | 'added'; certain?: boolean; normalizer: Normalizer }>; explainsAll: boolean; coversAll?: boolean };
     text: string;
   };
   /** The failure as the CLI printed it under the golden's line. */

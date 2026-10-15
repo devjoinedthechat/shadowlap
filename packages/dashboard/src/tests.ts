@@ -125,13 +125,24 @@ export interface DivergenceView {
   callName: string;
   /** The report as `shadowlap test` printed it. */
   text: string;
-  /** The value that changes every run, and the normalizer that masks it, when that is what diverged. */
-  volatile: { path: string; looks: string; op: 'changed' | 'added'; normalizer: Normalizer; args: string[]; command: string } | null;
   /**
-   * The normalizers alone make the replay match: add them and re-run. When false, the golden needs
-   * updating as well (the request carries a field the recording never had, or more changed).
+   * The value that changes every run, and the normalizer that masks it, when that is what diverged.
+   * `certain` false: an id that may be a real change (another customer, another order), not known to
+   * change every run.
+   */
+  volatile: { path: string; looks: string; op: 'changed' | 'added'; certain: boolean; normalizer: Normalizer; args: string[]; command: string } | null;
+  /**
+   * Values that surely change every run are all that diverged: Add normalizer and re-run is the fix,
+   * and the screen leads with it. When false, the golden needs updating (the request carries a field
+   * the recording never had, or more changed), or an id may be a real change.
    */
   normalizerFixes: boolean;
+  /**
+   * An id that may be a real change diverged: the screen says so, and offers Update golden and Add
+   * normalizer side by side, leading with neither. Only the person knows whether that id is made anew
+   * on every run, and a normalizer would hide a real change from every later test.
+   */
+  maybeReal: boolean;
   /** Arguments for the CLI (after `shadowlap`): re-run this golden, update it. */
   rerun: string[];
   update: string[];
@@ -241,7 +252,19 @@ function lastActive(store: Store, s: TestSession): number {
 
 /** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
 function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
-  return r.data?.divergence?.volatile ?? volatileValues(d);
+  const kept = r.data?.divergence?.volatile;
+  return kept ? storedVolatile(kept) : volatileValues(d);
+}
+
+/** Stored values, with what a result kept before ids were told apart read as it was meant then. */
+function storedVolatile(kept: NonNullable<NonNullable<NonNullable<TestResult['data']>['divergence']>['volatile']>): VolatileValues {
+  return { values: kept.values.map((v) => ({ ...v, certain: v.certain ?? true })), explainsAll: kept.explainsAll, coversAll: kept.coversAll ?? kept.explainsAll };
+}
+
+/** The first value a view shows, with the command that adds its normalizer. */
+function shownValue(values: VolatileValues): DivergenceView['volatile'] {
+  const v = values.values[0];
+  return v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null;
 }
 
 function divergenceOf(r: TestResult): DivergenceReport | null {
@@ -275,7 +298,7 @@ export function resultLine(r: TestResult, checks: readonly string[]): string {
       const d = divergenceOf(r);
       if (!d) return r.reason ?? 'diverged';
       const v = volatileOf(r, d).values[0];
-      if (v) return `diverged at call ${d.callNo} · ${v.path} looks like ${v.looks}`;
+      if (v) return `diverged at call ${d.callNo} · ${v.path} ${v.certain ? `looks like ${v.looks}` : 'changed, an id that may be a real change'}`;
       const path = d.diff?.[0]?.path;
       return path ? `diverged at call ${d.callNo} · ${path}` : `diverged at call ${d.callNo} (${d.type === 'new_call' ? `new call ${d.name}` : d.type === 'beyond_recording' ? 'more calls than recorded' : `${d.kind} ${d.name}`})`;
     }
@@ -309,14 +332,15 @@ const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun
 const committed = (rev: string | null) => (rev ? rev.replace(/\+dirty$/, '') : null);
 
 /**
- * `normalize add` for each value that changes every run, then `test` on the golden; null when there
- * is none. When the rules alone can't make the replay match, the golden is updated after them: a
- * value the recording never had can't be masked into a match, and neither can a change of another
- * kind. The rules still matter then, or the run after the update diverges again.
+ * `normalize add` for each value listed, then `test` on the golden; null when there is none. When
+ * the rules alone can't make the replay match, the golden is updated after them: a value the
+ * recording never had can't be masked into a match, and neither can a change of another kind. The
+ * rules still matter then, or the run after the update diverges again. An id that may be a real
+ * change gets its rule too: running this is the person saying it changes every run.
  */
 function normalizeSteps(volatile: VolatileValues, golden: string): string[][] | null {
   if (!volatile.values.length) return null;
-  return [...volatile.values.map((v) => normalizeAddArgs(v.normalizer)), volatile.explainsAll ? ['test', golden] : ['test', golden, '--update']];
+  return [...volatile.values.map((v) => normalizeAddArgs(v.normalizer)), volatile.coversAll ? ['test', golden] : ['test', golden, '--update']];
 }
 
 /**
@@ -420,7 +444,6 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     const d = latest.failure === 'diverged' ? divergenceOf(latest) : null;
     if (d) {
       const volatile = volatileOf(latest, d);
-      const v = volatile.values[0];
       divergences.push({
         golden: row.path,
         name: row.name,
@@ -429,8 +452,9 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         kind: d.kind,
         callName: d.name,
         text: `✗ ${row.name}: ${latest.reason ?? `diverged at call ${d.callNo}`}\n${(latest.data?.divergence?.text ?? '').split('\n').map((l) => `    ${l}`).join('\n')}`,
-        volatile: v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null,
+        volatile: shownValue(volatile),
         normalizerFixes: volatile.explainsAll,
+        maybeReal: volatile.values.some((v) => !v.certain),
         rerun: ['test', row.path],
         update: ['test', row.path, '--update'],
         normalizeAndTest: normalizeSteps(volatile, row.path),
@@ -585,8 +609,10 @@ export interface TestRunBanner {
   session: string;
   /** The value that changes every run, with the normalizer that masks it, when that is what diverged. */
   volatile: DivergenceView['volatile'];
-  /** The normalizer alone makes the replay match: Add normalizer, then re-run the golden. */
+  /** Values that surely change every run are all that diverged: Add normalizer, then re-run the golden. */
   normalizerFixes: boolean;
+  /** An id that may be a real change diverged: offer Update golden and Add normalizer alike (see DivergenceView). */
+  maybeReal: boolean;
   /** Every value that changes every run in the divergence, with the normalizer for each. */
   values: VolatileValues;
   /** Arguments for the CLI: re-run the golden (after adding the normalizer), or update it. */
@@ -611,13 +637,14 @@ export function testRunBanner(store: Store, runId: string): TestRunBanner | null
   const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
   if (result?.failure !== 'diverged') return null;
   // As judged when it ran, under the normalizers in force then; judged again for older history.
-  const found = (result.runId === run.runId ? result.data?.divergence?.volatile : undefined) ?? volatileValues(run.divergence);
-  const v = found.values[0];
+  const kept = result.runId === run.runId ? result.data?.divergence?.volatile : undefined;
+  const found = kept ? storedVolatile(kept) : volatileValues(run.divergence);
   return {
     golden: test.golden,
     session: test.session,
-    volatile: v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null,
+    volatile: shownValue(found),
     normalizerFixes: found.explainsAll,
+    maybeReal: found.values.some((v) => !v.certain),
     values: found,
     rerun: ['test', test.golden],
     update: ['test', test.golden, '--update'],
@@ -806,11 +833,12 @@ export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource
     const one = volatile.values.find((v) => v.path === req.path);
     if (!one) return { error: 'no value that changes every run diverged at that path' };
     // Its rule alone makes the replay match only when it was all that diverged.
-    volatile = { values: [one], explainsAll: volatile.explainsAll && volatile.values.length === 1 };
+    const alone = volatile.values.length === 1;
+    volatile = { values: [one], explainsAll: volatile.explainsAll && alone, coversAll: volatile.coversAll && alone };
   }
   const steps = normalizeSteps(volatile, golden);
   if (!steps) return { error: `${golden} diverged on more than values that change every run: if the change was intended, update the golden` };
-  return { title: volatile.explainsAll ? 'Adding a normalizer' : 'Adding a normalizer and updating the golden', steps, ...(runId ? { runId } : {}) };
+  return { title: volatile.coversAll ? 'Adding a normalizer' : 'Adding a normalizer and updating the golden', steps, ...(runId ? { runId } : {}) };
 }
 
 /**
