@@ -1,4 +1,5 @@
 import { jsonText } from './format.js';
+import type { PromptChoice } from './types.js';
 
 /**
  * The fork menu, from the action list the server sends for a call: what applies to the call, each
@@ -11,7 +12,7 @@ export interface ActionLike {
   key: string;
   label: string;
   opensRun: boolean;
-  prompt: { label: string; placeholder?: string; initial?: string; choices?: ReadonlyArray<{ value: string; label: string }> } | null;
+  prompt: { label: string; placeholder?: string; initial?: string; choices?: readonly PromptChoice[] } | null;
   disabled: string | null;
   /** The CLI flag it adds, shown on the right ("--fail-at 19=529"). */
   flag?: string;
@@ -131,6 +132,14 @@ export function injectsAsUser(a: ActionLike): boolean {
   return /--inject-as\s+user\b/.test(a.flag ?? '');
 }
 
+/**
+ * What a dialog sends for an answer picked from its list: the choice's value, followed by the few
+ * words a choice with a field of its own asks for (`error:` and `connection reset`).
+ */
+export function choiceAnswer(choice: PromptChoice, words: string): string {
+  return choice.text ? `${choice.value}${words.trim()}` : choice.value;
+}
+
 /** What an action's dialog says, and what it asks. */
 export interface DialogCopy {
   title: string;
@@ -144,7 +153,7 @@ export interface DialogCopy {
   /** The command it runs, under the field, with … for what is typed. */
   command?: string;
   /** Answers to pick from (any other answer is accepted too). */
-  choices?: ReadonlyArray<{ value: string; label: string }>;
+  choices?: readonly PromptChoice[];
 }
 
 export interface DialogContext {

@@ -78,6 +78,8 @@ describe('the run’s banner', () => {
   it('says where blame lost a run, as model call k of m in its scope', () => {
     expect(bannerFor({ ...base, status: 'failed', blame: { callNo: 17, modelCall: { k: 9, m: 15 }, confidence: 'high', rescuedRunId: '01K5CQ4R1T', scope: null } })).toEqual({ kind: 'lost', callNo: 17, why: 'model call 9 of 15 · confidence high', rescuedRunId: '01K5CQ4R1T' });
     expect(bannerFor({ ...base, blame: { callNo: 4, scope: 'agent' } })).toMatchObject({ why: 'call #4 · scope agent' });
+    // What asking again did ends the line, as the fixes read model words it.
+    expect(bannerFor({ ...base, status: 'failed', blame: { callNo: 9, modelCall: { k: 3, m: 7 }, confidence: 'high', short: 'asked again, it calls escalate instead' } })).toMatchObject({ kind: 'lost', why: 'model call 3 of 7 · confidence high · asked again, it calls escalate instead' });
   });
 
   it('says what was not recorded: tools that weren’t wrapped, and hosts reached around Shadowlap', () => {

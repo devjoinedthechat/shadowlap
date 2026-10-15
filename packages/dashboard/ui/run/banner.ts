@@ -24,7 +24,7 @@ export interface BannerInput {
   intervention: { flag: string; value?: string | null } | null;
   /** A fork blame rescued its parent with: the call it asked again. */
   rescued: { callNo: number | null } | null;
-  blame: { callNo: number | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null } | null;
+  blame: { callNo: number | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number }>;
   fix: { id: string; status: string; title: string } | null;
@@ -59,7 +59,7 @@ export function flagText(iv: { flag: string; value?: string | null } | null): st
 
 function lostWhy(b: NonNullable<BannerInput['blame']>): string {
   const where = b.modelCall ? `model call ${b.modelCall.k} of ${b.modelCall.m}` : `call #${b.callNo}`;
-  return `${where}${b.confidence ? ` · confidence ${b.confidence}` : ''}${b.scope ? ` · scope ${b.scope}` : ''}`;
+  return `${where}${b.confidence ? ` · confidence ${b.confidence}` : ''}${b.scope ? ` · scope ${b.scope}` : ''}${b.short ? ` · ${b.short}` : ''}`;
 }
 
 function notRecordedWhy(nr: NonNullable<BannerInput['notRecorded']>): string {

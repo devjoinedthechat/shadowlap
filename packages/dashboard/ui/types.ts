@@ -85,6 +85,8 @@ export interface BlameView {
   scope?: string | null;
   /** `blamed`, or `unrescuable` (no call it asked again saved the run), or `stopped` before it was done. */
   outcome?: 'blamed' | 'unrescuable' | 'stopped' | null;
+  /** What asking again did, in a few words: "asked again, it calls escalate instead". */
+  short?: string | null;
 }
 
 export interface CheckView {
@@ -139,9 +141,35 @@ export interface RunDetailExtras {
   cache?: { readShare: number | null; misses: CacheMissView[] } | null;
   provenance?: ProvenanceView | null;
   /** The fix this failure belongs to. */
-  fix?: { id: string; status: string; title: string } | null;
+  fix?: FixView | null;
+  /**
+   * How the run takes part in Fixes, when the server says: `failing`, `good`, `probe`, `rescued`,
+   * `verify`, or `unblamed` (a failed run never blamed).
+   */
+  fixRole?: string | null;
+  /** A failed run never blamed: the check a fix's labels suggest, for Run blame to use (`--expect`). */
+  blameExpect?: unknown;
+}
+
+/** A fix as the run page links to it: `#/fixes/<id>`, its status (`open`, `verified`, `applied`) and title. */
+export interface FixView {
+  id: string;
+  status: string;
+  title: string;
+  /** Where it opens, when the server says. */
+  href?: string | null;
 }
 export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions'> & { calls: CallRow[]; actions: ActionItem[] } & RunDetailExtras;
+
+/**
+ * An answer a prompt offers in its list. One with `text` needs a few words more: the dialog shows a
+ * field labelled `text`, and sends the value followed by what was typed (`error:` + `connection reset`).
+ */
+export interface PromptChoice {
+  value: string;
+  label: string;
+  text?: string;
+}
 
 /**
  * An action as the fork menu lists it; `flag`, `group` and `hint` come with the newer action list.
@@ -149,7 +177,7 @@ export type RunDetail = Omit<ServerRunDetail, 'calls' | 'actions'> & { calls: Ca
  * answers a prompt offers as a list (any other answer is accepted too).
  */
 export type ActionItem = Omit<ServerAction, 'prompt'> & {
-  prompt: { label: string; placeholder?: string; initial?: string; choices?: ReadonlyArray<{ value: string; label: string }> } | null;
+  prompt: { label: string; placeholder?: string; initial?: string; choices?: readonly PromptChoice[] } | null;
   flag?: string;
   group?: 'call' | 'run' | null;
   hint?: string;

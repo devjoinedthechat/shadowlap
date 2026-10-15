@@ -1,4 +1,4 @@
-import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, Intervention, Meta, NotRecordedView, RunDetail, RunListItem } from './types.js';
+import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem } from './types.js';
 
 /**
  * The API's answers in the one shape the views read. Parts of the API name some fields their own
@@ -75,7 +75,34 @@ function normalizeBlame(v: unknown): BlameView | null {
   if (!isObject(v)) return null;
   const modelCall = isObject(v.modelCall) && int(v.modelCall.k) !== null && int(v.modelCall.m) !== null ? { k: int(v.modelCall.k)!, m: int(v.modelCall.m)! } : null;
   const outcome = v.outcome === 'blamed' || v.outcome === 'unrescuable' || v.outcome === 'stopped' ? v.outcome : null;
-  return { callNo: int(v.callNo), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome };
+  return { callNo: int(v.callNo), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, short: str(v.short) };
+}
+
+const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
+
+/**
+ * The fix a run belongs to, in either shape: `{id, status, title}`, or how the run takes part in
+ * Fixes as the fixes read model says it (`{role, fix: {fixId, title, status, href}, blame, expect}`).
+ * For a failing run that one also carries its blame, with what asking again did in a few words; a
+ * probe's or a rescued fork's blame is the blame of the run it came from, so it is not this run's.
+ */
+export function normalizeFix(v: unknown): { fix: FixView | null; role: string | null; blame: BlameView | null; expect: unknown } {
+  const none = { fix: null, role: null, blame: null, expect: undefined };
+  if (!isObject(v)) return none;
+  if (typeof v.id === 'string') return { ...none, fix: { id: v.id, status: str(v.status) ?? 'open', title: str(v.title) ?? v.id, href: str(v.href) } };
+  const role = typeof v.role === 'string' && FIX_ROLES.includes(v.role) ? v.role : null;
+  if (!role) return none;
+  const f = v.fix;
+  const fix = isObject(f) && typeof f.fixId === 'string' ? { id: f.fixId, status: str(f.status) ?? 'open', title: str(f.title) ?? f.fixId, href: str(f.href) } : null;
+  const b = v.blame;
+  let blame: BlameView | null = null;
+  if (role === 'failing' && isObject(b)) {
+    const k = int(b.step);
+    const m = int(b.steps);
+    const outcome = b.outcome === 'blamed' || b.outcome === 'unrescuable' || b.outcome === 'stopped' ? b.outcome : null;
+    blame = { callNo: int(b.lostAt), modelCall: k !== null && m !== null && k >= 1 && k <= m ? { k, m } : null, confidence: str(b.confidence), rescuedRunId: str(b.rescuedRunId), scope: null, outcome, short: str(b.short) };
+  }
+  return { fix, role, blame, expect: role === 'unblamed' && v.expect !== undefined && v.expect !== null ? v.expect : undefined };
 }
 
 function normalizeChecks(v: unknown): CheckView[] | null {
@@ -120,6 +147,14 @@ export function normalizeRunDetail(d: RunDetail): RunDetail {
   if (d.intervention !== undefined) out.intervention = normalizeIntervention(d.intervention);
   if (d.notWaitedMs !== undefined) out.notWaitedMs = num(d.notWaitedMs);
   if (d.forkAt !== undefined) out.forkAt = int(d.forkAt);
+  if (d.fix !== undefined) {
+    const f = normalizeFix(d.fix);
+    out.fix = f.fix;
+    if (f.role) out.fixRole = f.role;
+    if (f.expect !== undefined) out.blameExpect = f.expect;
+    // The run page's own blame wins; the fix adds what asking again did, or the blame when there is none.
+    if (f.blame) out.blame = out.blame ? { ...out.blame, short: out.blame.short ?? f.blame.short ?? null } : f.blame;
+  }
   return out;
 }
 
@@ -141,7 +176,13 @@ export function normalizeAction(a: ActionItem): ActionItem {
     const prompt: NonNullable<ActionItem['prompt']> = { label: a.prompt.label };
     if (typeof a.prompt.placeholder === 'string') prompt.placeholder = a.prompt.placeholder;
     if (typeof a.prompt.initial === 'string') prompt.initial = a.prompt.initial;
-    const choices = Array.isArray(a.prompt.choices) ? a.prompt.choices.filter((c) => isObject(c) && typeof c.value === 'string' && typeof c.label === 'string') : [];
+    // A choice with a field of its own (`text`) keeps it: "error, with a message" asks for the message.
+    const choices = (Array.isArray(a.prompt.choices) ? (a.prompt.choices as unknown[]) : [])
+      .filter((c): c is Record<string, unknown> => isObject(c) && typeof c.value === 'string' && typeof c.label === 'string')
+      .map((c): PromptChoice => {
+        const text = str(c.text)?.trim();
+        return text ? { value: c.value as string, label: c.label as string, text } : { value: c.value as string, label: c.label as string };
+      });
     if (choices.length) prompt.choices = choices;
     out.prompt = prompt;
   }

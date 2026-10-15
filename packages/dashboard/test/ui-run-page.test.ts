@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
+import { choiceAnswer, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
+import { normalizeActions } from '../ui/normalize.js';
 import { placePop } from '../ui/place.js';
 
 // The fork menu and the dialog each action asks in: the server's action list arranged and worded,
@@ -85,6 +86,41 @@ describe('an action’s dialog', () => {
     ];
     expect(dialogCopy(a('t', 'Answer with a tool error', { prompt: { label: 'How it fails:', initial: 'timeout', choices } }), { ...ctx, callNo: 16, callName: 'lookup_order' })).toMatchObject({ title: 'Answer #16 lookup_order with an error', label: 'Error', initial: 'timeout', choices });
     expect(dialogCopy(a('f', 'Fork: answer #17 with an HTTP failure (--fail-at)', { prompt: { label: 'Status:', initial: '429' } }), ctx)).toMatchObject({ title: 'Answer #17 with a failure', label: 'Status (429 rate limit, 500 or 529 overloaded, 400 bad request)', initial: '429' });
+  });
+
+  it('asks for the message of "error, with a message", and sends it after the choice’s value', () => {
+    // As the newer action list sends a tool error's kinds: one of them needs a few words more.
+    const [action] = normalizeActions([
+      {
+        key: 't',
+        label: 'Answer with a tool error',
+        opensRun: true,
+        disabled: null,
+        flag: '--fail-at 16=timeout',
+        group: 'call',
+        prompt: {
+          label: 'How #16 lookup_order fails:',
+          initial: 'timeout',
+          choices: [
+            { value: 'timeout', label: 'timeout' },
+            { value: 'error:', label: 'error, with a message', text: 'Message' },
+            { value: '500', label: 'HTTP 500', text: '  ' },
+            { value: 7, label: 'not a choice' },
+          ],
+        },
+      } as never,
+    ]);
+    const choices = action!.prompt!.choices!;
+    expect(choices).toEqual([
+      { value: 'timeout', label: 'timeout' },
+      { value: 'error:', label: 'error, with a message', text: 'Message' },
+      { value: '500', label: 'HTTP 500' },
+    ]);
+    expect(dialogCopy(action!, { ...ctx, callNo: 16, callName: 'lookup_order' }).choices).toEqual(choices);
+    expect(choiceAnswer(choices[1]!, ' connection reset ')).toBe('error:connection reset');
+    // No message is a plain error (the server reads `error:` as `error`), and a choice without a field sends its value.
+    expect(choiceAnswer(choices[1]!, '')).toBe('error:');
+    expect(choiceAnswer(choices[0]!, 'ignored')).toBe('timeout');
   });
 
   it('asks a pack’s question with its warning, and a capture for the command that starts the agent', () => {

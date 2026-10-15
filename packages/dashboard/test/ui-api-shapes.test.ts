@@ -100,7 +100,39 @@ describe('a run', () => {
   it('places a rescue that names no call where the fork left, and keeps a blame that placed the failure nowhere', () => {
     const d = normalizeRunDetail(detail({ rescuedBy: { runId: '01K5CQ4N7G', callNo: null }, blame: { outcome: 'unrescuable', callNo: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, at: 1 } }, { callNo: 5 }));
     expect(d.rescuedBy).toEqual({ runId: '01K5CQ4N7G', callNo: 5 });
-    expect(d.blame).toEqual({ callNo: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, outcome: 'unrescuable' });
+    expect(d.blame).toEqual({ callNo: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, outcome: 'unrescuable', short: null });
+  });
+
+  it('reads the fix a run belongs to as the brief has it, or as the fixes read model says how the run takes part', () => {
+    expect(normalizeRunDetail(detail({ fix: { id: 'fx-12', status: 'verified', title: 'Escalate refunds above the limit' } })).fix).toEqual({ id: 'fx-12', status: 'verified', title: 'Escalate refunds above the limit', href: null });
+
+    // A failing run of an open fix: the fix, and its blame with what asking again did.
+    const failing = normalizeRunDetail(
+      detail({
+        fix: {
+          role: 'failing',
+          fix: { fixId: 'fx-7', href: '#/fixes/fx-7', title: 'Confirmation email sent twice', status: 'open', label: 'double-email', check: 'send_email called once' },
+          blame: { blameId: 'bl-1', at: 1, outcome: 'blamed', lostAt: 9, step: 3, steps: 7, confidence: 'high', rescuedRunId: '01K5CQ5X1Y', short: 'asked again, it calls escalate instead', href: '#/fixes/fx-7/blame' },
+          probe: null,
+          verify: null,
+        },
+      }),
+    );
+    expect(failing.fix).toEqual({ id: 'fx-7', status: 'open', title: 'Confirmation email sent twice', href: '#/fixes/fx-7' });
+    expect(failing.fixRole).toBe('failing');
+    expect(failing.blame).toEqual({ callNo: 9, modelCall: { k: 3, m: 7 }, confidence: 'high', rescuedRunId: '01K5CQ5X1Y', scope: null, outcome: 'blamed', short: 'asked again, it calls escalate instead' });
+
+    // The run page's own blame wins, and the fix adds what asking again did.
+    const both = normalizeRunDetail(detail({ blame: { outcome: 'blamed', callNo: 9, modelCall: { k: 3, m: 8 }, confidence: 'high', rescuedRunId: null, scope: 'agent', at: 1 }, fix: { role: 'failing', fix: null, blame: { lostAt: 9, short: 'asked again, it calls escalate instead' } } }));
+    expect(both.blame).toMatchObject({ callNo: 9, modelCall: { k: 3, m: 8 }, scope: 'agent', short: 'asked again, it calls escalate instead' });
+
+    // A probe's blame is the blame of the run it came from, not this run's; a failure never blamed may come with a check.
+    const probe = normalizeRunDetail(detail({ fix: { role: 'probe', fix: { fixId: 'fx-7', title: 'x', status: 'open' }, blame: { lostAt: 9 }, probe: { of: '01A', callNo: 9, passed: true, blamed: true } } }));
+    expect(probe.blame).toBeUndefined();
+    expect(probe.fix?.id).toBe('fx-7');
+    const unblamed = normalizeRunDetail(detail({ fix: { role: 'unblamed', fix: null, blame: null, probe: null, verify: null, expect: { tools: { send_email: 1 } } } }));
+    expect(unblamed).toMatchObject({ fix: null, fixRole: 'unblamed', blameExpect: { tools: { send_email: 1 } } });
+    expect(normalizeRunDetail(detail({ fix: { role: 'something new' } })).fix).toBeNull();
   });
 
   it('keeps checks with their counts and the flag a fork ran with, whatever call it names', () => {

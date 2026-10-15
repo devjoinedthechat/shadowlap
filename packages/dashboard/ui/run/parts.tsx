@@ -181,7 +181,7 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
             <span className="end">{fixLink()}</span>
           ) : !b.blamed && app.hasKind(JOB_KINDS.blame) && !app.actionsOff ? (
             <span className="end">
-              <button className="linkbtn" type="button" onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.blame, { runId: r.runId })))}>
+              <button className="linkbtn" type="button" onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.blame, { runId: r.runId, ...(run.blameExpect !== undefined ? { expect: run.blameExpect } : {}) })))}>
                 Run blame
               </button>
             </span>

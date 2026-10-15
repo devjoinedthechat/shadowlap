@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { choiceAnswer } from '../actions.js';
 import { useLayer } from '../state.js';
+import type { PromptChoice } from '../types.js';
 import { CmdLine } from './bits.js';
 
 /**
@@ -62,6 +64,8 @@ const OTHER = '\u0000other';
 /**
  * A dialog that asks one thing before an action runs: a line of text, a longer one, or one of a few
  * answers (`choices`, a select like the mock's, with "Something else…" for an answer of your own).
+ * A choice with a field of its own (`text`, such as "error, with a message") shows that field and
+ * sends the choice's value followed by what was typed.
  */
 export function PromptDialog({
   title,
@@ -88,15 +92,19 @@ export function PromptDialog({
   command?: string;
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
-  choices?: ReadonlyArray<{ value: string; label: string }>;
+  choices?: readonly PromptChoice[];
   onRun: (value: string) => void;
   onClose: () => void;
 }) {
   const [value, setValue] = useState(initial);
   const listed = !!choices?.length;
   const [own, setOwn] = useState(listed && !choices!.some((c) => c.value === initial));
-  const ready = value.trim().length > 0;
-  const submit = () => ready && onRun(value.trim());
+  // The few words a picked choice asks for: the message of "error, with a message".
+  const [words, setWords] = useState('');
+  const picked = listed && !own ? choices!.find((c) => c.value === value) : undefined;
+  const answer = picked ? choiceAnswer(picked, words) : value.trim();
+  const ready = answer.length > 0;
+  const submit = () => ready && onRun(answer);
   const field = multiline ? (
     <textarea
       value={value}
@@ -157,6 +165,24 @@ export function PromptDialog({
             {select ?? field}
           </label>
           {select && own ? <label>{field}</label> : null}
+          {select && picked?.text ? (
+            <label>
+              {picked.text}
+              <input
+                type="text"
+                value={words}
+                spellCheck={false}
+                autoFocus
+                onChange={(e) => setWords(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submit();
+                  }
+                }}
+              />
+            </label>
+          ) : null}
         </div>
       ) : (
         field
