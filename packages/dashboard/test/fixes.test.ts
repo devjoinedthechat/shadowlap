@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
+import { findPairs, fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
 import { fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
 
@@ -120,7 +121,7 @@ describe('a fix', () => {
   it('shows the Blame step: the lost call, the boundary, both answers, probes, attempts per probe and cost', () => {
     const { failing, fixId } = story();
     const b = fixDetail(store, fixId)!.blame!;
-    expect(b).toMatchObject({ runId: failing, runExists: true, outcome: 'blamed', title: 'Lost at model call #5', lostAt: 5, step: 3, steps: 4, confidence: 'high', confidenceWhy: 'rescue stops cleanly at the boundary', needed: 2, attemptsPerProbe: 5, rescue: 'resample the probed call', pairs: null });
+    expect(b).toMatchObject({ runId: failing, runExists: true, outcome: 'blamed', title: 'Lost at model call #5', lostAt: 5, step: 3, steps: 4, confidence: 'high', confidenceWhy: 'rescue stops cleanly at the boundary', needed: 2, attemptsPerProbe: 5, rescue: 'resample the probed call', pairs: 0 });
     expect(b.boundary).toBe('Resampling #5 rescued 2 of 4 attempts; resampling #7, the next model call, rescued 0 of 4.');
     expect(b.next).toEqual({ callNo: 7, step: 4, passes: 0, attempts: 4 });
     expect(b.answers).toEqual({ callNo: 5, recorded: 'issue_refund({"order_id":"A-1042","amount":240})', rescued: '"Above the limit.", escalate({"reason":"refund of $240 is above $100"})' });
@@ -315,6 +316,19 @@ describe('fixes for the other views', () => {
     expect(items[2]).not.toHaveProperty('expect');
     expect(items[3]).toMatchObject({ fixId, title: 'A verified fix is ready', detail: 'Escalate refunds above the policy limit', href: `#/fixes/${fixId}/repair`, icon: 'fixok' });
     expect(needsLookFixes(store, { limit: 2 })).toHaveLength(2);
+  });
+
+  it('counts the training pairs a blame made, as export pairs counts them', () => {
+    // The support agent refunded $240 at #5; asked again there, two of three probes escalated and passed.
+    const { run } = recordRun(store, [LOOKUP, POLICY, REFUND, DONE], { status: 'failed' });
+    store.updateRunMeta(run.runId, { blame: { at: 2_000, outcome: 'blamed', callNo: 5, confidence: 'high', rescuedRunId: null, fields: {}, oracle: ['the agent exits 0'], probes: [{ callNo: 5, passes: 2, attempts: 3, rescued: true }], spent: 0.01 } });
+    [true, true, false].forEach((passed, i) =>
+      recordRun(store, passed ? [LOOKUP, POLICY, ESCALATE, DONE] : [LOOKUP, POLICY, REFUND, DONE], { parentRunId: run.runId, status: passed ? 'completed' : 'failed', meta: { probe: { of: run.runId, callNo: 5, passed }, repeat: { group: 'b1-5', attempt: i + 1, of: 3 } } }),
+    );
+    const { fix } = blame(run.runId);
+    const pairs = fixDetail(store, fix.fixId)!.blame!.pairs;
+    expect(pairs).toBeGreaterThan(0);
+    expect(pairs).toBe(findPairs(store).sources.find((x) => x.key === `blame:${run.runId}`)!.made);
   });
 
   it('tells a run page how a run takes part in a fix', () => {

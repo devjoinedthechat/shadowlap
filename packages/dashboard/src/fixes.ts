@@ -3,6 +3,7 @@ import {
   commitTitle,
   describeBlocks,
   describeRescue,
+  findPairs,
   fixCost,
   FixIdError,
   fixLabelInfo,
@@ -122,8 +123,9 @@ export interface BlameStep {
   /** What the model answered at the blamed call in the recording and in the rescued fork, in one line each. */
   answers: { callNo: number; recorded: string; rescued: string } | null;
   /**
-   * How many training pairs the two answers made. Null until pair export exists: the training
-   * slice owns what a pair is, and fills this in.
+   * How many training pairs the blame's attempts made, as `export pairs` counts them (engine
+   * pairs.ts): each passing answer at the blamed call against the recorded one. Null once the
+   * blamed run is gone from the store.
    */
   pairs: number | null;
   /** How a probe asked again: "resample the probed call", or the fields it changed. */
@@ -448,6 +450,16 @@ export function shortFailure(f: string | undefined): string {
   return f.split(' (')[0]!;
 }
 
+/**
+ * The pairs a blamed run's attempts made, read from that run and its attempts alone, so a fix's page
+ * doesn't read every run in the store. Training owns what a pair is; this only counts them.
+ */
+function blamePairs(store: Store, runId: string): number | null {
+  const run = store.getRun(runId);
+  if (!run) return null;
+  return findPairs(store, { runs: [run, ...store.childRuns(runId)] }).sources.find((x) => x.key === `blame:${runId}`)?.made ?? 0;
+}
+
 function blameStep(store: Store, b: StoredBlame): BlameStep {
   const r = b.report;
   const run = store.getRun(b.runId);
@@ -500,7 +512,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     next: r.lost ? { callNo: r.lost.callNo, step: r.lost.step, passes: r.lost.passes, attempts: r.lost.attempts.length } : null,
     rescuedRunId: contrast?.rescuedRunId ?? null,
     answers: contrast ? { callNo: contrast.callNo, recorded: describeBlocks(contrast.recorded), rescued: describeBlocks(contrast.rescued) } : null,
-    pairs: null,
+    pairs: blamePairs(store, b.runId),
     rescue: describeRescue(r.rescue?.fields ?? {}),
     needed: r.needed,
     attemptsPerProbe: r.attemptsPerProbe,
