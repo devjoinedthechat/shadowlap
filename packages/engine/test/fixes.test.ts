@@ -215,6 +215,19 @@ describe('Fixes: verdicts and repairs', () => {
     expect(coversCheck({ check: { expect: null, key: 'check:exit', oracle: EXIT_ORACLE, text: '' } }, EMAIL_ORACLE, EMAIL).covers).toBe(true);
   });
 
+  it('links a verify of runs never blamed to the fix their label points to, and never by the check alone', () => {
+    const a = makeRun(store, { labels: ['refund-over-limit'] });
+    const fix = blame(a).fix;
+    const b = makeRun(store, { labels: ['refund-over-limit'] });
+    const kept = recordVerdict(store, { report: verifyReport([{ runId: b, role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: 3_000 });
+    expect(kept.fixes).toEqual([{ fix: expect.objectContaining({ fixId: fix.fixId, status: 'verified', verifiedAt: 3_000 }), standing: { counts: true, why: null } }]);
+    expect(fixRecords(store, store.getFix(fix.fixId)!).failing).toEqual([a, b]);
+    // An unlabelled run under the same check: a blame would join it, a verify doesn't group.
+    const c = makeRun(store);
+    expect(recordVerdict(store, { report: verifyReport([{ runId: c, role: 'target', pass: true }]), expect: EXPECT, command: 'v' }).fixes).toEqual([]);
+    expect(fixRecords(store, store.getFix(fix.fixId)!).failing).toEqual([a, b]);
+  });
+
   it('keeps a verdict on runs no fix holds, linked to nothing', () => {
     const lone = makeRun(store, { labels: ['other'] });
     const kept = recordVerdict(store, { report: verifyReport([{ runId: lone, role: 'target', pass: true }]), expect: null, command: 'shadowlap verify' });
