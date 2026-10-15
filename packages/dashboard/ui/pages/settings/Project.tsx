@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { num } from '../../format.js';
 import { ONLY_PROJECT, useProjectRemoval } from '../../project-actions.js';
@@ -8,17 +9,18 @@ import { bytesText } from './logic.js';
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
  * up old runs (a dry run first, then "Delete N runs" from the drawer); and Remove from dashboard,
- * which opens the projects' own dialog.
+ * which opens the projects feature's own dialog, here in the page.
  */
 export function ProjectTab() {
   const app = useApp();
   const { client } = app;
   const { data, error } = useSettingsData(() => client.settings.project(), 'settings:project');
   const removal = useProjectRemoval();
+  const [removing, setRemoving] = useState(false);
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Project" />;
-  const project = { name: data.name, path: data.folder };
-  const blocked = removal ? removal.blocked(project) : ONLY_PROJECT;
+  const current = removal?.current() ?? null;
+  const blocked = current ? current.blocked : ONLY_PROJECT;
   const canClean = !app.actionsOff && app.hasKind(JOB_KINDS.gc);
   const cleanTitle = app.actionsOff ?? (!app.hasKind(JOB_KINDS.gc) ? 'This dashboard doesn’t run gc: shadowlap gc --older-than 30 --dry-run in a terminal' : `shadowlap gc --older-than ${data.cleanup.olderThanDays} --dry-run: shows what it would free, then asks before deleting`);
   return (
@@ -50,10 +52,11 @@ export function ProjectTab() {
         <button className="btn" type="button" disabled={!canClean} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
           Clean up old runs
         </button>
-        <button className="btn quiet dz push" type="button" disabled={!removal || !!blocked || !!app.actionsOff} title={blocked ?? app.actionsOff ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => removal && app.guard(() => removal.open(project))}>
+        <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={blocked ?? app.actionsOff ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
           Remove from dashboard
         </button>
       </div>
+      {removing && removal && current ? <removal.Dialog id={current.id} onClose={() => setRemoving(false)} /> : null}
     </section>
   );
 }

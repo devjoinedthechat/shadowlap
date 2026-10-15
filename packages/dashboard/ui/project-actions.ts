@@ -1,37 +1,31 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, type ComponentType } from 'react';
 
 /**
- * Removing a project from the dashboard, as the project switcher's × does: Settings → Project's
- * "Remove from dashboard" opens the same dialog. The projects feature provides it from the
- * component that holds the dialog (`provideProjectRemoval`), and takes it back when that unmounts;
- * Settings reads it with `useProjectRemoval`. Without one, the only project there is can't be
- * removed, and the button says so.
+ * Removing the current project from the dashboard, as the project switcher's × does: Settings →
+ * Project's "Remove from dashboard" opens the projects feature's own dialog. That feature provides
+ * the dialog and the current project (`provideProjectRemoval`, from the component that holds the
+ * project list) and takes them back when it unmounts; Settings renders the dialog in its own page,
+ * so it shows wherever the sidebar is. Without one (a dashboard that serves one folder), the only
+ * project there is can't be removed, and the button says so.
  */
 
-export interface ProjectRef {
-  name: string;
-  path: string;
-  /** The project's id in the dashboard's list, when the server sends one. */
-  id?: string;
-}
-
 export interface ProjectRemoval {
-  /** Opens the Remove dialog for the project. */
-  open(project: ProjectRef): void;
-  /** Why it can't be removed now (the only project), or null. */
-  blocked(project: ProjectRef): string | null;
+  /** The current project's id in the dashboard's list, and why it can't be removed now (the only one), or null. */
+  current(): { id: string; blocked: string | null } | null;
+  /** The projects feature's Remove dialog for a project. */
+  Dialog: ComponentType<{ id: string; onClose: () => void }>;
 }
 
-let current: ProjectRemoval | null = null;
+let provided: ProjectRemoval | null = null;
 const listeners = new Set<() => void>();
 
 /** Provides the dialog (or takes it back with null); returns what undoes it, for an effect's cleanup. */
 export function provideProjectRemoval(removal: ProjectRemoval | null): () => void {
-  current = removal;
+  provided = removal;
   for (const l of listeners) l();
   return () => {
-    if (current !== removal) return;
-    current = null;
+    if (provided !== removal) return;
+    provided = null;
     for (const l of listeners) l();
   };
 }
@@ -42,8 +36,8 @@ export function useProjectRemoval(): ProjectRemoval | null {
       listeners.add(l);
       return () => listeners.delete(l);
     },
-    () => current,
-    () => current,
+    () => provided,
+    () => provided,
   );
 }
 

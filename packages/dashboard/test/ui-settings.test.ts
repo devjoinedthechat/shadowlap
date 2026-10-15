@@ -1,7 +1,10 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { validateRule } from '@shadowlap/engine';
 import { alertsYaml, fixOnFailureYaml } from '../src/ci-yaml.js';
 import { splitCommandLine } from '../src/settings.js';
+import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { settingsApi } from '../ui/settings-api.js';
 import {
   CI_DEFAULTS,
@@ -220,5 +223,32 @@ describe('the CI tab', () => {
   it('keeps only what a secret name can hold, as it is typed', () => {
     expect(typedSecret('ALERTS-hook 1')).toBe('ALERTShook1');
     expect(typedSecret('')).toBe('');
+  });
+});
+
+describe('Remove from dashboard', () => {
+  /** What the Project tab reads: the current project the projects feature provides, and why it can't be removed. */
+  function shown(): string {
+    function Probe() {
+      const removal = useProjectRemoval();
+      const current = removal?.current() ?? null;
+      return createElement('span', null, current ? `${current.id}:${current.blocked ?? 'removable'}` : ONLY_PROJECT);
+    }
+    return renderToStaticMarkup(createElement(Probe));
+  }
+  const Dialog = () => null;
+
+  it('opens the dialog the projects feature provides, and only while it provides one', () => {
+    expect(shown()).toContain('The only project can’t be removed');
+    const one: ProjectRemoval = { current: () => ({ id: 'p1', blocked: ONLY_PROJECT }), Dialog };
+    const two: ProjectRemoval = { current: () => ({ id: 'p2', blocked: null }), Dialog };
+    const undoOne = provideProjectRemoval(one);
+    expect(shown()).toContain('p1:The only project');
+    const undoTwo = provideProjectRemoval(two);
+    // Taking back what it no longer provides leaves the newer one.
+    undoOne();
+    expect(shown()).toContain('p2:removable');
+    undoTwo();
+    expect(shown()).toContain('The only project can’t be removed');
   });
 });
