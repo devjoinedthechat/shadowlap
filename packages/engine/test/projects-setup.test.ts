@@ -159,6 +159,19 @@ describe('initialSetup', () => {
     expect(initialSetup(facts({ runs: 2 }), 0, { inUse: true })).toEqual({ stage: 'done', runId: null, golden: null });
     expect(initialSetup(facts(), 0, { inUse: true })).toEqual({ stage: 'added', runId: null, golden: null });
   });
+
+  it('takes only a project.setup event that finished the setup as finished', () => {
+    // `init` logs writing the config under the same kind: that is a step, not a finished setup.
+    const store = freshStore();
+    recordEvent(store, { kind: 'project.setup', ref: 'agent', data: { name: 'agent', config: 'created', languages: ['python'] } });
+    expect(storeFacts(store).setupEvent).toBeNull();
+    expect(initialSetup(storeFacts(store), 0)).toEqual({ stage: 'added', runId: null, golden: null });
+    recordEvent(store, { kind: 'project.setup', runId: 'R1', data: { stage: 'done', name: 'agent', skipped: true, golden: null } });
+    recordEvent(store, { kind: 'project.setup', ref: 'agent', data: { name: 'agent', config: 'created' } });
+    expect(storeFacts(store).setupEvent).toMatchObject({ runId: 'R1', data: { stage: 'done' } });
+    expect(initialSetup(storeFacts(store), 0)).toEqual({ stage: 'done', runId: 'R1', golden: null });
+    store.close();
+  });
 });
 
 describe('storeFacts', () => {

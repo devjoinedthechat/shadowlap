@@ -387,6 +387,9 @@ describe('projectEventText', () => {
     expect(projectEventText({ kind: 'project.setup', ref: 'triage-bot', data: { name: 'triage-bot', skipped: false } })).toBe('Set up triage-bot');
     expect(projectEventText({ kind: 'project.setup', ref: 'triage-bot', data: { name: 'triage-bot', skipped: true } })).toBe('Set up triage-bot · skipped the rest');
     expect(projectEventText({ kind: 'project.removed', ref: 'x', data: { path: '~/x' } })).toBe('Removed from the dashboard · ~/x');
+    // init logs writing the config under the same kind: a step, not a finished setup.
+    expect(projectEventText({ kind: 'project.setup', ref: 'triage-bot', data: { name: 'triage-bot', config: 'created', languages: ['python'] } })).toBe('Inspected triage-bot · wrote shadowlap.config.json');
+    expect(projectEventText({ kind: 'project.setup', ref: 'triage-bot', data: { stage: 'done', name: 'triage-bot', skipped: false } })).toBe('Set up triage-bot');
     expect(projectEventText({ kind: 'golden.packed', ref: null, data: null })).toBeNull();
   });
 });

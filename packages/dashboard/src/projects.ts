@@ -596,7 +596,11 @@ export function nameMatches(typed: string, name: string): boolean {
 // ---------------------------------------------------------------------------------------------
 // Activity
 
-/** The activity feed's line for a project event (`project.added`, `project.setup`, `project.removed`), or null for another kind. */
+/**
+ * The activity feed's line for a project event (`project.added`, `project.setup`, `project.removed`),
+ * or null for another kind. `project.setup` is logged when a setup is finished (`stage: 'done'`) and
+ * by `init` when it writes the config (`config: 'created'`).
+ */
 export function projectEventText(event: Pick<StoredEvent, 'kind' | 'ref' | 'data'>): string | null {
   const d = event.data ?? {};
   const path = typeof d.path === 'string' ? d.path : (event.ref ?? '');
@@ -605,6 +609,7 @@ export function projectEventText(event: Pick<StoredEvent, 'kind' | 'ref' | 'data
     case 'project.added':
       return `${d.again ? 'Project added back' : 'Project added'} · ${path}`;
     case 'project.setup':
+      if (d.stage !== 'done' && d.config === 'created') return `Inspected ${name} · wrote shadowlap.config.json`;
       return `Set up ${name}${d.skipped ? ' · skipped the rest' : ''}`;
     case 'project.removed':
       return `Removed from the dashboard · ${path}`;

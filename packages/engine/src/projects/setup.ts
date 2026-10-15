@@ -139,7 +139,7 @@ export interface StoreFacts {
   recordings: RunFact[];
   /** A run is being recorded or replayed right now (one that started in the last hour). */
   live: boolean;
-  /** The newest `project.setup` event: the setup was finished. */
+  /** The newest `project.setup` event that finished the setup (`data.stage: 'done'`). */
   setupEvent: StoredEvent | null;
   /** A `project.added` event: the folder was a project in this dashboard before. */
   addedBefore: boolean;
@@ -210,7 +210,8 @@ export function storeFacts(store: FactsSource, now: number = Date.now(), options
   // The two recordings the setup may take: which tools each called.
   const newest = facts.recordings.find((r) => !r.live && usable(r));
   for (const r of facts.recordings) if (r.calls > 0 && (r === newest || r.runId === options.keep)) r.tools = calledTools(store, r.runId);
-  facts.setupEvent = store.listEvents({ kinds: ['project.setup'], limit: 1 })[0] ?? null;
+  // Other commands log setup steps under the same kind (`init` writing the config): only a finished setup says `stage: 'done'`.
+  facts.setupEvent = store.listEvents({ kinds: ['project.setup'], limit: 200 }).find((e) => e.data?.stage === 'done') ?? null;
   facts.addedBefore = store.listEvents({ kinds: ['project.added'], limit: 1 }).length > 0;
   return facts;
 }
