@@ -7,6 +7,7 @@ import { Sidecar } from '@shadowlap/sidecar';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { formatChecks, junitCase, outputTail, packResult, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
+import { describeChange, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
@@ -14,7 +15,7 @@ import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
 import { openStore, parseChoice, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
-import { palette as p, quoteArgv, safe } from '../ui.js';
+import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recordings as tests: `shadowlap test` for packed goldens in CI, packs, and the host that the pytest and Vitest plugins start. */
 
@@ -88,9 +89,9 @@ function passedLine(o: GoldenOutcome): string {
   ].join(', ');
 }
 
-function printGolden(o: GoldenOutcome): void {
+function printGolden(o: GoldenOutcome, suffix = ''): void {
   if (!o.failure) {
-    process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}\n`);
+    process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
     return;
   }
   process.stdout.write(`${p.red('✗')} ${o.name}: ${o.failure.message}\n`);
@@ -113,11 +114,12 @@ export function register(program: Command): void {
     .option('--json <file>', 'write a JSON report (results per pack, with each replay\'s run id, for other tools)')
     .option('--markdown <file>', 'append a Markdown report to this file, e.g. $GITHUB_STEP_SUMMARY')
     .option('--annotations', 'print GitHub Actions error annotations for packs that fail')
+    .option('--update', 're-record each golden that diverged, live with writes stubbed, and replace it in the working tree when its checks pass')
     .option('--online', 'allow live calls after a divergence (default: offline, a live call fails the test)')
     .option('--writes <policy>', 'write tools after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block (default in CI), warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .action(async (packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
+    .action(async (packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode }) => {
       const opts = program.opts<GlobalOpts>();
       const projectDir = process.cwd();
       const config = loadConfig(projectDir);
@@ -136,6 +138,7 @@ export function register(program: Command): void {
       const results: PackResult[] = [];
       let failed = 0;
       let upstreamRequests = 0;
+      let updates = 0;
       try {
         for (const packDir of packs) {
           const golden = goldenName(packDir, projectDir);
@@ -152,9 +155,47 @@ export function register(program: Command): void {
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${of}` : ''}\n`)),
           };
-          const outcome = await testGolden(packDir, golden, spec, ctx);
+          let outcome = await testGolden(packDir, golden, spec, ctx);
           for (const a of outcome.result?.attempts ?? []) telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
           printGolden(outcome);
+
+          let updated: PackResult['updated'] = null;
+          if (flags.update && outcome.failure) {
+            if (outcome.kind !== 'diverged' || !outcome.parent || !outcome.result) {
+              process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
+            } else {
+              const before = outcome.parent;
+              for (const w of volatileWarning(outcome.result.shown.ended.summary.divergence)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
+              process.stdout.write(`    ${p.cyan('↻')} updating ${golden}: re-recording live, writes stubbed\n`);
+              const u = await rerecordGolden(packDir, before, spec, {
+                store,
+                config,
+                cwd,
+                guard: 'warn',
+                onRun: (runId) => {
+                  process.stderr.write(p.dim(`[shadowlap] recording run ${runId}: ${golden} again, live, writes stubbed\n`));
+                  emitJobEvent({ type: 'run', runId, role: 'new' });
+                },
+              });
+              upstreamRequests += u.summary?.upstreamRequests ?? 0;
+              if (u.checks?.length) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
+              if (!u.replaced || !u.run) {
+                process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason}\n`);
+                const tail = outputTail(u.output, 10);
+                if (tail) process.stdout.write(p.dim(tail.split('\n').map((l) => `      │ ${l}`).join('\n') + '\n'));
+              } else {
+                updates++;
+                process.stdout.write(`      re-recorded as run ${shortId(u.run.runId)}: ${describeChange(u.before, u.after!)} · ${updateReceipt(u.summary)}\n`);
+                process.stdout.write(`      replaced ${golden} in the working tree; review the change in your pull request\n`);
+                recordEvent(store, { kind: 'golden.updated', actor, runId: u.run.runId, ref: golden, data: { session: session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0 } });
+                updated = { from: before.runId, to: u.run.runId, calls: u.after!.total };
+                // The new golden, replayed as the next test will replay it.
+                outcome = await testGolden(packDir, golden, spec, ctx);
+                for (const a of outcome.result?.attempts ?? []) telemetry().record({ type: 'test', ...usageOf(a.ended, a.ms, a.code) });
+                printGolden(outcome, ' (updated)');
+              }
+            }
+          }
 
           if (outcome.failure) failed++;
           for (const a of outcome.result?.attempts ?? []) {
@@ -170,15 +211,15 @@ export function register(program: Command): void {
             runId: outcome.result?.shown.ended.summary.runId ?? null,
             goldenRunId: outcome.parent?.runId ?? null,
             revision,
-            data: resultData(store, outcome),
+            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}) },
           });
           cases.push(junitCase(outcome));
-          results.push(packResult(outcome, { expect }));
+          results.push(packResult(outcome, { expect, updated }));
         }
       } finally {
         const passed = packs.length - failed;
         store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests });
-        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: packs.length, revision, upstreamRequests } });
+        recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, goldens: packs.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}) } });
         store.close();
       }
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));

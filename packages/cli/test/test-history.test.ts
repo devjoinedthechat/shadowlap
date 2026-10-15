@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,12 +9,14 @@ import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-t
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 
 /**
- * `shadowlap test` keeping its history, through the CLI. The committed golden of the reference agent
- * (11 model calls, a send_email write) replays offline. AGENT_SYSTEM_SUFFIX changes its system
- * prompt, which is the kind of intended change that makes a golden diverge.
+ * `shadowlap test` keeping its history, and `test --update`, through the CLI. The committed golden of
+ * the reference agent (11 model calls, a send_email write) replays offline; the mock plays its model
+ * when a golden is re-recorded. AGENT_SYSTEM_SUFFIX changes its system prompt, which is the kind of
+ * intended change that makes a golden diverge.
  */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CLI = join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js');
+const VOLATILE = fileURLToPath(new URL('./volatile-agent.mjs', import.meta.url));
 const GOLDEN = join(ROOT, 'testing', 'golden', 'reference-agent');
 
 let mock: MockServer;
@@ -106,5 +108,73 @@ describe('shadowlap test history', () => {
     const none = await shadowlap(['test', 'missing/*', '--cwd', ROOT]);
     expect(none.code).toBe(1);
     expect(none.out).toContain('no recordings match missing/*');
+  });
+});
+
+describe('shadowlap test --update', () => {
+  it('re-records a diverged golden live with writes stubbed, replaces it, and the next replay is clean', async () => {
+    const outbox = join(work, 'outbox.jsonl');
+    const before = goldenRunId();
+    const env = { AGENT_SYSTEM_SUFFIX: 'Be brief.', REFERENCE_AGENT_OUTBOX: outbox };
+    const r = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT, '--update', '--json', 'report.json'], env);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain('✗ reference-agent: diverged at call 3');
+    expect(r.out).toContain('↻ updating goldens/reference-agent: re-recording live, writes stubbed');
+    expect(r.out).toMatch(/re-recorded as run \w{10}: 30 calls, as before · \$\S+ live · 11 upstream requests/);
+    expect(r.out).toContain('replaced goldens/reference-agent in the working tree; review the change in your pull request');
+    expect(r.out).toMatch(/✓ reference-agent: 30\/30 replayed, .* \(updated\)/);
+    // The write was stubbed: nothing reached the outbox.
+    expect(existsSync(outbox) ? readFileSync(outbox, 'utf8') : '').toBe('');
+
+    const after = goldenRunId();
+    expect(after).not.toBe(before);
+    const s = store();
+    expect(s.getCalls(after).find((c) => c.name === 'send_email')!.origin).toBe('stubbed');
+    const [result] = s.listTestResults({ golden: 'goldens/reference-agent' });
+    expect(result).toMatchObject({ ok: true, goldenRunId: after, data: { updated: { from: before, to: after, calls: 30 } } });
+    expect(s.listEvents({ kinds: ['golden.updated'] })[0]).toMatchObject({ runId: after, ref: 'goldens/reference-agent', data: { previous: before, calls: 30 } });
+    s.close();
+    expect(r.events.filter((e) => e.type === 'run').map((e) => e.role)).toEqual(['new', 'passing']);
+    const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> };
+    expect(report.results[0]).toMatchObject({ ok: true, updated: { from: before, to: after, calls: 30 } });
+
+    // The updated golden replays offline now, and fails without the change it recorded.
+    const hits = mock.requests.length;
+    expect((await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT], env)).code).toBe(0);
+    expect(mock.requests.length).toBe(hits);
+    expect((await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT])).code).toBe(1);
+  });
+
+  it('keeps the old golden when the new recording fails its checks, and leaves failed checks alone', async () => {
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/reference-agent': { expect: { tools: { send_email: 0 } } } } }));
+    const before = goldenRunId();
+    const r = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT, '--update'], { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('✗ send_email called 0 times: called 1 time');
+    expect(r.out).toContain('✗ not replaced: check failed: send_email called 0 times, but called 1 time');
+    expect(goldenRunId()).toBe(before);
+
+    // A golden that replays clean but fails a check is not updated: the agent needs the fix.
+    const clean = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT, '--update']);
+    expect(clean.code).toBe(1);
+    expect(clean.out).toContain('not updated: only a golden that diverged is re-recorded; a failed check is fixed in the agent, not in its golden');
+    expect(goldenRunId()).toBe(before);
+  });
+
+  it('warns when what diverged is a value the agent makes anew on every run, and names the normalizer', async () => {
+    const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    expect((await shadowlap(['pack', runId, 'goldens/volatile'])).code).toBe(0);
+    const r = await shadowlap(['test', 'goldens/volatile', '--update']);
+    expect(r.out).toContain('! $.metadata.user_id looks like a UUID, a value that changes every run: updating re-records it, and the next run diverges again.');
+    expect(r.out).toContain("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
+    expect(r.out).toContain('replaced goldens/volatile in the working tree');
+    // It was replaced, and it diverges again on its next run, as the warning said.
+    expect(r.code).toBe(1);
+    const s = store();
+    expect(s.listTestResults({ golden: 'goldens/volatile' })[0]).toMatchObject({ ok: false, failure: 'diverged' });
+    expect(s.listEvents({ kinds: ['golden.packed'] })[0]).toMatchObject({ runId, ref: 'goldens/volatile' });
+    s.close();
   });
 });
