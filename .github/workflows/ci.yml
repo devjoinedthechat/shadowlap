@@ -86,9 +86,11 @@ jobs:
 
   # The Python SDK supports 3.9 onward, and some of what it promises (an injected timeout is an
   # asyncio.TimeoutError) differs before 3.11: its own tests run on the oldest version and a current one.
+  # Ubuntu 24.04, not ubuntu-latest: setup-python has no 3.9 for Ubuntu 26.04, which ubuntu-latest
+  # becomes from October 19, 2026.
   python-sdk:
     name: python sdk on ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
