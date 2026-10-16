@@ -1758,6 +1758,9 @@ code.tipped { cursor: help; }
 .egrp.mcp .fieldnote.putback ul { margin: 6px 0 0; padding-left: 18px; }
 .egrp.mcp .fieldnote.putback li { overflow-wrap: anywhere; }
 .egrp.mcp .fieldnote.putback li code { color: var(--ink); margin-right: 4px; }
+/* what a copy leaves out for good, and why: a quiet line under what it asks to put back */
+.egrp.mcp .fieldnote.mcpnote { margin: 8px 0 0; color: var(--faint); overflow-wrap: anywhere; }
+.egrp.mcp .fieldnote.mcpnote code { color: var(--ink); }
 .egrp.mcp .mcpform2 { margin-top: 12px; display: grid; gap: 6px; }
 .egrp.mcp .mcpform2 .muted { font-size: 12.5px; }
 .dialog.ruledlg { width: min(560px, 100%); }

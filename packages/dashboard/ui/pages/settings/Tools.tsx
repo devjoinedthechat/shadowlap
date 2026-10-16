@@ -194,7 +194,7 @@ function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][
         </div>
       ) : null}
       {(block.notes ?? []).map((n) => (
-        <p key={`${n.server}\u0000${n.text}`} className="fieldnote">
+        <p key={`${n.server}\u0000${n.text}`} className="fieldnote mcpnote">
           <code>{n.server}</code>: {n.text}.
         </p>
       ))}
