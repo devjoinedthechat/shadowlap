@@ -152,6 +152,11 @@ describe('Fixes: blame, verify, repair and fix', () => {
     const apply = await cli(project, ['fix', 'apply', fixId, '--json']);
     expect(apply.code, apply.out).toBe(0);
     hold([['fixApply', json(apply)]]);
+    // Recording a pull request asks GitHub nothing.
+    const pr = await cli(project, ['fix', 'pr', fixId, 'https://github.com/acme/support-agent/pull/138', '--json']);
+    expect(pr.code, pr.out).toBe(0);
+    expect(json(pr).pr).toMatchObject({ number: 138, state: 'open' });
+    hold([['fixPr', json(pr)]]);
 
     // The goldens fix apply copied, tested with the fixed agent.
     const test = await cli(project, ['test', 'goldens/*', '--json', 'report.json']);

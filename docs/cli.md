@@ -218,7 +218,7 @@ It trusts nothing it reads from the store: the repair's directory must be `.shad
 | `--goldens <dir>` | `fix apply`: where the recordings go. Default `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them |
 | `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test |
-| `--json` | The list, the fix, what `fix apply` did, or the fix's pull request (`fix pr`: `{ fixId, pr: { url, number, state } }`), as JSON: the dashboard's read model of Fixes. An id that matches no fix, or several, prints `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }` |
+| `--json` | The list, the fix, what `fix apply` did, or the fix's pull request (`fix pr`: `{ fixId, pr: { url, number, state, at } }`, with a `note` saying why when the state is as recorded because GitHub wasn't asked or couldn't say), as JSON: the dashboard's read model of Fixes. An id that matches no fix, or several, prints `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }` |
 
 `fix apply` exits 1 when the fix is still open, when the patch does not apply, or when the test fails; a patch that applied stays applied. Run it in the folder the repair ran in, where its directory under `.shadowlap/repairs/` is.
 

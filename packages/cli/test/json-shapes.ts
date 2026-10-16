@@ -65,6 +65,7 @@ export const SHAPES = {
   fixCounts: { section: 'fix', grows: true, fields: ['all', 'open', 'verified'] },
   fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied'] },
   fixApply: { section: 'fix', grows: true, fields: ['fixId', 'status', 'again', 'patch', 'repairId', 'goldens', 'tests'] },
+  fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
   test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'interrupted', 'results'] },
