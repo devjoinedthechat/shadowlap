@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
-import { bisectBlocked, bisectCopy, blameCommand, blameHover, blameOfferFor, blameReply, blameRequest, blameSource, divergedActions, failedChecksText, readExpect, type BlameFacts } from '../ui/run/offers.js';
+import { bisectBlocked, bisectCopy, bisectLabel, blameCommand, blameHover, blameOfferFor, blameReply, blameRequest, blameSource, divergedActions, failedChecksText, readExpect, type BlameFacts } from '../ui/run/offers.js';
 import { canPush, defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, RunOffers, TestBannerOffer } from '../ui/types.js';
 
@@ -141,6 +141,21 @@ describe('Run blame and Find the commit', () => {
     expect(live.command('…')).toBe('shadowlap bisect 01M50J6C69 --good … --fork');
     // A golden's replay bisects the golden.
     expect(bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } })).command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
+  });
+
+  it('looks for what changed a run that passed, not what broke it', () => {
+    const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
+    expect(bisectLabel(passed)).toEqual({ label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
+    const c = bisectCopy(RUN, passed);
+    expect(c.title).toBe('Find the commit that changed 01M50J6C69');
+    expect(c.text).toBe('Replays the run at commits from a7b3c2e to HEAD, halving each time, and names the first where it does something else. Replays are free, so this costs no tokens.');
+    expect(c.label).toBe('Start from');
+    expect(c.initial).toBe('a7b3c2e');
+    // A run that failed, or one nothing is known of, looks for what broke it.
+    expect(bisectLabel(offer()).label).toBe('Find the commit that broke it');
+    expect(bisectLabel(null).label).toBe('Find the commit that broke it');
+    // At HEAD there is nothing after it to search: the server says so, and the item says why.
+    expect(bisectBlocked(RUN, { ...passed, unavailable: 'this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet' }, true)).toBe('this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet');
   });
 
   it('says why it can’t start: the server’s reason, or a dashboard without the job', () => {

@@ -62,6 +62,8 @@ export interface RunOffersInput {
   config: { store?: unknown; tests?: unknown; normalize?: unknown } | null;
   /** The goldens on disk, for Find the commit on a test replay; none when the dashboard was given none. */
   goldens?: readonly GoldenSource[];
+  /** The commit the project's HEAD is at, for Find the commit on a run that passed; null outside git. */
+  head?: string | null;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -194,6 +196,25 @@ export function blamedBisect(run: RunRecord, b: BisectChoices | null): BisectCho
   };
 }
 
+/** Whether two revisions name the same commit: one is the other, or its abbreviation (7 characters at least). */
+export function sameCommit(a: string, b: string): boolean {
+  const [x, y] = [a.toLowerCase(), b.toLowerCase()];
+  if (x === y) return true;
+  const [short, long] = x.length < y.length ? [x, y] : [y, x];
+  return short.length >= 7 && /^[0-9a-f]+$/.test(short) && long.startsWith(short);
+}
+
+/**
+ * Find the commit for a run that passed: bisect searches the commits after the run's own, up to HEAD,
+ * for the first where it does something else. A run made at HEAD has nothing after it to search yet
+ * (the CLI would stop at once, `--good` and `--bad` being the same commit), so the page says so
+ * rather than offer a search that can't start.
+ */
+export function passingBisect(b: BisectChoices | null, head: string | null | undefined): BisectChoices | null {
+  if (!b || b.failed || b.unavailable || !b.good || !head || !sameCommit(b.good, head)) return b;
+  return { ...b, args: null, unavailable: `this run passed at ${b.good}, which is HEAD: there is no later commit to search yet` };
+}
+
 export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInput): RunOffers | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
@@ -202,7 +223,7 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     copies: copyRules(input.redact),
     team: teamOf(store, run, input.config?.store),
     blame: blameOffer(store, run, input.config?.tests),
-    bisect: blamedBisect(run, bisectChoices(store, run.runId, { goldens: input.goldens ?? [] })),
+    bisect: passingBisect(blamedBisect(run, bisectChoices(store, run.runId, { goldens: input.goldens ?? [] })), input.head),
     test: testOffer(store, run, input.config?.normalize),
   };
 }

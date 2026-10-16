@@ -155,6 +155,8 @@ export interface RunDetailExtras {
   fixRole?: string | null;
   /** A failed run never blamed: the check a fix's labels suggest, for Run blame to use (`--expect`). */
   blameExpect?: unknown;
+  /** The run's models by the short name a call row carries, as the run page names them (`claude-opus-5`). */
+  models?: Record<string, string>;
 }
 
 /** A fix as the run page links to it: `#/fixes/<id>`, its status (`open`, `verified`, `applied`) and title. */

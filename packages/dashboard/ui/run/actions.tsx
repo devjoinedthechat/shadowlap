@@ -5,7 +5,7 @@ import { PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { useApp } from '../state.js';
-import { bisectBlocked } from './offers.js';
+import { bisectBlocked, bisectLabel } from './offers.js';
 import { BisectDialog } from './RunDialogs.js';
 
 /**
@@ -125,6 +125,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   const capture = !!run.source;
   const replay = call.actions.find((a) => a.key === 'r');
   const blocked = bisectBlocked(run.run.runId, offers?.bisect ?? null, hasKind(JOB_KINDS.bisect));
+  const bisect = bisectLabel(offers?.bisect);
   return (
     <Popover anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
       <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
@@ -157,13 +158,13 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
             type="button"
             role="menuitem"
             disabled={!!blocked || !!actionsOff}
-            title={actionsOff ?? blocked ?? 'Replays it at commits between a good one and its own, halving each time'}
+            title={actionsOff ?? blocked ?? bisect.hint}
             onClick={() => {
               onClose();
               onFindCommit();
             }}
           >
-            <b>Find the commit that broke it</b>
+            <b>{bisect.label}</b>
             <small>bisect</small>
           </button>
         </>

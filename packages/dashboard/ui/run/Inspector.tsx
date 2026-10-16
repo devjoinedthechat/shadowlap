@@ -8,7 +8,7 @@ import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { useApp } from '../state.js';
 import { refusedOffline } from './calls.js';
-import { conversationLink, originOf, tokensText, turnCalls } from './model.js';
+import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 
 /**
  * The inspector for the selected call: Conversation (as the model saw it, thinking included, with
@@ -26,6 +26,8 @@ export interface InspectorProps {
   call: CallRow | null;
   /** The run's calls, to say which call each message of a conversation came from. */
   calls: readonly CallRow[];
+  /** The run's models as the page names them (`claude-opus-5`), by the short name a row carries. */
+  models?: Readonly<Record<string, string>> | undefined;
   detail: CallDetail | null;
   error: string | null;
   tab: InspectorTab;
@@ -40,7 +42,7 @@ export interface InspectorProps {
   onSelect?: (n: number) => void;
 }
 
-export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live, flag, onSelect }: InspectorProps) {
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect }: InspectorProps) {
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -74,7 +76,7 @@ export function Inspector({ runId, call, calls, detail, error, tab, onTab, onSte
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} models={models} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
       </div>
     </section>
   );
@@ -109,7 +111,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
+function ConversationTab({ detail, calls, models, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; models?: Readonly<Record<string, string>> | undefined; change: { turn: number; firstAt: number } | null; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -174,7 +176,7 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
         <span>
           {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{conv.fromCallNo ?? c.callNo}
           {which}
-          {conv.model && !which ? ` · ${conv.model}` : ''}
+          {conv.model && !which ? ` · ${modelLabel(models, conv.model)}` : ''}
         </span>
         {change ? (
           <button
@@ -459,7 +461,7 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 
 // ---------------------------------------------------------------------------------------------- details
 
-function DetailsTab({ runId, detail }: { runId: string; detail: CallDetail }) {
+function DetailsTab({ runId, detail, models }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined }) {
   const c = detail.call;
   const rows: Array<[string, ReactNode]> = [];
   const origin = originOf(c);
@@ -468,7 +470,7 @@ function DetailsTab({ runId, detail }: { runId: string; detail: CallDetail }) {
   if (c.effect) rows.push(['Effect', c.effect]);
   if (c.scope) rows.push(['Scope', c.scope]);
   if (c.provider) rows.push(['Provider', c.provider]);
-  if (c.model) rows.push(['Model', c.model]);
+  if (c.model) rows.push(['Model', modelLabel(models, c.model)]);
   if (c.stopReason) rows.push(['Stop reason', c.stopReason]);
   if (c.usage)
     rows.push([

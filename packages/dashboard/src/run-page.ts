@@ -1,6 +1,7 @@
 import {
   applyNormalizers,
   cacheMisses,
+  canonicalModel,
   Lru,
   compilePattern,
   conversationRequestFor,
@@ -211,6 +212,11 @@ export interface RunPageFacts {
   blame: RunBlame | null;
   /** The run's outcome checks, counted over the attempts they ran in. */
   checks: RunCheck[] | null;
+  /**
+   * Each model the run's model calls name, by the short name their rows carry (`opus-5`): as the run
+   * page names it everywhere, the id without a date stamp (`claude-opus-5`).
+   */
+  models: Record<string, string>;
 }
 
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
@@ -289,6 +295,25 @@ function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
   return own.hosts.length || tools.length ? { hosts: own.hosts, tools } : null;
 }
 
+/** A model id as the run page names it: the platform's prefixes and suffixes off, and no date stamp (`claude-opus-5`). */
+export function modelName(model: string): string {
+  return canonicalModel(model).replace(/-\d{8}$/, '');
+}
+
+/** The run's models by the short name a call row carries, each as the page names it. */
+function modelsOf(store: Store, calls: readonly CallRecord[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const modelOf = modelResolver(store);
+  for (const c of calls) {
+    if (c.kind !== 'api') continue;
+    const model = c.end?.meta.model ?? c.meta.model ?? modelOf(c) ?? null;
+    if (!model) continue;
+    const short = shortModel(model);
+    if (short && !(short in out)) out[short] = modelName(model);
+  }
+  return out;
+}
+
 export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunPageFacts {
   const a = analyseRun(store, run, calls);
   const interventions = run.mode === 'replay' ? runInterventions(store, run, calls) : [];
@@ -308,6 +333,7 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
     blame: blameOf(run, calls),
     checks: checksOf(store, run),
+    models: modelsOf(store, calls),
   };
 }
 

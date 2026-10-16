@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { readConfigFile, type Normalizer } from '@shadowlap/engine';
 import { showRunJson } from '../api.js';
 import type { RouteContext } from '../context.js';
@@ -29,10 +30,28 @@ function goldensOf(ctx: RouteContext): GoldenSource[] {
   }
 }
 
+const heads = new Map<string, { at: number; head: Promise<string | null> }>();
+
+/**
+ * The commit the project's HEAD is at (its full sha), or null outside a git repository: Find the
+ * commit on a run that passed searches after the run's own commit up to it. Asked of git at most
+ * every few seconds, since the page asks for its offers as runs change.
+ */
+function projectHead(path: string): Promise<string | null> {
+  const now = Date.now();
+  const known = heads.get(path);
+  if (known && now - known.at < 3000) return known.head;
+  const head = new Promise<string | null>((resolve) => {
+    execFile('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: path, timeout: 2000, windowsHide: true }, (err, stdout) => resolve(err ? null : stdout.trim() || null));
+  });
+  heads.set(path, { at: now, head });
+  return head;
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;
 
-  router.get('/runs/:id/offers', (r) => {
+  router.get('/runs/:id/offers', async (r) => {
     // A config that can't be read stops the copies when they run, with its reason; it doesn't stop the page.
     let redact: readonly Normalizer[] = [];
     try {
@@ -40,7 +59,7 @@ export function register(router: Router, ctx: RouteContext): void {
     } catch {
       redact = [];
     }
-    let config: { store?: unknown; tests?: unknown } | null = null;
+    let config: { store?: unknown; tests?: unknown; normalize?: unknown } | null = null;
     if (ctx.project) {
       try {
         const file = readConfigFile(ctx.project.path);
@@ -49,7 +68,8 @@ export function register(router: Router, ctx: RouteContext): void {
         config = null;
       }
     }
-    const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx) });
+    const head = ctx.project ? await projectHead(ctx.project.path) : null;
+    const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx), head });
     if (!offers) throw new HttpError(404, `no run ${r.params.id}`);
     r.tagged(offers);
   });

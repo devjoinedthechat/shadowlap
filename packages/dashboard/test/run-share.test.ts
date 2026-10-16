@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, type Normalizer } from '@shadowlap/engine';
 import { cliSpawner, runDetail, showRunJson, startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import { collectorUrl, copyRules, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, inStoreFolder, insideProject, packFolder, packJob, traceFile } from '../src/run-exports.js';
-import { blameOffer, goldenExpect, runOffers, testOffer } from '../src/run-offers.js';
+import { blameOffer, goldenExpect, passingBisect, runOffers, sameCommit, testOffer } from '../src/run-offers.js';
 import { addRun, blameOf } from './read-model-store.js';
 import { RunBuilder } from '../../engine/test/run-fixtures.js';
 
@@ -262,6 +262,24 @@ describe('what the run page offers', () => {
     expect(o.test).toBeNull();
   });
 
+  it('offers no search after a run that passed at HEAD: there is no later commit yet', () => {
+    // Made at a7b3c2e, and it passed: bisect would look from there up to HEAD.
+    const id = addRun(store, { startedAt: T0 + 32, calls: 'l' });
+    const at = (head: string | null) => runOffers(store, id, { redact: [], config: null, head })!.bisect!;
+    expect(at('a7b3c2e9f00d1c2b3a4d5e6f708192a3b4c5d6e7')).toMatchObject({ failed: false, good: 'a7b3c2e', args: null, unavailable: 'this run passed at a7b3c2e, which is HEAD: there is no later commit to search yet' });
+    // A commit came since: the search starts at the run's own.
+    expect(at('c91d0f4aa00d1c2b3a4d5e6f708192a3b4c5d6e7')).toMatchObject({ failed: false, good: 'a7b3c2e', unavailable: null, args: ['bisect', id, '--good', 'a7b3c2e'] });
+    // Outside git, nothing is known of HEAD.
+    expect(at(null)).toMatchObject({ unavailable: null });
+    // A run that failed is searched from a good commit up to its own, whatever HEAD is.
+    const failed = addRun(store, { startedAt: T0 + 34, calls: 'l', status: 'failed' });
+    expect(passingBisect(runOffers(store, failed, { redact: [], config: null })!.bisect, 'a7b3c2e')).toMatchObject({ failed: true });
+    expect(sameCommit('A7B3C2E', 'a7b3c2e9f00d')).toBe(true);
+    expect(sameCommit('a7b3c2', 'a7b3c2e9f00d')).toBe(false);
+    expect(sameCommit('v2.4.0', 'v2.4.0')).toBe(true);
+    expect(sameCommit('main', 'mainline')).toBe(false);
+  });
+
   it('never bisects a run blame found failing as if it passed', () => {
     // Exited 0 and kept no checks of its own, but blame confirmed it fails the check it was given.
     const id = addRun(store, { startedAt: T0 + 31, calls: 'l', meta: { blame: blameOf(1, null, T0) } });
@@ -277,6 +295,13 @@ describe('what the run page offers', () => {
 });
 
 describe('the Calls view’s values', () => {
+  it('names each model as the page names it: the id without its date stamp, by the short name on its rows', () => {
+    const id = addRun(store, { startedAt: T0 + 49, calls: [{ code: 'l', model: 'claude-opus-5-20261001' }, { code: 'l', model: 'claude-opus-5' }, { code: 'l', model: 'us.anthropic.claude-sonnet-5-20261001-v1:0' }, { code: 'l', model: 'gpt-5-mini' }, { code: 'o' }] });
+    const d = runDetail(store, id)!;
+    expect(d.calls.map((c) => c.model)).toEqual(['opus-5', 'opus-5', 'sonnet-5', 'gpt-5-mini', null]);
+    expect(d.models).toEqual({ 'opus-5': 'claude-opus-5', 'sonnet-5': 'claude-sonnet-5', 'gpt-5-mini': 'gpt-5-mini' });
+  });
+
   it('shows a clock read’s and a random value’s value beside the call', () => {
     const b = RunBuilder.start(store, { startedAt: T0 + 50 });
     const id = b.run.runId;

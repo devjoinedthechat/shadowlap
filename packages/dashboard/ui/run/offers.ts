@@ -177,7 +177,7 @@ export function bisectCopy(runId: string, b: BisectOffer): BisectCopy {
   const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}` }));
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {
-    title: `Find the commit that broke ${shortId(runId)}`,
+    title: `${bisectLabel(b).label.replace(/ it$/, '')} ${shortId(runId)}`,
     text: b.failed
       ? `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${cost}`
       : `Replays ${b.target.kind === 'golden' ? target : 'the run'} at commits from ${b.good ?? 'its own'} to HEAD, halving each time, and names the first where it does something else. ${cost}`,
@@ -186,6 +186,17 @@ export function bisectCopy(runId: string, b: BisectOffer): BisectCopy {
     initial: b.good ?? choices[0]?.value ?? '',
     command: (good) => `shadowlap bisect ${target} --good ${!good || good === '…' ? '…' : quote(good)}${b.bad ? ` --bad ${b.bad}` : ''}${b.fork ? ' --fork' : ''}`,
   };
+}
+
+/**
+ * Find the commit's name in the fork menu and the palette, and its hover when it can run: the commit
+ * that broke a run that failed (or one nothing is known of); for a run that passed, the first commit
+ * after its own that changed what it does.
+ */
+export function bisectLabel(b: Pick<BisectOffer, 'failed'> | null | undefined): { label: string; hint: string } {
+  return b && !b.failed
+    ? { label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' }
+    : { label: 'Find the commit that broke it', hint: 'Replays it at commits between a good one and its own, halving each time' };
 }
 
 /**

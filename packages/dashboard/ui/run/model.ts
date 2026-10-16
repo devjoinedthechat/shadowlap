@@ -1,6 +1,7 @@
-import type { BlameView, CheckView, RunDetail } from '../types.js';
+import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
+import type { BlameView, CallRow, CheckView, RunDetail } from '../types.js';
 import type { RunLike } from '../runs.js';
-import { modelCallOf } from './calls.js';
+import { modelCallOf, originOf } from './calls.js';
 
 /**
  * The run page's reading of a run: what to call it, where it forked or was lost, and each call's
@@ -34,8 +35,40 @@ export function runLikeOf(d: RunDetail): RunLike {
   };
 }
 
+/**
+ * A model as the run page names it in every view: the id without its date stamp (`claude-opus-5`).
+ * A call row carries the short name (`opus-5`), which the run's `models` maps; a full id (what a
+ * conversation's request named, Provenance's record) is named the same way. Without the map (an older
+ * server), a row keeps its short name.
+ */
+export function modelLabel(models: Readonly<Record<string, string>> | null | undefined, model: string | null | undefined): string | null {
+  if (!model) return null;
+  return models?.[model] ?? models?.[shortModel(model)] ?? canonicalModel(model).replace(/-\d{8}$/, '');
+}
+
+/** The run's call rows with each model call's model named as the page names it (`modelLabel`). */
+export function withModelNames(calls: CallRow[], models: Readonly<Record<string, string>> | null | undefined): CallRow[] {
+  if (!models || !Object.keys(models).length) return calls;
+  return calls.map((c) => {
+    const named = c.model ? models[c.model] : undefined;
+    return named && named !== c.model ? { ...c, model: named } : c;
+  });
+}
+
 export function forkAtOf(d: RunDetail): number | null {
   return d.forkAt ?? d.run.divergence?.callNo ?? null;
+}
+
+/**
+ * The call the strip and Calls flag FORK: where a replay forked. A replay `shadowlap test` made that
+ * diverged offline did not fork there, it failed (its banner says where, and the page opens on it):
+ * every call from there was refused, so nothing is flagged. One of a golden that may fork went on
+ * live from there, and is flagged.
+ */
+export function forkMarkOf(d: Pick<RunDetail, 'forkAt' | 'calls'> & { run: Pick<RunDetail['run'], 'divergence' | 'meta'> }): number | null {
+  const at = d.forkAt ?? d.run.divergence?.callNo ?? null;
+  if (at === null || !d.run.meta?.test) return at;
+  return d.calls.some((c) => c.callNo >= at && originOf(c) === 'live') ? at : null;
 }
 
 /**

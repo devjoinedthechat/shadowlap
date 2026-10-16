@@ -13,7 +13,7 @@ import { kindWord } from '../runs.js';
 import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
-import { originOf, runLikeOf } from './model.js';
+import { modelLabel, originOf, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, tallyProviders } from './provenance.js';
 
 /**
@@ -56,15 +56,23 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   const fetched = useLoad(() => (run.provenance ? null : client.provenance(r.runId)), `${r.runId}:provenance`);
   const prov = run.provenance ?? fetched.data ?? null;
   const providers = useProviders(run, prov);
-  // Each model as recorded (the dated id the provider answered with), when the record says; else as the calls name it.
-  const models = new Map<string, number>();
+  // Each model as the page names it everywhere (claude-opus-5), counted from the record when it says,
+  // else from the calls; the id the provider recorded (a dated one) shows on hover when it says more.
+  const models = new Map<string, { calls: number; recorded: string[] }>();
+  const count = (model: string, n: number, recorded: string | null) => {
+    const name = modelLabel(run.models, model) ?? model;
+    const m = models.get(name) ?? { calls: 0, recorded: [] };
+    m.calls += n;
+    if (recorded && recorded !== name && !m.recorded.includes(recorded)) m.recorded.push(recorded);
+    models.set(name, m);
+  };
   const endpoints = new Set<string>();
   for (const c of run.calls) {
     if (c.kind !== 'api') continue;
-    if (c.model && !prov?.models?.length) models.set(c.model, (models.get(c.model) ?? 0) + 1);
+    if (c.model && !prov?.models?.length) count(c.model, 1, null);
     endpoints.add(c.name);
   }
-  for (const m of prov?.models ?? []) models.set(m.model, m.calls);
+  for (const m of prov?.models ?? []) count(m.model, m.calls, m.model);
   const revOf = new Map((prov?.lineage ?? []).map((n) => [n.runId, n.codeVersion]));
   const origins = countOrigins(run.calls.map(originOf));
   const scopes = scopesOf(run.calls);
@@ -96,8 +104,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     [
       'Models',
       models.size
-        ? [...models].map(([m, n], i) => (
-            <span key={m}>
+        ? [...models].map(([m, { calls: n, recorded }], i) => (
+            <span key={m} title={recorded.length ? `recorded as ${recorded.join(', ')}` : undefined}>
               {i ? <br /> : null}
               {m} <small>{n === 1 ? '1 call' : `${num(n)} calls`}</small>
             </span>
