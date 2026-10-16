@@ -401,6 +401,39 @@ export function parseMarkdown(md: string): MdBlock[] {
   return out;
 }
 
+/** A table header of report.md as plain words, for the label a phone shows beside each value. */
+export const plainCell = (text: string): string => text.replace(/`/g, '').trim();
+
+/** A cell that reads as one token (a run id, a role, an outcome, a count) and so stays on one line while longer cells wrap. */
+export function cellKeepsWhole(text: string): boolean {
+  const t = plainCell(text);
+  return t.length <= 16 && !/\s/.test(t);
+}
+
+/**
+ * Text cut where JSON in a narrow cell may wrap before it has to break a word: after each `,`, `:`,
+ * `(` and `{` of a long word (`issue_refund({"order_id":"A-1042",…`). Words of plain text wrap at
+ * their spaces as they are.
+ */
+export function breakPoints(text: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (const piece of text.split(/(\s+)/)) {
+    if (piece.length <= 12 || /\s/.test(piece)) {
+      cur += piece;
+      continue;
+    }
+    const [first, ...rest] = piece.split(/(?<=[,:({])/);
+    cur += first;
+    for (const part of rest) {
+      out.push(cur);
+      cur = part;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
 /** A line of report.md cut where it sets code in backticks. */
 export function inlineParts(text: string): Array<{ code: boolean; text: string }> {
   const out: Array<{ code: boolean; text: string }> = [];

@@ -1643,6 +1643,17 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .fxtable { overflow-x: auto; margin: 0 0 12px; }
 .fxtable table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .fxtable th { text-align: left; vertical-align: bottom; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
-.fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: break-word; }
-.fxtable td code { white-space: nowrap; }
+.fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+/* a long cell (an answer, a candidate) wraps anywhere, so the table fits its panel; a run id or a role stays whole */
+.fxtable td.nw { white-space: nowrap; overflow-wrap: normal; }
+/* report.md in a narrow panel (beside Handed over on a laptop, or on a phone): each row as its headers
+   and values, one under the other, so no column is ever out of view */
+.prbody { container: report / inline-size; }
+@container report (max-width: 420px) {
+  .fxtable table, .fxtable tbody, .fxtable tr, .fxtable td { display: block; }
+  .fxtable thead { display: none; }
+  .fxtable tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .fxtable td { padding: 2px 0; border: 0; }
+  .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+}
 .fxmore { padding: 0 18px 14px; }

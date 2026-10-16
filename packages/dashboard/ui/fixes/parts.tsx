@@ -1,5 +1,5 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { inlineParts, parseMarkdown, type MdBlock } from './model.js';
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { breakPoints, cellKeepsWhole, inlineParts, parseMarkdown, plainCell, type MdBlock } from './model.js';
 
 /** A step's header: its title, a line or two under it, and its actions on the right (`.sh`). */
 export function StepHead({ title, text, actions }: { title: ReactNode; text?: ReactNode; actions?: ReactNode }) {
@@ -14,11 +14,12 @@ export function StepHead({ title, text, actions }: { title: ReactNode; text?: Re
   );
 }
 
-/** Text with its `code` set in code. */
-export function Inline({ text }: { text: string }) {
+/** Text with its `code` set in code. `breaks` lets a narrow table cell wrap JSON after its commas and colons (`breakPoints`). */
+export function Inline({ text, breaks = false }: { text: string; breaks?: boolean }) {
+  const words = (t: string) => (breaks ? breakPoints(t).map((w, i) => (i ? <Fragment key={i}><wbr />{w}</Fragment> : <Fragment key={i}>{w}</Fragment>)) : t);
   return (
     <>
-      {inlineParts(text).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : <span key={i}>{p.text}</span>))}
+      {inlineParts(text).map((p, i) => (p.code ? <code key={i}>{words(p.text)}</code> : <span key={i}>{words(p.text)}</span>))}
     </>
   );
 }
@@ -79,8 +80,9 @@ function Block({ b }: { b: MdBlock }) {
               {b.rows.map((r, i) => (
                 <tr key={i}>
                   {r.map((c, j) => (
-                    <td key={j}>
-                      <Inline text={c} />
+                    // On a phone a row stands as its headers and values (`data-h`), so no column is out of view.
+                    <td key={j} data-h={plainCell(b.head[j] ?? '')} className={cellKeepsWhole(c) ? 'nw' : undefined}>
+                      <Inline text={c} breaks />
                     </td>
                   ))}
                 </tr>

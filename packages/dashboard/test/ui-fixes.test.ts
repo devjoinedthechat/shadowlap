@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
+import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, plainCell, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
@@ -269,6 +269,18 @@ describe('report.md', () => {
     expect(blocks[4]).toEqual({ kind: 'table', head: ['Run', 'Lost at', 'What the agent did there'], rows: [['`01M50JGGW8`', 'model call #5 (3 of 4)', 'issue_refund({"a":1}) | more']] });
     expect(blocks[5]).toEqual({ kind: 'p', text: 'A paragraph that goes on.' });
     expect(blocks[6]).toEqual({ kind: 'ul', items: ['one', 'two'] });
+  });
+
+  it('keeps a cell that reads as one token whole, and labels each value on a phone by its plain header', () => {
+    expect(cellKeepsWhole('`01M50JGGW8`')).toBe(true);
+    expect(cellKeepsWhole('held-out')).toBe(true);
+    expect(cellKeepsWhole('4 of 4 passed')).toBe(false);
+    expect(cellKeepsWhole('issue_refund({"order_id":"A-1042","amount":240})')).toBe(false);
+    expect(plainCell(' `Run` id ')).toBe('Run id');
+    expect(breakPoints('issue_refund({"order_id":"A-1042","amount":240})')).toEqual(['issue_refund(', '{', '"order_id":', '"A-1042",', '"amount":', '240})']);
+    expect(breakPoints('fixed')).toEqual(['fixed']);
+    expect(breakPoints('model call #5 (3 of 4)')).toEqual(['model call #5 (3 of 4)']);
+    expect(breakPoints('"Above.", escalate({"reason":"over the limit"})')).toEqual(['"Above.", escalate(', '{', '"reason":', '"over the limit"})']);
   });
 
   it('sets text in backticks as code, and leaves the rest text', () => {
