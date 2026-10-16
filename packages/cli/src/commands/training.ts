@@ -9,6 +9,7 @@ import {
   formatUsd,
   listingInput,
   listModelChoices,
+  mainRefusal,
   matchTask,
   modelReach,
   PAIR_FORMATS,
@@ -408,7 +409,8 @@ export function register(program: Command): void {
         const width = Math.max(...rows.map((c) => safeLine(c.id).length));
         for (const c of rows) {
           const cost = c.local ? '$0, not a paid API' : c.perAttempt === null ? 'no price' : `≈${formatUsd(c.perAttempt)} an attempt`;
-          const first = c.reach.refused[0];
+          // Why its own provider's task can't ask it says more than that the others were recorded elsewhere, as the dashboard says it.
+          const first = mainRefusal(c.reach);
           const reach = !first ? '' : c.reach.tasks.length ? p.dim(` · on ${c.reach.tasks.length} of ${plural(ready.length, 'task')}`) : p.yellow(` · can't answer the tasks (${safeLine(first.name)}: ${safeLine(first.why)})`);
           process.stdout.write(`  ${safeLine(c.id).padEnd(width)}  ${p.dim(cost)}${c.lastScore !== null ? ` · scored ${c.lastScore.toFixed(2)}` : ''}${reach}\n`);
         }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, modelReach, ollamaBase, openAIBase } from '../src/models.js';
+import { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, refusedLine } from '../src/models.js';
 import type { TaskScoreRow } from '../src/store.js';
 import type { Task } from '../src/tasks.js';
 
@@ -162,5 +162,28 @@ describe('which ready tasks a listed model can answer', () => {
     expect(gemini.tasks).toEqual(['goldens/gemini']);
     expect(gemini.refused.map((r) => r.why)).toEqual(['it was recorded on Azure OpenAI, and gemini-2.5-pro is asked of the Gemini API', 'it was recorded on Amazon Bedrock, and gemini-2.5-pro is asked of the Gemini API']);
     expect(modelReach(choice('gpt-other', ['--model', 'gpt-other'], null, 'azure'), tasks).refused[0]!.why).toContain('the deployment in the URL picks the model');
+  });
+
+  it('says first why its own provider\'s task refuses a model, and groups the tasks it leaves out by why', () => {
+    const tasks = [
+      task('goldens/azure', 'azure', 'POST /openai/deployments/gpt-prod/chat/completions'),
+      task('goldens/bedrock-claude', 'bedrock', 'POST /model/anthropic.claude-sonnet-5-v1%3A0/invoke'),
+      task('goldens/converse', 'bedrock', 'POST /model/amazon.nova-pro-v1%3A0/converse'),
+      task('goldens/gemini', 'gemini', 'POST /v1beta/models/gemini-2.5-flash:generateContent'),
+      task('goldens/vertex', 'vertex', 'POST /v1/projects/p/locations/us-east5/publishers/google/models/gemini-2.5-flash:generateContent'),
+    ];
+    // Another model of Bedrock: the Azure task is listed first, but Bedrock's own refusal says more.
+    const nova = modelReach(choice('amazon.nova-lite-v1:0', ['--model', 'amazon.nova-lite-v1:0'], null, 'bedrock'), tasks);
+    expect(nova.tasks).toEqual([]);
+    expect(nova.refused[0]!.elsewhere).toBe(true);
+    expect(mainRefusal(nova)).toMatchObject({ name: 'bedrock-claude', elsewhere: false });
+    expect(mainRefusal({ tasks: [], refused: [] })).toBeNull();
+    // A Gemini model answers its own task: the three recorded on other clouds are one reason, not three.
+    const gemini = modelReach(choice('gemini-2.5-flash', ['--model', 'gemini-2.5-flash'], null, 'gemini'), tasks);
+    expect(gemini.tasks).toEqual(['goldens/gemini']);
+    expect(refusedLine({ provider: 'gemini' }, gemini)).toBe('azure, bedrock-claude, converse, vertex: recorded on Azure OpenAI, Amazon Bedrock and Vertex AI, not the Gemini API');
+    // Reasons of their own are grouped by their words, after the tasks recorded elsewhere.
+    expect(refusedLine({ provider: 'bedrock' }, nova)).toBe(`azure, gemini, vertex: recorded on Azure OpenAI, the Gemini API and Vertex AI, not Amazon Bedrock; bedrock-claude, converse: ${nova.refused.find((r) => r.name === 'bedrock-claude')!.why}`);
+    expect(refusedLine({ provider: 'gemini' }, { tasks: ['goldens/gemini'], refused: [] })).toBeNull();
   });
 });

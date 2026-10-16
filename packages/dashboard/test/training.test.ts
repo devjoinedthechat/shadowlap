@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
-import { approx, exportPairsJob, money, readTraining, scoreModelJob, scoreNote, trainingView } from '../src/training.js';
+import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
 /**
@@ -302,13 +302,46 @@ describe('the Training read model', () => {
       ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
     ]);
     expect(dialog.options[1]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
-    expect(dialog.options[0]!.note).toContain("not llama: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API; converse: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API");
+    // Two tasks recorded on another provider are one reason, said once.
+    expect(dialog.options[0]!.note).toBe("Anthropic API · about $0.017 an attempt · scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
+    // The first model not scored yet that answers every ready task is preselected: none here answers all three, so the first not scored.
+    expect(dialog.selected).toBe('claude-sonnet-5\n');
     // OpenAI's recorded model answers none of them; Bedrock's own answers its own tasks only by switching models there, which a signed URL doesn't allow: that, not the others' providers, is why.
     expect(dialog.leftOut).toEqual([
       { group: 'Recorded with', models: ['gpt-5'], why: "refund: it was recorded on Anthropic's API, and gpt-5 is asked of OpenAI's API" },
       { group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: 'llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL' },
     ]);
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
+  });
+
+  it('preselects a model not scored yet that answers every ready task over one that answers some', () => {
+    const tasks = [task('goldens/azure', 'ready', 'escalate', { provider: 'azure', callName: 'POST /openai/deployments/gpt-prod/chat/completions' }), task('goldens/gemini', 'ready', 'escalate', { provider: 'gemini', callName: 'POST /v1beta/models/gemini-2.5-flash:generateContent' })];
+    const listing: ModelListing = {
+      choices: [
+        { group: 'Gemini API', id: 'gemini-2.5-flash', via: 'Gemini API', where: 'Gemini API', baseUrl: null, flags: ['--model', 'gemini-2.5-flash'], perAttempt: 0.0003, local: false, provider: 'gemini' },
+        { group: 'Anthropic API', id: 'claude-good', via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'anthropic:claude-good'], perAttempt: 0.004, local: false },
+      ],
+      notes: [],
+      tokens: null,
+    };
+    const dialog = scoreDialogView(tasks, [], listing)!;
+    expect(dialog.options.map((o) => [o.id, o.request.goldens])).toEqual([
+      ['gemini-2.5-flash', ['goldens/gemini']],
+      ['claude-good', null],
+    ]);
+    expect(dialog.selected).toBe('claude-good\n');
+    expect(dialog.options[0]!.note).toBe('Gemini API · about $0.0003 an attempt · scores 1 of 2 tasks, not azure: recorded on Azure OpenAI, not the Gemini API');
+    // Once it is scored, the next one not scored yet comes first, whatever it answers.
+    expect(scoreDialogView(tasks, [score('claude-good', null, 'goldens/azure', 1, 1, 100), score('claude-good', null, 'goldens/gemini', 1, 1, 100)], listing)!.selected).toBe('gemini-2.5-flash\n');
+  });
+
+  it('names the best model\'s endpoint, and counts a model scored at two endpoints once', () => {
+    const s = Store.open(':memory:');
+    const ready = [task('goldens/a', 'ready', null)];
+    const scores = [score('claude-haiku-4-5', null, 'goldens/a', 1, 0.5, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 1, 200), score('qwen2.5:7b', 'http://gpu-box:8000/v1', 'goldens/a', 1, 0.5, 300)];
+    const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
+    expect(view.strip.best).toMatchObject({ value: '1.00', model: 'qwen2.5:7b', sub: 'qwen2.5:7b at 127.0.0.1:11434 · 2 models scored' });
+    s.close();
   });
 
   it('builds the jobs the dialogs start from what they name, never from a command line', () => {

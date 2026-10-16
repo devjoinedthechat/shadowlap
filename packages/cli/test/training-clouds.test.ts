@@ -100,7 +100,7 @@ interface Result {
   stdout: string;
 }
 
-function shadowlap(work: string, args: string[]): Promise<Result> {
+function shadowlap(work: string, args: string[], extra: NodeJS.ProcessEnv = {}): Promise<Result> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: work,
@@ -117,6 +117,7 @@ function shadowlap(work: string, args: string[]): Promise<Result> {
         NO_COLOR: '1',
         SHADOWLAP_GUARD: 'off',
         AGENT_OUTBOX: join(work, 'outbox.jsonl'),
+        ...extra,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -232,6 +233,25 @@ describe('a cloud recording scored with Anthropic\'s API', () => {
       rmSync(work, { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+describe('the models to score a project recorded on two clouds', () => {
+  it('say why a cloud\'s own model can\'t answer from its own task, not that the other was recorded elsewhere', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'sl-cloud-models-'));
+    try {
+      await golden(work, 'azure', false);
+      await golden(work, 'bedrock-claude', false);
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: Object.fromEntries(['azure', 'bedrock-claude'].map((api) => [`goldens/${api}`, { expect: { tools: { issue_refund: 0 } }, task: { takeover: 5 } }])) }));
+      // The model lists come from the mock and a port nothing answers: no provider of this machine's is asked.
+      const r = await shadowlap(work, ['tasks', 'models', '--timeout', '200'], { ANTHROPIC_BASE_URL: anthropic.url, OLLAMA_HOST: '127.0.0.1:1', OPENAI_API_KEY: '', GEMINI_API_KEY: '', GOOGLE_API_KEY: '' });
+      expect(r.code, r.out).toBe(0);
+      const line = r.stdout.split('\n').find((l) => l.includes('anthropic.claude'))!;
+      expect(line, r.stdout).toContain("can't answer the tasks (bedrock-claude: its takeover call goes through Amazon Bedrock");
+      expect(line).not.toContain('(azure:');
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe('the takeover upstream over HTTP/2', () => {

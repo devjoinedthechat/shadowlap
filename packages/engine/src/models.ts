@@ -277,8 +277,11 @@ export function choiceTarget(c: Pick<ModelChoice, 'flags' | 'baseUrl'>): Takeove
 export interface ModelReach {
   /** The ready tasks it can answer, by golden. */
   tasks: string[];
-  /** The ready tasks it can't, each with why; `elsewhere`: the task was recorded on another provider than the one the model is asked of. */
-  refused: Array<{ golden: string; name: string; why: string; elsewhere: boolean }>;
+  /**
+   * The ready tasks it can't, each with why; `elsewhere`: the task was recorded on another provider
+   * (`provider`, as the recordings name it) than the one the model is asked of.
+   */
+  refused: Array<{ golden: string; name: string; why: string; elsewhere: boolean; provider: string | null }>;
 }
 
 /**
@@ -294,8 +297,40 @@ export function modelReach(c: Pick<ModelChoice, 'id' | 'flags' | 'baseUrl' | 'pr
     if (t.status !== 'ready') continue;
     const elsewhere = target.route === 'same' && !!c.provider && !!t.provider && t.provider !== c.provider;
     const why = elsewhere ? `it was recorded on ${onApi(t.provider!)}, and ${c.id} is asked of ${onApi(c.provider!)}` : t.callName ? takeoverRefusal(t.provider, t.callName, target) : 'its recording has no call to take over';
-    if (why) out.refused.push({ golden: t.golden, name: t.name, why, elsewhere });
+    if (why) out.refused.push({ golden: t.golden, name: t.name, why, elsewhere, provider: t.provider });
     else out.tasks.push(t.golden);
   }
   return out;
+}
+
+/**
+ * The refusal that says the most about a model that answers no ready task: why a task recorded on
+ * its own provider can't ask it (Bedrock signs the model into the URL), before that the rest were
+ * recorded elsewhere. Null when it refuses none.
+ */
+export function mainRefusal(reach: ModelReach): ModelReach['refused'][number] | null {
+  return reach.refused.find((r) => !r.elsewhere) ?? reach.refused[0] ?? null;
+}
+
+/**
+ * The ready tasks a model can't answer, grouped by why, in one line. Tasks recorded on another
+ * provider than the one it is asked of share one reason (`azure, bedrock-claude: recorded on Azure
+ * OpenAI and Amazon Bedrock, not the Gemini API`); the rest are grouped by their own words. Null when
+ * it refuses none.
+ */
+export function refusedLine(c: Pick<ModelChoice, 'provider'>, reach: ModelReach): string | null {
+  if (!reach.refused.length) return null;
+  const groups: Array<{ names: string[]; why: string }> = [];
+  const elsewhere = reach.refused.filter((r) => r.elsewhere);
+  if (elsewhere.length) {
+    const apis = [...new Set(elsewhere.map((r) => onApi(r.provider ?? 'another')))];
+    const on = apis.length > 1 ? `${apis.slice(0, -1).join(', ')} and ${apis.at(-1)}` : apis[0];
+    groups.push({ names: elsewhere.map((r) => r.name), why: `recorded on ${on}${c.provider ? `, not ${onApi(c.provider)}` : ''}` });
+  }
+  for (const r of reach.refused.filter((x) => !x.elsewhere)) {
+    const same = groups.find((g) => g.why === r.why);
+    if (same) same.names.push(r.name);
+    else groups.push({ names: [r.name], why: r.why });
+  }
+  return groups.map((g) => `${g.names.join(', ')}: ${g.why}`).join('; ');
 }

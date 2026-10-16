@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, modelReach, PAIR_FORMATS, type ModelChoice, type ModelListing, type ModelReach, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, mainRefusal, modelReach, PAIR_FORMATS, refusedLine, type ModelChoice, type ModelListing, type ModelReach, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -255,7 +255,7 @@ export interface ScoreDialogView {
   title: string;
   options: ModelOptionView[];
   groups: string[];
-  /** The first model not scored yet, else the first. */
+  /** The first model not scored yet that answers every ready task, else the first not scored yet, else the first. */
   selected: string | null;
   attempts: number[];
   /** "Your own endpoint…": a base URL and a model name, filled in with these. */
@@ -392,7 +392,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     const reach = modelReach(c, tasks);
     if (!reach.tasks.length) {
       // Why its own provider's task can't ask it says more than that the others were recorded elsewhere.
-      const first = reach.refused.find((r) => !r.elsewhere) ?? reach.refused[0];
+      const first = mainRefusal(reach);
       const why = first ? refusal(first) : 'no task is ready';
       const same = leftOut.find((l) => l.group === c.group && l.why === why);
       if (same) same.models.push(c.id);
@@ -402,10 +402,12 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     const last = means.get(modelKey(c.id, c.baseUrl)) ?? null;
     const flag = (name: string) => (c.flags.includes(name) ? (c.flags[c.flags.indexOf(name) + 1] ?? null) : null);
     const some = reach.refused.length > 0;
-    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${reach.refused.map(refusal).join('; ')}` : scoreNote(c, last);
+    // The tasks it leaves out, grouped by why: three tasks recorded on other clouds are one reason, not three.
+    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${refusedLine(c, reach)}` : scoreNote(c, last);
     options.push({ ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url'), goldens: some ? reach.tasks : null }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note });
   }
-  const first = options.find((o) => o.lastScore === null) ?? options[0] ?? null;
+  // The first model not scored yet that answers every ready task, else the first not scored yet.
+  const first = options.find((o) => o.lastScore === null && o.request.goldens === null) ?? options.find((o) => o.lastScore === null) ?? options[0] ?? null;
   return {
     title: `Score a model on ${plural(ready.length, 'task')}`,
     options,
@@ -599,7 +601,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     strip: {
       pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: '#/training', high: counts.high, medium: counts.medium },
       tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: input.tasksError ? 'the tasks can’t be read' : [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
-      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model} · ${best.coverage ?? `${plural(cards.length, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
+      // The best names its endpoint when its model was scored at two; the same model at two endpoints is one model scored.
+      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model}${best.where ? ` at ${best.where}` : ''} · ${best.coverage ?? `${plural(new Set(cards.map((c) => c.model)).size, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
       // The UI adds the export's time (`at`) after the file, as it formats every time.
       left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing until you export it', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
     },
