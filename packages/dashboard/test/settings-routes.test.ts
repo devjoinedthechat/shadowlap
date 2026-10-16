@@ -473,8 +473,9 @@ describe('clean up old runs', () => {
     }
   });
 
-  it('has nothing to confirm when the dry run found no runs', async () => {
-    const d2 = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project, env: { ...process.env, FAKE_GC_COUNT: '0' } }), project: { path: project } });
+  /** A dry run of a dashboard whose gc reports what `env` says, and what confirming it answers. */
+  async function confirmAfter(env: Record<string, string>): Promise<{ status: number; body: { args?: string[]; error?: string } }> {
+    const d2 = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project, env: { ...process.env, ...env } }), project: { path: project } });
     try {
       const dry = (await (await send('POST', 'jobs', { kind: 'gc' }, d2)).json()) as JobView;
       for (let i = 0; i < 400; i++) {
@@ -483,10 +484,25 @@ describe('clean up old runs', () => {
         await new Promise((r) => setTimeout(r, 25));
       }
       const res = await send('POST', 'jobs', { kind: 'gc', confirm: dry.id }, d2);
-      expect(res.status).toBe(409);
-      expect(await error(res)).toMatch(/found no runs/);
+      return { status: res.status, body: (await res.json()) as { args?: string[]; error?: string } };
     } finally {
       await d2.close();
     }
+  }
+
+  it('gives back what deleted runs left when the dry run found no runs old enough, with a plain gc that deletes none', async () => {
+    // Blobs nothing uses: a plain gc removes them and compacts the store.
+    expect(await confirmAfter({ FAKE_GC_COUNT: '0' })).toMatchObject({ status: 202, body: { args: ['gc'] } });
+    // Only unused space, past 1 MB: the same.
+    expect(await confirmAfter({ FAKE_GC_COUNT: '0', FAKE_GC_BYTES: '0', FAKE_GC_FREE: String(5 * 1024 * 1024) })).toMatchObject({ status: 202, body: { args: ['gc'] } });
+  });
+
+  it('has nothing to confirm when the dry run found nothing to delete or give back, or while a run records', async () => {
+    const none = await confirmAfter({ FAKE_GC_COUNT: '0', FAKE_GC_BYTES: '0', FAKE_GC_FREE: '4096' });
+    expect(none.status).toBe(409);
+    expect(none.body.error).toMatch(/nothing to delete or give back/);
+    const recording = await confirmAfter({ FAKE_GC_COUNT: '0', FAKE_GC_RECORDING: '1' });
+    expect(recording.status).toBe(409);
+    expect(recording.body.error).toMatch(/a run is recording/);
   });
 });

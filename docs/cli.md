@@ -637,7 +637,16 @@ A run whose recording process was killed (`kill -9`, out of memory, a machine th
 ✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
 ```
 
-The size is what those blobs take in the store. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the store's size `before` and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
+The size is what those blobs take in the store. When no run matches, it says what a plain `shadowlap gc` would give back instead (blobs nothing references, and unused space of 1 MB or more that deleted runs left in the store), with no command that deletes runs:
+
+```
+▸ runs older than 30 days: none · runs still recording are never touched
+  blobs nothing would reference: 14 · 2.1 MB
+  unused space in the store: 51.4 MB
+✓ dry run: no runs to delete; would give back 2.1 MB of blobs nothing references and 51.4 MB of unused space. To do that: shadowlap gc
+```
+
+`--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the store's size `before`, its unused space `free` (which vacuuming gives back), and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
 
 To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids), and refuses, deleting nothing, when the runs that match now are different, even the same number of others. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
 

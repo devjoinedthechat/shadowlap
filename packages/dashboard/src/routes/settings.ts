@@ -62,12 +62,15 @@ import { readTeamStoreInput } from '../team-store.js';
  *
  * Job kinds: `calibrate` { runId?, write? } (the setup run, else the newest recording, when none is
  * named) and `gc` { olderThanDays? } (a dry run) or { confirm: <the dry run's job id> } (deletes
- * exactly the runs that dry run listed, or nothing).
+ * exactly the runs that dry run listed, or nothing; when it listed none but found blobs nothing
+ * uses or unused space, a plain `gc`, which deletes no run and gives that back).
  *
  * The CI tab reads the tests feature's `GET /api/ci/workflows`; nothing for it is served here.
  */
 
 const LISTS: readonly RuleList[] = ['normalize', 'redact'];
+/** Unused space worth a clean-up of its own when no run is old enough: 1 MB, as `gc` counts it. */
+const UNUSED_WORTH = 1024 * 1024;
 /** The version of the file an edit was based on: `absent`, or a SHA-256. */
 const VERSION = /^(absent|[0-9a-f]{64})$/;
 
@@ -300,9 +303,17 @@ export function register(router: Router, ctx: RouteContext): void {
         } catch {
           return { error: 'that dry run is no longer in the dashboard: run Clean up old runs again', status: 409 };
         }
-        const report = dry.result as { dryRun?: unknown; count?: unknown; cutoff?: unknown; keep?: unknown; expect?: unknown } | null;
+        const report = dry.result as { dryRun?: unknown; count?: unknown; cutoff?: unknown; keep?: unknown; expect?: unknown; bytes?: unknown; recordingCount?: unknown; store?: { free?: unknown } } | null;
         if (dry.kind !== 'gc' || !dry.done || dry.code !== 0 || !report || report.dryRun !== true) return { error: 'confirm names a finished dry run of Clean up old runs', status: 409 };
-        if (typeof report.count !== 'number' || report.count < 1) return { error: 'the dry run found no runs to delete', status: 409 };
+        if (typeof report.count !== 'number' || report.count < 0) return { error: 'the dry run found no runs to delete', status: 409 };
+        // No run old enough, but blobs nothing uses or unused space to give back: a plain gc, which deletes no run.
+        if (report.count === 0) {
+          const bytes = typeof report.bytes === 'number' ? report.bytes : 0;
+          const free = typeof report.store?.free === 'number' ? report.store.free : 0;
+          if (Number(report.recordingCount) > 0) return { error: 'a run is recording: gc gives space back once it ends', status: 409 };
+          if (bytes <= 0 && free < UNUSED_WORTH) return { error: 'the dry run found nothing to delete or give back', status: 409 };
+          return { args: ['gc'] };
+        }
         const cutoff = typeof report.cutoff === 'number' && Number.isFinite(report.cutoff) ? Math.trunc(report.cutoff) : null;
         const keep = typeof report.keep === 'number' && Number.isInteger(report.keep) && report.keep >= 0 ? report.keep : null;
         try {

@@ -23,18 +23,21 @@ export interface DialogProps {
   onClose: () => void;
   cancel?: string;
   className?: string;
+  /** `cancel` focuses Cancel when the dialog opens, for a confirm that can't be undone: Enter twice never deletes anything. */
+  initialFocus?: 'cancel';
 }
 
-export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '' }: DialogProps) {
+export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayer('dialog', true, onClose);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('textarea, input:not([type="checkbox"]):not([type="hidden"]), select, .dlg-ok');
+    const first = ref.current?.querySelector<HTMLElement>(initialFocus === 'cancel' ? '.dlg-cancel' : 'textarea, input:not([type="checkbox"]):not([type="hidden"]), select, .dlg-ok');
     first?.focus();
     if (first instanceof HTMLInputElement || first instanceof HTMLTextAreaElement) first.select();
     return () => prev?.focus?.();
+    // Where focus starts is decided once, as the dialog opens.
   }, []);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -45,7 +48,7 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
         </header>
         {children ? <div className="db">{children}</div> : null}
         <footer>
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn dlg-cancel" onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
           {ok ? (

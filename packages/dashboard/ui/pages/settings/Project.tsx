@@ -4,12 +4,13 @@ import { num } from '../../format.js';
 import { ONLY_PROJECT, useProjectRemoval } from '../../project-actions.js';
 import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useSettingsData } from './common.js';
-import { bytesText } from './logic.js';
+import { UNUSED_WORTH, bytesText } from './logic.js';
 
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
- * up old runs (a dry run first, then "Delete N runs" from the drawer); and Remove from dashboard,
- * which opens the projects feature's own dialog, here in the page.
+ * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
+ * "Free X" for what deleted runs left unused); and Remove from dashboard, which opens the projects
+ * feature's own dialog, here in the page.
  */
 export function ProjectTab() {
   const app = useApp();
@@ -41,7 +42,7 @@ export function ProjectTab() {
         </dd>
         <dt>Size</dt>
         <dd>
-          {bytesText(data.store.bytes)} <small>blobs shared between runs{data.store.free > 1024 * 1024 ? ` · ${bytesText(data.store.free)} a clean-up gives back` : ''}</small>
+          {bytesText(data.store.bytes)} <small>blobs shared between runs{data.store.free >= UNUSED_WORTH ? ` · ${bytesText(data.store.free)} unused, which Clean up old runs gives back` : ''}</small>
         </dd>
         <dt>Dashboard</dt>
         <dd>

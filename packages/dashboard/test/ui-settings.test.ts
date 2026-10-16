@@ -15,6 +15,7 @@ import {
   emptyRuleForm,
   gcDeleteCommand,
   gcDryRun,
+  gcGivesBack,
   localCiWorkflows,
   maskedLine,
   mcpEntryText,
@@ -201,7 +202,15 @@ describe('what the drawer offers', () => {
     expect(dry).toMatchObject({ count: 3, olderThanDays: 30 });
     expect(gcDeleteCommand(dry!)).toBe('shadowlap gc --before 1757000000000 --expect 3-0123456789abcdef');
     expect(gcDeleteCommand({ ...dry!, cutoff: null, keep: 200 })).toBe('shadowlap gc --keep 200 --expect 3-0123456789abcdef');
-    expect(gcDryRun({ done: true, code: 0, result: { ...report, count: 0 } })).toBeNull();
+    // No run old enough: what deleted runs left (blobs nothing uses, unused space past 1 MB) by a plain gc, unless a run records.
+    const none = { ...report, count: 0, expect: '0-e3b0c44298fc1c14' };
+    expect(gcDryRun({ done: true, code: 0, result: none })).toMatchObject({ count: 0, bytes: 2048, free: 0 });
+    expect(gcDeleteCommand(gcDryRun({ done: true, code: 0, result: none })!)).toBe('shadowlap gc');
+    const unused = gcDryRun({ done: true, code: 0, result: { ...none, bytes: 0, store: { free: 50 * 1024 * 1024 } } });
+    expect(unused).toMatchObject({ free: 50 * 1024 * 1024 });
+    expect(gcGivesBack(unused!)).toBe(50 * 1024 * 1024);
+    expect(gcDryRun({ done: true, code: 0, result: { ...none, bytes: 0, store: { free: 4096 } } })).toBeNull();
+    expect(gcDryRun({ done: true, code: 0, result: { ...none, recordingCount: 1 } })).toBeNull();
     expect(gcDryRun({ done: true, code: 0, result: { ...report, dryRun: false } })).toBeNull();
     expect(gcDryRun({ done: true, code: 1, result: report })).toBeNull();
     expect(gcDryRun({ done: false, code: null, result: report })).toBeNull();

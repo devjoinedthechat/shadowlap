@@ -217,20 +217,39 @@ export interface GcDryRun {
   cutoff: number | null;
   keep: number | null;
   olderThanDays: number | null;
+  /** What the blobs only those runs use take. */
   bytes: number;
+  /** Unused space in the store now, which a clean-up's vacuum gives back too. */
+  free: number;
   expect: string;
 }
 
-/** The dry run "Delete N runs" confirms: a finished one that found runs; null hides the button. */
+/** Unused space worth a clean-up of its own when no run is old enough: 1 MB, as `gc` counts it. */
+export const UNUSED_WORTH = 1024 * 1024;
+
+/**
+ * What the drawer offers after a clean-up's dry run: "Delete N runs" when it found runs; "Free X"
+ * when it found none but blobs nothing uses or unused space to give back (a plain `gc`, which
+ * deletes no run); null, nothing, when there is neither, or while a run records (gc waits for it).
+ */
 export function gcDryRun(job: { done: boolean; code: number | null; result?: unknown }): GcDryRun | null {
   if (!job.done || job.code !== 0) return null;
-  const r = job.result as Partial<GcDryRun> | null | undefined;
-  if (!r || typeof r !== 'object' || r.dryRun !== true || typeof r.count !== 'number' || r.count < 1 || typeof r.expect !== 'string') return null;
-  return { dryRun: true, count: r.count, cutoff: typeof r.cutoff === 'number' ? r.cutoff : null, keep: typeof r.keep === 'number' ? r.keep : null, olderThanDays: typeof r.olderThanDays === 'number' ? r.olderThanDays : null, bytes: typeof r.bytes === 'number' ? r.bytes : 0, expect: r.expect };
+  const r = job.result as (Partial<GcDryRun> & { store?: { free?: unknown }; recordingCount?: unknown }) | null | undefined;
+  if (!r || typeof r !== 'object' || r.dryRun !== true || typeof r.count !== 'number' || r.count < 0 || typeof r.expect !== 'string') return null;
+  const bytes = typeof r.bytes === 'number' ? r.bytes : 0;
+  const free = typeof r.store?.free === 'number' ? r.store.free : 0;
+  if (r.count === 0 && (Number(r.recordingCount) > 0 || (bytes <= 0 && free < UNUSED_WORTH))) return null;
+  return { dryRun: true, count: r.count, cutoff: typeof r.cutoff === 'number' ? r.cutoff : null, keep: typeof r.keep === 'number' ? r.keep : null, olderThanDays: typeof r.olderThanDays === 'number' ? r.olderThanDays : null, bytes, free, expect: r.expect };
 }
 
-/** The command "Delete N runs" runs, as the server builds it from the dry run: shown in the confirm dialog. */
+/** What a dry run that found no runs would give back: the blobs nothing uses, and the unused space past 1 MB. */
+export function gcGivesBack(d: GcDryRun): number {
+  return d.bytes + (d.free >= UNUSED_WORTH ? d.free : 0);
+}
+
+/** The command the confirm runs, as the server builds it from the dry run: exactly the runs it listed, or for none, a plain `gc`. */
 export function gcDeleteCommand(d: GcDryRun): string {
+  if (d.count === 0) return 'shadowlap gc';
   return ['shadowlap gc', ...(d.cutoff !== null ? [`--before ${d.cutoff}`] : []), ...(d.keep !== null ? [`--keep ${d.keep}`] : []), `--expect ${d.expect}`].join(' ');
 }
 
