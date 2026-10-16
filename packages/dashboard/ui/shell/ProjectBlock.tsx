@@ -168,7 +168,8 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         <span className="pa">{initial(project.name)}</span>
         <span className="pn">
           <b>{project.name}</b>
-          <small>{project.display ?? compactPath(project.path, 30)}</small>
+          {/* A long folder keeps its last folders, as the switcher's list shows it; the whole path is on hover. */}
+          <small>{compactPath(project.display ?? project.path, 30)}</small>
         </span>
         <Icon name="caret" className="caret" />
       </button>

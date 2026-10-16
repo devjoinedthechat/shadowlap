@@ -1764,6 +1764,9 @@ code.tipped { cursor: help; }
 .dialog .advtoggle svg.shut { transform: rotate(-90deg); }
 .dialog .advpart { margin-top: 10px; display: grid; gap: 10px; }
 .dialog .advpart .form:empty { display: none; }
+/* a regex on its own takes the whole row, and on a phone the regex and the name stack */
+.dialog .advpart .form > label:only-child { grid-column: 1 / -1; }
+@media (max-width: 520px) { .dialog .advpart .form { grid-template-columns: minmax(0, 1fr); } }
 .dialog .advpart .advnote { margin: 0; }
 .dialog.ruledlg .cmdline { margin-top: 14px; }
 .cmdline.words > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }

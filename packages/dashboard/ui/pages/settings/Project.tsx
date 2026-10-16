@@ -53,7 +53,8 @@ export function ProjectTab() {
         <button className="btn" type="button" disabled={!canClean} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
           Clean up old runs
         </button>
-        <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={blocked ?? app.actionsOff ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
+        {/* A read-only dashboard's reason first: it changes nothing, whichever project it shows. */}
+        <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={app.actionsOff ?? blocked ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
           Remove from dashboard
         </button>
       </div>
