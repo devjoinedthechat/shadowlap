@@ -220,6 +220,9 @@ no OIDC, so its token's keys go in the CI's secrets, for protected branches only
 or missing credentials is a warning: the tests still decide the job's result.
 `shadowlap store push-from-ci off` turns pushing from CI off for the whole team (it writes
 `"ciPush": false` to `shadowlap.config.json`) without touching the CI files; `on` turns it back on.
+With the GitHub Action, `push: true` does this, and also sends each fix its
+[fix on failure](./ci.md#fix-on-failure) opens a pull request for, verified, with every run the job
+made, so a teammate's pull brings it to their Fixes page.
 
 ## Pull requests
 

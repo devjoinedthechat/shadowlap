@@ -197,6 +197,13 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
       expect(keys.some((k) => k.startsWith('team/tests/'))).toBe(true);
       expect(r.runs.length).toBeGreaterThan(1);
       for (const runId of r.runs) expect(keys, runId).toContain(`team/runs/${runId}/run.json`);
+      // The fix itself goes with those runs, verified, with the blame, verdict and repair behind it,
+      // for a teammate's pull to bring to their Fixes page.
+      const fixes = keys.filter((k) => /^team\/fixes\/fx-[0-9A-Z]{26}\.json$/.test(k));
+      expect(fixes).toHaveLength(1);
+      const doc = JSON.parse(s3.objects.get(fixes[0]!)!.body.toString('utf8')) as { fix: { status: string }; blames: unknown[]; verdicts: unknown[]; repairs: unknown[] };
+      expect(doc.fix.status).toBe('verified');
+      expect([doc.blames.length, doc.verdicts.length, doc.repairs.length].every((n) => n > 0)).toBe(true);
     } finally {
       await s3.close();
     }
