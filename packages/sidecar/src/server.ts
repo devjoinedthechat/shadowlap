@@ -19,12 +19,14 @@ import {
   storedModelResolver,
   summarizeRun,
   toolFailureError,
+  unmaskedHints,
   type CallKind,
   type CallMeta,
   type CallRecord,
   type ClockMode,
   type CallStartRow,
   type Decision,
+  type DivergenceReport,
   type Effect,
   type Normalizer,
   type Origin,
@@ -1220,9 +1222,19 @@ export class Sidecar {
     tracked.done = true;
   }
 
+  /** A divergence with these hints in place of its own, none kept as no list. */
+  private static withHints(d: DivergenceReport, hints: NonNullable<DivergenceReport['hints']>): DivergenceReport {
+    const { hints: _dropped, ...rest } = d;
+    return hints.length ? { ...rest, hints } : rest;
+  }
+
   private noteDivergence(ctx: RunContext): void {
-    const d = ctx.session.divergence;
-    if (d && !ctx.run.divergence) {
+    const found = ctx.session.divergence;
+    if (found && !ctx.run.divergence) {
+      // A hint for a change the run's rules mask would ask for a rule the config has: the report
+      // still lists the change, as the request carried it, but it didn't make the replay diverge.
+      const hints = found.hints?.length ? unmaskedHints(found, ctx.normalizers) : null;
+      const d = hints && hints.length !== found.hints!.length ? Sidecar.withHints(found, hints) : found;
       ctx.run.divergence = d;
       this.store.setDivergence(ctx.run.runId, d);
       this.log(`run ${ctx.run.runId} diverged at call ${d.callNo} (${d.type})`);

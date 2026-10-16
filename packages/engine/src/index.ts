@@ -16,7 +16,7 @@ export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair,
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).
 export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
-export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
+export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';

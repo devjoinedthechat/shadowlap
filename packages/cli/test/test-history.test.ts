@@ -253,10 +253,15 @@ console.log(JSON.stringify((await res.json()).content));
     expect(r.out).toContain('~ $.metadata.user_id');
     expect(r.out).not.toContain('hint: this looks like a UUID');
     const s = store();
-    const divergence = s.listTestResults({ golden: 'goldens/prompt' })[0]!.data!.divergence!;
+    const result = s.listTestResults({ golden: 'goldens/prompt' })[0]!;
+    const divergence = result.data!.divergence!;
+    // The replay's own record has none either, so its page offers no rule the config has.
+    const replay = s.getRun(result.runId!)!;
     s.close();
     expect(divergence.cause).toBe('$.system');
     expect(divergence.hints ?? []).toEqual([]);
+    expect(replay.divergence?.diff?.map((e) => e.path)).toEqual(['$.metadata.user_id', '$.system']);
+    expect(replay.divergence?.hints).toBeUndefined();
   });
 
   it('says a changed customer id may be a real change, and offers the update as well as the normalizer', async () => {

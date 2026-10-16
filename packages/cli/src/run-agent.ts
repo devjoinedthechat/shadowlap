@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, 
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, maskedChange, parseToolFailure, valueHints, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -137,20 +137,6 @@ export interface TestAttempt {
   kind: Exclude<TestFailure, 'error'> | null;
   /** The signal (Ctrl-C, a dashboard job stopped) that cut it short: its run ended as crashed, and its result says nothing about the recording. */
   interrupted: NodeJS.Signals | null;
-}
-
-/**
- * The engine's hints about a divergence without those for a change the rules in force already mask:
- * the report lists every change in the request as sent, but a masked one didn't make it diverge, and
- * "add a normalizer" for a rule in the config is advice already taken.
- */
-export function unmaskedHints(d: DivergenceReport, rules: readonly Normalizer[]): NonNullable<DivergenceReport['hints']> {
-  return (d.hints ?? []).filter((h) => {
-    const path = h.normalizer?.path;
-    if (path === undefined) return true;
-    const at = (d.diff ?? []).filter((e) => e.path === path);
-    return !at.length || !at.every((e) => maskedChange(e, rules, d));
-  });
 }
 
 /** One replay of a packed recording under `shadowlap test`, judged by its checks. */
