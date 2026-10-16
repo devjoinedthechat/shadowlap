@@ -142,7 +142,8 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
           const sel = idx === selected;
           const label = n.label;
           const labelColor = n.run.divergence ? 'yellow' : label === 'clean replay' ? 'cyan' : 'white';
-          const status = n.run.status;
+          // A run its recording process left marked running is interrupted, as the dashboard and gc call it.
+          const status = n.run.status === 'running' && n.interrupted ? 'interrupted' : n.run.status;
           const statusColor = status === 'completed' ? 'green' : status === 'running' ? 'yellow' : 'red';
           const indent = n.depth === 0 ? '' : '  '.repeat(n.depth - 1) + '\\_ ';
           // Check results and labels lead the command column: they are what the run is known by.

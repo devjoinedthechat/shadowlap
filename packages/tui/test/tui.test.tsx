@@ -242,6 +242,32 @@ describe('ease of use', () => {
   });
 });
 
+describe('a recording whose process was killed', () => {
+  it('reads as interrupted, and its forks are on: nothing will add to it', async () => {
+    const { store, runId } = goldenStore();
+    // Marked running, with no process to ask and nothing heard for two days.
+    const left = { ...store.getRun(runId)!, runId: '01M4Y6TKYXLEFT000000000000', status: 'running' as const, endedAt: null, startedAt: Date.now() - 2 * 86_400_000, meta: {} };
+    store.importRun(left);
+    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    const list = await frameWith(lastFrame, left.runId.slice(0, 10));
+    expect(list.split('\n').find((l) => l.includes(left.runId.slice(0, 10)))).toContain('interrupted');
+    stdin.write('/');
+    await tick(60);
+    stdin.write('01M4Y6TKYXLEFT');
+    stdin.write('\r');
+    await tick(60);
+    stdin.write('\r');
+    // The timeline's header says so where it would say recording….
+    const header = (await frameWith(lastFrame, 'interrupted · 2d ago')).split('\n')[0]!;
+    expect(header).toContain(left.runId.slice(0, 10));
+    expect(header).not.toContain('recording…');
+    stdin.write(':');
+    const menu = await frameWith(lastFrame, 'The whole run');
+    expect(menu).not.toContain('once the recording finishes');
+    store.close();
+  });
+});
+
 describe('scopes, labels and the dashboard', () => {
   it('shows each call\'s scope, opens at a given call, and hands the call to the dashboard', async () => {
     const { store, runId } = goldenStore();
