@@ -59,6 +59,9 @@ interface Outcome {
   out: string;
 }
 
+/** What the CLI and its agent printed, its lines ended by \n: Python on Windows ends them with \r\n. */
+const outcome = (code: number | null, out: string): Outcome => ({ code, out: out.replace(/\r\n/g, '\n') });
+
 /** Runs the CLI with stdin ignored, as a test, a blame or a verify starts an agent. */
 function shadowlap(args: string[]): Promise<Outcome> {
   return new Promise((resolve) => {
@@ -66,7 +69,7 @@ function shadowlap(args: string[]): Promise<Outcome> {
     let out = '';
     child.stdout.on('data', (c: Buffer) => (out += c.toString()));
     child.stderr.on('data', (c: Buffer) => (out += c.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
+    child.on('exit', (code) => resolve(outcome(code, out)));
   });
 }
 
@@ -86,7 +89,7 @@ function converse(args: string[], prompt: string, answers: string[]): Promise<Ou
       setTimeout(() => (next === undefined ? child.stdin.end() : child.stdin.write(`${next}\n`)), 20);
     });
     child.stderr.on('data', (c: Buffer) => (out += c.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
+    child.on('exit', (code) => resolve(outcome(code, out)));
   });
 }
 
@@ -107,7 +110,7 @@ function piped(args: string[], input: string, via: 'pipe' | 'file' = ALL_AT_ONCE
     let out = '';
     child.stdout!.on('data', (c: Buffer) => (out += c.toString()));
     child.stderr!.on('data', (c: Buffer) => (out += c.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
+    child.on('exit', (code) => resolve(outcome(code, out)));
     child.stdin?.end(input);
   });
 }
