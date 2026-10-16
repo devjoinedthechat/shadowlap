@@ -2,7 +2,7 @@ import { hostname } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, recordBlame, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
 import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
-import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
+import { asksForAll, bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
  * The Tests screen's read model over a store with three sessions at three revisions: one golden that
@@ -529,6 +529,26 @@ describe('the Tests screen', () => {
     session(store, 'e3f9b20+dirty', T0 + DAY, [{ golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', reason: failedAgain.reason!, runId: 'R_U_LIMIT', data: { ...failedAgain.data!, updated: { from: 'GOLDEN_LIMIT', to: 'R_U_REC', calls: 30 } } }], ['shadowlap', 'test', 'goldens/refund-in-limit', '--update']);
     expect(testsView(store, goldens).rows[1]!.last).toMatchObject({ result: 'fail', updated: true, line: 'updated at e3f9b20+dirty, then diverged at call 1 · $.metadata.user_id looks like a UUID' });
     store.close();
+  });
+
+  it('tells a session that asked for every golden from one that named some', () => {
+    const need = ['goldens/refund-flow', 'goldens/refund-in-limit', 'evals/kept'];
+    expect(asksForAll(['shadowlap', 'test', 'goldens/*', 'evals/kept', '--junit', 'report.xml'], need)).toBe(true);
+    expect(asksForAll(['shadowlap', 'test', './goldens/refund-flow/', 'goldens/refund-in-limit', 'evals/kept'], need)).toBe(true);
+    expect(asksForAll(['shadowlap', 'test', 'goldens/*'], need)).toBe(false);
+    expect(asksForAll(['shadowlap', 'test', 'goldens/refund-*', 'evals/*'], need)).toBe(true);
+    expect(asksForAll(['shadowlap', 'test', 'goldens/refund-in-limit', '--update'], need)).toBe(false);
+    // A pattern stays within a folder, as the CLI expands it.
+    expect(asksForAll(['shadowlap', 'test', '*'], ['goldens/x'])).toBe(false);
+    expect(asksForAll(['shadowlap', 'test'], [])).toBe(true);
+  });
+
+  it('compares a result’s checks with the golden’s, whatever their order', () => {
+    const r = (labels: string[] | null) => ({ sessionId: 's', golden: 'g', at: 0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: labels ? { checks: labels.map((label) => ({ ok: true, label, detail: null })) } : null });
+    expect(underChecks(r(['b', 'a']), ['a', 'b'])).toBe(true);
+    expect(underChecks(r(['a']), ['a', 'b'])).toBe(false);
+    expect(underChecks(r(null), [])).toBe(true);
+    expect(underChecks(r(null), ['a'])).toBe(false);
   });
 
   it('offers no Find the commit for a golden whose pack can’t be read', () => {
