@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -294,6 +295,24 @@ describe('the redaction preview', () => {
       expect(res.status).toBe(422);
       expect(await error(res)).toBe('The preview stopped after 2 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
       expect(Date.now() - t0).toBeLessThan(5000);
+    });
+
+    it('says the store is busy while another command holds it, and reads it once it is free', async () => {
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+      const run = recording();
+      modelCall(run.runId, 1, 'c-1@example.com');
+      PREVIEW_LIMITS.openMs = 300;
+      const holder = new DatabaseSync(dbPath);
+      holder.exec('BEGIN IMMEDIATE');
+      try {
+        const res = await api(`settings/redaction/preview?run=${run.runId}`);
+        expect(res.status).toBe(503);
+        expect(await error(res)).toBe('The store is busy with another command: pick the run again in a moment.');
+      } finally {
+        holder.exec('ROLLBACK');
+        holder.close();
+      }
+      expect((await get<{ preview: { total: number } }>(`settings/redaction/preview?run=${run.runId}`)).preview.total).toBe(2);
     });
 
     it('stops reading when the page stops waiting, and refuses a preview past the threads it reads on', async () => {

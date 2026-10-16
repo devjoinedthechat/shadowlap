@@ -1208,7 +1208,8 @@ export interface RedactionPreviewView {
  * run is read apart, on a thread of its own and within limits (redaction-preview.ts), so the server
  * answers everything else meanwhile; a store with no file is read here, within the same limits.
  * Refused for a run still recording (409), a run that isn't there (404), rules that can't be read
- * (422), a rule that takes too long on one call (422), and while other previews are read (503).
+ * (422), a rule that takes too long on one call (422), and while other previews are read or another
+ * command holds the store (503).
  */
 export async function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd' | 'dbPath'>, runRef: string, options: { signal?: AbortSignal; limits?: PreviewLimitsConfig } = {}): Promise<RedactionPreviewView> {
   const run = findRun(ctx.store, runRef);

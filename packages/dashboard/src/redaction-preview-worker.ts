@@ -1,6 +1,6 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { Store, previewRedaction } from '@shadowlap/engine';
-import type { PreviewAnswer, PreviewWork } from './redaction-preview.js';
+import { BUSY, type PreviewAnswer, type PreviewWork } from './redaction-preview.js';
 
 /**
  * The redaction preview, read on a thread of its own so the dashboard server goes on answering
@@ -10,15 +10,17 @@ import type { PreviewAnswer, PreviewWork } from './redaction-preview.js';
  */
 
 const work = workerData as PreviewWork;
-let answer: PreviewAnswer;
+const post = (m: PreviewAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
 try {
-  const deadline = Date.now() + work.limits.softMs;
   store = Store.open(work.dbPath);
-  answer = { ok: true, preview: previewRedaction(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) };
+  // Its time starts now: opening waited for any command holding the store.
+  post({ type: 'open' });
+  const deadline = Date.now() + work.limits.softMs;
+  post({ type: 'answer', ok: true, preview: previewRedaction(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) });
 } catch (err) {
-  answer = { ok: false, error: err instanceof Error ? err.message : String(err) };
+  const error = err instanceof Error ? err.message : String(err);
+  post({ type: 'answer', ok: false, error, busy: BUSY.test(error) });
 } finally {
   store?.close();
 }
-parentPort?.postMessage(answer);

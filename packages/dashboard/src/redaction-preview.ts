@@ -15,16 +15,18 @@ export interface PreviewLimitsConfig {
   maxCalls: number;
   /** Bytes of stored requests and responses read at most. */
   maxBytes: number;
-  /** After this long, no further call is read: the preview says how far it got. */
+  /** After this long reading, no further call is read: the preview says how far it got. */
   softMs: number;
-  /** After this long the thread is ended where it is, inside one call: a rule took too long on it. */
+  /** After this long reading, the thread is ended where it is, inside one call: a rule took too long on it. */
   hardMs: number;
+  /** How long opening the store may take (another command holding it): past that, the page asks again. */
+  openMs: number;
   /** Previews read at once; past that, one is refused until another ends. */
   workers: number;
 }
 
 /** What a preview may read and how long it may take. The server reads these for every preview; tests lower them. */
-export const PREVIEW_LIMITS: PreviewLimitsConfig = { maxCalls: 2000, maxBytes: 64 * 1024 * 1024, softMs: 5000, hardMs: 10_000, workers: 2 };
+export const PREVIEW_LIMITS: PreviewLimitsConfig = { maxCalls: 2000, maxBytes: 64 * 1024 * 1024, softMs: 5000, hardMs: 10_000, openMs: 15_000, workers: 2 };
 
 /** What the worker is given: the store's file, the run, the rules as the config has them, the limits. */
 export interface PreviewWork {
@@ -34,8 +36,11 @@ export interface PreviewWork {
   limits: Pick<PreviewLimitsConfig, 'maxCalls' | 'maxBytes' | 'softMs'>;
 }
 
-/** What it posts back. */
-export type PreviewAnswer = { ok: true; preview: RedactionPreview } | { ok: false; error: string };
+/** What it posts back: that the store is open (its reading starts), then the preview or why there is none. */
+export type PreviewAnswer = { type: 'open' } | { type: 'answer'; ok: true; preview: RedactionPreview } | { type: 'answer'; ok: false; error: string; busy: boolean };
+
+/** The store is busy, as SQLite says when another command held it past its wait. */
+export const BUSY = /database is locked|SQLITE_BUSY/i;
 
 /** Why a preview has no answer, with the HTTP status the route answers with. */
 export class PreviewError extends Error {
@@ -62,8 +67,9 @@ let reading = 0;
 /**
  * The preview of one run, read on a worker thread against the store at `dbPath`. Resolves with the
  * preview (partial when a limit stopped it between calls); rejects with a PreviewError when every
- * thread is busy (503), when one call took longer than `hardMs` (422, naming a rule whose pattern
- * repeats a repeated group), when the page stopped waiting (`signal`), or with what the worker said.
+ * thread is busy or another command holds the store (503), when one call took longer than `hardMs`
+ * (422, naming a rule whose pattern repeats a repeated group), when the page stopped waiting
+ * (`signal`), or with what the worker said.
  */
 export function previewApart(work: { dbPath: string; runId: string; rules: Normalizer[] }, o: { signal?: AbortSignal; limits?: PreviewLimitsConfig } = {}): Promise<RedactionPreview> {
   const limits = o.limits ?? PREVIEW_LIMITS;
@@ -84,10 +90,19 @@ export function previewApart(work: { dbPath: string; runId: string; rules: Norma
       void worker.terminate();
       done();
     };
-    const timer = setTimeout(() => settle(() => reject(new PreviewError(422, tookTooLong(work.rules, limits.hardMs)))), limits.hardMs);
+    const busy = () => new PreviewError(503, 'The store is busy with another command: pick the run again in a moment.');
+    // Until the store is open, another command may be holding it; from then on, the reading's own time.
+    let timer = setTimeout(() => settle(() => reject(busy())), limits.openMs);
     const stop = () => settle(() => reject(new PreviewError(499, 'the page stopped waiting for the preview')));
     o.signal?.addEventListener('abort', stop, { once: true });
-    worker.once('message', (answer: PreviewAnswer) => settle(() => (answer.ok ? resolve(answer.preview) : reject(new PreviewError(500, answer.error)))));
+    worker.on('message', (m: PreviewAnswer) => {
+      if (m.type === 'open') {
+        clearTimeout(timer);
+        timer = setTimeout(() => settle(() => reject(new PreviewError(422, tookTooLong(work.rules, limits.hardMs)))), limits.hardMs);
+        return;
+      }
+      settle(() => (m.ok ? resolve(m.preview) : reject(m.busy ? busy() : new PreviewError(500, m.error))));
+    });
     worker.once('error', (err) => settle(() => reject(new PreviewError(500, `the preview stopped: ${err.message}`))));
     worker.once('exit', (code) => settle(() => reject(new PreviewError(500, `the preview stopped before it answered (exit code ${code})`))));
   });
