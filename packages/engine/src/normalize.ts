@@ -5,7 +5,7 @@ import type { CallKind, Normalizer } from './types.js';
  * stored. They are the only way two different requests can match.
  */
 
-type Segment = { type: 'key'; key: string } | { type: 'index'; index: number } | { type: 'wild' };
+export type Segment = { type: 'key'; key: string } | { type: 'index'; index: number } | { type: 'wild' };
 
 const NAMED_PATTERNS: Record<string, RegExp> = {
   'iso-datetime': /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g,
@@ -80,6 +80,25 @@ export interface RewriteObserver {
   reached?(rule: number, value: unknown): void;
   /** A rule changed a value: `count` matches replaced, or 1 for a whole value. */
   changed?(rule: number, before: unknown, after: unknown, count: number): void;
+  /**
+   * A rule's pattern matches something the rules leave as it is, so a copy carries it as recorded:
+   * a number, which a pattern never rewrites; a key where keys stay (a request's, an error's); or,
+   * for a rule with a path, a number at its path, or a string, number or key inside an object or
+   * list at its path, since its pattern applies only to a string there. Reported once every rule has
+   * applied, at `path` in the value (a key's own name last), with the text matched and how many
+   * matches it holds.
+   */
+  unmasked?(rule: number, text: string, at: UnmaskedAt, count: number): void;
+}
+
+/** Where a value the rules leave as it is sits, and what it is. */
+export interface UnmaskedAt {
+  /** Its path in the document (a key's own name ends it); in a stream, in its event. */
+  path: Array<string | number>;
+  /** A number; a key; or a string inside an object or list at the path of a rule with a pattern, which applies only at its path. */
+  what: 'number' | 'key' | 'string';
+  /** In a streamed response, the event it is in, from 1. */
+  event?: number;
 }
 
 /** Returns a deep copy of `value` with every applicable normalizer applied. */
@@ -112,11 +131,82 @@ export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind
       (parent as Record<string | number, unknown>)[key] = rewriteLeaf(leaf, regex, n.replace, changed);
     });
   });
+  if (observer?.unmasked) reportUnmasked(copy, normalizers, (n) => normalizerApplies(n, kind, name), observer.unmasked);
   return copy;
 }
 
-/** Applies a pattern to every string value in a (JSON-like) value. */
+/**
+ * What each rule's pattern matches in `value` (a request or an error, as JSON values, with every
+ * rule already applied) that the rules leave as it is: for a rule without a path, every number and
+ * every key, since only string values are rewritten; for a rule with a path and a pattern, a number
+ * at its path, and in an object or list at its path each string, number and key inside, since its
+ * pattern applies only to a string at its path. (true, false and null hold nothing to mask.)
+ * `applies` says which rules apply here, `prefix` where `value` sits.
+ */
+export function reportUnmasked(value: unknown, rules: readonly Normalizer[], applies: (rule: Normalizer) => boolean, report: NonNullable<RewriteObserver['unmasked']>, prefix: Array<string | number> = []): void {
+  rules.forEach((rule, i) => {
+    if (rule.pattern === undefined || !applies(rule)) return;
+    const regex = compilePattern(rule.pattern);
+    // `path` is the walk's own, changed as it goes: copied when it is reported.
+    const test = (text: string, path: Array<string | number>, what: UnmaskedAt['what']) => {
+      const count = countMatches(text, regex);
+      if (count) report(i, text, { path: [...path], what }, count);
+    };
+    if (rule.path === undefined) {
+      walkLeft(value, [...prefix], test, false);
+      return;
+    }
+    visitPaths(value, parsePath(rule.path), prefix, (leaf, path) => {
+      if (typeof leaf === 'number') test(JSON.stringify(leaf), path, 'number');
+      else if (leaf !== null && typeof leaf === 'object') walkLeft(leaf, [...path], test, true);
+    });
+  });
+}
+
+/**
+ * Every number and every key in `value`, in order, and with `strings` every string too: what a rule
+ * without a path leaves as it is, or what a rule with a pattern leaves in an object at its path.
+ */
+function walkLeft(value: unknown, path: Array<string | number>, test: (text: string, path: Array<string | number>, what: UnmaskedAt['what']) => void, strings: boolean): void {
+  if (ArrayBuffer.isView(value)) return;
+  if (typeof value === 'number') test(JSON.stringify(value), path, 'number');
+  else if (typeof value === 'string') {
+    if (strings) test(value, path, 'string');
+  } else if (Array.isArray(value)) {
+    value.forEach((v, i) => {
+      path.push(i);
+      walkLeft(v, path, test, strings);
+      path.pop();
+    });
+  } else if (value !== null && typeof value === 'object') {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      path.push(k);
+      test(k, path, 'key');
+      walkLeft(v, path, test, strings);
+      path.pop();
+    }
+  }
+}
+
+/** Each value a path reaches in `node`, as `visit` finds them, with where it is. */
+function visitPaths(node: unknown, segs: Segment[], path: Array<string | number>, onLeaf: (leaf: unknown, path: Array<string | number>) => void): void {
+  if (segs.length === 0) {
+    onLeaf(node, path);
+    return;
+  }
+  const down = (at: unknown, depth: number, where: Array<string | number>): void => {
+    for (const key of childKeys(at, segs[depth]!)) {
+      const child = (at as Record<string | number, unknown>)[key];
+      if (depth === segs.length - 1) onLeaf(child, [...where, key]);
+      else down(child, depth + 1, [...where, key]);
+    }
+  };
+  down(node, 0, path);
+}
+
+/** Applies a pattern to every string value in a (JSON-like) value. Bytes (a request sent as a binary body) hold no string, and stay as they are. */
 export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: string, onChange?: (before: string, after: string, count: number) => void): unknown {
+  if (ArrayBuffer.isView(value)) return value;
   if (typeof value === 'string') {
     regex.lastIndex = 0;
     const out = value.replace(regex, replace);
@@ -146,7 +236,7 @@ export function rewriteText(text: string, rules: Normalizer[], observer?: Rewrit
 }
 
 /** How many matches `replace` rewrites in `text`: every one for a global pattern, else the first. */
-function countMatches(text: string, regex: RegExp): number {
+export function countMatches(text: string, regex: RegExp): number {
   regex.lastIndex = 0;
   const n = regex.global ? (text.match(regex)?.length ?? 0) : regex.test(text) ? 1 : 0;
   regex.lastIndex = 0;
@@ -166,25 +256,24 @@ function rewriteLeaf(leaf: unknown, regex: RegExp | null, replace: string, onCha
 }
 
 function visit(node: unknown, segs: Segment[], depth: number, onLeaf: (parent: object, key: string | number) => void): void {
-  if (node === null || typeof node !== 'object') return;
-  const seg = segs[depth]!;
   const last = depth === segs.length - 1;
-  const children: Array<string | number> = [];
-  if (seg.type === 'wild') {
-    if (Array.isArray(node)) for (let i = 0; i < node.length; i++) children.push(i);
-    else children.push(...Object.keys(node));
-  } else if (seg.type === 'index') {
-    if (!Array.isArray(node)) return;
-    const idx = seg.index < 0 ? node.length + seg.index : seg.index;
-    if (idx >= 0 && idx < node.length) children.push(idx);
-  } else {
-    if (Array.isArray(node)) return;
-    if (Object.prototype.hasOwnProperty.call(node, seg.key)) children.push(seg.key);
-  }
-  for (const key of children) {
-    if (last) onLeaf(node, key);
+  for (const key of childKeys(node, segs[depth]!)) {
+    if (last) onLeaf(node as object, key);
     else visit((node as Record<string | number, unknown>)[key], segs, depth + 1, onLeaf);
   }
+}
+
+/** The keys of `node` one segment of a path names: every one for a wildcard, else the one there is. */
+function childKeys(node: unknown, seg: Segment): Array<string | number> {
+  if (node === null || typeof node !== 'object' || ArrayBuffer.isView(node)) return [];
+  if (seg.type === 'wild') return Array.isArray(node) ? node.map((_, i) => i) : Object.keys(node);
+  if (seg.type === 'index') {
+    if (!Array.isArray(node)) return [];
+    const idx = seg.index < 0 ? node.length + seg.index : seg.index;
+    return idx >= 0 && idx < node.length ? [idx] : [];
+  }
+  if (Array.isArray(node)) return [];
+  return Object.prototype.hasOwnProperty.call(node, seg.key) ? [seg.key] : [];
 }
 
 /** Deep-removes the named keys from a copy of `value`. Used for the built-in `cache_control` exclusion. */

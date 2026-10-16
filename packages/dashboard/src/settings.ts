@@ -1377,7 +1377,8 @@ export function calibrateRun(ctx: Pick<SettingsContext, 'store' | 'setupRunId'>,
 export interface RedactionPreviewView {
   run: { runId: string; label: string };
   /**
-   * What `redact preview <run> --json` prints: per rule, a count and up to two samples; the run's
+   * What `redact preview <run> --json` prints: per rule, a count and up to two samples, and what it
+   * matches that a copy leaves as it is (`unmasked`, with the path rules that mask it); the run's
    * details apart. `partial` says how far a long run was read before a limit stopped it.
    */
   preview: RedactionPreview;

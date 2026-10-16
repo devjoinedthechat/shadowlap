@@ -31,6 +31,9 @@ const VALUES = {
   user: { value: 'user-7f3a9', marker: '<USER>' },
   // A tool rule with a path: the tool's arguments.
   key: { value: 'sk-live-5b1c', marker: '<KEY>' },
+  // An api rule with a path in what the call got back: a number in the model's answer, which no
+  // pattern rewrites. Only a copy that is read masks it: a pack's replay hands the answer to the agent.
+  ticket: { value: '9123456789012', marker: '<TICKET>' },
   // The model's answer and a tool's error: rules without a path.
   answer: { value: 'bob@example.com', marker: '<EMAIL>' },
   error: { value: 'carol@example.com', marker: '<EMAIL>' },
@@ -46,6 +49,7 @@ const RULES = [
   { kind: 'api', path: '$.system', pattern: '/ACCT-\\d+/', replace: '<ACCT>' },
   { kind: 'api', path: '$.metadata.user_id', replace: '<USER>' },
   { kind: 'tool', path: '$.args.api_key', replace: '<KEY>' },
+  { kind: 'api', path: '$.ticket', replace: '<TICKET>' },
 ];
 
 /**
@@ -53,13 +57,16 @@ const RULES = [
  * carries masked. Anything in neither list it must not carry at all.
  */
 const EXPECT: Record<RedactionExport['id'], { kept: Value[]; masked: Value[] } | null> = {
-  // Every request, response and error masked; the command line, labels and notes as recorded, since a replay runs the command.
-  pack: { kept: ['command', 'label', 'note'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
+  // Every request masked, and the strings of every response and error; what a call got back as
+  // recorded otherwise (the ticket), and the command line, labels and notes, since a replay runs the
+  // command and hands the agent what each call got back.
+  pack: { kept: ['command', 'label', 'note', 'ticket'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
   // Everything, the run's details too: the file is read, never replayed.
-  html: { kept: [], masked: ['system', 'account', 'user', 'key', 'answer', 'error', 'command', 'label', 'note'] },
+  html: { kept: [], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error', 'command', 'label', 'note'] },
   // The model calls only, whole requests and responses: no tool calls, no command line.
-  har: { kept: [], masked: ['system', 'account', 'user', 'answer'] },
+  har: { kept: [], masked: ['system', 'account', 'user', 'ticket', 'answer'] },
   // The conversation (the tool's error is in it as a result) and the answer, then each row's command line, labels and notes.
+  // An answer's other fields (the ticket) aren't in a row.
   dataset: { kept: [], masked: ['system', 'account', 'answer', 'error', 'command', 'label', 'note'] },
   // Pairs come from blame, verify and --repeat attempts, which this run has none of: training's own tests hold them to decision 6.
   pairs: null,
@@ -112,10 +119,10 @@ beforeAll(() => {
   const system = `You help the owner of ${VALUES.account.value}, ${VALUES.system.value}.`;
   const api = (n: number) => ({ kind: 'api' as const, name: 'POST /v1/messages', fingerprint: String(n).padStart(64, 'a'), occurrence: 1 });
   const headers = { 'content-type': 'application/json' };
-  const answer = (text: string) => Buffer.from(JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-test', content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }));
+  const answer = (text: string, more: Record<string, unknown> = {}) => Buffer.from(JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-test', content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 }, ...more }));
   const first = [{ role: 'user', content: 'Send the refund note.' }];
   store.appendCallStart({ runId, callNo: 1, ...api(1), origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'claude-test', max_tokens: 100, system, metadata: { user_id: VALUES.user.value }, messages: first }), meta: { provider: 'anthropic' }, at: 1 });
-  store.appendCallEnd(api(1), { runId, callNo: 1, attempt: 0, responseRef: store.putBlob(answer(`Writing to ${VALUES.answer.value} now.`)), outcome: 'ok', meta: { provider: 'anthropic', status: 200, headers, model: 'claude-test' }, at: 2 });
+  store.appendCallEnd(api(1), { runId, callNo: 1, attempt: 0, responseRef: store.putBlob(answer(`Writing to ${VALUES.answer.value} now.`, { ticket: Number(VALUES.ticket.value) })), outcome: 'ok', meta: { provider: 'anthropic', status: 200, headers, model: 'claude-test' }, at: 2 });
   const tool = { kind: 'tool' as const, name: 'send_email', fingerprint: 'b'.repeat(64), occurrence: 1 };
   const error = { name: 'Error', message: `mailbox of ${VALUES.error.value} is full` };
   store.appendCallStart({ runId, callNo: 2, ...tool, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { to: 'the owner', api_key: VALUES.key.value } }), meta: {}, at: 3 });
@@ -187,7 +194,7 @@ describe('where the redaction rules apply', () => {
       for (const args of [['export', 'otel', runId], ['export', 'dataset', runId], ['export', 'html', runId, join(cwd, 'x.html')]]) {
         const r = await cli(args);
         expect(r.code, args.join(' ')).toBe(1);
-        expect(r.err).toContain('shadowlap.config.json: redaction rule #5: unknown pattern "emial"');
+        expect(r.err).toContain('shadowlap.config.json: redaction rule #6: unknown pattern "emial"');
       }
     } finally {
       writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ redact: RULES }, null, 2));

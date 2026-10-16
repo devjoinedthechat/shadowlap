@@ -241,6 +241,39 @@ describe('the redaction preview', () => {
     expect(v.preview.total).toBe(6);
   });
 
+  it('says apart what a rule matches that a pack leaves as it is, with the path rule that masks it, and what only a copy that is read masks', async () => {
+    const CARD = { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' };
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [CARD] }));
+    const run = recording();
+    const call = (callNo: number, kind: 'clock' | 'tool', name: string, request: unknown, result: string) => {
+      const id = { kind, name, fingerprint: `c${callNo}`.padEnd(64, '0'), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo, ...id, origin: 'live', effect: kind === 'tool' ? 'read' : null, requestRef: store.putJson(request), meta: {}, at: callNo });
+      store.appendCallEnd(id, { runId: run.runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(result)), outcome: 'ok', meta: {}, at: callNo });
+    };
+    // The time the agent read, and a card on file as a number and as text.
+    call(1, 'clock', 'now', { label: 'now' }, '{"result":1792155242516}');
+    call(2, 'tool', 'lookup_card', { args: { customer: 'C-311' } }, '{"result":{"card":4111111111111111,"on_file":"4111 1111 1111 1111"}}');
+    type Unmasked = { count: number; samples: Array<{ value: string; kind: string; in: string; path: string; event: number | null }>; places: number; remedies: Array<{ command: string; copies: string }>; covered: number[]; reasons: string[] };
+    type View = { preview: { total: number; returned: number; unmasked: number; rules: Array<{ count: number; note: string | null; returned: { count: number; samples: unknown[] }; unmasked: Unmasked }> } };
+    // Read on a thread of its own, as every preview from this store is.
+    const v = await get<View>(`settings/redaction/preview?run=${run.runId}`);
+    expect(v.preview).toMatchObject({ total: 1, returned: 0, unmasked: 2 });
+    const [card] = v.preview.rules;
+    expect(card).toMatchObject({ count: 1, note: null });
+    expect(card!.unmasked.samples.map((s) => [s.value, s.kind, s.in, s.path, s.event])).toEqual([
+      ['1792155242516', 'clock', 'response', '$.result', null],
+      ['4111111111111111', 'tool', 'response', '$.result.card', null],
+    ]);
+    // In what the tool returned: a pack keeps it, the copies that are read mask it with this rule. None for the clock read.
+    expect(card!.unmasked).toMatchObject({ places: 1, remedies: [{ command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'", copies: 'read' }], covered: [], reasons: ['replay'] });
+    // With that rule, the page hears what only a copy that is read masks, and which rule does it.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [CARD, { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' }] }));
+    const after = await get<View>(`settings/redaction/preview?run=${run.runId}`);
+    expect(after.preview).toMatchObject({ total: 1, returned: 1, unmasked: 2 });
+    expect(after.preview.rules[0]!.unmasked).toMatchObject({ places: 0, remedies: [], covered: [2] });
+    expect(after.preview.rules[1]).toMatchObject({ count: 0, note: 'a pack keeps what calls got back, since its replay hands it to the agent', returned: { count: 1, samples: [{ before: '4111111111111111', after: '<CARD>' }] } });
+  });
+
   it('refuses a run still recording, a run that is not there, and rules that cannot be read', async () => {
     const live = recording({ ended: false });
     const res = await api(`settings/redaction/preview?run=${live.runId}`);
@@ -280,6 +313,29 @@ describe('the redaction preview', () => {
       PREVIEW_LIMITS.maxBytes = 1;
       expect((await get<View>(`settings/redaction/preview?run=${run.runId}`)).preview).toMatchObject({ calls: 1, partial: { read: 1, of: 12, stopped: 'bytes' } });
     });
+
+    it('reads a 40 MB tool result on its thread, within its heap and well within its time', async () => {
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' }] }));
+      const run = recording();
+      // Rows of small values, an address in every hundredth: a document a tree of its values would take past the thread's 512 MB.
+      const rows: string[] = [];
+      let size = 0;
+      for (let i = 0; size < 40e6; i++) {
+        const row = JSON.stringify({ id: i, qty: i % 97, price: 19.99, sku: i % 100 ? `S-${i}` : `u${i}@example.com`, ok: true });
+        rows.push(row);
+        size += row.length + 1;
+      }
+      const body = `{"result":[${rows.join(',')}]}`;
+      const id = { kind: 'tool' as const, name: 'export_rows', fingerprint: 'e'.repeat(64), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: 'read', requestRef: store.putJson({ args: {} }), meta: {}, at: 1 });
+      store.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from(body)), outcome: 'ok', meta: {}, at: 2 });
+      type View = { preview: { calls: number; total: number; partial: unknown } };
+      const started = performance.now();
+      const v = await get<View>(`settings/redaction/preview?run=${run.runId}`);
+      // Every row read before the soft limit (5 s), on a machine running other suites too.
+      expect(v.preview).toMatchObject({ calls: 1, partial: null, total: Math.ceil(rows.length / 100) });
+      expect(performance.now() - started).toBeLessThan(PREVIEW_LIMITS.softMs);
+    }, 60_000);
 
     it('ends a preview whose rule takes too long on one call, naming the rule, and answers everything else meanwhile', async () => {
       const run = slowRun();

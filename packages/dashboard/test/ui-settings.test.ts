@@ -42,6 +42,8 @@ import {
   suggestedReplace,
   syncText,
   typedSecret,
+  returnedLine,
+  unmaskedLine,
   type RuleFormState,
 } from '../ui/pages/settings/logic.js';
 
@@ -166,6 +168,62 @@ describe('the preview', () => {
     expect(previewChip({ pattern: 'email', replace: '<EMAIL>' })).toBe('email');
     expect(maskedLine(1)).toBe('1 value would be masked');
     expect(maskedLine(1200)).toBe('1,200 values would be masked');
+    expect(maskedLine(7, 1)).toBe('7 values would be masked, 1 left as it is');
+    expect(maskedLine(0, 40)).toBe('0 values would be masked, 40 left as they are');
+    // What only the copies that are read mask, in what calls got back.
+    expect(maskedLine(7, 2, 1)).toBe('7 values would be masked, 2 left as they are, 1 more in HTML, HAR and dataset copies');
+  });
+
+  it('says under a rule what it matches that a pack leaves as it is, and what masks it, tersely', () => {
+    const sample = (value: string, kind: string, name: string, path: string, key = false) => ({ value, key, callNo: 6, kind, name, in: 'response', path, event: null });
+    const remedy = (path: string, copies: 'all' | 'read') => ({ rule: { path }, command: `shadowlap redact add --kind tool --name lookup_order --path '${path}' --replace '<AMOUNT>'`, copies });
+    const none = { places: 0, remedies: [], covered: [], reasons: [] };
+    expect(unmaskedLine({ count: 0, samples: [], ...none }, 3)).toBeNull();
+    // After the values it masks, "more"; the first place's rule by its path, the command behind Copy, and how many places have one besides.
+    expect(unmaskedLine({ count: 1, samples: [sample('240', 'tool', 'lookup_order', '$.result.amount')], places: 3, remedies: [remedy('$.args.amount', 'all'), remedy('$.result.amount', 'read')], covered: [], reasons: [] }, 6)).toEqual({
+      text: '1 more left as it is · a path rule masks it',
+      path: '$.args.amount',
+      command: "shadowlap redact add --kind tool --name lookup_order --path '$.args.amount' --replace '<AMOUNT>'",
+      more: 2,
+      after: '',
+      rows: [{ label: '240', value: 'call 6 tool lookup_order, response $.result.amount' }],
+    });
+    // In what a call got back the rule masks it only in the copies that are read; a pack keeps it.
+    expect(unmaskedLine({ count: 2, samples: [], places: 1, remedies: [remedy('$.result.amount', 'read')], covered: [], reasons: ['replay'] }, 0)).toMatchObject({
+      text: '2 left as they are · a pack keeps what calls got back; HTML, HAR and dataset copies mask them with a path rule',
+      path: '$.result.amount',
+      more: 0,
+      after: 'none for clock or random reads, which a replay needs as recorded',
+    });
+    // A rule already masks them there.
+    expect(unmaskedLine({ count: 1, samples: [], places: 0, remedies: [], covered: [3], reasons: [] }, 1)).toMatchObject({ text: '1 more left as it is · a pack keeps what calls got back; #3 masks it in HTML, HAR and dataset copies', path: null, command: null });
+    // A clock read's time has no rule to add: a replay needs it; nor has a stream's event.
+    expect(unmaskedLine({ count: 40, samples: [sample('1792177709735', 'clock', 'now', '$.result'), sample('1792177709821', 'clock', 'now', '$.result')], ...none, reasons: ['replay'] }, 0)).toMatchObject({
+      text: '40 left as they are, in clock or random reads, which a replay needs as recorded.',
+      command: null,
+      rows: [{ label: '1792177709735', value: 'call 6 clock now, response $.result' }, { label: '1792177709821', value: 'call 6 clock now, response $.result' }],
+    });
+    expect(unmaskedLine({ count: 1, samples: [{ ...sample('1792177709735', 'api', 'POST /v1/messages', '$.message.usage.input_tokens'), event: 1 }], ...none, reasons: ['stream'] }, 0)).toMatchObject({
+      text: '1 left as it is, in a stream’s events, which no path reaches.',
+      rows: [{ label: '1792177709735', value: 'call 6 api, response event 1 $.message.usage.input_tokens' }],
+    });
+    // A key, and a model call named by its kind alone; a key at the top of a request gets no rule, and says why.
+    expect(unmaskedLine({ count: 1, samples: [{ ...sample('bob@example.com', 'api', 'POST /v1/messages', '$["bob@example.com"]', true), in: 'request' }], ...none, reasons: ['whole'] }, 0)).toEqual({
+      text: '1 left as it is, in the top of a request or response, which no path names alone.',
+      path: null,
+      command: null,
+      more: 0,
+      after: '',
+      rows: [{ label: 'bob@example.com', value: 'call 6 api, request key $["bob@example.com"]' }],
+    });
+  });
+
+  it('says what a path rule masks only in the copies that are read', () => {
+    expect(returnedLine({ count: 0, samples: [] })).toBeNull();
+    expect(returnedLine({ count: 2, samples: [{ before: '4111111111111111', after: '<CARD>' }] })).toEqual({
+      text: '2 in what calls got back, masked in HTML, HAR and dataset copies; a pack keeps them for its replay',
+      rows: [{ label: '4111111111111111', value: '→ <CARD>' }],
+    });
   });
 
   it('says how far a long run was read, and which limit stopped it', () => {

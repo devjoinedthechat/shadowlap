@@ -1789,6 +1789,10 @@ code.tipped { cursor: help; }
 .preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
 .preview .fieldnote { margin-top: 10px; }
 .pvrule .pvd { grid-column: 3; font-size: 12px; }
+/* A path in a quiet line stays whole unless it is wider than the line; Copy holds the command. */
+.pvrule .pvd code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+.pvrule .pvd .linkbtn { margin: -3px -4px; vertical-align: baseline; }
+.pvrule .pvd .tipped { cursor: help; }
 .pvrule .pvs span { overflow-wrap: anywhere; }
 .set .pvrule { grid-template-columns: auto minmax(34px, max-content) minmax(0, 1fr); }
 @media (max-width: 640px) { .set .pvrule { grid-template-columns: auto minmax(28px, max-content) minmax(0, 1fr); } }

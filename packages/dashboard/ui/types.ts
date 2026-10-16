@@ -130,8 +130,8 @@ export interface ProvenanceView {
   providers?: Array<{ provider: string; calls: number }>;
   calls?: { model: number; tool: number; other: number; scopes: number };
   upstream?: { requests: number; spent: number };
-  /** What a copy made now would mask: the rules that apply, and the values they hit (null when not counted, with why when it says; `busy` while it is yet to be counted). */
-  mask?: { rules: number; values: number | null; why?: string; busy?: true } | null;
+  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), and what else they match that a pack leaves as it is (`unmasked`), each when there is any. */
+  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true } | null;
   startedUtc?: string;
   endedUtc?: string | null;
   /** The run and the runs it came from, the recording first, each with its code version. */

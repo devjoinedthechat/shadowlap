@@ -370,16 +370,19 @@ export interface RunProvenance {
   lineage: Array<{ runId: string; parentRunId: string | null; mode: RunRecord['mode']; label: string; codeVersion: string | null; startedAt: number }>;
   /**
    * What a copy made now (pack, export html, dataset, pairs) would mask: the rules that apply and the
-   * values they hit; null values when not counted, with why when it says, and `busy` when it is yet to
-   * be counted (the preview threads were busy): asked again, it is.
+   * values they hit in a pack; `returned`, when there are any, the values a path rule masks in what
+   * calls got back, which only a copy that is read masks (export html, dataset); and `unmasked`, when
+   * there are any, the values they match that a pack leaves as they are (numbers). Null values when
+   * not counted, with why when it says, and `busy` when it is yet to be counted (the preview threads
+   * were busy): asked again, it is.
    */
-  mask: { rules: number; values: number | null; why?: string; busy?: true };
+  mask: { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true };
   labels: string[];
   notes: RunNote[];
 }
 
 /** Counts what a set of redaction rules would mask in one run: the dashboard passes the Redaction tab's preview (run-mask.ts). */
-export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; why?: string; busy?: true } | null;
+export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true } | null;
 
 export interface ProvenanceOptions {
   prices?: Record<string, Price>;
@@ -408,10 +411,11 @@ export function countMasked(store: Store, runId: string, rules: Normalizer[]): n
 }
 
 /** The count here, or null when there is none (a run still recording, a rule that can't be read). */
-function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: number; values: number | null } {
+function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: number; values: number | null; returned?: number; unmasked?: number } {
   if (!rules.length) return { rules: 0, values: 0 };
   try {
-    return { rules: rules.length, values: countMasked(store, runId, rules) };
+    const p = previewRedaction(store, runId, rules);
+    return { rules: rules.length, values: p.total, ...(p.returned ? { returned: p.returned } : {}), ...(p.unmasked ? { unmasked: p.unmasked } : {}) };
   } catch {
     return { rules: rules.length, values: null };
   }

@@ -158,9 +158,74 @@ export function previewChip(rule: { path?: string; pattern?: string; replace: st
   return rule.pattern;
 }
 
-/** `3 values would be masked`. */
-export function maskedLine(total: number): string {
-  return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked`;
+/**
+ * `3 values would be masked`; `, 2 left as they are` when the rules match values a pack keeps as
+ * recorded (numbers); `, 1 more in HTML, HAR and dataset copies` when a path rule masks what a call
+ * got back, which only those copies do.
+ */
+export function maskedLine(total: number, unmasked = 0, returned = 0): string {
+  const left = unmasked ? `, ${unmasked.toLocaleString('en-US')} left as ${unmasked === 1 ? 'it is' : 'they are'}` : '';
+  const read = returned ? `, ${returned.toLocaleString('en-US')} more in HTML, HAR and dataset copies` : '';
+  return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked${left}${read}`;
+}
+
+/** What a rule matches that a pack leaves as it is, as the preview gives it (`redact preview --json`, a rule's `unmasked`). */
+export interface UnmaskedLike {
+  count: number;
+  samples: ReadonlyArray<{ value: string; key: boolean; callNo: number; kind: string; name: string; in: string; path: string; event: number | null }>;
+  places: number;
+  remedies: ReadonlyArray<{ rule: { path?: string }; command: string; copies: 'all' | 'read' }>;
+  covered: readonly number[];
+  reasons: readonly string[];
+}
+
+/** Why a value gets no path rule, in the page's words. */
+const REASONS: Record<string, string> = {
+  replay: 'clock or random reads, which a replay needs as recorded',
+  stream: 'a stream’s events, which no path reaches',
+  whole: 'the top of a request or response, which no path names alone',
+  key: 'a key no path can name',
+};
+
+/**
+ * The quiet line under a rule for what it matches that a pack leaves as it is (a number, which a
+ * pattern never rewrites), in few words: how many, "more" after values it masks, and what masks
+ * them: the first place's path rule, shown by its path with the command behind Copy (`command`), in
+ * a request for every copy, in what a call got back for HTML, HAR and dataset copies only, since a
+ * pack keeps that for its replay; how many other places have one (`more`, which `shadowlap redact
+ * preview` gives); the rules that already mask them in those copies; and why the rest get none. On
+ * hover (`rows`), each value with where it is. Null when the rule leaves nothing.
+ */
+export function unmaskedLine(
+  u: UnmaskedLike,
+  masked: number,
+): { text: string; path: string | null; command: string | null; more: number; after: string; rows: Array<{ label: string; value: string }> } | null {
+  if (!u.count) return null;
+  const them = u.count === 1 ? 'it' : 'them';
+  const left = `${u.count.toLocaleString('en-US')}${masked ? ' more' : ''} left as ${u.count === 1 ? 'it is' : 'they are'}`;
+  const rows = u.samples.map((s) => ({ label: s.value, value: `call ${s.callNo} ${s.kind}${s.kind === 'api' ? '' : ` ${s.name}`}, ${s.in}${s.event === null ? '' : ` event ${s.event}`}${s.key ? ' key' : ''} ${s.path}` }));
+  const first = u.remedies[0];
+  const covered = u.covered.length ? `${u.covered.map((n) => `#${n}`).join(', ')} ${u.covered.length === 1 ? 'masks' : 'mask'} ${them} in HTML, HAR and dataset copies` : '';
+  const none = u.reasons.map((r) => REASONS[r]).filter(Boolean);
+  const noneText = none.length ? `none for ${none.join(', ')}` : '';
+  if (first) {
+    const how = first.copies === 'all' ? `a path rule masks ${them}` : `a pack keeps what calls got back; HTML, HAR and dataset copies mask ${them} with a path rule`;
+    return { text: `${left} · ${how}`, path: first.rule.path ?? null, command: first.command, more: u.places - 1, after: [covered, noneText].filter(Boolean).join('; '), rows };
+  }
+  if (covered) return { text: `${left} · a pack keeps what calls got back; ${covered}`, path: null, command: null, more: 0, after: noneText, rows };
+  return { text: none.length ? `${left}, in ${none.join(', ')}.` : `${left}.`, path: null, command: null, more: 0, after: '', rows };
+}
+
+/**
+ * The quiet line under a rule with a path for what it masks in what calls got back, which only
+ * HTML, HAR and dataset copies do (a rule's `returned`); null when it masks nothing there.
+ */
+export function returnedLine(r: { count: number; samples: ReadonlyArray<{ before: string; after: string }> }): { text: string; rows: Array<{ label: string; value: string }> } | null {
+  if (!r.count) return null;
+  return {
+    text: `${r.count.toLocaleString('en-US')} in what calls got back, masked in HTML, HAR and dataset copies; a pack keeps ${r.count === 1 ? 'it' : 'them'} for its replay`,
+    rows: r.samples.map((s) => ({ label: s.before, value: `→ ${s.after}` })),
+  };
 }
 
 /** How far a preview a limit stopped got, and which limit: the words before the command that reads the whole run. */

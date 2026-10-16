@@ -83,7 +83,7 @@ function example(store: Store, run: RunRecord, call: CallRecord, rules: Normaliz
   if (!conv) return null;
   const provider = call.end.meta.provider ?? call.meta.provider;
   const stored = store.getBlob(call.end.responseRef);
-  const bytes = stored && rules.length ? redactedResponse(stored, rules) : stored;
+  const bytes = stored && rules.length ? redactedResponse(stored, rules, call) : stored;
   const response = normalizeResponse(bytes, call.end.meta.headers?.['content-type'], call.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
   const checks = run.meta?.checks;
   return {

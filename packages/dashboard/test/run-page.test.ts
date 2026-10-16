@@ -407,11 +407,12 @@ describe('the run page: provenance', () => {
     expect(p.endedUtc).toMatch(/^2026-10-01 09:41:\d\d UTC$/);
     expect(p.upstream.requests).toBe(2);
     // As the Redaction tab's preview counts it, each value once however many requests send it again:
-    // the user's message (both requests), the tool's arguments, the model's call of it, its last answer.
+    // the user's message (both requests), the address the model's call of the tool and the tool's
+    // arguments both hold (one value: the answer is JSON, read string by string), its last answer.
     expect(p.mask.rules).toBe(1);
     expect(p.mask.values).toBe(countMasked(store, rec.runId, [{ pattern: 'email', replace: '<EMAIL>' }]));
     expect(p.mask.values).toBe(previewRedaction(store, rec.runId, [{ pattern: 'email', replace: '<EMAIL>' }]).total);
-    expect(p.mask.values).toBe(4);
+    expect(p.mask.values).toBe(3);
     expect(provenance(store, rec.runId)!.mask).toEqual({ rules: 0, values: 0 });
     expect(provenance(store, rec.runId, { maskCount: () => ({ rules: 3, values: 7 }) })!.mask).toEqual({ rules: 3, values: 7 });
     expect(provenance(store, replay.runId)!.lineage.map((x) => x.runId)).toEqual([rec.runId, replay.runId]);
