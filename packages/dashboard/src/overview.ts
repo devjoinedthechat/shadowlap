@@ -213,7 +213,11 @@ export interface NeedsLook {
   total: number;
 }
 
-/** The team store as Needs a look reads it: how many runs are only on this machine (attempts and recordings in progress aside). */
+/**
+ * The team store as Needs a look reads it: how many runs are only on this machine, as the store's
+ * status counts them for Settings → Store and the CLI (`onlyLocal`): finished runs the store's
+ * index doesn't list, attempts included, as `push --all` sends them.
+ */
 export interface StoreNote {
   name: string;
   onlyLocal: number;

@@ -148,17 +148,36 @@ describe('the Runs table', () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
     const page = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
     expect(page.runs.map((r) => r.local)).toEqual([true, true, true, true]);
-    // A recording in progress is only here too, though Needs a look leaves it out: it can't be pushed
-    // yet. Attempts are bundled under their run, so Needs a look counts runs, as the status bar does.
+    // A recording in progress is only here too, though no count has it yet: it can't be pushed until
+    // it ends. Needs a look says the store status's count, as Settings → Store and the CLI do: the
+    // finished runs only here, the attempt bundled under one of them included, as push --all sends it.
     const live = addRun(store, { startedAt: NOW, calls: 'l', status: 'running' });
     const attempt = addRun(store, { parent: ids.rec, startedAt: NOW - 30 * 60_000, calls: 'rrrr', meta: { repeat: { group: 'g', attempt: 1, of: 1 } } });
     try {
       const now = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
       expect(now.runs.find((r) => r.runId === live)).toMatchObject({ status: 'running', local: true });
+      expect(now.runs.some((r) => r.runId === attempt)).toBe(false);
       const s = await get<OverviewSummary>(dash, 'summary');
-      expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
-      // The store's own count has the attempt in it.
+      expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
       expect(teamStoreStatus(store, { store: 's3://northwind-agent-runs/support-agent' })!.onlyLocal).toBe(5);
+      // Pushing the run sends the attempt bundled under it as well, so it leaves nothing behind.
+      expect(await built({ kind: 'push', runIds: [ids.rec] })).toEqual(['push', ids.rec, attempt]);
+      // The run in the store, its attempt not (made after the push): the run's row still says local,
+      // and why, so Push in the bulk bar picks it up and sends the attempt.
+      const remote = 's3://northwind-agent-runs/support-agent';
+      const pushed = (runId: string) => store.setTeamRun(remote, { runId, state: 'pushed', at: NOW, base: null, baseHash: null, remoteHash: 'h', entry: null });
+      pushed(ids.rec);
+      const after = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
+      expect(after.runs.find((r) => r.runId === ids.rec)).toMatchObject({ local: true, localAttempts: { run: false, attempts: 1 } });
+      expect(after.runs.find((r) => r.runId === ids.fork)).toMatchObject({ local: true });
+      expect(after.runs.find((r) => r.runId === ids.fork)).not.toHaveProperty('localAttempts');
+      expect(await built({ kind: 'push', runIds: [ids.rec] })).toEqual(['push', ids.rec, attempt]);
+      pushed(attempt);
+      const all = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
+      expect(all.runs.find((r) => r.runId === ids.rec)).toMatchObject({ local: false });
+      expect(await built({ kind: 'push', runIds: [ids.rec] })).toEqual(['push', ids.rec]);
+      store.deleteTeamRun(remote, ids.rec);
+      store.deleteTeamRun(remote, attempt);
     } finally {
       store.deleteRun(live);
       store.deleteRun(attempt);
@@ -252,11 +271,13 @@ describe('a run its recorder left', () => {
   it('is ended as interrupted when it is pushed, as gc would, so the push sends it now', async () => {
     leave();
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
-    const s = await get<OverviewSummary>(dash, 'summary');
-    // Counted among the runs only here: a push from here sends it.
-    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
+    // Still marked running, so the store's count (and the CLI's) has it once it is ended.
+    const before = await get<OverviewSummary>(dash, 'summary');
+    expect(before.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
     expect(await built({ kind: 'push', runIds: [left] })).toEqual(['push', left]);
     expect(store.getRun(left)).toMatchObject({ status: 'crashed' });
+    const after = await get<OverviewSummary>(dash, 'summary');
+    expect(after.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
   });
 });
 

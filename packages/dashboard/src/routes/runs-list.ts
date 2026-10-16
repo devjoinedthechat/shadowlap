@@ -2,6 +2,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { deleteRuns, knownRuns, labelRuns, listRunsPage, matchingRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
+import { loadRunIndex } from '../run-index.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { goldensOf } from './overview.js';
 import { localRunIds, teamStoreFor } from './store.js';
@@ -21,8 +22,12 @@ import { localRunIds, teamStoreFor } from './store.js';
  * dashboard; `known` changes nothing (a POST only because a selection can be long).
  */
 
-/** A row of the table; with a team store set, whether the run is only on this machine. */
-export type RunsPageRow = RunRow & { local?: boolean };
+/**
+ * A row of the table; with a team store set, whether something of the run is only on this machine
+ * (`local`): the run itself, or attempts bundled under it, which a push of the run sends with it.
+ * `localAttempts` says how many of those attempts there are, and whether the run itself is one.
+ */
+export type RunsPageRow = RunRow & { local?: boolean; localAttempts?: { run: boolean; attempts: number } };
 
 /** What Find the commit offers for the failures on the days picked: the run it starts from and the choices bisect has, or why there is none. */
 export type DaysBisect = { runId: string; label: string; command: string; startedAt: number; choices: BisectChoices } | { runId: null; reason: string };
@@ -44,10 +49,19 @@ export function register(router: Router, ctx: RouteContext): void {
     } catch (err) {
       return asRangeError(err);
     }
-    // With a team store, each row says whether it is only here: the `local` tag.
+    // With a team store, each row says whether it, or an attempt bundled under it, is only here:
+    // the `local` tag, and what Push in the bulk bar sends.
     const team = teamStoreFor(ctx);
-    const local = team ? localRunIds(store, team.url, page.runs.map((x) => x.runId)) : null;
-    const runs: RunsPageRow[] = local ? page.runs.map((x) => ({ ...x, local: local.has(x.runId) })) : page.runs;
+    let runs: RunsPageRow[] = page.runs;
+    if (team) {
+      const index = loadRunIndex(store);
+      const attemptsOf = (runId: string) => (index.attempts.get(runId) ?? []).map((a) => a.runId);
+      const local = localRunIds(store, team.url, page.runs.flatMap((x) => [x.runId, ...attemptsOf(x.runId)]));
+      runs = page.runs.map((x) => {
+        const n = attemptsOf(x.runId).filter((id) => local.has(id)).length;
+        return { ...x, local: local.has(x.runId) || n > 0, ...(n ? { localAttempts: { run: local.has(x.runId), attempts: n } } : {}) };
+      });
+    }
     r.tagged({ ...page, runs });
   });
 

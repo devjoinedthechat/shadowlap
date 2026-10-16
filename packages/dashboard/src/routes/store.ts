@@ -22,8 +22,9 @@ export function teamStoreFor(ctx: RouteContext): TeamStoreStatus | null {
 /**
  * Which of these runs are only on this machine: not pulled from a pull request's folder, and not
  * listed in the store's index. The Runs page's `local` tag. A recording in progress is one of them
- * until it is pushed, as the design tags it; Needs a look leaves it out (`localRunCount`), since
- * one still recording can't be pushed yet.
+ * until it is pushed, as the design tags it. How many runs are only here is the store status's
+ * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store status` all say that one):
+ * finished runs, the attempts bundled under them included, as `push --all` sends them.
  */
 export function localRunIds(store: Store, remote: string, runIds: readonly string[]): Set<string> {
   if (!runIds.length) return new Set();
@@ -38,16 +39,17 @@ export function localRunIds(store: Store, remote: string, runIds: readonly strin
 }
 
 /**
- * How many runs are only on this machine, counted as the Runs page lists them: attempts are bundled
- * under their run, and a run still recording waits for its end. One its recorder left counts: a push
- * from here ends it as interrupted and sends it. Needs a look's "N runs are only on this machine".
+ * The attempts bundled under these runs (`--repeat`, blame's probes, verify's attempts) that are only
+ * on this machine, at most `room` of them: pushing a run sends them too, as the Runs page shows them
+ * under it, so a run pushed leaves nothing of its own behind.
  */
-export function localRunCount(store: Store, remote: string): number {
-  const live = new Set(store.recordingRuns().live.map((x) => x.run.runId));
-  const ids = loadRunIndex(store).runs.filter((r) => !r.bundled && !live.has(r.runId)).map((r) => r.runId);
-  let n = 0;
-  for (let i = 0; i < ids.length; i += 5000) n += localRunIds(store, remote, ids.slice(i, i + 5000)).size;
-  return n;
+export function localAttempts(store: Store, remote: string, runIds: readonly string[], room: number): string[] {
+  if (room <= 0) return [];
+  const index = loadRunIndex(store);
+  const attempts = [...new Set(runIds.flatMap((id) => (index.attempts.get(id) ?? []).map((a) => a.runId)))];
+  const local = new Set<string>();
+  for (let i = 0; i < attempts.length; i += 5000) for (const id of localRunIds(store, remote, attempts.slice(i, i + 5000))) local.add(id);
+  return attempts.filter((id) => local.has(id)).slice(0, room);
 }
 
 /**
@@ -78,14 +80,16 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged({ store, you: store ? whoAmI() : null });
   });
 
-  // Push: the runs picked (their ancestors go too, as the CLI does), or with `all` every run only on
-  // this machine. A run still recording is queued by the CLI and goes when it ends; one its recorder
-  // left is ended as interrupted first, as gc would, so it goes now.
+  // Push: the runs picked with the attempts bundled under them (their ancestors go too, as the CLI
+  // does), or with `all` every run only on this machine. A run still recording is queued by the CLI
+  // and goes when it ends; one its recorder left is ended as interrupted first, as gc would, so it
+  // goes now.
   ctx.jobs.registerJobKind('push', {
     title: (req) => (req.all === true ? 'Pushing local runs' : 'Pushing'),
     build: (req, { store }) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
-      if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
+      const team = teamStoreFor(ctx);
+      if (!team) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
       if (req.all === true) {
         endAbandoned(store, null);
         return { args: ['push', '--all'] };
@@ -99,8 +103,10 @@ export function register(router: Router, ctx: RouteContext): void {
         if (!run) return { error: `no run ${typeof raw === 'string' ? raw.slice(0, 26) : ''}`.trim(), status: 404 };
         if (!ids.includes(run.runId)) ids.push(run.runId);
       }
-      endAbandoned(store, new Set(ids));
-      return { args: ['push', ...ids], ...(ids.length === 1 ? { runId: ids[0]! } : {}) };
+      // At most PUSH_MAX ids on the command line, the runs picked first.
+      const attempts = localAttempts(store, team.url, ids, PUSH_MAX - ids.length);
+      endAbandoned(store, new Set([...ids, ...attempts]));
+      return { args: ['push', ...ids, ...attempts], ...(ids.length === 1 ? { runId: ids[0]! } : {}) };
     },
   });
 

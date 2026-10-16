@@ -7,6 +7,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { runOrigins, runOutcome, runSpent, runSublineParts, type RunSort } from '../runs.js';
 import type { RunListItem } from '../types.js';
+import { localTitle } from './bulk.js';
 import { Person } from './people.js';
 
 /**
@@ -16,7 +17,7 @@ import { Person } from './people.js';
  * 1380px, By and Calls by origin below 1140px. A row opens its run unless a control in it was used.
  */
 
-export type TableRun = RunListItem & { local?: boolean; ci?: string | null };
+export type TableRun = RunListItem & { local?: boolean; localAttempts?: { run: boolean; attempts: number }; ci?: string | null };
 
 export function RunsTable({
   rows,
@@ -98,7 +99,7 @@ const Row = memo(function Row({ run: r, on, selectable, byColumn, you, onPick, n
             <code>{shortId(r.runId)}</code>
           </a>
           {byColumn && r.local ? (
-            <span className="tag-local" title="Only on the machine that recorded it">
+            <span className="tag-local" title={localTitle(r.localAttempts)}>
               local
             </span>
           ) : null}

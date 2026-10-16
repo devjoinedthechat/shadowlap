@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
-import { bulkToast } from '../ui/runspage/bulk.js';
+import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, pickedFormat, tooLargeNote } from '../ui/runspage/imports.js';
 import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
@@ -238,6 +238,13 @@ describe('the Runs page’s requests and words', () => {
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000', '01K5CQ4N9A0000'], of: 2, skipped: [] })).toBe('Deleted 2 runs');
     expect(bulkToast({ verb: 'Labelled', done: ['01K5CQ4N7G0000'], of: 1, skipped: [], suffix: ' “good”' })).toBe('Labelled 01K5CQ4N7G “good”');
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000'], of: 2, skipped: [{ runId: '01K5CQ6L0P0000', reason: 'still recording' }] })).toBe('Deleted 1 of 2 runs · 01K5CQ6L0P is still recording');
+  });
+
+  it('says on the local tag what is only on this machine: the run, or attempts Push sends with it', () => {
+    expect(localTitle(undefined)).toBe('Only on the machine that recorded it');
+    expect(localTitle({ run: true, attempts: 2 })).toBe('Only on the machine that recorded it, with 2 attempts bundled under it');
+    expect(localTitle({ run: false, attempts: 1 })).toBe('1 attempt bundled under it is only on this machine: pushing the run sends it');
+    expect(localTitle({ run: false, attempts: 3 })).toBe('3 attempts bundled under it are only on this machine: pushing the run sends them');
   });
 
   it('gives each person one tint, and CI its own author named by its provider', () => {
