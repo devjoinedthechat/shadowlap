@@ -368,14 +368,18 @@ export interface RunProvenance {
   origins: Record<string, number>;
   /** The run and the runs it came from, the recording first. */
   lineage: Array<{ runId: string; parentRunId: string | null; mode: RunRecord['mode']; label: string; codeVersion: string | null; startedAt: number }>;
-  /** What a copy made now (pack, export html, dataset, pairs) would mask: the rules that apply and the values they hit; null values when not counted, with why when it says. */
-  mask: { rules: number; values: number | null; why?: string };
+  /**
+   * What a copy made now (pack, export html, dataset, pairs) would mask: the rules that apply and the
+   * values they hit; null values when not counted, with why when it says, and `busy` when it is yet to
+   * be counted (the preview threads were busy): asked again, it is.
+   */
+  mask: { rules: number; values: number | null; why?: string; busy?: true };
   labels: string[];
   notes: RunNote[];
 }
 
 /** Counts what a set of redaction rules would mask in one run: the dashboard passes the Redaction tab's preview (run-mask.ts). */
-export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; why?: string } | null;
+export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; why?: string; busy?: true } | null;
 
 export interface ProvenanceOptions {
   prices?: Record<string, Price>;

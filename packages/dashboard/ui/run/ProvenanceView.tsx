@@ -55,6 +55,20 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   // The server's record of the run, when it works one out: on the run, or from its own endpoint.
   const fetched = useLoad(() => (run.provenance ? null : client.provenance(r.runId)), `${r.runId}:provenance`);
   const prov = run.provenance ?? fetched.data ?? null;
+  // What a copy would mask is yet to be counted while the redaction previews are busy (Settings →
+  // Redaction reading runs): asked again every few seconds, for a minute, until it is.
+  const counting = !!prov?.mask?.busy;
+  const { reload } = fetched;
+  const [asked, setAsked] = useState({ runId: r.runId, times: 0 });
+  const times = asked.runId === r.runId ? asked.times : 0;
+  useEffect(() => {
+    if (!counting || times >= 20) return;
+    const t = setTimeout(() => {
+      setAsked({ runId: r.runId, times: times + 1 });
+      reload();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [counting, times, reload, r.runId]);
   const providers = useProviders(run, prov);
   // Each model as the page names it everywhere (claude-opus-5), counted from the record when it says,
   // else from the calls; the id the provider recorded (a dated one) shows on hover when it says more.
@@ -171,7 +185,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           <h3>Leaving this machine</h3>
           <p className="muted">
             A copy made now (pack, export html, export dataset or export pairs) applies{' '}
-            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted)}</span>
+            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting)}</span>
             .{' '}
             <a className="more" href={href.settings('redaction')}>
               {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}

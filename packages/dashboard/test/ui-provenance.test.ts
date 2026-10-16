@@ -37,6 +37,9 @@ describe('what a copy made now applies', () => {
     expect(copyRules(3, 12)).toBe('3 redaction rules and would mask 12 values in this run');
     expect(copyRules(1, 1)).toBe('1 redaction rule and would mask 1 value in this run');
     expect(copyRules(2, null)).toBe('2 redaction rules');
+    // Not counted, and why on hover; or still to be, while the previews are busy.
+    expect(copyRules(2, null, true)).toBe('2 redaction rules; what they would mask in this run wasn’t counted');
+    expect(copyRules(1, null, true, true)).toBe('1 redaction rule; what it would mask in this run is being counted');
     expect(copyRules(0, 0)).toBe('no redaction rules: it would hold what was recorded');
     expect(copyRules(undefined, null)).toBe('the redaction rules in shadowlap.config.json');
   });

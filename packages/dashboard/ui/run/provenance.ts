@@ -27,12 +27,14 @@ export function tallyProviders(found: ReadonlyArray<{ provider: string | null | 
 /**
  * What a copy made now applies, after "A copy made now (…) applies": the rules, and what they would
  * mask when counted, or that it wasn't (`uncounted`: a rule took too long, the run is long; the
- * reason goes on hover).
+ * reason goes on hover), or that it is yet to be (`busy`: the previews were busy, and the page asks
+ * again).
  */
-export function copyRules(rules: number | null | undefined, masked: number | null | undefined, uncounted = false): string {
+export function copyRules(rules: number | null | undefined, masked: number | null | undefined, uncounted = false, busy = false): string {
   if (typeof rules !== 'number') return 'the redaction rules in shadowlap.config.json';
   if (!rules) return 'no redaction rules: it would hold what was recorded';
-  const counted = typeof masked === 'number' ? ` and would mask ${num(masked)} ${masked === 1 ? 'value' : 'values'} in this run` : uncounted ? `; what ${rules === 1 ? 'it' : 'they'} would mask in this run wasn’t counted` : '';
+  const they = rules === 1 ? 'it' : 'they';
+  const counted = typeof masked === 'number' ? ` and would mask ${num(masked)} ${masked === 1 ? 'value' : 'values'} in this run` : busy ? `; what ${they} would mask in this run is being counted` : uncounted ? `; what ${they} would mask in this run wasn’t counted` : '';
   return `${rules} redaction ${rules === 1 ? 'rule' : 'rules'}${counted}`;
 }
 
