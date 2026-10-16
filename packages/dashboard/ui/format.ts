@@ -16,9 +16,15 @@ export function cents(v: number): string {
   return `$${v.toFixed(2)}`;
 }
 
-/** An estimate, as the CLI prints one. */
+/**
+ * An estimate, as the CLI prints one: four decimals below a cent, as `money` writes a captured cost
+ * beside it, three below a dollar, then two. Spend too small for four decimals reads "<$0.0001",
+ * never "≈$0.000".
+ */
 export function approx(v: number): string {
-  return v ? `≈$${v < 1 ? v.toFixed(3) : v.toFixed(2)}` : '$0';
+  if (!v) return '$0';
+  if (v < 0.00005) return '<$0.0001';
+  return `≈$${v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}`;
 }
 
 export function ktok(v: number): string {

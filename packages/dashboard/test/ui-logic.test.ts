@@ -293,6 +293,11 @@ describe('formatting', () => {
     expect(money(1.2)).toBe('$1.2');
     expect(approx(0.0281)).toBe('≈$0.028');
     expect(approx(0)).toBe('$0');
+    // A live run that spent less than a tenth of a cent doesn't read as nothing beside a capture's "$0.0007".
+    expect(approx(0.0004656)).toBe('≈$0.0005');
+    expect(approx(0.0015)).toBe('≈$0.0015');
+    expect(approx(0.00004)).toBe('<$0.0001');
+    expect(approx(2.5)).toBe('≈$2.50');
     expect(ktok(12400)).toBe('12.4k');
     expect(ktok(950)).toBe('950');
     expect(ktok(1_250_000)).toBe('1.25M');
