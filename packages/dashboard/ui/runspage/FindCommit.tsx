@@ -6,6 +6,7 @@ import { shortId } from '../format.js';
 import { sentence } from '../normalize.js';
 import { useApp } from '../state.js';
 import type { BisectChoices } from '../types.js';
+import { bisectCommand, bisectRequest, bisectUpTo } from './find-commit.js';
 
 /**
  * Find the commit, from the calendar: the first failure on the days picked is where it started
@@ -19,7 +20,7 @@ export function FindCommitDialog({ runId, choices, onClose }: { runId: string; c
   const [good, setGood] = useState(choices.good ?? listed[0] ?? '');
   const [own, setOwn] = useState(listed.length === 0);
   const what = choices.target.kind === 'golden' ? choices.target.golden : shortId(runId);
-  const upTo = choices.bad ?? 'HEAD';
+  const upTo = bisectUpTo(choices);
   if (choices.unavailable)
     return (
       <Dialog title={`Find the commit that broke ${what}`} text={sentence(choices.unavailable)} onClose={onClose}>
@@ -27,17 +28,16 @@ export function FindCommitDialog({ runId, choices, onClose }: { runId: string; c
       </Dialog>
     );
   const rev = good.trim();
-  const args = ['bisect', choices.target.kind === 'golden' ? choices.target.golden : shortId(runId), '--good', rev || '<commit>', ...(choices.bad ? ['--bad', choices.bad] : []), ...(choices.fork ? ['--fork'] : [])];
   return (
     <Dialog
       title={`Find the commit that broke ${what}`}
       text={`Replays it at commits between a good one and ${upTo}, halving each time, and names the first where it fails. ${choices.live ? 'Its replays run live from where they diverge, so this costs tokens.' : 'Replays are free, so this costs no tokens.'}`}
       ok="Find the commit"
-      okDisabled={!/^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev) || rev === choices.bad}
+      okDisabled={!/^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev) || rev === upTo}
       onClose={onClose}
       onOk={() => {
         onClose();
-        watchJob(client.startJob(JOB_KINDS.bisect, { runId, good: rev, ...(choices.bad ? { bad: choices.bad } : {}) }));
+        watchJob(client.startJob(JOB_KINDS.bisect, bisectRequest(runId, choices, rev)));
       }}
     >
       <div className="form one">
@@ -65,7 +65,7 @@ export function FindCommitDialog({ runId, choices, onClose }: { runId: string; c
           )}
         </label>
       </div>
-      <CmdLine>{`shadowlap ${args.join(' ')}`}</CmdLine>
+      <CmdLine>{bisectCommand(runId, choices, rev)}</CmdLine>
     </Dialog>
   );
 }

@@ -3,6 +3,7 @@ import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
+import { bisectCommand, bisectRequest } from '../ui/runspage/find-commit.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, pickedFormat, tooLargeNote } from '../ui/runspage/imports.js';
 import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
@@ -238,6 +239,18 @@ describe('the Runs page’s requests and words', () => {
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000', '01K5CQ4N9A0000'], of: 2, skipped: [] })).toBe('Deleted 2 runs');
     expect(bulkToast({ verb: 'Labelled', done: ['01K5CQ4N7G0000'], of: 1, skipped: [], suffix: ' “good”' })).toBe('Labelled 01K5CQ4N7G “good”');
     expect(bulkToast({ verb: 'Deleted', done: ['01K5CQ4N7G0000'], of: 2, skipped: [{ runId: '01K5CQ6L0P0000', reason: 'still recording' }] })).toBe('Deleted 1 of 2 runs · 01K5CQ6L0P is still recording');
+  });
+
+  it('names where Find the commit ends: the failure’s own commit, or HEAD when this checkout lacks it', () => {
+    const run = '01K5CQ4N7G0000000000000000';
+    const own = { bad: 'ab2a568', target: { kind: 'run' as const, runId: run }, fork: true };
+    expect(bisectRequest(run, own, ' 0007d11 ')).toEqual({ runId: run, good: '0007d11', bad: 'ab2a568' });
+    expect(bisectCommand(run, own, '0007d11')).toBe('shadowlap bisect 01K5CQ4N7G --good 0007d11 --bad ab2a568 --fork');
+    // A teammate's failure: its commit isn't here, so the job is told HEAD rather than left to take
+    // the run's own commit.
+    const theirs = { ...own, bad: null };
+    expect(bisectRequest(run, theirs, '2ef20ae')).toEqual({ runId: run, good: '2ef20ae', bad: 'HEAD' });
+    expect(bisectCommand(run, { ...theirs, target: { kind: 'golden', golden: 'goldens/refund-flow' }, fork: false }, '')).toBe('shadowlap bisect goldens/refund-flow --good <commit> --bad HEAD');
   });
 
   it('says on the local tag what is only on this machine: the run, or attempts Push sends with it', () => {
