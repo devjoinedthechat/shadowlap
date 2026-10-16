@@ -401,7 +401,7 @@ export function parseMarkdown(md: string): MdBlock[] {
   return out;
 }
 
-/** A table header of report.md as plain words, for the label a phone shows beside each value. */
+/** A table header of report.md as plain words, for the label a narrow panel shows above each value. */
 export const plainCell = (text: string): string => text.replace(/`/g, '').trim();
 
 /** A cell that reads as one token (a run id, a role, an outcome, a count) and so stays on one line while longer cells wrap. */
@@ -423,7 +423,7 @@ export function breakPoints(text: string): string[] {
       cur += piece;
       continue;
     }
-    const [first, ...rest] = piece.split(/(?<=[,:({])/);
+    const [first = '', ...rest] = piece.split(/(?<=[,:({])/);
     cur += first;
     for (const part of rest) {
       out.push(cur);

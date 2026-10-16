@@ -80,7 +80,7 @@ function Block({ b }: { b: MdBlock }) {
               {b.rows.map((r, i) => (
                 <tr key={i}>
                   {r.map((c, j) => (
-                    // On a phone a row stands as its headers and values (`data-h`), so no column is out of view.
+                    // Where the panel is narrow, a row stands as its headers and values (`data-h`), so no column is out of view.
                     <td key={j} data-h={plainCell(b.head[j] ?? '')} className={cellKeepsWhole(c) ? 'nw' : undefined}>
                       <Inline text={c} breaks />
                     </td>
