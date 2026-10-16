@@ -26,11 +26,11 @@ const run = (over: Partial<RunLike> = {}): RunLike => ({
   ...over,
 });
 
-const meta = (over: Partial<Meta> = {}): Meta => ({ version: '0.1.0', dbPath: '/home/u/agent/.shadowlap/shadowlap.db', actions: true, ...over }) as Meta;
+const meta = (over: Partial<Meta> = {}): Meta => ({ version: '0.1.0', dbPath: '/home/dana/agent/.shadowlap/shadowlap.db', actions: true, ...over }) as Meta;
 
 describe('where the setup shows', () => {
   const at = (hash: string) => parseRoute(hash);
-  const project = (settingUp: boolean) => meta({ project: { id: 'agent', name: 'agent', path: '/home/u/agent', settingUp } });
+  const project = (settingUp: boolean) => meta({ project: { id: 'agent', name: 'agent', path: '/home/dana/agent', settingUp } });
 
   it('takes every page but Settings while the project has no runs, and #/setup always', () => {
     const none = { exported: false, meta: project(true), runs: [] };
@@ -110,11 +110,11 @@ describe('the setup’s words', () => {
 
 describe('the status bar’s store', () => {
   it('names the store under the project’s folder as the server shows it', () => {
-    const project = { id: 'agent', name: 'agent', path: '/private/var/demo/home/agent', display: '~/agent' };
-    expect(storePath({ dbPath: '/private/var/demo/home/agent/.shadowlap/shadowlap.db', project })).toBe('~/agent/.shadowlap/shadowlap.db');
+    const project = { id: 'agent', name: 'agent', path: '/srv/demo/home/agent', display: '~/agent' };
+    expect(storePath({ dbPath: '/srv/demo/home/agent/.shadowlap/shadowlap.db', project })).toBe('~/agent/.shadowlap/shadowlap.db');
     // A store elsewhere (--db), or a folder that only starts the same, keeps its own path.
-    expect(storePath({ dbPath: '/private/var/demo/home/agent-2/.shadowlap/shadowlap.db', project })).toBe('/private/var/demo/home/agent-2/.shadowlap/shadowlap.db');
-    expect(storePath({ dbPath: '/Users/u/elsewhere/db.sqlite', project })).toBe('~/elsewhere/db.sqlite');
-    expect(storePath({ dbPath: '/Users/u/agent/.shadowlap/shadowlap.db', project: null })).toBe('~/agent/.shadowlap/shadowlap.db');
+    expect(storePath({ dbPath: '/srv/demo/home/agent-2/.shadowlap/shadowlap.db', project })).toBe('/srv/demo/home/agent-2/.shadowlap/shadowlap.db');
+    expect(storePath({ dbPath: '/home/dana/elsewhere/db.sqlite', project })).toBe('~/elsewhere/db.sqlite');
+    expect(storePath({ dbPath: '/home/dana/agent/.shadowlap/shadowlap.db', project: null })).toBe('~/agent/.shadowlap/shadowlap.db');
   });
 });
