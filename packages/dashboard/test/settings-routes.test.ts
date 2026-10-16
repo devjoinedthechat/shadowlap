@@ -312,7 +312,36 @@ describe('the redaction preview', () => {
         holder.exec('ROLLBACK');
         holder.close();
       }
+      // Free now: the next preview has the usual time to open it, however busy the machine is.
+      PREVIEW_LIMITS.openMs = 15_000;
       expect((await get<{ preview: { total: number } }>(`settings/redaction/preview?run=${run.runId}`)).preview.total).toBe(2);
+    });
+
+    it('closes only once a preview thread it ended has let go of the store', async () => {
+      // Windows can't delete or move the store's file while a thread holds it open.
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+      const run = recording();
+      modelCall(run.runId, 1, 'c-1@example.com');
+      PREVIEW_LIMITS.openMs = 300;
+      const holder = new DatabaseSync(dbPath);
+      holder.exec('BEGIN IMMEDIATE');
+      let released = 0;
+      const release = () => {
+        if (released) return;
+        holder.exec('ROLLBACK');
+        holder.close();
+        released = Date.now();
+      };
+      // The page has its answer at once; the thread is asked to end, but it waits inside SQLite for the store.
+      expect((await api(`settings/redaction/preview?run=${run.runId}`)).status).toBe(503);
+      const timer = setTimeout(release, 500);
+      try {
+        await dash.close();
+        expect(released, 'the dashboard closed while a preview thread still held the store').toBeGreaterThan(0);
+      } finally {
+        clearTimeout(timer);
+        release();
+      }
     });
 
     it('stops reading when the page stops waiting, and refuses a preview past the threads it reads on', async () => {

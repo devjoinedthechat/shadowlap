@@ -596,6 +596,9 @@ export interface CreateRunInput {
   meta?: RunMeta;
 }
 
+/** How long a write that only keeps a cache (saveRunStats) waits for another command's lock before it gives up. */
+const CACHE_WAIT_MS = 100;
+
 /** Creates a file readable only by its owner, unless something already exists at the path. */
 /**
  * The schema version a store records, or null when it has never been stamped (a database this
@@ -1595,10 +1598,14 @@ export class Store {
   /**
    * Keeps what a read model worked out about finished runs (`run_stats`), so no later read, in this
    * process or the next, reads their calls again. A run deleted meanwhile is skipped. Best effort:
-   * false when the store can't be written just now, and the caller keeps its numbers in memory.
+   * false when the store can't be written just now, and the caller keeps its numbers in memory. It
+   * waits a moment for the write lock, not the 10 s anything else waits: a dashboard saves these on
+   * its only thread, which would stop answering while another command holds the store.
    */
   saveRunStats(rows: ReadonlyArray<{ runId: string; key: string; stats: string }>): boolean {
     if (!rows.length) return true;
+    const wait = Number((this.db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 10_000);
+    this.db.exec(`PRAGMA busy_timeout = ${Math.min(wait, CACHE_WAIT_MS)}`);
     try {
       this.transaction(() => {
         const put = this.db.prepare(`INSERT OR REPLACE INTO run_stats (run_id, key, stats) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM runs WHERE run_id = ?)`);
@@ -1607,6 +1614,8 @@ export class Store {
       return true;
     } catch {
       return false;
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${wait}`);
     }
   }
 

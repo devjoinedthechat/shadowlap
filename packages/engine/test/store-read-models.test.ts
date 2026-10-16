@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 
@@ -55,6 +59,27 @@ describe('Store.query', () => {
       expect(store.query(`SELECT COUNT(*) AS n FROM run_stats`)).toEqual([{ n: 0 }]);
     } finally {
       store.close();
+    }
+  });
+
+  it('gives up at once while another command holds the store, and waits as before for everything else', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-run-stats-busy-'));
+    const store = Store.open(join(dir, 'store.db'));
+    const holder = new DatabaseSync(join(dir, 'store.db'));
+    try {
+      const a = store.createRun({ mode: 'record', command: { argv: ['node', 'a.js'], cwd: '/w' }, startedAt: 5 });
+      holder.exec('BEGIN IMMEDIATE');
+      // A dashboard saves these on its only thread: it must not stop answering for the 10 s a write waits.
+      const t0 = Date.now();
+      expect(store.saveRunStats([{ runId: a.runId, key: 'k1', stats: '{}' }])).toBe(false);
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect((store as unknown as { db: DatabaseSync }).db.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 10_000 });
+      holder.exec('ROLLBACK');
+      expect(store.saveRunStats([{ runId: a.runId, key: 'k1', stats: '{}' }])).toBe(true);
+    } finally {
+      holder.close();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
