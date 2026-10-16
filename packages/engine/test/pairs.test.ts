@@ -163,6 +163,34 @@ describe('pairs from verify and --repeat', () => {
     store.close();
   });
 
+  it('names a repair\'s verifies by the candidate each checked, from its verdict or the repair\'s report', () => {
+    const store = Store.open(':memory:');
+    const target = recordRun(store, LOST, { status: 'failed' }).run;
+    const at = new Date(2026, 9, 15, 14, 28, 31).getTime();
+    // A repair verifies each candidate in the working tree: one revision, a second apart.
+    const verify = (group: string, startedAt: number, passed: boolean) =>
+      recordRun(store, passed ? SAVED : LOST, { parentRunId: target.runId, status: passed ? 'completed' : 'failed', codeVersion: '3d26a2f+dirty', startedAt, meta: { verify: { role: 'target', passed }, repeat: { group: `${group}-${target.runId}`, attempt: 1, of: 1 } } }).run;
+    const turnedDown = verify('c2', at, false);
+    const accepted = verify('c3', at + 1_000, true);
+    const report = (runId: string, passed: boolean) => ({ verdict: passed ? 'accepted' : 'rejected', runs: [{ runId: target.runId, role: 'target', attempts: [{ runId, passed }] }] });
+    // Candidate 2 was turned down (only the repair's report names it); candidate 3 was kept, with a verdict of its own.
+    store.putRepair({ repairId: 'repair-1', at: at + 5_000, dir: '.shadowlap/repairs/repair-1', outcome: 'fixed', accepted: true, report: { candidates: [{ id: 2, verify: report(turnedDown.runId, false) }, { id: 3, verify: report(accepted.runId, true) }] } as never, expect: null, command: 'shadowlap repair' });
+    store.putVerdict({ verifyId: 'vf-1', at: at + 5_000, verdict: 'accepted', repairId: 'repair-1', candidate: 3, report: report(accepted.runId, true) as never, expect: null, command: 'shadowlap repair' });
+    // A verify of the working tree at the same revision keeps its name.
+    verify('v9', at + 60_000, true);
+    const labels = findPairs(store).sources.filter((s) => s.kind === 'verify').map((s) => [s.label, s.candidate ?? null]);
+    expect(labels.sort()).toEqual([
+      ['verify · 3d26a2f+dirty', null],
+      ['verify · repair candidate 2', 2],
+      ['verify · repair candidate 3', 3],
+    ]);
+    // Candidate 2 of a second repair is told apart by when it ran.
+    const again = verify('c2b', at + 120_000, false);
+    store.putRepair({ repairId: 'repair-2', at: at + 125_000, dir: '.shadowlap/repairs/repair-2', outcome: 'not-fixed', accepted: false, report: { candidates: [{ id: 2, verify: report(again.runId, false) }] } as never, expect: null, command: 'shadowlap repair' });
+    expect(findPairs(store).sources.filter((s) => s.candidate === 2).map((s) => s.label).sort()).toEqual(['verify · repair candidate 2 · 14:28:31', 'verify · repair candidate 2 · 14:30:31']);
+    store.close();
+  });
+
   it('pairs --repeat attempts by exit status, and leaves out those whose paths parted before their answers', () => {
     const store = Store.open(':memory:');
     const rec = recordRun(store, SAVED).run;

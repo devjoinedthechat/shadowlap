@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { recordBlame, recordVerdict, Store, type Task, type VerifyReport } from '@shadowlap/engine';
-import { blameReport, EXPECT, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { recordBlame, recordRepair, recordVerdict, Store, type Task, type VerifyReport } from '@shadowlap/engine';
+import { blameReport, EXPECT, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard, type JobView, type ModelsView, type TrainingView } from '../src/index.js';
 import { readTraining, sourceFixes, trainingView } from '../src/training.js';
@@ -342,6 +342,27 @@ describe('the fix a pair source belongs to', () => {
       ]),
     );
     expect(verify).toHaveLength(2);
+    s.close();
+  });
+});
+
+describe('a repair\'s verifies as pair sources', () => {
+  it('names each by its candidate, and opens one the gate turned down at the fix\'s Repair step', () => {
+    const s = Store.open(':memory:');
+    const run = recordRun(s, LOST, { status: 'failed', user: 'Refund order A-4001.', meta: { labels: ['refund-bug'] } }).run;
+    const fx = recordBlame(s, { runId: run.runId, report: blameReport(run.runId), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'refund-bug refunded $240', checkText: 'issue_refund never called with {"amount":240}', at: 3_000 }).fix.fixId;
+    // Candidate 2 refunded once in two attempts and was turned down; repair kept no verdict for it.
+    const attempt = (steps: Step[], passed: boolean, n: number) => recordRun(s, steps, { parentRunId: run.runId, status: passed ? 'completed' : 'failed', codeVersion: 'a7b3c2e+dirty', user: 'Refund order A-4001.', meta: { verify: { role: 'target', passed }, repeat: { group: `c2-${run.runId}`, attempt: n, of: 2 } } }).run;
+    const tried = [attempt(LOST, false, 1), attempt([LOOKUP, POLICY, ESCALATE_3, DONE], true, 2)];
+    const report = repairReport({ targets: [run.runId], accepted: false });
+    const turnedDown = report.candidates.find((c) => c.id === 2)!;
+    turnedDown.verify!.runs[0]!.attempts = tried.map((a, i) => ({ ...turnedDown.verify!.runs[0]!.attempts[0]!, runId: a.runId, passed: i === 1, exitCode: i === 1 ? 0 : 1 }));
+    recordRepair(s, { repairId: 'repair-mx1', dir: '.shadowlap/repairs/repair-mx1', report, expect: EXPECT, command: 'shadowlap repair', at: 5_000 });
+
+    const view = trainingView(readTraining(s, { tasks: [], fixOf: sourceFixes(s) }));
+    const source = view.pairs.sources.find((x) => x.kind === 'verify')!;
+    expect(source).toMatchObject({ label: 'verify · repair candidate 2', made: 1, href: `#/fixes/${fx}/repair` });
+    expect(view.pairs.groups.find((g) => g.from === 'from verify')).toMatchObject({ fix: { label: 'refund-bug', href: `#/fixes/${fx}/repair` }, source: { label: 'verify · repair candidate 2' } });
     s.close();
   });
 });

@@ -20,6 +20,11 @@ export interface SourceFix {
   label: string;
   /** The verify report a verify source is, for `#/fixes/<id>/verify/<verify-id>`. */
   verifyId?: string;
+  /**
+   * A verify of a repair candidate the gate turned down: no verdict of its own was kept, so it opens
+   * at the fix's Repair step (`#/fixes/<id>/repair`), where its candidate is listed.
+   */
+  repair?: true;
 }
 
 export interface TrainingInput {
@@ -81,7 +86,8 @@ export function sourceFixes(store: Store): FixOf {
     const first = attempts.find((r) => r.startedAt === s.at) ?? attempts[0];
     const f = first ? fixForRun(store, first.runId) : null;
     const report = f?.verify?.verifyId ? store.linksTo(f.verify.verifyId, 'verify') : f?.verify?.repairId ? store.linksTo(f.verify.repairId, 'repair') : [];
-    const v = f?.fix ? { fix: { id: f.fix.fixId, label: label(f.fix), ...(f.verify?.verifyId ? { verifyId: f.verify.verifyId } : {}) }, linked: new Set(report.map((l) => l.fixId)) } : null;
+    const kept = f?.verify?.verifyId ? { verifyId: f.verify.verifyId } : f?.verify?.repairId ? { repair: true as const } : {};
+    const v = f?.fix ? { fix: { id: f.fix.fixId, label: label(f.fix), ...kept }, linked: new Set(report.map((l) => l.fixId)) } : null;
     verifies.set(s.key, v);
     return v;
   };
@@ -316,9 +322,10 @@ const LOOPBACK = /^https?:\/\/(localhost|127\.|\[::1\])/;
 
 const modelKey = (model: string, baseUrl: string | null) => `${model}\n${baseUrl ?? ''}`;
 
-/** A fix as its source opens it: at the Blame step, or at the verify. */
+/** A fix as its source opens it: at the Blame step, at the verify, or for a repair candidate turned down, at the Repair step. */
 function fixHref(kind: PairSource['kind'], fix: SourceFix): string {
-  return kind === 'blame' ? `#/fixes/${fix.id}/blame` : `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
+  if (kind === 'blame') return `#/fixes/${fix.id}/blame`;
+  return fix.repair ? `#/fixes/${fix.id}/repair` : `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
 }
 
 /** A source opens its fix; without one, its run's forks, at the call its pairs are about when it made some. */
