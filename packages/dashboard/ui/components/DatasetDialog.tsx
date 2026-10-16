@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
+import { Dialog } from './Dialog.js';
 
 /**
- * Export runs as an eval dataset: a format and which examples, run as the `export-dataset` job, which
- * writes one JSON line per example into the project's `.shadowlap/exports/` and names the file.
+ * Runs as an eval dataset: a format and which calls become examples, run as the `export-dataset` job,
+ * which writes one JSON line per example into the project's `.shadowlap/exports/` and names the file.
+ * The one dialog for it: a run's Share menu and the Runs page's bulk bar both open it. `rules` is how
+ * many redaction rules the copy applies, when the page knows (the run page's offers); the dialog then
+ * says so.
  */
 export function DatasetDialog({ ids, rules = null, onClose }: { ids: string[]; rules?: number | null; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();

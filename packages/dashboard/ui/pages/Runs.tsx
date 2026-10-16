@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { JOB_KINDS, type RunListItem } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
-import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { DatasetDialog } from '../components/DatasetDialog.js';
+import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { RunIcon } from '../components/RunIcon.js';
@@ -276,43 +277,5 @@ function BulkBar({ runs, clear }: { runs: RunListItem[]; clear: () => void }) {
       ) : null}
       {dialog === 'dataset' ? <DatasetDialog ids={ids} onClose={() => setDialog(null)} /> : null}
     </>
-  );
-}
-
-/** Runs as an eval dataset: the format and which calls become examples. */
-export function DatasetDialog({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { client, watchJob } = useApp();
-  const [format, setFormat] = useState('jsonl');
-  const [calls, setCalls] = useState('final');
-  return (
-    <Dialog
-      title={`Export ${ids.length === 1 ? shortId(ids[0]!) : `${ids.length} runs`} as an eval dataset`}
-      text="One JSON line per example: the conversation exactly as the model saw it, its answer, and metadata with the labels, notes and check results."
-      ok="Export"
-      onClose={onClose}
-      onOk={() => {
-        onClose();
-        watchJob(client.startJob(JOB_KINDS.dataset, { runIds: ids, format, calls }));
-      }}
-    >
-      <div className="form">
-        <label>
-          Format
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
-            <option value="jsonl">jsonl</option>
-            <option value="braintrust">braintrust</option>
-            <option value="langfuse">langfuse</option>
-            <option value="openai-chat">openai-chat</option>
-          </select>
-        </label>
-        <label>
-          Examples
-          <select value={calls} onChange={(e) => setCalls(e.target.value)}>
-            <option value="final">Last model call of each run</option>
-            <option value="model">Every model call</option>
-          </select>
-        </label>
-      </div>
-    </Dialog>
   );
 }

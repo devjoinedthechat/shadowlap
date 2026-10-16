@@ -7,7 +7,7 @@ import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
-import { DatasetDialog } from './DatasetDialog.js';
+import { DatasetDialog } from '../components/DatasetDialog.js';
 import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, type ShareKey } from './share.js';
 
@@ -25,8 +25,10 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   const [dialog, setDialog] = useState<'pack' | 'dataset' | 'otel' | null>(null);
   const id = run.run.runId;
   const packAction = run.actions.find((a) => a.key === 'p');
-  // The rules a copy applies: what the server offers, else its count, else the run's provenance record.
-  const prov = useLoad(() => (offers || typeof meta?.redactRules === 'number' || run.provenance ? null : client.provenance(id)), `${id}:provenance:${offers ? 1 : 0}`);
+  const live = run.run.status === 'running';
+  // The rules a copy applies: what the server offers, else its count, else the run's provenance record
+  // (not while the run records: nothing is copied until it ends).
+  const prov = useLoad(() => (offers || live || typeof meta?.redactRules === 'number' || run.provenance ? null : client.provenance(id)), `${id}:provenance:${offers ? 1 : 0}:${live ? 1 : 0}`);
   const note = shareNote(offers, redactRuleCount(meta, run.provenance ?? prov.data));
   const close = () => {
     setDialog(null);
@@ -35,7 +37,6 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
   const job = (kind: string, fields: Record<string, unknown>) => guard(() => app.watchJob(client.startJob(kind, fields)));
   const kindOf: Record<ShareKey, string> = { link: JOB_KINDS.share, html: JOB_KINDS.exportHtml, pack: JOB_KINDS.pack, dataset: JOB_KINDS.dataset, otel: JOB_KINDS.otel, har: JOB_KINDS.har };
   const items = shareItems({ can: (key) => hasKind(kindOf[key]) || (key === 'pack' && !!packAction), team: offers?.team });
-  const live = run.run.status === 'running';
   const pick = (key: ShareKey) => {
     if (shareItemOff(key, { actionsOff, live })) return;
     switch (key) {
@@ -112,7 +113,7 @@ function OtelDialog({ runId, rules, onClose, onRun }: { runId: string; rules: nu
   return (
     <Dialog
       title="Export as an OpenTelemetry trace"
-      text={`One trace: a span for the run and one per call, with the GenAI attributes plus origin, effect, fingerprint and cost. Its ids come from the run id, so exporting again updates the same trace.${rules ? ` It carries no prompt text; ${rules === 1 ? 'the redaction rule without a path applies' : `the ${rules} redaction rules without a path apply`} to what it keeps.` : ''}`}
+      text={`One trace: a span for the run and one per call, with the GenAI attributes plus origin, effect, fingerprint and cost. Its ids come from the run id, so exporting again updates the same trace.${rules ? ` It carries no prompt text; ${rules === 1 ? 'the redaction rule without a path applies' : `the ${rules} redaction rules without a path apply`} to what it keeps.` : ''}${to === 'file' ? ' A file stays in the project: nothing is sent.' : ''}`}
       ok="Export"
       okDisabled={!where.trim()}
       onClose={onClose}
