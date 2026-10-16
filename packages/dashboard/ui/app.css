@@ -1568,10 +1568,11 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .rhead .eyebrow { flex-wrap: wrap; row-gap: 4px; }
 .rhead .eyebrow code { overflow-wrap: anywhere; }
 /* a run that was interrupted (stopped before it ended, failing nothing else): its page, Runs, the
-   sidebar and the Overview say so in grey, never as a failure */
+   sidebar, the Overview and a --repeat's attempts in Forks say so in grey, never as a failure */
 .eyebrow.n { color: var(--dim); }
 .eyebrow.n i { background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent); }
 .eyebrow .n { color: var(--dim); }
+.attempts span i.n { background: var(--faint); }
 .banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
 .banner.n .bk { color: var(--dim); }
 /* a run's page at a phone's width: the origin filters wrap under each other, and why a run failed

@@ -14,7 +14,7 @@ import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, runLikeOf } from './model.js';
-import { copyRules, endpointSamples, tallyProviders } from './provenance.js';
+import { copyRules, endpointSamples, lineageWords, tallyProviders } from './provenance.js';
 
 /**
  * The providers a run's model calls went to, with how many calls each: the server's count when it
@@ -166,14 +166,18 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
             {chain.length
               ? chain.map((n) => {
                   const here = n.runId === r.runId;
+                  const nodeLike = here ? like : lineageRunLike(n, runs?.find((x) => x.runId === n.runId));
+                  // What it is, or what it failed in red; an interrupted run says so after what it is.
+                  const words = lineageWords(nodeLike, n.label);
                   return (
                     <li key={n.runId} className={here ? 'here' : undefined}>
-                      <RunIcon run={here ? like : lineageRunLike(n, runs?.find((x) => x.runId === n.runId))} className="" />
+                      <RunIcon run={nodeLike} className="" />
                       <a href={href.run(n.runId)}>
                         <code>{shortId(n.runId)}</code>
                       </a>
                       <small>
-                        {n.label}
+                        {words.err ? <em>{words.err}</em> : null}
+                        {words.text}
                         {here ? ' · this run' : ''}
                         {revOf.get(n.runId) ? ` · rev ${revOf.get(n.runId)}` : ''} · {stamp(n.startedAt)}
                       </small>

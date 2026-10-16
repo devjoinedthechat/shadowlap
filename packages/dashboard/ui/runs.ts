@@ -349,21 +349,25 @@ export interface RepeatAttempt {
  * One `replay --repeat` bundled in the Forks view, as the design words it: `replay --repeat 5`, then
  * "forked 5 attempts, 4 passed · ≈$0.141", then each attempt by its id. An attempt passed when its
  * checks did, or, without checks, when it exited cleanly (the first check of every outcome check is
- * the exit code). An attempt that left the path somewhere else than the others says where.
+ * the exit code). An attempt that left the path somewhere else than the others says where. One that
+ * was stopped before it ended (Ctrl-C, its recorder killed) neither passed nor failed: it is counted
+ * apart and marked `cut`, shown in grey as every list shows an interrupted run.
  */
-export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean }> } {
+export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
   const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0) || a.startedAt - b.startedAt);
   const ok = (n: RepeatAttempt) => (n.checks ? n.checks.passed === n.checks.total : n.status === 'completed');
+  const cut = (n: RepeatAttempt) => !n.checks && n.status === 'crashed';
   const forkAt = sorted[0]?.divergence?.callNo ?? null;
   const spent = sorted.reduce((s, n) => s + n.spent, 0);
   const passed = sorted.filter(ok).length;
+  const stopped = sorted.filter(cut).length;
   return {
     title: `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
-    line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${spent ? ` · ${approx(spent)}` : ''}`,
+    line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${stopped ? `, ${num(stopped)} interrupted` : ''}${spent ? ` · ${approx(spent)}` : ''}`,
     attempts: sorted.map((n) => {
       const where = n.divergence && n.divergence.callNo !== forkAt ? ` · forked at #${n.divergence.callNo}` : '';
       const how = n.checks ? `checks ${n.checks.passed} of ${n.checks.total}` : n.status === 'completed' ? 'passed' : n.status === 'running' ? 'running' : n.status === 'crashed' ? 'interrupted' : 'failed';
-      return { runId: n.runId, text: `${shortId(n.runId)} · ${how}${where}`, ok: ok(n) };
+      return { runId: n.runId, text: `${shortId(n.runId)} · ${how}${where}`, ok: ok(n), ...(cut(n) ? { cut: true as const } : {}) };
     }),
   };
 }

@@ -94,7 +94,8 @@ function Bundle({ attempts, current }: { attempts: LineageNode[]; current: strin
         <span className="attempts">
           {b.attempts.map((a) => (
             <span key={a.runId}>
-              <i className={a.ok ? undefined : 'no'} />
+              {/* passed, failed, or interrupted (grey: it stopped, it did not fail) */}
+              <i className={a.ok ? undefined : a.cut ? 'n' : 'no'} />
               {a.text}
             </span>
           ))}

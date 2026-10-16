@@ -1,9 +1,24 @@
 import { num } from '../format.js';
+import { failedWord, isFailed, isInterrupted, isLive, runType, type RunLike } from '../runs.js';
 
 /**
  * What Provenance works out on the page when the server does not: the providers a run's model calls
  * went to, and what a copy made now applies. No DOM here: the tests import it.
  */
+
+/**
+ * A run of the lineage in the design's words: what it is (`label`, the server's: "fork @3"), what a
+ * failed recording or test failed in its place, in red (`err`), "recording now" while it records,
+ * and, after what it is, that it was interrupted, in grey, as Runs, the sidebar and the Forks view say.
+ */
+export function lineageWords(r: RunLike, label: string): { err: string | null; text: string } {
+  const t = runType(r);
+  if (isLive(r)) return { err: null, text: t === 'recording' ? 'recording now' : `${label} · running now` };
+  if (isInterrupted(r)) return { err: null, text: `${label} · interrupted` };
+  if (isFailed(r) && t === 'test') return { err: 'test failed', text: '' };
+  if (isFailed(r) && (t === 'recording' || t === 'replay')) return { err: failedWord(r), text: '' };
+  return { err: null, text: label };
+}
 
 /** One call per endpoint the model calls used, at most `max`, with how many calls went there: one endpoint means one provider. */
 export function endpointSamples(calls: ReadonlyArray<{ callNo: number; kind: string; name: string }>, max = 4): Array<{ first: number; calls: number }> {

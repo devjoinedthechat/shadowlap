@@ -96,8 +96,17 @@ describe('a run of the family, in Forks and in Provenance’s lineage', () => {
     // The lineage's state wins over a list row read before the recorder was found gone.
     const stale = { runId: attempt.runId, status: 'running', kind: 'fork', outcome: { kind: 'running' }, failed: false, command: 'node agent.mjs', labels: [] } as unknown as RunListItem;
     expect(lineageRunLike(attempt, stale)).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, command: 'node agent.mjs' });
-    // An attempt of a --repeat bundle says so beside its id.
-    expect(repeatBundle([{ runId: attempt.runId, status: like.status, divergence: { callNo: 3 }, spent: 0, startedAt: 0, repeat: { attempt: 2, of: 3 }, checks: null }]).attempts[0]!.text).toBe('01K5CQ4N7G · interrupted');
+    // An attempt of a --repeat bundle says so beside its id, marked apart (grey), and the bundle counts
+    // it neither passed nor failed.
+    const bundle = repeatBundle([
+      { runId: '01K5CQ4N7A0000000000000000', status: 'completed', divergence: { callNo: 3 }, spent: 0.01, startedAt: 0, repeat: { attempt: 1, of: 3 }, checks: null },
+      { runId: attempt.runId, status: like.status, divergence: { callNo: 3 }, spent: 0.01, startedAt: 1, repeat: { attempt: 2, of: 3 }, checks: null },
+    ]);
+    expect(bundle.line).toBe('forked 2 attempts, 1 passed, 1 interrupted · ≈$0.020');
+    expect(bundle.attempts).toEqual([
+      { runId: '01K5CQ4N7A0000000000000000', text: '01K5CQ4N7A · passed', ok: true },
+      { runId: attempt.runId, text: '01K5CQ4N7G · interrupted', ok: false, cut: true },
+    ]);
   });
 });
 
