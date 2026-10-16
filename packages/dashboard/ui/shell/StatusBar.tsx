@@ -44,10 +44,17 @@ export function StatusBar() {
         <>
           <span>{sync}</span>
           <span className="sep" />
-          <span>
-            {store ? `store ${store.name} · ${store.syncedAt ? `synced ${whenShort(store.syncedAt, now)}` : 'not synced yet'}` : `${meta?.address ?? location.host} · local only`}
-            {readOnly ? ' · read-only' : ''}
-          </span>
+          {store ? (
+            // The team store's name gives way first on a narrow window, whole on hover.
+            <span className="storeat" title={`team store ${store.url}`}>
+              store {store.name} · {store.syncedAt ? `synced ${whenShort(store.syncedAt, now)}` : 'not synced yet'}
+              {readOnly ? ' · read-only' : ''}
+            </span>
+          ) : (
+            <span>
+              {meta?.address ?? location.host} · local only{readOnly ? ' · read-only' : ''}
+            </span>
+          )}
         </>
       )}
       {meta?.version ? (

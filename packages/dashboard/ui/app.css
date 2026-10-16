@@ -1617,3 +1617,6 @@ table.daytable tbody tr:hover td { background: none; }
 @media (max-width: 640px) {
   .runcell .tag-local { flex: none; width: 7px; height: 7px; margin-left: 0; padding: 0; border: 0; border-radius: 50%; background: var(--warn); font-size: 0; letter-spacing: 0; }
 }
+/* on a narrow window the status bar's team store gives way once the store path has, before the
+   counts and the version, cut with an ellipsis (whole on hover) */
+@media (max-width: 860px) { .status > span.storeat { flex: 0 .02 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
