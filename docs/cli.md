@@ -325,7 +325,7 @@ shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [-
 
 [CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none. A `*` in the last part of a path (`goldens/*`) is expanded by the command itself.
 
-Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the revision, passed and failed, and each golden's result with why it failed; global `--db :memory:` keeps nothing. Each replay prints `replaying run <id>` and is marked as made by `test` for its golden. Exit status: 0 when every pack passed, 1 when one failed, and 130 (143 for SIGTERM) when a signal stopped the session, which then keeps the results of the packs that finished.
+Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the revision, passed and failed, and each golden's result with why it failed; global `--db :memory:` keeps nothing. Until it ends, the store also names the process running it, so the dashboard shows a session started in a terminal as running, and one whose process was killed as one that did not finish. Each replay prints `replaying run <id>` and is marked as made by `test` for its golden. Exit status: 0 when every pack passed, 1 when one failed, and 130 (143 for SIGTERM) when a signal stopped the session, which then keeps the results of the packs that finished.
 
 | Option | Effect |
 |---|---|
