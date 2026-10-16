@@ -81,7 +81,7 @@ export function OverviewPage() {
       </div>
       <div className="ovg ovlast">
         <DailyCard daily={s.daily} />
-        <ActivityCard items={activity.data?.items ?? null} now={s.now} byPerson={!!store} />
+        <ActivityCard items={activity.data?.items ?? null} now={s.now} byPerson={!!store} live={live} />
       </div>
     </Page>
   );

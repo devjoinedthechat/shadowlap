@@ -80,5 +80,7 @@ A page adds palette entries (its Fixes, its goldens, its actions) with `addPalet
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
 and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
 `calendar-model.ts`), the table, the bulk bar, the import dialog (`imports.ts` guesses a file's
-format), Find the commit and authors. `teamstore.ts` has `useTeamStore()`, the team store as
-`GET /api/store` reports it, for any screen that changes with one.
+format), Find the commit and authors; `runspage/query.ts` builds the page's requests and reads the
+filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
+list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+screen that changes with one.

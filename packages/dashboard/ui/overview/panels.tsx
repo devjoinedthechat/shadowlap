@@ -502,8 +502,13 @@ function DailyTable({ daily }: { daily: readonly DaySums[] }) {
 
 // ---------------------------------------------------------------------------------------------- activity
 
-/** The five latest entries of the activity feed; with a team store each names who did it. */
-export function ActivityCard({ items, now, byPerson }: { items: readonly ActivityItem[] | null; now: number; byPerson: boolean }) {
+/**
+ * The five latest entries of the activity feed; with a team store each names who did it. A recording
+ * pulses while something records it (`live`, as the top bar's chip has it): the feed goes by the
+ * run's stored status, which a killed recorder leaves at running.
+ */
+export function ActivityCard({ items, now, byPerson, live }: { items: readonly ActivityItem[] | null; now: number; byPerson: boolean; live: readonly LiveRun[] }) {
+  const recording = new Set(live.map((l) => l.runId));
   return (
     <section className="panel">
       <header>
@@ -517,7 +522,7 @@ export function ActivityCard({ items, now, byPerson }: { items: readonly Activit
           return (
             <a key={a.id} href={a.href ?? (a.runId ? href.run(a.runId) : href.overview())}>
               <span className="at">{whenShortOrClock(a.at, now)}</span>
-              <EventIcon kind={activityGlyph(a.kind)} live={!!a.live} />
+              <EventIcon kind={activityGlyph(a.kind)} live={!!a.live && !!a.runId && recording.has(a.runId)} />
               <span className="w">
                 {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
                 {byPerson && a.actor ? ' ' : null}
