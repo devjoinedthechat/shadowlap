@@ -1601,6 +1601,7 @@ code.tipped { cursor: help; }
 .preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
 .preview .fieldnote { margin-top: 10px; }
 .pvrule .pvd { grid-column: 3; font-size: 12px; }
+.pvrule .pvs span { overflow-wrap: anywhere; }
 .agentfiles .ok { color: var(--accent); }
 .egrp p.none { margin: 0; }
 .egrp.mcp p.none { margin: 0 0 12px; }
@@ -1612,6 +1613,12 @@ code.tipped { cursor: help; }
 .egrp.mcp td small.mnote .linkbtn { padding: 0; margin: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .egrp.mcp td small.mnote .linkbtn:hover { background: none; text-decoration-color: currentColor; }
 .egrp.mcp .fieldnote { margin: 0 0 12px; }
+.egrp.mcp .fieldnote.putback { margin: 10px 0 0; }
+.egrp.mcp .fieldnote.putback ul { margin: 6px 0 0; padding-left: 18px; }
+.egrp.mcp .fieldnote.putback li { overflow-wrap: anywhere; }
+.egrp.mcp .fieldnote.putback li code { color: var(--ink); margin-right: 4px; }
+.egrp.mcp .mcpform2 { margin-top: 12px; display: grid; gap: 6px; }
+.egrp.mcp .mcpform2 .muted { font-size: 12.5px; }
 .dialog.ruledlg { width: min(560px, 100%); }
 .dialog .advtoggle { margin: 12px 0 0 -7px; }
 .dialog .advtoggle svg { width: 10px; height: 10px; transition: transform .15s; }

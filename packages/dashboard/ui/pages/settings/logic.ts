@@ -257,6 +257,8 @@ export interface McpRow {
   note: string | null;
   /** The client config that lists it. */
   file: string | null;
+  /** What its line leaves out, to put back before the client starts it (an environment variable to set). */
+  putBack: string[];
 }
 
 interface McpServerLike {
@@ -266,6 +268,7 @@ interface McpServerLike {
   target: string;
   viaShadowlap: boolean;
   line: string;
+  putBack: readonly string[];
   recorded: { tools: number; writes: number } | null;
 }
 
@@ -299,10 +302,11 @@ export function mcpRows(mcp: { servers: readonly McpServerLike[]; recorded: read
     line: s.viaShadowlap ? null : s.line,
     note: s.viaShadowlap ? null : `not recorded · ${s.file} starts it directly`,
     file: s.file,
+    putBack: [...s.putBack],
   }));
   for (const r of mcp.recorded) {
     if (r.inConfig) continue;
-    rows.push({ key: `recorded\u0000${r.transport}\u0000${r.server}`, name: mcpShortName(r.transport, r.server), transport: r.transport, target: r.server, tools: r.tools, writes: r.writes, line: null, note: 'recorded · in no config in this project', file: null });
+    rows.push({ key: `recorded\u0000${r.transport}\u0000${r.server}`, name: mcpShortName(r.transport, r.server), transport: r.transport, target: r.server, tools: r.tools, writes: r.writes, line: null, note: 'recorded · in no config in this project', file: null, putBack: [] });
   }
   return rows;
 }
@@ -310,6 +314,45 @@ export function mcpRows(mcp: { servers: readonly McpServerLike[]; recorded: read
 /** A client entry to paste under `mcpServers`, as docs/mcp.md writes one. */
 export function mcpEntryText(name: string, entry: { command: string; args: readonly string[] }): string {
   return `${JSON.stringify(name)}: {\n  "command": ${JSON.stringify(entry.command)},\n  "args": [${entry.args.map((a) => JSON.stringify(a)).join(', ')}]\n}`;
+}
+
+/** The forms a server takes, each with the line that records one: what the page shows for a form no server here uses. */
+export const MCP_FORMS: Readonly<Record<'stdio' | 'http', { label: string; line: string }>> = {
+  stdio: { label: 'Started as a command', line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem .' },
+  http: { label: 'Reached by its URL', line: 'shadowlap mcp --url https://mcp.example.com/mcp --header "Authorization: Bearer ${TOKEN}"' },
+};
+
+/** Words in a server's name that say nothing about which server it is. */
+const NAME_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'com', 'net', 'org', 'io', 'dev', 'ai', 'co', 'cloud', 'node', 'python', 'python3', 'deno', 'bun', 'uv', 'docker']);
+
+/**
+ * A name for a server "Add a server…" has no name for: `linear` for https://mcp.linear.app/mcp,
+ * `github` for npx -y @modelcontextprotocol/server-github, else `server`.
+ */
+export function serverNameFor(transport: 'stdio' | 'http', target: string): string {
+  const pick = (words: string[]) => words.map((w) => w.toLowerCase()).find((w) => /^[a-z][a-z0-9-]*$/.test(w) && !NAME_NOISE.has(w)) ?? 'server';
+  if (transport === 'http') {
+    let host = '';
+    try {
+      host = new URL(target.trim()).hostname;
+    } catch {
+      return 'server';
+    }
+    return pick(host.split('.').slice(0, -1));
+  }
+  const words = target.trim().split(/\s+/);
+  const runner = /(^|[\\/])(npx|pnpx|bunx|uvx)$/.test(words[0] ?? '');
+  const pkg = runner ? words.slice(1).find((w) => !w.startsWith('-')) : words[0]?.split(/[\\/]/).pop();
+  if (!pkg) return 'server';
+  const bare = pkg.replace(/@[^@/]*$/, '').split('/').pop()!.replace(/\.(c?js|mjs|py|exe)$/, '');
+  return pick(bare.split(/[-_.]/).reverse());
+}
+
+/** Where to paste an entry, by the client configs the project has: the key and the file. */
+export function pasteWhere(files: ReadonlyArray<{ path: string; found: boolean }>): string {
+  const found = files.find((f) => f.found);
+  if (!found) return 'under mcpServers in your client’s config (servers in VS Code’s)';
+  return `under ${found.path === '.vscode/mcp.json' ? 'servers' : 'mcpServers'} in ${found.path}`;
 }
 
 // ---- CI ----

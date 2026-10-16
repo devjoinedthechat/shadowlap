@@ -8,6 +8,7 @@ import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRem
 import { settingsApi } from '../ui/settings-api.js';
 import {
   CI_DEFAULTS,
+  MCP_FORMS,
   SETTINGS_TABS,
   bytesText,
   emptyRuleForm,
@@ -20,12 +21,14 @@ import {
   mcpShortName,
   orList,
   partialLine,
+  pasteWhere,
   previewChip,
   proposedCount,
   regexLiteral,
   ruleCommand,
   ruleInput,
   ruleProblem,
+  serverNameFor,
   settingsTab,
   shellWords,
   suggestedReplace,
@@ -188,21 +191,39 @@ describe('MCP servers', () => {
   it('lists the configured servers, then those recorded that no config here lists, each with what records it', () => {
     const rows = mcpRows({
       servers: [
-        { name: 'filesystem', file: '.mcp.json', transport: 'stdio', target: 'npx -y @modelcontextprotocol/server-filesystem /srv/notes', viaShadowlap: false, line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', recorded: null },
-        { name: 'stripe', file: '.mcp.json', transport: 'http', target: 'https://mcp.stripe.com', viaShadowlap: true, line: 'shadowlap mcp --url https://mcp.stripe.com', recorded: { tools: 18, writes: 6 } },
+        { name: 'filesystem', file: '.mcp.json', transport: 'stdio', target: 'npx -y @modelcontextprotocol/server-filesystem /srv/notes', viaShadowlap: false, line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', putBack: ['FS_ROOT'], recorded: null },
+        { name: 'stripe', file: '.mcp.json', transport: 'http', target: 'https://mcp.stripe.com', viaShadowlap: true, line: 'shadowlap mcp --url https://mcp.stripe.com', putBack: [], recorded: { tools: 18, writes: 6 } },
       ],
       recorded: [
         { transport: 'http', server: 'mcp.stripe.com', tools: 18, writes: 6, inConfig: true },
         { transport: 'stdio', server: 'npx @modelcontextprotocol/server-github@1.2.0', tools: 9, writes: 3, inConfig: false },
       ],
     });
-    expect(rows.map((r) => [r.name, r.tools, r.writes, r.line !== null, r.note])).toEqual([
-      ['filesystem', null, 0, true, 'not recorded · .mcp.json starts it directly'],
-      ['stripe', 18, 6, false, null],
-      ['server-github', 9, 3, false, 'recorded · in no config in this project'],
+    expect(rows.map((r) => [r.name, r.tools, r.writes, r.line !== null, r.note, r.putBack])).toEqual([
+      ['filesystem', null, 0, true, 'not recorded · .mcp.json starts it directly', ['FS_ROOT']],
+      ['stripe', 18, 6, false, null, []],
+      ['server-github', 9, 3, false, 'recorded · in no config in this project', []],
     ]);
     expect(mcpShortName('http', 'mcp.linear.app')).toBe('mcp.linear.app');
     expect(mcpShortName('stdio', 'uvx mcp-server-git')).toBe('mcp-server-git');
+  });
+
+  it('names a server from what was typed, and says where its entry goes', () => {
+    expect(serverNameFor('http', 'https://mcp.linear.app/mcp')).toBe('linear');
+    expect(serverNameFor('http', 'https://mcp.stripe.com')).toBe('stripe');
+    expect(serverNameFor('http', 'https://api.githubcopilot.com/mcp/')).toBe('githubcopilot');
+    expect(serverNameFor('http', 'not a url')).toBe('server');
+    expect(serverNameFor('stdio', 'npx -y @modelcontextprotocol/server-github')).toBe('github');
+    expect(serverNameFor('stdio', 'uvx mcp-server-fetch')).toBe('fetch');
+    expect(serverNameFor('stdio', '/usr/local/bin/github-mcp --stdio')).toBe('github');
+    expect(serverNameFor('stdio', 'node ./build/index.js')).toBe('server');
+    expect(serverNameFor('stdio', '')).toBe('server');
+    expect(pasteWhere([{ path: '.mcp.json', found: false }, { path: '.vscode/mcp.json', found: true }])).toBe('under servers in .vscode/mcp.json');
+    expect(pasteWhere([{ path: '.mcp.json', found: true }, { path: '.vscode/mcp.json', found: true }])).toBe('under mcpServers in .mcp.json');
+    expect(pasteWhere([])).toBe('under mcpServers in your client’s config (servers in VS Code’s)');
+    // The form a project's servers don't use, as the line that records one.
+    expect(splitCommandLine(MCP_FORMS.http.line)).toEqual(['shadowlap', 'mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer ${TOKEN}']);
+    expect(splitCommandLine(MCP_FORMS.stdio.line).slice(0, 3)).toEqual(['shadowlap', 'mcp', '--']);
   });
 
   it('writes a client entry to paste under mcpServers', () => {

@@ -187,14 +187,24 @@ export interface McpServerRow {
   target: string;
   /** Its entry already starts `shadowlap mcp`. */
   viaShadowlap: boolean;
-  /** The `shadowlap mcp` line in front of it: as the entry has it, or as it would be. */
+  /**
+   * The `shadowlap mcp` line in front of it: as the entry has it, or as it would be. A remote
+   * server's headers become `--header "Name: ${VAR}"`, which `shadowlap mcp` fills in from its
+   * environment, with VAR in `env`.
+   */
   line: string;
-  /** What the client's entry takes instead of its command and args; its environment and headers stay as they are. */
+  /** What the client's entry takes instead of its command and args. */
   entry: { command: string; args: string[] };
-  /** Something that looked like a credential is shown as ••• in `target`, `line` and `entry`: copy it from the entry as it is. */
+  /** Something that looked like a credential is shown as ••• in `target`, `line` and `entry`. */
   hidden: boolean;
-  /** The names in the entry's `env` block, which stays as it is; their values are never read. */
-  env: string[];
+  /**
+   * The entry's environment as the client config to copy writes it: a value that is only a
+   * reference (`${GITHUB_TOKEN}`) as it is, any other as `…`, never its text; and for a remote
+   * server, a variable for each header's value.
+   */
+  env: Array<{ name: string; value: string }>;
+  /** What a copy of its entry leaves out, to put back before the client starts it: `GITHUB_TOKEN`, `the ••• in its command`. */
+  putBack: string[];
   /** How `shadowlap mcp` names the server in what it records: its transport, and its host or its command (with the package a runner such as npx starts). */
   recordedAs: { transport: 'stdio' | 'http'; server: string };
   /** What the recordings hold from it (McpRecordedServer), or null when nothing was recorded through it. */
@@ -218,6 +228,15 @@ export interface McpRecordedServer {
   inConfig: boolean;
 }
 
+/** One client config to copy. */
+export interface ClientConfigBlock {
+  /** The project file it stands for, or null for the docs' example. */
+  file: string | null;
+  text: string;
+  /** Per server, each value the copy leaves out, to put back before the client starts it. */
+  putBack: Array<{ server: string; values: string[] }>;
+}
+
 export interface ToolsSettings {
   config: ConfigInfo;
   /** Runs live after a fork: read and pure tools, and tools that declare no effect. */
@@ -234,11 +253,13 @@ export interface ToolsSettings {
     /** The client config files looked at, and why one couldn't be read. */
     files: Array<{ path: string; found: boolean; error: string | null }>;
     /**
-     * The client config to copy: the servers of the project's first client config that lists any,
-     * each with `shadowlap mcp` in front (credentials hidden, `env` values elided); without one, the
-     * example in docs/mcp.md, which shows both forms.
+     * The client configs to copy: one per project file that lists servers, each server with
+     * `shadowlap mcp` in front, credentials and environment values left out and named in `putBack`;
+     * without any, the example in docs/mcp.md (`file` null), which shows both forms.
      */
-    clientConfig: string | null;
+    clientConfigs: ClientConfigBlock[];
+    /** The forms (`stdio`, a command; `http`, a URL) no server in the blocks uses: the page shows a line for each. Empty for the docs' example. */
+    otherForms: Array<'stdio' | 'http'>;
   };
 }
 
@@ -625,7 +646,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
     http,
-    mcp: { effects, servers, recorded, files: found.files, clientConfig: projectClientConfig(servers) ?? (doc === null ? null : mcpClientConfig(doc)) },
+    mcp: { effects, servers, recorded, files: found.files, ...clientConfigs(servers, doc === null ? null : mcpClientConfig(doc)) },
   };
 }
 
@@ -891,8 +912,8 @@ function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'
   return { transport: 'stdio', target: [] };
 }
 
-/** How a server entry is recorded, from its command and arguments: the row without its name, file, environment and what was recorded. */
-type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'env' | 'recorded'>;
+/** How a server entry is recorded, from its command and arguments: the row without its name, file, environment, what to put back and what was recorded. */
+type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'env' | 'putBack' | 'recorded'>;
 
 function commandServer(command: string, args: string[]): ServerRecording {
   const shownArgs = hideSecrets(args);
@@ -907,39 +928,75 @@ function commandServer(command: string, args: string[]): ServerRecording {
   return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]), recordedAs: { transport: 'stdio', server: stdioServerName(command, args) } };
 }
 
-/**
- * A remote server by its URL. Headers its entry sends become `--header "Name: •••"`, as
- * `shadowlap mcp --url` takes them: their values, usually a token, are never shown.
- */
+/** A remote server by its URL, with the `--header` flags `shadowlap mcp --url` sends (`Authorization: Bearer ${STRIPE_TOKEN}`). */
 function urlServer(url: string, headers: readonly string[] = []): ServerRecording {
   const shown = hideUrlSecrets(url);
-  const args = ['mcp', '--url', shown, ...headers.flatMap((name) => ['--header', `${name}: •••`])];
-  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', ...args]), entry: { command: 'shadowlap', args }, hidden: shown !== url || headers.length > 0, recordedAs: { transport: 'http', server: httpServerName(url) } };
+  const args = ['mcp', '--url', shown, ...headers.flatMap((h) => ['--header', h])];
+  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', ...args]), entry: { command: 'shadowlap', args }, hidden: shown !== url, recordedAs: { transport: 'http', server: httpServerName(url) } };
 }
 
-/** The names of an entry's headers or environment: names only, never their values. */
-function names(value: unknown): string[] {
-  return isObject(value) ? Object.keys(value).filter((k) => /^[A-Za-z_][\w.-]{0,99}$/.test(k)) : [];
+/** What stands in for a value the page never shows: an environment value to put back. */
+const LEFT_OUT = '…';
+/** A value that is only a reference the client, or `shadowlap mcp`, fills in from the environment (`${GITHUB_TOKEN}`, `${env:KEY}`): it holds no secret, so it is shown. */
+const REFERENCE = /^\$\{[^}\s]+\}$/;
+/** An Authorization header's scheme, kept in front of the variable that stands for its token. */
+const SCHEME = /^(Bearer|Basic|Token|Bot)\s+(\S[\s\S]*)$/i;
+const ENV_NAME = /^[A-Za-z_][\w.-]{0,99}$/;
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/;
+const envWord = (text: string) => text.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'SERVER';
+
+/** An entry's environment as a copy shows it: references as they are, any other value as `…`, to put back. */
+function envOf(value: unknown): Array<{ name: string; value: string }> {
+  if (!isObject(value)) return [];
+  return Object.entries(value)
+    .filter(([name]) => ENV_NAME.test(name))
+    .map(([name, v]) => ({ name, value: typeof v === 'string' && REFERENCE.test(v.trim()) ? v.trim() : LEFT_OUT }));
 }
 
 /**
- * The project's servers as its first client config that lists any would list them, each with
- * `shadowlap mcp` in front, written as docs/mcp.md writes a client config. Null when no config here
- * lists a server.
+ * A remote server's headers as `shadowlap mcp --header` flags. A value that is a reference stays as
+ * it is; any other becomes `${SERVER_HEADER}` (an Authorization header keeps its scheme:
+ * `Bearer ${STRIPE_TOKEN}`), a variable added to the entry's environment for the person to set.
+ * Only the scheme word is read from a value; its text never leaves here.
  */
-export function projectClientConfig(servers: ReadonlyArray<Pick<McpServerRow, 'name' | 'file' | 'entry' | 'env'>>): string | null {
-  const file = servers[0]?.file;
-  if (file === undefined) return null;
-  const key = MCP_FILES.find((f) => f.path === file)?.key ?? 'mcpServers';
+function headerFlags(value: unknown, server: string, taken: Set<string>): Array<{ flag: string; env: string | null }> {
+  if (!isObject(value)) return [];
+  return Object.entries(value)
+    .filter(([name]) => HEADER_NAME.test(name))
+    .map(([name, v]) => {
+      const text = typeof v === 'string' ? v.trim() : '';
+      const scheme = SCHEME.exec(text);
+      if (REFERENCE.test(text) || (scheme && REFERENCE.test(scheme[2]!.trim()))) return { flag: `${name}: ${text}`, env: null };
+      const base = `${envWord(server)}_${scheme && /^authorization$/i.test(name) ? 'TOKEN' : envWord(name)}`;
+      let env = base;
+      for (let i = 2; taken.has(env); i++) env = `${base}_${i}`;
+      taken.add(env);
+      return { flag: `${name}: ${scheme ? `${scheme[1]} ` : ''}\${${env}}`, env };
+    });
+}
+
+/**
+ * The client configs to copy: one per project file that lists servers, in the order clients read
+ * them, each written as docs/mcp.md writes one and under the key its file uses (`servers` for VS
+ * Code), with what each copy leaves out to put back. Without a server, the docs' example. And the
+ * forms no server in them uses, for the page to show beside them.
+ */
+export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' | 'file' | 'transport' | 'entry' | 'env' | 'putBack'>>, docExample: string | null = null): { clientConfigs: ClientConfigBlock[]; otherForms: Array<'stdio' | 'http'> } {
   const q = (v: string) => JSON.stringify(v);
-  const entries = servers
-    .filter((s) => s.file === file)
-    .map((s) => {
+  const blocks = MCP_FILES.flatMap(({ path, key }): ClientConfigBlock[] => {
+    const here = servers.filter((s) => s.file === path);
+    if (!here.length) return [];
+    const entries = here.map((s) => {
       const lines = [`    ${q(s.name)}: {`, `      "command": ${q(s.entry.command)},`, `      "args": [${s.entry.args.map(q).join(', ')}]${s.env.length ? ',' : ''}`];
-      if (s.env.length) lines.push(`      "env": { ${s.env.map((n) => `${q(n)}: "…"`).join(', ')} }`);
+      if (s.env.length) lines.push(`      "env": { ${s.env.map((e) => `${q(e.name)}: ${q(e.value)}`).join(', ')} }`);
       return [...lines, '    }'].join('\n');
     });
-  return [`{`, `  ${q(key)}: {`, entries.join(',\n'), '  }', '}'].join('\n');
+    const text = ['{', `  ${q(key)}: {`, entries.join(',\n'), '  }', '}'].join('\n');
+    return [{ file: path, text, putBack: here.filter((s) => s.putBack.length).map((s) => ({ server: s.name, values: s.putBack })) }];
+  });
+  if (!blocks.length) return { clientConfigs: docExample === null ? [] : [{ file: null, text: docExample, putBack: [] }], otherForms: [] };
+  const used = new Set(servers.filter((s) => blocks.some((b) => b.file === s.file)).map((s) => s.transport));
+  return { clientConfigs: blocks, otherForms: (['stdio', 'http'] as const).filter((t) => !used.has(t)) };
 }
 
 /**
@@ -997,9 +1054,23 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
       const url = str(entry.url) ?? str(entry.serverUrl) ?? str(entry.httpUrl);
       const command = str(entry.command);
       const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === 'string') : [];
-      const env = names(entry.env);
-      if (command) servers.push({ name, file: path, ...commandServer(command, args), env });
-      else if (url) servers.push({ name, file: path, ...urlServer(url, names(entry.headers)), env });
+      const env = envOf(entry.env);
+      const putBack = env.filter((e) => e.value === LEFT_OUT).map((e) => e.name);
+      if (command) {
+        const server = commandServer(command, args);
+        if (server.hidden) putBack.push(`the ${HIDDEN} in its command`);
+        servers.push({ name, file: path, ...server, env, putBack });
+      } else if (url) {
+        const headers = headerFlags(entry.headers, name, new Set(env.map((e) => e.name)));
+        const server = urlServer(url, headers.map((h) => h.flag));
+        for (const h of headers) {
+          if (!h.env) continue;
+          env.push({ name: h.env, value: LEFT_OUT });
+          putBack.push(`${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
+        }
+        if (server.hidden) putBack.push(`the ${HIDDEN} in its URL`);
+        servers.push({ name, file: path, ...server, env, putBack });
+      }
     }
     return { path, found: true, error: null };
   });

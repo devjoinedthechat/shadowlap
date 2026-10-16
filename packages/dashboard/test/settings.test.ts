@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
 import { PREVIEW_LIMITS, repeatsARepeat, tookTooLong } from '../src/redaction-preview.js';
-import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectClientConfig, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
+import { parseHeaderFlags } from '../../cli/src/mcp.js';
+import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -286,15 +287,21 @@ describe('toolsSettings', () => {
       { tool: 'write_file', effect: 'write', seen: false, error: null },
     ]);
     expect(t.mcp.servers).toEqual([]);
-    expect(t.mcp.clientConfig).toBeNull();
+    expect(t.mcp).toMatchObject({ clientConfigs: [], otherForms: [] });
   });
 
   it('takes the client config example from docs/mcp.md', () => {
     const t = toolsSettings({ store, cwd });
-    const servers = Object.values((JSON.parse(t.mcp.clientConfig!) as { mcpServers: Record<string, { command: string; args: string[] }> }).mcpServers);
+    expect(t.mcp.clientConfigs).toHaveLength(1);
+    const example = t.mcp.clientConfigs[0]!;
+    expect(example).toMatchObject({ file: null, putBack: [] });
+    const servers = Object.values((JSON.parse(example.text) as { mcpServers: Record<string, { command: string; args: string[] }> }).mcpServers);
     expect(servers.length).toBeGreaterThan(0);
     for (const server of servers) expect([server.command, server.args[0]]).toEqual(['shadowlap', 'mcp']);
-    expect(repoDoc('mcp.md')).toContain(t.mcp.clientConfig!);
+    // Both forms: a command and a URL.
+    expect(servers.map((x) => x.args[1])).toEqual(expect.arrayContaining(['--', '--url']));
+    expect(repoDoc('mcp.md')).toContain(example.text);
+    expect(t.mcp.otherForms).toEqual([]);
     // The first JSON block that lists servers, not an example of something else before it.
     expect(mcpClientConfig('```json\n{ "mcp": { "effects": {} } }\n```\n\n```json\n{ "mcpServers": {} }\n```\n')).toBe('{ "mcpServers": {} }');
     expect(mcpClientConfig('no blocks')).toBeNull();
@@ -310,7 +317,7 @@ describe('mcpServers', () => {
         notes: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] },
       },
     }));
-    put('.vscode/mcp.json', '{\n  // servers for this workspace\n  "servers": {\n    "stripe": { "type": "http", "url": "https://mcp.stripe.com/?key=sk_live_123", "headers": { "Authorization": "Bearer x" } },\n    "linear": { "command": "npx", "args": ["-y", "shadowlap", "mcp", "--url", "https://mcp.linear.app/mcp"], },\n  },\n}\n');
+    put('.vscode/mcp.json', '{\n  // servers for this workspace\n  "servers": {\n    "stripe": { "type": "http", "url": "https://mcp.stripe.com/?key=sk_live_123", "headers": { "Authorization": "Bearer sk_live_never_shown" } },\n    "linear": { "command": "npx", "args": ["-y", "shadowlap", "mcp", "--url", "https://mcp.linear.app/mcp"], },\n  },\n}\n');
     put('.cursor/mcp.json', '{ not json');
     const { servers, files } = mcpServers(cwd);
     expect(files).toEqual([
@@ -321,34 +328,47 @@ describe('mcpServers', () => {
     expect(servers).toEqual([
       {
         name: 'filesystem', file: '.mcp.json', transport: 'stdio', target: 'npx -y @modelcontextprotocol/server-filesystem /srv/notes', viaShadowlap: false,
-        line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] }, hidden: false, env: [],
+        line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] }, hidden: false, env: [], putBack: [],
         recordedAs: { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' },
       },
       {
         name: 'github', file: '.mcp.json', transport: 'stdio', target: 'docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', viaShadowlap: false,
-        line: 'shadowlap mcp -- docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', entry: { command: 'shadowlap', args: ['mcp', '--', 'docker', 'run', '-i', '--rm', '-e', 'GITHUB_TOKEN', 'ghcr.io/github/github-mcp-server', '--token', '•••'] }, hidden: true, env: ['GITHUB_TOKEN'],
+        line: 'shadowlap mcp -- docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', entry: { command: 'shadowlap', args: ['mcp', '--', 'docker', 'run', '-i', '--rm', '-e', 'GITHUB_TOKEN', 'ghcr.io/github/github-mcp-server', '--token', '•••'] }, hidden: true,
+        env: [{ name: 'GITHUB_TOKEN', value: '…' }], putBack: ['GITHUB_TOKEN', 'the ••• in its command'],
         recordedAs: { transport: 'stdio', server: 'docker' },
       },
-      { name: 'notes', file: '.mcp.json', transport: 'stdio', target: 'node notes-server.js', viaShadowlap: true, line: 'shadowlap mcp --effect search=read -- node notes-server.js', entry: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] }, hidden: false, env: [], recordedAs: { transport: 'stdio', server: 'node' } },
-      // Its headers go along as --header, their values hidden.
-      { name: 'stripe', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.stripe.com/?key=•••', viaShadowlap: false, line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: •••'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••', '--header', 'Authorization: •••'] }, hidden: true, env: [], recordedAs: { transport: 'http', server: 'mcp.stripe.com' } },
-      { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false, env: [], recordedAs: { transport: 'http', server: 'mcp.linear.app' } },
+      { name: 'notes', file: '.mcp.json', transport: 'stdio', target: 'node notes-server.js', viaShadowlap: true, line: 'shadowlap mcp --effect search=read -- node notes-server.js', entry: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] }, hidden: false, env: [], putBack: [], recordedAs: { transport: 'stdio', server: 'node' } },
+      // Its headers go along as --header, each value a variable shadowlap mcp reads from its environment.
+      {
+        name: 'stripe', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.stripe.com/?key=•••', viaShadowlap: false,
+        line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: Bearer ${STRIPE_TOKEN}'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••', '--header', 'Authorization: Bearer ${STRIPE_TOKEN}'] }, hidden: true,
+        env: [{ name: 'STRIPE_TOKEN', value: '…' }], putBack: ['STRIPE_TOKEN (its Authorization header)', 'the ••• in its URL'], recordedAs: { transport: 'http', server: 'mcp.stripe.com' },
+      },
+      { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false, env: [], putBack: [], recordedAs: { transport: 'http', server: 'mcp.linear.app' } },
     ]);
-    // No value from an entry's environment or headers reaches the page, only their names.
-    expect(JSON.stringify(servers)).not.toMatch(/ghp_|never_shown|Bearer|sk_live/);
+    // No value from an entry's environment or headers reaches the page, only their names (and a header's scheme).
+    expect(JSON.stringify(servers)).not.toMatch(/ghp_|never_shown|sk_live/);
   });
 
-  it("shows the project's own servers as the client config to copy, with shadowlap mcp in front of each", () => {
+  it("shows each client config's own servers to copy, with shadowlap mcp in front, naming every value the copy leaves out", () => {
     put('.mcp.json', JSON.stringify({
       mcpServers: {
         filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] },
-        issues: { url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer never_shown' }, env: { ISSUES_TOKEN: 'tok_never_shown' } },
+        github: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_never_shown', LOG_LEVEL: '${LOG_LEVEL}' } },
+      },
+    }));
+    put('.cursor/mcp.json', JSON.stringify({
+      mcpServers: {
+        stripe: { url: 'https://mcp.stripe.com', headers: { Authorization: 'Bearer sk_live_never_shown', 'X-Account': 'acct_never_shown' } },
+        // A value that is only a reference holds no secret: it goes along as it is.
+        issues: { url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer ${ISSUES_TOKEN}' } },
       },
     }));
     put('.vscode/mcp.json', JSON.stringify({ servers: { other: { command: 'node', args: ['other.js'] } } }));
     const t = toolsSettings({ store, cwd });
-    const config = t.mcp.clientConfig!;
-    expect(config).toBe(
+    expect(t.mcp.clientConfigs.map((b) => b.file)).toEqual(['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json']);
+    const [claude, cursor, vscode] = t.mcp.clientConfigs;
+    expect(claude!.text).toBe(
       [
         '{',
         '  "mcpServers": {',
@@ -356,21 +376,34 @@ describe('mcpServers', () => {
         '      "command": "shadowlap",',
         '      "args": ["mcp", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/srv/notes"]',
         '    },',
-        '    "issues": {',
+        '    "github": {',
         '      "command": "shadowlap",',
-        '      "args": ["mcp", "--url", "https://mcp.example.com/mcp", "--header", "Authorization: •••"],',
-        '      "env": { "ISSUES_TOKEN": "…" }',
+        '      "args": ["mcp", "--", "npx", "-y", "@modelcontextprotocol/server-github"],',
+        '      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "…", "LOG_LEVEL": "${LOG_LEVEL}" }',
         '    }',
         '  }',
         '}',
       ].join('\n'),
     );
-    // The first config that lists servers, as its client reads it; the others' servers stay in the table.
-    expect(Object.keys((JSON.parse(config) as { mcpServers: object }).mcpServers)).toEqual(['filesystem', 'issues']);
-    expect(t.mcp.servers.map((s) => s.name)).toEqual(['filesystem', 'issues', 'other']);
-    expect(config).not.toMatch(/never_shown|Bearer/);
-    expect(projectClientConfig([])).toBeNull();
-    expect(projectClientConfig([{ name: 'other', file: '.vscode/mcp.json', entry: { command: 'shadowlap', args: ['mcp', '--', 'node', 'other.js'] }, env: [] }])).toContain('"servers": {');
+    expect(claude!.putBack).toEqual([{ server: 'github', values: ['GITHUB_PERSONAL_ACCESS_TOKEN'] }]);
+    const servers = (JSON.parse(cursor!.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
+    expect(servers.stripe).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com', '--header', 'Authorization: Bearer ${STRIPE_TOKEN}', '--header', 'X-Account: ${STRIPE_X_ACCOUNT}'], env: { STRIPE_TOKEN: '…', STRIPE_X_ACCOUNT: '…' } });
+    expect(servers.issues).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer ${ISSUES_TOKEN}'] });
+    expect(cursor!.putBack).toEqual([{ server: 'stripe', values: ['STRIPE_TOKEN (its Authorization header)', 'STRIPE_X_ACCOUNT (its X-Account header)'] }]);
+    // Pasted with the values put back, shadowlap mcp sends the headers the server had.
+    const headers = servers.stripe!.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
+    expect(parseHeaderFlags(headers, { STRIPE_TOKEN: 'sk_live_1', STRIPE_X_ACCOUNT: 'acct_1' })).toEqual({ authorization: 'Bearer sk_live_1', 'x-account': 'acct_1' });
+    expect(vscode!.text).toContain('"servers": {');
+    expect(t.mcp.otherForms).toEqual([]);
+    expect(JSON.stringify(t.mcp)).not.toMatch(/never_shown/);
+  });
+
+  it('names the form no server in the project uses, and leaves a server without values to put back alone', () => {
+    put('.mcp.json', JSON.stringify({ mcpServers: { filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] } } }));
+    expect(toolsSettings({ store, cwd }).mcp).toMatchObject({ clientConfigs: [{ file: '.mcp.json', putBack: [] }], otherForms: ['http'] });
+    put('.mcp.json', JSON.stringify({ mcpServers: { linear: { url: 'https://mcp.linear.app/mcp' } } }));
+    expect(toolsSettings({ store, cwd }).mcp).toMatchObject({ clientConfigs: [{ file: '.mcp.json', putBack: [] }], otherForms: ['stdio'] });
+    expect(clientConfigs([], null)).toEqual({ clientConfigs: [], otherForms: [] });
   });
 
   it('hides a credential in a URL wherever it appears: the target, the shadowlap mcp line and the entry', () => {

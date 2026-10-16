@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CopyButton, Seg } from '../../components/bits.js';
+import { CodeBlock, CopyButton, Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
 import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
@@ -8,7 +8,7 @@ import { useLoad } from '../../hooks.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, LoadProblem, Loading, useSettingsData } from './common.js';
-import { mcpEntryText, mcpRows, type McpRow } from './logic.js';
+import { MCP_FORMS, mcpEntryText, mcpRows, pasteWhere, serverNameFor, type McpRow } from './logic.js';
 
 /**
  * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
@@ -66,7 +66,7 @@ export function ToolsTab() {
         </div>
       ) : null}
       <McpBlock data={data} onAdd={() => setAdding(true)} />
-      {adding ? <AddServerDialog onClose={() => setAdding(false)} /> : null}
+      {adding ? <AddServerDialog files={data.mcp.files} onClose={() => setAdding(false)} /> : null}
     </section>
   );
 }
@@ -148,17 +148,52 @@ function McpBlock({ data, onAdd }: { data: ToolsSettings; onAdd: () => void }) {
       <button className="btn sm" type="button" onClick={onAdd}>
         Add a server…
       </button>
-      {data.mcp.clientConfig ? (
-        <>
-          <pre className="codebox mcpjson" tabIndex={0}>
-            {data.mcp.clientConfig}
-          </pre>
-          <CopyButton text={data.mcp.clientConfig} label="the config" className="btn sm">
-            Copy
-          </CopyButton>
-        </>
-      ) : null}
+      {data.mcp.clientConfigs.map((b) => (
+        <ClientConfig key={b.file ?? 'docs'} block={b} />
+      ))}
+      {data.mcp.otherForms.map((f) => (
+        <div key={f} className="mcpform2">
+          <span className="muted">{MCP_FORMS[f].label}:</span>
+          <CommandLine command={MCP_FORMS[f].line} />
+        </div>
+      ))}
     </div>
+  );
+}
+
+/**
+ * A client config to copy: a project file's servers with `shadowlap mcp` in front, under its name,
+ * and what the copy leaves out to put back; or the docs' example, as the mock shows it.
+ */
+function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][number] }) {
+  if (!block.file) {
+    return (
+      <>
+        <pre className="codebox mcpjson" tabIndex={0}>
+          {block.text}
+        </pre>
+        <CopyButton text={block.text} label="the config" className="btn sm">
+          Copy
+        </CopyButton>
+      </>
+    );
+  }
+  return (
+    <>
+      <CodeBlock file={block.file} code={block.text} copyLabel={`the servers in ${block.file}${block.putBack.length ? ', without their values' : ''}`} />
+      {block.putBack.length ? (
+        <div className="fieldnote warn putback">
+          Values aren’t copied. Put these back before the client starts the server:
+          <ul>
+            {block.putBack.map((p) => (
+              <li key={p.server}>
+                <code>{p.server}</code> {p.values.join(', ')}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -174,7 +209,7 @@ function McpServer({ row }: { row: McpRow }) {
             {row.line ? (
               <>
                 {' · '}
-                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? `Copied the line for ${row.name} · put it in front of the server in ${row.file}` : 'Copying was refused by the browser'))}>
+                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? `Copied the line for ${row.name} · put it in front of the server in ${row.file}${row.putBack.length ? `, then put back ${row.putBack.join(', ')}` : ''}` : 'Copying was refused by the browser'))}>
                   copy the line
                 </button>
               </>
@@ -206,7 +241,7 @@ function McpServer({ row }: { row: McpRow }) {
 }
 
 /** "Add a server…": the `shadowlap mcp` line and the client entry for a command or a URL. Nothing is written; the entry is copied. */
-function AddServerDialog({ onClose }: { onClose: () => void }) {
+function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['files']; onClose: () => void }) {
   const { client, toast } = useApp();
   const [transport, setTransport] = useState<'stdio' | 'http'>('http');
   const [name, setName] = useState('');
@@ -219,7 +254,8 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
   }, [target]);
   const line = useLoad(() => (asked ? client.settings.mcpLine(transport === 'http' ? { url: asked } : { command: asked }) : null), `mcp:${transport}:${asked}`);
   const shown = asked === target.trim() ? line.data : null;
-  const serverName = name.trim() || (transport === 'http' ? 'server' : 'server');
+  // Named from what was typed until a name is given: linear for https://mcp.linear.app/mcp.
+  const serverName = name.trim() || serverNameFor(transport, target);
   const entry = shown ? mcpEntryText(serverName, shown.entry) : '';
   // Copied as typed: the person typed any credential in it. What shows hides it, as the table does.
   const copied = shown ? mcpEntryText(serverName, shown.copy ?? shown.entry) : '';
@@ -233,7 +269,7 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       onOk={() =>
         void copyText(copied).then((ok) => {
-          toast(ok ? `Copied the entry for ${serverName} · paste it under mcpServers in your client’s config; its tool calls are recorded from the next run` : 'Copying was refused by the browser');
+          toast(ok ? `Copied the entry for ${serverName} · paste it ${pasteWhere(files)}; its tool calls are recorded from the next run` : 'Copying was refused by the browser');
           if (ok) onClose();
         })
       }
@@ -254,7 +290,7 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
       <div className="form one mcpform">
         <label>
           Name
-          <input value={name} placeholder={transport === 'http' ? 'linear' : 'github'} spellCheck={false} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+          <input value={name} placeholder={target.trim() ? serverNameFor(transport, target) : transport === 'http' ? 'linear' : 'github'} spellCheck={false} autoComplete="off" onChange={(e) => setName(e.target.value)} />
         </label>
         <label>
           {transport === 'http' ? 'Server URL' : 'Command'}
