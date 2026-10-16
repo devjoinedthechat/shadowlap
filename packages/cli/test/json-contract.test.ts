@@ -151,6 +151,9 @@ describe('the JSON the CLI prints', () => {
     for (const run of ls) expect(keys(run)).toEqual(fields('ls'));
 
     expect(json(await shadowlap(['label', recording, 'good', '--json']))).toEqual({ runId: recording, labels: ['good'] });
+    // No run with the labels asked for is not the same as no run at all.
+    expect((await shadowlap(['ls', '--label', 'good', '--label', 'nosuch'])).out).toBe('no runs labelled good and nosuch\n');
+    expect(json(await shadowlap(['ls', '--label', 'nosuch', '--json']))).toEqual([]);
 
     const found = await shadowlap(['search', 'escalating', '--json']);
     expect(found.code, found.out).toBe(0);
