@@ -4,7 +4,7 @@ import { overviewOptions, overviewSummary } from '../overview.js';
 import type { Router } from '../router.js';
 import { warmRunStats } from '../run-stats.js';
 import type { GoldenSource } from '../tests.js';
-import { teamStoreFor } from './store.js';
+import { localRunCount, teamStoreFor } from './store.js';
 
 /**
  * `GET /api/summary?tz=`: the Overview, worked out on the server in the viewer's days (their IANA
@@ -39,6 +39,7 @@ export function register(router: Router, ctx: RouteContext): void {
     if ('error' in o) throw new HttpError(400, o.error);
     const store = teamStoreFor(ctx);
     // It names the time it was worked out at, so it is never the same twice: no ETag.
-    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal } : null }));
+    // Runs only here, counted as runs: the store's own count includes the attempts bundled under them.
+    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: localRunCount(ctx.store, store.url) } : null }));
   });
 }

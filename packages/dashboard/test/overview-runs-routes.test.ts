@@ -9,6 +9,7 @@ import type { OverviewSummary } from '../src/overview.js';
 import type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
 import { traceHost, traceSources } from '../src/routes/imports.js';
 import type { RunsByDay, RunsPage } from '../src/runs-list.js';
+import { teamStoreStatus } from '../src/team-store.js';
 import type { GoldenSource } from '../src/tests.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
 
@@ -147,15 +148,20 @@ describe('the Runs table', () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
     const page = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
     expect(page.runs.map((r) => r.local)).toEqual([true, true, true, true]);
-    // A recording in progress is only here too, though Needs a look counts finished runs: it can't be pushed yet.
+    // A recording in progress is only here too, though Needs a look leaves it out: it can't be pushed
+    // yet. Attempts are bundled under their run, so Needs a look counts runs, as the status bar does.
     const live = addRun(store, { startedAt: NOW, calls: 'l', status: 'running' });
+    const attempt = addRun(store, { parent: ids.rec, startedAt: NOW - 30 * 60_000, calls: 'rrrr', meta: { repeat: { group: 'g', attempt: 1, of: 1 } } });
     try {
       const now = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
       expect(now.runs.find((r) => r.runId === live)).toMatchObject({ status: 'running', local: true });
       const s = await get<OverviewSummary>(dash, 'summary');
       expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
+      // The store's own count has the attempt in it.
+      expect(teamStoreStatus(store, { store: 's3://northwind-agent-runs/support-agent' })!.onlyLocal).toBe(5);
     } finally {
       store.deleteRun(live);
+      store.deleteRun(attempt);
     }
   });
 });
@@ -193,6 +199,17 @@ describe('bulk actions', () => {
     expect(store.getRun(ids.rec)!.meta?.labels).toEqual(['refund-flow']);
   });
 
+  it('says which runs picked are still there, on a read-only dashboard too', async () => {
+    const gone = addRun(store, { startedAt: NOW - 5 * DAY, calls: 'l' });
+    store.deleteRun(gone);
+    for (const d of [dash, ro]) {
+      const res = await post(d, 'runs/known', { ids: [ids.rec, gone, 'NOPE'] });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ known: [ids.rec] });
+    }
+    expect((await post(dash, 'runs/known', { ids: 'all' })).status).toBe(400);
+  });
+
   it('deletes several runs at once, and is refused on a read-only dashboard', async () => {
     const gone = addRun(store, { startedAt: NOW - 5 * DAY, calls: 'l' });
     const keep = addRun(store, { startedAt: NOW - 5 * DAY, calls: 'l', status: 'running' });
@@ -208,6 +225,38 @@ describe('bulk actions', () => {
     expect(store.getRun(gone)).toBeNull();
     // This process is recording it.
     expect(out.skipped).toEqual([{ runId: keep, reason: 'still recording' }]);
+  });
+});
+
+describe('a run its recorder left', () => {
+  // Killed two days ago before it ended: still marked running, with nothing recording it.
+  const left = '01K4ZZ0000000000000000LEFT';
+  const leave = () =>
+    store.importRun({ runId: left, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['python', 'refund_agent.py'], cwd: '/work' }, codeVersion: null, startedAt: NOW - 2 * DAY, endedAt: null });
+  afterEach(() => store.deleteRun(left));
+
+  it('is listed interrupted, not in progress, and deleted like a run that ended', async () => {
+    leave();
+    const page = await get<RunsPage>(dash, 'runs/page');
+    expect(page.runs.find((r) => r.runId === left)).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, failed: false });
+    // Sorted by its calls, not kept on top as a run still adding them.
+    const byCalls = await get<RunsPage>(dash, 'runs/page?sort=calls');
+    expect(byCalls.runs.at(-1)!.runId).toBe(left);
+    // The sidebar's list says so too: the top bar's chip looks there for a run recording.
+    const { runs } = await get<{ runs: Array<{ runId: string; status: string }> }>(dash, 'runs');
+    expect(runs.find((r) => r.runId === left)?.status).toBe('crashed');
+    const out = (await (await post(dash, 'runs/delete', { ids: [left] })).json()) as { done: string[] };
+    expect(out.done).toEqual([left]);
+  });
+
+  it('is ended as interrupted when it is pushed, as gc would, so the push sends it now', async () => {
+    leave();
+    setConfig({ store: 's3://northwind-agent-runs/support-agent' });
+    const s = await get<OverviewSummary>(dash, 'summary');
+    // Counted among the runs only here: a push from here sends it.
+    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
+    expect(await built({ kind: 'push', runIds: [left] })).toEqual(['push', left]);
+    expect(store.getRun(left)).toMatchObject({ status: 'crashed' });
   });
 });
 

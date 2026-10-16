@@ -1,7 +1,7 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
-import { deleteRuns, labelRuns, listRunsPage, matchingRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
+import { deleteRuns, knownRuns, labelRuns, listRunsPage, matchingRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { goldensOf } from './overview.js';
 import { localRunIds, teamStoreFor } from './store.js';
@@ -15,8 +15,10 @@ import { localRunIds, teamStoreFor } from './store.js';
  *   GET  /api/runs/bisect?from&to&types&q                             Find the commit, for the days picked
  *   POST /api/runs/labels { ids, add, remove }                        label several runs
  *   POST /api/runs/delete { ids }                                     delete several runs
+ *   POST /api/runs/known { ids }                                      which runs picked are still there
  *
- * A bad cursor, filter or time zone is a 400. The two writes are refused on a read-only dashboard.
+ * A bad cursor, filter or time zone is a 400. Labels and delete are refused on a read-only
+ * dashboard; `known` changes nothing (a POST only because a selection can be long).
  */
 
 /** A row of the table; with a team store set, whether the run is only on this machine. */
@@ -87,4 +89,15 @@ export function register(router: Router, ctx: RouteContext): void {
     if ('error' in out) throw new HttpError(400, out.error);
     r.json(out);
   });
+
+  router.post(
+    '/runs/known',
+    async (r) => {
+      const body = await r.body();
+      const out = knownRuns(store, body.ids);
+      if ('error' in out) throw new HttpError(400, out.error);
+      r.json(out);
+    },
+    { write: false },
+  );
 }

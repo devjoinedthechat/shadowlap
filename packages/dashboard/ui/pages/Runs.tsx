@@ -30,7 +30,8 @@ export { DatasetDialog } from '../runspage/BulkBar.js';
  * get a bulk bar. With a team store, who made each run, a `local` tag on runs not pushed yet, Pull
  * in the header and Push in the bulk bar. What the page was showing is kept while the dashboard is
  * open, so a run opened and closed lands back on the same view; the selection survives filter
- * changes. An exported copy lists the runs it holds, worked out in the page.
+ * changes, and lets go of a run deleted elsewhere. An exported copy lists the runs it holds, worked
+ * out in the page.
  */
 
 const PAGE = 50;
@@ -187,6 +188,28 @@ function ServerRuns() {
     }
     if (changed) setPicked(next);
   }, [page.data, picked, setPicked]);
+
+  // A run picked, then deleted elsewhere (its own page, shadowlap rm), leaves the selection when
+  // the runs change: the bar counts and acts on runs that are there.
+  useEffect(() => {
+    const ids = [...kept.picked.keys()];
+    if (!ids.length) return;
+    let alive = true;
+    const asks: Array<Promise<string[]>> = [];
+    for (let i = 0; i < ids.length; i += 1000) asks.push(client.knownRuns(ids.slice(i, i + 1000)));
+    Promise.all(asks).then(
+      (lists) => {
+        const known = new Set(lists.flat());
+        const gone = new Set(ids.filter((id) => !known.has(id)));
+        // Only runs asked about and found gone: one picked meanwhile stays.
+        if (alive && gone.size) setPicked(new Map([...kept.picked].filter(([id]) => !gone.has(id))));
+      },
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [client, tick, setPicked]);
 
   const onPick = useCallback(
     (r: TableRun, on: boolean) => {

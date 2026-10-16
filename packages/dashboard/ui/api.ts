@@ -126,6 +126,8 @@ export interface Client {
   labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
   /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. */
   deleteRuns(ids: readonly string[]): Promise<DeleteResult>;
+  /** Which of these runs are still in the store, for a selection to let go of runs deleted elsewhere. */
+  knownRuns(ids: readonly string[]): Promise<string[]>;
   /** The team store the project's config names and who this machine records as, or null without one (or on a server without the route). */
   teamStore(): Promise<TeamStoreView | null>;
   /** Whether the trace stores' keys are set on this machine, and where each is reached; null on a server without the route. */
@@ -165,6 +167,22 @@ export function createClient(token: string): Client {
   let hasStore: boolean | null = null;
   // The store's answer as the screens take it, kept while the server's answer is the same one (a 304).
   let storeView: { from: unknown; view: TeamStoreView | null } | null = null;
+  let storeLoading: Promise<TeamStoreView | null> | null = null;
+  async function loadStore(): Promise<TeamStoreView | null> {
+    if (hasStore === false) return null;
+    try {
+      const out = await request<{ store: TeamStoreStatus | null; you?: string | null }>('store');
+      hasStore = true;
+      if (storeView?.from !== out) storeView = { from: out, view: out.store ? { ...out.store, you: out.you ?? null } : null };
+      return storeView.view;
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasStore === null) {
+        hasStore = false;
+        return null;
+      }
+      throw err;
+    }
+  }
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -248,21 +266,9 @@ export function createClient(token: string): Client {
     daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
     labelRuns: (ids, add, remove = []) => request<LabelRunsResult>('runs/labels', { method: 'POST', body: JSON.stringify({ ids, add, remove }) }),
     deleteRuns: (ids) => request<DeleteResult>('runs/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
-    teamStore: async () => {
-      if (hasStore === false) return null;
-      try {
-        const out = await request<{ store: TeamStoreStatus | null; you?: string | null }>('store');
-        hasStore = true;
-        if (storeView?.from !== out) storeView = { from: out, view: out.store ? { ...out.store, you: out.you ?? null } : null };
-        return storeView.view;
-      } catch (err) {
-        if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasStore === null) {
-          hasStore = false;
-          return null;
-        }
-        throw err;
-      }
-    },
+    knownRuns: (ids) => request<{ known: string[] }>('runs/known', { method: 'POST', body: JSON.stringify({ ids }) }).then((r) => r.known),
+    // The status bar, Runs and the Overview ask at once when runs change: one request answers them all.
+    teamStore: () => (storeLoading ??= loadStore().finally(() => (storeLoading = null))),
     importSources: () => request<ImportSources>('imports').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     upload: async (file, name) => {
       const res = await fetch('/api/uploads', { method: 'POST', body: file, headers: { 'x-shadowlap-token': token, 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
@@ -342,6 +348,7 @@ export function createExportedClient(data: StaticPayload): Client {
     daysBisect: readOnly,
     labelRuns: readOnly,
     deleteRuns: readOnly,
+    knownRuns: (ids) => Promise.resolve([...ids]),
     teamStore: () => Promise.resolve(null),
     importSources: () => Promise.resolve(null),
     upload: readOnly,

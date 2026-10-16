@@ -170,7 +170,8 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
     if (o.kind === 'check-failed') return { tone: 'err', text: 'check failed' };
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: `${plural(o.checks, 'check')} passed` };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
-    if (o.kind === 'none') return { tone: 'n', text: '—' };
+    // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
+    if (o.kind === 'none') return { tone: 'n', text: r.status === 'crashed' ? 'interrupted' : '—' };
   }
   if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
   if (r.blame && r.blame.callNo) return { tone: 'err', text: `lost at #${r.blame.callNo}` };

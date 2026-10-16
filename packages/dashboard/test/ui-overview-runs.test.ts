@@ -5,7 +5,7 @@ import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
 import { guessImportFormat, keyList, tooLargeNote } from '../ui/runspage/imports.js';
-import { runSpent, type RunLike } from '../ui/runs.js';
+import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
 import type { DayCount, NeedsLookRow } from '../ui/types.js';
 
 // The Overview's and the Runs page's logic: what each panel says from the server's numbers, how the
@@ -224,6 +224,13 @@ describe('the Runs page’s requests and words', () => {
     expect(ciName('github')).toBe('GitHub Actions');
     expect(ciName('drone')).toBe('drone');
     expect(ciName(null)).toBeNull();
+  });
+
+  it('says a run cut short is interrupted, and a run with nothing to report a dash', () => {
+    const base: RunLike = { runId: '01K5CQ4N7G0000000000000000', parentRunId: null, mode: 'record', status: 'crashed', divergence: null, command: 'python refund_agent.py', codeVersion: null, startedAt: 0, calls: 3, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], outcome: { kind: 'none' } };
+    expect(runOutcome(base)).toEqual({ tone: 'n', text: 'interrupted' });
+    expect(runOutcome({ ...base, status: 'completed' })).toEqual({ tone: 'n', text: '—' });
+    expect(runOutcome({ ...base, status: 'running', outcome: { kind: 'running' } })).toEqual({ tone: 'live', text: 'in progress' });
   });
 
   it('shows what a run spent, a capture as captured and a run recorded elsewhere by what it cost there', () => {
