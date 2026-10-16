@@ -99,19 +99,19 @@ Recordings contain everything the agent saw: prompts, tool inputs and outputs, a
 
 ```sh
 shadowlap redact add --pattern email
-shadowlap redact add --pattern uuid --replace '<UUID>'
 shadowlap redact add --kind tool --path '$.args.api_key' --replace '<KEY>'
+shadowlap redact add --pattern '/\b(?:\d[ -]?){13,16}\b/' --replace '<CARD>'
 shadowlap redact preview
 shadowlap pack <run> ./share/run
 ```
 
 Rules take the same forms as normalizers, scoped by `--kind api` or `--kind tool`; the replacement is `<REDACTED>` when it is left out (or left empty: a rule never deletes what it matches). `redact ls` and `redact rm` work as they do for normalizers.
 
-`pack` applies the rules to a scratch copy of the run: path-scoped rules mask request fields; pathless pattern rules mask every string of every request, the strings of a response or tool result that is JSON (its numbers stay as recorded, so a timestamp a card-number pattern would match still replays as that number) and the raw text of any other, and an attempt's error message. A streamed response is masked across its events too, since the model's text arrives in pieces no rule sees whole: each block's text and each tool call's arguments are masked as the text they add up to. The local store is never modified. The run's command line, labels and notes are copied as they are, because a replay of the pack runs that command; `export html`, which is only ever read, masks them too. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean; a rule that lists the values it hides (an alternation of customer names) travels with every copy that way. `--no-redact` skips the rules.
+`pack` applies the rules to a scratch copy of the run. A rule without a path masks what its pattern matches in every string of every request; in every string of a response or tool result that is JSON, keys included, its numbers and layout kept as recorded, so a timestamp a card-number pattern would match still replays as that number; in the raw text of any other response (a stream, plain text); and in an attempt's error. A rule with a path masks the value at its path in every request, and in what a call got back too: a response or tool result that is JSON (a tool's result is stored as `{"result": …}`, so `$.result.card`) and an attempt's error (`$.error.data.card`); `$` alone and a path that starts with a wildcard reach requests only. With no pattern it replaces the whole value there, a number or an object included; with one it masks what the pattern matches in a string there, and leaves anything else as it is. A streamed response is masked across its events too, since the model's text arrives in pieces no rule sees whole: each block's text and each tool call's arguments are masked as the text they add up to. The local store is never modified. The run's command line, labels and notes are copied as they are, because a replay of the pack runs that command; `export html`, which is only ever read, masks them too. The copy records its rules, and a replay of it applies them as normalizers, so it still replays clean; a rule that lists the values it hides (an alternation of customer names) travels with every copy that way. `--no-redact` skips the rules.
 
-A path rule masks only at its path. A tool argument the model wrote also appears in the conversation sent back to the model (`$.messages[…].content[…].input`), so mask a value that can appear there with a pattern, or a path for each place it appears.
+A path rule masks only at its path. A tool argument the model wrote also appears in the conversation sent back to the model (`$.messages[…].content[…].input`), so mask a value that can appear there with a pattern, or a path for each place it appears. What a path rule masks in a tool's result or a response is what a replay of the copy hands the agent: when the agent sends that value on in a later request, mask it there too, or the replay forks where the request differs.
 
-Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`). It also refuses a replacement that copies matched text back into the copy (`$&`, `$1`, `$<name>`, `` $` `` or `$'`); `$$` is a literal dollar sign. To keep the text around a secret, match only the secret, with a lookbehind for what comes before it: `--pattern '/(?<=key=)\w+/'`. Redaction is pattern-based: it masks what your rules describe and nothing else. A copy masks a value a streamed response splits across two events, but the preview counts matches in each response as it was recorded and leaves such a value out of its count, so review a pack before sharing it.
+Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`). It also refuses a replacement that copies matched text back into the copy (`$&`, `$1`, `$<name>`, `` $` `` or `$'`); `$$` is a literal dollar sign. To keep the text around a secret, match only the secret, with a lookbehind for what comes before it: `--pattern '/(?<=key=)\w+/'`. Redaction is pattern-based: it masks what your rules describe and nothing else, so preview it, and review a pack before sharing it.
 
 Credentials never need redacting: API keys and authorization headers are forwarded upstream and never stored in the first place.
 
@@ -123,7 +123,7 @@ Every way a run's content leaves the machine applies the rules; Shadowlap's test
 |---|---|---|
 | `shadowlap pack` | every rule, on every request and response it copies and the errors with them | copied as recorded: a replay runs the command |
 | `shadowlap export html` | every rule, as `pack` applies them | masked by the rules without a path, with the run's folder, checks, author and divergence |
-| `shadowlap export har` | every rule on the model calls it holds: the whole request, and the rules without a path on URLs, headers and responses | not in a HAR, nor are tool calls |
+| `shadowlap export har` | every rule on the model calls it holds, as `pack` applies them to their requests and responses, and the rules without a path on URLs and headers | not in a HAR, nor are tool calls |
 | `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `pack` applies them, then the rules without a path on the rest of each row | masked |
 | `shadowlap export pairs` | the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string | not in a pair |
 | `shadowlap export otel` | a trace carries no prompt text; the rules without a path apply to its span names, model and tool names, and error messages | the command line, masked |
@@ -132,22 +132,33 @@ Each export that applies rules takes `--no-redact`, and stops, naming the rule, 
 
 ### Preview
 
-`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests, responses and errors, retries included, go through the same functions pack applies, and nothing is written. Without a run named it takes the newest run that has ended; a run still recording is refused. A conversation sends its earlier messages again with every request; the preview reads each of them once, so it takes time in proportion to the run's length (a run of 1,200 model calls takes about a second).
+`shadowlap redact preview [run]` shows what the rules would mask in a run, before it leaves the machine: the run's stored requests, responses and errors, retries included, go through the same functions `pack` applies, which say what they change as they change it, and nothing is written. So it counts what a copy changes: the strings of a JSON document and not its numbers, a value a stream splits across events, the whole values a path rule replaces. Without a run named it takes the newest run that has ended; a run still recording is refused. A conversation sends its earlier messages again with every request; the preview reads each of them once, so it takes time in proportion to the run's length (a run of 1,200 model calls takes about a second).
 
 ```
-01M2R1HDVD (node agent.js): 5 values would be masked
-  #1  every call  any string  email → <REDACTED>  4
-        - …The account owner is alice@example.com.
-        + …The account owner is <REDACTED>.
+01M2R1HDVD (node agent.js): 5 values would be masked, 2 left as they are
+  #1  every call  any string  email → <REDACTED>  3
+        - …customers. The account owner is alice@example.com.
+        + …customers. The account owner is <REDACTED>.
         - Refund order 4417 for bob@example.com
         + Refund order 4417 for <REDACTED>
   #2  tool  $.args.api_key  whole value → <KEY>  1
         - sk-live-123
         + <KEY>
-  #3  every call  any string  /\b(?:\d[ -]?){13,16}\b/ → <CARD>  0  no matches in this run
+  #3  every call  any string  /\b(?:\d[ -]?){13,16}\b/ → <CARD>  1
+        - paid with 4111 1111 1111 1111
+        + paid with <CARD>
+        2 left as they are:
+        = 1792155242516  call 1 clock now, response $.result
+        = 4111111111111111  call 3 tool lookup_order, response $.result.card
+        a path rule masks the whole value at its path, numbers included:
+          shadowlap redact add --kind tool --name lookup_order --path '$.result.card' --replace '<CARD>'
 ```
 
-Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value that a conversation sends again with every later request counts once. A rule that masks nothing says why: no matches in the run, no call of its kind or name, no request with its path, or a path whose values don't match its pattern.
+Each rule shows how many values it would mask and up to two of them before and after, cut to the change. A value counts once wherever it goes: one a conversation sends again with every later request, an answer that is in its response and in the next request, an address the model's tool call and the tool's arguments both hold. A rule that masks nothing says why: no matches in the run, matches only in numbers, no call of its kind or name, no request (or response) with its path, or a path whose values don't match its pattern.
+
+Under a rule comes what it matches that a copy leaves as it is, apart from its count. A copy masks strings: a number in a JSON document stays as recorded, and so do the keys of a request or an error (a response's keys are strings like any other there, and are masked); a path rule's pattern, too, applies only to a string at its path. Each such value counts once, with up to two of them and where each is: the call, its request, response or error, and the path there.
+
+To mask one, add a path rule: it masks the whole value at its path, numbers included. The preview gives the command for each place it found them, scoped to the call's kind and, for a tool, its name, with the rule's replacement; positions in a list read as `[*]`, so the rule masks the value in every message or item alike. For a key it is the object that holds it, and for a path rule's pattern the same rule without the pattern. A clock or random read gets none: what it returned is the run's time or randomness, which a replay needs as recorded. Above, the card-number rule leaves the time the agent read as it is, and the card the tool returned as a number gets its rule. Run the command and preview again: the value moves into the count.
 
 The run's details come on a line of their own, since the exports differ on them: what the rules without a path match in the run's command line, labels and notes, which `export html`, `dataset` and `otel` mask and `pack` copies as recorded.
 
@@ -157,7 +168,7 @@ The run's details come on a line of their own, since the exports differ on them:
         + node agent.js --customer <REDACTED>
 ```
 
-`--json` prints the same object (`details` holds that line: its count, samples and the rules that match), and a dashboard job that runs the preview gets it as its result. An imported run is named by the file it came from.
+`--json` prints the same object, `unmasked` at its top and under each rule (`details` holds that line: its count, samples and the rules that match), and a dashboard job that runs the preview gets it as its result; [the CLI reference](./cli.md#normalize-redact) lists every field. Settings → Redaction in the dashboard shows the same preview, with what a rule leaves as it is on a quiet line under it. An imported run is named by the file it came from.
 
 ## Editing the file
 

@@ -585,7 +585,7 @@ shadowlap redact preview [run] [--json]
 
 Both edit `shadowlap.config.json` in the working directory. [Normalizers](./normalizers-and-redaction.md) mask values before matching; redaction rules mask stored content when a run leaves the machine.
 
-- `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string; a path alone replaces the whole value there, numbers included; `--name` scopes the rule to one tool or call. A redaction rule's path reaches what a call got back too, when it starts with a key: a response or tool result that is JSON (a tool's result is under `$.result`) and an attempt's error (`$.error`). It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
+- `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string; a path alone replaces the whole value there, numbers included; `--name` scopes the rule to one tool or call. A redaction rule's path reaches what a call got back too, unless it is `$` alone or starts with a wildcard: a response or tool result that is JSON (a tool's result is under `$.result`) and an attempt's error (`$.error`). It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
 - `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.
 - `ls --json` prints `{ file, exists, version, error, rules }`: `error` says why the list can't be read (it isn't a list; `ls` then exits 1), else `null`; each rule has its number `n`, and one the config can't load has `error` instead.
 - `--expect <version>` refuses the edit when the file is no longer the version `ls --json` printed.
@@ -740,8 +740,9 @@ Vertex and Bedrock hosts depend on the account, so a representative host for the
 Credentials are never written.
 
 A HAR carries full requests and responses, so the redaction rules in `shadowlap.config.json` apply,
-as they do to `pack` and `export html`: every rule to the request bodies (rules with a path
-included), and the rules without a path to the URL, the headers and the responses, streamed or not.
+as they do to `pack` and `export html`: every rule to the request bodies and to a response that
+is JSON (rules with a path included), and the rules without a path to the URL, the headers and
+every response, streamed or not.
 A model streams its text in pieces, so an address it writes back arrives split across events; each
 run of pieces (a block's text, a tool call's arguments) is masked as the text it adds up to, and the
 masked text is spread back over the same events. The rules are named in the log
