@@ -1,22 +1,30 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createHttp2Server, type Http2ServerRequest, type Http2ServerResponse } from 'node:http2';
 import { request as httpsRequest } from 'node:https';
-import type { AddressInfo } from 'node:net';
+import { createServer as createNetServer, type AddressInfo, type Socket } from 'node:net';
 import {
+  anthropicAnswer,
   anthropicBase,
-  anthropicMessageEvents,
   anthropicMessageToOpenAIChat,
-  anthropicToOpenAIChat,
-  chatCompletionChunks,
+  answerAs,
+  chatCompletionOf,
   endpointVia,
-  errorBody,
+  errorAs,
   errorMessage,
   isLoopback,
+  isTakeoverCall,
+  modelUnswitchable,
   OFFICIAL,
   openAIBase,
   openAIChatToAnthropic,
-  openAIChatToAnthropicMessage,
+  requestFor,
+  switchTakeoverModel,
+  takeoverMode,
+  wantsStream,
   type ChatShape,
+  type EncodedAnswer,
+  type TakeoverMode,
 } from '@shadowlap/engine';
 
 /**
@@ -31,23 +39,21 @@ import {
  * under test: no call has to be counted to know where the takeover is. For the recording's own API it
  * changes the model the request names (its `model` field, or the model in a Gemini URL) and sends it
  * on with the agent's own headers; for another API it translates the conversation for the model and
- * the answer back for the agent. Anything else the agent sends that provider (an embeddings call, a
- * token count, a model list) goes to the provider unchanged, as the sidecar would have sent it. Each
- * answer to a model call says which model gave it (`x-shadowlap-model`): the sidecar records that as
- * the call's model, and a score checks it.
+ * the answer back for the agent, in the recording's own API (Anthropic's, OpenAI's, Bedrock's,
+ * Vertex AI's or Gemini's), streamed as its client asked. Anything else the agent sends that provider
+ * (an embeddings call, a token count, a model list) goes to the provider unchanged, as the sidecar
+ * would have sent it. Each answer to a model call says which model gave it (`x-shadowlap-model`): the
+ * sidecar records that as the call's model, and a score checks it. The engine's takeover.ts decides
+ * how each call is carried; this module sends it.
  */
 
 /** The response header a takeover upstream answers each model call with: the model that answered. */
 export const ANSWERED_BY = 'x-shadowlap-model';
 
-/**
- * How a recorded model call reaches the model under test:
- * - `same`: the recording's own provider and API, asked for another model, with the agent's own key;
- * - `endpoint`: an OpenAI chat recording, asked at another OpenAI-compatible endpoint, with its key;
- * - `to-openai`: an Anthropic recording, translated for an OpenAI-compatible endpoint and back;
- * - `to-anthropic`: an OpenAI chat recording, translated for Anthropic's API and back.
- */
-export type TakeoverMode = 'same' | 'endpoint' | 'to-openai' | 'to-anthropic';
+export type { TakeoverMode };
+export { modelUnswitchable, takeoverMode };
+/** A model call of the recording's own provider, sent to ask `model` instead (the engine's switchTakeoverModel). */
+export const switchModel = switchTakeoverModel;
 
 export interface ModelTarget {
   /** The model name the API is asked for. */
@@ -97,54 +103,12 @@ export function resolveTarget(spec: { model: string; baseUrl?: string | undefine
   return { model: raw, route: 'same', baseUrl: null, keyEnv: null, local: false, scoreBase: null, via: null };
 }
 
+const PROVIDER_API: Record<string, string> = { anthropic: 'Anthropic API', openai: 'OpenAI API', gemini: 'Gemini API', bedrock: 'Amazon Bedrock', vertex: 'Vertex AI', azure: 'Azure OpenAI' };
+
 /** Where a target runs, given the provider the recording spoke. */
 export function targetVia(target: ModelTarget, provider: string | null): string {
   if (target.via) return target.via;
-  return provider === 'anthropic' ? 'Anthropic API' : provider === 'openai' ? 'OpenAI API' : provider ? `${provider} API` : 'the recorded provider';
-}
-
-/**
- * How a model call the recording made with `provider`, in `shape`, reaches the target; null when it
- * can't (an API that doesn't translate). `anthropic:<name>` on an Anthropic recording, and
- * `openai:<name>` on an OpenAI one, ask the recording's own provider, as `<name>` does.
- */
-export function takeoverMode(provider: string | null, shape: ChatShape | null, target: ModelTarget): TakeoverMode | null {
-  if (target.route === 'same') return 'same';
-  if (target.route === 'anthropic') return provider === 'anthropic' ? 'same' : shape === 'openai-chat' ? 'to-anthropic' : null;
-  if (provider === 'openai' && target.scoreBase === null) return 'same';
-  return shape === 'openai-chat' ? 'endpoint' : shape === 'anthropic' ? 'to-openai' : null;
-}
-
-/**
- * A model call of the recording's own provider, sent to ask `model` instead: the same path with the
- * request's `model` field changed (Anthropic, OpenAI's chat completions, completions and Responses
- * API), or the path with the model in it changed (Gemini). Null for a request that isn't a model call
- * of that provider, which goes on unchanged.
- */
-export function switchModel(provider: string, method: string, path: string, model: string): { path: string; field: boolean } | null {
-  if (method.toUpperCase() !== 'POST') return null;
-  if (provider === 'anthropic') return /\/messages$/.test(path) ? { path, field: true } : null;
-  if (provider === 'openai') return /\/(chat\/completions|completions|responses)$/.test(path) ? { path, field: true } : null;
-  if (provider === 'gemini') {
-    const m = /^(.*\/)(?:models|tunedModels)\/[^/:]+(:(?:stream)?generateContent)$/i.exec(path);
-    return m ? { path: `${m[1]}${model.includes('/') ? model : `models/${model}`}${m[2]}`, field: false } : null;
-  }
-  return null;
-}
-
-/**
- * Why a model call of the recording's own provider can't be sent to another model, or null when it
- * can: Bedrock signs the URL its model is in, Vertex AI is reached at the agent's own regional
- * address, and an Azure deployment picks its model.
- */
-export function modelUnswitchable(provider: string | null, callName: string): string | null {
-  if (provider === 'bedrock') return 'its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL';
-  if (provider === 'vertex') return "its takeover call goes through Vertex AI, at the agent's own regional address";
-  if (provider === 'azure') return 'its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model';
-  const m = /^([A-Z]+)\s+(\S+)/.exec(callName);
-  const path = (m?.[2] ?? callName).split('?')[0] ?? '';
-  if (!provider || !switchModel(provider, m?.[1] ?? 'POST', path, 'm')) return `scoring can't change the model of ${provider ? `${/^[aeiou]/i.test(provider) ? 'an' : 'a'} ${provider}` : 'this'} request (${path})`;
-  return null;
+  return provider ? (PROVIDER_API[provider] ?? `${provider} API`) : 'the recorded provider';
 }
 
 interface Reply {
@@ -178,7 +142,10 @@ function post(url: string, headers: Record<string, string>, body: unknown): Prom
   });
 }
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
+type AnyRequest = IncomingMessage | Http2ServerRequest;
+type AnyResponse = ServerResponse | Http2ServerResponse;
+
+function readBody(req: AnyRequest): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
@@ -187,12 +154,8 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
-const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
-
-/** The path of the recorded API's model call: the one request the model under test answers. */
-function isModelCall(recorded: ChatShape, path: string): boolean {
-  return recorded === 'anthropic' ? /^\/(v1\/)?messages$/.test(path) : /\/chat\/completions$/.test(path);
-}
+/** Headers that belong to one connection, never carried across: HTTP/2 refuses them outright. */
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length', 'http2-settings']);
 
 function parse(bytes: Buffer): unknown {
   try {
@@ -232,6 +195,46 @@ export interface Takeover {
 }
 
 /**
+ * One listener for both HTTP/1.1 and HTTP/2 without TLS: the sidecar forwards a request the way it
+ * arrived, and an AWS SDK that signs over HTTP/2 arrives that way. The connection's first bytes say
+ * which: HTTP/2 opens with `PRI * HTTP/2.0`.
+ */
+function listenBoth(handle: (req: AnyRequest, res: AnyResponse) => void): Promise<{ port: number; close: () => Promise<void> }> {
+  const h1 = createServer(handle);
+  const h2 = createHttp2Server(handle);
+  const sockets = new Set<Socket>();
+  const front = createNetServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => socket.destroy());
+    const sniff = () => {
+      const head = socket.read() as Buffer | null;
+      if (!head) return socket.once('readable', sniff);
+      if (head.length < 2 && head[0] === 0x50) {
+        socket.unshift(head);
+        return socket.once('readable', sniff);
+      }
+      socket.unshift(head);
+      (head.subarray(0, 2).toString('latin1') === 'PR' ? h2 : h1).emit('connection', socket);
+    };
+    socket.once('readable', sniff);
+  });
+  return new Promise((resolve, reject) => {
+    front.once('error', reject);
+    front.listen(0, '127.0.0.1', () =>
+      resolve({
+        port: (front.address() as AddressInfo).port,
+        close: () =>
+          new Promise<void>((done) => {
+            for (const s of sockets) s.destroy();
+            front.close(() => done());
+          }),
+      }),
+    );
+  });
+}
+
+/**
  * Starts the upstream for one target, for the recording's provider at the takeover call. It listens
  * on this machine, under a random path. Model calls go to the model under test, and everything else
  * to the provider's own upstream.
@@ -260,33 +263,34 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
   })();
   const by = { [ANSWERED_BY]: target.model };
 
-  const reply = (res: ServerResponse, status: number, contentType: string, body: string | Buffer, extra: Record<string, string> = {}) => {
-    const bytes = typeof body === 'string' ? Buffer.from(body, 'utf8') : body;
-    res.writeHead(status, { 'content-type': contentType, 'content-length': String(bytes.length), ...extra });
-    res.end(bytes);
+  // Either protocol's response takes the same status and headers; their typings just don't overlap.
+  const head = (res: AnyResponse, status: number, headers: Record<string, string>) => (res as ServerResponse).writeHead(status, headers);
+  const send = (res: AnyResponse, a: EncodedAnswer, extra: Record<string, string> = {}) => {
+    head(res, a.status, { 'content-type': a.contentType, 'content-length': String(a.body.length), ...a.headers, ...extra });
+    res.end(a.body);
   };
-  const fail = (res: ServerResponse, status: number, message: string, extra: Record<string, string> = {}) => reply(res, status, 'application/json', JSON.stringify(errorBody(recorded, status, message)), extra);
+  const fail = (res: AnyResponse, status: number, message: string, extra: Record<string, string> = {}) => send(res, errorAs(provider, recorded, status, message), extra);
 
   /**
    * A request sent on to the provider as the agent made it (or with `body` in its place), and the
    * answer back as it came, streamed. `answer`: it is the model under test's, and says so.
    */
-  const relay = async (req: IncomingMessage, res: ServerResponse, rest: string, o: { body?: Buffer; answer?: boolean } = {}) => {
+  const relay = async (req: AnyRequest, res: AnyResponse, rest: string, o: { body?: Buffer; answer?: boolean } = {}) => {
     const name = `${req.method ?? 'GET'} ${rest.split('?')[0]}`;
     if (!upstream) return fail(res, 501, `${name} isn't sent anywhere while ${target.model} takes over: only the model call is`);
     const body = o.body ?? (await readBody(req));
     const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !HOP_BY_HOP.has(k)) headers[k] = v;
+    for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string' && !k.startsWith(':') && !HOP_BY_HOP.has(k)) headers[k] = v;
     const url = new URL(`${upstream}${rest}`);
-    const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
+    const out_ = url.protocol === 'https:' ? httpsRequest : httpRequest;
     await new Promise<void>((resolve) => {
-      const out = send(url, { method: req.method ?? 'GET', headers: { ...headers, ...(body.length ? { 'content-length': String(body.length) } : {}) } }, (up) => {
+      const out = out_(url, { method: req.method ?? 'GET', headers: { ...headers, ...(body.length ? { 'content-length': String(body.length) } : {}) } }, (up) => {
         const back: Record<string, string> = {};
         for (const [k, v] of Object.entries(up.headers)) if (typeof v === 'string' && !HOP_BY_HOP.has(k)) back[k] = v;
         const status = up.statusCode ?? 502;
         if (o.answer && status < 400) answered++;
-        res.writeHead(status, { ...back, ...(o.answer ? by : {}) });
-        up.pipe(res);
+        head(res, status, { ...back, ...(o.answer ? by : {}) });
+        up.pipe(res as NodeJS.WritableStream);
         up.on('end', resolve);
         up.on('error', () => {
           res.destroy();
@@ -303,9 +307,11 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
   };
 
   /** The recording's own API, another model: the request names it, and the provider answers as it would have. */
-  const same = async (req: IncomingMessage, res: ServerResponse, rest: string, search: string) => {
-    const at = switchModel(provider, req.method ?? 'GET', rest, target.model);
-    if (!at) return relay(req, res, `${rest}${search}`);
+  const same = async (req: AnyRequest, res: AnyResponse, rest: string, search: string) => {
+    const at = switchTakeoverModel(provider, req.method ?? 'GET', rest, target.model);
+    // A model call no switch reaches (a cloud's signed URL, regional address or deployment) is scored
+    // only for the model it recorded (cannotScore): it goes on as the agent made it, and is the answer.
+    if (!at) return relay(req, res, `${rest}${search}`, isTakeoverCall(provider, recorded, req.method ?? 'GET', rest) ? { answer: true } : {});
     const raw = await readBody(req);
     if (!at.field) return relay(req, res, `${at.path}${search}`, { body: raw, answer: true });
     const request = parse(raw);
@@ -314,44 +320,74 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
     return relay(req, res, `${rest}${search}`, { body: Buffer.from(JSON.stringify({ ...(request as Record<string, unknown>), model: target.model }), 'utf8'), answer: true });
   };
 
-  const handle = async (req: IncomingMessage, res: ServerResponse) => {
+  /** Asks an OpenAI-compatible endpoint for a whole answer to an OpenAI chat request, as a chat completion. */
+  const askEndpoint = async (res: AnyResponse, body: Record<string, unknown>) => {
+    const r = await post(`${base}/chat/completions`, key ? { authorization: `Bearer ${key}` } : {}, { ...body, stream: false });
+    const answer = parse(r.body);
+    if (r.status >= 400) {
+      fail(res, r.status, `${target.model} at ${base}: ${errorMessage(answer, `HTTP ${r.status}`)}`, by);
+      return null;
+    }
+    return chatCompletionOf(answer, { model: target.model });
+  };
+
+  /** Asks Anthropic's API for a whole answer to an Anthropic request, as a message. */
+  const askAnthropic = async (res: AnyResponse, body: Record<string, unknown>) => {
+    const r = await post(`${base}/v1/messages`, { ...(key ? { 'x-api-key': key } : {}), 'anthropic-version': '2023-06-01' }, { ...body, stream: false });
+    const answer = parse(r.body);
+    if (r.status >= 400) {
+      fail(res, r.status, `${target.model}: ${errorMessage(answer, `HTTP ${r.status}`)}`, by);
+      return null;
+    }
+    if (typeof answer !== 'object' || answer === null || !Array.isArray((answer as { content?: unknown }).content)) {
+      fail(res, 502, `${target.model}: the answer is not an Anthropic message`, by);
+      return null;
+    }
+    return answer as Record<string, unknown> & { content: unknown[] };
+  };
+
+  const handle = async (req: AnyRequest, res: AnyResponse) => {
     const url = new URL(req.url ?? '/', 'http://takeover');
     const prefix = `/t/${token}`;
     if (!url.pathname.startsWith(`${prefix}/`)) return fail(res, 404, 'not found');
     const rest = url.pathname.slice(prefix.length);
     if (mode === 'same') return same(req, res, rest, url.search);
     // Only the recorded API's model call is the model under test's; an embeddings call or a token count is the provider's, as recorded.
-    if (req.method !== 'POST' || !isModelCall(recorded, rest)) return relay(req, res, `${rest}${url.search}`);
+    if (!isTakeoverCall(provider, recorded, req.method ?? 'GET', rest)) return relay(req, res, `${rest}${url.search}`);
     const request = parse(await readBody(req));
     if (typeof request !== 'object' || request === null || Array.isArray(request)) return fail(res, 400, 'the request is not JSON');
     const body = request as Record<string, unknown>;
-    const stream = body.stream === true;
-    const includeUsage = typeof body.stream_options === 'object' && body.stream_options !== null && (body.stream_options as { include_usage?: unknown }).include_usage === true;
+    const stream = wantsStream(provider, recorded, rest, body);
     try {
-      if (mode === 'to-openai') {
-        const t = anthropicToOpenAIChat(body, { model: target.model, maxTokensField: official ? 'max_completion_tokens' : 'max_tokens' });
-        t.dropped.forEach((d) => dropped.add(d));
-        const r = await post(`${base}/chat/completions`, key ? { authorization: `Bearer ${key}` } : {}, { ...t.body, stream: false });
-        const answer = parse(r.body);
-        if (r.status >= 400) return fail(res, r.status, `${target.model} at ${base}: ${errorMessage(answer, `HTTP ${r.status}`)}`, by);
-        const message = openAIChatToAnthropicMessage(answer, { model: target.model });
-        answered++;
-        return stream ? reply(res, 200, 'text/event-stream; charset=utf-8', anthropicMessageEvents(message), by) : reply(res, 200, 'application/json', JSON.stringify(message), by);
-      }
       if (mode === 'endpoint') {
-        // The same API: only the model, the endpoint and its key change.
+        // The same API: only the model, the endpoint and its key change, and the answer comes back as the endpoint gave it.
         const r = await post(`${base}/chat/completions`, key ? { authorization: `Bearer ${key}` } : {}, { ...body, model: target.model });
         if (r.status < 400) answered++;
-        return reply(res, r.status, r.headers['content-type'] ?? 'application/json', r.body, by);
+        return send(res, { status: r.status, contentType: r.headers['content-type'] ?? 'application/json', body: r.body, headers: {} }, by);
       }
-      const t = openAIChatToAnthropic(body, { model: target.model });
-      t.dropped.forEach((d) => dropped.add(d));
-      const r = await post(`${base}/v1/messages`, { ...(key ? { 'x-api-key': key } : {}), 'anthropic-version': '2023-06-01' }, { ...t.body, stream: false });
-      const answer = parse(r.body);
-      if (r.status >= 400) return fail(res, r.status, `${target.model}: ${errorMessage(answer, `HTTP ${r.status}`)}`, by);
-      const completion = anthropicMessageToOpenAIChat(answer, { model: target.model });
+      if (mode === 'anthropic-api') {
+        const t = requestFor('anthropic-api', recorded, body, { model: target.model });
+        t.dropped.forEach((d) => dropped.add(d));
+        const message = await askAnthropic(res, t.body);
+        if (!message) return;
+        answered++;
+        return send(res, anthropicAnswer(provider, message, stream), by);
+      }
+      // Into OpenAI's chat first; for Anthropic's API, from there into its messages.
+      const chat = recorded === 'openai-chat' ? { body, dropped: [] as string[] } : requestFor('to-openai', recorded, body, { model: target.model, maxTokensField: official ? 'max_completion_tokens' : 'max_tokens' });
+      chat.dropped.forEach((d) => dropped.add(d));
+      let completion;
+      if (mode === 'to-openai') {
+        completion = await askEndpoint(res, chat.body);
+      } else {
+        const t = openAIChatToAnthropic(chat.body, { model: target.model });
+        t.dropped.forEach((d) => dropped.add(d));
+        const message = await askAnthropic(res, t.body);
+        completion = message ? anthropicMessageToOpenAIChat(message, { model: target.model }) : null;
+      }
+      if (!completion) return;
       answered++;
-      return stream ? reply(res, 200, 'text/event-stream; charset=utf-8', chatCompletionChunks(completion, { includeUsage }), by) : reply(res, 200, 'application/json', JSON.stringify(completion), by);
+      return send(res, answerAs(provider, recorded, completion, { model: target.model, stream, search: url.search, request: body }), by);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const code = (err as { code?: string }).code;
@@ -359,27 +395,18 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
     }
   };
 
-  const server = createServer((req, res) => {
+  const server = await listenBoth((req, res) => {
     handle(req, res).catch((err: unknown) => {
       if (!res.headersSent) fail(res, 500, err instanceof Error ? err.message : String(err));
       else res.destroy();
     });
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-  const { port } = server.address() as AddressInfo;
   return {
-    url: `http://127.0.0.1:${port}/t/${token}`,
+    url: `http://127.0.0.1:${server.port}/t/${token}`,
     dropped,
     get answered() {
       return answered;
     },
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections?.();
-      }),
+    close: server.close,
   };
 }

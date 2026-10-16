@@ -1,8 +1,8 @@
-import { listingInput, listModelChoices, type ModelListing, type Price, type Task } from '@shadowlap/engine';
+import { listingInput, listModelChoices, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
-import { exportPairsJob, modelsView, readTraining, scoreModelJob, sourceFixes, trainingView, type PairFilter } from '../training.js';
+import { exportPairsJob, modelsView, readTraining, scoreModelJob, sourceFixes, taskUpdateJob, trainingView, type PairFilter } from '../training.js';
 
 /**
  * Training (`#/training`, `#/training/tasks`):
@@ -11,6 +11,10 @@ import { exportPairsJob, modelsView, readTraining, scoreModelJob, sourceFixes, t
  *   GET /api/models                              the models Score a model offers, each with its price per attempt (A7)
  *   POST /api/jobs { kind: "pairs", format?, minConfidence? }                  shadowlap export pairs
  *   POST /api/jobs { kind: "score", model, baseUrl?, attempts?, goldens? }    shadowlap tasks score
+ *   POST /api/jobs { kind: "task-update", golden }     a task whose test forks before its takeover:
+ *                                                       normalize add for each value that changes every
+ *                                                       run its fork shows, then shadowlap test <golden>
+ *                                                       --update (or test alone, when those rules are the fix)
  *
  * Tasks come from the CLI (`DashboardOptions.training.loadTasks`): a golden's checks are the CLI's to
  * read. Listing models asks each configured provider with the keys already on this machine, and
@@ -50,6 +54,15 @@ export function register(router: Router, ctx: RouteContext): void {
     }
   };
 
+  /** The normalizers in the config as it is now: a value they already mask needs no rule of its own. */
+  const normalizers = (): Normalizer[] => {
+    try {
+      return ctx.config().normalize;
+    } catch {
+      return [];
+    }
+  };
+
   /** Prices from the config as it is now, else the ones the dashboard started with. */
   const prices = (): Record<string, Price> | undefined => {
     try {
@@ -77,7 +90,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const filter = (r.query.get('filter') ?? 'all') as PairFilter;
     if (!FILTERS.includes(filter)) throw new HttpError(400, 'filter must be all, high or medium');
     const t = tasks();
-    r.tagged(trainingView(readTraining(ctx.store, { tasks: t.tasks, tasksError: t.error, fixOf: sourceFixes(ctx.store) }), { filter }));
+    r.tagged(trainingView(readTraining(ctx.store, { tasks: t.tasks, tasksError: t.error, fixOf: sourceFixes(ctx.store), normalizers: normalizers() }), { filter }));
   });
 
   router.get('/models', async (r) => {
@@ -104,6 +117,19 @@ export function register(router: Router, ctx: RouteContext): void {
       if (t.error) return { error: t.error, status: 409 };
       const built = scoreModelJob(req, t.tasks);
       return 'error' in built ? built : { args: built.args };
+    },
+  });
+
+  // Update the golden of a task its test's early fork blocks; once its test replays to the takeover, it is ready.
+  ctx.jobs.registerJobKind('task-update', {
+    title: () => 'Updating a golden',
+    build: (req, { store }) => {
+      const t = tasks(true);
+      if (t.error) return { error: t.error, status: 409 };
+      const built = taskUpdateJob(req, store, t.tasks, normalizers());
+      if ('error' in built) return built;
+      const [first, ...then] = built.steps;
+      return { title: built.title, args: first!, ...(then.length ? { then } : {}) };
     },
   });
 }

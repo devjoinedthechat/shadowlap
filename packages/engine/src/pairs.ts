@@ -101,6 +101,8 @@ export interface PairSource {
   /** Why it made what it made, in a sentence or two. */
   why: string;
   at: number;
+  /** For a verify of a repair's candidate: which candidate (the label says `verify · repair candidate 3`). */
+  candidate?: number;
 }
 
 export interface PairsResult {
@@ -160,8 +162,25 @@ function openAIOnly(m: unknown): boolean {
 const cut = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 1)}…` : s);
 
 /**
+ * A tool's result as a person would read it out: a JSON object's fields as `key: value` (`sent: true,
+ * to: customer@example.com`), a string field without its quotes; anything else as it came.
+ */
+function readableResult(content: string): string {
+  const s = squash(content);
+  if (!s.startsWith('{')) return s;
+  try {
+    const v: unknown = JSON.parse(content);
+    if (!isObject(v)) return s;
+    const fields = Object.entries(v).map(([k, x]) => `${k}: ${typeof x === 'string' ? squash(x) : JSON.stringify(x)}`);
+    return fields.length ? fields.join(', ') : s;
+  } catch {
+    return s;
+  }
+}
+
+/**
  * A conversation in one line: what it was about (the first thing the user said) and the last thing
- * the model saw before answering (a tool's result, or what the user said last).
+ * the model saw before answering (a tool's result, read out field by field, or what the user said last).
  */
 export function contextLine(turns: readonly Turn[], width = 140): string {
   const texts = (t: Turn) => t.blocks.flatMap((b) => (b.type === 'text' && squash(b.text) ? [squash(b.text)] : []));
@@ -177,7 +196,7 @@ export function contextLine(turns: readonly Turn[], width = 140): string {
     const r = results.at(-1);
     if (r) {
       const name = r.name ?? (r.id ? names.get(r.id) : undefined) ?? 'a tool';
-      last = `${name} returned ${squash(r.content) || '(nothing)'}`;
+      last = `${name} returned ${readableResult(r.content) || '(nothing)'}`;
     } else if (t !== users[0] && texts(t).length) last = `then: ${texts(t).join(' ')}`;
   }
   if (!first && !last) return '(an empty conversation)';
@@ -645,9 +664,21 @@ function localTime(ms: number, seconds = false): string {
 }
 
 /**
- * Verify sources are named by the code they verified (`verify · 370712a+dirty`), else by when they
- * ran. Two verifies of the same code, or in the same minute, are told apart by the second they
- * started, and past that by their order.
+ * Blame sources are named by their run's first label (`blame · refund-bug`). Runs labelled alike
+ * (every run of one failure, blamed one by one) are told apart by their short ids.
+ */
+function nameBlames(sources: PairSource[]): void {
+  const blames = sources.filter((s) => s.kind === 'blame');
+  const count = (label: string) => blames.filter((s) => s.label === label).length;
+  for (const s of blames.filter((x) => count(x.label) > 1)) {
+    if (!s.label.endsWith(short(s.runId))) s.label = `${s.label} · ${short(s.runId)}`;
+  }
+}
+
+/**
+ * Verify sources are named by the repair candidate they verified (`verify · repair candidate 3`), else
+ * by the code they verified (`verify · 370712a+dirty`), else by when they ran. Two verifies named
+ * alike are told apart by the second they started, and past that by their order.
  */
 function nameVerifies(sources: PairSource[], versions: Map<PairSource, string | null>): void {
   const verifies = sources.filter((s) => s.kind === 'verify');
@@ -655,7 +686,8 @@ function nameVerifies(sources: PairSource[], versions: Map<PairSource, string | 
   const clashing = verifies.filter((s) => count(s.label) > 1);
   for (const s of clashing) {
     const version = versions.get(s) ?? null;
-    s.label = version ? `verify · ${version} · ${localTime(s.at, true).slice(11)}` : `verify · ${localTime(s.at, true)}`;
+    // Candidate 2 of two repairs: each keeps its candidate, told apart by when it ran.
+    s.label = s.candidate !== undefined ? `${s.label} · ${localTime(s.at, true).slice(11)}` : version ? `verify · ${version} · ${localTime(s.at, true).slice(11)}` : `verify · ${localTime(s.at, true)}`;
   }
   const seen = new Map<string, number>();
   for (const s of [...clashing].sort((x, y) => x.at - y.at)) {
@@ -698,16 +730,34 @@ const memo = new WeakMap<Store, { signature: string; result: PairsResult }>();
  * groups). A run still recording is never read for pairs (blame, verify and --repeat read only
  * attempts that ended), so the calls it records change nothing until it ends, and its status says so.
  */
-function signature(runs: readonly RunRecord[]): string {
+function signature(store: Store, runs: readonly RunRecord[]): string {
   const h = createHash('sha256');
   for (const r of runs) h.update(`${r.runId}|${r.parentRunId ?? ''}|${r.status}|${r.startedAt}|${r.endedAt ?? ''}|${r.codeVersion ?? ''}|${JSON.stringify(r.meta ?? null)}\n`);
+  // A repair keeps its report once its candidates are verified: the verifies are named after them then.
+  h.update(JSON.stringify(store.query(REPORTS_SQL)));
   return h.digest('hex');
+}
+
+const REPORTS_SQL = 'SELECT (SELECT COUNT(*) FROM verdicts) AS verdicts, (SELECT COUNT(*) FROM repairs) AS repairs';
+
+/**
+ * The repair candidate each verify attempt checked, by the attempt's run: what the verdicts and the
+ * repair reports in the store say, as Fixes names the same verifies ("repair candidate 3").
+ */
+function candidateAttempts(store: Store): Map<string, number> {
+  const out = new Map<string, number>();
+  const note = (runs: ReadonlyArray<{ attempts: ReadonlyArray<{ runId: string }> }>, candidate: number) => {
+    for (const x of runs) for (const a of x.attempts) if (!out.has(a.runId)) out.set(a.runId, candidate);
+  };
+  for (const v of store.listVerdicts()) if (v.candidate !== null) note(v.report.runs, v.candidate);
+  for (const r of store.listRepairs()) for (const c of r.report.candidates) if (c.verify) note(c.verify.runs, c.id);
+  return out;
 }
 
 /** Every pair the attempts in the store make, and every source read, including those that made none. */
 export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): PairsResult {
   const runs = options.runs ?? store.allRuns();
-  const sig = options.runs ? null : signature(runs);
+  const sig = options.runs ? null : signature(store, runs);
   const known = sig === null ? undefined : memo.get(store);
   if (known && known.signature === sig) return { pairs: [...known.result.pairs], sources: [...known.result.sources] };
   const result = readPairs(store, runs);
@@ -792,13 +842,17 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     const key = verifyInvocation(run);
     invocations.set(key, [...(invocations.get(key) ?? []), run]);
   }
+  // A repair verifies each candidate in the working tree: one revision, minutes apart. Each is named by its candidate.
+  const candidates = invocations.size ? candidateAttempts(store) : new Map<string, number>();
   for (const [key, attempts] of invocations) {
     attempts.sort(byStart);
     const byRun = new Map<string, RunRecord[]>();
     for (const a of attempts) byRun.set(a.parentRunId!, [...(byRun.get(a.parentRunId!) ?? []), a]);
     const first = attempts[0]!;
     const versions = [...new Set(attempts.map((a) => a.codeVersion).filter((v): v is string => !!v))];
-    const source: PairSource = { key: `verify:${key}`, kind: 'verify', runId: first.parentRunId!, runIds: [...byRun.keys()], label: `verify · ${versions[0] ?? localTime(first.startedAt)}`, confidence: 'medium', made: 0, attempts: attempts.length, callNo: null, why: '', at: first.startedAt };
+    const candidate = attempts.map((a) => candidates.get(a.runId)).find((n) => n !== undefined);
+    const label = candidate !== undefined ? `verify · repair candidate ${candidate}` : `verify · ${versions[0] ?? localTime(first.startedAt)}`;
+    const source: PairSource = { key: `verify:${key}`, kind: 'verify', runId: first.parentRunId!, runIds: [...byRun.keys()], label, confidence: 'medium', made: 0, attempts: attempts.length, callNo: null, why: '', at: first.startedAt, ...(candidate !== undefined ? { candidate } : {}) };
     sources.push(source);
     verifyVersions.set(source, versions[0] ?? null);
     // One verify checks one fix to one agent: a blame of any run it replayed says which scope is the agent's.
@@ -830,6 +884,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     source.why = whyContrast(mixed, n, 'several' in scope ? scope.several : [], source.made, 'No run both passed and failed: each passed every attempt or none.');
   }
   nameVerifies(sources, verifyVersions);
+  nameBlames(sources);
 
   // ---- --repeat: medium, by exit status ----
   const groups = new Map<string, RunRecord[]>();

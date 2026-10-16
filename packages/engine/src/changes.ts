@@ -3,6 +3,11 @@
 export interface RunChanges {
   /** Whether the set of system prompts the runs sent differs. */
   systemPrompt: boolean;
+  /**
+   * The system prompts each run sent, as the sha256 of their text, sorted: Compare names an
+   * unchanged prompt by its hash (`sha 3f9e…a21`). Absent from a comparison made before it was kept.
+   */
+  systems?: { a: string[]; b: string[] };
   /** Tools offered by name, and whether definitions of tools both offered differ. */
   tools: { added: string[]; removed: string[]; redefined: boolean };
   models: { a: string[]; b: string[] };

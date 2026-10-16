@@ -271,3 +271,12 @@ const shellQuote = (s: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(s) ? s : `'${
 export function normalizeAddCommand(n: Normalizer): string {
   return ['shadowlap', ...normalizeAddArgs(n)].map(shellQuote).join(' ');
 }
+
+/**
+ * Whether the rules in force already have the one a hint proposes: a rule at its path, for its kind
+ * of call (or every kind) and its tool (or every tool). A value new in the request is never masked
+ * where it diverged, so `volatileValues` still lists it; from the next run on, that rule masks it.
+ */
+export function ruleInForce(n: Normalizer, rules: readonly Normalizer[]): boolean {
+  return rules.some((x) => x.path === n.path && (!x.kind || x.kind === n.kind) && (!x.name || x.name === n.name));
+}

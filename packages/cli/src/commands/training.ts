@@ -9,7 +9,9 @@ import {
   formatUsd,
   listingInput,
   listModelChoices,
+  mainRefusal,
   matchTask,
+  modelReach,
   PAIR_FORMATS,
   PAIR_SHAPES,
   pairRows,
@@ -29,7 +31,7 @@ import { serveTasks } from '../serve-tasks.js';
 import { openStore, parseChoice, parseIntArg, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
 import { cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
-import { palette as p, shortId } from '../ui.js';
+import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 /**
  * Training: preference pairs read from the attempts blame, verify and --repeat left in the store,
@@ -99,6 +101,8 @@ function describeRow(t: LoadedTask): string[] {
   const checks = t.checks.filter((c) => !c.cap);
   if (t.status === 'ready' || t.status === 'blocked') lines.push(p.dim(`      scored by: the agent exits 0${checks.map((c) => `; ${safeLine(c.label)}`).join('')}`));
   if (t.after.live.length || t.after.stubbed.length) lines.push(p.dim(`      after the takeover: ${[...t.after.live.map((n) => `${safeLine(n)} live`), ...t.after.stubbed.map((n) => `${safeLine(n)} stubbed`)].join(', ')}`));
+  // Its test passes, but forks before the takeover: re-recorded as the agent runs now, a model can take over.
+  if (t.fork) lines.push(p.dim(`      update it: shadowlap test ${safeLine(quoteArgv([t.golden]))} --update`));
   return lines;
 }
 
@@ -378,7 +382,7 @@ export function register(program: Command): void {
 
   tasks
     .command('models')
-    .description('Models to score: the one the recordings used, each configured provider\'s models (Anthropic and OpenAI with the keys in the environment, Ollama on this machine) and endpoints scored before, each with what an attempt costs')
+    .description('Models to score: the one the recordings used, each configured provider\'s models (Anthropic and OpenAI with the keys in the environment, Ollama on this machine) and endpoints scored before, each with what an attempt costs and the ready tasks it can answer')
     .option('--json', 'print them as JSON')
     .option('--timeout <ms>', 'how long to wait for each provider\'s list', parseIntArg, 1500)
     .action(async (flags: { json?: boolean; timeout: number }) => {
@@ -392,7 +396,8 @@ export function register(program: Command): void {
         const rows = scores.filter((s) => s.model === model && s.baseUrl === base && readyGoldens.has(s.golden));
         return rows.length ? rows.reduce((x, r) => x + r.score, 0) / rows.length : null;
       };
-      const choices = listing.choices.map((c) => ({ ...c, lastScore: meanOf(c.id, c.baseUrl) }));
+      // Which ready tasks each can answer: what `tasks score` would refuse, said before anything runs.
+      const choices = listing.choices.map((c) => ({ ...c, lastScore: meanOf(c.id, c.baseUrl), reach: modelReach(c, list) }));
       if (flags.json) {
         process.stdout.write(JSON.stringify({ choices, notes: listing.notes, tokens: listing.tokens, tasks: ready.length }, null, 2) + '\n');
         return;
@@ -406,7 +411,10 @@ export function register(program: Command): void {
         const width = Math.max(...rows.map((c) => safeLine(c.id).length));
         for (const c of rows) {
           const cost = c.local ? '$0, not a paid API' : c.perAttempt === null ? 'no price' : `≈${formatUsd(c.perAttempt)} an attempt`;
-          process.stdout.write(`  ${safeLine(c.id).padEnd(width)}  ${p.dim(cost)}${c.lastScore !== null ? ` · scored ${c.lastScore.toFixed(2)}` : ''}\n`);
+          // Why its own provider's task can't ask it says more than that the others were recorded elsewhere, as the dashboard says it.
+          const first = mainRefusal(c.reach);
+          const reach = !first ? '' : c.reach.tasks.length ? p.dim(` · on ${c.reach.tasks.length} of ${plural(ready.length, 'task')}`) : p.yellow(` · can't answer the tasks (${safeLine(first.name)}: ${safeLine(first.why)})`);
+          process.stdout.write(`  ${safeLine(c.id).padEnd(width)}  ${p.dim(cost)}${c.lastScore !== null ? ` · scored ${c.lastScore.toFixed(2)}` : ''}${reach}\n`);
         }
       }
       for (const n of listing.notes) process.stdout.write(p.dim(`${safeLine(n.group)}: ${safeLine(n.note)}\n`));

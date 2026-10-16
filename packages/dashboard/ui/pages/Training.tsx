@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TrainingView } from '../api.js';
+import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
 import { Badge, CmdLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
+import { useTreeBusy } from '../fixes/tree.js';
 import { plural, shortId } from '../format.js';
+import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -50,7 +52,9 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
     if (tab === 'tasks' && canScore && !actionsOff) void client.models().catch(() => undefined);
   }, [tab, canScore, actionsOff, client]);
 
-  const action = tab === 'pairs' ? (canExport ? { label: 'Export pairs', kind: 'export' as const } : null) : canScore ? { label: 'Score a model', kind: 'score' as const } : null;
+  // Scoring runs the agent from the project's working tree: not while a repair or an apply changes it.
+  const busy = useTreeBusy('reads', 'score');
+  const action = tab === 'pairs' ? (canExport ? { label: 'Export pairs', kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: 'Score a model', kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
     <Page>
       <PageHeader
@@ -59,7 +63,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         text="Answers to prefer and tasks to score, from failures you fixed."
         actions={
           action ? (
-            <button className="btn lime" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
+            <button className="btn lime" type="button" disabled={!!action.off} title={action.off ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
               {action.label}
             </button>
           ) : null
@@ -82,9 +86,11 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         <EmptyState title="Training can’t be read" text={loaded.error.message} />
       ) : exported ? (
         <EmptyState title="Not in an exported copy" text="An exported copy holds runs and Compare between them. Training reads the store: open it from shadowlap dashboard." />
-      ) : null}
+      ) : (
+        <div className="empty">Reading pairs and tasks…</div>
+      )}
       {dialog === 'export' && view ? <ExportPairsDialog view={view} onClose={() => setDialog(null)} /> : null}
-      {dialog === 'score' && view ? <ScoreDialog view={view} onClose={() => setDialog(null)} /> : null}
+      {dialog === 'score' && view ? <ScoreDialog view={view} busy={busy} onClose={() => setDialog(null)} /> : null}
     </Page>
   );
 }
@@ -247,10 +253,22 @@ function PairGroup({ g }: { g: PairGroupView }) {
 // ---------------------------------------------------------------------------------------------- tasks
 
 function TasksTab({ view }: { view: TrainingView }) {
+  const { actionsOff, hasKind, guard } = useApp();
+  const [updating, setUpdating] = useState<{ update: TaskUpdate; name: string } | null>(null);
+  // Updating a golden runs the agent from the working tree: not while a repair or an apply changes it.
+  const busy = useTreeBusy('reads', 'update the golden');
   const t = view.tasks;
   if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
   if (t.empty) return <EmptyState title={t.empty.title} text={t.empty.text} command={t.empty.command} />;
   const w = t.warning;
+  // A task its test's early fork blocks: Update the golden, off with the reason when nothing can run.
+  const canUpdate = hasKind(JOB_KINDS.taskUpdate);
+  const updateOff = actionsOff ?? busy;
+  const updateButton = (u: TaskUpdate, name: string, cls: string) => (
+    <button className={cls} type="button" disabled={!!updateOff} title={updateOff ?? `Re-record ${name} as your agent runs now, so its test replays up to the takeover`} onClick={() => guard(() => setUpdating({ update: u, name }))}>
+      Update the golden…
+    </button>
+  );
   return (
     <>
       {w ? (
@@ -268,7 +286,9 @@ function TasksTab({ view }: { view: TrainingView }) {
               ) : null}
             </p>
           </div>
-          {w.fix ? (
+          {w.fix?.update ? (
+            canUpdate ? <div className="actions">{updateButton(w.fix.update, w.name ?? w.fix.update.golden, 'btn sm')}</div> : null
+          ) : w.fix?.href ? (
             <div className="actions">
               <a className="btn sm" href={w.fix.href}>
                 {w.fix.label}
@@ -297,7 +317,7 @@ function TasksTab({ view }: { view: TrainingView }) {
                 <tr key={r.golden} className={r.href ? undefined : 'static'} onClick={r.href ? rowOpen(() => navigate(r.href!)) : undefined}>
                   <td>
                     {r.href ? (
-                      <a className="rlink" href={r.href} title={r.status.key === 'blocked' ? 'Open Tests' : 'Open the golden’s run at the takeover'}>
+                      <a className="rlink" href={r.href} title={r.opens ?? undefined}>
                         <code>{r.name}</code>
                       </a>
                     ) : (
@@ -331,6 +351,7 @@ function TasksTab({ view }: { view: TrainingView }) {
                   <td>
                     <Badge tone={r.status.badge}>{r.status.label}</Badge>
                     {r.status.short ? <span className="rsub">{r.status.short}</span> : null}
+                    {r.update && canUpdate ? <div className="trupd">{updateButton(r.update, r.name, 'btn sm')}</div> : null}
                   </td>
                 </tr>
               ))}
@@ -338,6 +359,7 @@ function TasksTab({ view }: { view: TrainingView }) {
           </table>
         </div>
       </section>
+      {updating ? <UpdateGoldenDialog name={updating.name} update={updating.update} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
       <Scores view={view} />
       <div className="grid2 trgap">
         <section className="panel">
@@ -411,7 +433,10 @@ function Scores({ view }: { view: TrainingView }) {
             {s.cards.map((c) => (
               <div className="mcard" key={`${c.model}\n${c.baseUrl ?? ''}`}>
                 <b className="mn">{c.model}</b>
-                <span className="rsub">{c.via}</span>
+                <span className="rsub">
+                  {c.via}
+                  {c.where ? ` · ${c.where}` : ''}
+                </span>
                 <div className="ovbig">
                   <b>{c.mean === null ? '—' : c.mean.toFixed(2)}</b>
                   {/* Scored on fewer than every ready task (one became ready since): its mean is over those, and it says so. */}
@@ -434,6 +459,7 @@ function Scores({ view }: { view: TrainingView }) {
                   {s.cards.map((c) => (
                     <th key={`${c.model}\n${c.baseUrl ?? ''}`} className="mh" title={c.baseUrl ?? c.via}>
                       {c.model}
+                      {c.where ? <small>{c.where}</small> : null}
                     </th>
                   ))}
                 </tr>
@@ -534,8 +560,51 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
   );
 }
 
+/**
+ * Update the golden of a task whose test forks before its takeover: what it runs and why, then the
+ * job. The server builds the commands again from the store and the config; these are shown so the
+ * change to the config and the working tree is plain before it is made.
+ */
+function UpdateGoldenDialog({ name, update, busy, onClose }: { name: string; update: TaskUpdate; /** Why nothing can run now, or null. */ busy: string | null; onClose: () => void }) {
+  const { client, watchJob, guard } = useApp();
+  const rules = update.normalizers.length;
+  const values = update.normalizers.join(', ');
+  const fork = `Its test forks at #${update.forkedAt}, before the takeover at #${update.takeover}, so no model can take over there.`;
+  const text = update.rerecords
+    ? `${fork} Updating re-records it live from its first call, with every write tool stubbed, and replaces it in your working tree only if its checks pass. It calls your providers.`
+    : `${fork} Only ${rules === 1 ? 'a value that changes' : 'values that change'} every run differ there: the ${rules === 1 ? 'normalizer is' : 'normalizers are'} the whole fix, and the golden is tested again.`;
+  return (
+    <Dialog
+      title={update.rerecords ? `Update ${name}?` : `Add the ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}?`}
+      text={text}
+      ok={update.rerecords ? (rules ? 'Add and update' : 'Update') : 'Add and test'}
+      okDisabled={!!busy}
+      onOk={() => {
+        if (busy) return;
+        guard(() => {
+          watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden }));
+          onClose();
+        });
+      }}
+      onClose={onClose}
+    >
+      {rules && update.rerecords ? (
+        <p className="muted trnote">
+          First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <code>{values}</code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
+        </p>
+      ) : null}
+      <div className="trsteps">
+        {update.steps.map((step) => (
+          <CmdLine key={step.join(' ')}>{commandText(step)}</CmdLine>
+        ))}
+      </div>
+      {busy ? <p className="trbusy">{busy}</p> : null}
+    </Dialog>
+  );
+}
+
 /** Score a model: a model the server listed, or your own endpoint, and the attempts; then `shadowlap tasks score` as a job. */
-function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => void }) {
+function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scoring can't start now (a repair holds the working tree), or null. */ busy: string | null; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();
   const models = useLoad<ModelsView>(() => client.models(), 'models');
   const d = models.data?.dialog ?? null;
@@ -560,17 +629,18 @@ function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => voi
   const current = pick ?? '';
   const fields = pick === null ? null : scoreFields(d, current, endpoint, attempts);
   const notes = models.data ? notesLine(models.data.notes) : null;
+  const leftOut = d ? leftOutLine(d.leftOut) : null;
   const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current, endpoint);
   return (
     <Dialog
       title={d?.title ?? `Score a model on ${plural(view.tabs.tasks, 'task')}`}
       text="Each attempt replays the calls before the takeover from the recording, then runs the rest against this model with writes stubbed. The checks score it."
       ok="Score"
-      okDisabled={!fields}
+      okDisabled={!fields || !!busy}
       onOk={() => {
-        if (!fields) return;
+        if (!fields || busy) return;
         guard(() => {
-          watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts }));
+          watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}) }));
           onClose();
         });
       }}
@@ -623,8 +693,11 @@ function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => voi
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
-      {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint. */}
-      {notes && pick !== ENDPOINT ? <p className="trnotes">{notes}</p> : null}
+      {busy ? <p className="trbusy">{busy}</p> : null}
+      {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint, unless the endpoint is all there is. */}
+      {notes && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{notes}</p> : null}
+      {/* Models that can't answer any ready task, and why: what `tasks score` would refuse. */}
+      {leftOut && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{leftOut}</p> : null}
     </Dialog>
   );
 }

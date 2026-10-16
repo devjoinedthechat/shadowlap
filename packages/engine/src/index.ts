@@ -38,6 +38,7 @@ export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, Rec
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
+export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
@@ -95,9 +96,15 @@ export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
 export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
-export { anthropicBase, endpointVia, isLoopback, listingInput, listModelChoices, ollamaBase, openAIBase, OFFICIAL } from './models.js';
-export type { ListModelsInput, ModelChoice, ModelListing } from './models.js';
-export { anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, chatCompletionChunks, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
+export { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, OFFICIAL, refusedLine } from './models.js';
+// A rule the config already has, for a value a divergence shows (test --update, Training's Update the golden).
+export { ruleInForce } from './volatile.js';
+export type { ListModelsInput, ModelChoice, ModelListing, ModelReach } from './models.js';
+export { anthropicEventList, anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, awsErrorType, chatCompletionChunks, chatCompletionOf, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
 export type { AnthropicMessage, ChatCompletion, ChatShape, OpenAITool, ToOpenAIOptions, TranslatedRequest } from './translate.js';
+export { awsEvent, chatCompletionToConverse, converseStreamBody, converseToOpenAIChat, eventStreamHeaders, type ConverseResponse, type ConverseStopReason } from './translate-converse.js';
+export { chatCompletionToGemini, geminiStreamBody, geminiToOpenAIChat, geminiUsesIds, type GeminiResponse } from './translate-gemini.js';
+export { chatCompletionToResponse, responseEvents, responsesToOpenAIChat, type ResponseObject } from './translate-responses.js';
+export { anthropicAnswer, answerAs, CLOUD_ADVICE, CLOUDS, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
 export { messagesOf, type DatasetMessage } from './dataset.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';

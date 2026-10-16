@@ -1,6 +1,6 @@
 import { cpSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describeChanges, formatUsd, maskedChange, normalizeAddCommand, packRun, runChanges, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { describeChanges, formatUsd, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
@@ -76,7 +76,8 @@ export function describeChange(before: CallCounts, after: CallCounts): string {
 export function volatileWarning(d: DivergenceReport | null, normalizers: readonly Normalizer[] = []): Array<{ text: string; command: string }> {
   if (!d) return [];
   const { values, explainsAll } = volatileValues(d, normalizers);
-  return values.map((v) => ({
+  // A field new in the request is never masked where it diverged, but a rule at its path in force now masks it from the next run on.
+  return values.filter((v) => !(v.op === 'added' && ruleInForce(v.normalizer, normalizers))).map((v) => ({
     text:
       v.op === 'added'
         ? `${v.path} is new in the request and looks like ${v.looks}, a value that changes every run: after this update the next run diverges on it, unless a normalizer masks it:`

@@ -140,6 +140,11 @@ export interface MetaView {
   exportedAt?: number;
   redacted?: boolean;
   runIds?: string[];
+  /**
+   * Compare in an exported copy: the run every comparison it holds includes, when it holds too many
+   * runs to compare every pair; null or absent when every pair is in it.
+   */
+  compareWith?: string | null;
 }
 
 /** The icon an activity entry shows, as in the mock (each comes with its words beside it or on hover). */

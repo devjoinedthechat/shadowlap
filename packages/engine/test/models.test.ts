@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anthropicBase, endpointVia, isLoopback, listingInput, listModelChoices, ollamaBase, openAIBase } from '../src/models.js';
+import { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, refusedLine } from '../src/models.js';
 import type { TaskScoreRow } from '../src/store.js';
 import type { Task } from '../src/tasks.js';
 
@@ -63,7 +63,7 @@ describe('models to score', () => {
       'http://127.0.0.1:11434/api/tags': { refuse: true },
     });
     const listing = await listModelChoices({ recorded: [{ model: 'gpt-5-mini', provider: 'openai' }], tokens: null, env: { OPENAI_API_KEY: 'k' }, fetch, timeoutMs: 50 });
-    expect(listing.choices).toEqual([{ group: 'Recorded with', id: 'gpt-5-mini', via: 'the recorded model', where: 'OpenAI API', baseUrl: null, flags: ['--model', 'gpt-5-mini'], perAttempt: null, local: false }]);
+    expect(listing.choices).toEqual([{ group: 'Recorded with', id: 'gpt-5-mini', via: 'the recorded model', where: 'OpenAI API', baseUrl: null, flags: ['--model', 'gpt-5-mini'], perAttempt: null, local: false, provider: 'openai' }]);
     expect(listing.notes).toEqual([
       { group: 'Anthropic API', note: 'ANTHROPIC_API_KEY is not set' },
       { group: 'OpenAI API', note: "didn't answer in time" },
@@ -133,5 +133,75 @@ describe('models to score', () => {
     expect(anthropicBase({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:5555/t/0123456789abcdef0123456789abcdef/anthropic' })).toBe('https://api.anthropic.com');
     expect(ollamaBase({ OLLAMA_HOST: '0.0.0.0:11500' })).toBe('http://127.0.0.1:11500');
     expect(ollamaBase({})).toBe('http://127.0.0.1:11434');
+  });
+});
+
+describe('which ready tasks a listed model can answer', () => {
+  const task = (golden: string, provider: string | null, callName: string, status: Task['status'] = 'ready'): Task => ({ golden, name: golden.split('/').at(-1)!, status, note: null, runId: 'r', takeover: { callNo: 5, why: 'w', from: 'config' }, scope: null, scopes: [null], rewards: null, checks: [], after: { live: [], stubbed: [] }, prefix: 4, model: 'm', provider, callName, tokensAfter: null });
+  const choice = (id: string, flags: string[], baseUrl: string | null = null, provider?: string) => ({ id, flags, baseUrl, ...(provider ? { provider } : {}) });
+
+  it('reads how tasks score asks a model from the flags it takes', () => {
+    expect(choiceTarget(choice('q', ['--model', 'q', '--base-url', 'http://127.0.0.1:11434/v1'], 'http://127.0.0.1:11434/v1'))).toEqual({ route: 'openai-chat', scoreBase: 'http://127.0.0.1:11434/v1' });
+    expect(choiceTarget(choice('h', ['--model', 'anthropic:h']))).toEqual({ route: 'anthropic', scoreBase: null });
+    expect(choiceTarget(choice('g', ['--model', 'openai:g']))).toEqual({ route: 'openai-chat', scoreBase: null });
+    expect(choiceTarget(choice('s', ['--model', 's']))).toEqual({ route: 'same', scoreBase: null });
+  });
+
+  it('answers every cloud through a translation, refuses another model of a cloud, and a model of another provider', () => {
+    const tasks = [
+      task('goldens/azure', 'azure', 'POST /openai/deployments/gpt-prod/chat/completions'),
+      task('goldens/converse', 'bedrock', 'POST /model/amazon.nova-pro-v1%3A0/converse'),
+      task('goldens/gemini', 'gemini', 'POST /v1beta/models/gemini-2.5-flash:generateContent'),
+      task('goldens/blocked', 'anthropic', 'POST /v1/messages', 'blocked'),
+    ];
+    // A model at your endpoint answers all three ready tasks; a blocked one isn't counted.
+    expect(modelReach(choice('q', ['--model', 'q', '--base-url', 'http://127.0.0.1:11434/v1'], 'http://127.0.0.1:11434/v1'), tasks)).toEqual({ tasks: ['goldens/azure', 'goldens/converse', 'goldens/gemini'], refused: [] });
+    expect(modelReach(choice('h', ['--model', 'anthropic:h']), tasks).tasks).toHaveLength(3);
+    // Another Gemini model answers the Gemini task only: Azure's deployment picks its model, and the other is another provider's recording.
+    const gemini = modelReach(choice('gemini-2.5-pro', ['--model', 'gemini-2.5-pro'], null, 'gemini'), tasks);
+    expect(gemini.tasks).toEqual(['goldens/gemini']);
+    expect(gemini.refused.map((r) => r.why)).toEqual(['it was recorded on Azure OpenAI, and gemini-2.5-pro is asked of the Gemini API', 'it was recorded on Amazon Bedrock, and gemini-2.5-pro is asked of the Gemini API']);
+    expect(modelReach(choice('gpt-other', ['--model', 'gpt-other'], null, 'azure'), tasks).refused[0]!.why).toContain('the deployment in the URL picks the model');
+  });
+
+  it('scores the model a cloud recording used on that recording, nothing switched, and still no other model of that cloud', () => {
+    const own = (golden: string, provider: string, callName: string, model: string): Task => ({ ...task(golden, provider, callName), model });
+    const tasks = [
+      own('goldens/azure', 'azure', 'POST /openai/deployments/gpt-prod/chat/completions', 'gpt-prod'),
+      own('goldens/converse', 'bedrock', 'POST /model/amazon.nova-pro-v1%3A0/converse', 'amazon.nova-pro-v1:0'),
+      own('goldens/vertex', 'vertex', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5:rawPredict', 'claude-sonnet-5'),
+    ];
+    // Each answers its own recording: the deployment, the signed URL and the regional address stay as the agent made them.
+    expect(modelReach(choice('gpt-prod', ['--model', 'gpt-prod'], null, 'azure'), tasks).tasks).toEqual(['goldens/azure']);
+    expect(modelReach(choice('amazon.nova-pro-v1:0', ['--model', 'amazon.nova-pro-v1:0'], null, 'bedrock'), tasks).tasks).toEqual(['goldens/converse']);
+    expect(modelReach(choice('claude-sonnet-5', ['--model', 'claude-sonnet-5'], null, 'vertex'), tasks).tasks).toEqual(['goldens/vertex']);
+    // Another model of the cloud still can't be asked there, and the recorded one not on another provider's recording.
+    const lite = modelReach(choice('amazon.nova-lite-v1:0', ['--model', 'amazon.nova-lite-v1:0'], null, 'bedrock'), tasks);
+    expect(lite.tasks).toEqual([]);
+    expect(lite.refused.find((r) => r.golden === 'goldens/converse')!.why).toContain('request signature covers the model in its URL');
+    expect(modelReach(choice('gpt-prod', ['--model', 'gpt-prod'], null, 'azure'), tasks).refused.map((r) => [r.golden, r.elsewhere])).toEqual([['goldens/converse', true], ['goldens/vertex', true]]);
+  });
+
+  it('says first why its own provider\'s task refuses a model, and groups the tasks it leaves out by why', () => {
+    const tasks = [
+      task('goldens/azure', 'azure', 'POST /openai/deployments/gpt-prod/chat/completions'),
+      task('goldens/bedrock-claude', 'bedrock', 'POST /model/anthropic.claude-sonnet-5-v1%3A0/invoke'),
+      task('goldens/converse', 'bedrock', 'POST /model/amazon.nova-pro-v1%3A0/converse'),
+      task('goldens/gemini', 'gemini', 'POST /v1beta/models/gemini-2.5-flash:generateContent'),
+      task('goldens/vertex', 'vertex', 'POST /v1/projects/p/locations/us-east5/publishers/google/models/gemini-2.5-flash:generateContent'),
+    ];
+    // Another model of Bedrock: the Azure task is listed first, but Bedrock's own refusal says more.
+    const nova = modelReach(choice('amazon.nova-lite-v1:0', ['--model', 'amazon.nova-lite-v1:0'], null, 'bedrock'), tasks);
+    expect(nova.tasks).toEqual([]);
+    expect(nova.refused[0]!.elsewhere).toBe(true);
+    expect(mainRefusal(nova)).toMatchObject({ name: 'bedrock-claude', elsewhere: false });
+    expect(mainRefusal({ tasks: [], refused: [] })).toBeNull();
+    // A Gemini model answers its own task: the three recorded on other clouds are one reason, not three.
+    const gemini = modelReach(choice('gemini-2.5-flash', ['--model', 'gemini-2.5-flash'], null, 'gemini'), tasks);
+    expect(gemini.tasks).toEqual(['goldens/gemini']);
+    expect(refusedLine({ provider: 'gemini' }, gemini)).toBe('azure, bedrock-claude, converse, vertex: recorded on Azure OpenAI, Amazon Bedrock and Vertex AI, not the Gemini API');
+    // Reasons of their own are grouped by their words, after the tasks recorded elsewhere.
+    expect(refusedLine({ provider: 'bedrock' }, nova)).toBe(`azure, gemini, vertex: recorded on Azure OpenAI, the Gemini API and Vertex AI, not Amazon Bedrock; bedrock-claude, converse: ${nova.refused.find((r) => r.name === 'bedrock-claude')!.why}`);
+    expect(refusedLine({ provider: 'gemini' }, { tasks: ['goldens/gemini'], refused: [] })).toBeNull();
   });
 });

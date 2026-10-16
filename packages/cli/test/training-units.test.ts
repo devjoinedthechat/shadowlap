@@ -6,9 +6,10 @@ import { message, startMockAnthropic, text, toolUse, type MockServer } from '@sh
 import { functionCall, startMockGemini, turn as geminiTurn, type MockServer as GeminiServer } from '@shadowlap-testing/mock-gemini';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from '@shadowlap-testing/mock-openai';
 import { parseTests } from '../src/checks.js';
+import { volatileWarning } from '../src/golden-update.js';
 import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
-import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, type LoadedTask, type TaskScore } from '../src/tasks.js';
+import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
 /**
  * The CLI's training parts on their own: the task block under tests, the model under test and how a
@@ -367,10 +368,28 @@ describe('a golden\'s last test', () => {
     // A divergence fails a golden unless it may fork.
     expect(testFailed(last.get('goldens/c'), null)).toBe(true);
     expect(testFailed(last.get('goldens/c'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBe(false);
+    // Where it forked counts for a task only when it may fork: otherwise the divergence failed it.
+    expect(testForkedAt(last.get('goldens/c'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBe(3);
+    expect(testForkedAt(last.get('goldens/c'), null)).toBeNull();
+    expect(testForkedAt(last.get('goldens/b'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBeNull();
+    expect(testForkedAt(undefined, { fork: true, repeat: 1, passes: 1, tools: [] })).toBeNull();
     expect(testFailed(last.get('goldens/d'), null)).toBe(true);
     expect(testFailed(last.get('goldens/e'), null)).toBeNull();
     expect(lastTests(null, root).size).toBe(0);
     store.close();
+  });
+});
+
+describe('the warning test --update gives about a value that changes every run', () => {
+  const added = { type: 'request_changed' as const, callNo: 3, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata', op: 'added' as const, after: { user_id: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' } }] };
+  it('names the rule for a field new in the request, and says nothing once the config has it', () => {
+    expect(volatileWarning(added).map((w) => w.command)).toEqual(["shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'"]);
+    // Added just before the update (Training's Update the golden adds it first): the next run is masked, nothing to say.
+    expect(volatileWarning(added, [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }])).toEqual([]);
+    expect(volatileWarning(added, [{ path: '$.metadata.user_id', replace: '<ID>' }])).toEqual([]);
+    // A rule for another kind of call, or another path, is no rule for it.
+    expect(volatileWarning(added, [{ kind: 'tool', path: '$.metadata.user_id', replace: '<ID>' }])).toHaveLength(1);
+    expect(volatileWarning(added, [{ kind: 'api', path: '$.metadata.trace_id', pattern: 'ulid', replace: '<ULID>' }])).toHaveLength(1);
   });
 });
 
@@ -382,7 +401,7 @@ describe('what a score refuses before anything runs', () => {
 
   it('a model scoring can\'t switch: Bedrock, Vertex AI and Azure deployments', () => {
     const same = (m: string) => resolveTarget({ model: m }, {});
-    expect(cannotScore(task('POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'bedrock'), same('anthropic.claude-haiku-4-5-v1:0'))).toBe("goldens/g can't be scored with anthropic.claude-haiku-4-5-v1:0: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(cannotScore(task('POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'bedrock'), same('anthropic.claude-haiku-4-5-v1:0'))).toBe("goldens/g can't be scored with anthropic.claude-haiku-4-5-v1:0: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL: score Anthropic's or OpenAI's API, or a model at your own endpoint, instead");
     expect(cannotScore(task('POST /openai/deployments/gpt-prod/chat/completions', 'azure'), same('gpt-test'))).toContain('Azure OpenAI');
     // Within their own provider, Anthropic, OpenAI (the Responses API too) and Gemini switch.
     expect(cannotScore(task('POST /v1beta/models/gemini-2.5-flash:generateContent', 'gemini'), same('gemini-2.5-pro'))).toBeNull();
@@ -390,7 +409,9 @@ describe('what a score refuses before anything runs', () => {
     expect(cannotScore(task('POST /v1/messages', 'anthropic'), same('claude-haiku-4-5'))).toBeNull();
     expect(cannotScore(task('POST /v1/chat/completions', 'openai'), same('gpt-5'))).toBeNull();
     // Another provider's model is refused for these: they don't translate.
-    expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toContain('only Anthropic Messages and OpenAI Chat Completions are translated');
+    expect(cannotScore(task('POST /v1/completions', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toBe("goldens/g can't be answered by m at http://127.0.0.1:8000/v1: it is an openai request (/v1/completions), which only another model of its own provider can answer");
+    // The Responses API translates for another model's chat completions.
+    expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toBeNull();
   });
 
   it('a takeover asked at a call that asks a model nothing', () => {

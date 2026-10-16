@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compareRuns, formatComparison } from '../src/compare.js';
 import { Store } from '../src/store.js';
 import type { CallKind, RunRecord } from '../src/types.js';
+import { RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 function addCall(store: Store, run: RunRecord, callNo: number, kind: CallKind, name: string, args: unknown, result: unknown, fingerprint = JSON.stringify(args)) {
   const identity = { kind, name, fingerprint, occurrence: 1 };
@@ -66,6 +67,39 @@ describe('compareRuns', () => {
     const c = compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));
     expect(c).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null, after: null, responseDifferences: [], onlyInA: 0, onlyInB: 0 });
     expect(formatComparison(c)).toContain('identical');
+    store.close();
+  });
+
+  it('says what the model answered each time, and an answer that came back the same as such', () => {
+    const store = Store.open(':memory:');
+    const body = { model: 'claude-sonnet-5', max_tokens: 64, messages: [user('Refund A-1042.')] };
+    const a = RunBuilder.start(store);
+    const b = RunBuilder.start(store, { parent: a.runId });
+    // 1: another decision. 2: the same words in a new response (its own id). 3: the same words after other thinking. 4: an error, then an answer.
+    a.model(body, [text('Issuing the refund.'), toolUse('issue_refund', { order_id: 'A-1042', amount: 240 }, 'toolu_1')]);
+    b.model(body, [text('Above the limit.'), toolUse('escalate', { reason: 'over $100' }, 'toolu_2')]);
+    a.model(body, [text('Done.')]);
+    b.model(body, [text('Done.')]);
+    a.model(body, [{ type: 'thinking', thinking: 'The limit is $100.', signature: 's1' }, text('Escalated.')]);
+    b.model(body, [{ type: 'thinking', thinking: 'Over the limit: escalate.', signature: 's2' }, text('Escalated.')]);
+    a.model(body, null);
+    b.model(body, [text('Done.')]);
+    const c = compareRuns(store, a.run, store.getCalls(a.runId), b.run, store.getCalls(b.runId));
+    expect(c.identicalPrefix).toBe(0);
+    expect(c.responseDifferences.map((r) => r.detail)).toEqual([
+      '"Issuing the refund.", issue_refund({"order_id":"A-1042","amount":240}) → "Above the limit.", escalate({"reason":"over $100"})',
+      'the same answer (its id or token counts differ)',
+      'the same answer, after other thinking',
+      expect.stringMatching(/^\d+ → \d+ bytes, .*error → ok$/),
+    ]);
+    // Only the second is the model answering the same: the page counts it apart from answers that changed.
+    expect(c.responseDifferences.map((r) => r.sameAnswer ?? false)).toEqual([false, true, false, false]);
+    // shadowlap diff prints the same lines, the answer that came back the same apart from the rest.
+    const printed = formatComparison(c);
+    expect(printed).toContain('#1 api POST /v1/messages: "Issuing the refund.", issue_refund(');
+    expect(printed).toContain('= 1 call with the same request got the same answer in a new response (only ids or token counts differ)');
+    expect(printed).toContain('≠ 3 calls with the same request but a different response:');
+    expect(printed).not.toContain('#2 api');
     store.close();
   });
 });

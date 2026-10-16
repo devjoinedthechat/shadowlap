@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, PAIR_FORMATS, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -20,6 +20,11 @@ export interface SourceFix {
   label: string;
   /** The verify report a verify source is, for `#/fixes/<id>/verify/<verify-id>`. */
   verifyId?: string;
+  /**
+   * A verify of a repair candidate the gate turned down: no verdict of its own was kept, so it opens
+   * at the fix's Repair step (`#/fixes/<id>/repair`), where its candidate is listed.
+   */
+  repair?: true;
 }
 
 export interface TrainingInput {
@@ -37,6 +42,41 @@ export interface TrainingInput {
   models?: ModelListing | null;
   /** Which fix a source's pairs about a run belong to, when Fixes knows (sourceFixes). */
   fixOf?: FixOf;
+  /** What makes each task blocked by an early fork ready, by golden (taskUpdate). */
+  updates?: Record<string, TaskUpdate>;
+}
+
+/**
+ * What makes a task ready whose golden's test forks before the takeover (`Task.fork`): the golden
+ * passes, but a model takes over only where the recording still replays. Updating it re-records it
+ * as the agent runs now (`shadowlap test <golden> --update`), after a normalizer for each value its
+ * fork shows that changes on every run, which would fork the next test again. When such values were
+ * all that changed, the normalizers are the whole fix, and the golden is tested again instead.
+ */
+export interface TaskUpdate {
+  golden: string;
+  /** The call its last test forked at, and the call the task takes over at. */
+  forkedAt: number;
+  takeover: number;
+  /** The paths it adds a normalizer for first: `$.metadata.user_id`. */
+  normalizers: string[];
+  /** The golden is re-recorded (`test --update`), not only tested again. */
+  rerecords: boolean;
+  /** What the job runs, after `shadowlap`, in order. */
+  steps: string[][];
+}
+
+/** What Update the golden runs for a task blocked by an early fork, or null for any other task. */
+export function taskUpdate(store: Store, task: Task, normalizers: readonly Normalizer[]): TaskUpdate | null {
+  if (task.status !== 'blocked' || !task.fork || !task.takeover) return null;
+  const run = task.fork.runId ? store.getRun(task.fork.runId) : null;
+  const found = run?.divergence ? volatileValues(run.divergence, normalizers) : null;
+  // Only values that surely change every run get a rule, and only one the config doesn't have: an id
+  // that changed may be a real change, which the update records.
+  const sure = (found?.values ?? []).filter((v) => v.certain && !ruleInForce(v.normalizer, normalizers));
+  const rerecords = !found?.explainsAll;
+  const steps = [...sure.map((v) => normalizeAddArgs(v.normalizer)), rerecords ? ['test', task.golden, '--update'] : ['test', task.golden]];
+  return { golden: task.golden, forkedAt: task.fork.callNo, takeover: task.takeover.callNo, normalizers: sure.map((v) => v.path), rerecords, steps };
 }
 
 /**
@@ -46,10 +86,16 @@ export interface TrainingInput {
  */
 export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
 
-/** What the store holds for Training; `tasks` and `models` come from the caller. */
-export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf }): TrainingInput {
+/** What the store holds for Training; `tasks` and `models` come from the caller, and `normalizers` from the config as it is now. */
+export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
   const { pairs, sources } = findPairs(store);
-  const storedRuns = new Set(extra.tasks.flatMap((t) => (t.runId && store.getRun(t.runId) ? [t.runId] : [])));
+  // The goldens' runs, and the test runs that forked before a takeover, that the store still holds.
+  const storedRuns = new Set(extra.tasks.flatMap((t) => [t.runId, t.fork?.runId ?? null].filter((id): id is string => !!id && !!store.getRun(id))));
+  const updates: Record<string, TaskUpdate> = {};
+  for (const t of extra.tasks) {
+    const u = taskUpdate(store, t, extra.normalizers ?? []);
+    if (u) updates[t.golden] = u;
+  }
   return {
     pairs,
     sources,
@@ -60,6 +106,7 @@ export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: 
     storedRuns,
     ...(extra.models !== undefined ? { models: extra.models } : {}),
     ...(extra.fixOf ? { fixOf: extra.fixOf } : {}),
+    ...(Object.keys(updates).length ? { updates } : {}),
   };
 }
 
@@ -81,7 +128,8 @@ export function sourceFixes(store: Store): FixOf {
     const first = attempts.find((r) => r.startedAt === s.at) ?? attempts[0];
     const f = first ? fixForRun(store, first.runId) : null;
     const report = f?.verify?.verifyId ? store.linksTo(f.verify.verifyId, 'verify') : f?.verify?.repairId ? store.linksTo(f.verify.repairId, 'repair') : [];
-    const v = f?.fix ? { fix: { id: f.fix.fixId, label: label(f.fix), ...(f.verify?.verifyId ? { verifyId: f.verify.verifyId } : {}) }, linked: new Set(report.map((l) => l.fixId)) } : null;
+    const kept = f?.verify?.verifyId ? { verifyId: f.verify.verifyId } : f?.verify?.repairId ? { repair: true as const } : {};
+    const v = f?.fix ? { fix: { id: f.fix.fixId, label: label(f.fix), ...kept }, linked: new Set(report.map((l) => l.fixId)) } : null;
     verifies.set(s.key, v);
     return v;
   };
@@ -192,8 +240,15 @@ export interface TaskRowView {
   after: { live: string[]; stubbed: string[] } | null;
   status: { key: Task['status']; label: string; badge: 'ok' | 'y' | 'n'; short: string | null };
   rewards: string | null;
-  /** The golden's run at the takeover; Tests for a blocked task; null when the store doesn't hold the run. */
+  /**
+   * The golden's run at the takeover; Tests for a blocked task, or for one blocked by an early fork
+   * the test run where it forked; null when the store doesn't hold the run.
+   */
   href: string | null;
+  /** What the row's link opens, on hover. */
+  opens: string | null;
+  /** For a task blocked by an early fork: what Update the golden runs. */
+  update: TaskUpdate | null;
 }
 
 export interface ModelCardView {
@@ -201,6 +256,11 @@ export interface ModelCardView {
   baseUrl: string | null;
   /** Where it ran: `the recorded model`, `Anthropic API`, `Ollama, on this machine`. */
   via: string;
+  /**
+   * Its endpoint (`127.0.0.1:60863`), when another card has the same model name: the same model scored
+   * at two endpoints is two cards, told apart by it. Null otherwise.
+   */
+  where: string | null;
   /** The mean over the ready tasks it was scored on. */
   mean: number | null;
   /** The ready tasks it was scored on: fewer than all of them when a task became ready after it was scored. */
@@ -234,8 +294,11 @@ export interface ScoreRowView {
 export interface ModelOptionView extends ModelChoice {
   /** Unique among the options: the model and its endpoint. */
   key: string;
-  /** What the dialog sends to start the job (scoreModelJob): the model as `--model` takes it, and the endpoint. */
-  request: { model: string; baseUrl: string | null };
+  /**
+   * What the dialog sends to start the job (scoreModelJob): the model as `--model` takes it, the
+   * endpoint, and the tasks when it can answer only some of the ready ones (null: every ready task).
+   */
+  request: { model: string; baseUrl: string | null; goldens: string[] | null };
   /** `qwen2.5:7b · scored 0.80`, as the picker lists it. */
   label: string;
   lastScore: number | null;
@@ -247,13 +310,18 @@ export interface ScoreDialogView {
   title: string;
   options: ModelOptionView[];
   groups: string[];
-  /** The first model not scored yet, else the first. */
+  /** The first model not scored yet that answers every ready task, else the first not scored yet, else the first. */
   selected: string | null;
   attempts: number[];
   /** "Your own endpoint…": a base URL and a model name, filled in with these. */
   endpoint: { key: string; group: string; label: string; baseUrl: string; model: string; note: string };
   /** Providers that couldn't be listed, and why. */
   notes: Array<{ group: string; note: string }>;
+  /**
+   * Listed models left out because they can't answer any ready task, grouped by where they run and
+   * why: `{ group: 'Anthropic API', models: ['claude-haiku-4-5'], why: 'refund-flow: it uses the OpenAI Responses API, …' }`.
+   */
+  leftOut: Array<{ group: string; models: string[]; why: string }>;
 }
 
 export interface TrainingView {
@@ -277,7 +345,7 @@ export interface TrainingView {
      * Every ready task rewards the same thing. `text` says it in one line; `name` is the task that
      * rewards the opposite (shown as code) and `once` what it needs first, for a view that marks it up.
      */
-    warning: (OneSided & { text: string; name: string | null; once: string | null; fix: { label: string; href: string } | null }) | null;
+    warning: (OneSided & { text: string; name: string | null; once: string | null; fix: { label: string; href: string | null; update: TaskUpdate | null } | null }) | null;
     empty: { title: string; text: string; command: string } | null;
     /** Why the tasks couldn't be read, such as a mistake in the config's `tests`; null when they could. */
     error: string | null;
@@ -303,15 +371,26 @@ const LOOPBACK = /^https?:\/\/(localhost|127\.|\[::1\])/;
 
 const modelKey = (model: string, baseUrl: string | null) => `${model}\n${baseUrl ?? ''}`;
 
-/** A fix as its source opens it: at the Blame step, or at the verify. */
+/** A fix as its source opens it: at the Blame step, at the verify, or for a repair candidate turned down, at the Repair step. */
 function fixHref(kind: PairSource['kind'], fix: SourceFix): string {
-  return kind === 'blame' ? `#/fixes/${fix.id}/blame` : `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
+  if (kind === 'blame') return `#/fixes/${fix.id}/blame`;
+  return fix.repair ? `#/fixes/${fix.id}/repair` : `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
 }
 
 /** A source opens its fix; without one, its run's forks, at the call its pairs are about when it made some. */
 function sourceHref(s: PairSource, fix: SourceFix | null, callNo: number | null): string {
   if (fix && s.kind !== 'repeat') return fixHref(s.kind, fix);
   return `#/run/${s.runId}${callNo ? `/${callNo}` : ''}/forks`;
+}
+
+/** An endpoint as a card names it: its host and port, or the provider's own API. */
+function endpointName(baseUrl: string | null): string {
+  if (!baseUrl) return "the provider's API";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
 }
 
 /** The share of checks passed, as a pip: every check, some, or none. */
@@ -350,17 +429,41 @@ export function scoreNote(c: Pick<ModelChoice, 'where' | 'baseUrl' | 'perAttempt
   return lastScore === null ? where : `${where} · replaces its score of ${lastScore.toFixed(2)}`;
 }
 
-/** Score a model's picker: the listed models with their last scores, the one to preselect, and "Your own endpoint…". */
+/** A refused task and why, as a note says it: `refund-flow: it uses the OpenAI Responses API, …`. */
+const refusal = (r: ModelReach['refused'][number]) => `${r.name}: ${r.why}`;
+
+/**
+ * Score a model's picker: the listed models with their last scores, the one to preselect, and "Your
+ * own endpoint…". A model is offered only when it can answer a ready task (`modelReach`, what `tasks
+ * score` would refuse): one that answers only some is scored on those, and its note says which it
+ * leaves out; one that answers none is left out, and `leftOut` says why.
+ */
 export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskScoreRow[], listing: ModelListing): ScoreDialogView | null {
   const ready = tasks.filter((t) => t.status === 'ready');
   if (!ready.length) return null;
   const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
-  const options: ModelOptionView[] = listing.choices.map((c) => {
+  const options: ModelOptionView[] = [];
+  const leftOut: ScoreDialogView['leftOut'] = [];
+  for (const c of listing.choices) {
+    const reach = modelReach(c, tasks);
+    if (!reach.tasks.length) {
+      // Why its own provider's task can't ask it says more than that the others were recorded elsewhere.
+      const first = mainRefusal(reach);
+      const why = first ? refusal(first) : 'no task is ready';
+      const same = leftOut.find((l) => l.group === c.group && l.why === why);
+      if (same) same.models.push(c.id);
+      else leftOut.push({ group: c.group, models: [c.id], why });
+      continue;
+    }
     const last = means.get(modelKey(c.id, c.baseUrl)) ?? null;
     const flag = (name: string) => (c.flags.includes(name) ? (c.flags[c.flags.indexOf(name) + 1] ?? null) : null);
-    return { ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url') }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note: scoreNote(c, last) };
-  });
-  const first = options.find((o) => o.lastScore === null) ?? options[0] ?? null;
+    const some = reach.refused.length > 0;
+    // The tasks it leaves out, grouped by why: three tasks recorded on other clouds are one reason, not three.
+    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${refusedLine(c, reach)}` : scoreNote(c, last);
+    options.push({ ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url'), goldens: some ? reach.tasks : null }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note });
+  }
+  // The first model not scored yet that answers every ready task, else the first not scored yet.
+  const first = options.find((o) => o.lastScore === null && o.request.goldens === null) ?? options.find((o) => o.lastScore === null) ?? options[0] ?? null;
   return {
     title: `Score a model on ${plural(ready.length, 'task')}`,
     options,
@@ -369,6 +472,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     attempts: [...SCORE_ATTEMPTS],
     endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: scoreNote(null, null) },
     notes: listing.notes,
+    leftOut,
   };
 }
 
@@ -376,7 +480,8 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
 export interface ModelsView {
   /** Ready tasks: the ones a model is scored on, whose tokens price an attempt. */
   ready: number;
-  choices: Array<ModelChoice & { lastScore: number | null }>;
+  /** Every listed model, with its last score and which ready tasks it can answer (the picker offers only those that answer one). */
+  choices: Array<ModelChoice & { lastScore: number | null; reach: ModelReach }>;
   /** Providers that couldn't be listed, and why. */
   notes: ModelListing['notes'];
   /** The tokens an attempt is expected to use after its takeover, which the prices are estimated from. */
@@ -390,7 +495,7 @@ export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow
   const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
   return {
     ready: ready.length,
-    choices: listing.choices.map((c) => ({ ...c, lastScore: means.get(modelKey(c.id, c.baseUrl)) ?? null })),
+    choices: listing.choices.map((c) => ({ ...c, lastScore: means.get(modelKey(c.id, c.baseUrl)) ?? null, reach: modelReach(c, tasks) })),
     notes: listing.notes,
     tokens: listing.tokens,
     dialog: scoreDialogView(tasks, scores, listing),
@@ -444,8 +549,10 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     const value = s?.mean ?? null;
     const tasks = s?.tasks.size ?? 0;
     const local = !!m.baseUrl && LOOPBACK.test(m.baseUrl);
-    return { model: m.model, baseUrl: m.baseUrl, via: m.via, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
+    return { model: m.model, baseUrl: m.baseUrl, via: m.via, where: null, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
   });
+  // The same model scored at two endpoints is two cards and two columns: each says its endpoint.
+  for (const c of cards) if (cards.some((o) => o !== c && o.model === c.model)) c.where = endpointName(c.baseUrl);
   // Means over different tasks don't compare: the best is among the models scored on every ready
   // task, and only when none was is it the best of the rest, with the tasks it covers.
   const whole = cards.filter((c) => c.mean !== null && c.coverage === null);
@@ -509,15 +616,19 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   for (const x of input.pairs) madeBy[x.source] = (madeBy[x.source] ?? 0) + 1;
 
   // ---- tasks ----
+  const updateOf = (t: Task) => input.updates?.[t.golden] ?? null;
   const warn = findOneSided(input.tasks);
   const opposite = warn?.opposite ? (input.tasks.find((t) => t.golden === warn.opposite!.golden) ?? null) : null;
+  // A task whose test fails is fixed on Tests; one whose test forks before its takeover, by updating its golden.
+  const oppositeUpdate = opposite ? updateOf(opposite) : null;
+  const once = !opposite ? null : oppositeUpdate ? 'its golden is updated' : opposite.status === 'blocked' ? 'its test passes' : 'it is a task';
   const warning = warn
     ? {
         ...warn,
-        text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${opposite.status === 'blocked' ? 'its test passes' : 'it is a task'}.` : ''}`,
+        text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once}.` : ''}`,
         name: opposite?.name ?? null,
-        once: opposite ? (opposite.status === 'blocked' ? 'its test passes' : 'it is a task') : null,
-        fix: opposite?.status === 'blocked' ? { label: 'Fix it on Tests', href: '#/tests' } : null,
+        once,
+        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: 'Fix it on Tests', href: '#/tests', update: null } : null,
       }
     : null;
   // Tasks a model can be scored on first, then what keeps the rest from being one; the project's order within each.
@@ -528,6 +639,12 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     // Without an outcome check nothing is scored, so no model takes over: the mock's "no call to take over".
     const takeover = outcome.length && t.status !== 'no-golden' ? t.takeover : null;
     const k = takeover?.callNo ?? null;
+    const update = updateOf(t);
+    const atTakeover = stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null;
+    // A task blocked by an early fork opens the test run where it forked, where what changed shows; else the golden's run.
+    const forkRun = update && t.fork?.runId && stored(t.fork.runId) ? `#/run/${t.fork.runId}/${t.fork.callNo}` : null;
+    const href = update ? (forkRun ?? atTakeover) : t.status === 'blocked' ? '#/tests' : atTakeover;
+    const opens = !href ? null : href === '#/tests' ? 'Open Tests' : href === forkRun ? `Open the test run where it forked, at #${t.fork!.callNo}` : k !== null ? 'Open the golden’s run at the takeover' : 'Open the golden’s run';
     return {
       golden: t.golden,
       name: t.name,
@@ -537,7 +654,9 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       after: k !== null ? t.after : null,
       status: { key: t.status, ...STATUS[t.status], short: t.note },
       rewards: t.rewards,
-      href: t.status === 'blocked' ? '#/tests' : stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null,
+      href,
+      opens,
+      update,
     };
   });
 
@@ -550,7 +669,8 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     strip: {
       pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: '#/training', high: counts.high, medium: counts.medium },
       tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: input.tasksError ? 'the tasks can’t be read' : [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
-      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model} · ${best.coverage ?? `${plural(cards.length, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
+      // The best names its endpoint when its model was scored at two; the same model at two endpoints is one model scored.
+      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model}${best.where ? ` at ${best.where}` : ''} · ${best.coverage ?? `${plural(new Set(cards.map((c) => c.model)).size, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
       // The UI adds the export's time (`at`) after the file, as it formats every time.
       left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing until you export it', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
     },
@@ -663,4 +783,22 @@ export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: st
   // A golden path that looks like an option would be read as one.
   if (chosen.some((g) => g.startsWith('-'))) return { error: 'a golden path must not start with "-"' };
   return { args: ['tasks', 'score', ...chosen, '--model', model.trim(), ...(base ? ['--base-url', base] : []), '--attempts', String(n)], goldens: chosen };
+}
+
+/**
+ * Update the golden of a task its test's early fork blocks, as a job: `{ golden }` from the dialog,
+ * which must name such a task. What it runs is `taskUpdate`'s, built here from the store and the
+ * config, never from the request: a `normalize add` for each value that changes every run, then
+ * `test <golden> --update`, which re-records it (or `test <golden>` when those rules are the fix).
+ */
+export function taskUpdateJob(body: unknown, store: Store, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
+  const golden = isObject(body) ? body.golden : undefined;
+  if (typeof golden !== 'string' || !golden) return { error: 'name the golden to update' };
+  const task = tasks.find((t) => t.golden === golden);
+  if (!task) return { error: `${golden} is not a golden of this project` };
+  // A golden path that looks like an option would be read as one.
+  if (task.golden.startsWith('-')) return { error: 'a golden path must not start with "-"' };
+  const u = taskUpdate(store, task, normalizers);
+  if (!u) return { error: `${task.name} is not blocked by its test forking before the takeover${task.status === 'blocked' ? `: ${task.note ?? 'its test fails'}; fix it on Tests` : ''}` };
+  return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `Adding a normalizer for ${task.name}` };
 }

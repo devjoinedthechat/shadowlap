@@ -38,7 +38,7 @@ describe('pairs from blame', () => {
     });
     expect(pairs[1]!.chosen.text).toContain('above the refund limit');
     expect(pairs[0]!.id).toMatch(/^pr-[0-9a-f]{12}$/);
-    expect(pairs[0]!.context).toBe('The customer asks for a refund on order A-1042. · read_policy returned {"text":"Refunds above $100 need a manager: escalate them."}');
+    expect(pairs[0]!.context).toBe('The customer asks for a refund on order A-1042. · read_policy returned text: Refunds above $100 need a manager: escalate them.');
     expect(sources).toEqual([
       expect.objectContaining({ key: `blame:${run.runId}`, kind: 'blame', label: 'blame · refund-bug', made: 2, attempts: 5, callNo: 5, confidence: 'high' }),
     ]);
@@ -60,6 +60,22 @@ describe('pairs from blame', () => {
       [true, 0, 'No attempt that passed at #5 is in the store any more.'],
       [true, 0, 'Not rescued from any model call: no answer made the run pass, so there is none to prefer.'],
     ]);
+    store.close();
+  });
+
+  it('tells apart blames of runs labelled alike by their ids', () => {
+    const store = Store.open(':memory:');
+    const first = blamed(store).run;
+    const second = blamed(store).run;
+    const labels = findPairs(store)
+      .sources.filter((s) => s.kind === 'blame')
+      .map((s) => [s.runId, s.label]);
+    expect(new Map(labels as Array<[string, string]>)).toEqual(
+      new Map([
+        [first.runId, `blame · refund-bug · ${first.runId.slice(0, 10)}`],
+        [second.runId, `blame · refund-bug · ${second.runId.slice(0, 10)}`],
+      ]),
+    );
     store.close();
   });
 });
@@ -147,6 +163,34 @@ describe('pairs from verify and --repeat', () => {
     store.close();
   });
 
+  it('names a repair\'s verifies by the candidate each checked, from its verdict or the repair\'s report', () => {
+    const store = Store.open(':memory:');
+    const target = recordRun(store, LOST, { status: 'failed' }).run;
+    const at = new Date(2026, 9, 15, 14, 28, 31).getTime();
+    // A repair verifies each candidate in the working tree: one revision, a second apart.
+    const verify = (group: string, startedAt: number, passed: boolean) =>
+      recordRun(store, passed ? SAVED : LOST, { parentRunId: target.runId, status: passed ? 'completed' : 'failed', codeVersion: '3d26a2f+dirty', startedAt, meta: { verify: { role: 'target', passed }, repeat: { group: `${group}-${target.runId}`, attempt: 1, of: 1 } } }).run;
+    const turnedDown = verify('c2', at, false);
+    const accepted = verify('c3', at + 1_000, true);
+    const report = (runId: string, passed: boolean) => ({ verdict: passed ? 'accepted' : 'rejected', runs: [{ runId: target.runId, role: 'target', attempts: [{ runId, passed }] }] });
+    // Candidate 2 was turned down (only the repair's report names it); candidate 3 was kept, with a verdict of its own.
+    store.putRepair({ repairId: 'repair-1', at: at + 5_000, dir: '.shadowlap/repairs/repair-1', outcome: 'fixed', accepted: true, report: { candidates: [{ id: 2, verify: report(turnedDown.runId, false) }, { id: 3, verify: report(accepted.runId, true) }] } as never, expect: null, command: 'shadowlap repair' });
+    store.putVerdict({ verifyId: 'vf-1', at: at + 5_000, verdict: 'accepted', repairId: 'repair-1', candidate: 3, report: report(accepted.runId, true) as never, expect: null, command: 'shadowlap repair' });
+    // A verify of the working tree at the same revision keeps its name.
+    verify('v9', at + 60_000, true);
+    const labels = findPairs(store).sources.filter((s) => s.kind === 'verify').map((s) => [s.label, s.candidate ?? null]);
+    expect(labels.sort()).toEqual([
+      ['verify · 3d26a2f+dirty', null],
+      ['verify · repair candidate 2', 2],
+      ['verify · repair candidate 3', 3],
+    ]);
+    // Candidate 2 of a second repair is told apart by when it ran.
+    const again = verify('c2b', at + 120_000, false);
+    store.putRepair({ repairId: 'repair-2', at: at + 125_000, dir: '.shadowlap/repairs/repair-2', outcome: 'not-fixed', accepted: false, report: { candidates: [{ id: 2, verify: report(again.runId, false) }] } as never, expect: null, command: 'shadowlap repair' });
+    expect(findPairs(store).sources.filter((s) => s.candidate === 2).map((s) => s.label).sort()).toEqual(['verify · repair candidate 2 · 14:28:31', 'verify · repair candidate 2 · 14:30:31']);
+    store.close();
+  });
+
   it('pairs --repeat attempts by exit status, and leaves out those whose paths parted before their answers', () => {
     const store = Store.open(':memory:');
     const rec = recordRun(store, SAVED).run;
@@ -226,6 +270,17 @@ describe('context lines', () => {
     const chat = normalizeConversation({ system: 's', messages: [{ role: 'user', content: 'Hi' }, { role: 'assistant', content: 'Hello' }, { role: 'user', content: 'Refund my order, please' }] })!.turns;
     expect(contextLine(chat)).toBe('Hi · then: Refund my order, please');
     expect(contextLine(normalizeConversation({ system: 's', messages: [{ role: 'user', content: 'x'.repeat(300) }] })!.turns)).toHaveLength(140);
+  });
+
+  it('read a JSON object a tool returned field by field, as a person would say it', () => {
+    const result = (content: string) => normalizeConversation({ system: 's', messages: [{ role: 'user', content: 'Refund A-1150.' }, { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'send_email', input: {} }] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }] }] })!.turns;
+    expect(contextLine(result('{"sent":true,"to":"customer@example.com"}'))).toBe('Refund A-1150. · send_email returned sent: true, to: customer@example.com');
+    // Nested values stay JSON; a string loses its quotes and extra spaces.
+    expect(contextLine(result('{"policy":"refunds-v3","limit":100,"tiers":[1,2],"rule":{"above":100},"note":"  needs   approval "}'))).toBe('Refund A-1150. · send_email returned policy: refunds-v3, limit: 100, tiers: [1,2], rule: {"above":100}, note: needs approval');
+    // Anything that isn't a JSON object reads as it came.
+    expect(contextLine(result('[1,2,3]'))).toBe('Refund A-1150. · send_email returned [1,2,3]');
+    expect(contextLine(result('{not json'))).toBe('Refund A-1150. · send_email returned {not json');
+    expect(contextLine(result('{}'))).toBe('Refund A-1150. · send_email returned {}');
   });
 });
 

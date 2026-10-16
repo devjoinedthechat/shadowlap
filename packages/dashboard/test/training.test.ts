@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
-import { approx, exportPairsJob, money, readTraining, scoreModelJob, scoreNote, trainingView } from '../src/training.js';
+import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
 /**
@@ -196,6 +196,22 @@ describe('the Training read model', () => {
     s.close();
   });
 
+  it('tells apart one model scored at two endpoints by its endpoint, and only then', () => {
+    const s = Store.open(':memory:');
+    const ready = [task('goldens/a', 'ready', null)];
+    const scores = [score('claude-sonnet-5', null, 'goldens/a', 1, 1, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 0.5, 200), score('qwen2.5:7b', 'http://gpu-box:8000/v1', 'goldens/a', 1, 1, 300)];
+    const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
+    expect(view.scores.cards.map((c) => [c.model, c.where])).toEqual([
+      ['claude-sonnet-5', null],
+      ['qwen2.5:7b', '127.0.0.1:11434'],
+      ['qwen2.5:7b', 'gpu-box:8000'],
+    ]);
+    // Scored at its own provider and at an endpoint: the provider's card says so.
+    const both = trainingView({ ...readTraining(s, { tasks: ready }), scores: [...scores, score('claude-sonnet-5', 'http://127.0.0.1:8000/v1', 'goldens/a', 1, 1, 400)] });
+    expect(both.scores.cards.filter((c) => c.model === 'claude-sonnet-5').map((c) => c.where)).toEqual(["the provider's API", '127.0.0.1:8000']);
+    s.close();
+  });
+
   it('shows each golden as a task, warns when they all reward the same thing, and scores each model', () => {
     const s = Store.open(':memory:');
     // The store holds two goldens' runs; the budget golden was packed elsewhere and never imported.
@@ -241,11 +257,12 @@ describe('the Training read model', () => {
     expect(dialog.title).toBe('Score a model on 2 tasks');
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'OpenAI API', 'Ollama, on this machine']);
     expect(dialog.options.map((o) => [o.label, o.lastScore, o.request])).toEqual([
-      ['claude-sonnet-5 · scored 1.00', 1, { model: 'claude-sonnet-5', baseUrl: null }],
-      ['claude-haiku-4-5', null, { model: 'claude-haiku-4-5', baseUrl: null }],
-      ['gpt-5-mini', null, { model: 'openai:gpt-5-mini', baseUrl: null }],
-      ['qwen2.5:7b · scored 0.80', 0.8, { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }],
+      ['claude-sonnet-5 · scored 1.00', 1, { model: 'claude-sonnet-5', baseUrl: null, goldens: null }],
+      ['claude-haiku-4-5', null, { model: 'claude-haiku-4-5', baseUrl: null, goldens: null }],
+      ['gpt-5-mini', null, { model: 'openai:gpt-5-mini', baseUrl: null, goldens: null }],
+      ['qwen2.5:7b · scored 0.80', 0.8, { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1', goldens: null }],
     ]);
+    expect(dialog.leftOut).toEqual([]);
     // The first model not scored yet is preselected.
     expect(dialog.selected).toBe('claude-haiku-4-5\n');
     expect(dialog.options.map((o) => o.note)).toEqual([
@@ -257,6 +274,133 @@ describe('the Training read model', () => {
     expect(dialog.endpoint).toEqual({ key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: 'Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.' });
     expect(dialog.notes).toEqual([{ group: 'Ollama, on this machine', note: "isn't running" }]);
     expect(dialog.attempts).toEqual([5, 10]);
+    s.close();
+  });
+
+  it('offers only the models that can answer a ready task, scores one that answers some on those, and says why the rest are left out', () => {
+    // One task recorded on Anthropic's API, one asking Llama through Bedrock's InvokeModel (a body no translation reads), one through Bedrock's Converse API.
+    const tasks = [
+      task('goldens/refund', 'ready', 'escalate'),
+      task('goldens/llama', 'ready', 'escalate', { provider: 'bedrock', callName: 'POST /model/meta.llama4-maverick-17b-instruct-v1%3A0/invoke', model: 'meta.llama4-maverick-17b-instruct-v1:0' }),
+      task('goldens/converse', 'ready', 'escalate', { provider: 'bedrock', callName: 'POST /model/amazon.nova-pro-v1%3A0/converse', model: 'amazon.nova-pro-v1:0' }),
+    ];
+    const listing: ModelListing = {
+      choices: [
+        { group: 'Recorded with', id: 'claude-sonnet-5', via: 'the recorded model', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'claude-sonnet-5'], perAttempt: 0.0165, local: false, provider: 'anthropic' },
+        { group: 'Recorded with', id: 'gpt-5', via: 'the recorded model', where: 'OpenAI API', baseUrl: null, flags: ['--model', 'gpt-5'], perAttempt: 0.01, local: false, provider: 'openai' },
+        { group: 'Recorded with', id: 'amazon.nova-pro-v1:0', via: 'the recorded model', where: 'Amazon Bedrock', baseUrl: null, flags: ['--model', 'amazon.nova-pro-v1:0'], perAttempt: null, local: false, provider: 'bedrock' },
+        { group: 'Anthropic API', id: 'claude-haiku-4-5', via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'anthropic:claude-haiku-4-5'], perAttempt: 0.0041, local: false },
+        { group: 'Ollama, on this machine', id: 'qwen2.5:7b', via: 'Ollama, on this machine', where: 'Ollama, on this machine', baseUrl: 'http://127.0.0.1:11434/v1', flags: ['--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1'], perAttempt: 0, local: true },
+      ],
+      notes: [],
+      tokens: null,
+    };
+    const dialog = trainingView({ pairs: [], sources: [], tasks, scores: [], exports: [], models: listing }).scoreDialog!;
+    expect(dialog.options.map((o) => [o.id, o.request.goldens])).toEqual([
+      ['claude-sonnet-5', ['goldens/refund']],
+      // The model Bedrock's Converse task recorded answers that task, its request sent as the agent made it.
+      ['amazon.nova-pro-v1:0', ['goldens/converse']],
+      ['claude-haiku-4-5', ['goldens/refund', 'goldens/converse']],
+      ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
+    ]);
+    expect(dialog.options[1]!.note).toBe("Amazon Bedrock · no price for this model, so the cost isn't estimated · scores 1 of 3 tasks, not refund: recorded on Anthropic's API, not Amazon Bedrock; llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(dialog.options[2]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
+    // Two tasks recorded on another provider are one reason, said once.
+    expect(dialog.options[0]!.note).toBe("Anthropic API · about $0.017 an attempt · scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
+    // The first model not scored yet that answers every ready task is preselected: none here answers all three, so the first not scored.
+    expect(dialog.selected).toBe('claude-sonnet-5\n');
+    // OpenAI's recorded model answers none of them: each was recorded on another provider.
+    expect(dialog.leftOut).toEqual([{ group: 'Recorded with', models: ['gpt-5'], why: "refund: it was recorded on Anthropic's API, and gpt-5 is asked of OpenAI's API" }]);
+    expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
+  });
+
+  it('preselects a model not scored yet that answers every ready task over one that answers some', () => {
+    const tasks = [task('goldens/azure', 'ready', 'escalate', { provider: 'azure', callName: 'POST /openai/deployments/gpt-prod/chat/completions' }), task('goldens/gemini', 'ready', 'escalate', { provider: 'gemini', callName: 'POST /v1beta/models/gemini-2.5-flash:generateContent' })];
+    const listing: ModelListing = {
+      choices: [
+        { group: 'Gemini API', id: 'gemini-2.5-flash', via: 'Gemini API', where: 'Gemini API', baseUrl: null, flags: ['--model', 'gemini-2.5-flash'], perAttempt: 0.0003, local: false, provider: 'gemini' },
+        { group: 'Anthropic API', id: 'claude-good', via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'anthropic:claude-good'], perAttempt: 0.004, local: false },
+      ],
+      notes: [],
+      tokens: null,
+    };
+    const dialog = scoreDialogView(tasks, [], listing)!;
+    expect(dialog.options.map((o) => [o.id, o.request.goldens])).toEqual([
+      ['gemini-2.5-flash', ['goldens/gemini']],
+      ['claude-good', null],
+    ]);
+    expect(dialog.selected).toBe('claude-good\n');
+    expect(dialog.options[0]!.note).toBe('Gemini API · about $0.0003 an attempt · scores 1 of 2 tasks, not azure: recorded on Azure OpenAI, not the Gemini API');
+    // Once it is scored, the next one not scored yet comes first, whatever it answers.
+    expect(scoreDialogView(tasks, [score('claude-good', null, 'goldens/azure', 1, 1, 100), score('claude-good', null, 'goldens/gemini', 1, 1, 100)], listing)!.selected).toBe('gemini-2.5-flash\n');
+  });
+
+  it('names the best model\'s endpoint, and counts a model scored at two endpoints once', () => {
+    const s = Store.open(':memory:');
+    const ready = [task('goldens/a', 'ready', null)];
+    const scores = [score('claude-haiku-4-5', null, 'goldens/a', 1, 0.5, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 1, 200), score('qwen2.5:7b', 'http://gpu-box:8000/v1', 'goldens/a', 1, 0.5, 300)];
+    const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
+    expect(view.strip.best).toMatchObject({ value: '1.00', model: 'qwen2.5:7b', sub: 'qwen2.5:7b at 127.0.0.1:11434 · 2 models scored' });
+    s.close();
+  });
+
+  it('offers an update for a task whose test forks before its takeover, and opens the test run where it forked', () => {
+    const s = Store.open(':memory:');
+    // The test replay forked at #3, where the request carries a per-run user id the recording never had.
+    const golden = recordRun(s, [LOOKUP, POLICY, ESCALATE, DONE]).run;
+    const forked = recordRun(s, [LOOKUP, POLICY, ESCALATE, DONE], { parentRunId: golden.runId }).run;
+    const divergence = { callNo: 3, kind: 'api', name: 'POST /v1/messages', type: 'request_changed', diff: [{ path: '$.metadata', op: 'added', after: { user_id: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' } }] };
+    s.setDivergence(forked.runId, divergence as never);
+    const fork = { callNo: 3, runId: forked.runId };
+    const over = task('goldens/refund-over-limit', 'blocked', 'escalate above the limit', { runId: golden.runId, note: 'its test forks at #3, before the takeover: update the golden', fork });
+    const inLimit = task('goldens/refund-in-limit', 'ready', 'refund within the limit', { runId: golden.runId });
+
+    const update = taskUpdate(s, over, []);
+    expect(update).toEqual({
+      golden: 'goldens/refund-over-limit',
+      forkedAt: 3,
+      takeover: 17,
+      normalizers: ['$.metadata.user_id'],
+      rerecords: true,
+      steps: [
+        ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'],
+        ['test', 'goldens/refund-over-limit', '--update'],
+      ],
+    });
+    // A rule at that path in force already (added on Tests for another golden): the update alone, as the rule masks the value from the next run on.
+    expect(taskUpdate(s, over, [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }])).toMatchObject({ normalizers: [], steps: [['test', 'goldens/refund-over-limit', '--update']] });
+    expect(taskUpdate(s, over, [{ path: '$.metadata.user_id', replace: '<ID>' }])?.normalizers).toEqual([]);
+    expect(taskUpdate(s, over, [{ kind: 'tool', path: '$.metadata.user_id', replace: '<ID>' }])?.normalizers).toEqual(['$.metadata.user_id']);
+    // Nothing but a value that changes every run, in a field the recording has: the rule is the whole fix.
+    const changed = { ...divergence, diff: [{ path: '$.metadata.user_id', op: 'changed', before: '1c2b3a4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', after: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' }] };
+    s.setDivergence(forked.runId, changed as never);
+    expect(taskUpdate(s, over, [])).toMatchObject({ rerecords: false, steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-over-limit']] });
+    // A change of its own (another prompt): no rule, the update alone.
+    const prompt = { ...divergence, diff: [{ path: '$.system', op: 'changed', before: 'Be brief.', after: 'Escalate refunds above the limit.' }] };
+    s.setDivergence(forked.runId, prompt as never);
+    expect(taskUpdate(s, over, [])).toMatchObject({ normalizers: [], rerecords: true, steps: [['test', 'goldens/refund-over-limit', '--update']] });
+    // A task whose test fails, or a ready one, has none: a failing test is fixed on Tests.
+    expect(taskUpdate(s, task('goldens/x', 'blocked', null), [])).toBeNull();
+    expect(taskUpdate(s, inLimit, [])).toBeNull();
+
+    s.setDivergence(forked.runId, divergence as never);
+    const view = trainingView(readTraining(s, { tasks: [inLimit, over] }));
+    const row = view.tasks.rows.find((r) => r.name === 'refund-over-limit')!;
+    expect(row).toMatchObject({ status: { label: 'blocked', short: 'its test forks at #3, before the takeover: update the golden' }, href: `#/run/${forked.runId}/3`, opens: 'Open the test run where it forked, at #3', update: { forkedAt: 3, normalizers: ['$.metadata.user_id'] } });
+    expect(view.tasks.rows.find((r) => r.name === 'refund-in-limit')).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: null });
+    // The task that rewards the opposite is ready once its golden is updated: the warning offers that, not Tests.
+    expect(view.tasks.warning).toMatchObject({ name: 'refund-over-limit', once: 'its golden is updated', text: expect.stringContaining('refund-over-limit rewards the opposite once its golden is updated.'), fix: { label: 'Update the golden…', href: null, update: { golden: 'goldens/refund-over-limit' } } });
+    // With the test run gone, the row opens the golden's run at the takeover, and the update is still offered.
+    const gone = trainingView(readTraining(s, { tasks: [{ ...over, fork: { callNo: 3, runId: 'GONE' } }] }));
+    expect(gone.tasks.rows[0]).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: { steps: [['test', 'goldens/refund-over-limit', '--update']] } });
+
+    // The job runs what the store and the config say, for such a task only.
+    expect(taskUpdateJob({ golden: 'goldens/refund-over-limit' }, s, [inLimit, over], [])).toEqual({ title: 'Updating refund-over-limit', steps: update!.steps });
+    expect(taskUpdateJob({ golden: 'goldens/refund-in-limit' }, s, [inLimit, over], [])).toEqual({ error: 'refund-in-limit is not blocked by its test forking before the takeover' });
+    expect(taskUpdateJob({ golden: 'goldens/x' }, s, [task('goldens/x', 'blocked', null)], [])).toEqual({ error: 'x is not blocked by its test forking before the takeover: its test fails; fix it on Tests' });
+    expect(taskUpdateJob({ golden: '../../etc' }, s, [inLimit, over], [])).toEqual({ error: '../../etc is not a golden of this project' });
+    expect(taskUpdateJob({}, s, [inLimit, over], [])).toEqual({ error: 'name the golden to update' });
+    expect(taskUpdateJob({ golden: '-x' }, s, [{ ...over, golden: '-x' }], [])).toEqual({ error: 'a golden path must not start with "-"' });
     s.close();
   });
 

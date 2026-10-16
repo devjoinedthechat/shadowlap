@@ -253,6 +253,8 @@ export interface Meta {
   exportedAt?: number;
   redacted?: boolean;
   runIds?: string[];
+  /** An exported copy of many runs compares each with this one only (Compare's pickers offer those pairs). */
+  compareWith?: string | null;
   readOnly?: boolean;
   /** Why it is read-only, for the disabled controls' hover. */
   readOnlyReason?: string | null;
@@ -402,4 +404,9 @@ export interface TestRunView {
 export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
 
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
-export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TrainingView } from '../src/training.js';
+export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
+
+// ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
+export type { CodeChange } from '../src/compare.js';
+/** `GET /api/compare`: the engine's comparison, and the code card's commits (absent from an exported copy, which has no git behind it). */
+export type CompareView = Omit<import('../src/compare.js').CompareView, 'code'> & { code?: import('../src/compare.js').CodeChange | null };

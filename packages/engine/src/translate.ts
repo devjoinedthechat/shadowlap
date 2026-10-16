@@ -11,30 +11,61 @@
  * results, images, the stop reason and usage. What doesn't: thinking blocks (they are bound to the
  * model that wrote them, and another model can't read them), server-side tools such as web search,
  * and sampling options one API has and the other lacks. `dropped` names what a request lost.
+ *
+ * The same goes for the clouds that serve these models (E8): Claude through Vertex AI (`rawPredict`)
+ * or Amazon Bedrock (`invoke`) speaks Anthropic's messages; Azure OpenAI's deployments, and Vertex
+ * AI's and Gemini's OpenAI-compatible endpoints, speak OpenAI's chat; Bedrock's Converse API,
+ * Gemini's generateContent (on the Gemini API or Vertex AI) and OpenAI's Responses API translate
+ * through translate-converse.ts, translate-gemini.ts and translate-responses.ts. Each answer goes back
+ * as that API sends it, streamed or not.
  */
 
-export type ChatShape = 'anthropic' | 'openai-chat';
+/**
+ * The shape of a recorded model call's request and answer: Anthropic's messages, OpenAI's chat
+ * completions or Responses API, Bedrock's Converse API, or Gemini's generateContent.
+ */
+export type ChatShape = 'anthropic' | 'openai-chat' | 'openai-responses' | 'converse' | 'gemini';
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v));
 
+/** A Bedrock model id from a call's path, decoded: `anthropic.claude-sonnet-5-v1:0`, an inference profile, or an ARN. */
+function bedrockModel(path: string): string | null {
+  const m = /\/model\/([^/]+)\//.exec(path);
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]!);
+  } catch {
+    return m[1]!;
+  }
+}
+
 /** The API a recorded model call spoke, from its provider and endpoint; null for one that can't be translated. */
 export function chatShapeOf(provider: string | null | undefined, callName: string): ChatShape | null {
   const path = callName.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '';
   if (provider === 'anthropic' && /\/v1\/messages$/.test(path)) return 'anthropic';
-  if (provider === 'openai' && /\/chat\/completions$/.test(path)) return 'openai-chat';
+  // Claude on Vertex AI, and through Bedrock's InvokeModel (its id names the model family).
+  if (provider === 'vertex' && /\/publishers\/anthropic\/models\/[^/:]+:(stream)?rawPredict$/i.test(path)) return 'anthropic';
+  if (provider === 'bedrock' && /\/invoke(-with-response-stream)?$/.test(path) && /(^|[.:/])anthropic\./.test(bedrockModel(path) ?? '')) return 'anthropic';
+  // OpenAI's chat completions, and the clouds that speak them: Azure's deployments, Vertex AI's and Gemini's OpenAI-compatible endpoints.
+  if ((provider === 'openai' || provider === 'azure' || provider === 'vertex' || provider === 'gemini') && /\/chat\/completions$/.test(path)) return 'openai-chat';
+  // OpenAI's Responses API, on OpenAI and Azure OpenAI (translate-responses.ts).
+  if ((provider === 'openai' || provider === 'azure') && /\/responses$/.test(path)) return 'openai-responses';
+  if (provider === 'bedrock' && /\/converse(-stream)?$/.test(path)) return 'converse';
+  if ((provider === 'gemini' || provider === 'vertex') && /:(stream)?generateContent$/i.test(path)) return 'gemini';
   return null;
 }
 
 /** Why a call's API can't be carried to another provider, for the message that refuses it. */
 export function untranslatable(provider: string | null | undefined, callName: string): string {
-  const path = callName.replace(/^[A-Z]+\s+/, '');
+  const path = callName.replace(/^[A-Z]+\s+/, '').split('?')[0] ?? '';
   if (/\/responses$/.test(path)) return 'it uses the OpenAI Responses API';
-  if (provider === 'gemini' || /:(stream)?generateContent/i.test(path)) return 'it uses the Gemini API';
-  if (provider === 'bedrock') return 'it goes through Amazon Bedrock';
-  if (provider === 'vertex') return 'it goes through Vertex AI';
-  if (provider === 'azure') return 'it goes through Azure OpenAI';
+  if (provider === 'bedrock' && /\/invoke(-with-response-stream)?$/.test(path)) return `it asks ${bedrockModel(path) ?? 'a model'} through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models)`;
+  if (provider === 'vertex' && /:(stream)?rawPredict$/i.test(path)) return "it asks a partner model on Vertex AI whose body isn't Anthropic's";
+  if (provider === 'bedrock') return 'it is a Bedrock request that asks no model for an answer';
+  if (provider === 'vertex') return 'it is a Vertex AI request that asks no model for an answer';
+  if (provider === 'azure') return 'it uses an Azure OpenAI API other than chat completions';
   const what = provider ?? 'non-chat';
   return `it is ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} request (${path})`;
 }
@@ -255,23 +286,43 @@ export function openAIChatToAnthropicMessage(completion: unknown, options: { mod
   };
 }
 
-/** An Anthropic message as the server-sent events the SDK reads when it asked to stream. */
-export function anthropicMessageEvents(m: AnthropicMessage): string {
-  const events: Array<[string, unknown]> = [];
-  events.push(['message_start', { type: 'message_start', message: { ...m, content: [], stop_reason: null, stop_sequence: null, usage: { ...m.usage, output_tokens: Math.min(1, m.usage.output_tokens) } } }]);
+/**
+ * The events an Anthropic message streams as, each `[event, data]`: text and tool calls as the
+ * deltas the SDKs assemble, thinking with its signature, and any other block (a server tool's call or
+ * result) whole at its start. Bedrock's `invoke-with-response-stream` carries the same events.
+ */
+export function anthropicEventList<M extends { content: unknown[]; usage?: unknown; stop_reason?: unknown }>(m: M): Array<[string, Json]> {
+  const usage = isObject(m.usage) ? m.usage : { input_tokens: 0, output_tokens: 0 };
+  const output = num(usage.output_tokens);
+  const events: Array<[string, Json]> = [];
+  events.push(['message_start', { type: 'message_start', message: { ...m, content: [], stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: Math.min(1, output) } } }]);
   m.content.forEach((block, index) => {
+    if (!isObject(block)) return;
     if (block.type === 'text') {
       events.push(['content_block_start', { type: 'content_block_start', index, content_block: { type: 'text', text: '' } }]);
-      events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } }]);
-    } else {
+      events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text: str(block.text) } }]);
+    } else if (block.type === 'tool_use') {
       events.push(['content_block_start', { type: 'content_block_start', index, content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} } }]);
       events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input ?? {}) } }]);
+    } else if (block.type === 'thinking') {
+      events.push(['content_block_start', { type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '', signature: '' } }]);
+      events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: str(block.thinking) } }]);
+      if (typeof block.signature === 'string' && block.signature) events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'signature_delta', signature: block.signature } }]);
+    } else {
+      events.push(['content_block_start', { type: 'content_block_start', index, content_block: block }]);
     }
     events.push(['content_block_stop', { type: 'content_block_stop', index }]);
   });
-  events.push(['message_delta', { type: 'message_delta', delta: { stop_reason: m.stop_reason, stop_sequence: null }, usage: { output_tokens: m.usage.output_tokens } }]);
+  events.push(['message_delta', { type: 'message_delta', delta: { stop_reason: m.stop_reason ?? null, stop_sequence: (m as { stop_sequence?: unknown }).stop_sequence ?? null }, usage: { output_tokens: output } }]);
   events.push(['message_stop', { type: 'message_stop' }]);
-  return events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+  return events;
+}
+
+/** An Anthropic message as the server-sent events the SDK reads when it asked to stream. */
+export function anthropicMessageEvents<M extends { content: unknown[]; usage?: unknown; stop_reason?: unknown }>(m: M): string {
+  return anthropicEventList(m)
+    .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join('');
 }
 
 // ---- OpenAI chat → Anthropic ----
@@ -386,6 +437,40 @@ export function anthropicMessageToOpenAIChat(message: unknown, options: { model:
   };
 }
 
+/**
+ * Any OpenAI-compatible server's answer as a chat completion, ready to be put in another shape: its
+ * text without a local reasoning model's `<think>…</think>` preamble, its tool calls with their
+ * arguments as written, and `tool_calls` as the finish reason whenever it called one (a server that
+ * says "stop" after a tool call would end the agent's loop).
+ */
+export function chatCompletionOf(answer: unknown, options: { model: string }): ChatCompletion {
+  if (!isObject(answer) || !Array.isArray(answer.choices)) throw new Error('not a chat completion: it has no choices');
+  const choice = answer.choices.find(isObject);
+  const message = choice && isObject(choice.message) ? choice.message : {};
+  const text = (typeof message.content === 'string' ? message.content : textOf(message.content)).replace(THINK, '');
+  let n = 0;
+  const calls: NonNullable<ChatCompletion['choices'][0]['message']['tool_calls']> = [];
+  for (const tc of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+    if (!isObject(tc) || !isObject(tc.function)) continue;
+    const args = tc.function.arguments;
+    calls.push({ id: toolId(tc.id, () => `call_shadowlap_${++n}`), type: 'function', function: { name: str(tc.function.name), arguments: typeof args === 'string' ? args : JSON.stringify(args ?? {}) } });
+  }
+  const finish = choice?.finish_reason;
+  const finish_reason = calls.length ? 'tool_calls' : finish === 'length' ? 'length' : finish === 'content_filter' ? 'content_filter' : 'stop';
+  const u = isObject(answer.usage) ? answer.usage : {};
+  const prompt = num(u.prompt_tokens);
+  const completion = num(u.completion_tokens);
+  const cached = isObject(u.prompt_tokens_details) ? num(u.prompt_tokens_details.cached_tokens) : 0;
+  return {
+    id: typeof answer.id === 'string' && answer.id ? answer.id : `chatcmpl-${Date.now().toString(36)}`,
+    object: 'chat.completion',
+    created: typeof answer.created === 'number' ? answer.created : Math.floor(Date.now() / 1000),
+    model: options.model,
+    choices: [{ index: 0, message: { role: 'assistant', content: text.trim() ? text : null, ...(calls.length ? { tool_calls: calls } : {}), refusal: null }, finish_reason, logprobs: null }],
+    usage: { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: cached } },
+  };
+}
+
 /** A chat completion as the `data:` chunks a streaming OpenAI client reads, ending in `[DONE]`. */
 export function chatCompletionChunks(c: ChatCompletion, options: { includeUsage?: boolean } = {}): string {
   const base = { id: c.id, object: 'chat.completion.chunk', created: c.created, model: c.model };
@@ -417,7 +502,23 @@ export function errorMessage(body: unknown, fallback: string): string {
 const ANTHROPIC_ERROR_TYPES: Record<number, string> = { 400: 'invalid_request_error', 401: 'authentication_error', 403: 'permission_error', 404: 'not_found_error', 413: 'request_too_large', 429: 'rate_limit_error', 529: 'overloaded_error' };
 
 /** An error as the API a client speaks reports one, so its SDK raises its usual error type. */
-export function errorBody(shape: ChatShape, status: number, message: string): Json {
+const GOOGLE_STATUS: Record<number, string> = { 400: 'INVALID_ARGUMENT', 401: 'UNAUTHENTICATED', 403: 'PERMISSION_DENIED', 404: 'NOT_FOUND', 429: 'RESOURCE_EXHAUSTED', 501: 'UNIMPLEMENTED', 503: 'UNAVAILABLE', 504: 'DEADLINE_EXCEEDED' };
+const AWS_ERRORS: Record<number, string> = { 400: 'ValidationException', 401: 'AccessDeniedException', 403: 'AccessDeniedException', 404: 'ResourceNotFoundException', 408: 'ModelTimeoutException', 424: 'ModelErrorException', 429: 'ThrottlingException', 503: 'ServiceUnavailableException' };
+
+/** The error type an AWS client reads from `x-amzn-errortype`, for a status. */
+export function awsErrorType(status: number): string {
+  return AWS_ERRORS[status] ?? (status >= 500 ? 'InternalServerException' : 'ValidationException');
+}
+
+/**
+ * An error as the API a client speaks reports one, so its SDK raises its usual error type: Anthropic's
+ * and OpenAI's bodies, Google's `{ error: { code, message, status } }`, and AWS's top-level message
+ * (its type goes in the `x-amzn-errortype` header, `awsErrorType`). Bedrock's InvokeModel of Claude
+ * is an Anthropic shape on AWS: give `aws` for its errors.
+ */
+export function errorBody(shape: ChatShape | 'aws', status: number, message: string): Json {
+  if (shape === 'converse' || shape === 'aws') return { message };
+  if (shape === 'gemini') return { error: { code: status, message, status: GOOGLE_STATUS[status] ?? (status >= 500 ? 'INTERNAL' : 'FAILED_PRECONDITION') } };
   if (shape === 'anthropic') return { type: 'error', error: { type: ANTHROPIC_ERROR_TYPES[status] ?? (status >= 500 ? 'api_error' : 'invalid_request_error'), message } };
   return { error: { message, type: status >= 500 ? 'server_error' : 'invalid_request_error', param: null, code: null } };
 }

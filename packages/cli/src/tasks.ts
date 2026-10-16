@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import {
   attemptScore,
   chatShapeOf,
+  CLOUD_ADVICE,
+  CLOUDS,
   commandIsImported,
   describeTask,
   entryFor,
@@ -15,8 +17,8 @@ import {
   parseTaskFields,
   projectPath,
   readGolden,
+  takeoverRefusal,
   unpackRun,
-  untranslatable,
   type CallRecord,
   type Golden,
   type OneSided,
@@ -35,7 +37,7 @@ import { evaluateChecks, parseTests, type CheckResult, type TestSpec } from './c
 import { configPath, upstreamOverrides } from './config.js';
 import { type GuardMode } from './run-agent.js';
 import { type GlobalOpts } from './shared.js';
-import { ANSWERED_BY, modelUnswitchable, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';
+import { ANSWERED_BY, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';
 
 /**
  * `shadowlap tasks`: the project's goldens as tasks a model can be scored on, and the attempts that
@@ -96,6 +98,11 @@ export function testFailed(last: RunRecord | undefined, spec: TestSpec | null): 
   return last.status !== 'completed' || (last.meta?.checks ?? []).some((c) => !c.ok) || (!!last.divergence && !spec?.fork);
 }
 
+/** Where a golden's last test forked, when its test may fork (`fork` in its tests entry) and did; null otherwise. */
+export function testForkedAt(last: RunRecord | undefined, spec: TestSpec | null): number | null {
+  return last && spec?.fork && last.divergence ? last.divergence.callNo : null;
+}
+
 /** The runs a golden's run came from, nearest first, as far as the store has them. */
 function ancestorsOf(store: Store | null, run: RunRecord): RunRecord[] {
   const out: RunRecord[] = [];
@@ -132,10 +139,35 @@ export function loadTasks(root: string, store: Store | null): TaskList {
         unreadable = err instanceof Error ? err.message : String(err);
       }
     }
-    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(tests.get(golden), spec) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
+    const last = tests.get(golden);
+    const forkedAt = pack ? testForkedAt(last, spec) : null;
+    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(last, spec) : null, forkedAt, forkedRun: forkedAt !== null ? (last?.runId ?? null) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
     return { ...task, ...(unreadable ? { note: `its pack can't be read: ${unreadable}` } : {}), spec, dir, pack };
   });
   return { tasks, oneSided: oneSided(tasks) };
+}
+
+/**
+ * For `shadowlap test --update`: the call each golden's task takes over at (a golden with outcome
+ * checks and a model call to take over), by the golden's directory, read once when first asked. A
+ * golden whose test may fork and forked before that call passes, but no model can be scored on it,
+ * since a model takes over only where the recording still replays: the update re-records it, as it
+ * re-records one that diverged. Null for a golden that is no task, or a config the tasks can't read.
+ */
+export function takeoverReader(root: string, store: Store): (packDir: string) => number | null {
+  let byGolden: Map<string, number> | null = null;
+  return (packDir) => {
+    if (!byGolden) {
+      byGolden = new Map();
+      try {
+        // A task, or one only its test keeps from being ready: not a golden that is no task for another reason.
+        for (const t of loadTasks(root, store).tasks) if (t.takeover && (t.status === 'ready' || t.status === 'blocked')) byGolden.set(t.golden, t.takeover.callNo);
+      } catch {
+        // the tests entries already ran; without tasks, nothing is re-recorded for one
+      }
+    }
+    return byGolden.get(projectPath(root, packDir)) ?? null;
+  };
 }
 
 /** The tasks the dashboard's Training screen lists: what `shadowlap tasks --json` prints, without what only scoring needs. */
@@ -207,15 +239,16 @@ export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: nu
   if (task.scope !== null && takeover !== undefined && (typeof call.meta.scope === 'string' ? call.meta.scope : null) !== task.scope) return `#${k} is not made in the agent's scope (${task.scope})`;
   const provider = (call.end?.meta.provider ?? call.meta.provider) as string | undefined;
   if (!provider) return `${task.golden} can't be scored: its recording doesn't say which provider #${k} went to`;
-  const shape = chatShapeOf(provider, call.name);
-  const mode = takeoverMode(provider, shape, target);
-  if (!mode) return `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${untranslatable(provider, call.name)}, and only Anthropic Messages and OpenAI Chat Completions are translated`;
-  if (mode === 'same') {
-    // Found before anything runs: an attempt would ask the recorded model, and be paid for.
-    const why = modelUnswitchable(provider, call.name);
-    if (why) return `${task.golden} can't be scored with ${target.model}: ${why}`;
-  }
-  return null;
+  // The model the recording asked, asked again on its own provider: nothing is switched, so a cloud's
+  // signed URL, regional address or deployment goes on as the agent made it, and answers as recorded.
+  const recordedModel = call.end?.meta.model ?? call.meta.model;
+  if (target.route === 'same' && typeof recordedModel === 'string' && target.model === recordedModel) return null;
+  // Found before anything runs: an attempt that can't reach the model would ask the recorded one, and be paid for.
+  const why = takeoverRefusal(provider, call.name, target);
+  if (!why) return null;
+  // Another model of a cloud itself can't be asked; another provider's can, translated.
+  if (target.route === 'same') return `${task.golden} can't be scored with ${target.model}: ${why}${CLOUDS.has(provider) ? `: ${CLOUD_ADVICE}` : ''}`;
+  return `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${why}`;
 }
 
 /** Where a provider's calls go without a takeover: the environment's upstream for it, else its own API. */

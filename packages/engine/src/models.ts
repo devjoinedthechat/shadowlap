@@ -1,5 +1,6 @@
 import { estimateCost, type Price } from './prices.js';
 import type { TaskScoreRow } from './store.js';
+import { takeoverRefusal, type TakeoverTarget } from './takeover.js';
 import { averageTokens, type Task } from './tasks.js';
 import type { Usage } from './types.js';
 
@@ -28,6 +29,11 @@ export interface ModelChoice {
   perAttempt: number | null;
   /** It runs on this machine (a loopback endpoint): not a paid API. */
   local: boolean;
+  /**
+   * For a model asked of a recording's own provider (`--model <name>` alone): that provider, as the
+   * recordings name it (`anthropic`, `gemini`, …). A task recorded on another can't ask it.
+   */
+  provider?: string | null;
 }
 
 export interface ModelListing {
@@ -152,6 +158,9 @@ function providerApi(provider: string | null): string {
   if (provider === 'anthropic') return 'Anthropic API';
   if (provider === 'openai') return 'OpenAI API';
   if (provider === 'gemini') return 'Gemini API';
+  if (provider === 'bedrock') return 'Amazon Bedrock';
+  if (provider === 'vertex') return 'Vertex AI';
+  if (provider === 'azure') return 'Azure OpenAI';
   return provider ? `${provider} API` : 'the recorded provider';
 }
 
@@ -186,7 +195,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
   };
   const own = recordedProvider(input);
 
-  for (const r of input.recorded) add({ group: 'Recorded with', id: r.model, via: 'the recorded model', where: providerApi(r.provider), baseUrl: null, flags: ['--model', r.model], perAttempt: price(r.model, false), local: false });
+  for (const r of input.recorded) add({ group: 'Recorded with', id: r.model, via: 'the recorded model', where: providerApi(r.provider), baseUrl: null, flags: ['--model', r.model], perAttempt: price(r.model, false), local: false, provider: r.provider });
 
   const anthropic = async (): Promise<ModelChoice[]> => {
     const key = env.ANTHROPIC_API_KEY?.trim();
@@ -194,7 +203,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     const base = anthropicBase(env);
     const body = await getJson(fetchImpl, `${base}/v1/models?limit=100`, { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, timeoutMs);
     const data = isObject(body) && Array.isArray(body.data) ? body.data : [];
-    return data.flatMap((m) => (isObject(m) && typeof m.id === 'string' ? [{ group: 'Anthropic API', id: m.id, via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', own === 'anthropic' ? m.id : `anthropic:${m.id}`], perAttempt: price(m.id, false), local: false }] : []));
+    return data.flatMap((m) => (isObject(m) && typeof m.id === 'string' ? [{ group: 'Anthropic API', id: m.id, via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', own === 'anthropic' ? m.id : `anthropic:${m.id}`], perAttempt: price(m.id, false), local: false, ...(own === 'anthropic' ? { provider: 'anthropic' } : {}) }] : []));
   };
   const openai = async (): Promise<ModelChoice[]> => {
     const base = openAIBase(env);
@@ -207,7 +216,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     const local = isLoopback(base);
     return ids.map((id) =>
       official
-        ? { group: 'OpenAI API', id, via: 'OpenAI API', where: 'OpenAI API', baseUrl: null, flags: ['--model', own === 'openai' ? id : `openai:${id}`], perAttempt: price(id, false), local: false }
+        ? { group: 'OpenAI API', id, via: 'OpenAI API', where: 'OpenAI API', baseUrl: null, flags: ['--model', own === 'openai' ? id : `openai:${id}`], perAttempt: price(id, false), local: false, ...(own === 'openai' ? { provider: 'openai' } : {}) }
         : { group: `OpenAI-compatible, ${endpointVia(base, env)}`, id, via: endpointVia(base, env), where: endpointVia(base, env), baseUrl: base, flags: ['--model', id, '--base-url', base], perAttempt: price(id, local), local },
     );
   };
@@ -239,7 +248,94 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     const local = s.baseUrl ? isLoopback(s.baseUrl) : false;
     const flags = s.baseUrl ? ['--model', s.model, '--base-url', s.baseUrl] : ['--model', s.via === 'OpenAI API' ? `openai:${s.model}` : s.via === 'Anthropic API' ? `anthropic:${s.model}` : s.model];
     const via = s.via ?? (s.baseUrl ? endpointVia(s.baseUrl, env) : 'the recorded provider');
-    add({ group: 'Endpoints scored before', id: s.model, via, where: via, baseUrl: s.baseUrl, flags, perAttempt: price(s.model, local), local });
+    const bare = !s.baseUrl && flags[1] === s.model;
+    add({ group: 'Endpoints scored before', id: s.model, via, where: via, baseUrl: s.baseUrl, flags, perAttempt: price(s.model, local), local, ...(bare ? { provider: PROVIDER_OF_API[via] ?? null } : {}) });
   }
   return { choices, notes, tokens: input.tokens };
+}
+
+/** A provider's API in a sentence: "recorded on the Gemini API", "asked of Amazon Bedrock". */
+function onApi(provider: string): string {
+  const named: Record<string, string> = { anthropic: "Anthropic's API", openai: "OpenAI's API", gemini: 'the Gemini API', bedrock: 'Amazon Bedrock', vertex: 'Vertex AI', azure: 'Azure OpenAI' };
+  return named[provider] ?? `the ${provider} API`;
+}
+
+/** The provider a score's `via` names, for a model scored on its recording's own provider. */
+const PROVIDER_OF_API: Record<string, string> = { 'Anthropic API': 'anthropic', 'OpenAI API': 'openai', 'Gemini API': 'gemini', 'Amazon Bedrock': 'bedrock', 'Vertex AI': 'vertex', 'Azure OpenAI': 'azure' };
+
+/** How `tasks score` asks a listed model, from the flags it takes: the recording's own provider, an OpenAI-compatible endpoint, or Anthropic's API. */
+export function choiceTarget(c: Pick<ModelChoice, 'flags' | 'baseUrl'>): TakeoverTarget {
+  if (c.baseUrl) return { route: 'openai-chat', scoreBase: c.baseUrl };
+  const at = c.flags.indexOf('--model');
+  const model = at >= 0 ? (c.flags[at + 1] ?? '') : '';
+  if (model.startsWith('anthropic:')) return { route: 'anthropic', scoreBase: null };
+  // A listed `openai:` model is OpenAI's own API: a server elsewhere is listed with its base URL.
+  if (model.startsWith('openai:')) return { route: 'openai-chat', scoreBase: null };
+  return { route: 'same', scoreBase: null };
+}
+
+export interface ModelReach {
+  /** The ready tasks it can answer, by golden. */
+  tasks: string[];
+  /**
+   * The ready tasks it can't, each with why; `elsewhere`: the task was recorded on another provider
+   * (`provider`, as the recordings name it) than the one the model is asked of.
+   */
+  refused: Array<{ golden: string; name: string; why: string; elsewhere: boolean; provider: string | null }>;
+}
+
+/**
+ * Which ready tasks a listed model can answer, and why it can't answer the others: a takeover call
+ * whose API no translation carries to it (the OpenAI Responses API to Anthropic's), another model of
+ * a cloud that can't switch one (Bedrock, Vertex AI, Azure OpenAI), or a model of another provider
+ * than the one the task was recorded on. What `tasks score` would refuse each task with.
+ */
+export function modelReach(c: Pick<ModelChoice, 'id' | 'flags' | 'baseUrl' | 'provider'>, tasks: readonly Task[]): ModelReach {
+  const target = choiceTarget(c);
+  const at = c.flags.indexOf('--model');
+  const asked = at >= 0 ? (c.flags[at + 1] ?? c.id) : c.id;
+  const out: ModelReach = { tasks: [], refused: [] };
+  for (const t of tasks) {
+    if (t.status !== 'ready') continue;
+    const elsewhere = target.route === 'same' && !!c.provider && !!t.provider && t.provider !== c.provider;
+    // The model the recording asked, asked again on its own provider: nothing is switched, so a
+    // cloud's signed URL, regional address or deployment stays as the agent made it.
+    const own = target.route === 'same' && !elsewhere && !!t.model && asked === t.model;
+    const why = elsewhere ? `it was recorded on ${onApi(t.provider!)}, and ${c.id} is asked of ${onApi(c.provider!)}` : !t.callName ? 'its recording has no call to take over' : own ? null : takeoverRefusal(t.provider, t.callName, target);
+    if (why) out.refused.push({ golden: t.golden, name: t.name, why, elsewhere, provider: t.provider });
+    else out.tasks.push(t.golden);
+  }
+  return out;
+}
+
+/**
+ * The refusal that says the most about a model that answers no ready task: why a task recorded on
+ * its own provider can't ask it (Bedrock signs the model into the URL), before that the rest were
+ * recorded elsewhere. Null when it refuses none.
+ */
+export function mainRefusal(reach: ModelReach): ModelReach['refused'][number] | null {
+  return reach.refused.find((r) => !r.elsewhere) ?? reach.refused[0] ?? null;
+}
+
+/**
+ * The ready tasks a model can't answer, grouped by why, in one line. Tasks recorded on another
+ * provider than the one it is asked of share one reason (`azure, bedrock-claude: recorded on Azure
+ * OpenAI and Amazon Bedrock, not the Gemini API`); the rest are grouped by their own words. Null when
+ * it refuses none.
+ */
+export function refusedLine(c: Pick<ModelChoice, 'provider'>, reach: ModelReach): string | null {
+  if (!reach.refused.length) return null;
+  const groups: Array<{ names: string[]; why: string }> = [];
+  const elsewhere = reach.refused.filter((r) => r.elsewhere);
+  if (elsewhere.length) {
+    const apis = [...new Set(elsewhere.map((r) => onApi(r.provider ?? 'another')))];
+    const on = apis.length > 1 ? `${apis.slice(0, -1).join(', ')} and ${apis.at(-1)}` : apis[0];
+    groups.push({ names: elsewhere.map((r) => r.name), why: `recorded on ${on}${c.provider ? `, not ${onApi(c.provider)}` : ''}` });
+  }
+  for (const r of reach.refused.filter((x) => !x.elsewhere)) {
+    const same = groups.find((g) => g.why === r.why);
+    if (same) same.names.push(r.name);
+    else groups.push({ names: [r.name], why: r.why });
+  }
+  return groups.map((g) => `${g.names.join(', ')}: ${g.why}`).join('; ');
 }
