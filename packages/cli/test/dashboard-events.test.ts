@@ -139,6 +139,14 @@ describe('a command started by a dashboard job', () => {
     }
   });
 
+  it('test: marks who replayed the golden, as every run says who made it', async () => {
+    const r = await shadowlap(['test', 'goldens/refund']);
+    expect(r.code, r.out).toBe(0);
+    const runs = withStore((s) => s.allRuns().filter((x) => (x.meta?.test as { golden?: string } | undefined)?.golden));
+    expect(runs.length).toBeGreaterThan(0);
+    for (const run of runs) expect(run.meta?.author).toBe('maya@example.com');
+  });
+
   it('export html, har, dataset and otel: name the file each wrote, and what it holds', async () => {
     const quiet = { env: { OTEL_EXPORTER_OTLP_ENDPOINT: '' } };
     const exports: Array<[string[], string, string, Record<string, unknown>]> = [
