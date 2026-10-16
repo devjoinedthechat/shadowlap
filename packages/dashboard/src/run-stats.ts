@@ -6,10 +6,12 @@ import { keepingIndex, loadRunIndex, type IndexedRun, type RunIndex } from './ru
  * What a run's calls add up to: where each answer came from, the tokens each model used live,
  * replayed and captured, how long the replayed calls would have taken, and its live model calls'
  * use of the prompt cache under the run page's rule (the engine's `runCache`). Worked out in one
- * pass over the run's calls, and for a run with live model calls, once over its conversations. A
- * finished run's totals never change, so they are kept in the store (`run_stats`) and read back as
- * one row per run, in this process and the next: every run's calls are read once in the store's
- * life. Prices are applied on reading, so changing them needs no rework.
+ * pass over the run's calls; the prompt cache, which reads every request to find the run's
+ * conversations, only for the runs the Overview's week asks about (`cacheTotalsOf`). A finished
+ * run's totals never change, so they are kept in the store (`run_stats`) and read back as one row
+ * per run, in this process and the next: every run's calls are read once in the store's life, and
+ * a recent run's once more for its cache. Prices are applied on reading, so changing them needs no
+ * rework.
  */
 
 /** A run's totals before prices: what `run_stats` keeps, as JSON. */
@@ -28,8 +30,10 @@ export interface CallTotals {
    * Live model calls' use of the prompt cache (an imported recording's left out: it was live
    * elsewhere): their whole input, the part read from the cache, and the live calls where it
    * stopped hitting, with the tokens each sent again. Null without live model calls reporting usage.
+   * Absent until asked for (`cacheTotalsOf`): only the Overview's week needs it, and it costs a
+   * read of every request the run sent.
    */
-  cache: CacheTotals | null;
+  cache?: CacheTotals | null;
 }
 
 export interface CacheTotals {
@@ -56,7 +60,13 @@ export interface StatsOptions {
 }
 
 /** Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked out again. */
-const FORMAT = 't2';
+const FORMAT = 't3';
+
+/**
+ * How far back the warm-up works out the prompt cache too: the Overview's week starts at most seven
+ * days and an hour back in any time zone, and a run's start never moves.
+ */
+const CACHE_AHEAD_MS = 8 * 24 * 60 * 60 * 1000;
 
 /** What a run's totals were worked out from: a finished run's never change. */
 const keyOf = (r: IndexedRun) => `${FORMAT}|${r.status}|${r.endedAt}|${r.calls}`;
@@ -106,6 +116,8 @@ interface Kept {
   running: { index: RunIndex | null; totals: Map<string, CallTotals> };
   /** Runs whose calls were read to work out their totals, for tests that check how much a read model reads. */
   runsRead: number;
+  /** Runs whose calls and requests were read to work out their prompt cache. */
+  cachesRead: number;
 }
 
 const kept = new WeakMap<Store, Kept>();
@@ -113,7 +125,7 @@ const kept = new WeakMap<Store, Kept>();
 function keptFor(store: Store): Kept {
   let k = kept.get(store);
   if (!k) {
-    k = { memory: new Map(), running: { index: null, totals: new Map() }, runsRead: 0 };
+    k = { memory: new Map(), running: { index: null, totals: new Map() }, runsRead: 0, cachesRead: 0 };
     kept.set(store, k);
   }
   return k;
@@ -124,6 +136,11 @@ export function runsRead(store: Store): number {
   return keptFor(store).runsRead;
 }
 
+/** How many runs' prompt cache this store's read models have worked out so far: none for a finished run whose cache was kept. */
+export function cachesRead(store: Store): number {
+  return keptFor(store).cachesRead;
+}
+
 const EMPTY: CallTotals = { codes: '', models: [], notWaitedMs: 0, cache: null };
 
 /** A run's totals as `run_stats` keeps them, or null for anything else. */
@@ -131,14 +148,15 @@ function readTotals(json: unknown): CallTotals | null {
   if (typeof json !== 'string') return null;
   try {
     const t = JSON.parse(json) as Partial<CallTotals>;
-    if (typeof t.codes !== 'string' || !Array.isArray(t.models) || t.cache === undefined) return null;
+    if (typeof t.codes !== 'string' || !Array.isArray(t.models)) return null;
     const models = t.models.filter((m) => Array.isArray(m) && m.length === 6 && typeof m[1] === 'string' && m.slice(2).every((x) => typeof x === 'number'));
+    const out: CallTotals = { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs) };
+    // Absent: not worked out yet. Null: no live model call reported usage.
     const c = t.cache;
-    const cache: CacheTotals | null =
-      c && typeof c === 'object' && Array.isArray(c.misses)
-        ? { input: n(c.input), read: n(c.read), misses: c.misses.filter((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[2] === 'number').map((m) => [m[0], typeof m[1] === 'string' ? m[1] : null, m[2]]) }
-        : null;
-    return { codes: t.codes, models, notWaitedMs: n(t.notWaitedMs), cache };
+    if (c === null) out.cache = null;
+    else if (c && typeof c === 'object' && Array.isArray(c.misses))
+      out.cache = { input: n(c.input), read: n(c.read), misses: c.misses.filter((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[2] === 'number').map((m) => [m[0], typeof m[1] === 'string' ? m[1] : null, m[2]]) };
+    return out;
   } catch {
     return null;
   }
@@ -197,17 +215,49 @@ export function callTotals(store: Store, index: RunIndex, runs: Iterable<Indexed
   return out;
 }
 
+/**
+ * The prompt cache part of these runs' totals (`CallTotals.cache`): kept with the rest once worked
+ * out, and worked out now (and kept, for a finished run) where it is not known yet. The Overview
+ * asks for the week's runs; nothing else needs it.
+ */
+export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly IndexedRun[]): Map<string, CacheTotals | null> {
+  const k = keptFor(store);
+  const totals = callTotals(store, index, runs);
+  const out = new Map<string, CacheTotals | null>();
+  const keep: Array<{ runId: string; key: string; stats: string }> = [];
+  for (const r of runs) {
+    const t = totals.get(r.runId);
+    if (!t) continue;
+    if (t.cache === undefined) {
+      // The totals in memory are this object: the next ask finds the cache in them.
+      t.cache = cacheTotals(store, r.runId);
+      k.cachesRead++;
+      if (r.status !== 'running') keep.push({ runId: r.runId, key: keyOf(r), stats: JSON.stringify(t) });
+    }
+    out.set(r.runId, t.cache);
+  }
+  if (keep.length) keepingIndex(store, () => store.saveRunStats(keep));
+  return out;
+}
+
 const warming = new WeakMap<Store, { index: RunIndex; next: number }>();
+
+/** A batch of the warm-up stops at this many runs, or at this much work: calls, a recent run's counted four times for its cache. */
+const WARM_RUNS = 50;
+const WARM_COST = 2000;
 
 /**
  * Works out and keeps the totals of finished runs whose totals are not known yet, newest first, for
- * about `budgetMs` (50 unless asked) per call. A dashboard calls it when it starts and while it is
- * idle, a slice at a time, so the first look at the Overview or the Runs page reads kept totals
- * instead of every call of every run. True once it has been through every run in the store.
+ * about `budgetMs` (50 unless asked) per call, and for runs of the last eight days their prompt
+ * cache too. A dashboard calls it when it starts and while it is idle, a slice at a time, so the
+ * first look at the Overview or the Runs page reads kept totals instead of every call of every run.
+ * A slice stops at the first batch that ends past the budget; batches are cut by the calls they
+ * read, so a slice ends close to it. True once it has been through every run in the store.
  */
-export function warmRunStats(store: Store, options: { budgetMs?: number } = {}): boolean {
+export function warmRunStats(store: Store, options: { budgetMs?: number; now?: number } = {}): boolean {
   const budget = options.budgetMs ?? 50;
   const started = performance.now();
+  const recent = (options.now ?? Date.now()) - CACHE_AHEAD_MS;
   const index = loadRunIndex(store);
   const k = keptFor(store);
   let w = warming.get(store);
@@ -215,11 +265,20 @@ export function warmRunStats(store: Store, options: { budgetMs?: number } = {}):
   if (!w || w.index !== index) warming.set(store, (w = { index, next: 0 }));
   while (w.next < index.runs.length) {
     const batch: IndexedRun[] = [];
-    while (w.next < index.runs.length && batch.length < 100) {
+    const caches: IndexedRun[] = [];
+    let cost = 0;
+    while (w.next < index.runs.length && batch.length < WARM_RUNS && cost < WARM_COST) {
       const r = index.runs[w.next++]!;
-      if (r.status !== 'running' && r.calls > 0 && k.memory.get(r.runId)?.key !== keyOf(r)) batch.push(r);
+      if (r.status === 'running' || r.calls === 0) continue;
+      const known = k.memory.get(r.runId);
+      const cache = r.startedAt >= recent && !(r.meta.imported && r.mode === 'record');
+      if (known?.key === keyOf(r) && (!cache || known.totals.cache !== undefined)) continue;
+      batch.push(r);
+      if (cache) caches.push(r);
+      cost += cache ? r.calls * 4 : r.calls;
     }
     if (batch.length) callTotals(store, index, batch);
+    if (caches.length) cacheTotalsOf(store, index, caches);
     // At least one batch a call, however small the budget.
     if (w.next < index.runs.length && performance.now() - started >= budget) return false;
   }
@@ -310,7 +369,8 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
     if (!b) continue;
     let notWaitedMs = b.notWaitedMs;
     for (const callNo of b.sources) notWaitedMs += of(r.parentRunId, callNo);
-    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], notWaitedMs, cache: b.liveUsage ? cacheTotals(store, r.runId) : null });
+    // Without live usage there is no cache to work out; with it, it is worked out when asked for.
+    out.set(r.runId, { codes: b.codes.join(''), models: [...b.models.values()], notWaitedMs, ...(b.liveUsage ? {} : { cache: null }) });
   }
   return out;
 }

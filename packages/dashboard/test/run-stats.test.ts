@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { estimateCost, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import { keepingIndex, loadRunIndex } from '../src/run-index.js';
-import { callTotals, originStrings, runsRead, runStats, spentOf, sumStats, warmRunStats } from '../src/run-stats.js';
+import { cacheTotalsOf, cachesRead, callTotals, originStrings, runsRead, runStats, spentOf, sumStats, warmRunStats } from '../src/run-stats.js';
+import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { addRun, capture, DAY, MODEL, usageAt } from './read-model-store.js';
 
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -195,6 +196,56 @@ describe('run statistics', () => {
   });
 });
 
+describe('the prompt cache', () => {
+  it('is worked out when asked for, by the run page’s rule, and kept with the totals', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shadowlap-cache-'));
+    const path = join(dir, 'shadowlap.db');
+    try {
+      const first = Store.open(path);
+      // Four turns of one conversation; the third read nothing from the cache: a miss.
+      const b = RunBuilder.start(first, { startedAt: NOW - DAY });
+      for (let m = 1; m <= 4; m++) {
+        const q: unknown[] = [user('Begin.')];
+        for (let i = 1; i < m; i++) q.push(assistant([toolUse('step', { i }, `toolu_${i}`)]), user([toolResult(`toolu_${i}`, 'ok')]));
+        const u = m === 3 ? usage(10, 0, cachedUsage(m).cacheReadInputTokens! + cachedUsage(m).cacheCreationInputTokens!) : cachedUsage(m);
+        b.model({ messages: q }, [toolUse('step', { i: m }, `toolu_${m}`)], { usage: u });
+      }
+      const runId = b.end();
+      const replay = addRun(first, { parent: runId, startedAt: NOW, calls: 'rrrr' });
+      let index = loadRunIndex(first);
+      const runs = [runId, replay].map((id) => index.byId.get(id)!);
+      // The totals alone leave it out: it reads every request of the run.
+      const totals = callTotals(first, index, runs);
+      expect(totals.get(runId)).not.toHaveProperty('cache');
+      // A run with no live model call has none to work out.
+      expect(totals.get(replay)!.cache).toBeNull();
+      expect(cachesRead(first)).toBe(0);
+      const cache = cacheTotalsOf(first, index, runs);
+      expect(cache.get(runId)).toMatchObject({ misses: [[3, null, expect.any(Number)]] });
+      expect(cache.get(runId)!.read).toBeGreaterThan(0);
+      expect(cache.get(replay)).toBeNull();
+      expect(cachesRead(first)).toBe(1);
+      // Asked again: from memory.
+      index = loadRunIndex(first);
+      expect(cacheTotalsOf(first, index, runs)).toEqual(cache);
+      expect(cachesRead(first)).toBe(1);
+      first.close();
+
+      // The next process reads it with the totals: no call, no request.
+      const next = Store.open(path);
+      try {
+        const i2 = loadRunIndex(next);
+        expect(cacheTotalsOf(next, i2, [runId, replay].map((id) => i2.byId.get(id)!))).toEqual(cache);
+        expect([runsRead(next), cachesRead(next)]).toEqual([0, 0]);
+      } finally {
+        next.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('kept totals', () => {
   it('keep the run index current: keeping a run’s totals changes no run', () => {
     const rec = addRun(store, { startedAt: NOW - DAY, calls: 'llll' });
@@ -238,22 +289,26 @@ describe('kept totals', () => {
       for (let i = 0; i < 250; i++) recs.push(addRun(first, { startedAt: NOW - (i + 1) * 60_000, calls: 'lll' }));
       for (const r of recs.slice(0, 20)) addRun(first, { parent: r, startedAt: NOW - 1000, divergence: 2, calls: 'rl' });
       addRun(first, { startedAt: NOW, calls: 'l', status: 'running' });
+      // Twenty days old: the Overview's week will never ask for its prompt cache.
+      addRun(first, { startedAt: NOW - 20 * DAY, calls: 'lll' });
       // Each slice does at least one batch of runs, however small its budget.
       let slices = 0;
-      while (!warmRunStats(first, { budgetMs: 0 })) slices++;
+      while (!warmRunStats(first, { budgetMs: 0, now: NOW })) slices++;
       expect(slices).toBeGreaterThan(0);
-      expect(runsRead(first)).toBe(270);
+      expect(runsRead(first)).toBe(271);
+      // The prompt cache of the last eight days' runs too, read once more each.
+      expect(cachesRead(first)).toBe(270);
       // Done: another slice finds nothing left to work out.
-      expect(warmRunStats(first, { budgetMs: 0 })).toBe(true);
-      expect(runsRead(first)).toBe(270);
+      expect(warmRunStats(first, { budgetMs: 0, now: NOW })).toBe(true);
+      expect([runsRead(first), cachesRead(first)]).toEqual([271, 270]);
       first.close();
 
       const next = Store.open(path);
       try {
         const summary = overviewSummary(next, { tz: 'UTC', now: NOW });
         expect(summary.sums.week.runs).toBe(271);
-        // Only the run still recording had its calls read.
-        expect(runsRead(next)).toBe(1);
+        // Only the run still recording had its calls read, for its totals and its cache.
+        expect([runsRead(next), cachesRead(next)]).toEqual([1, 1]);
       } finally {
         next.close();
       }

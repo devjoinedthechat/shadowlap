@@ -2,7 +2,7 @@ import { countOrigins, emptyOriginCounts, fixOfRun, lostAt, originCells, type Or
 import { fixesSummary, needsLookFixes } from './fixes.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
+import { cacheTotalsOf, callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
 import { failingTests, overviewTests, type GoldenList } from './tests.js';
 
 /**
@@ -456,16 +456,17 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
 /**
  * Live model calls' cache use in runs started since the week started, as the engine's `cacheUse`
  * counts it (attempts included, imported recordings left out: they were live somewhere else), from
- * each run's kept totals, with each miss's run kind for its icon. Largest misses first.
+ * each run's kept totals (worked out once per run, the first time a week asks), with each miss's
+ * run kind for its icon. Largest misses first.
  */
 function cacheUse(store: Store, index: RunIndex, since: number): CacheUse {
   const runs = index.runs.filter((r) => r.startedAt >= since && !(r.meta.imported && r.mode === 'record'));
-  const totals = callTotals(store, index, runs);
+  const caches = cacheTotalsOf(store, index, runs);
   let input = 0;
   let cacheRead = 0;
   const all: Array<CacheMissRow & { startedAt: number }> = [];
   for (const r of runs) {
-    const c = totals.get(r.runId)?.cache;
+    const c = caches.get(r.runId);
     if (!c) continue;
     input += c.input;
     cacheRead += c.read;
