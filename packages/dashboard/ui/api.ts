@@ -2,7 +2,7 @@ import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
-import { noProjects, projectsApi, type ProjectsApi } from './projects-api.js';
+import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
@@ -33,9 +33,11 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
-  // A project's setup (the projects slice registers these): inspect the folder, record a first run.
+  // A project's setup (the projects slice registers these): inspect the folder, record a first run,
+  // keep it as a golden (pack, then test).
   inspect: 'init',
   record: 'record',
+  keepGolden: 'pack-test',
 } as const;
 
 export class ApiError extends Error {
@@ -144,7 +146,8 @@ export function createClient(token: string): Client {
     const cached = method === 'GET' ? etags.get(path) : undefined;
     const res = await fetch(`/api/${path}`, {
       ...init,
-      headers: { 'x-shadowlap-token': token, ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
+      // The project the page shows: a change asked for while another is current is refused (projects-api.ts).
+      headers: { 'x-shadowlap-token': token, ...projectHeader(), ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
     });
     if (res.status === 304 && cached) return cached.body as T;
     const text = await res.text();
@@ -154,7 +157,10 @@ export function createClient(token: string): Client {
     } catch {
       body = { error: text };
     }
-    if (!res.ok) throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
+    if (!res.ok) {
+      noteRefusal(res.status, body);
+      throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
+    }
     const etag = res.headers.get('etag');
     if (etag && method === 'GET') etags.set(path, { etag, body });
     return body as T;
@@ -177,7 +183,11 @@ export function createClient(token: string): Client {
   }
   return {
     exported: false,
-    meta: () => request<Meta>('meta').then((m) => shape(m, normalizeMeta)),
+    meta: () =>
+      request<Meta>('meta').then((m) => {
+        showProject(m.project?.id);
+        return shape(m, normalizeMeta);
+      }),
     runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
     run: (runId) => request<RunDetail>(`runs/${id(runId)}`).then((d) => shape(d, normalizeRunDetail)),
     call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),

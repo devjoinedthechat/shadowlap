@@ -37,10 +37,15 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/jobs/:id', (r) => r.json(jobs.view(r.params.id!, Math.max(0, Number(r.query.get('after') ?? 0) || 0))));
 
-  router.post('/jobs/:id/stop', (r) => {
-    jobs.view(r.params.id!); // a 404 for a job it never had
-    r.json({ stopped: jobs.stop(r.params.id!) });
-  });
+  // By its id: a job keeps to the project it started in, so a page showing that one may stop it after a switch.
+  router.post(
+    '/jobs/:id/stop',
+    (r) => {
+      jobs.view(r.params.id!); // a 404 for a job it never had
+      r.json({ stopped: jobs.stop(r.params.id!) });
+    },
+    { anyProject: true },
+  );
 
   // The run actions as they were posted before jobs had kinds.
   router.post('/runs/:id/actions', async (r) => {

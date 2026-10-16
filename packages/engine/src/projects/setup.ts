@@ -11,9 +11,10 @@ import type { ModelServer } from './record.js';
  * remembers how far a project got, so the switcher can say "setting up" and the setup resumes. The
  * store and the repository say the rest, so the same commands typed in a terminal move the setup on
  * too: `init` writes its findings to the list, a recording counts once it holds calls, a clean
- * replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/`
- * completes step 4. `calibrate --write` in a terminal leaves no trace of its own (it deletes its
- * replays), so after it the setup's Calibrate finds the replay clean as it is, or a replay shows it.
+ * replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` whose
+ * test passed (`shadowlap test`, which keeps each golden's result in the store) completes step 4.
+ * `calibrate --write` in a terminal leaves no trace of its own (it deletes its replays), so after it
+ * the setup's Calibrate finds the replay clean as it is, or a replay shows it.
  */
 
 export const SETUP_STAGES = ['added', 'inspected', 'recorded', 'clean', 'tested', 'done'] as const;
@@ -130,6 +131,18 @@ export interface RunFact {
   tools?: string[];
 }
 
+/** A golden's newest test, as `shadowlap test` keeps it in the store (`Store.latestTestResults`). */
+export interface GoldenTestFact {
+  /** Its pack folder relative to the project: `goldens/refund-flow`. */
+  golden: string;
+  ok: boolean;
+  at: number;
+  /** Why it failed, in one line. */
+  reason: string | null;
+  /** The recording it replayed. */
+  goldenRunId: string | null;
+}
+
 export interface StoreFacts {
   /** Runs, attempts left out, as the status bar counts them. */
   runs: number;
@@ -143,6 +156,8 @@ export interface StoreFacts {
   setupEvent: StoredEvent | null;
   /** A `project.added` event: the folder was a project in this dashboard before. */
   addedBefore: boolean;
+  /** Each golden's newest test: the setup's last step is done once its golden's passed. */
+  tests: GoldenTestFact[];
 }
 
 /** What {@link storeFacts} reads: a `Store`, or a read-only view of one (`readStoreFacts`). */
@@ -152,6 +167,8 @@ export interface FactsSource {
   listEvents(options: { kinds?: string[]; limit?: number }): StoredEvent[];
   /** The names of the tools a run called; a `Store` answers from its calls. */
   calledTools?(runId: string): string[];
+  /** Each golden's newest test result; none from a source that keeps no tests. */
+  latestTestResults?(): GoldenTestFact[];
 }
 
 function calledTools(store: FactsSource, runId: string): string[] {
@@ -171,7 +188,7 @@ export function isRecording(run: RunRecord): boolean {
 }
 
 export function emptyStoreFacts(): StoreFacts {
-  return { runs: 0, attempts: 0, recordings: [], live: false, setupEvent: null, addedBefore: false };
+  return { runs: 0, attempts: 0, recordings: [], live: false, setupEvent: null, addedBefore: false, tests: [] };
 }
 
 /** Recordings listed at most, newest first; the setup's own is always among them. */
@@ -213,6 +230,7 @@ export function storeFacts(store: FactsSource, now: number = Date.now(), options
   // Other commands log setup steps under the same kind (`init` writing the config): only a finished setup says `stage: 'done'`.
   facts.setupEvent = store.listEvents({ kinds: ['project.setup'], limit: 200 }).find((e) => e.data?.stage === 'done') ?? null;
   facts.addedBefore = store.listEvents({ kinds: ['project.added'], limit: 1 }).length > 0;
+  facts.tests = (store.latestTestResults?.() ?? []).map((t) => ({ golden: t.golden, ok: t.ok, at: t.at, reason: t.reason, goldenRunId: t.goldenRunId }));
   return facts;
 }
 
@@ -283,10 +301,13 @@ export interface EffectiveSetup {
   unwrappedAtRecord: string[];
   /** The newest recording, when it ended without a call after the setup's own (or with none to fall back on): nothing was recorded. */
   empty: RunFact | null;
-  /** The golden kept from the recording: the one the list names, or a pack of it found in the repository. */
+  /**
+   * The golden kept from the recording: a pack of it found in the repository, or the one the list
+   * names. Packed is not tested: the last step is done once its test passed (`goldenTest`).
+   */
   golden: string | null;
-  /** How the golden was kept: packed and tested from the setup (`noteTested`), or found packed in the repository. */
-  goldenFrom: 'tested' | 'packed' | null;
+  /** That golden's newest test of this recording, as `shadowlap test` stored it; null before one ran. */
+  goldenTest: { ok: boolean; at: number; reason: string | null } | null;
 }
 
 /**
@@ -334,26 +355,32 @@ export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?
 
   const ownGolden = own && state.golden ? state.golden : null;
   const packed = run ? (repo.packs?.find((p) => p.runIds.includes(run.runId))?.path ?? null) : null;
-  const kept = (tested: boolean): Pick<EffectiveSetup, 'golden' | 'goldenFrom'> => (!tested ? { golden: null, goldenFrom: null } : ownGolden ? { golden: ownGolden, goldenFrom: 'tested' } : { golden: packed, goldenFrom: 'packed' });
+  // The golden on disk first: a pack the recording is in, wherever it was packed (here, or in a terminal).
+  const golden = packed ?? ownGolden;
+  // Its newest test, of this recording: one of another recording packed under the same name says nothing about it.
+  const test = run && golden ? (facts.tests.find((t) => t.golden === golden && (!t.goldenRunId || t.goldenRunId === run.runId)) ?? null) : null;
+  const goldenTest = test ? { ok: test.ok, at: test.at, reason: test.reason } : null;
+  // Tested once that test passed; without one in the store, what the list noted when a test passed.
+  const passed = (listed: SetupStage) => (test ? test.ok : stageAtLeast(listed, 'tested') && !!ownGolden && golden === ownGolden);
 
   if (finished && hasRuns) {
     const recorded = !!run && !run.live;
     const clean = recorded && ((own && state.calibration != null) || run.replayedClean);
-    const tested = recorded && (!!ownGolden || !!packed);
-    return { ...base, stage: 'done', live: !!run?.live, shows: 'none', steps: { recorded, clean, tested }, ...kept(tested) };
+    const tested = recorded && passed(own ? 'tested' : 'recorded');
+    return { ...base, stage: 'done', live: !!run?.live, shows: 'none', steps: { recorded, clean, tested }, golden: recorded ? golden : null, goldenTest: recorded ? goldenTest : null };
   }
   if (!run || run.live) {
     // Inspected only when `init` ran (its findings are kept), whatever stage the list reached without
     // it: a folder counted as set up when the dashboard started there, its runs since deleted.
     const inspected = state.findings !== undefined ? !!state.findings : stageAtLeast(state.stage, 'inspected');
     const stage: SetupStage = inspected ? 'inspected' : 'added';
-    return { ...base, stage, live: !!run, shows: shows(stage), steps: { recorded: false, clean: false, tested: false }, ...kept(false) };
+    return { ...base, stage, live: !!run, shows: shows(stage), steps: { recorded: false, clean: false, tested: false }, golden: null, goldenTest: null };
   }
   const listed = own ? state.stage : 'recorded';
-  const tested = (stageAtLeast(listed, 'tested') && !!ownGolden) || !!packed;
+  const tested = passed(listed);
   const clean = stageAtLeast(listed, 'clean') || run.replayedClean;
   const stage: SetupStage = tested ? 'tested' : clean ? 'clean' : 'recorded';
-  return { ...base, stage, live: false, shows: shows(stage), steps: { recorded: true, clean, tested }, ...kept(tested) };
+  return { ...base, stage, live: false, shows: shows(stage), steps: { recorded: true, clean, tested }, golden, goldenTest };
 }
 
 /**

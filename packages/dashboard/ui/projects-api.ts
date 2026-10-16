@@ -73,6 +73,40 @@ export interface ProjectsApi {
 /** The client's request function, as `createClient` has it: JSON in and out, an `ApiError` with the server's message. */
 export type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
+// ---- the project this page shows, and a switch made elsewhere
+
+/** The project the page shows, as its meta last named it: every request says it (`x-shadowlap-project`). */
+let shown: string | null = null;
+const switched = new Set<(current: { id: string; name: string }) => void>();
+
+/** The page now shows this project (its meta arrived): what it asks for is about this one. */
+export function showProject(id: string | null | undefined): void {
+  shown = id ?? null;
+}
+
+/** The header that names the shown project, for a request: a change asked for from a page that shows another project than the current one is refused. */
+export function projectHeader(): Record<string, string> {
+  return shown ? { 'x-shadowlap-project': shown } : {};
+}
+
+/**
+ * A request was refused because the dashboard switched to another project elsewhere (another tab):
+ * the answer names the current one. Listeners turn the page to it.
+ */
+export function noteRefusal(status: number, body: unknown): void {
+  const current = (body as { current?: { id?: unknown; name?: unknown } } | null)?.current;
+  if (status !== 409 || !current || typeof current.id !== 'string' || typeof current.name !== 'string' || current.id === shown) return;
+  for (const l of switched) l({ id: current.id, name: current.name });
+}
+
+/** Hears a switch made elsewhere, as a refused request reveals it; returns what stops it. */
+export function onProjectSwitched(listener: (current: { id: string; name: string }) => void): () => void {
+  switched.add(listener);
+  return () => {
+    switched.delete(listener);
+  };
+}
+
 /** A server without projects: an older one (no endpoint), or one that serves one store. */
 function noProjectsHere(err: unknown): boolean {
   const e = err as { status?: number; message?: string } | null;

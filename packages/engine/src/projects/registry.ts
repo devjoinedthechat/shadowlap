@@ -318,6 +318,11 @@ export class ProjectRegistry {
   private readonly now: () => number;
   private readonly actor: (folder: string) => string | null;
   private readonly lockTimeoutMs: number;
+  /**
+   * The list as last read, with the file's identity then: a dashboard asks for it several times a
+   * request, and it is read again only once the file changed (each write replaces it).
+   */
+  private cached: { key: string; state: State } | null = null;
 
   constructor(options: RegistryOptions = {}) {
     this.env = options.env ?? process.env;
@@ -656,7 +661,22 @@ export class ProjectRegistry {
     return p;
   }
 
+  /** The list from the file, or as last read while the file is unchanged. A change reads it afresh (`parse`). */
   private read(): State {
+    let key: string | null = null;
+    try {
+      const st = statSync(this.file);
+      key = `${st.ino}:${st.size}:${st.mtimeMs}`;
+    } catch {
+      // not there yet, or unreadable: read below says which
+    }
+    if (key !== null && this.cached?.key === key) return this.cached.state;
+    const state = this.parse();
+    this.cached = key === null ? null : { key, state };
+    return state;
+  }
+
+  private parse(): State {
     let text: string;
     try {
       text = readFileSync(this.file, 'utf8');
@@ -683,7 +703,8 @@ export class ProjectRegistry {
   private mutate<T>(fn: (state: State) => T): T {
     try {
       return withFileLock(this.file, this.lockTimeoutMs, () => {
-        const state = this.read();
+        // Read afresh, and never the copy kept for readers: the change is made to what this reads.
+        const state = this.parse();
         if (typeof state.raw.version === 'number' && state.raw.version > REGISTRY_VERSION) throw new ProjectError('registry', newerList(this.file));
         const result = fn(state);
         const rawProjects = Array.isArray(state.raw.projects) ? state.raw.projects : [];

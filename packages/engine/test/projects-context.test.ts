@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -238,6 +238,26 @@ describe('ProjectHost', () => {
     expect(existsSync(gone)).toBe(false);
     host.close();
   });
+
+  it('lets go of a store whose folder moves away while it is open, and opens it again once it is back', () => {
+    const { registry, loadConfig, support } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    const ctx = host.current();
+    recordInto(ctx.store(), support);
+    expect(ctx.facts().runs).toBe(1);
+    renameSync(support, `${support}.moved`);
+    expect(() => ctx.store()).toThrow(/doesn’t exist any more/);
+    expect(ctx.facts().runs).toBe(0);
+    expect(ctx.hasStore()).toBe(false);
+    expect(existsSync(support)).toBe(false);
+    renameSync(`${support}.moved`, support);
+    expect(ctx.store().allRuns()).toHaveLength(1);
+    // Its store deleted while open: the next use opens the one there now.
+    ctx.close();
+    rmSync(join(support, '.shadowlap'), { recursive: true, force: true });
+    expect(ctx.facts().runs).toBe(0);
+    host.close();
+  });
 });
 
 
@@ -299,7 +319,7 @@ describe('ProjectHost: what it reads and keeps', () => {
     host.close();
   });
 
-  it('takes a golden packed from the setup’s recording in a terminal as its last step, and offers a free path for a new one', () => {
+  it('takes a golden packed from the setup’s recording in a terminal, once its test passed, as its last step, and offers a free path for a new one', () => {
     const { registry, loadConfig, support, triage } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });
     registry.add('~/triage-bot');
@@ -312,11 +332,15 @@ describe('ProjectHost: what it reads and keeps', () => {
     writeFileSync(join(triage, 'goldens', 'triage-bot', 'run.json'), JSON.stringify({ runs: [{ runId: 'SOMEONE-ELSES' }] }));
     expect(host.suggestGolden('triage-bot')).toBe('goldens/triage-bot-2');
     expect(host.setup('triage-bot')).toMatchObject({ stage: 'recorded', steps: { tested: false }, golden: null });
-    // Packed in a terminal: step 4 is done.
+    // Packed in a terminal: the golden is kept, and its test is still to run.
     packRun(store, runId, join(triage, 'goldens', 'triage-bot-old'));
-    expect(host.setup('triage-bot')).toMatchObject({ stage: 'tested', steps: { tested: true }, golden: 'goldens/triage-bot-old', goldenFrom: 'packed' });
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'recorded', steps: { tested: false }, golden: 'goldens/triage-bot-old', goldenTest: null });
     // Its golden, once kept, is what it offers.
     expect(host.suggestGolden('triage-bot')).toBe('goldens/triage-bot-old');
+    // `shadowlap test` passed it: step 4 is done.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/triage-bot-old'] });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/triage-bot-old', ok: true, goldenRunId: runId });
+    expect(host.setup('triage-bot')).toMatchObject({ stage: 'tested', steps: { tested: true }, golden: 'goldens/triage-bot-old', goldenTest: { ok: true } });
     expect(host.finishSetup('triage-bot').setup).toMatchObject({ stage: 'done', runId, golden: 'goldens/triage-bot-old', skipped: false });
     host.close();
   });

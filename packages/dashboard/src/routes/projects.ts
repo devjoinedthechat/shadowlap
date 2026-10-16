@@ -1,4 +1,5 @@
-import { calibrationOutcome, checkFolder, goldenPath, runTotals, setupJobArgs, suggestFolders, tildePath, type CalibrationOutcome, type ProjectEntry, type ProjectHost } from '@shadowlap/engine';
+import { sep } from 'node:path';
+import { ProjectError, calibrationOutcome, checkFolder, goldenPath, runTotals, setupJobArgs, suggestFolders, tildePath, type CalibrationOutcome, type ProjectEntry, type ProjectHost } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobNotice } from '../jobs.js';
@@ -19,11 +20,14 @@ import type { Router } from '../router.js';
  *   POST /api/setup/golden {golden}        where the golden would go, checked (changes nothing)
  *   POST /api/setup/finish {project?}      Skip the rest, or Go to the overview: the project is set up
  *
- * And two job kinds: `init` (inspect the folder: `shadowlap init`, which writes what it finds to the
- * project list) and `record` (`shadowlap run -- <command>`, the one place the browser sends a command
- * line: the agent's own, which only ever goes after `--`, split without a shell, and confirmed the
- * first time it runs in a folder). Setup requests may name the project the page shows (`project`):
- * one that is no longer current is refused, so a click never acts on a project switched to elsewhere.
+ * And three job kinds: `init` (inspect the folder: `shadowlap init`, which writes what it finds to
+ * the project list), `record` (`shadowlap run -- <command>`, the one place the browser sends a
+ * command line: the agent's own, which only ever goes after `--`, split without a shell, and
+ * confirmed the first time it runs in a folder) and `pack-test` (keep the setup's recording as a
+ * golden: `pack <run> <golden>`, then `test <golden>`; only the test once it is packed). Setup
+ * requests may name the project the page shows (`project`): one that is no longer current is
+ * refused, so a click never acts on a project switched to elsewhere. The routes that name a project
+ * by its id (switching, adding, removing) take any page's.
  *
  * A dashboard that serves one store (tests, `shadowlap ui`, `--read-only`) has none of this: these
  * routes answer 404 and the job kinds aren't registered, and the pages fall back to the commands.
@@ -50,6 +54,12 @@ export function register(router: Router, ctx: RouteContext): void {
   };
   /** The last calibrate job's outcome per project, for its setup's third step (until the replay is clean). */
   const calibrations = new Map<string, { runId: string; outcome: CalibrationOutcome }>();
+  /** A message with paths under the home folder written as the rest of these screens write them: `~/x`. */
+  const homeAsTilde = (h: ProjectHost<ProjectConfig>, text: string): string => {
+    let out = text;
+    for (const home of new Set([h.registry.realHome, h.registry.home])) out = out.split(`${home}${sep}`).join(`~${sep}`);
+    return out;
+  };
 
   // ---- the switcher
 
@@ -60,11 +70,16 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged({ ...view, notice: h.notice, warnings: h.registry.warnings });
   });
 
-  router.post('/projects/:id/select', (r) => {
-    const h = need();
-    const ctxNow = h.switchTo(r.params.id!);
-    r.json({ current: ctxNow.id, name: ctxNow.name });
-  });
+  // Switching, adding and removing name their project: a page showing another one may do them.
+  router.post(
+    '/projects/:id/select',
+    (r) => {
+      const h = need();
+      const ctxNow = h.switchTo(r.params.id!);
+      r.json({ current: ctxNow.id, name: ctxNow.name });
+    },
+    { anyProject: true },
+  );
 
   // ---- adding a folder
 
@@ -88,15 +103,19 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json(refused ? { ...view, error: refused } : view);
   });
 
-  router.post('/projects', async (r) => {
-    const h = need();
-    const body = await r.body();
-    if (typeof body.path !== 'string' || !body.path.trim()) throw new HttpError(400, 'Give the folder’s path, such as ~/my-agent.');
-    const added = h.add(body.path);
-    // After adding, the setup opens: the new project is the current one.
-    h.switchTo(added.project.id);
-    r.json({ project: { id: added.project.id, name: added.project.name, path: tildePath(added.project.path, h.registry.realHome) }, again: added.again, runs: added.runs, message: addedMessage(added, h.registry.realHome), current: added.project.id }, 201);
-  });
+  router.post(
+    '/projects',
+    async (r) => {
+      const h = need();
+      const body = await r.body();
+      if (typeof body.path !== 'string' || !body.path.trim()) throw new HttpError(400, 'Give the folder’s path, such as ~/my-agent.');
+      const added = h.add(body.path);
+      // After adding, the setup opens: the new project is the current one.
+      h.switchTo(added.project.id);
+      r.json({ project: { id: added.project.id, name: added.project.name, path: tildePath(added.project.path, h.registry.realHome) }, again: added.again, runs: added.runs, message: addedMessage(added, h.registry.realHome), current: added.project.id }, 201);
+    },
+    { anyProject: true },
+  );
 
   // ---- removing one
 
@@ -107,20 +126,31 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json(removeDialog({ project, stats: h.statsOf(project.id), projects: list.length, home: h.registry.realHome }));
   });
 
-  router.post('/projects/:id/remove', async (r) => {
-    const h = need();
-    const body = await r.body();
-    const project = entryOf(h, r.params.id!);
-    const deleteRecordings = body.deleteRecordings === true;
-    const out = h.remove(project.id, { deleteRecordings, typedName: typeof body.name === 'string' ? body.name : '' });
-    calibrations.delete(project.id);
-    r.json({
-      removed: project.id,
-      current: out.current,
-      deleted: out.deleted,
-      message: deleteRecordings ? `Removed ${project.name} and deleted its recordings` : `Removed ${project.name} · its folder and recordings are untouched`,
-    });
-  });
+  router.post(
+    '/projects/:id/remove',
+    async (r) => {
+      const h = need();
+      const body = await r.body();
+      const project = entryOf(h, r.params.id!);
+      const deleteRecordings = body.deleteRecordings === true;
+      let out: ReturnType<ProjectHost<ProjectConfig>['remove']>;
+      try {
+        out = h.remove(project.id, { deleteRecordings, typedName: typeof body.name === 'string' ? body.name : '' });
+      } catch (err) {
+        // Why it won't (a store in a folder it can't write to, a .shadowlap that is a link), with ~ for the home folder.
+        if (err instanceof ProjectError) throw new HttpError(err.status, homeAsTilde(h, err.message));
+        throw err;
+      }
+      calibrations.delete(project.id);
+      r.json({
+        removed: project.id,
+        current: out.current,
+        deleted: out.deleted,
+        message: deleteRecordings ? `Removed ${project.name} and deleted its recordings` : `Removed ${project.name} · its folder and recordings are untouched`,
+      });
+    },
+    { anyProject: true },
+  );
 
   // ---- the setup
 
@@ -208,10 +238,31 @@ export function register(router: Router, ctx: RouteContext): void {
       const planned = h.planRecording(projectId, req.command);
       if (!planned.ok) return { error: planned.error };
       const plan = planned.plan;
-      // The first time this command runs in this folder (through this model server), it asks first.
+      // The first time this command runs in this folder (through this model server), it asks first,
+      // and it is remembered as confirmed once it has started: a start refused after this (too many
+      // jobs, the dashboard stopping) asks again next time.
       if (plan.confirm && req.confirmed !== true) return { error: `${plan.confirm.title} Confirm it first: ${plan.display}`, status: 409 };
-      if (plan.confirm) h.confirmCommand(projectId, plan);
-      return { args: plan.args, cwd: plan.cwd, env: plan.env, opensRun: true, title: 'Recording' };
+      return { args: plan.args, cwd: plan.cwd, env: plan.env, opensRun: true, title: 'Recording', ...(plan.confirm ? { started: () => void h.confirmCommand(projectId, plan) } : {}) };
+    },
+  });
+
+  // Keep it as a test: the setup's recording packed as a golden, then its test, as one job; once
+  // it is packed (here or in a terminal), the test alone, to run it again.
+  ctx.jobs.registerJobKind('pack-test', {
+    title: () => 'Packing and testing',
+    build: (req, { projectId, project }) => {
+      if (!project || !projectId) return { error: ONE_STORE, status: 501 };
+      if (typeof req.project === 'string' && req.project && req.project !== projectId) return { error: `The dashboard switched to ${projectId}. Open ${req.project} again to keep its golden.`, status: 409 };
+      const entry = entryOf(h, projectId);
+      const setup = h.setup(projectId);
+      const run = setup.run;
+      if (!run || setup.live || !setup.steps.recorded) return { error: 'Record a first run before you keep it as a test.', status: 409 };
+      const asked = typeof req.golden === 'string' && req.golden.trim() ? req.golden : (setup.golden ?? '');
+      const check = goldenPath(asked, { folder: entry.path, runId: run.runId });
+      if (!check.ok) return { error: check.error };
+      const packed = h.context(projectId).packs().some((p) => p.path === check.path && p.runIds.includes(run.runId));
+      if (packed) return { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' };
+      return { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
     },
   });
 
@@ -245,11 +296,13 @@ export function register(router: Router, ctx: RouteContext): void {
         if (outcome.done) h.registry.noteCalibrated(id, runId, outcome.added);
         return;
       }
+      case 'pack-test':
       case 'test': {
         if (job.code !== 0) return;
         const setup = h.setup(id);
-        // The golden the setup packed from its recording, tested and passing.
-        if (setup.run && setup.golden && job.args.includes(setup.golden)) h.registry.noteTested(id, setup.run.runId, setup.golden);
+        // The golden the setup packed from its recording, tested and passing (as the store says): the
+        // list keeps it, so the project's setup comes back with it.
+        if (setup.run && setup.golden && setup.steps.tested) h.registry.noteTested(id, setup.run.runId, setup.golden);
         return;
       }
       default:

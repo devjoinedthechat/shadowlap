@@ -5,7 +5,7 @@ import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
-import type { ProjectsView } from '../projects-api.js';
+import { onProjectSwitched, type ProjectsView } from '../projects-api.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
@@ -111,6 +111,9 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
     seen.current = id;
     if (location.hash.replace(/^#\/?/, '') !== '') navigate(href.overview());
   }, [id]);
+  // A change asked for here was refused because the dashboard switched elsewhere: turn to that project at once.
+  const { reload } = app;
+  useEffect(() => onProjectSwitched(() => void reload()), [reload]);
 
   const pick = (pid: string) => {
     menu.close();
@@ -124,7 +127,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         type="button"
         aria-haspopup="menu"
         aria-expanded={menu.open}
-        title={list?.notice ?? project.path}
+        title={list?.notice ?? project.notice ?? project.path}
         onClick={(e) => {
           if (!menu.open) load();
           menu.toggle(e.currentTarget);
@@ -177,7 +180,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
             <b>{list?.add.label ?? 'Add project…'}</b>
             <small>{list?.add.hint ?? 'a folder with your agent’s code'}</small>
           </button>
-          <div className="pnote">{list?.notice ?? list?.note ?? 'Each project keeps its own store.'}</div>
+          <div className="pnote">{list?.notice ?? project.notice ?? list?.note ?? 'Each project keeps its own store.'}</div>
         </Popover>
       ) : null}
       {removing ? (

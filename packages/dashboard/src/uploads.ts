@@ -1,4 +1,4 @@
-import { createWriteStream, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { ulid } from '@shadowlap/engine';
@@ -14,7 +14,9 @@ import type { UploadView } from './views.js';
  * which parses it as it would any file.
  *
  * An upload is deleted when the job that used it ends, after an hour nobody used it, and when the
- * dashboard closes.
+ * dashboard closes. On a dashboard that serves several projects, an upload goes to the folder of the
+ * project current as it arrives (where its job will run), and each project's folder is swept of
+ * what an earlier dashboard left there the first time it is served.
  */
 
 export const UPLOAD_LIMIT = 64 * 1024 * 1024;
@@ -48,6 +50,8 @@ export class UploadStore implements UploadSource {
   private arriving = 0;
   private closed = false;
   private timer: NodeJS.Timeout | null = null;
+  /** The uploads folders of the projects this dashboard served: swept once, and removed (when empty) on close. */
+  private readonly folders = new Set<string>();
   private readonly limit: number;
   private readonly maxIdleMs: number;
   private readonly now: () => number;
@@ -70,7 +74,20 @@ export class UploadStore implements UploadSource {
     this.limit = o.limit ?? UPLOAD_LIMIT;
     this.maxIdleMs = o.maxIdleMs ?? UPLOAD_MAX_IDLE_MS;
     this.now = o.now ?? Date.now;
-    if (!o.readOnly) this.sweepLeftovers();
+    const project = o.project;
+    if (project) this.adopt(project.path);
+  }
+
+  /**
+   * A project folder this dashboard serves: what an earlier dashboard left in its uploads folder,
+   * unused for the idle time, is swept the first time, and the folder is removed on close if empty.
+   * A read-only dashboard touches nothing there.
+   */
+  adopt(projectPath: string): void {
+    const dir = join(projectPath, '.shadowlap', 'uploads');
+    if (this.o.readOnly || this.folders.has(dir)) return;
+    this.folders.add(dir);
+    this.sweepLeftovers(dir);
   }
 
   /** The folder uploads go to, or null without a project. */
@@ -85,9 +102,15 @@ export class UploadStore implements UploadSource {
 
   /** Stores the request body as a new upload. Throws an HttpError the client should see. */
   async receive(req: IncomingMessage): Promise<UploadView> {
-    const dir = this.dir;
+    // The project current as it arrives, to the end: its job runs there.
+    const project = this.o.project;
     if (this.o.readOnly) throw new HttpError(403, 'this dashboard is read-only: it takes no uploads');
-    if (!dir || !this.o.project) throw new HttpError(501, 'uploads need a project folder: start the dashboard in your project with shadowlap dashboard');
+    if (!project) throw new HttpError(501, 'uploads need a project folder: start the dashboard in your project with shadowlap dashboard');
+    // A project whose folder is gone (or whose store can't be opened) runs no job to take it.
+    if (project.problem) throw new HttpError(409, project.problem);
+    if (!existsSync(project.path)) throw new HttpError(409, `${project.display ?? project.name} doesn’t exist any more. Remove the project, or put the folder back.`);
+    const dir = join(project.path, '.shadowlap', 'uploads');
+    this.adopt(project.path);
     refuseOversized(req, this.limit, 'file');
     if (this.uploads.size + this.arriving >= MAX_UPLOADS) {
       this.sweep();
@@ -107,7 +130,7 @@ export class UploadStore implements UploadSource {
     const id = ulid();
     const path = join(dir, `${id}-${name}`);
     try {
-      this.ensureDir(dir);
+      this.ensureDir(project, dir);
       bytes = await this.write(req, path);
     } catch (err) {
       throw this.closed ? new HttpError(503, 'the dashboard is stopping') : err;
@@ -117,7 +140,7 @@ export class UploadStore implements UploadSource {
     if (this.closed) {
       // The dashboard stopped while it arrived: nothing is kept after close.
       removeFile(path);
-      if (!this.arriving) this.removeDir();
+      if (!this.arriving) this.removeDirs();
       throw new HttpError(503, 'the dashboard is stopping');
     }
     this.uploads.set(id, { id, name, path, bytes, lastUsed: this.now(), jobId: null });
@@ -197,16 +220,18 @@ export class UploadStore implements UploadSource {
     this.timer = null;
     for (const u of [...this.uploads.values()]) this.remove(u);
     // An upload still arriving is deleted when it has, and the folder with it.
-    if (!this.arriving) this.removeDir();
+    if (!this.arriving) this.removeDirs();
   }
 
-  private removeDir(): void {
-    const dir = this.dir;
-    if (!dir || this.o.readOnly) return;
-    try {
-      rmdirSync(dir); // only when empty: another dashboard on this project may be using it
-    } catch {
-      // not empty, or never made
+  /** Each project's uploads folder, when empty: another dashboard on the project may be using it. */
+  private removeDirs(): void {
+    if (this.o.readOnly) return;
+    for (const dir of this.folders) {
+      try {
+        rmdirSync(dir);
+      } catch {
+        // not empty, or never made
+      }
     }
   }
 
@@ -230,8 +255,7 @@ export class UploadStore implements UploadSource {
    * the project (a checkout could have planted one pointing anywhere), checked before anything is
    * made inside it. A new `.shadowlap` is kept out of git, as the store keeps its own folder.
    */
-  private ensureDir(dir: string): void {
-    const project = this.o.project!;
+  private ensureDir(project: ProjectInfo, dir: string): void {
     const parent = join(project.path, '.shadowlap');
     for (const d of [parent, dir]) {
       let made = false;
@@ -254,10 +278,8 @@ export class UploadStore implements UploadSource {
     if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new HttpError(500, 'the uploads folder leads outside the project; remove .shadowlap/uploads and try again');
   }
 
-  /** Uploads a dashboard that stopped without closing left behind, unused for the idle time. */
-  private sweepLeftovers(): void {
-    const dir = this.dir;
-    if (!dir) return;
+  /** Uploads a dashboard that stopped without closing left behind in `dir`, unused for the idle time. */
+  private sweepLeftovers(dir: string): void {
     let names: string[];
     try {
       if (!lstatSync(dir).isDirectory()) return;

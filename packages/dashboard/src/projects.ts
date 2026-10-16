@@ -308,8 +308,12 @@ export interface TestStep extends StepBase {
   redaction: { rules: number; text: string; href: string } | null;
   /** The golden's path, editable until it is packed. */
   golden: { value: string; enabled: boolean } | null;
-  button: { label: string; action: 'packgolden'; enabled: boolean } | null;
+  /** Pack as a golden (then its test runs), or once it is packed, Run the test. */
+  button: { label: string; action: 'packgolden' | 'testgolden'; enabled: boolean } | null;
+  /** Its test passed: the step is done. */
   result: { text: string; link: { label: string; href: string } } | null;
+  /** Packed, and its test not passed yet: never run, or failed (with why, and where to look). */
+  packed: { golden: string; failed: boolean; text: string; link: { label: string; href: string } | null } | null;
 }
 
 export interface SetupView {
@@ -488,29 +492,33 @@ export function setupView(input: SetupInput): SetupView {
     stopped: last?.stopped ?? null,
   };
 
-  // 4 · Keep it as a test
+  // 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
+  // in a terminal) whose test hasn't passed keeps the step open, with the test to run.
   const calls = totals?.calls ?? 0;
+  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
+  const failed = packedOnly !== null && setup.goldenTest?.ok === false;
   const test: TestStep = {
     key: 'test',
     n: 4,
     title: 'Keep it as a test',
-    state: state(tested, clean),
-    cli: tested ? [] : commands.test,
-    text: tested ? null : 'Packs the run into the repository, and CI replays it offline on every commit.',
-    redaction: tested
-      ? null
-      : {
-          rules: input.redactRules,
-          text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
-          href: '#/settings/redaction',
-        },
-    golden: tested ? null : { value: golden, enabled: clean },
-    button: tested ? null : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
-    result: tested
-      ? {
-          text: setup.goldenFrom === 'tested' ? `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}` : `Packed as ${golden}. shadowlap test ${golden} replays it offline.`,
-          link: { label: 'Open Tests', href: '#/tests' },
-        }
+    state: state(tested, clean || packedOnly !== null),
+    cli: tested ? [] : packedOnly ? [`shadowlap test ${packedOnly}`] : commands.test,
+    text: tested || packedOnly ? null : 'Packs the run into the repository, and CI replays it offline on every commit.',
+    redaction:
+      tested || packedOnly
+        ? null
+        : {
+            rules: input.redactRules,
+            text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
+            href: '#/settings/redaction',
+          },
+    golden: tested || packedOnly ? null : { value: golden, enabled: clean },
+    button: tested ? null : packedOnly ? { label: failed ? 'Run the test again' : 'Run the test', action: 'testgolden', enabled: true } : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
+    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: '#/tests' } } : null,
+    packed: packedOnly
+      ? failed
+        ? { golden: packedOnly, failed: true, text: `${packedOnly} failed its test${setup.goldenTest?.reason ? `: ${setup.goldenTest.reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: '#/tests' } }
+        : { golden: packedOnly, failed: false, text: `Packed as ${packedOnly}. Its test replays it offline: run it to finish.`, link: null }
       : null,
   };
 

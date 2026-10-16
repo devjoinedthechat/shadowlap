@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
@@ -27,9 +27,14 @@ function files(root: string, tree: Record<string, string>): string {
   return root;
 }
 
-/** The stand-in CLI: prints its arguments, folder and the upstream it was given, and reports on fd 3 as `run` and `calibrate` do. */
+/**
+ * The stand-in CLI: prints its arguments, folder and the upstream it was given, and reports on fd 3
+ * as `run` and `calibrate` do. `pack <run> <dir>` writes the pack's run.json, and `test <golden>`
+ * keeps the golden's result in the store, as the real commands do (FAKE_TEST=fail fails it).
+ */
 const FAKE = `
-import { writeSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { join } from 'node:path';
 const args = process.argv.slice(2);
 const fd = Number(process.env.SHADOWLAP_EVENTS_FD);
 const emit = (e) => { if (fd >= 3) writeSync(fd, JSON.stringify(e) + '\\n'); };
@@ -38,9 +43,26 @@ console.log('cwd ' + process.cwd());
 console.log('upstream ' + (process.env.SHADOWLAP_UPSTREAM_OPENAI ?? 'none'));
 const db = args[args.indexOf('--db') + 1];
 const rest = args.slice(args.indexOf('--db') + 2);
-if (rest[0] === 'run' && process.env.FAKE_RUN) emit({ type: 'run', runId: process.env.FAKE_RUN, role: 'new' });
+// FAKE_RUN names the run it reports, or with @ a file that holds its id.
+const fakeRun = process.env.FAKE_RUN?.startsWith('@') ? readFileSync(process.env.FAKE_RUN.slice(1), 'utf8').trim() : process.env.FAKE_RUN;
+if (rest[0] === 'run' && fakeRun) emit({ type: 'run', runId: fakeRun, role: 'new' });
 if (rest[0] === 'calibrate') emit({ type: 'result', data: { runId: rest[1], source: 'given', clean: true, rounds: [], normalizers: [], written: false, added: [], stopped: null } });
 if (rest[0] === 'init') emit({ type: 'result', data: { project: { id: null, noted: false, why: 'stand-in' } } });
+if (rest[0] === 'pack') {
+  mkdirSync(rest[2], { recursive: true });
+  writeFileSync(join(rest[2], 'run.json'), JSON.stringify({ runs: [{ runId: rest[1] }] }));
+}
+if (rest[0] === 'test') {
+  const { DatabaseSync } = await import('node:sqlite');
+  const store = new DatabaseSync(db);
+  const ok = process.env.FAKE_TEST !== 'fail';
+  const golden = JSON.parse(readFileSync(join(rest[1], 'run.json'), 'utf8')).runs[0].runId;
+  const session = 'S' + Date.now() + Math.random().toString(36).slice(2);
+  store.prepare('INSERT INTO test_sessions (session_id, started_at, command) VALUES (?, ?, ?)').run(session, Date.now(), JSON.stringify(['shadowlap', 'test', rest[1]]));
+  store.prepare('INSERT INTO test_results (session_id, golden, at, ok, reason, golden_run_id) VALUES (?, ?, ?, ?, ?, ?)').run(session, rest[1], Date.now(), ok ? 1 : 0, ok ? null : 'diverged at call 2', golden);
+  store.close();
+  if (!ok) process.exitCode = 1;
+}
 console.log('db ' + db);
 `;
 
@@ -78,7 +100,7 @@ afterEach(async () => {
   open = [];
 });
 
-async function world(options: { routes?: RouteModule[]; env?: Record<string, string>; projectOptions?: DashboardOptions['projectOptions'] } = {}) {
+async function world(options: { routes?: RouteModule[]; env?: Record<string, string>; projectOptions?: DashboardOptions['projectOptions']; spawnCli?: (fake: string, support: string) => DashboardOptions['spawnCli'] } = {}) {
   const home = tempDir('sl-proj-home-');
   const slHome = join(home, '.sl');
   const support = files(join(home, 'support-agent'), { 'pyproject.toml': '[project]\nname = "support"\n' });
@@ -101,16 +123,16 @@ async function world(options: { routes?: RouteModule[]; env?: Record<string, str
   const host = ProjectHost.open<ProjectConfig>(support, { registry, loadConfig });
   const dash = await startDashboard({
     projects: host,
-    spawnCli: cliSpawner({ command: [process.execPath, fake], cwd: support, env: { ...process.env, ...(options.env ?? {}) } }),
+    spawnCli: options.spawnCli?.(fake, support) ?? cliSpawner({ command: [process.execPath, fake], cwd: support, env: { ...process.env, ...(options.env ?? {}) } }),
     version: '0.1.0',
     routes: options.routes ?? [],
     ...(options.projectOptions ? { projectOptions: options.projectOptions } : {}),
   });
   open.push({ dash, host });
-  const api = async <T = Record<string, unknown>>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: T }> => {
+  const api = async <T = Record<string, unknown>>(path: string, init: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<{ status: number; body: T }> => {
     const res = await fetch(`${dash.url}/api/${path}`, {
       method: init.method ?? 'GET',
-      headers: { 'x-shadowlap-token': dash.token, 'content-type': 'application/json' },
+      headers: { 'x-shadowlap-token': dash.token, 'content-type': 'application/json', ...(init.headers ?? {}) },
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
     });
     const text = await res.text();
@@ -230,7 +252,8 @@ describe('the switcher', () => {
     expect((await w.api('picky')).status).toBe(200);
     await w.api('projects/triage-bot/select', { method: 'POST' });
     expect((await w.api('picky')).status).toBe(404);
-    expect((await w.api<{ project: { id: string } }>('meta')).body.project.id).toBe('triage-bot');
+    // The project's meta says so, for the switcher to show.
+    expect((await w.api<{ project: { id: string; notice?: string } }>('meta')).body.project).toMatchObject({ id: 'triage-bot', notice: 'Part of the dashboard couldn’t start for triage-bot: not for this one. Its pages there say they aren’t found.' });
     expect((await w.api('projects')).status).toBe(200);
     // The project the dashboard opens on is strict: a module that fails there stops it starting.
     const home = tempDir('sl-proj-strict-');
@@ -255,10 +278,107 @@ describe('the switcher', () => {
     expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
     const list = await w.api<{ items: Array<{ id: string; detail: string }> }>('projects');
     expect(list.body.items.find((i) => i.id === 'old-agent')?.detail).toBe('~/old-agent · folder not found');
-    expect(await w.api('jobs', { method: 'POST', body: { kind: 'init' } })).toMatchObject({ status: 400, body: { error: expect.stringContaining('doesn’t exist any more') } });
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'init' } })).toMatchObject({ status: 409, body: { error: '~/old-agent doesn’t exist any more. Remove the project, or put the folder back.' } });
     // Switching back serves the real store again.
     await w.api('projects/support-agent/select', { method: 'POST' });
     expect((await w.api<{ counts: { runs: number }; project: { id: string } }>('meta')).body).toMatchObject({ counts: { runs: 2 }, project: { id: 'support-agent' } });
+  });
+
+  it('sees a folder moved away while it is served, refuses its jobs and uploads with the reason, and serves it again once it is back', async () => {
+    const heard: string[] = [];
+    const listening: RouteModule = { register: (_router, ctx) => void ctx.jobs.onJob((n) => (n.type === 'end' ? heard.push(n.job.kind) : undefined)) };
+    const w = await world({ routes: [listening] });
+    expect((await w.api<{ counts: { runs: number } }>('meta')).body.counts.runs).toBe(2);
+    const moved = `${w.support}.moved`;
+    renameSync(w.support, moved);
+    const meta = await w.api<{ project: { id: string; problem?: string }; counts: { runs: number } }>('meta');
+    expect(meta.body).toMatchObject({ project: { id: 'support-agent', problem: '~/support-agent doesn’t exist any more. Remove the project, or put the folder back.' }, counts: { runs: 0 } });
+    expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'init' } })).toMatchObject({ status: 409, body: { error: expect.stringContaining('~/support-agent doesn’t exist any more') } });
+    const upload = await fetch(`${w.dash.url}/api/uploads`, { method: 'POST', headers: { 'x-shadowlap-token': w.dash.token, 'x-filename': 'capture.har' }, body: '{}' });
+    expect(upload.status).toBe(409);
+    expect(((await upload.json()) as { error: string }).error).toBe('~/support-agent doesn’t exist any more. Remove the project, or put the folder back.');
+    // Nothing was made where it was: the folder isn't brought back empty.
+    expect(existsSync(w.support)).toBe(false);
+    // Back: its own store again, and one instance hears its jobs (the one it had while gone stopped).
+    renameSync(moved, w.support);
+    const back = await w.api<{ project: { problem?: string }; counts: { runs: number } }>('meta');
+    expect(back.body.counts.runs).toBe(2);
+    expect(back.body.project.problem).toBeUndefined();
+    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'init' } });
+    expect(job.status).toBe(202);
+    await w.waitJob(job.body.id);
+    expect(heard).toEqual(['init']);
+  });
+
+  it('refuses a change from a page still showing another project, and lets it switch, add, remove and stop its jobs', async () => {
+    const w = await world();
+    w.registry.add(w.triage);
+    // One page shows support-agent; another switches to triage-bot.
+    await w.api('projects/triage-bot/select', { method: 'POST', headers: { 'x-shadowlap-project': 'support-agent' } });
+    const stale = { 'x-shadowlap-project': 'support-agent' };
+    const refused = await w.api<{ error: string; current: { id: string; name: string } }>('jobs', { method: 'POST', body: { kind: 'init' }, headers: stale });
+    expect(refused).toMatchObject({ status: 409, body: { error: 'The dashboard switched to triage-bot elsewhere, so nothing was done in support-agent.', current: { id: 'triage-bot', name: 'triage-bot' } } });
+    expect((await w.api(`runs/${w.supportRuns[0]}/labels`, { method: 'POST', body: { add: ['x'] }, headers: stale })).status).toBe(409);
+    expect((await w.api('setup/record', { method: 'POST', body: { command: 'node agent.mjs' }, headers: stale })).status).toBe(409);
+    const upload = await fetch(`${w.dash.url}/api/uploads`, { method: 'POST', headers: { 'x-shadowlap-token': w.dash.token, 'x-filename': 'a.har', ...stale }, body: '{}' });
+    expect(upload.status).toBe(409);
+    // Reads answer with the current project, which the page turns to.
+    expect((await w.api<{ project: { id: string } }>('meta', { headers: stale })).body.project.id).toBe('triage-bot');
+    // The page showing the current project, and a request that names none (the CLI, an older page), go ahead.
+    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'init' }, headers: { 'x-shadowlap-project': 'triage-bot' } });
+    expect(job.status).toBe(202);
+    expect((await w.api(`jobs/${job.body.id}/stop`, { method: 'POST', headers: stale })).status).toBe(200);
+    await w.waitJob(job.body.id);
+    // What names its project by id goes ahead from the stale page too.
+    expect((await w.api('projects', { method: 'POST', body: { path: w.research }, headers: stale })).status).toBe(201);
+    expect((await w.api('projects/research-agent/remove', { method: 'POST', body: {}, headers: stale })).status).toBe(200);
+    expect((await w.api('projects/support-agent/select', { method: 'POST', headers: { 'x-shadowlap-project': 'triage-bot' } })).status).toBe(200);
+    expect((await w.api('jobs', { method: 'POST', body: { kind: 'init' }, headers: stale })).status).toBe(202);
+  });
+
+  it('keeps uploads in the folder of the project current as they arrive, sweeps each project’s leftovers, and removes each uploads folder on close', async () => {
+    const w = await world();
+    w.registry.add(w.triage);
+    // What a dashboard that stopped without closing left in triage-bot, two hours ago.
+    const left = join(w.triage, '.shadowlap', 'uploads', '01K5CQ7A3M00000000000000AB-old.har');
+    files(w.triage, { '.shadowlap/uploads/01K5CQ7A3M00000000000000AB-old.har': '{}' });
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(left, old, old);
+    await w.api('projects/triage-bot/select', { method: 'POST' });
+    await w.api('meta');
+    expect(existsSync(left)).toBe(false);
+    const res = await fetch(`${w.dash.url}/api/uploads`, { method: 'POST', headers: { 'x-shadowlap-token': w.dash.token, 'x-filename': 'capture.har' }, body: '{"log":{}}' });
+    expect(res.status).toBe(201);
+    const { uploadId } = (await res.json()) as { uploadId: string };
+    expect(existsSync(join(w.triage, '.shadowlap', 'uploads', `${uploadId}-capture.har`))).toBe(true);
+    await w.dash.close();
+    expect(existsSync(join(w.triage, '.shadowlap', 'uploads'))).toBe(false);
+    expect(existsSync(join(w.support, '.shadowlap', 'uploads'))).toBe(false);
+  });
+
+  it('needs the session token, and refuses changes from another origin, on every projects route', async () => {
+    const w = await world();
+    const routes: Array<[string, string]> = [
+      ['GET', 'projects'],
+      ['GET', 'projects/folders?q='],
+      ['GET', 'projects/support-agent/remove'],
+      ['GET', 'setup'],
+      ['POST', 'projects'],
+      ['POST', 'projects/support-agent/select'],
+      ['POST', 'projects/support-agent/remove'],
+      ['POST', 'setup/record'],
+      ['POST', 'setup/golden'],
+      ['POST', 'setup/finish'],
+    ];
+    for (const [method, path] of routes) {
+      const noToken = await fetch(`${w.dash.url}/api/${path}`, { method, headers: { 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) });
+      expect(noToken.status, `${method} ${path}`).toBe(401);
+      if (method !== 'POST') continue;
+      const foreign = await fetch(`${w.dash.url}/api/${path}`, { method, headers: { 'x-shadowlap-token': w.dash.token, 'content-type': 'application/json', origin: 'https://evil.example' }, body: '{}' });
+      expect(foreign.status, `${method} ${path}`).toBe(403);
+    }
+    expect(w.registry.list().map((p) => p.id)).toEqual(['support-agent']);
   });
 });
 
@@ -406,10 +526,14 @@ describe('the setup', () => {
   });
 
   it('notes the recording a job made, a clean calibration of it, and the golden’s test, and finishes the setup', async () => {
+    // Calibrate is the settings feature's kind: a stand-in where that feature isn't registered.
     const calibrate: RouteModule = {
       register: (_router, ctx) => {
-        ctx.jobs.registerJobKind('calibrate', { title: () => 'Calibrating', build: (req) => ({ args: ['calibrate', String(req.runId), ...(req.write === true ? ['--write'] : [])] }) });
-        ctx.jobs.registerJobKind('test', { title: () => 'Running the tests', build: (req) => ({ args: ['test', String(req.golden)] }) });
+        try {
+          ctx.jobs.registerJobKind('calibrate', { title: () => 'Calibrating', build: (req) => ({ args: ['calibrate', String(req.runId), ...(req.write === true ? ['--write'] : [])] }) });
+        } catch {
+          // registered by its own feature: that one runs
+        }
       },
     };
     const w = await world({ routes: [calibrate] });
@@ -438,19 +562,85 @@ describe('the setup', () => {
     // The golden's path is checked before anything packs there.
     expect(await w.api('setup/golden', { method: 'POST', body: { golden: '../outside' } })).toMatchObject({ status: 400 });
     expect((await w.api<{ path: string }>('setup/golden', { method: 'POST', body: { golden: 'first-run' } })).body.path).toBe('goldens/first-run');
-    // Packed (here by hand, as pack would), then its test passes: step 4 is done.
-    files(w.research, { 'goldens/research-agent/run.json': JSON.stringify({ runs: [{ runId }] }) });
-    const test = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'test', golden: 'goldens/research-agent' } });
-    await w.waitJob(test.body.id);
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'pack-test', golden: '../outside', project: 'research-agent' } })).toMatchObject({ status: 400 });
+
+    // Pack as a golden: one job packs, then tests, each in this project's folder against its store.
+    const kept = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/research-agent', project: 'research-agent' } });
+    expect(kept.status).toBe(202);
+    expect(kept.body).toMatchObject({ title: 'Packing and testing', args: ['pack', runId, 'goldens/research-agent'] });
+    const packedAndTested = await w.waitJob(kept.body.id);
+    expect(packedAndTested.code).toBe(0);
+    const db = projectDbPath(w.research);
+    expect(packedAndTested.lines).toContain(`args ${JSON.stringify(['--db', db, 'pack', runId, 'goldens/research-agent'])}`);
+    expect(packedAndTested.lines).toContain('$ shadowlap test goldens/research-agent');
+    expect(packedAndTested.lines).toContain(`args ${JSON.stringify(['--db', db, 'test', 'goldens/research-agent'])}`);
+    expect(packedAndTested.lines.filter((l) => l === `cwd ${w.research}`)).toHaveLength(2);
     expect(w.registry.get('research-agent')!.setup).toMatchObject({ stage: 'tested', golden: 'goldens/research-agent' });
     const tested = await w.api<{ test: { state: string; result: { text: string } }; done: { title: string; button: { label: string } } }>('setup');
     expect(tested.body.test).toMatchObject({ state: 'done', result: { text: 'goldens/research-agent replayed clean offline · 4/4 calls' } });
     expect(tested.body.done).toMatchObject({ title: 'research-agent is set up.', button: { label: 'Go to the overview' } });
+    // Packed already: the job runs the test alone.
+    const again = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', project: 'research-agent' } });
+    expect(again.body).toMatchObject({ title: 'Testing the golden', args: ['test', 'goldens/research-agent'] });
+    await w.waitJob(again.body.id);
 
     // Go to the overview: set up, and the Overview is the Overview again.
     expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ project: 'research-agent', stage: 'done', skipped: false });
     expect((await w.api<{ project: { settingUp: boolean } }>('meta')).body.project.settingUp).toBe(false);
     expect((await w.api<{ shows: string }>('setup')).body.shows).toBe('none');
+  });
+
+  it('keeps the step open while the golden’s test fails, and a failed pack runs no test', async () => {
+    const w = await world({ env: { FAKE_TEST: 'fail' } });
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
+    const store = w.host.context('research-agent').store();
+    const runId = recordInto(store, w.research, 3);
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x' } })).toMatchObject({ status: 202 });
+    for (let i = 0; i < 200 && !(await w.api<{ jobs: Array<{ done: boolean }> }>('jobs')).body.jobs.every((j) => j.done); i++) await new Promise((r) => setTimeout(r, 25));
+    const setup = await w.api<{ test: { state: string; button: { label: string; action: string }; packed: { failed: boolean; text: string } }; done: unknown }>('setup');
+    expect(setup.body.test).toMatchObject({ state: 'current', button: { label: 'Run the test again', action: 'testgolden' }, packed: { failed: true, text: 'goldens/x failed its test: diverged at call 2. Fix what changed, or record again, then run it again.' } });
+    expect(setup.body.done).toBeNull();
+    expect(w.registry.get('research-agent')!.setup.stage).not.toBe('tested');
+    expect(setup.body.test).not.toHaveProperty('result.text');
+    expect(w.host.setup('research-agent')).toMatchObject({ golden: 'goldens/x', goldenTest: { ok: false }, run: { runId } });
+  });
+
+  it('remembers a confirmed command only once its recording started', async () => {
+    let refuse = true;
+    const w = await world({
+      spawnCli: (fake, support) => {
+        const spawn = cliSpawner({ command: [process.execPath, fake], cwd: support });
+        return (args, o) => {
+          if (refuse && args.includes('run')) throw new Error('spawn refused');
+          return spawn(args, o);
+        };
+      },
+    });
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings());
+    const failed = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'record', command: 'uv run agent.py', confirmed: true } });
+    expect(failed.status).toBe(202);
+    expect((await w.waitJob(failed.body.id)).code).toBe(127);
+    // It never ran: the next try asks again.
+    expect((await w.api<{ confirm: unknown }>('setup/record', { method: 'POST', body: { command: 'uv run agent.py' } })).body.confirm).not.toBeNull();
+    refuse = false;
+    const started = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'record', command: 'uv run agent.py', confirmed: true } });
+    await w.waitJob(started.body.id);
+    expect((await w.api<{ confirm: unknown }>('setup/record', { method: 'POST', body: { command: 'uv run agent.py' } })).body.confirm).toBeNull();
+  });
+
+  it('notes the run a recording reports as it starts, with the tools it won’t hold', async () => {
+    const reported = join(tempDir('sl-proj-reported-'), 'run-id');
+    const w = await world({ env: { FAKE_RUN: `@${reported}` } });
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings());
+    // The run `shadowlap run` starts: recording, as the job reports it.
+    const run = w.host.context('research-agent').store().createRun({ mode: 'record', command: { argv: ['uv', 'run', 'agent.py'], cwd: w.research } });
+    writeFileSync(reported, run.runId);
+    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'record', command: 'uv run agent.py', confirmed: true } });
+    await w.waitJob(job.body.id);
+    expect(w.registry.get('research-agent')!.setup).toMatchObject({ runId: run.runId, command: ['uv', 'run', 'agent.py'], unwrappedAtRecord: ['save_report'] });
   });
 
   it('can’t be finished before a first recording', async () => {

@@ -28,7 +28,10 @@ export interface ProjectContext<C = unknown> {
   readonly cwd: string;
   /** Its configuration, read through the loader the host was given, and again when the file changes. */
   config(): C;
-  /** Its store, opened on first use. A project whose folder is gone has none: this throws. */
+  /**
+   * Its store, opened on first use. A project whose folder is gone has none: this throws, also
+   * when the folder went away (moved, deleted) after the store was opened.
+   */
   store(): Store;
   /** Whether the store exists yet, without creating it. */
   hasStore(): boolean;
@@ -88,8 +91,21 @@ class Context<C> implements ProjectContext<C> {
     return value;
   }
 
+  /**
+   * The open store, while it is still where the project keeps it. One whose file went away while it
+   * was open (the folder moved or deleted, the store deleted) is closed: what it holds is no longer
+   * the project's, and what was written to it would be lost.
+   */
+  private stillOpen(): Store | null {
+    if (!this.opened) return null;
+    if (this.dbPath === ':memory:' || existsSync(this.dbPath)) return this.opened;
+    this.close();
+    return null;
+  }
+
   store(): Store {
-    if (this.opened) return this.opened;
+    const open = this.stillOpen();
+    if (open) return open;
     // Opening a store creates its folder; a project whose folder was deleted must not get it back.
     if (!existsSync(this.path)) throw new ProjectError('folder', `${this.path} doesn’t exist any more. Remove the project, or put the folder back.`);
     this.opened = this.openStore(this.dbPath);
@@ -97,11 +113,12 @@ class Context<C> implements ProjectContext<C> {
   }
 
   hasStore(): boolean {
-    return this.opened !== null || existsSync(this.dbPath);
+    return this.stillOpen() !== null || existsSync(this.dbPath);
   }
 
   facts(options: { keep?: string | null } = {}): StoreFacts {
-    if (this.opened) return storeFacts(this.opened, Date.now(), options);
+    const open = this.stillOpen();
+    if (open) return storeFacts(open, Date.now(), options);
     if (!existsSync(this.path)) return emptyStoreFacts();
     try {
       return readStoreFacts(this.dbPath, Date.now(), options);

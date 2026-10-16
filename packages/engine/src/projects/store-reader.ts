@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { SCHEMA_VERSION, rowToRun, type StoredEvent } from '../store.js';
 import type { RunRecord } from '../types.js';
-import { emptyStoreFacts, storeFacts, type FactsSource, type StoreFacts } from './setup.js';
+import { emptyStoreFacts, storeFacts, type FactsSource, type GoldenTestFact, type StoreFacts } from './setup.js';
 
 /**
  * Reading another project's store without changing it. `Store.open` creates what is missing and
@@ -59,6 +59,15 @@ export class StoreReader implements FactsSource {
       .prepare(`SELECT DISTINCT name FROM call_events WHERE run_id = ? AND kind = 'tool' AND phase = 'start'`)
       .all(runId)
       .map((r) => String(r.name));
+  }
+
+  /** Each golden's newest test result, as `Store.latestTestResults` reads it; none from a store older than the test history. */
+  latestTestResults(): GoldenTestFact[] {
+    if (!this.tables.has('test_results')) return [];
+    return this.db
+      .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY golden ORDER BY at DESC, session_id DESC) AS n FROM test_results) WHERE n = 1 ORDER BY at DESC, golden ASC`)
+      .all()
+      .map((r) => ({ golden: String(r.golden), ok: Number(r.ok) === 1, at: Number(r.at), reason: r.reason === null || r.reason === undefined ? null : String(r.reason), goldenRunId: r.golden_run_id === null || r.golden_run_id === undefined ? null : String(r.golden_run_id) }));
   }
 
   listEvents(options: { kinds?: string[]; limit?: number } = {}): StoredEvent[] {

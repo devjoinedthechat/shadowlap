@@ -147,6 +147,22 @@ describe('ProjectRegistry: adding', () => {
     expect(() => registry.ensure(join(anywhere, 'missing'))).toThrow(ProjectError);
   });
 
+  it('reads the list again only once its file changed, and always afresh to change it', () => {
+    const { registry, agent } = setup();
+    agent('one-agent');
+    agent('two-agent');
+    registry.add('~/one-agent');
+    const first = registry.list();
+    expect(registry.list()).toBe(first);
+    // Another process (the CLI, another dashboard) changes it: the next read sees it.
+    const other = new ProjectRegistry({ home: registry.home, env: { SHADOWLAP_HOME: dirname(registry.file) }, actor: () => null });
+    other.add('~/two-agent');
+    expect(registry.list().map((p) => p.id)).toEqual(['one-agent', 'two-agent']);
+    // A change made here starts from the file, whatever was read before.
+    registry.remove('one-agent');
+    expect(other.list().map((p) => p.id)).toEqual(['two-agent']);
+  });
+
   it('counts a folder as set up when Shadowlap is already in use there, whether the dashboard starts in it or it is picked', () => {
     const { registry, agent } = setup();
     const used = agent('used-agent');

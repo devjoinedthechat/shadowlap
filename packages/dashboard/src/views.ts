@@ -92,6 +92,8 @@ export interface ProjectView {
    * dashboard shows an empty stand-in for it, and refuses its jobs with this reason.
    */
   problem?: string;
+  /** Part of the dashboard couldn't start for this project (a feature's module failed): what failed, for the switcher to say. */
+  notice?: string;
 }
 
 /** `GET /api/meta`: what the shell needs once, and the status bar. */

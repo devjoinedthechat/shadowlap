@@ -356,17 +356,35 @@ describe('setupView', () => {
     expect(clean.record).toMatchObject({ state: 'done', recorded: { runId: RUN }, empty: null });
   });
 
-  it('offers the free golden path the server found, and counts a pack made in a terminal as kept', () => {
+  it('offers the free golden path the server found, and keeps a pack made in a terminal open until its test passes', () => {
     const p = entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN });
     const f = facts({ runs: 1, recordings: [run()] });
     const offered = view(p, f, { golden: 'goldens/research-agent-2' });
-    expect(offered.test).toMatchObject({ golden: { value: 'goldens/research-agent-2', enabled: false }, cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent-2', 'shadowlap test goldens/research-agent-2'] });
-    const packed = view(p, f, { golden: 'goldens/research-agent-2' }, [{ path: 'goldens/q3', runIds: [RUN] }]);
-    expect(packed.test).toMatchObject({ state: 'done', cli: [], golden: null, result: { text: 'Packed as goldens/q3. shadowlap test goldens/q3 replays it offline.', link: { label: 'Open Tests', href: '#/tests' } } });
-    // Packed without calibrating first: step 3 was skipped.
-    expect(packed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'done']);
-    expect(packed.skip).toBeNull();
-    expect(packed.done).toMatchObject({ title: 'research-agent is set up.' });
+    expect(offered.test).toMatchObject({ golden: { value: 'goldens/research-agent-2', enabled: false }, cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent-2', 'shadowlap test goldens/research-agent-2'], packed: null });
+    // Packed, its test not run: the step stays open, with the test to run.
+    const packs = [{ path: 'goldens/q3', runIds: [RUN] }];
+    const packed = view(p, f, { golden: 'goldens/research-agent-2' }, packs);
+    expect(packed.test).toMatchObject({
+      state: 'current',
+      cli: ['shadowlap test goldens/q3'],
+      golden: null,
+      redaction: null,
+      result: null,
+      button: { label: 'Run the test', action: 'testgolden', enabled: true },
+      packed: { golden: 'goldens/q3', failed: false, text: 'Packed as goldens/q3. Its test replays it offline: run it to finish.', link: null },
+    });
+    expect(packed.done).toBeNull();
+    expect(packed.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
+    // Its test failed: why, and where to look.
+    const test = (ok: boolean) => ({ golden: 'goldens/q3', ok, at: 30, reason: ok ? null : 'diverged at call 4 (api POST /v1/messages).', goldenRunId: RUN });
+    const failed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(false)] }), {}, packs);
+    expect(failed.test).toMatchObject({ state: 'current', button: { label: 'Run the test again', action: 'testgolden' }, packed: { failed: true, text: 'goldens/q3 failed its test: diverged at call 4 (api POST /v1/messages). Fix what changed, or record again, then run it again.', link: { label: 'Open Tests', href: '#/tests' } } });
+    // Passed: done. Packed without calibrating first: step 3 was skipped.
+    const passed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(true)] }), {}, packs);
+    expect(passed.test).toMatchObject({ state: 'done', cli: [], button: null, packed: null, result: { text: 'goldens/q3 replayed clean offline', link: { label: 'Open Tests', href: '#/tests' } } });
+    expect(passed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'done']);
+    expect(passed.skip).toBeNull();
+    expect(passed.done).toMatchObject({ title: 'research-agent is set up.' });
   });
 
   it('counts a clean replay as step 3, and never shows another recording’s calibration', () => {

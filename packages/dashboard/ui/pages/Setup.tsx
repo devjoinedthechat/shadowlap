@@ -18,9 +18,10 @@ import { useApp } from '../state.js';
  * Overview mid-setup): four steps, each with the CLI command it runs. Inspect runs `init` and shows
  * what it found, flagging tools that aren't wrapped with the code to wrap them; Record runs the
  * editable command after asking the first time, then streams the run in; Make the replay clean runs
- * calibrate and adds what it proposes; Keep it as a test packs the run as a golden and tests it. The
- * server's read model (`setupView`) says what each step shows; this page runs the jobs and follows
- * them. A step whose job kind this dashboard doesn't run says so and keeps its command.
+ * calibrate and adds what it proposes; Keep it as a test packs the run as a golden and tests it, in
+ * one job (`pack-test`), and runs the test again once it is packed. The server's read model
+ * (`setupView`) says what each step shows; this page runs the jobs and follows them. A step whose
+ * job kind this dashboard doesn't run says so and keeps its command.
  */
 
 /** The four steps with their commands, for a dashboard that serves one store and has no setup to follow. */
@@ -87,9 +88,6 @@ function SetupStep({ n, state, title, cli, children }: { n: number; state: Inspe
   );
 }
 
-/** What to do when a job this page started ends. */
-type After = { then: 'reload' } | { then: 'test'; golden: string };
-
 export function SetupPage() {
   const app = useApp();
   const { client, meta, runs, tick, live, jobs, hasKind, actionsOff, guard, toast } = app;
@@ -100,7 +98,8 @@ export function SetupPage() {
   const [recordError, setRecordError] = useState<string | null>(null);
   const [goldenError, setGoldenError] = useState<string | null>(null);
   const [asking, setAsking] = useState<{ confirm: RecordConfirmation; command: string } | null>(null);
-  const after = useRef(new Map<string, After>());
+  // The jobs this page started: the setup is read again as each ends.
+  const mine = useRef(new Set<string>());
   const projectId = meta?.project?.id ?? null;
 
   const load = useCallback(() => {
@@ -133,9 +132,9 @@ export function SetupPage() {
   }, [projectId]);
 
   const start = useCallback(
-    (p: Promise<JobView>, next: After) => {
+    (p: Promise<JobView>) => {
       p.then(
-        (job) => after.current.set(job.id, next),
+        (job) => mine.current.add(job.id),
         () => undefined,
       );
       app.watchJob(p);
@@ -143,16 +142,14 @@ export function SetupPage() {
     [app],
   );
 
-  // The jobs this page started: when one ends, the setup is read again (and a packed golden is tested).
+  // When a job this page started ends, the setup is read again: what it made moves the steps on.
   useEffect(() => {
     for (const w of jobs) {
-      const next = after.current.get(w.job.id);
-      if (!next || !w.job.done) continue;
-      after.current.delete(w.job.id);
+      if (!w.job.done || !mine.current.has(w.job.id)) continue;
+      mine.current.delete(w.job.id);
       load();
-      if (next.then === 'test' && w.job.code === 0 && hasKind(JOB_KINDS.tests)) start(client.startJob(JOB_KINDS.tests, { golden: next.golden }), { then: 'reload' });
     }
-  }, [jobs, load, start, client, hasKind]);
+  }, [jobs, load]);
 
   const problem = meta?.project?.id && meta.project.problem ? meta.project : null;
   if (problem) return <ProjectProblem id={problem.id!} name={problem.name} problem={problem.problem!} />;
@@ -184,19 +181,21 @@ export function SetupPage() {
 
   const id = view.project.id;
   const off = actionsOff;
-  const inspect = (again: boolean) => guard(() => start(client.startJob(JOB_KINDS.inspect, { project: id, ...(again ? { again: true } : {}) }), { then: 'reload' }));
+  const inspect = (again: boolean) => guard(() => start(client.startJob(JOB_KINDS.inspect, { project: id, ...(again ? { again: true } : {}) })));
   const record = (value: string) =>
     guard(() => {
       setRecordError(null);
       client.projects.planRecording(id, value).then(
         (plan) => {
           if (plan.confirm) setAsking({ confirm: plan.confirm, command: value });
-          else start(client.startJob(JOB_KINDS.record, { project: id, command: value }), { then: 'reload' });
+          else start(client.startJob(JOB_KINDS.record, { project: id, command: value }));
         },
         (err: unknown) => setRecordError(message(err)),
       );
     });
-  const calibrate = (runId: string, write: boolean) => guard(() => start(client.startJob(JOB_KINDS.calibrate, { runId, write }), { then: 'reload' }));
+  const calibrate = (runId: string, write: boolean) => guard(() => start(client.startJob(JOB_KINDS.calibrate, { runId, write })));
+  // Pack as a golden: the path checked first, so a mistake shows under the field; then one job packs
+  // it and runs its test, on the server, so leaving the page doesn't stop halfway.
   const pack = (value: string) =>
     guard(() => {
       setGoldenError(null);
@@ -204,13 +203,13 @@ export function SetupPage() {
         ({ path, runId }) => {
           if (!runId) return setGoldenError('Record a first run before you keep it as a test.');
           setGolden(path);
-          // The run page's Pack where this dashboard has it, else the run action that packs.
-          const job = hasKind(JOB_KINDS.pack) ? client.startJob(JOB_KINDS.pack, { runId, dir: path }) : client.action(runId, 'p', null, path);
-          start(job, { then: 'test', golden: path });
+          start(client.startJob(JOB_KINDS.keepGolden, { project: id, golden: path }));
         },
         (err: unknown) => setGoldenError(message(err)),
       );
     });
+  // Packed already: its test runs (again).
+  const testGolden = () => guard(() => start(client.startJob(JOB_KINDS.keepGolden, { project: id })));
   const finish = () =>
     guard(() => {
       client.projects.finish(id).then(
@@ -229,7 +228,7 @@ export function SetupPage() {
         <InspectBody step={view.inspect} off={off} canInspect={hasKind(JOB_KINDS.inspect)} onInspect={inspect} />
         <RecordBody step={view.record} off={off} canRecord={hasKind(JOB_KINDS.record)} live={live} command={command} setCommand={setCommand} error={recordError} onRecord={record} />
         <CalibrateBody step={view.calibrate} off={off} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={calibrate} />
-        <TestBody step={view.test} off={off} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} />
+        <TestBody step={view.test} off={off} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
       </ol>
       {view.done ? (
         <div className="setupdone">
@@ -252,7 +251,7 @@ export function SetupPage() {
           onOk={() => {
             const value = asking.command;
             setAsking(null);
-            guard(() => start(client.startJob(JOB_KINDS.record, { project: id, command: value, confirmed: true }), { then: 'reload' }));
+            guard(() => start(client.startJob(JOB_KINDS.record, { project: id, command: value, confirmed: true })));
           }}
         />
       ) : null}
@@ -542,11 +541,33 @@ function CalibrateBody({ step, off, canCalibrate, runId, onCalibrate }: { step: 
   );
 }
 
-function TestBody({ step, off, golden, setGolden, error, onPack }: { step: TestStep; off: string | null; golden: string | null; setGolden: (v: string) => void; error: string | null; onPack: (value: string) => void }) {
+function TestBody({
+  step,
+  off,
+  canKeep,
+  golden,
+  setGolden,
+  error,
+  onPack,
+  onTest,
+}: {
+  step: TestStep;
+  off: string | null;
+  canKeep: boolean;
+  golden: string | null;
+  setGolden: (v: string) => void;
+  error: string | null;
+  onPack: (value: string) => void;
+  onTest: () => void;
+}) {
   const value = golden ?? step.golden?.value ?? '';
   const enabled = !!step.golden?.enabled;
+  const why = notHere(off, canKeep, step.cli);
+  const testing = step.button?.action === 'testgolden';
   const go = () => {
-    if (enabled && !off && value.trim()) onPack(value.trim());
+    if (why) return;
+    if (testing) onTest();
+    else if (enabled && value.trim()) onPack(value.trim());
   };
   const settings = step.redaction ? aroundWord(step.redaction.text, 'Settings') : null;
   const goldenNames = step.result ? (step.result.text.match(/goldens\/[\w./-]*[\w-]/g) ?? []) : [];
@@ -590,9 +611,22 @@ function TestBody({ step, off, golden, setGolden, error, onPack }: { step: TestS
           />
         </label>
       ) : null}
+      {step.packed ? (
+        <p className={step.packed.failed ? 'fieldnote err' : undefined}>
+          <Coded text={step.packed.text} names={[step.packed.golden]} />
+          {step.packed.link ? (
+            <>
+              {' '}
+              <a className="more" href={step.packed.link.href}>
+                {step.packed.link.label}
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       {step.button ? (
         <div className="actions">
-          <button className="btn lime" type="button" disabled={!step.button.enabled || !!off || !value.trim()} title={off ?? undefined} onClick={go}>
+          <button className="btn lime" type="button" disabled={!step.button.enabled || !!why || (!testing && !value.trim())} title={why ?? undefined} onClick={go}>
             {step.button.label}
           </button>
         </div>
