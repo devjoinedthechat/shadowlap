@@ -544,7 +544,8 @@ function remedyFor(rule: Normalizer, call: Pick<CallRecord, 'kind' | 'name'>, at
     fix = { ...(rule.kind ? { kind: rule.kind } : {}), ...(rule.name ? { name: rule.name } : {}), path: rule.path, replace: rule.replace };
   } else {
     const path = at.key ? at.path.slice(0, -1) : at.path;
-    if (!path.length) return null;
+    // Not the whole request or response; nor a first key no path can name, which would read as a wildcard.
+    if (!path.length || (typeof path[0] === 'string' && path[0].includes(']'))) return null;
     fix = { kind: call.kind, ...(call.kind === 'tool' ? { name: call.name } : {}), path: jsonPath(path, true), replace: rule.replace };
   }
   const argv = ['shadowlap', 'redact', 'add', ...(fix.kind ? ['--kind', fix.kind] : []), ...(fix.name ? ['--name', fix.name] : []), '--path', fix.path!, '--replace', fix.replace];

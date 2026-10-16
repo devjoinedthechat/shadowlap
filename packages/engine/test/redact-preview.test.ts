@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
-import { applyNormalizers, rewriteText, type RewriteObserver } from '../src/normalize.js';
-import { REDACTION_EXPORTS, clipChange, previewRedaction, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
+import { applyNormalizers, parsePath, rewriteText, type RewriteObserver } from '../src/normalize.js';
+import { REDACTION_EXPORTS, clipChange, jsonPath, previewRedaction, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -441,6 +441,19 @@ describe('REDACTION_EXPORTS', () => {
       ['otel', 'attributes', 'masked'],
     ]);
     for (const e of REDACTION_EXPORTS) expect(e.command).toBe(e.id === 'pack' ? 'shadowlap pack' : `shadowlap export ${e.id}`);
+  });
+});
+
+describe('jsonPath', () => {
+  it('writes where a value is as a path rule reads it back, positions after the first as [*] when asked', () => {
+    for (const key of ['amount', 'a.b', 'a b', '$ref', '', '*', 'a"b', "a'b", '[0', 'é', 'bob@example.com', ' sp ', 'a[b', 'new\nline']) {
+      expect(parsePath(jsonPath(['args', key, 3])), key).toEqual([{ type: 'key', key: 'args' }, { type: 'key', key }, { type: 'index', index: 3 }]);
+    }
+    // A key with a ] can't be named: it reads as every key there.
+    expect(parsePath(jsonPath(['x]y']))).toEqual([{ type: 'wild' }]);
+    expect(jsonPath(['messages', 3, 'content', 1, 'input', 'amount'], true)).toBe('$.messages[*].content[*].input.amount');
+    // An array of chunks keeps its first position: a path that starts with a wildcard reaches requests only.
+    expect(jsonPath([0, 'usageMetadata', 'totalTokenCount'], true)).toBe('$[0].usageMetadata.totalTokenCount');
   });
 });
 
