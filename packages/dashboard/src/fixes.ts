@@ -1155,6 +1155,20 @@ function familyOf(store: Store, run: RunRecord): Map<string, RunRecord> {
   return family;
 }
 
+/**
+ * Every verdict and repair report, read once for each change to fixes: the store's `fixes` counter
+ * moves whenever one is written, so a Forks view polled while nothing changes parses none again.
+ */
+const reportsRead = new WeakMap<Store, { n: number; verdicts: StoredVerdict[]; repairs: StoredRepair[] }>();
+function storedReports(store: Store): { verdicts: StoredVerdict[]; repairs: StoredRepair[] } {
+  const n = store.changeCounts().fixes;
+  const kept = reportsRead.get(store);
+  if (kept && n !== undefined && kept.n === n) return kept;
+  const read = { n: n ?? -1, verdicts: store.listVerdicts(), repairs: store.listRepairs() };
+  if (n !== undefined) reportsRead.set(store, read);
+  return read;
+}
+
 /** A failed attempt's first failure, from its run when the report kept none. */
 function attemptNote(passed: boolean, failure: string | undefined, run: RunRecord | undefined): string {
   if (passed) return 'passed';
@@ -1174,6 +1188,14 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const family = familyOf(store, run);
+  // Only attempts are bundled, so a family without one has no bundle and costs no more than its walk.
+  const probed = new Set<string>();
+  let checked = false;
+  for (const r of family.values()) {
+    if (r.meta?.probe && r.parentRunId) probed.add(r.parentRunId);
+    if (r.meta?.verify) checked = true;
+  }
+  if (!probed.size && !checked) return [];
   const out: FixBundle[] = [];
   const bundled = new Set<string>();
   const exists = (id: string) => family.has(id);
@@ -1185,9 +1207,11 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
     return own ?? fixes[0] ?? null;
   };
 
-  // Blame: each blame of a run in the family, a bundle per probed call.
-  for (const r of family.values()) {
-    if (r.meta?.probe || r.meta?.verify) continue;
+  // Blame: each blame of a run in the family whose probes are here (they fork from the run blamed), a
+  // bundle per probed call.
+  for (const id of probed) {
+    const r = family.get(id);
+    if (!r || r.meta?.probe || r.meta?.verify) continue;
     for (const b of store.blamesOfRun(r.runId)) {
       const fix = linkedFix(b.blameId, 'blame', r.runId) ?? fixOfRun(store, r.runId);
       const rescuedRunId = b.report.contrast?.rescuedRunId ?? null;
@@ -1243,7 +1267,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
     });
   };
   const inFamily = (runs: readonly VerifiedRun[]) => runs.filter((x) => exists(x.runId));
-  const verdicts = store.listVerdicts();
+  const { verdicts, repairs } = checked ? storedReports(store) : { verdicts: [], repairs: [] };
   for (const v of verdicts) {
     for (const x of inFamily(v.report.runs)) {
       const fix = linkedFix(v.verifyId, 'verify', x.runId);
@@ -1252,7 +1276,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
     }
   }
   const kept = new Set(verdicts.flatMap((v) => (v.repairId !== null && v.candidate !== null ? [`${v.repairId}#${v.candidate}`] : [])));
-  for (const r of store.listRepairs()) {
+  for (const r of repairs) {
     for (const c of r.report.candidates) {
       if (!c.verify || kept.has(`${r.repairId}#${c.id}`)) continue;
       for (const x of inFamily(c.verify.runs)) {
