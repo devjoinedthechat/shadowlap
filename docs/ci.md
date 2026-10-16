@@ -304,7 +304,7 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write, id-token: write }
-# and the bucket's credentials first: the steps shadowlap store ci prints
+# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints
 - run: npm install -g @anthropic-ai/claude-code
 - uses: devjoinedthechat/shadowlap@main
   with:
@@ -321,11 +321,34 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 
 `push: true` pushes the test runs as `shadowlap test --push` does, and once a fix's pull request is open, every run the job made (`shadowlap push --all`), which takes the fix with its blame, repair and verdicts along. A teammate's `shadowlap pull` then brings it to their Fixes page, as *from CI · PR #138*. Settings → CI has no switch of its own for this: the step follows Push from CI, and while that is off, or the project has no team store, it is the step above without the push lines.
 
-Pushing needs the bucket's credentials in the job, besides the permissions the fix needs: the steps `shadowlap store ci --provider github` prints (Settings → Store's **Copy CI step**), before this one. Amazon S3, Cloud Storage and Azure give the job short-lived credentials, so its permissions add `id-token: write`, as the first comment says. Cloudflare R2 has no OIDC: its keys (`R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from the repository's secrets) go in this step's `env` on your branches only, as `store ci` gives them (an R2 token can't be kept to a pull request's folder), and the comment leaves `id-token` out.
+Pushing needs the bucket's credentials in the job, besides the permissions the fix needs. Amazon S3, Cloud Storage and Azure give a job short-lived credentials: add `id-token: write` to the job's permissions, as the first comment says, and copy the two `if:` steps that `shadowlap store ci --provider github` prints (Settings → Store's **Copy CI step**) into the job, after its checkout and before this step. The first gives your branches' jobs the credentials that write to the store; the second gives a pull request's job its own, which write only under `pr/`. Copy only those two steps. The rest of what `store ci` prints is a job of its own, and around this step it would keep fixes from opening: its `run:` step tests first and fails the job on a failed check, so this step never runs; its checkout leaves a pull request's job on a detached merge commit; and its `contents: read` can't push a fix's branch. This step runs the tests itself and pushes them as that `run:` step does, so a workflow that already has the `store ci` job can put this step in place of its `run:` step, with the permissions and the checkout the fix needs.
+
+Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's folder. A pull request's job runs the agent as the pull request changed it, so it never gets the keys: for an R2 store, the step gives `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from the repository's secrets, only to jobs that aren't a pull request's, and pushes only from those, as `store ci` writes it for R2:
+
+```yaml
+# the job needs: permissions: { contents: write, pull-requests: write }
+# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push
+- run: npm install -g @anthropic-ai/claude-code
+- uses: devjoinedthechat/shadowlap@main
+  with:
+    recordings: goldens/*
+    fix-on-failure: true
+    fix-budget: 2.00
+    repairer: claude-code
+    push: ${{ !startsWith(github.event_name, 'pull_request') }}
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}
+    R2_SECRET_ACCESS_KEY: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_SECRET_ACCESS_KEY || '' }}
+    # and your agent's own provider keys: blame and verify run it live
+```
+
+A pull request's job then tests and opens its fix, and says nothing about the team store. That condition lives in the workflow file, which a pull request can edit; to keep the keys from a pull request's workflow altogether, put them in an environment only protected branches can use, for a job of its own on those branches, as `store ci`'s note for R2 says.
 
 A push that can't happen never fails the job and never keeps a fix's pull request from opening: the pull request is opened first, and the push comes after it. The job summary says *in the team store* beside each fix that `shadowlap push` reported sending; beside one that didn't go, *not in the team store*, with why under the table (no store set, no credentials, the store out of reach, or a push that didn't report sending it), and the job's log has it as a warning. A team that turned Push from CI off is told so, without a warning. The test runs' push is what `shadowlap test --push` always does: a warning when it can't happen, and the tests decide the job.
 
-- **A pull request's own job** writes only to [its own folder](./team.md#pull-requests), `pr/<number>/`, and sends no fixes: the job's runs go there, and the summary says the fix stays off the team's Fixes page. Fixes reach the team from jobs on your branches, such as `main`.
+- **A pull request's own job** writes only to [its own folder](./team.md#pull-requests), `pr/<number>/`, and sends no fixes: with short-lived credentials the job's runs go there, and the summary says the fix stays off the team's Fixes page; with R2 it pushes nothing. Fixes reach the team from jobs on your branches, such as `main`.
 - **A pull request from a fork** gets no secrets, no OIDC token and a read-only `GITHUB_TOKEN` from GitHub, so its job can't sign in to the bucket or push a fix's branch: it opens no fix pull request and pushes nothing. The pull request's credentials step that `shadowlap store ci` prints is only for pull requests from your own repository (its `if:` compares the pull request's head repository with yours), so it can't fail a fork's job: the job goes on to this step, the test runs' push warns that there are no credentials, and the tests decide the job. Where a fork's job does open a fix but can't push it, the warning says the pull request is from a fork.
 
 ## Alerts

@@ -42,6 +42,15 @@ export interface FixOnFailureSettings {
   push?: BucketCredentials | null;
 }
 
+/**
+ * A job that isn't a pull request's: `shadowlap store ci`'s condition for the credentials that write
+ * anywhere in the store, which a pull request, able to change the agent and the workflow, never gets.
+ */
+const NOT_A_PULL_REQUEST = "!startsWith(github.event_name, 'pull_request')";
+
+/** R2's keys, which `shadowlap store ci` reads from the repository's secrets. */
+const R2_KEYS = ['R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'] as const;
+
 /** The secret holding the repairer's model key. */
 export function repairerKey(repairer: string): 'OPENAI_API_KEY' | 'ANTHROPIC_API_KEY' {
   return repairer.startsWith('openai') ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
@@ -65,13 +74,15 @@ export function scalar(value: string): string {
 const AGENT_KEYS_COMMENT = "# and your agent's own provider keys: blame and verify run it live";
 
 /**
- * With push, the second comment: where the bucket's credentials come from. Short-lived ones are
- * asked for by the steps `shadowlap store ci` prints, before the action runs; keys go in the
- * step's env, as that command prints them.
+ * With push, the second comment: where the bucket's credentials come from. Short-lived ones come
+ * from the two `if:` steps `shadowlap store ci` prints, put before this one: the writer's, and a
+ * pull request's own, which write only under pr/ (the rest of what it prints is a job of its own:
+ * its checkout, read-only contents and test step would keep this one from opening a fix). R2's keys
+ * can't be kept to pr/, so only the jobs of your branches get them, and only those push.
  */
 const BUCKET_COMMENT: Record<BucketCredentials, string> = {
-  oidc: "# and the bucket's credentials first: the steps shadowlap store ci prints",
-  keys: "# and the bucket's keys in this step's env: shadowlap store ci prints them",
+  oidc: "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints",
+  keys: "# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push",
 };
 
 /**
@@ -79,9 +90,13 @@ const BUCKET_COMMENT: Record<BucketCredentials, string> = {
  * comment states. Blame and verify run the agent itself live, so the step's env also needs the
  * agent's own provider keys, which the last comment says; the panel can't know which they are.
  * With `push` (Push from CI is on) the action pushes the test runs and each fix it opens to the
- * team store, so the job also needs the bucket's credentials, which a second comment says, and
- * short-lived ones need `id-token: write` among its permissions. Without it, the step is exactly
- * the one it was before.
+ * team store, so the job also needs the bucket's credentials, which a second comment says:
+ * short-lived ones (`oidc`) come from the steps `shadowlap store ci` prints, with `id-token: write`
+ * among the job's permissions, and the step pushes from every job, a pull request's to its own
+ * folder; R2's keys (`keys`) go in the step's env for the jobs of your branches only, as `store ci`
+ * gives them, and only those jobs push, since an R2 token can't be kept to a pull request's folder
+ * and the pull request's own agent runs in its job. Without `push`, the step is exactly the one it
+ * was before.
  */
 export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   const repairer = s.repairer.trim() || 'anthropic';
@@ -98,10 +113,12 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
     '    fix-on-failure: true',
     `    fix-budget: ${dollars(s.budget)}`,
     `    repairer: ${scalar(repairer)}`,
-    ...(push ? ['    push: true'] : []),
+    ...(push === 'oidc' ? ['    push: true'] : push === 'keys' ? [`    push: \${{ ${NOT_A_PULL_REQUEST} }}`] : []),
     '  env:',
     `    ${key}: \${{ secrets.${key} }}`,
     '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+    // Empty in a pull request's job, which then neither has them nor pushes.
+    ...(push === 'keys' ? R2_KEYS.map((k) => `    ${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : []),
     `    ${AGENT_KEYS_COMMENT}`,
   );
   return lines.join('\n');
@@ -115,8 +132,8 @@ export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | nu
     ['permission to push a branch', 'contents: write'],
     ['permission to open the pull request', 'pull-requests: write'],
   ];
-  if (push === 'oidc') needs.push(['the bucket’s credentials, from shadowlap store ci', 'id-token: write']);
-  if (push === 'keys') needs.push(['the bucket’s keys, from shadowlap store ci', 'secrets']);
+  if (push === 'oidc') needs.push(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
+  if (push === 'keys') needs.push(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
   return needs;
 }
 

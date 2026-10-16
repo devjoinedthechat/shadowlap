@@ -14,7 +14,7 @@ export function TeamStoreRow({ store }: { store: CiTeamStore }) {
         <b>Team store</b>
         <span>{store.note}</span>
       </div>
-      <a className="linkbtn" href={href.settings('store')} title={store.name ? `Push from CI is set in Settings → Store, for ${store.name}` : 'A team store is set up in Settings → Store'}>
+      <a className="linkbtn" href={href.settings('store')} title={store.name ? `Push from CI is set in Settings → Store, for ${store.name}` : 'Set up a team store in Settings → Store'}>
         Settings → Store
       </a>
     </div>

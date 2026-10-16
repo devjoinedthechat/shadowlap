@@ -303,11 +303,14 @@ describe('GET /api/ci/workflows', () => {
       const store = await getJson<{ config: { version: string }; status: { ciPush: boolean } | null }>(dash, 'settings/store');
       expect(store.status?.ciPush).toBe(true);
       const on = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
-      expect(on.teamStore).toMatchObject({ push: true, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: on, so each fix goes there too.' });
-      expect(on.yaml.split('\n').slice(0, 2)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }', "# and the bucket's credentials first: the steps shadowlap store ci prints"]);
+      expect(on.teamStore).toMatchObject({ push: true, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: on, so fixes from your branches go there too.' });
+      expect(on.yaml.split('\n').slice(0, 2)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }', "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints"]);
       expect(on.yaml).toContain("    recordings: 'goldens/* evals/kept-elsewhere'\n    fix-on-failure: true\n    fix-budget: 2.00\n    repairer: claude-code\n    push: true\n  env:\n");
-      expect(on.needs.at(-1)).toEqual({ label: 'the bucket’s credentials, from shadowlap store ci', value: 'id-token: write' });
-      expect(on.teamStore.lands).toEqual([{ label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' }]);
+      expect(on.needs.at(-1)).toEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
+      expect(on.teamStore.lands).toEqual([
+        { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
+        { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' },
+      ]);
       // Switched off on the Store tab: the step is the one it was, byte for byte.
       const res = await api(dash, 'settings/store/ci-push', { method: 'PUT', body: JSON.stringify({ on: false, expect: store.config.version }) });
       expect(res.status, await res.clone().text()).toBe(200);

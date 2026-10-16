@@ -76,18 +76,25 @@ describe('the team store Fix on failure follows', () => {
       push: true,
       name: 'northwind-agent-runs/support-agent',
       credentials: 'oidc',
-      note: 'Follows Push from CI: on, so each fix goes there too.',
-      lands: [{ label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' }],
+      note: 'Follows Push from CI: on, so fixes from your branches go there too.',
+      lands: [
+        { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
+        // A pull request's own credentials write only to its folder, and it sends no fixes.
+        { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' },
+      ],
     });
     expect(f.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'oidc' }));
-    expect(f.needs.at(-1)).toEqual({ label: 'the bucket’s credentials, from shadowlap store ci', value: 'id-token: write' });
+    expect(f.yaml).toContain('\n    push: true\n');
+    expect(f.needs.at(-1)).toEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
     // The panel's options never turn it on or off: there is no switch for it here.
     expect(Object.keys(CI_DEFAULTS)).not.toContain('push');
-    // R2 has no OIDC: the job signs in with keys from the repository's secrets.
+    // R2 has no OIDC, and its keys can't be kept to pr/: only your branches' jobs get them, and push.
     const r2 = ciWorkflows(CI_DEFAULTS, { ...context, teamStore: { store: 'r2://0123456789abcdef0123456789abcdef/agent-runs/support-agent', ciPush: true } }).fixOnFailure;
     expect(r2.teamStore).toMatchObject({ push: true, credentials: 'keys' });
     expect(r2.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' }));
-    expect(r2.needs.at(-1)).toEqual({ label: 'the bucket’s keys, from shadowlap store ci', value: 'secrets' });
+    expect(r2.yaml).toContain("\n    push: ${{ !startsWith(github.event_name, 'pull_request') }}\n");
+    expect(r2.needs.at(-1)).toEqual({ label: 'the bucket’s R2 keys as secrets, kept from pull requests’ jobs', value: 'secrets' });
+    expect(r2.teamStore.lands.at(-1)).toEqual({ label: 'from a pull request’s job, nothing: R2 keys can’t be kept to pr/', value: 'no push' });
   });
 
   it('leaves the step as it was when Push from CI is off, or there is no store to push to', () => {

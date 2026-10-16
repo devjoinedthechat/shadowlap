@@ -192,6 +192,9 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
  * Push from CI as Settings → Store shows it, from the same reading of shadowlap.config.json
  * (readTeamStoreInput): on when the config names a team store, as a store URL, and its `ciPush`
  * isn't false. A project with no store, or one whose URL can't be used, has none to push to.
+ * Fixes reach teammates from the jobs of your branches: a pull request's job writes only its runs,
+ * to its own folder, with short-lived credentials, and with R2's keys, which can't be kept to that
+ * folder, nothing at all.
  */
 export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null): CiTeamStore {
   let loc: StoreLocation | null = null;
@@ -202,12 +205,18 @@ export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | nu
   }
   if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
   const push = input?.ciPush !== false;
+  const credentials: BucketCredentials = ciStep('github', loc).oidc ? 'oidc' : 'keys';
   return {
     push,
     name: shortStoreName(loc),
-    credentials: ciStep('github', loc).oidc ? 'oidc' : 'keys',
-    note: push ? 'Follows Push from CI: on, so each fix goes there too.' : 'Follows Push from CI: off, so fixes stay in GitHub.',
-    lands: push ? [{ label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' }] : [],
+    credentials,
+    note: push ? 'Follows Push from CI: on, so fixes from your branches go there too.' : 'Follows Push from CI: off, so fixes stay in GitHub.',
+    lands: push
+      ? [
+          { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
+          credentials === 'oidc' ? { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' } : { label: 'from a pull request’s job, nothing: R2 keys can’t be kept to pr/', value: 'no push' },
+        ]
+      : [],
   };
 }
 
