@@ -128,6 +128,16 @@ describe('Run blame and Find the commit', () => {
     expect(bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } })).command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
   });
 
+  it('names each commit by its subject, and judges a run blame found failing by that check, when the server says', () => {
+    const revisions = [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, subject: 'Escalate refunds above the limit' }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }];
+    const c = bisectCopy(RUN, { ...offer({ fork: true, live: true, good: null }), revisions, expect: { tools: { send_email: 1 } } } as BisectOffer);
+    expect(c.choices).toEqual([
+      { value: 'c91d0f4', label: 'c91d0f4 · Escalate refunds above the limit' },
+      { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed' },
+    ]);
+    expect(c.command('c91d0f4')).toBe(`shadowlap bisect 01M50J6C69 --good c91d0f4 --bad d2e8a1f --expect '{"tools":{"send_email":1}}' --fork`);
+  });
+
   it('looks for what changed a run that passed, not what broke it', () => {
     const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
     expect(bisectLabel(passed)).toEqual({ label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });

@@ -45,7 +45,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
     ? null
     : type === 'test' && d && (!outcome || outcome.kind === 'diverged')
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
-      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }, true) ?? (run.fix?.check ? fixCheckShort(run.fix.check, run.calls) : null));
+      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }, true) ?? (run.fix?.check ? fixCheckShort(run.fix.check, run.calls, true) : null));
   const checkFailed = !!failure?.startsWith('check failed');
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
   const stopped = cut ? ' · interrupted' : '';

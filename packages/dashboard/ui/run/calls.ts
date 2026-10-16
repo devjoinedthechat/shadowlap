@@ -115,6 +115,8 @@ export function resultLine(c: CallLike): { text: string; err: boolean } | null {
 export function timeOf(c: CallLike, ancestors: readonly CallIndex[], live: boolean): { text: string; was: boolean } {
   if (c.origin === 'replayed') {
     const ms = recordedDuration(c, ancestors);
+    // A clock or random read records no duration: blank, as on the run it was recorded in.
+    if (ms === null && (c.kind === 'clock' || c.kind === 'random')) return { text: '', was: true };
     return { text: ms === null ? '—' : dur(ms), was: true };
   }
   if (c.latencyMs !== null) return { text: dur(c.latencyMs), was: false };

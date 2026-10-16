@@ -3,7 +3,7 @@ import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { familyLine, familyLineParts, isFailed, isInterrupted, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
-import { blameScope, scopeChips } from '../ui/scopes.js';
+import { blameScope, scopeChips, scopeHint } from '../ui/scopes.js';
 import type { LineageNode, RunDetail, RunListItem } from '../ui/types.js';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 
@@ -126,6 +126,23 @@ describe('the scope the page suggests blaming within', () => {
     expect(blameScope(flat, scopeChips(flat))).toBe('reviewer');
     expect(blameScope([{ callNo: 1, scope: 'a', kind: 'api' }], ['a'])).toBe('a');
     expect(blameScope([], [])).toBeNull();
+  });
+
+  it('says so in the design’s words when the other scope only answers it, as a model playing the user does', () => {
+    const calls = [
+      { callNo: 1, scope: 'customer', kind: 'api' },
+      { callNo: 2, scope: 'agent', kind: 'api' },
+      { callNo: 3, scope: 'agent', kind: 'tool' },
+      { callNo: 4, scope: 'agent/policy-checker', kind: 'api' },
+    ];
+    const chips = scopeChips(calls);
+    expect(scopeHint(calls, chips, 'all')).toEqual({ lead: 'Blame only the agent, not the customer it answers', scope: 'agent' });
+    // A scope picked: that one.
+    expect(scopeHint(calls, chips, 'agent/policy-checker')).toEqual({ lead: 'Blame within this scope', scope: 'agent/policy-checker' });
+    // Two scopes that both act (each calls tools): neither answers the other.
+    const both = [...calls, { callNo: 5, scope: 'customer', kind: 'tool' }];
+    expect(scopeHint(both, scopeChips(both), 'all')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
+    expect(scopeHint([], [], 'all')).toBeNull();
   });
 });
 

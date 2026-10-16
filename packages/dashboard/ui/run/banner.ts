@@ -162,15 +162,18 @@ export function failedCheckText(c: { label: string; detail?: string | null }): s
   return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
 }
 
+/** How many times a tool was called, as the run page's short lines say it, the design's way: `2×`. */
+const timesShort = (n: number) => `${num(n)}×`;
+
 /**
  * A failed check as the line under the run's id says it: what happened. A check's label is what was
- * expected (`send_email called 0 times`) and its detail what the run did (`called 1 time`), so a
- * tool's count reads `send_email called 1 time`; any other check, the CLI's own words.
+ * expected (`send_email called 0 times`) and its detail what the run did (`called 2 times`), so a
+ * tool's count reads `send_email called 2×`; any other check, the CLI's own words.
  */
 export function failedCheckShort(c: { label: string; detail?: string | null }): string {
   const did = c.detail?.split(';')[0]?.trim();
   const at = c.label.lastIndexOf(' called ');
-  if (did?.startsWith('called ') && at > 0) return `check failed: ${c.label.slice(0, at)} ${did}`;
+  if (did?.startsWith('called ') && at > 0) return `check failed: ${c.label.slice(0, at)} ${did.replace(/^called ([\d,]+) times?\b/, (_m, n: string) => `called ${n}×`)}`;
   return failedCheckText(c);
 }
 
@@ -188,12 +191,13 @@ function argsHold(detail: string | undefined, want: Record<string, unknown>): bo
 
 /**
  * The check of the fix a failed run belongs to (`send_email never called`), when the run kept none of
- * its own, as what the run did: a tool's count from the run's calls (`send_email called 1 time`), or
- * with the arguments the check names (`issue_refund called 1 time with {"amount":240}`); any other
- * check named as one, so it never reads as what happened.
+ * its own, as what the run did: a tool's count from the run's calls (`send_email called 2×`), or
+ * with the arguments the check names (`issue_refund called 1× with {"amount":240}`); any other check
+ * named as one, so it never reads as what happened. `terse`, for the line under the run's id, leaves
+ * the arguments to the banner when every call of the tool had them.
  */
-export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string; name: string; detail?: string }>): string {
-  const times = (n: number) => (n === 1 ? '1 time' : `${num(n)} times`);
+export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string; name: string; detail?: string }>, terse = false): string {
+  const times = timesShort;
   const withArgs = /^(\S+) (?:never called|called .+?) with (\{.*\})$/.exec(check);
   if (withArgs) {
     let want: unknown;
@@ -205,8 +209,10 @@ export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string
     const tools = calls.filter((c) => c.kind === 'tool' && c.name === withArgs[1]);
     const held = want && typeof want === 'object' && !Array.isArray(want) ? tools.map((c) => argsHold(c.detail, want as Record<string, unknown>)) : [null];
     // Arguments cut short in the row can't be read: the check is then named as it is.
-    if (!held.includes(null)) return `check failed: ${withArgs[1]} called ${times(held.filter(Boolean).length)} with ${withArgs[2]}`;
-    return `check failed: “${check}”`;
+    if (held.includes(null)) return `check failed: “${check}”`;
+    const n = held.filter(Boolean).length;
+    if (terse && n > 0 && n === tools.length) return `check failed: ${withArgs[1]} called ${times(n)}`;
+    return `check failed: ${withArgs[1]} called ${times(n)} with ${withArgs[2]}`;
   }
   const m = /^(\S+) (?:never called|called .+)$/.exec(check);
   if (!m) return `check failed: “${check}”`;
@@ -224,7 +230,7 @@ export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' |
   if (failedCheck) return short ? failedCheckShort(failedCheck) : failedCheckText(failedCheck);
   if (i.status === 'failed') return 'the agent exited with an error';
   const o = i.outcome;
-  if (o?.kind === 'check-failed' && o.check) return fixCheckShort(o.check, i.calls ?? []);
+  if (o?.kind === 'check-failed' && o.check) return fixCheckShort(o.check, i.calls ?? [], short);
   if (i.status === 'crashed') return 'the run was interrupted';
   return i.blame ? 'blame confirmed it fails' : null;
 }

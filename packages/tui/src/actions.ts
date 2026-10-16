@@ -415,7 +415,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
       label: 'Plant a prompt injection here',
       flag: `--inject-result ${n}=… --repeat 3`,
       group: 'call',
-      hint: 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live three times, with writes fenced. The checks shadowlap.config.json gives the recording say whether it obeyed; without any, compare the attempts (--expect adds checks from a terminal). Payloads from a red-teaming tool such as promptfoo work too.',
+      hint: 'The text is added to what the tool returned, as an attacker would. Calls before it replay free; from here the agent runs live three times, with writes fenced, and the run’s checks say whether it obeyed (without any, compare the attempts). Payloads from a red-teaming tool such as promptfoo work too.',
       prompt: {
         label: `Instruction to plant in #${n} ${call.name}’s result:`,
         initial: PLANTED_INSTRUCTIONS[0]!.value,

@@ -6,7 +6,7 @@ import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
-import { blameScope, scopeDepth, scopeLeaf, scopeCount } from '../scopes.js';
+import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
@@ -374,7 +374,7 @@ export function DiffPanel({ run }: { run: RunDetail }) {
 /** Scopes as chips with counts, nested ones under their parent; picking one narrows every view to it. */
 export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scopes: string[]; scope: string; onScope: (s: string) => void }) {
   // Blame the agent, not the model that plays its user: the scope picked, else the one that acts.
-  const first = blameScope(run.calls, scopes) ?? scopes[0]!;
+  const hint = scopeHint(run.calls, scopes, scope) ?? { lead: 'Blame within one scope', scope: scopes[0]! };
   return (
     <section className="scopebar">
       <span className="k">scopes</span>
@@ -388,7 +388,7 @@ export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scop
         ))}
       </div>
       <span className="shint">
-        Blame within one scope: <code>shadowlap blame {shortId(run.run.runId)} --scope {scope === 'all' ? first : scope}</code>
+        {hint.lead}: <code>shadowlap blame {shortId(run.run.runId)} --scope {hint.scope}</code>
       </span>
     </section>
   );
