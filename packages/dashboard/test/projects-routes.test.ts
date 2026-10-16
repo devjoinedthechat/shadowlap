@@ -14,7 +14,7 @@ import { cliSpawner, startDashboard, type Dashboard, type DashboardOptions, type
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   dirs.push(d);
   return d;
 }

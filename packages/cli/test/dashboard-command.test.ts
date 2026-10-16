@@ -1,10 +1,10 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { ProjectRegistry, Store } from '@shadowlap/engine';
 
 /**
  * `shadowlap dashboard` as a person starts it: a job started from the browser runs this CLI, which
@@ -80,7 +80,8 @@ const SLEEPER = [
 ].join('\n');
 
 beforeAll(() => {
-  cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-')));
+  // As the project list keeps it: the system's real path (on Windows never a short name like RUNNER~1).
+  cwd = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-')));
   // The dashboard keeps its list of projects in SHADOWLAP_HOME: the test's own, never the real one.
   env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_AUTHOR: 'priya@example.com', SHADOWLAP_HOME: realpathSync(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-home-'))) };
   const rec = spawnSync(process.execPath, [CLI, 'run', '--', process.execPath, '-e', 'console.log("agent ran")'], { cwd, env, encoding: 'utf8' });
@@ -173,6 +174,31 @@ describe('shadowlap dashboard', () => {
     } finally {
       await stop(d);
       rmSync(join(cwd, 'goldens'), { recursive: true, force: true });
+    }
+  });
+
+  it('lists the goldens of the project a page shows, not of the folder it started in', async () => {
+    const packed = spawnSync(process.execPath, [CLI, 'pack', runId, 'goldens/agent-ran'], { cwd, env, encoding: 'utf8' });
+    expect(packed.status, packed.stderr).toBe(0);
+    // Another project on the list, with no goldens of its own.
+    const home = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-dash-cmd-user-')));
+    const other = join(home, 'triage-bot');
+    mkdirSync(other);
+    writeFileSync(join(other, 'package.json'), '{}');
+    const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: env.SHADOWLAP_HOME! }, actor: () => null });
+    const { project } = registry.add(other);
+    const d = await dashboard([]);
+    const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
+    try {
+      expect(((await (await api('tests')).json()) as { goldens: number }).goldens).toBe(1);
+      expect((await api(`projects/${project.id}/select`, { method: 'POST', body: '{}' })).status).toBe(200);
+      expect(((await (await api('meta')).json()) as { project: { id: string } }).project.id).toBe(project.id);
+      expect(((await (await api('tests')).json()) as { goldens: number }).goldens).toBe(0);
+    } finally {
+      await stop(d);
+      registry.remove(project.id);
+      rmSync(join(cwd, 'goldens'), { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });

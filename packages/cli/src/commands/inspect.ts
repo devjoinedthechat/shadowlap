@@ -49,7 +49,8 @@ export function register(program: Command): void {
         readOnly: !!flags.readOnly,
         project: { path: cwd },
         loadConfig: () => loadConfig(cwd),
-        goldens: () => projectGoldens(cwd),
+        // What belongs to each project's folder, read for the project a page shows: its goldens.
+        projectOptions: (project) => ({ goldens: () => projectGoldens(project.path) }),
         version: VERSION,
         ...(config.prices ? { prices: config.prices } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}),

@@ -47,7 +47,8 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   const links = job.links ?? [];
   const opens = job.done && job.newRunId && (job.opensRun || links.length === 0) && !links.some((l) => l.href.includes(job.newRunId!));
   // What the job's own feature adds: calibrate's "Add it (--write)", a clean-up's "Delete N runs".
-  const Footer = jobFooter(job.kind);
+  // Only where the job ran: from another project's page it would act on the wrong one.
+  const Footer = elsewhere ? null : jobFooter(job.kind);
   return (
     <div className="drawer" role="dialog" aria-label={title} aria-live="polite">
       <header>

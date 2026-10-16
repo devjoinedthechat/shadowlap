@@ -347,7 +347,7 @@ export function createClient(token: string): Client {
     teamStore: () => (storeLoading ??= loadStore().finally(() => (storeLoading = null))),
     importSources: () => request<ImportSources>('imports').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     upload: async (file, name) => {
-      const res = await fetch('/api/uploads', { method: 'POST', body: file, headers: { 'x-shadowlap-token': token, 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
+      const res = await fetch('/api/uploads', { method: 'POST', body: file, headers: { 'x-shadowlap-token': token, ...projectHeader(), 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
       const text = await res.text();
       let body: unknown = null;
       try {
