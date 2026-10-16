@@ -5,60 +5,16 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { docsOf, fields, keys, names, SHAPES, type ShapeName } from './json-shapes.js';
 
 /**
- * The JSON the CLI prints is a contract: scripts, CI and coding agents read it, and docs/cli.md lists
- * its fields. Each shape here is held to the fields the reference names, exactly, so a field added,
- * renamed or dropped fails until the reference says so too; and each list is checked against the
- * reference's own words. Exit statuses are held to what the reference says as well.
+ * The JSON the CLI prints is a contract: scripts, CI and coding agents read it, and the docs list
+ * its fields (json-shapes.ts). Here, the commands that make and read runs, each shape held to the
+ * fields the reference names, exactly; json-contract-workflows.test.ts holds the rest. Exit
+ * statuses are held to what the reference says as well.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
-const REFERENCE = readFileSync(fileURLToPath(new URL('../../../docs/cli.md', import.meta.url)), 'utf8');
-
-/** The fields each shape has, as docs/cli.md lists them, by the section that lists them. */
-const SHAPES = {
-  summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
-  summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
-  cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
-  replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
-  repeat: { section: 'replay', fields: ['attempts', 'report'] },
-  repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
-  show: { section: 'show', fields: ['run', 'summary', 'calls'] },
-  showRun: { section: 'show', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
-  showCall: { section: 'show', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
-  ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
-  label: { section: 'label', fields: ['runId', 'labels'] },
-  search: { section: 'search', fields: ['runId', 'callNo', 'kind', 'name', 'field', 'snippet', 'runStartedAt'] },
-  diff: { section: 'diff', fields: ['a', 'b', 'identicalPrefix', 'prefix', 'firstRequestDifference', 'responseDifferences', 'after', 'onlyInA', 'onlyInB', 'changes'] },
-  diffChanges: { section: 'diff', fields: ['systemPrompt', 'tools', 'models', 'code'] },
-  importJson: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped'] },
-  importRun: { section: 'import', fields: ['runId', 'source', 'key', 'calls', 'labels', 'imported'] },
-  calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
-  rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
-  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'rules', 'details'] },
-  previewRule: { section: 'normalize', fields: ['n', 'rule', 'count', 'samples', 'reached', 'note'] },
-  gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'deferred', 'store'] },
-  gcStore: { section: 'rm', fields: ['path', 'before', 'after', 'free'] },
-  doctor: { section: 'doctor', fields: ['name', 'verdict', 'detail'] },
-  init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'hardcodedBaseUrls', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
-} as const;
-
-const keys = (o: unknown) => Object.keys(o as object).sort();
-const fields = (shape: keyof typeof SHAPES) => [...SHAPES[shape].fields].sort();
-
-/** docs/cli.md split at its `## ` headings, by the names each heading gives ("normalize, redact"). */
-function sectionText(name: string): string {
-  const section = REFERENCE.split(/^(?=## )/m).find((s) => s.startsWith('## ') && s.slice(3, s.indexOf('\n')).split(',').map((n) => n.trim()).includes(name));
-  if (!section) throw new Error(`docs/cli.md has no section for ${name}`);
-  return section;
-}
-
-/** Whether a section names a field as code: `field`, or a word of an object or JSON sample (`{ runId, labels }`, "format": …). */
-function names(section: string, field: string): boolean {
-  const code = [...section.matchAll(/```[\s\S]*?```|`[^`\n]+`/g)].map((m) => m[0]);
-  return code.some((c) => new RegExp(`(?<![\\w$])${field}(?![\\w$])`).test(c));
-}
 
 /** The model: looks the order up, reads the policy, escalates, and says so. */
 function script(ctx: ScriptContext) {
@@ -223,9 +179,12 @@ describe('the JSON the CLI prints', () => {
   }, 120_000);
 });
 
-describe('docs/cli.md', () => {
-  it('names every field of every shape, in the section of its command', () => {
-    const missing = Object.entries(SHAPES).flatMap(([shape, { section, fields }]) => fields.filter((f) => !names(sectionText(section), f)).map((f) => `${shape}.${f} (## ${section})`));
+describe('the docs', () => {
+  it('name every field of every shape, in the section that lists its command\'s JSON', () => {
+    const missing = (Object.keys(SHAPES) as ShapeName[]).flatMap((shape) => {
+      const docs = docsOf(shape);
+      return SHAPES[shape].fields.filter((f) => !names(docs, f)).map((f) => `${shape}.${f} (docs/${'page' in SHAPES[shape] ? (SHAPES[shape] as { page: string }).page : 'cli.md'}, ${SHAPES[shape].section})`);
+    });
     expect(missing).toEqual([]);
   });
 });

@@ -185,7 +185,8 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
 | `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
-| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for `verify` |
+| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y` | As for `verify` |
+| `--json` | The report as JSON on stdout ([fields](./repair.md#json)) |
 
 Exit status 0 when a candidate is accepted and handed over as asked, 1 otherwise. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
 
@@ -232,6 +233,11 @@ It trusts nothing it reads from the store: the repair's directory must be `.shad
 | `verify` | One entry per change verified, newest first: its `verdict`, whether it `counts` and a `note` saying why not (or that it was rejected after the fix was applied), `headline`, `oracle`, each run's `role`, `attempts`, `outcome` and where it went (`note`), the token and cost changes per run, and what it took to find out |
 | `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
 | `actions` | What can be done next: `repair` for an open fix; `apply` for a verified or applied one (`kind` is `patch`, or `mark` when there is no patch, with the `gitApply` command, and `pending` saying what applying left undone); `applied` once it is applied |
+| `fixId`, `href`, `failing`, `good`, `openedAt`, `verifiedAt`, `appliedAt`, `openedBy` | As in `fix ls`, and who opened it |
+| `blames`, `repairs`, `defaultStep`, `defaultVerify` | Every blame (`blameId`, `runId`, `at`, `outcome`, `lostAt`, `confidence`) and repair (`repairId`, `at`, `outcome`, `accepted`, `title`) behind the fix, newest first; the step the dashboard opens at, and the verdict it shows first |
+| `commands`, `repairer`, `applied` | The `blame`, `repair` and `verify` commands to run it again; the repairer the config names (`name`, whether it is `configured`); and, once applied, how (`patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via`) |
+
+`fix ls --json` prints `{ fixes, counts }`: each fix as its row in the list, with `fixId`, `href` (where the dashboard shows it), `status`, `title`, `label`, `labels`, `check`, how many runs are `failing` and `good`, its `steps`, `source`, when it was `openedAt`, `verifiedAt` and `appliedAt` (epoch milliseconds, or `null`), why it is `broken`, and the `attempts` and USD `spent` behind it; and the `counts` of `all`, `open` and `verified` fixes, applied ones counted as verified. `fix apply --json` prints `{ fixId, status, again, patch, repairId, goldens, tests }`: `status` is `applied`, or `already-applied` when nothing was left to do; `again` when it finished a fix applied before; what became of the `patch` (`applied`, `already` in the tree, or `none` to apply); the `repairId`; each golden's `from`, `to` and whether it was `copied`; and the `tests` (`passed`, `failed` or `skipped`). An error prints `{ fixId, status, error }` with `status` `error`, as the `--json` row says.
 
 Blame, repair, verify and apply each log an activity event in the store (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`, `fix.applied`).
 
@@ -346,6 +352,8 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 | `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
 | `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
 
+The `--json` report is `{ version, session, revision, passed, failed, interrupted, results }`, one result per pack: its `name`, `dir` and `golden` (as test history names it), `mode` (`replay`, or `fork` for a recording that forks on purpose), `ok`, the `failure` kind with its one-line `message` and the `details` the terminal shows, the agent's last lines of `output` when it failed, `seconds`, the replay shown (`runId`) and every attempt's (`runs`, each `runId` and `ok`), the recording replayed (`goldenRunId`), `calls` by origin (`total`, `replayed`, `live`, `blocked`, `stubbed`), `upstreamRequests`, `tokensNotRespent`, the `divergence` (`type`, `callNo`, `kind`, `name`), its `checks` (`ok`, `label`, `detail`) with the `expect` they came from, `attempts` for a recording that repeats (`total`, `passed`, `required`), and, with `--update`, what it `updated` (`from`, `to`, `calls`, `changes`).
+
 ## bisect
 
 ```sh
@@ -363,6 +371,8 @@ shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>]
 | `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
+
+`--json` prints `{ outcome, target, good, bad, commits, steps, first, untested, why, replays, tokens, upstreamRequests, spent, seconds }`: the `outcome` (`found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped`, with `why` when there is no answer), the `target` (`kind` `golden` or `run`, its `name` and `runId`), the `good` and `bad` commits and the `commits` between them, each replay in `steps` (`rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds`), the `first` bad commit with `why` it fails there, the `untested` commits just before it, and what it took: `replays`, `tokens`, `upstreamRequests`, USD `spent` and `seconds`. A commit is `{ rev, short, subject, author, date }`.
 
 ## pack, unpack
 
@@ -763,6 +773,19 @@ folder, `pr/<number>/` in the store. `pull` leaves those folders out unless give
 runs it brings from one stay on this machine: `push --all` leaves them out, and `push` refuses one
 by name.
 
+`push --json` prints `{ store, pullRequest, pushed, updated, unchanged, queued, repaired, refused, blobs, segment, onlyLocal }`:
+the store, the pull request whose folder it wrote to (or `null`), the runs `pushed`, `updated`
+(labels, notes or results merged), `unchanged`, `queued` (still recording) and `repaired` (parts
+the bucket lost, sent again), each run `refused` with why, the `blobs` `uploaded`, already
+`present` and their `bytes`, the index `segment` it wrote (or `null`), and how many runs are still
+`onlyLocal`. `pull --json` prints `{ store, pulled, merged, needPush, skippedDeleted, missing, unknown, failed, skippedSegments, blobs, segments, inStore, byAuthor, onlyLocal, pullRequests }`:
+the runs `pulled` and `merged`, the merged ones whose changes the next push sends (`needPush`),
+runs deleted here and not pulled again (`skippedDeleted`), runs gone from the store (`missing`),
+names that match no run (`unknown`), runs that couldn't come (`failed`, with why) and index
+segments that couldn't be read (`skippedSegments`), the `blobs` `downloaded` and their `bytes`, the
+`segments` read, the runs `inStore` and `onlyLocal` here, the pulled runs `byAuthor`, and with
+`--include-pr` each pull request's folder (`pullRequests`).
+
 ## share
 
 ```sh
@@ -800,6 +823,21 @@ where the CI and the cloud allow it, and the pull-request credentials beside the
 branches'. `push-from-ci off` writes `"ciPush": false` to the config: `test --push` in CI then runs
 the tests and keeps their runs in the job (outside CI, `--push` still pushes); `on` turns it back
 on. Each takes `--json`.
+
+With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config }`:
+the store as written to the config and its `url` without the options after `?`, its parts, the
+store it replaced (`previous`) and the config file's path. `check` prints
+`{ url, credentials, steps, ok, encryption, versioning, objectLock, warnings, notes, failure, pullRequest }`:
+where the `credentials` came from, each step (`name`, `ok`, `detail`, `code`), whether all passed
+(`ok`), the bucket's `encryption`, `versioning` and `objectLock` (`state`, `detail`), its
+`warnings`, what couldn't be checked (`notes`), the kind of the first `failure`, and the pull
+request whose folder it checked. `show` prints `{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, queued, check }`:
+the last push and pull (epoch milliseconds), the runs `inStore`, `onlyLocal` and `queued` to go
+when they end, and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
+`credentials`). `policy` prints `{ provider, writer, pullRequest, notes }`, each policy with whom
+it is `for`, its `kind`, its `text` and `notes`. `ci` prints `{ ci, provider, file, text, oidc, pullRequests, notes }`:
+the step's `text` and the `file` it goes in, whether it uses short-lived credentials (`oidc`), and
+whether pull requests' jobs push to their `own-folder` or not at all (`no-push`, in `pullRequests`). `push-from-ci` prints `{ ciPush, previous, config }`.
 
 ## Environment
 
