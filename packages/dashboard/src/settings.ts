@@ -585,7 +585,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
   const httpRules = isObject(data.http) ? Object.entries(data.http) : [];
 
   // One row per tool: the effect of its latest call, and whether an earlier one differed.
-  const usage = ctx.store.toolUsage();
+  const { usage, mcp: mcpUsage } = toolReads(ctx.store);
   const tools = new Map<string, ToolRow>();
   const hostCalls = new Map<string, { calls: number; lastAt: number; effect: Effect | null }>();
   for (const u of usage) {
@@ -632,7 +632,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
 
   const effects = Object.entries(mcpEffects).map(([tool, effect]) => ({ tool, effect: effectOf(effect), seen: tools.has(tool), error: effectOf(effect) ? null : `mcp.effects["${tool}"] must be pure, read or write` }));
   const found = mcpServers(ctx.cwd);
-  const recorded = recordedMcpServers(ctx.store);
+  const recorded = recordedMcpServers(mcpUsage);
   const recordedKey = (r: { transport: string; server: string }) => `${r.transport} ${r.server}`;
   const byName = new Map(recorded.map((r) => [recordedKey(r), r]));
   const servers = found.servers.map((row) => {
@@ -650,9 +650,33 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
   };
 }
 
+/** What the Tools tab reads from the store: every tool across runs, and the MCP servers calls came through. */
+interface ToolReads {
+  key: string;
+  usage: ReturnType<Store['toolUsage']>;
+  mcp: ReturnType<Store['mcpServerUsage']>;
+}
+
+const toolReadCache = new WeakMap<Store, ToolReads>();
+
+/**
+ * The Tools tab's store reads, kept per store until its runs or calls change (`changeCounts`): each
+ * scans every call in the store, on the server's thread, so a tab read again with nothing new (the
+ * window back in focus, a second tab) costs nothing.
+ */
+export function toolReads(store: Store): ToolReads {
+  const counts = store.changeCounts();
+  const key = `${counts.runs ?? 0}:${counts.calls ?? 0}`;
+  const kept = toolReadCache.get(store);
+  if (kept && kept.key === key) return kept;
+  const read: ToolReads = { key, usage: store.toolUsage(), mcp: store.mcpServerUsage() };
+  toolReadCache.set(store, read);
+  return read;
+}
+
 /** The MCP servers recorded calls came through, with their tools and writes (Store.mcpServerUsage). */
-function recordedMcpServers(store: Store): McpRecordedServer[] {
-  return store.mcpServerUsage().flatMap((u): McpRecordedServer[] => {
+function recordedMcpServers(usage: ToolReads['mcp']): McpRecordedServer[] {
+  return usage.flatMap((u): McpRecordedServer[] => {
     if (u.transport !== 'stdio' && u.transport !== 'http') return [];
     const called = new Map<string, boolean>();
     for (const c of u.called) called.set(c.name, (called.get(c.name) ?? false) || c.effect === 'write');

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
 import { PREVIEW_LIMITS, repeatsARepeat, tookTooLong } from '../src/redaction-preview.js';
 import { parseHeaderFlags } from '../../cli/src/mcp.js';
-import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
+import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -288,6 +288,21 @@ describe('toolsSettings', () => {
     ]);
     expect(t.mcp.servers).toEqual([]);
     expect(t.mcp).toMatchObject({ clientConfigs: [], otherForms: [] });
+  });
+
+  it('reads every call across the store once, until runs or calls change', () => {
+    const run = recording({ at: 1 });
+    tool(run.runId, 1, 'lookup_order', 'read', 2);
+    const first = toolReads(store);
+    expect(toolReads(store)).toBe(first);
+    expect(toolsSettings({ store, cwd }, { mcpDoc: null }).live.map((t) => t.name)).toEqual(['lookup_order']);
+    // A new call, and a run's labels changing: read again.
+    tool(run.runId, 2, 'send_email', 'write', 3);
+    const second = toolReads(store);
+    expect(second).not.toBe(first);
+    expect(toolsSettings({ store, cwd }, { mcpDoc: null }).fenced.map((t) => t.name)).toEqual(['send_email']);
+    store.updateRunMeta(run.runId, { labels: ['refund'] });
+    expect(toolReads(store)).not.toBe(second);
   });
 
   it('takes the client config example from docs/mcp.md', () => {

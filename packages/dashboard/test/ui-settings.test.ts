@@ -27,6 +27,7 @@ import {
   proposedCount,
   regexLiteral,
   ruleCommand,
+  runListKey,
   ruleInput,
   ruleProblem,
   serverNameFor,
@@ -51,6 +52,23 @@ function ruleFromCommand(command: string): Record<string, string> {
   for (let i = 3; i < argv.length; i += 2) out[argv[i]!.replace(/^--/, '')] = argv[i + 1]!;
   return out;
 }
+
+describe('when a tab reads again', () => {
+  it('follows the runs there are and which still record, not the calls a recording adds', () => {
+    const runs = [
+      { runId: 'B', status: 'running' },
+      { runId: 'A', status: 'completed' },
+    ];
+    const key = runListKey(runs, 'support-agent');
+    // The same runs, reloaded while B records: nothing to read again.
+    expect(runListKey(runs.map((r) => ({ ...r })), 'support-agent')).toBe(key);
+    expect(runListKey([{ runId: 'B', status: 'completed' }, runs[1]!], 'support-agent')).not.toBe(key);
+    expect(runListKey([{ runId: 'C', status: 'completed' }, ...runs], 'support-agent')).not.toBe(key);
+    expect(runListKey(runs.slice(0, 1), 'support-agent')).not.toBe(key);
+    expect(runListKey(runs, 'triage-bot')).not.toBe(key);
+    expect(runListKey(null, 'support-agent')).not.toBe(key);
+  });
+});
 
 describe('the Settings tabs', () => {
   it('opens Matching without a tab, keeps CI at its old address, and knows no other tab', () => {

@@ -10,6 +10,19 @@ import type { CiOptions, CiPullRequest, CiWorkflowsView } from '../../settings-a
 
 export { SETTINGS_TABS, settingsTab, type SettingsTab } from './tabs.js';
 
+// ---- when a tab reads again ----
+
+/**
+ * What a tab's data depends on in the run list: which runs there are, which are still recording,
+ * and the project. A recording adding calls changes none of it, so an open tab doesn't read its data
+ * again every time the run list reloads while something records.
+ */
+export function runListKey(runs: ReadonlyArray<{ runId: string; status: string }> | null, project: string | null): string {
+  if (!runs) return `${project ?? ''}:-`;
+  const running = runs.reduce((n, r) => n + (r.status === 'running' ? 1 : 0), 0);
+  return `${project ?? ''}:${runs.length}:${runs[0]?.runId ?? ''}:${runs[runs.length - 1]?.runId ?? ''}:${running}`;
+}
+
 // ---- the Add dialog ----
 
 export type RuleListName = 'normalize' | 'redact';

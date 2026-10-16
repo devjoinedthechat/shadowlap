@@ -3,7 +3,7 @@ import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { useApp, type AppState } from '../../state.js';
 import { onSettingsChanged } from './events.js';
-import { shellWords } from './logic.js';
+import { runListKey, shellWords } from './logic.js';
 
 /**
  * What every Settings tab shares: its data, read again when it may have changed (runs moved, the
@@ -13,9 +13,15 @@ import { shellWords } from './logic.js';
 
 export const CONFIG_FILE = 'shadowlap.config.json';
 
-/** The tab's read, kept while it reloads, and loaded again when runs change or the window regains focus. */
+/**
+ * The tab's read, kept while it reloads, and loaded again when the runs there are change (one added,
+ * deleted or ended, or another project), when a job reports (a push, a clean-up, a calibration),
+ * when the window regains focus, and after an edit. Not when a recording adds calls: the run list
+ * reloads every 2 s while anything records, and a tab's read can scan every call.
+ */
 export function useSettingsData<T>(load: () => Promise<T>, key: string): Loaded<T> {
-  const { tick } = useApp();
+  const { runs, meta, feeds } = useApp();
+  const runsKey = `${runListKey(runs, meta?.project?.id ?? null)}:${feeds.jobs ?? 0}`;
   const [seen, setSeen] = useState(0);
   useEffect(() => {
     // The config is edited in an editor or a terminal as often as here: back on the page, read it again.
@@ -30,7 +36,7 @@ export function useSettingsData<T>(load: () => Promise<T>, key: string): Loaded<
       off();
     };
   }, []);
-  return useLoad(load, key, `${tick}:${seen}`);
+  return useLoad(load, key, `${runsKey}:${seen}`);
 }
 
 /**
