@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { packRun, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
+import { packRun, previewRedaction, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
 // The record a replay keeps of its flags is written by the sidecar when the replay starts.
 import { describeInterventions } from '@shadowlap/sidecar';
 import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
@@ -406,10 +406,12 @@ describe('the run page: provenance', () => {
     });
     expect(p.endedUtc).toMatch(/^2026-10-01 09:41:\d\d UTC$/);
     expect(p.upstream.requests).toBe(2);
-    // Two requests and a tool's arguments each hold the address; so do the last response and the tool's.
+    // As the Redaction tab's preview counts it, each value once however many requests send it again:
+    // the user's message (both requests), the tool's arguments, the model's call of it, its last answer.
     expect(p.mask.rules).toBe(1);
     expect(p.mask.values).toBe(countMasked(store, rec.runId, [{ pattern: 'email', replace: '<EMAIL>' }]));
-    expect(p.mask.values).toBeGreaterThanOrEqual(5);
+    expect(p.mask.values).toBe(previewRedaction(store, rec.runId, [{ pattern: 'email', replace: '<EMAIL>' }]).total);
+    expect(p.mask.values).toBe(4);
     expect(provenance(store, rec.runId)!.mask).toEqual({ rules: 0, values: 0 });
     expect(provenance(store, rec.runId, { maskCount: () => ({ rules: 3, values: 7 }) })!.mask).toEqual({ rules: 3, values: 7 });
     expect(provenance(store, replay.runId)!.lineage.map((x) => x.runId)).toEqual([rec.runId, replay.runId]);

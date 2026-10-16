@@ -24,11 +24,15 @@ export function tallyProviders(found: ReadonlyArray<{ provider: string | null | 
   return [...tally].map(([provider, calls]) => ({ provider, calls })).sort((a, b) => b.calls - a.calls || a.provider.localeCompare(b.provider));
 }
 
-/** What a copy made now applies, after "A copy made now (…) applies": the rules, and what they would mask when counted. */
-export function copyRules(rules: number | null | undefined, masked: number | null | undefined): string {
+/**
+ * What a copy made now applies, after "A copy made now (…) applies": the rules, and what they would
+ * mask when counted, or that it wasn't (`uncounted`: a rule took too long, the run is long; the
+ * reason goes on hover).
+ */
+export function copyRules(rules: number | null | undefined, masked: number | null | undefined, uncounted = false): string {
   if (typeof rules !== 'number') return 'the redaction rules in shadowlap.config.json';
   if (!rules) return 'no redaction rules: it would hold what was recorded';
-  const counted = typeof masked === 'number' ? ` and would mask ${num(masked)} ${masked === 1 ? 'value' : 'values'} in this run` : '';
+  const counted = typeof masked === 'number' ? ` and would mask ${num(masked)} ${masked === 1 ? 'value' : 'values'} in this run` : uncounted ? `; what ${rules === 1 ? 'it' : 'they'} would mask in this run wasn’t counted` : '';
   return `${rules} redaction ${rules === 1 ? 'rule' : 'rules'}${counted}`;
 }
 

@@ -93,6 +93,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   const labels = r.meta?.labels ?? [];
   const rules = prov?.mask?.rules ?? meta?.redactRules;
   const masked = prov?.mask?.values ?? null;
+  // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
+  const uncounted = prov?.mask?.why ?? null;
   const ledger = run.calls.some((c) => c.fingerprint || c.requestRef || c.responseRef);
   const rows: Array<[string, React.ReactNode]> = [
     ['Run', <code key="r">{r.runId}</code>],
@@ -168,8 +170,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           </ol>
           <h3>Leaving this machine</h3>
           <p className="muted">
-            A copy made now (pack, export html, export dataset) applies{' '}
-            {copyRules(rules, masked)}
+            A copy made now (pack, export html, export dataset or export pairs) applies{' '}
+            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted)}</span>
             .{' '}
             <a className="more" href={href.settings('redaction')}>
               {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}

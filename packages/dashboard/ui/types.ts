@@ -130,8 +130,8 @@ export interface ProvenanceView {
   providers?: Array<{ provider: string; calls: number }>;
   calls?: { model: number; tool: number; other: number; scopes: number };
   upstream?: { requests: number; spent: number };
-  /** What a copy made now would mask: the rules that apply, and the values they hit (null when not counted). */
-  mask?: { rules: number; values: number | null } | null;
+  /** What a copy made now would mask: the rules that apply, and the values they hit (null when not counted, with why when it says). */
+  mask?: { rules: number; values: number | null; why?: string } | null;
   startedUtc?: string;
   endedUtc?: string | null;
   /** The run and the runs it came from, the recording first, each with its code version. */

@@ -1,9 +1,12 @@
 import { addNote, callDetail, changeLabels, lineage, listRuns, lookupRun, provenance, runDetail } from '../api.js';
 import type { RouteContext } from '../context.js';
+import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
+import { recordingNow, stillRecording } from '../run-exports.js';
+import { maskCount } from '../run-mask.js';
 import { deleteRuns } from '../runs-list.js';
-import { exportHtml, withAncestors } from '../static.js';
+import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
 
 /** Runs: the list, one run, its calls, family and provenance, labels and notes, the HTML download, delete. */
 export function register(router: Router, ctx: RouteContext): void {
@@ -38,11 +41,16 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // The run's record for the Provenance tab, with what a copy made now would mask under the
-  // project's redaction rules, read afresh as the download reads them.
-  router.get('/runs/:id/provenance', (r) => {
+  // project's redaction rules, read afresh as the download reads them. The count is the Redaction
+  // tab's preview of the run, read on a thread of its own (run-mask.ts): a rule that takes minutes
+  // on the run's text leaves it uncounted, with why, rather than holding the server up.
+  router.get('/runs/:id/provenance', async (r) => {
     const store = ctx.store;
+    const run = lookupRun(store, r.params.id!);
+    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
-    const p = provenance(store, r.params.id!, { ...ctx.read, ...(redact.length ? { redact } : {}) });
+    const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, runId: run.runId, rules: redact });
+    const p = provenance(store, run.runId, { ...ctx.read, ...(redact.length ? { redact } : {}), maskCount: () => mask });
     if (!p) throw new HttpError(404, `no run ${r.params.id}`);
     r.tagged(p);
   });
@@ -72,13 +80,30 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // A run as one self-contained HTML file, for sharing. A read, so a read-only dashboard offers it
   // too. Its ancestors come along so a fork still shows what it parted from, and the project's
-  // redaction rules apply, exactly as `shadowlap export html --lineage` does.
-  router.get('/runs/:id/export', (r) => {
+  // redaction rules apply, exactly as `shadowlap export html --lineage` does. It is made on a thread
+  // of its own (export-apart.ts): a long run, or a rule that is slow on the run's text, never holds
+  // the server up, and one that takes too long is stopped with the likely rule named. A run still
+  // recording is copied once it has ended.
+  router.get('/runs/:id/export', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    if (recordingNow(store, run)) throw new HttpError(409, stillRecording(run));
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
-    const out = exportHtml({ store, runIds: withAncestors(store, run.runId), ...ctx.read, ...(redact.length ? { redact } : {}), version: ctx.options.version ?? null, ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
+    const runIds = withAncestors(store, run.runId);
+    const version = ctx.options.version ?? null;
+    const dbPath = ctx.options.dbPath;
+    let out: ExportHtmlResult;
+    if (dbPath && dbPath !== ':memory:') {
+      try {
+        out = await exportHtmlApart({ dbPath, runIds, redact, version, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
+      } catch (err) {
+        throw err instanceof ExportError ? new HttpError(err.status, err.message) : err;
+      }
+    } else {
+      // A store with no file of its own (in memory) can't be opened from another thread.
+      out = exportHtml({ store, runIds, ...ctx.read, ...(redact.length ? { redact } : {}), version, ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
+    }
     r.res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
       'content-disposition': `attachment; filename="shadowlap-${run.runId.slice(0, 10).toLowerCase()}.html"`,
