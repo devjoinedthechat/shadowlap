@@ -98,6 +98,11 @@ export function testFailed(last: RunRecord | undefined, spec: TestSpec | null): 
   return last.status !== 'completed' || (last.meta?.checks ?? []).some((c) => !c.ok) || (!!last.divergence && !spec?.fork);
 }
 
+/** Where a golden's last test forked, when its test may fork (`fork` in its tests entry) and did; null otherwise. */
+export function testForkedAt(last: RunRecord | undefined, spec: TestSpec | null): number | null {
+  return last && spec?.fork && last.divergence ? last.divergence.callNo : null;
+}
+
 /** The runs a golden's run came from, nearest first, as far as the store has them. */
 function ancestorsOf(store: Store | null, run: RunRecord): RunRecord[] {
   const out: RunRecord[] = [];
@@ -134,7 +139,7 @@ export function loadTasks(root: string, store: Store | null): TaskList {
         unreadable = err instanceof Error ? err.message : String(err);
       }
     }
-    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(tests.get(golden), spec) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
+    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(tests.get(golden), spec) : null, forkedAt: pack ? testForkedAt(tests.get(golden), spec) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
     return { ...task, ...(unreadable ? { note: `its pack can't be read: ${unreadable}` } : {}), spec, dir, pack };
   });
   return { tasks, oneSided: oneSided(tasks) };

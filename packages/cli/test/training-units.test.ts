@@ -8,7 +8,7 @@ import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from
 import { parseTests } from '../src/checks.js';
 import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
-import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, type LoadedTask, type TaskScore } from '../src/tasks.js';
+import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, type LoadedTask, type TaskScore } from '../src/tasks.js';
 
 /**
  * The CLI's training parts on their own: the task block under tests, the model under test and how a
@@ -367,6 +367,11 @@ describe('a golden\'s last test', () => {
     // A divergence fails a golden unless it may fork.
     expect(testFailed(last.get('goldens/c'), null)).toBe(true);
     expect(testFailed(last.get('goldens/c'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBe(false);
+    // Where it forked counts for a task only when it may fork: otherwise the divergence failed it.
+    expect(testForkedAt(last.get('goldens/c'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBe(3);
+    expect(testForkedAt(last.get('goldens/c'), null)).toBeNull();
+    expect(testForkedAt(last.get('goldens/b'), { fork: true, repeat: 1, passes: 1, tools: [] })).toBeNull();
+    expect(testForkedAt(undefined, { fork: true, repeat: 1, passes: 1, tools: [] })).toBeNull();
     expect(testFailed(last.get('goldens/d'), null)).toBe(true);
     expect(testFailed(last.get('goldens/e'), null)).toBeNull();
     expect(lastTests(null, root).size).toBe(0);

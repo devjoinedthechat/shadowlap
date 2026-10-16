@@ -260,6 +260,12 @@ export interface TaskInput {
   checks: TaskCheck[];
   /** Whether the golden's test fails: true, false, or null when that isn't known. */
   testFailed: boolean | null;
+  /**
+   * The call the golden's last test forked at, when its test may fork (`fork` in its tests entry)
+   * and it did. A model takes over only where the recording still replays, so a fork before the
+   * takeover blocks the task as a failing test does. Null or absent when it didn't fork.
+   */
+  forkedAt?: number | null;
   /** The runs a golden came from, newest first, when the store has them and the pack doesn't. */
   ancestors?: RunRecord[];
 }
@@ -404,6 +410,8 @@ export function describeTask(input: TaskInput): Task {
   if (!hasRecordedCommand(golden.run)) return { ...task, status: 'blocked', note: NO_COMMAND_NOTE };
   if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
   if (input.testFailed === true) return { ...task, status: 'blocked', note: 'its test fails' };
+  // A fork at the takeover changes nothing: the model under test answers that call anyway.
+  if (input.forkedAt != null && input.forkedAt < k) return { ...task, status: 'blocked', note: `its test forks at #${input.forkedAt}, before the takeover` };
   return task;
 }
 

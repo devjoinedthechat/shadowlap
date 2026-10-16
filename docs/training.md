@@ -98,7 +98,7 @@ shadowlap tasks
 | Status | When |
 |---|---|
 | **ready** | The golden has outcome checks and its test passes |
-| **blocked** | The golden's last [`shadowlap test`](./ci.md) failed (as `shadowlap test --db` keeps it in the store). Fix the test and the task is ready again. Also a golden packed straight from a capture: it has no command to start its agent, so neither its test nor a score can run. Replay it once with your agent (`shadowlap replay <run> -- <command>`) and pack that run |
+| **blocked** | The golden's last [`shadowlap test`](./ci.md) failed (as `shadowlap test --db` keeps it in the store). Fix the test and the task is ready again. Also a golden whose test may fork (`fork` in its tests entry) when its last test forked before the takeover: an attempt would leave the recording before the model answers, so add the normalizer its replay asks for. Also a golden packed straight from a capture: it has no command to start its agent, so neither its test nor a score can run. Replay it once with your agent (`shadowlap replay <run> -- <command>`) and pack that run |
 | **not a task** | Its checks only cap tokens and cost, which say what a run spent, not whether the agent was right; or it has no checks; or its model calls are made in more than one scope |
 | **no golden** | A `tests` entry names a directory with no pack in it |
 

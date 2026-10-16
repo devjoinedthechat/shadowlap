@@ -134,6 +134,11 @@ describe('tasks', () => {
     const status = (t: Task) => [t.status, t.note];
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['ready', null]);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: OUTCOME, testFailed: true }))).toEqual(['blocked', 'its test fails']);
+    // A test that may fork passed, but forked before the takeover: an attempt would leave the recording before the model answers.
+    expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 3 }))).toEqual(['blocked', 'its test forks at #3, before the takeover']);
+    // Forking at the takeover or after it changes nothing: the model under test answers from there anyway.
+    expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 5 }))).toEqual(['ready', null]);
+    expect(status(describeTask({ path: 'g', golden, fields: { takeover: 5 }, checks: OUTCOME, testFailed: false, forkedAt: 7 }))).toEqual(['ready', null]);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: CAPS, testFailed: false }))).toEqual(['not-a-task', 'its checks only cap tokens and cost']);
     expect(status(describeTask({ path: 'g', golden, fields: {}, checks: [], testFailed: false }))).toEqual(['not-a-task', 'it has no checks']);
     expect(status(describeTask({ path: 'gone', golden: null, fields: {}, checks: OUTCOME, testFailed: null }))).toEqual(['no-golden', 'the golden is gone']);
