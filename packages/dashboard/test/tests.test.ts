@@ -522,6 +522,15 @@ describe('the Tests screen', () => {
     store.close();
   });
 
+  it('says a golden was updated before its replay failed again', () => {
+    const store = sampleStore();
+    // Update golden re-recorded it, and the replay after diverged again on a value made anew on every run.
+    const failedAgain = store.listTestResults({ golden: 'goldens/refund-in-limit', limit: 1 })[0]!;
+    session(store, 'e3f9b20+dirty', T0 + DAY, [{ golden: 'goldens/refund-in-limit', ok: false, failure: 'diverged', reason: failedAgain.reason!, runId: 'R_U_LIMIT', data: { ...failedAgain.data!, updated: { from: 'GOLDEN_LIMIT', to: 'R_U_REC', calls: 30 } } }], ['shadowlap', 'test', 'goldens/refund-in-limit', '--update']);
+    expect(testsView(store, goldens).rows[1]!.last).toMatchObject({ result: 'fail', updated: true, line: 'updated at e3f9b20+dirty, then diverged at call 1 · $.metadata.user_id looks like a UUID' });
+    store.close();
+  });
+
   it('offers no Find the commit for a golden whose pack can’t be read', () => {
     const store = Store.open(':memory:');
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'aaa1111', startedAt: T0 });
