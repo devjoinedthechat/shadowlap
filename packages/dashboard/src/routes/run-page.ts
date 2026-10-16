@@ -5,6 +5,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { EXPORT_KINDS, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, packJob } from '../run-exports.js';
+import { choicesInCheckout } from '../commits-here.js';
 import { runOffers } from '../run-offers.js';
 import type { GoldenSource } from '../tests.js';
 
@@ -71,7 +72,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const head = ctx.project ? await projectHead(ctx.project.path) : null;
     const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx), head });
     if (!offers) throw new HttpError(404, `no run ${r.params.id}`);
-    r.tagged(offers);
+    // Find the commit offers only commits this checkout has: a teammate's pulled run names theirs.
+    r.tagged(offers.bisect ? { ...offers, bisect: choicesInCheckout(ctx.project?.path, offers.bisect) } : offers);
   });
 
   router.get('/runs/:id/show', (r) => {

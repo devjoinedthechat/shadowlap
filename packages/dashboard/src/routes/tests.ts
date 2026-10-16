@@ -1,10 +1,11 @@
 import type { Normalizer } from '@shadowlap/engine';
 import { ciWorkflows, fixPreview, gitFacts, parseCiOptions } from '../ci-workflows.js';
+import { choicesInCheckout, commitsHere, rangeHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import type { Router } from '../router.js';
-import { bisectChoices, bisectJob, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob } from '../tests.js';
+import { bisectChoices, bisectJob, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
@@ -38,6 +39,21 @@ export function testsBuild(job: TestsJob): JobBuildResult {
   return { title: job.title, args: first, ...(then.length ? { then } : {}), ...runId };
 }
 
+/**
+ * Tests' Find the commit as the project's checkout can run it: a golden whose last pass was at a
+ * commit this checkout lacks (a CI test session's merge commit, a teammate's) asks for a good one,
+ * and one that failed at such a commit is searched up to HEAD. As it is without a project folder or
+ * when git can't say.
+ */
+function rangesInCheckout(view: TestsView, root: string | null | undefined): TestsView {
+  const ranges = [...view.divergences, ...view.failures].map((d) => d.bisect).filter((b): b is BisectRange => !!b);
+  if (!root || !ranges.length) return view;
+  const here = commitsHere(root, ranges.flatMap((b) => [b.good, b.bad]));
+  if (!here) return view;
+  const inCheckout = <T extends { golden: string; bisect: BisectRange | null }>(d: T): T => (d.bisect ? { ...d, bisect: rangeHere(d.golden, d.bisect, here) } : d);
+  return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
 
@@ -50,7 +66,7 @@ export function register(router: Router, ctx: RouteContext): void {
     } catch {
       // the screen still shows the goldens
     }
-    r.tagged(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers }));
+    r.tagged(rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers }), ctx.project?.path));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's
@@ -61,7 +77,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const raw = r.query.get('before');
     const before = raw === null || raw === '' ? undefined : Number(raw);
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
-    r.tagged({ banner: testRunBanner(ctx.store, run.runId), bisect: bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) }) });
+    const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
+    r.tagged({ banner: testRunBanner(ctx.store, run.runId), bisect: bisect && choicesInCheckout(ctx.project?.path, bisect) });
   });
 
   router.get('/ci/workflows', (r) => {
@@ -93,7 +110,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
     title: () => 'Finding the commit',
-    build: (req, { store }) => testsBuild(bisectJob(store, goldens(), req)),
+    build: (req, { store, project }) => testsBuild(bisectJob(store, goldens(), req, project ? { here: (revs) => commitsHere(project.path, revs) } : {})),
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.normalize, {
     title: () => 'Adding a normalizer',

@@ -915,10 +915,11 @@ export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource
 
 /**
  * Find the commit: for a golden (`golden`, from the Tests screen) or a run (`runId`, from its page or
- * the calendar), from `good` up to `bad` (default: where it failed, else HEAD). A replay of a golden
- * on disk bisects the golden; a run that failed on its own replays with `--fork`.
+ * the calendar), from `good` up to `bad` (default: where it failed, else HEAD, which is also where
+ * it stops when `here` says this checkout lacks the commit it failed at). A replay of a golden on
+ * disk bisects the golden; a run that failed on its own replays with `--fork`.
  */
-export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
+export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>, options: { here?: (revs: string[]) => ReadonlySet<string> | null } = {}): TestsJob {
   const good = checkedRevision(req.good);
   if (!good) return { error: 'name a commit where it still worked' };
   let bad: string | null = null;
@@ -938,7 +939,10 @@ export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: R
   if (!choices) return { error: 'no such run' };
   if (choices.unavailable) return { error: choices.unavailable };
   const ref = choices.target.kind === 'golden' ? choices.target.golden : choices.target.runId;
-  const upTo = bad ?? choices.bad;
+  let upTo = bad ?? choices.bad;
+  // A run that failed at a commit this checkout doesn't have (a teammate's, pulled): up to HEAD, as
+  // with no commit named. `here` asks the project's git; when it can't say, the commit stays.
+  if (!bad && upTo && options.here?.([upTo])?.has(upTo) === false) upTo = null;
   if (upTo === good) return { error: `${good} is where it fails: choose an earlier commit where it still worked` };
   return { title: 'Finding the commit', args: ['bisect', ref, '--good', good, ...(upTo ? ['--bad', upTo] : []), ...(choices.fork ? ['--fork'] : [])], runId: req.runId as string };
 }
