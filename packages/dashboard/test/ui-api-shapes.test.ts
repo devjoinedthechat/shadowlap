@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeAction, normalizeActions, normalizeMeta, normalizeRunDetail, normalizeRuns, sentence } from '../ui/normalize.js';
-import { exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
+import { copyRunId, exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
 import type { ActionItem, Meta, RunDetail, RunListItem } from '../ui/types.js';
 
 // The dashboard reads what other parts of the API send in their own shapes: these turn each into
@@ -181,6 +181,17 @@ describe('an exported copy', () => {
   it('opens on the first of several unrelated runs, and on nothing when it holds none', () => {
     expect(exportStartRun(['01A', '01B'], [{ runId: '01A', parentRunId: null }, { runId: '01B', parentRunId: null }])).toBe('01A');
     expect(exportStartRun([], [])).toBeNull();
+  });
+
+  it('finds a run by a unique prefix of its id, as the dashboard does, and nothing for one it doesn’t hold', () => {
+    const ids = ['01M5305KSBQ7H3W2Y9XPN4TE0V', '01M5305ZT3A1B2C3D4E5F6G7H8', '01M5305ZYQA1B2C3D4E5F6G7H8'];
+    expect(copyRunId(ids, '01M5305KSB')).toBe(ids[0]);
+    expect(copyRunId(ids, '01m5305ksb')).toBe(ids[0]);
+    expect(copyRunId(ids, ids[1]!)).toBe(ids[1]);
+    // Two runs start 01M5305Z, and none 01M6: each comes back as it was, and opens nothing.
+    expect(copyRunId(ids, '01M5305Z')).toBe('01M5305Z');
+    expect(copyRunId(ids, '01M6')).toBe('01M6');
+    expect(copyRunId(ids, '../01M5305KSB')).toBe('../01M5305KSB');
   });
 });
 

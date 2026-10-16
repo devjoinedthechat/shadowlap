@@ -11,6 +11,7 @@ import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RecordedHit, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import { copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
 /**
@@ -427,8 +428,12 @@ export function exportedData(): StaticPayload | null {
   }
 }
 
-/** The same views, answered from the file itself. Anything that would change a run says it cannot. */
+/**
+ * The same views, answered from the file itself. Anything that would change a run says it cannot. A
+ * run is found by a unique prefix of its id too, as the dashboard finds it (`copyRunId`).
+ */
 export function createExportedClient(data: StaticPayload): Client {
+  const full = (runId: string) => encodeURIComponent(copyRunId(data.runIds ?? [], runId));
   const get = <T,>(path: string): Promise<T> => {
     const body = data.responses[path];
     if (body === undefined) return Promise.reject(new ApiError(404, 'this is an exported copy, and that view is not part of it'));
@@ -439,13 +444,13 @@ export function createExportedClient(data: StaticPayload): Client {
     exported: true,
     meta: () => get<Meta>('meta').then((m) => shape(m, normalizeMeta)),
     runs: () => get<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
-    run: (runId) => get<RunDetail>(`runs/${encodeURIComponent(runId)}`).then((d) => shape(d, normalizeRunDetail)),
-    call: (runId, n) => get<CallDetail>(`runs/${encodeURIComponent(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
-    lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${encodeURIComponent(runId)}/lineage`).then((r) => r.nodes),
-    provenance: (runId) => Promise.resolve((data.responses[`runs/${encodeURIComponent(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
+    run: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    call: (runId, n) => get<CallDetail>(`runs/${full(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
+    lineage: (runId) => get<{ nodes: LineageNode[] }>(`runs/${full(runId)}/lineage`).then((r) => r.nodes),
+    provenance: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
     offers: () => Promise.resolve(null),
-    showJson: (runId) => get<unknown>(`runs/${encodeURIComponent(runId)}/show`),
-    compare: (a, b) => get<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+    showJson: (runId) => get<unknown>(`runs/${full(runId)}/show`),
+    compare: (a, b) => get<RunComparison>(`compare?a=${full(a)}&b=${full(b)}`),
     search: () => Promise.resolve([]),
     labels: readOnly,
     note: readOnly,

@@ -397,6 +397,18 @@ export function exportStartRun(runIds: readonly string[], runs: ReadonlyArray<{ 
   return runIds.find((id) => !parents.has(id)) ?? runIds[0] ?? null;
 }
 
+/**
+ * A run id as an exported copy's address gives it, against the runs the copy holds: the whole id, or
+ * a unique prefix of one in either case, as the dashboard takes it (the pages show ten characters).
+ * Anything else comes back as it was, and opens nothing.
+ */
+export function copyRunId(runIds: readonly string[], id: string): string {
+  if (runIds.includes(id) || !/^[0-9A-Za-z]{1,26}$/.test(id)) return id;
+  const want = id.toUpperCase();
+  const hits = runIds.filter((r) => r.toUpperCase().startsWith(want));
+  return hits.length === 1 ? hits[0]! : id;
+}
+
 /** Whether an exported copy has Compare: it holds two runs or more. A copy of one run has nothing to compare it with. */
 export function copyCompares(runIds: readonly string[] | null | undefined): boolean {
   return (runIds?.length ?? 0) >= 2;
