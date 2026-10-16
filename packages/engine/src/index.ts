@@ -55,7 +55,7 @@ export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, che
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
-export { SHAPE_NAMES, applyInjection, formatToolFailure, literalValue, modelInRequest, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
+export { SHAPE_NAMES, applyInjection, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { MATCH_END, MATCH_START, searchCalls, searchExpression, updateSearchIndex, type SearchHit } from './search.js';

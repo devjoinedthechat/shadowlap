@@ -34,7 +34,10 @@ describe('the fork menu at a call', () => {
     // Inject always goes in as the user: every provider takes that, and the hint says why.
     const inject = actions.find((a) => a.key === 'i')!;
     expect(inject.prompt!.build('Be brief.')).toEqual(['replay', ID, '--inject', '3=Be brief.', '--inject-as', 'user']);
-    expect(inject.hint).toContain('--inject-as user');
+    // A model that rejects one outright is named, as the design's dialog names it.
+    expect(inject.hint).toBe('Claude Sonnet 5 takes no system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.');
+    const other = buildActions(run(), { ...call, meta: { model: 'gpt-5.2' } }).find((a) => a.key === 'i')!;
+    expect(other.hint).toMatch(/^Not every model takes a system message mid-conversation, so it goes in as part of the last user message \(--inject-as user\)/);
     expect(actions.find((a) => a.key === 'm')!.prompt!.placeholder).toBe('claude-sonnet-5');
     const fail = actions.find((a) => a.key === 'f')!;
     expect(fail.prompt!.initial).toBe('429');

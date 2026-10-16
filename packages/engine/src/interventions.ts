@@ -307,6 +307,11 @@ const GEMINI_USER_SIDE = new Set(['user', 'function', 'tool']);
  */
 const NO_LATE_SYSTEM: Array<{ model: RegExp; name: string }> = [{ model: /claude-sonnet-5(?!\d)/i, name: 'Claude Sonnet 5' }];
 
+/** The name of a model that rejects a system message once the conversation has started (`Claude Sonnet 5`), or null. */
+export function noLateSystemMessage(model: string | null | undefined): string | null {
+  return (model ? NO_LATE_SYSTEM.find((m) => m.model.test(model))?.name : undefined) ?? null;
+}
+
 /**
  * Where an instruction goes in this request, or why it can't go in. As `user`, it joins the user turn
  * the request ends with: a block appended to the last user message (Anthropic, Gemini and Converse put
@@ -324,8 +329,8 @@ export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs,
   if (as === 'system') {
     if (shape === 'gemini') return { refused: 'Gemini takes system instructions only in systemInstruction, ahead of the conversation, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
     if (shape === 'converse') return { refused: 'Bedrock Converse takes system prompts only in system, ahead of the conversation, and its messages are user and assistant turns, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
-    const strict = model ? NO_LATE_SYSTEM.find((m) => m.model.test(model)) : undefined;
-    if (strict) return { refused: `${strict.name} (${model}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
+    const strict = noLateSystemMessage(model);
+    if (strict) return { refused: `${strict} (${model}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
     return { mode: 'insert', index: turns.length, prefix: prefixHash(turns, turns.length) };
   }
   // OpenAI chat and Responses carry tool output as turns of their own: after them comes a new user turn.
