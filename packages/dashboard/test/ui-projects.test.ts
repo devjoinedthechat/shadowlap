@@ -1,11 +1,8 @@
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { aroundRunId, aroundWord, codeParts, liveCalls, nameMatches, recordingLine, setupShowsOn, stepClass, storePath, terminalLine } from '../ui/projects.js';
+import { aroundRunId, aroundWord, codeParts, exportedLine, liveCalls, nameMatches, recordingLine, setupShowsOn, stepClass, storePath, terminalLine } from '../ui/projects.js';
 import { noteRefusal, onProjectSwitched, projectHeader, showProject } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
-import { ProjectBlock } from '../ui/shell/ProjectBlock.js';
 import type { Meta } from '../ui/types.js';
 
 /** The projects screens' logic without the DOM: where the setup shows, the typed name, and how words show names as code. */
@@ -147,8 +144,7 @@ describe('the project a page shows', () => {
 
 describe('the project block of an exported copy', () => {
   it('counts the runs it holds in words', () => {
-    const block = (runIds: string[]) => renderToStaticMarkup(createElement(ProjectBlock, { meta: meta({ static: true, runIds } as Partial<Meta>) }));
-    expect(block(['01M51X7HV4'])).toContain('1 run · nothing runs from here');
-    expect(block(['01M51X7HV4', '01M51X7HR0'])).toContain('2 runs · nothing runs from here');
+    expect(exportedLine(1)).toBe('1 run · nothing runs from here');
+    expect(exportedLine(2)).toBe('2 runs · nothing runs from here');
   });
 });
