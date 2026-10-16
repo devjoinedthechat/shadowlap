@@ -1,5 +1,6 @@
 import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 import { fixesSummary, needsLookFixes } from './fixes.js';
+import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { cacheTotalsOf, cacheUseOf, callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
@@ -185,15 +186,16 @@ export interface FixesFunnel {
 }
 
 /**
- * One line of Needs a look, most urgent first: an applied fix that doesn't hold, a failing test, a
- * failure with no fix yet (an open fix, then a failed run never blamed), a verified fix waiting to be
- * applied, and runs only on this machine when a team store is set. Past ten of a kind, one line says
- * how many more there are and opens the page that lists them (`more` is that count).
+ * One line of Needs a look, most urgent first: a team store's setup left unfinished, an applied fix
+ * that doesn't hold, a failing test, a failure with no fix yet (an open fix, then a failed run never
+ * blamed), a verified fix waiting to be applied, and runs only on this machine when a team store is
+ * set. Past ten of a kind, one line says how many more there are and opens the page that lists them
+ * (`more` is that count).
  */
 export interface NeedsLookRow {
-  kind: 'broken' | 'test' | 'open' | 'unblamed' | 'ready' | 'local';
-  /** The icon: a failure, a blame, a fix that holds, or a recording. */
-  icon: 'fail' | 'blame' | 'fixok' | 'rec';
+  kind: 'store-setup' | 'broken' | 'test' | 'open' | 'unblamed' | 'ready' | 'local';
+  /** The icon: a setting, a failure, a blame, a fix that holds, or a recording. */
+  icon: 'setting' | 'fail' | 'blame' | 'fixok' | 'rec';
   title: string;
   detail: string;
   /** The word before the arrow: Open, Fix, Fix it, Run blame, Apply, Push. */
@@ -217,10 +219,12 @@ export interface NeedsLook {
  * The team store as Needs a look reads it: how many runs are only on this machine, as the store's
  * status counts them for Settings → Store and the CLI (`onlyLocal`): by run, a run counted once
  * when it or the attempts filed under it aren't in the store's index yet, as the Runs page tags it.
+ * `setup`: the next step of a setup started on the setup page and not finished.
  */
 export interface StoreNote {
   name: string;
   onlyLocal: number;
+  setup?: { step: number; title: string } | null;
 }
 
 export interface OverviewOptions extends StatsOptions {
@@ -490,9 +494,10 @@ function weekCache(store: Store, index: RunIndex, since: number): CacheUse {
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 /**
- * Needs a look, most urgent first: applied fixes that don't hold, failing tests, failures with no
- * fix yet (open fixes, then failed runs never blamed), verified fixes not yet applied, then runs
- * only on this machine. A recording in progress shows under Today instead.
+ * Needs a look, most urgent first: a team store's setup left unfinished, applied fixes that don't
+ * hold, failing tests, failures with no fix yet (open fixes, then failed runs never blamed), verified
+ * fixes not yet applied, then runs only on this machine. A recording in progress shows under Today
+ * instead.
  */
 function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null): NeedsLook {
   const fixes = needsLookFixes(store);
@@ -501,6 +506,8 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const tests: NeedsLookRow[] = goldens.length
     ? failingTests(store, { goldens }).map((t) => ({ kind: 'test', icon: 'fail', title: t.title, detail: t.line, action: 'Fix', href: t.href, runId: t.runId, fixId: null, at: t.at }))
     : [];
+  // On Runs, as the design has it: the runs only here carry the local tag, and Push in the bulk bar
+  // sends the ones picked (Settings → Store's Push local runs sends them all).
   const local: NeedsLookRow[] =
     teamStore && teamStore.onlyLocal > 0
       ? [
@@ -510,13 +517,18 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
             title: `${plural(teamStore.onlyLocal, 'run is', 'runs are')} only on this machine`,
             detail: `push ${teamStore.onlyLocal === 1 ? 'it' : 'them'} so the team can open ${teamStore.onlyLocal === 1 ? 'it' : 'them'}`,
             action: 'Push',
-            href: '#/settings/store',
+            href: '#/runs',
             runId: null,
             fixId: null,
             at: 0,
           },
         ]
       : [];
+  // A store's setup left half done leads back to its page until it is finished, as the design's setup
+  // holds the Overview until then: first, since the team gets nothing from a store set up halfway.
+  const setup: NeedsLookRow[] = teamStore?.setup
+    ? [{ kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: `step ${teamStore.setup.step} of 4: ${stepWords(teamStore.setup.title)}`, action: 'Continue', href: '#/setup/store', runId: null, fixId: null, at: 0 }]
+    : [];
   // Each kind's first lines, then one that says how many more there are and where they are listed:
   // a long-lived project's failures never blamed must not push its fixes ready to apply out of sight.
   const capped = (rows: NeedsLookRow[], rest: (n: number) => Pick<NeedsLookRow, 'icon' | 'title' | 'detail' | 'href'>): NeedsLookRow[] => {
@@ -525,6 +537,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     return [...rows.slice(0, NEEDS_LOOK_EACH), { kind: rows[0]!.kind, action: 'Open', runId: null, fixId: null, at: rows[NEEDS_LOOK_EACH]!.at, more: n, ...rest(n) }];
   };
   const all = [
+    ...setup,
     ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: '#/fixes' })),
     ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed`, detail: 'each on Tests', href: '#/tests' })),
     ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: '#/fixes' })),

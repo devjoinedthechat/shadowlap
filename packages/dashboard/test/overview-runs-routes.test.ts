@@ -101,7 +101,7 @@ describe('the Overview', () => {
   it('lists runs only on this machine in Needs a look once a team store is set', async () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' });
     const s = await get<OverviewSummary>(dash, 'summary');
-    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/settings/store' });
+    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/runs' });
   });
 });
 

@@ -1,21 +1,20 @@
-import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { copyText } from '../../dom.js';
 import { num } from '../../format.js';
+import { href } from '../../route.js';
 import type { StoreSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import type { StoreSetupView } from '../../store-api.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
+import { stepWords } from '../../../src/store-steps.js';
 import { syncText } from './logic.js';
-import { storeTabMode } from './store-logic.js';
-import { StoreSetup } from './StoreSetup.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
  * copies this machine's runs there, pull brings the team's back, and CI pushes its test runs. The
  * bucket, your access, the last sync with what is in the store and only here, and Push from CI. A
- * project with none says so, and Set up the store walks through the four steps that connect one
- * (StoreSetup.tsx); a store set up here shows those steps until they are finished.
+ * project with none says so, and Set up the store opens the setup's page (`#/setup/store`, in
+ * StoreSetup.tsx), as the design's Set up Team does; a setup under way leads back there from here.
  */
 export function StoreTab() {
   const app = useApp();
@@ -24,26 +23,15 @@ export function StoreTab() {
   // A server without the setup routes still shows the store: the setup is left out.
   const setup = useSettingsData<StoreSetupView | null>(() => client.storeSetup.view().catch(() => null), 'store:setup');
   const editor = useEditor(data?.config.version ?? null, reload);
-  const [starting, setStarting] = useState(false);
-  const [finishedNow, setFinishedNow] = useState(false);
   if (error && !data) return <LoadProblem error={error} />;
   if (!data || (setup.loading && !setup.data)) return <Loading title="Store" />;
   const view = setup.data;
-  const mode = storeTabMode({ configured: !!data.configured && !!data.status, setupActive: !!view?.active, starting, finishedNow });
-  if (view && mode === 'setup') {
-    return (
-      <>
-        {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
-        <StoreSetup view={view} finishedNow={finishedNow} onFinish={() => setFinishedNow(true)} />
-      </>
-    );
-  }
   if (!data.configured || !data.status) {
     return (
       <>
         {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
         {data.configured && data.error ? <p className="fieldnote err storeerr">{data.error}</p> : null}
-        <NoStore onStart={view ? () => setStarting(true) : null} />
+        <NoStore setup={!!view} />
       </>
     );
   }
@@ -79,6 +67,19 @@ export function StoreTab() {
             Each machine keeps its runs in <code>.shadowlap/</code>. Push copies yours to the store, so teammates and CI can open them; pull brings theirs to you. Nothing passes through Shadowlap.
           </p>
         </div>
+        {view?.active && view.next ? (
+          <div className="setrow setupnext">
+            <div>
+              <b>Setup</b>
+              <span>
+                Step {view.next.step} of 4: {stepWords(view.next.title)}. The store works already; the rest brings CI and the team in.
+              </span>
+            </div>
+            <a className="btn sm" href={href.storeSetup()}>
+              Continue the setup
+            </a>
+          </div>
+        ) : null}
         <dl className="kvs">
           <dt>Bucket</dt>
           <dd>
@@ -184,22 +185,29 @@ function CiStepButton({ step }: { step: CopiedStep }) {
   );
 }
 
-/** A project with no store: what one is, and Set up the store (StoreSetup.tsx), or its command where the dashboard can't. */
-function NoStore({ onStart }: { onStart: (() => void) | null }) {
+/**
+ * A project with no store: what one is, and Set up the store, which opens the setup's page as the
+ * design's Set up Team does; its command where the dashboard has no setup. Read-only, it says why not.
+ */
+function NoStore({ setup }: { setup: boolean }) {
   const { actionsOff } = useApp();
   return (
     <section className="panel stepempty nostore">
       <h3>No store yet</h3>
       <p>Connect a bucket you own, push your runs and add CI. About fifteen minutes, with nothing to install or host.</p>
-      {onStart ? (
-        <button className="btn lime" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={onStart}>
-          Set up the store
-        </button>
-      ) : (
+      {!setup ? (
         <div className="cli">
           <span>in a terminal</span>
           <code>$ shadowlap store set s3://bucket/folder --check</code>
         </div>
+      ) : actionsOff ? (
+        <button className="btn lime" type="button" disabled title={actionsOff}>
+          Set up the store
+        </button>
+      ) : (
+        <a className="btn lime" href={href.storeSetup()}>
+          Set up the store
+        </a>
       )}
     </section>
   );

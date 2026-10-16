@@ -74,7 +74,7 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged({ store, you: store ? whoAmI() : null });
   });
 
-  // Settings → Store's setup: where it stands, each provider with the credentials this machine
+  // The setup page (#/setup/store): where it stands, each provider with the credentials this machine
   // would use, the CI steps and the commit that brings the team in. Read from the config and this
   // machine; nothing is asked of a bucket.
   router.get('/store/setup', (r) => {

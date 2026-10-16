@@ -336,12 +336,15 @@ CREATE TABLE IF NOT EXISTS team_repairs (
   remote     TEXT    NOT NULL,
   at         INTEGER NOT NULL
 ) WITHOUT ROWID;
--- Every write to team_runs moves the 'team' counter: what is only on this machine is counted again
--- when runs or the store's rows change, never for a call a recording appends.
+-- Every write to team_runs and team_sync moves the 'team' counter: what is only on this machine is
+-- counted again when runs or the store's rows change, never for a call a recording appends, and the
+-- dashboard shows a push, a pull or a step of the store's setup as soon as it is made.
 INSERT OR IGNORE INTO change_counts (name, n) VALUES ('team', 0);
 CREATE TRIGGER IF NOT EXISTS change_counts_team_insert AFTER INSERT ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_team_update AFTER UPDATE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_team_delete AFTER DELETE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_insert AFTER INSERT ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 `;
 
 // ---- tests (v4): the shapes of the test tables ----

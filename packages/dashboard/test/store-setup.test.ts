@@ -8,10 +8,13 @@ import { parseStoreUrl, push, recordCheck, storeKey } from '@shadowlap/remote';
 
 const storeKeyOf = (url: string) => storeKey(parseStoreUrl(url));
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
-import { checkSetupUrl, recordSetup, setupCommand, setupRecord, storeSetupView, type StoreSetupView } from '../src/store-setup.js';
+import { checkSetupUrl, recordSetup, setupCommand, setupRecord, setupUnderWay, storeSetupView, type StoreSetupView } from '../src/store-setup.js';
+import { nextSetupStep } from '../src/store-steps.js';
+import { setupShowsOn } from '../ui/projects.js';
+import { href, parseRoute, routeHref } from '../ui/route.js';
 import { MemoryStore } from '../../remote/test/fakes/memory.js';
 import { addRun, HOUR } from './read-model-store.js';
-import { setupStates, storeTabMode } from '../ui/pages/settings/store-logic.js';
+import { setupStates } from '../ui/pages/settings/store-logic.js';
 
 /**
  * Settings → Store's setup of a team store: the read model (providers, where the setup stands, the
@@ -98,11 +101,16 @@ describe('the setup read model', () => {
     s.endRun(r.runId, 'completed');
     const input = { store: URL_ };
     expect(storeSetupView(s, input).active).toBe(false);
+    // Set with the CLI: nothing under way, so Needs a look and the palette leave it alone.
+    expect(setupUnderWay(s, input)).toBeNull();
     recordSetup(s, KEY, { startedAt: NOW, finishedAt: null });
+    expect(setupUnderWay(s, input)).toEqual({ step: 1, title: 'Connect your bucket' });
     recordCheck(s, KEY, { ok: true, at: NOW, encryption: 'AES256', versioning: 'off', objectLock: 'off', credentials: 'AWS profile northwind' });
     let view = storeSetupView(s, input);
     expect(view).toMatchObject({ active: true, connected: true, pushed: false, runs: { onlyLocal: 1 }, store: { url: KEY, key: KEY, configured: URL_, name: 'northwind-agent-runs/support-agent', provider: 's3' } });
     expect(setupStates(view)).toEqual({ connect: 'done', push: 'cur', ci: 'todo', team: 'todo' });
+    expect(view.next).toEqual({ step: 2, title: 'Push your runs' });
+    expect(setupUnderWay(s, input)).toEqual(view.next);
     // Each CI's step, as store ci prints it, and the commit that brings the team in.
     expect(view.ci!.map((c) => [c.ci, c.name, c.command])).toEqual([
       ['github', 'GitHub Actions', 'shadowlap store ci --provider github'],
@@ -119,10 +127,13 @@ describe('the setup read model', () => {
     recordSetup(s, KEY, { ci: 'skipped', ciProvider: 'gitlab' });
     view = storeSetupView(s, input);
     expect(setupStates(view)).toEqual({ connect: 'done', push: 'done', ci: 'done', team: 'cur' });
+    expect(setupUnderWay(s, input)).toEqual({ step: 4, title: 'Bring your team' });
     expect(view.setup).toMatchObject({ ci: 'skipped', ciProvider: 'gitlab', finishedAt: null });
     recordSetup(s, KEY, { finishedAt: NOW });
     view = storeSetupView(s, input);
     expect(view.active).toBe(false);
+    expect(view.next).toBeNull();
+    expect(setupUnderWay(s, input)).toBeNull();
     expect(setupStates(view)).toEqual({ connect: 'done', push: 'done', ci: 'done', team: 'done' });
     s.close();
   });
@@ -158,16 +169,29 @@ describe('a store URL typed in the setup', () => {
   });
 });
 
-describe('what Settings → Store shows', () => {
-  it('no store until the setup starts, the setup while it is under way or just finished, else the store', () => {
-    expect(storeTabMode({ configured: false, setupActive: false, starting: false, finishedNow: false })).toBe('no-store');
-    expect(storeTabMode({ configured: false, setupActive: false, starting: true, finishedNow: false })).toBe('setup');
-    expect(storeTabMode({ configured: true, setupActive: true, starting: false, finishedNow: false })).toBe('setup');
-    expect(storeTabMode({ configured: true, setupActive: false, starting: false, finishedNow: true })).toBe('setup');
-    // Started on this page: the steps stay while the store and the setup are read again.
-    expect(storeTabMode({ configured: true, setupActive: false, starting: true, finishedNow: false })).toBe('setup');
-    // A store set with the CLI shows as it is.
-    expect(storeTabMode({ configured: true, setupActive: false, starting: false, finishedNow: false })).toBe('store');
+describe('the setup page', () => {
+  it('is a page of its own, #/setup/store, which opens before there are runs to push, as Settings does', () => {
+    expect(parseRoute('#/setup/store')).toEqual({ page: 'store-setup' });
+    expect(routeHref({ page: 'store-setup' })).toBe('#/setup/store');
+    expect(href.storeSetup()).toBe('#/setup/store');
+    // The project's own setup keeps #/setup.
+    expect(parseRoute('#/setup')).toEqual({ page: 'setup' });
+    expect(parseRoute('#/setup/store/more')).toEqual({ page: 'setup' });
+    const noRuns = { exported: false, meta: null, runs: [] };
+    expect(setupShowsOn({ page: 'store-setup' }, noRuns)).toBe(false);
+    expect(setupShowsOn({ page: 'runs' }, noRuns)).toBe(true);
+  });
+
+  it('names the next step, each unlocking the next', () => {
+    const facts = { connected: false, pushed: false, onlyLocal: 3, ci: null, finished: false } as const;
+    expect(nextSetupStep(facts)).toEqual({ step: 1, title: 'Connect your bucket' });
+    expect(nextSetupStep({ ...facts, connected: true })).toEqual({ step: 2, title: 'Push your runs' });
+    // Nothing to push: that step is done.
+    expect(nextSetupStep({ ...facts, connected: true, onlyLocal: 0 })).toEqual({ step: 3, title: 'Push from CI' });
+    // CI said before the bucket was pushed to still waits for the push.
+    expect(nextSetupStep({ ...facts, connected: true, ci: 'added' })).toEqual({ step: 2, title: 'Push your runs' });
+    expect(nextSetupStep({ ...facts, connected: true, pushed: true, ci: 'skipped' })).toEqual({ step: 4, title: 'Bring your team' });
+    expect(nextSetupStep({ connected: true, pushed: true, onlyLocal: 0, ci: 'added', finished: true })).toBeNull();
   });
 });
 

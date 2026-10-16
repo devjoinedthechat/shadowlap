@@ -187,7 +187,7 @@ export interface Client {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
-  /** Settings → Store's setup of a team store (`store-api.ts`). */
+  /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
   // ---- Projects

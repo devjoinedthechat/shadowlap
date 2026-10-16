@@ -20,16 +20,18 @@ import {
   type Provider,
   type StoreLocation,
 } from '@shadowlap/remote';
+import { nextSetupStep, type SetupFacts } from './store-steps.js';
 import { countsOf, type TeamStoreInput } from './team-store.js';
 
 /**
- * Settings → Store's setup: four steps that connect a bucket the team owns, the way the CLI does
- * it, each with its command. Connect your bucket (`store set <url> --check`), push your runs
- * (`push --all`), push from CI (the step `store ci` prints) and bring your team (commit the
+ * The team store's setup page (`#/setup/store`, reached from Settings → Store, the palette, and
+ * Needs a look while it is under way): four steps that connect a bucket the team owns, the way the
+ * CLI does it, each with its command. Connect your bucket (`store set <url> --check`), push your
+ * runs (`push --all`), push from CI (the step `store ci` prints) and bring your team (commit the
  * config). The dashboard's setup of a store is kept with what this machine knows of that store
  * (team_sync's data, `setup`): when it started, what was said about CI, and when it was finished.
- * A store set with the CLI has no setup: the tab shows the store as it is. Nothing here makes a
- * request: the CLI is what talks to the bucket.
+ * A store set with the CLI has no setup under way: Settings → Store shows the store as it is, and
+ * the setup page the steps left. Nothing here makes a request: the CLI is what talks to the bucket.
  */
 
 /** A store the setup can connect: its name, its scheme, an example, and whose credentials this machine would use. */
@@ -77,8 +79,10 @@ export interface SetupRecord {
 export interface StoreSetupView {
   /** The store the config names, when it is one. */
   store: { url: string; configured: string; key: string; name: string; provider: Provider; providerName: string } | null;
-  /** The setup is under way: started from Settings → Store and not finished. Without it, the tab shows the store. */
+  /** The setup is under way: started from the setup page and not finished. Settings → Store, the palette and Needs a look lead back to it. */
   active: boolean;
+  /** The step to do next, numbered from 1, or null once the four are done. */
+  next: { step: number; title: string } | null;
   setup: SetupRecord;
   /** The steps done: the store is set and its last check worked, this machine pushed to it. */
   connected: boolean;
@@ -127,23 +131,44 @@ function locationOf(raw: string | null): StoreLocation | null {
   }
 }
 
-/** What Settings → Store's setup shows: the providers, where the setup stands, the CI steps and the commit. */
+/** What the setup's steps go by: whether the store is connected and pushed to, what a push would send, CI, finished. */
+function setupFacts(store: Store, key: string | null, setup: SetupRecord): SetupFacts & { check: LastCheck | null; pushedHere: number } {
+  const counts = countsOf(store, key ?? '');
+  const check = key ? lastCheck(store, key) : null;
+  const sync = key ? store.teamSync(key) : null;
+  return { connected: key !== null && check?.ok === true, pushed: !!sync?.pushedAt, onlyLocal: counts.onlyLocal, ci: setup.ci, finished: setup.finishedAt !== null, check, pushedHere: counts.pushedHere };
+}
+
+/**
+ * The setup of the store the config names, when it is under way (started from the setup page and
+ * not finished): its next step, which Needs a look leads to. Null otherwise, and for a store set
+ * with the CLI, which has nothing under way.
+ */
+export function setupUnderWay(store: Store, input: TeamStoreInput): { step: number; title: string } | null {
+  const loc = locationOf(input.store);
+  if (!loc) return null;
+  const key = storeKey(loc);
+  const setup = setupRecord(store, key);
+  if (setup.startedAt === null || setup.finishedAt !== null) return null;
+  return nextSetupStep(setupFacts(store, key, setup));
+}
+
+/** What the setup page shows: the providers, where the setup stands, the CI steps and the commit. */
 export function storeSetupView(store: Store, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): StoreSetupView {
   const loc = locationOf(input.store);
   const key = loc ? storeKey(loc) : null;
   const setup: SetupRecord = key ? setupRecord(store, key) : { startedAt: null, ci: null, ciProvider: null, finishedAt: null };
-  const counts = countsOf(store, key ?? '');
-  const check = key ? lastCheck(store, key) : null;
-  const sync = key ? store.teamSync(key) : null;
+  const facts = setupFacts(store, key, setup);
   const env = { ...(options.env ? { env: options.env } : {}), ...(options.home ? { home: options.home } : {}) };
   return {
     store: loc && key ? { url: loc.url, configured: formatStoreUrl(loc), key, name: shortStoreName(loc), provider: loc.provider, providerName: storeKindName(loc) } : null,
     active: !!loc && setup.startedAt !== null && setup.finishedAt === null,
+    next: nextSetupStep(facts),
     setup,
-    connected: !!loc && check?.ok === true,
-    pushed: !!sync?.pushedAt,
-    check,
-    runs: { onlyLocal: counts.onlyLocal, pushedHere: counts.pushedHere },
+    connected: facts.connected,
+    pushed: facts.pushed,
+    check: facts.check,
+    runs: { onlyLocal: facts.onlyLocal, pushedHere: facts.pushedHere },
     providers: PROVIDERS.map((provider) => ({
       provider,
       name: PROVIDER_NAMES[provider],

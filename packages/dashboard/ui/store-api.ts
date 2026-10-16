@@ -2,8 +2,8 @@ import type { SetupCiStep, SetupPolicy, SetupProvider, SetupRecord, SetupUrlChec
 import type { Request } from './settings-api.js';
 
 /**
- * The team store's setup in the API client (`client.storeSetup`): where Settings → Store's setup
- * stands, a URL checked against the provider picked, and the steps the CLI leaves no trace of (Push
+ * The team store's setup in the API client (`client.storeSetup`): where the setup page's steps
+ * stand, a URL checked against the provider picked, and the steps the CLI leaves no trace of (Push
  * from CI added or skipped, the setup finished). Connecting runs as a job (`store-set`), and so do
  * Push and Pull. Types only from the server's read model (`src/store-setup.ts`).
  */

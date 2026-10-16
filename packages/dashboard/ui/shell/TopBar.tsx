@@ -31,6 +31,8 @@ function crumbsFor(route: Route, parentOf: (id: string) => string | null, fixNam
       return [{ label: 'Add a project' }];
     case 'setup':
       return [{ label: 'Set up' }];
+    case 'store-setup':
+      return [{ label: 'Set up the store' }];
     default:
       return [];
   }

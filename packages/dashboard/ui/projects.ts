@@ -18,7 +18,8 @@ import type { LiveRun, Meta } from './types.js';
 export function setupShowsOn(route: Route, s: { exported: boolean; meta: Meta | null; runs: readonly RunLike[] | null }): boolean | null {
   if (s.exported || s.meta?.static) return false;
   if (route.page === 'setup') return true;
-  if (route.page === 'new' || route.page === 'settings' || route.page === 'notfound') return false;
+  // The team store's setup, like Settings, opens before there are runs to push.
+  if (route.page === 'new' || route.page === 'settings' || route.page === 'store-setup' || route.page === 'notfound') return false;
   const noRuns = s.runs ? !s.runs.some((r) => !isAttempt(r)) : s.meta?.counts ? s.meta.counts.runs === 0 : null;
   // A run page opens on its own: a project with runs is the likely case, and an unknown run says so.
   if (noRuns === null) return route.page === 'run' ? false : null;

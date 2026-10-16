@@ -3,6 +3,8 @@ import { HttpError } from '../http.js';
 import { overviewOptions, overviewSummary } from '../overview.js';
 import type { Router } from '../router.js';
 import { warmRunStats } from '../run-stats.js';
+import { setupUnderWay } from '../store-setup.js';
+import { readTeamStoreInput } from '../team-store.js';
 import type { GoldenSource } from '../tests.js';
 import { teamStoreFor } from './store.js';
 
@@ -39,7 +41,9 @@ export function register(router: Router, ctx: RouteContext): void {
     if ('error' in o) throw new HttpError(400, o.error);
     const store = teamStoreFor(ctx);
     // It names the time it was worked out at, so it is never the same twice: no ETag. Runs only
-    // here are the store status's count, the one Settings → Store and the CLI give.
-    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal } : null }));
+    // here are the store status's count, the one Settings → Store and the CLI give; a setup of the
+    // store left unfinished leads back to its page.
+    const setup = store && ctx.project ? setupUnderWay(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })) : null;
+    r.json(overviewSummary(ctx.store, { ...o, ...ctx.read, goldens: goldensOf(ctx), teamStore: store ? { name: store.name, onlyLocal: store.onlyLocal, setup } : null }));
   });
 }

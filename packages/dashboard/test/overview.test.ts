@@ -348,9 +348,14 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     try {
       story(local);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
-      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/settings/store', runId: null, fixId: null, at: 0 });
+      // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
+      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs', runId: null, fixId: null, at: 0 });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
+      // A store's setup left unfinished leads back to it, first.
+      const setup = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 7, setup: { step: 3, title: 'Push from CI' } } }).needsLook;
+      expect(setup.items[0]).toEqual({ kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: 'step 3 of 4: push from CI', action: 'Continue', href: '#/setup/store', runId: null, fixId: null, at: 0 });
+      expect(setup.total).toBe(s.needsLook.total + 1);
     } finally {
       local.close();
     }

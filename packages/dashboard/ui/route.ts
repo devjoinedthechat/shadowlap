@@ -8,6 +8,7 @@
  *   #/compare[/<a>/<b>]                  Compare
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup
+ *   #/setup/store                        the team store's setup
  */
 
 export type View = 'calls' | 'turns' | 'context' | 'timeline' | 'forks' | 'provenance';
@@ -26,6 +27,7 @@ export type Route =
   | { page: 'settings'; tab: string | null }
   | { page: 'new' }
   | { page: 'setup' }
+  | { page: 'store-setup' }
   | { page: 'notfound'; path: string };
 
 export type Page = Route['page'];
@@ -88,7 +90,7 @@ export function parseRoute(hash: string): Route {
     case 'new':
       return { page: 'new' };
     case 'setup':
-      return { page: 'setup' };
+      return a === 'store' && !b ? { page: 'store-setup' } : { page: 'setup' };
     default:
       return { page: 'notfound', path: raw };
   }
@@ -111,6 +113,7 @@ export const href = {
   settings: (tab?: string | null) => (tab ? `#/settings/${enc(tab)}` : '#/settings'),
   newProject: () => '#/new',
   setup: () => '#/setup',
+  storeSetup: () => '#/setup/store',
 };
 
 /** The fragment for a route, so a parsed route can be written back. */
@@ -136,6 +139,8 @@ export function routeHref(r: Route): string {
       return href.newProject();
     case 'setup':
       return href.setup();
+    case 'store-setup':
+      return href.storeSetup();
     case 'notfound':
       return `#/${r.path}`;
   }

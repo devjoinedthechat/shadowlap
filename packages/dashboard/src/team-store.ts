@@ -64,6 +64,8 @@ export interface TeamStoreStatus {
   ciPush: boolean;
   /** The CI providers whose runs are in the store (github, gitlab…), for "ci (GitHub Actions)". */
   ciProviders: string[];
+  /** A setup of the store started on the setup page and not finished: the status bar says "setting up", as the design's does. */
+  settingUp: boolean;
 }
 
 /** Runs whose ids the `local` tag needs at most: the newest only-local runs. */
@@ -117,6 +119,13 @@ export function countsOf(store: Store, key: string): TeamRunCounts {
   return teamFacts(store, key).counts;
 }
 
+/** Whether the setup recorded with what this machine knows of a store (team_sync's `setup`, store-setup.ts) is under way. */
+function settingUp(setup: unknown): boolean {
+  if (typeof setup !== 'object' || setup === null) return false;
+  const s = setup as { startedAt?: unknown; finishedAt?: unknown };
+  return typeof s.startedAt === 'number' && typeof s.finishedAt !== 'number';
+}
+
 /** The team store for `/api/meta`, or null when the config names none (or names one that isn't a store URL). Pure. */
 export function teamStoreStatus(store: Store, input: TeamStoreInput): TeamStoreStatus | null {
   if (!input.store) return null;
@@ -160,6 +169,7 @@ export function teamStoreStatus(store: Store, input: TeamStoreInput): TeamStoreS
     access: check?.credentials ?? (here ? `${here.uses}, ${here.from}` : `${hint.uses}: ${hint.from}`),
     ciPush: input.ciPush !== false,
     ciProviders,
+    settingUp: settingUp(sync?.data.setup),
   };
 }
 

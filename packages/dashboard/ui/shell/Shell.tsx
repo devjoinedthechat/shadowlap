@@ -12,6 +12,7 @@ import { RunPage } from '../pages/Run.js';
 import { RunsPage } from '../pages/Runs.js';
 import { SettingsPage } from '../pages/Settings.js';
 import { SetupPage } from '../pages/Setup.js';
+import { StoreSetupPage } from '../pages/settings/StoreSetup.js';
 import { TestsPage } from '../pages/Tests.js';
 import { TrainingPage } from '../pages/Training.js';
 import { Page } from '../components/Page.js';
@@ -105,6 +106,8 @@ function PageFor({ route }: { route: Route }) {
       return <NewProjectPage />;
     case 'setup':
       return <SetupPage asked />;
+    case 'store-setup':
+      return <StoreSetupPage />;
     default:
       return <NotFoundPage />;
   }

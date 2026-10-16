@@ -42,9 +42,14 @@ describe('the team store status', () => {
   it('names the bucket, the region and the folder, and what this machine knows of the store, and nothing else', () => {
     const store = Store.open(':memory:');
     const status = teamStoreStatus(store, input())!;
-    expect(status).toMatchObject({ url: ID, key: ID, configured: URL_, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', region: 'eu-central-1', name: 'northwind-agent-runs/support-agent', syncedAt: null, check: null, ciPush: true });
+    expect(status).toMatchObject({ url: ID, key: ID, configured: URL_, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', region: 'eu-central-1', name: 'northwind-agent-runs/support-agent', syncedAt: null, check: null, ciPush: true, settingUp: false });
+    // Set up from the setup page: setting up until it is finished.
+    store.setTeamSync(ID, { data: { setup: { startedAt: NOW, ci: null, ciProvider: null, finishedAt: null } } });
+    expect(teamStoreStatus(store, input())!.settingUp).toBe(true);
+    store.setTeamSync(ID, { data: { setup: { startedAt: NOW, ci: 'added', ciProvider: 'github', finishedAt: NOW } } });
+    expect(teamStoreStatus(store, input())!.settingUp).toBe(false);
     expect(Object.keys(status).sort()).toEqual(
-      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'key', 'localAttempts', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'syncedAt', 'url'].sort(),
+      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'key', 'localAttempts', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'settingUp', 'syncedAt', 'url'].sort(),
     );
     store.close();
   });
