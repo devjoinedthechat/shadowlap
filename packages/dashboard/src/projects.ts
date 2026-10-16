@@ -284,6 +284,8 @@ export interface InspectStep extends StepBase {
   findings: { rows: FindingRow[]; tools: ToolRow[] } | null;
   /** Once a run is recorded and every tool is wrapped, the findings fold into this line. */
   summary: string | null;
+  /** The command the summary ends on, to show as code. */
+  summaryCommand: string | null;
   folded: boolean;
   /** Tools that aren't wrapped: what that means, the code to wrap them, and the re-check. */
   warning: { title: string; text: string; code: WrapSnippet[]; copy: string; recheck: { label: string; action: 'recheck' } } | null;
@@ -423,7 +425,9 @@ export function setupView(input: SetupInput): SetupView {
     text: findings ? null : passedInspect ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
     button: findings ? null : { label: 'Inspect the folder', action: 'init' },
     findings: findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
-    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(findings.command ? [quoteArgv(findings.command)] : [])].join(' · ') : null,
+    // The command the run was recorded with, typed or found, as the design's summary ends on it.
+    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(argv ? [quoteArgv(argv)] : [])].join(' · ') : null,
+    summaryCommand: findings && argv ? quoteArgv(argv) : null,
     folded: !!findings && recorded && unwrapped.length === 0,
     warning:
       findings && unwrapped.length

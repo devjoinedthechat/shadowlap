@@ -238,7 +238,10 @@ describe('setupView', () => {
   it('folds the findings into one line once a run is recorded and every tool is wrapped', () => {
     const wrapped = findings({ tools: findings().tools.map((t) => ({ ...t, wrapped: true })), wrap: [] });
     const v = view(entry('research-agent', { stage: 'recorded', findings: wrapped, runId: RUN }), facts({ runs: 1, recordings: [run()] }));
-    expect(v.inspect).toMatchObject({ folded: true, warning: null, summary: "Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · uv run research-agent 'Summarize Northwind’s Q3 10-Q'" });
+    expect(v.inspect).toMatchObject({ folded: true, warning: null, summary: "Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · uv run research-agent 'Summarize Northwind’s Q3 10-Q'", summaryCommand: "uv run research-agent 'Summarize Northwind’s Q3 10-Q'" });
+    // init found no command: the line ends on the one typed and recorded with.
+    const typed = view(entry('triage-bot', { stage: 'recorded', findings: { ...wrapped, command: null }, runId: RUN, command: ['node', 'triage.mjs'] }), facts({ runs: 1, recordings: [run()] }));
+    expect(typed.inspect).toMatchObject({ summary: 'Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · node triage.mjs', summaryCommand: 'node triage.mjs' });
   });
 
   it('says what calibrate added, then asks where to keep the golden, with the redaction note', () => {

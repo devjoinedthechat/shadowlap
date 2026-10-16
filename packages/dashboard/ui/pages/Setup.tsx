@@ -372,7 +372,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
         <details className="foundsum">
           <summary>
             <span className="sumtext">
-              <Coded text={step.summary ?? ''} names={step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []} />
+              <Coded text={step.summary ?? ''} names={[...(step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []), ...(step.summaryCommand ? [step.summaryCommand] : [])]} />
             </span>
           </summary>
           {found}
