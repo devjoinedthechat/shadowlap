@@ -68,6 +68,7 @@ function view(over: Partial<TestsView> = {}): TestsView {
     divergences: [divergence('refund-in-limit')],
     failures: [],
     diverged: ['goldens/refund-in-limit'],
+    running: null,
     commands: { ci: 'shadowlap test goldens/* --junit report.xml', inCi: '', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] },
     note: '',
     ...over,
