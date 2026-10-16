@@ -128,8 +128,10 @@ describe('a run whose recorder was killed', () => {
     expect(item(`r:${id.fork}:end`)).toMatchObject({ kind: 'fork', at: lastAt.fork, text: 'Forked at #2 · 2 live · interrupted' });
     // Stopped with Ctrl-C, it reads the same.
     expect(item(`r:${id.stopped}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #2 · 1 live · interrupted' });
-    // Its --repeat is done: no attempt of it records any more.
+    // Its --repeat is done: no attempt of it records any more, and the one its recorder left is counted
+    // apart, not as an attempt that took another path.
     expect(item('g:g1')!.live).toBeUndefined();
+    expect(item('g:g1')).toMatchObject({ kind: 'fork', text: 'replay --repeat 2 at #3 · 1 of 1 took the same path · 1 interrupted' });
     // The recording in progress still is.
     expect(item(`r:${id.live}:start`)).toMatchObject({ live: true });
     expect(item(`r:${id.live}:end`)).toBeUndefined();
@@ -196,6 +198,22 @@ describe('a run imported as running, that nothing has added to for a day', () =>
       expect(items.find((i) => i.id === `r:${runId}:start`)!.live).toBeUndefined();
       expect(items.find((i) => i.id === `r:${runId}:end`)).toMatchObject({ kind: 'rec', at, text: 'Recording interrupted · 0 calls · node agent.mjs' });
       expect(runState(mem, runId)).toMatchObject({ status: 'crashed', endedAt: at, interrupted: true });
+    } finally {
+      mem.close();
+    }
+  });
+
+  it('tells a --repeat whose every attempt was interrupted as that, not as attempts that took no path', () => {
+    const mem = Store.open(':memory:');
+    try {
+      const at = Date.now() - 3600_000;
+      const root = '01K4ZZ00000000000000ROOT00';
+      const command = { argv: ['node', 'agent.mjs'], cwd: '.' };
+      mem.importRun({ runId: root, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command, codeVersion: null, startedAt: at, endedAt: at + 1000 });
+      for (const n of [1, 2]) {
+        mem.importRun({ runId: `01K4ZZ0000000000000ATTMP0${n}`, parentRunId: root, mode: 'replay', status: 'crashed', divergence: { type: 'forced', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 }, command, codeVersion: null, startedAt: at + 2000 * n, endedAt: at + 2000 * n + 500, meta: { repeat: { group: 'g9', attempt: n, of: 3 } } });
+      }
+      expect(activity(mem).items.find((i) => i.id === 'g:g9')).toMatchObject({ kind: 'fork', text: 'replay --repeat 3 at #2 · 2 attempts interrupted' });
     } finally {
       mem.close();
     }

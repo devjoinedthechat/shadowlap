@@ -412,8 +412,13 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
   for (const a of attempts) if (a.divergence) forks.set(a.divergence.callNo, (forks.get(a.divergence.callNo) ?? 0) + 1);
   const forkAt = [...forks.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0]?.[0] ?? null;
   let outcome: string;
-  const done = attempts.filter((a) => a.status !== 'running');
-  if (done.length && done.every((a) => a.meta?.checks?.length)) {
+  // An attempt stopped before it ended (Ctrl-C, its recorder killed) neither passed nor took a path of
+  // its own: it is counted apart, as the Forks view's bundle counts it.
+  const cut = attempts.filter((a) => a.status === 'crashed' && !a.meta?.checks?.length);
+  const done = attempts.filter((a) => a.status !== 'running' && !cut.includes(a));
+  if (!done.length && cut.length) {
+    outcome = `${plural(cut.length, 'attempt')} interrupted`;
+  } else if (done.length && done.every((a) => a.meta?.checks?.length)) {
     const passed = done.filter((a) => a.meta!.checks!.every((c) => c.ok)).length;
     outcome = `${passed} of ${done.length} passed their checks`;
   } else if (forkAt === null) {
@@ -429,6 +434,7 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
     const same = Math.max(0, ...paths.values());
     outcome = `${same} of ${done.length} took the same path`;
   }
+  if (done.length && cut.length) outcome += ` · ${cut.length} interrupted`;
   const parentId = parent?.runId ?? first.parentRunId ?? first.runId;
   return {
     id: `g:${first.meta?.repeat?.group ?? first.runId}`,
