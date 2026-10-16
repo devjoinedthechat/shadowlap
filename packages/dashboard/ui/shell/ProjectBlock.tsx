@@ -158,7 +158,20 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
           <div className="pk">{list?.heading ?? 'Projects on this machine'}</div>
           {items.map((p) => (
             <div className="prow" key={p.id}>
-              <button type="button" role="menuitem" onClick={() => pick(p.id)} title={p.why ?? undefined}>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => pick(p.id)}
+                title={p.why ?? undefined}
+                aria-keyshortcuts={p.removable ? 'Delete' : undefined}
+                onKeyDown={(e) => {
+                  // The × shows under the pointer only: from the keyboard, Delete on the project removes it.
+                  if (!p.removable || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+                  e.preventDefault();
+                  menu.close();
+                  setRemoving(p.id);
+                }}
+              >
                 <b>
                   {p.name}
                   {p.current ? <span className="cur">current</span> : null}

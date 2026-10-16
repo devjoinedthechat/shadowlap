@@ -42,9 +42,15 @@ export function Popover({ anchor, onClose, children, className = '', align = 'ri
     return () => window.removeEventListener('resize', place);
   }, [anchor, align, matchWidth]);
 
+  // Its first item takes the focus once the menu shows: until it is placed it is hidden, and a hidden
+  // element can't take it.
+  const placed = pos !== null;
+  useEffect(() => {
+    if (placed) ref.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]')?.focus();
+  }, [placed]);
+
   useEffect(() => {
     anchor?.setAttribute('aria-expanded', 'true');
-    ref.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]')?.focus();
     const down = (e: MouseEvent) => {
       const t = e.target as Node;
       if (ref.current?.contains(t)) return;
@@ -62,7 +68,8 @@ export function Popover({ anchor, onClose, children, className = '', align = 'ri
   const keys = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const items = [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]') ?? [])];
+    // Only what can take the focus: a button hidden until its row is hovered (the switcher's ×) is passed over.
+    const items = [...(ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]') ?? [])].filter((el) => el === document.activeElement || (el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'));
     if (!items.length) return;
     const i = items.indexOf(document.activeElement as HTMLElement);
     const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;

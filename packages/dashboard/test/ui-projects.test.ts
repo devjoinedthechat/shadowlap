@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aroundRunId, aroundWord, codeParts, liveCalls, nameMatches, recordingLine, setupShowsOn, stepClass, storePath, terminalLine } from '../ui/projects.js';
+import { noteRefusal, onProjectSwitched, projectHeader, showProject } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
 import type { Meta } from '../ui/types.js';
@@ -116,5 +117,27 @@ describe('the status bar’s store', () => {
     expect(storePath({ dbPath: '/srv/demo/home/agent-2/.shadowlap/shadowlap.db', project })).toBe('/srv/demo/home/agent-2/.shadowlap/shadowlap.db');
     expect(storePath({ dbPath: '/home/dana/elsewhere/db.sqlite', project })).toBe('~/elsewhere/db.sqlite');
     expect(storePath({ dbPath: '/home/dana/agent/.shadowlap/shadowlap.db', project: null })).toBe('~/agent/.shadowlap/shadowlap.db');
+  });
+});
+
+describe('the project a page shows', () => {
+  it('names it on every request, and turns the page when a change is refused because the dashboard switched elsewhere', () => {
+    showProject('research-agent');
+    expect(projectHeader()).toEqual({ 'x-shadowlap-project': 'research-agent' });
+    const heard: string[] = [];
+    const stop = onProjectSwitched((current) => heard.push(current.id));
+    // Refused for another reason, or naming the project shown: nothing to turn to.
+    noteRefusal(400, { error: 'no', current: { id: 'support-agent', name: 'support-agent' } });
+    noteRefusal(409, { error: 'Record a first run before finishing the setup.' });
+    noteRefusal(409, { error: 'x', current: { id: 'research-agent', name: 'research-agent' } });
+    expect(heard).toEqual([]);
+    noteRefusal(409, { error: 'The dashboard switched to support-agent elsewhere, so nothing was done in research-agent.', current: { id: 'support-agent', name: 'support-agent' } });
+    expect(heard).toEqual(['support-agent']);
+    stop();
+    noteRefusal(409, { current: { id: 'support-agent', name: 'support-agent' } });
+    expect(heard).toEqual(['support-agent']);
+    // A dashboard that serves one store names no project: nothing is sent.
+    showProject(null);
+    expect(projectHeader()).toEqual({});
   });
 });
