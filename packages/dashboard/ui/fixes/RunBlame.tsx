@@ -16,7 +16,7 @@ import { useTreeBusy } from './tree.js';
  * confirmed. Disabled, with the reason, where nothing runs or while a repair or an apply changes the
  * working tree the agent would run from.
  */
-export function RunBlameButton({ runId, failed = [], className = 'linkbtn' }: { runId: string; failed?: readonly string[]; className?: string }) {
+export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost' }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
   const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; fields: Record<string, unknown> }>(null);
@@ -50,7 +50,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn' }: { 
   const failedText = failed.length ? `It failed “${failed[0]}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
   return (
     <>
-      <button className={className} type="button" disabled={!!why} title={why ?? 'Find the model call where this run was lost'} onClick={() => app.guard(() => void start({}))}>
+      <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>
         Run blame
       </button>
       {asking?.kind === 'check' ? (

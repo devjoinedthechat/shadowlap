@@ -3,21 +3,12 @@ import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../typ
 
 /**
  * What the run page offers beyond the run's record, in words and choices, without the DOM: Run blame
- * (whether it applies, what it sends, what it does when the server asks for a check or a consent),
- * the diverged test's Add normalizer, and Find the commit's dialog. The tests import it.
+ * (whether it applies, and the check it would likely use; Fixes' button sends it), the diverged
+ * test's Add normalizer, and Find the commit's dialog. The tests import it.
  */
 
 /** A shell-quoted value, as the command lines the page shows have it. */
 const quote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
-
-/**
- * The blame a Run blame button starts, as the command it runs: with its check, on the exit status
- * alone (`null`), or with a check still to give (`undefined`, shown as `<check>`).
- */
-export function blameCommand(runId: string, expect: unknown): string {
-  const check = expect === undefined ? ` --expect '<check>'` : expect === null ? '' : ` --expect ${quote(JSON.stringify(expect))}`;
-  return `shadowlap blame ${shortId(runId)}${check}`;
-}
 
 /** What the page knows of a run for Run blame when the server sends no offers (an older server). */
 export interface BlameFacts {
@@ -54,26 +45,6 @@ export function blameOfferFor(offers: Pick<RunOffers, 'blame'> | null, f: BlameF
   return { from: 'exit', expect: null, failed };
 }
 
-/**
- * What Run blame sends to the fixes' `blame` job: the run, and a check only when one was typed (the
- * job finds the run's check itself, as the CLI judges it, and answers 422 when nothing names it);
- * `yes` once the user agreed to run the command of a run imported from someone else's pack.
- */
-export function blameRequest(runId: string, o: { expect?: Record<string, unknown> | null; yes?: boolean } = {}): Record<string, unknown> {
-  return { runId, ...(o.expect ? { expect: o.expect } : {}), ...(o.yes ? { yes: true } : {}) };
-}
-
-/**
- * What a refused Run blame asks of the page: the check (422: nothing names the check the run
- * failed), a consent (409: the run's command came from an imported pack, which runs only once
- * confirmed), or nothing (any other error, which the drawer shows).
- */
-export function blameReply(err: { status?: number; message?: string } | null | undefined): 'check' | 'consent' | null {
-  if (err?.status === 422) return 'check';
-  if (err?.status === 409 && /imported pack/.test(err.message ?? '')) return 'consent';
-  return null;
-}
-
 const BLAME_HOVER: Record<BlameOffer['from'], string> = {
   run: 'with the checks it was replayed with',
   golden: 'with its golden’s checks in shadowlap.config.json',
@@ -83,19 +54,12 @@ const BLAME_HOVER: Record<BlameOffer['from'], string> = {
 };
 
 /**
- * Run blame's hover: why it can't run here (with the command to run instead), or what it does and
- * the check it would likely use. The job decides the check itself, and asks when nothing names it.
+ * Run blame's hover when nothing stops it: what it does, and the check it would likely use. The job
+ * decides the check itself, and asks when nothing names it; a read-only dashboard or a working tree
+ * held by a repair says why on the button instead.
  */
-export function blameHover(runId: string, offer: BlameOffer, o: { canBlame: boolean; actionsOff: string | null }): string {
-  if (o.actionsOff) return o.actionsOff;
-  if (!o.canBlame) return `This dashboard can’t run blame: ${blameCommand(runId, offer.from === 'ask' ? undefined : offer.expect)}`;
+export function blameTitle(offer: BlameOffer): string {
   return `Find the model call where this run was lost, ${BLAME_HOVER[offer.from]}`;
-}
-
-/** The checks a run failed, quoted, for the blame dialog: “at most 3 model calls” and 1 more. */
-export function failedChecksText(failed: readonly string[]): string | null {
-  if (!failed.length) return null;
-  return `“${failed[0]}”${failed.length > 1 ? ` and ${num(failed.length - 1)} more` : ''}`;
 }
 
 /**
@@ -122,20 +86,6 @@ export function divergedActions(o: {
   const normalizer: NormalizerChoice =
     t?.normalizeAndTest && o.hasNormalizeJob ? { kind: 'job', lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null } : o.action && !o.actionsOff ? { kind: 'action' } : null;
   return { normalizer, update: !!t && o.hasUpdateJob };
-}
-
-/** The check typed into the blame dialog: an object, as under `expect` in shadowlap.config.json; or why not. */
-export function readExpect(text: string): { expect: Record<string, unknown> } | { error: string } {
-  const t = text.trim();
-  if (!t) return { error: 'Give the check a passing run must meet.' };
-  let v: unknown;
-  try {
-    v = JSON.parse(t);
-  } catch {
-    return { error: 'That is not JSON: a check looks like {"tools":{"send_email":0}}.' };
-  }
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return { error: 'A check is an object, such as {"tools":{"send_email":0}}.' };
-  return { expect: v as Record<string, unknown> };
 }
 
 /** What Run blame says before it runs: where its check came from. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
-import { bisectBlocked, bisectCopy, bisectLabel, blameCommand, blameHover, blameOfferFor, blameReply, blameRequest, blameSource, divergedActions, failedChecksText, readExpect, type BlameFacts } from '../ui/run/offers.js';
+import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, type BlameFacts } from '../ui/run/offers.js';
 import { canPush, defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, RunOffers, TestBannerOffer } from '../ui/types.js';
 
@@ -67,44 +67,14 @@ describe('the Share menu', () => {
 });
 
 describe('Run blame and Find the commit', () => {
-  it('shows the blame it runs, with the check, and reads a check typed in', () => {
-    expect(blameCommand(RUN, { tools: { send_email: 0 } })).toBe(`shadowlap blame 01M50J6C69 --expect '{"tools":{"send_email":0}}'`);
-    expect(blameCommand(RUN, null)).toBe('shadowlap blame 01M50J6C69');
-    // A check still to give: a placeholder, never a quoted string.
-    expect(blameCommand(RUN, undefined)).toBe(`shadowlap blame 01M50J6C69 --expect '<check>'`);
-    expect(readExpect('{"tools":{"send_email":0}}')).toEqual({ expect: { tools: { send_email: 0 } } });
-    expect(readExpect('')).toHaveProperty('error');
-    expect(readExpect('[1]')).toHaveProperty('error');
-    expect(readExpect('{oops')).toHaveProperty('error');
+  it('says on its hover what Run blame does, and where its check comes from', () => {
+    // Fixes' button sends it: the job finds the check, asks for one (422) or for a consent (409).
+    const golden = { from: 'golden' as const, expect: { tools: { send_email: 1 } }, failed: ['send_email called 1 time'] };
+    expect(blameTitle(golden)).toBe('Find the model call where this run was lost, with its golden’s checks in shadowlap.config.json');
+    expect(blameTitle({ from: 'ask', failed: ['at most 3 model calls'] })).toBe('Find the model call where this run was lost, once you give the check a passing run meets');
+    expect(blameTitle({ from: 'exit', expect: null, failed: [] })).toBe('Find the model call where this run was lost, on its exit status: a passing run exits 0');
     expect(blameSource({ from: 'golden', expect: {}, failed: [] })).toBe('its golden’s checks in shadowlap.config.json');
     expect(blameSource({ from: 'exit', expect: null, failed: [] })).toBe('the exit status: a passing run exits 0');
-  });
-
-  it('sends the run alone, so the job finds its check, and a check only once one is typed', () => {
-    expect(blameRequest(RUN)).toEqual({ runId: RUN });
-    expect(blameRequest(RUN, { expect: { tools: { send_email: 0 } } })).toEqual({ runId: RUN, expect: { tools: { send_email: 0 } } });
-    expect(blameRequest(RUN, { expect: null, yes: true })).toEqual({ runId: RUN, yes: true });
-  });
-
-  it('asks for the check when the job finds none, and for a consent when the run came from an imported pack', () => {
-    expect(blameReply({ status: 422, message: 'say what a passing run must do' })).toBe('check');
-    expect(blameReply({ status: 409, message: '01M50J6C69 came from an imported pack: this runs the command it was recorded with (python agent.py). Confirm it to run it' })).toBe('consent');
-    // Anything else is the drawer's to show.
-    expect(blameReply({ status: 409, message: '01M50J6C69 is still recording: blame it once it has ended' })).toBeNull();
-    expect(blameReply({ status: 403, message: 'read-only' })).toBeNull();
-    expect(blameReply(null)).toBeNull();
-  });
-
-  it('says on its hover what it does, why it can’t run, or the command to run instead', () => {
-    const golden = { from: 'golden' as const, expect: { tools: { send_email: 1 } }, failed: ['send_email called 1 time'] };
-    expect(blameHover(RUN, golden, { canBlame: true, actionsOff: null })).toBe('Find the model call where this run was lost, with its golden’s checks in shadowlap.config.json');
-    expect(blameHover(RUN, { from: 'ask', failed: ['at most 3 model calls'] }, { canBlame: true, actionsOff: null })).toBe('Find the model call where this run was lost, once you give the check a passing run meets');
-    expect(blameHover(RUN, golden, { canBlame: true, actionsOff: 'This dashboard is read-only: it was started with --read-only.' })).toBe('This dashboard is read-only: it was started with --read-only.');
-    expect(blameHover(RUN, golden, { canBlame: false, actionsOff: null })).toBe(`This dashboard can’t run blame: shadowlap blame 01M50J6C69 --expect '{"tools":{"send_email":1}}'`);
-    expect(blameHover(RUN, { from: 'ask', failed: [] }, { canBlame: false, actionsOff: null })).toBe(`This dashboard can’t run blame: shadowlap blame 01M50J6C69 --expect '<check>'`);
-    expect(failedChecksText(['at most 3 model calls'])).toBe('“at most 3 model calls”');
-    expect(failedChecksText(['at most 3 model calls', 'send_email called 0 times', 'x'])).toBe('“at most 3 model calls” and 2 more');
-    expect(failedChecksText([])).toBeNull();
   });
 
   it('works Run blame out from the run where the server offers nothing', () => {

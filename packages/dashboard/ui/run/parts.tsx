@@ -13,7 +13,7 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
-import { blameOfferFor, divergedActions } from './offers.js';
+import { blameOfferFor, blameTitle, divergedActions } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
@@ -297,7 +297,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           ) : offer && !app.exported ? (
             <span className="end">
               {/* The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree. */}
-              <RunBlameButton runId={r.runId} failed={offer.failed} />
+              <RunBlameButton runId={r.runId} failed={offer.failed} title={blameTitle(offer)} />
             </span>
           ) : null}
         </section>
