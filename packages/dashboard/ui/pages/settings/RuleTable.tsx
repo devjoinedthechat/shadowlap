@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
@@ -115,6 +115,10 @@ export function RuleDialog({
 }) {
   const app = useApp();
   const norm = list === 'normalize';
+  // What is typed here stays when the dashboard switches project elsewhere, and then goes to the project shown: said so.
+  const openedIn = useRef(app.meta?.project?.id ?? null);
+  const now = app.meta?.project;
+  const moved = openedIn.current && now?.id && now.id !== openedIn.current ? `The dashboard switched to ${now.name} elsewhere: Add rule adds this to ${now.name}’s ${CONFIG_FILE}.` : null;
   const [f, setF] = useState<RuleFormState>(() => emptyRuleForm(list, patterns));
   const [replaceTyped, setReplaceTyped] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -156,6 +160,7 @@ export function RuleDialog({
       onOk={() => void add()}
       onClose={onClose}
       className="ruledlg"
+      keepOnSwitch
     >
       <div className="form">
         <label>
@@ -235,7 +240,7 @@ export function RuleDialog({
         </div>
       ) : null}
       <CommandLine command={ruleCommand(list, f)} />
-      {error || problem || warning ? <p className={`fieldnote ${error ? 'err' : 'warn'}`}>{error ?? problem ?? warning}</p> : null}
+      {error || problem || warning || moved ? <p className={`fieldnote ${error ? 'err' : 'warn'}`}>{error ?? problem ?? warning ?? moved}</p> : null}
     </Dialog>
   );
 }

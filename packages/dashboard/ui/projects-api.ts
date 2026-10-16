@@ -78,10 +78,55 @@ export type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 /** The project the page shows, as its meta last named it: every request says it (`x-shadowlap-project`). */
 let shown: string | null = null;
 const switched = new Set<(current: { id: string; name: string }) => void>();
+const turned = new Set<(id: string | null) => void>();
 
-/** The page now shows this project (its meta arrived): what it asks for is about this one. */
+/** The page now shows this project (its meta arrived): what it asks for is about this one. Listeners hear it turn to another. */
 export function showProject(id: string | null | undefined): void {
-  shown = id ?? null;
+  const next = id ?? null;
+  if (next === shown) return;
+  shown = next;
+  for (const l of [...turned]) l(next);
+}
+
+/** The project the page shows now: null before its meta arrives, and on a dashboard that serves one store. */
+export function shownProject(): string | null {
+  return shown;
+}
+
+/** Hears the page turn to another project, as its meta names it; returns what stops it. */
+export function onShownProject(listener: (id: string | null) => void): () => void {
+  turned.add(listener);
+  return () => {
+    turned.delete(listener);
+  };
+}
+
+/**
+ * What an open dialog does when the page turns to another project than the one it opened in (the
+ * dashboard switched elsewhere): `close`, since what it asks is about something in that project (a
+ * folder, a golden, its runs) and its action would land in the other one; `adopt` for one that
+ * holds only what was typed into it (`keeps`: a rule, a server's command), which stays and acts on
+ * the project shown now, and for one opened before any project was shown; `stay` when nothing
+ * changed.
+ */
+export function dialogOnSwitch(o: { openedIn: string | null; shown: string | null; keeps: boolean }): 'stay' | 'adopt' | 'close' {
+  if (o.shown === null || o.shown === o.openedIn) return 'stay';
+  if (o.openedIn === null || o.keeps) return 'adopt';
+  return 'close';
+}
+
+/** A dialog closed because the page turned to another project: the switch's toast then says nothing was done. */
+let dropped = false;
+
+export function noteDialogDropped(): void {
+  dropped = true;
+}
+
+/** Whether a dialog closed for that reason since this was last asked. Asked once. */
+export function takeDialogDropped(): boolean {
+  const was = dropped;
+  dropped = false;
+  return was;
 }
 
 /** The header that names the shown project, for a request: a change asked for from a page that shows another project than the current one is refused. */

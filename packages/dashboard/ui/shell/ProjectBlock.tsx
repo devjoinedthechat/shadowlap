@@ -5,7 +5,7 @@ import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
-import { expectProject, onProjectSwitched, takeLanding, type ProjectsView } from '../projects-api.js';
+import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
 import { exportedLine, keepsPageOnSwitch, switchedText } from '../projects.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
@@ -117,8 +117,9 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
 
   // A switch made here lands where it was asked to (the Overview, or a job's link in the project it
   // ran in). One made elsewhere (another tab, a project removed there) keeps a page every project
-  // has, with what is typed or open on it, and reads the current project; a page that names a run
-  // or a fix of the other project goes to the Overview. The toast says what happened.
+  // has, with what is typed on it, and reads the current project; a page that names a run or a fix
+  // of the other project goes to the Overview. A dialog that asked about the other project closes
+  // (Dialog), never to act on this one. The toast says what happened.
   const refused = useRef(false);
   const shownName = useRef(project.name);
   const { reload, toast } = app;
@@ -128,7 +129,8 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
     if (seen.current === id) return;
     seen.current = id;
     const mine = takeLanding(id);
-    const wasRefused = refused.current;
+    // A change refused for the project it showed, or a dialog that asked about it and closed: nothing was done there.
+    const wasRefused = takeDialogDropped() || refused.current;
     refused.current = false;
     if (mine !== null) {
       if (!samePage(location.hash, mine)) navigate(mine);

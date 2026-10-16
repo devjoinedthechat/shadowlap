@@ -5,10 +5,9 @@ import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js'
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
-import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
+import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTreeBusy } from '../fixes/tree.js';
@@ -104,12 +103,13 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const [golden, setGolden] = useState<string | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [goldenError, setGoldenError] = useState<string | null>(null);
-  const [asking, setAsking] = useState<{ confirm: RecordConfirmation; command: string } | null>(null);
+  // The first run's confirmation, for the project it was asked in: the job it starts names that one.
+  const [asking, setAsking] = useState<{ confirm: RecordConfirmation; command: string; project: string } | null>(null);
   // The jobs this page started: the setup is read again as each ends.
   const mine = useRef(new Set<string>());
   const projectId = meta?.project?.id ?? null;
   // A dashboard that serves one store (`--read-only`, the terminal UI's) has no setup to follow: it isn't asked for one.
-  const oneStore = !!meta && !meta.static && !meta.project?.id;
+  const asks = asksForSetup(meta);
   // Recording, calibrating and testing run the agent from the project's working tree: not while a repair or an apply changes it.
   const treeBusy = useTreeBusy('reads', 'run this step');
 
@@ -127,8 +127,8 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   // seconds while the page shows: what a terminal does (init, a pack) moves the setup on too. Not
   // before the meta says whether there is a setup to read.
   useEffect(() => {
-    if (meta && !oneStore) load();
-  }, [load, tick, projectId, meta, oneStore]);
+    if (asks) load();
+  }, [load, tick, projectId, asks]);
   const polling = !!view && view.shows !== 'none';
   useEffect(() => {
     if (!polling) return;
@@ -137,12 +137,13 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
     }, 4000);
     return () => clearInterval(t);
   }, [load, polling]);
-  // A new project starts from its own command and golden.
+  // A new project starts from its own command and golden, and asks nothing the last one asked.
   useEffect(() => {
     setCommand(null);
     setGolden(null);
     setRecordError(null);
     setGoldenError(null);
+    setAsking(null);
   }, [projectId]);
 
   const start = useCallback(
@@ -168,9 +169,10 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const problem = meta?.project?.id && meta.project.problem ? meta.project : null;
   if (problem) return <ProjectProblem id={problem.id!} name={problem.name} problem={problem.problem!} />;
 
-  if (oneStore || view === null) {
-    // A dashboard that serves one store: with runs, nothing to set up here; without, the steps and their commands.
-    if ((runs ?? []).some((r) => !isAttempt(r))) return <NotFoundPage what="Nothing to set up here." />;
+  const shows = setupPageShows({ meta, view, runs });
+  // No setup to follow (a dashboard that serves one store): with runs, nothing to set up here; without, the steps and their commands.
+  if (shows === 'nothing') return <NotFoundPage what="Nothing to set up here." />;
+  if (shows === 'steps') {
     const name = projectOf(meta)?.name ?? 'this project';
     return (
       <Page>
@@ -179,7 +181,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
       </Page>
     );
   }
-  if (view === undefined)
+  if (shows === 'wait' || !view)
     return (
       <Page>
         {failed ? (
@@ -204,7 +206,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
       setRecordError(null);
       client.projects.planRecording(id, value).then(
         (plan) => {
-          if (plan.confirm) setAsking({ confirm: plan.confirm, command: value });
+          if (plan.confirm) setAsking({ confirm: plan.confirm, command: value, project: id });
           else start(client.startJob(JOB_KINDS.record, { project: id, command: value }));
         },
         (err: unknown) => setRecordError(message(err)),
@@ -269,9 +271,9 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
           command={asking.confirm.command}
           onClose={() => setAsking(null)}
           onOk={() => {
-            const value = asking.command;
+            const asked = asking;
             setAsking(null);
-            guard(() => start(client.startJob(JOB_KINDS.record, { project: id, command: value, confirmed: true })));
+            guard(() => start(client.startJob(JOB_KINDS.record, confirmedRecording(asked))));
           }}
         />
       ) : null}

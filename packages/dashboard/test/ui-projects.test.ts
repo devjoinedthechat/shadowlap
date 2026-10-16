@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { aroundRunId, aroundWord, codeParts, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupShowsOn, stepClass, storePath, switchedText, terminalLine } from '../ui/projects.js';
-import { expectProject, noteRefusal, onProjectSwitched, projectHeader, showProject, takeLanding } from '../ui/projects-api.js';
+import { dialogFocus } from '../ui/focus.js';
+import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, terminalLine } from '../ui/projects.js';
+import { dialogOnSwitch, expectProject, noteDialogDropped, noteRefusal, onProjectSwitched, onShownProject, projectHeader, showProject, shownProject, takeDialogDropped, takeLanding } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
 import type { Meta } from '../ui/types.js';
@@ -57,6 +58,75 @@ describe('where the setup shows', () => {
     expect(setupShowsOn(at('#/run/01M50Y3WTS'), { exported: false, meta: null, runs: null })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: true, meta: null, runs: [] })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ static: true } as Partial<Meta>), runs: [] })).toBe(false);
+  });
+});
+
+describe('the setup on a dashboard that serves one store', () => {
+  const project = meta({ project: { id: 'agent', name: 'agent', path: '/home/dana/agent' } });
+  const oneStore = meta();
+
+  it('asks the server for a setup only once the meta says it serves projects', () => {
+    expect(asksForSetup(null)).toBe(false);
+    // `shadowlap dashboard --read-only` and the terminal UI's serve one store, with no setup route to ask.
+    expect(asksForSetup(oneStore)).toBe(false);
+    expect(asksForSetup(project)).toBe(true);
+    // An exported copy answers without asking.
+    expect(asksForSetup(meta({ static: true } as Partial<Meta>))).toBe(true);
+  });
+
+  it('says there is nothing to set up once the store has runs, and shows the steps from the first before, never made-up progress', () => {
+    expect(setupPageShows({ meta: null, view: undefined, runs: null })).toBe('wait');
+    expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run()] })).toBe('nothing');
+    expect(setupPageShows({ meta: oneStore, view: undefined, runs: [] })).toBe('steps');
+    expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run({ attempt: { of: 'x' } })] })).toBe('steps');
+    // A project's dashboard waits for its setup, then shows it; one whose server answers none falls back the same way.
+    expect(setupPageShows({ meta: project, view: undefined, runs: [] })).toBe('wait');
+    expect(setupPageShows({ meta: project, view: { shows: 'setup' }, runs: [] })).toBe('project');
+    expect(setupPageShows({ meta: project, view: null, runs: [run()] })).toBe('nothing');
+  });
+});
+
+describe('a dialog when the dashboard switches project elsewhere', () => {
+  it('closes one that asks about the project it opened in, and keeps one that holds only what was typed into it', () => {
+    expect(dialogOnSwitch({ openedIn: 'research-agent', shown: 'triage-bot', keeps: false })).toBe('close');
+    expect(dialogOnSwitch({ openedIn: 'research-agent', shown: 'triage-bot', keeps: true })).toBe('adopt');
+    expect(dialogOnSwitch({ openedIn: 'research-agent', shown: 'research-agent', keeps: false })).toBe('stay');
+    // Opened before the meta named a project: it belongs to the first one shown.
+    expect(dialogOnSwitch({ openedIn: null, shown: 'triage-bot', keeps: false })).toBe('adopt');
+    expect(dialogOnSwitch({ openedIn: 'research-agent', shown: null, keeps: false })).toBe('stay');
+  });
+
+  it('hears the page turn to another project once, not every time the meta names the same one', () => {
+    showProject('research-agent');
+    const heard: Array<string | null> = [];
+    const stop = onShownProject((id) => heard.push(id));
+    showProject('research-agent');
+    showProject('triage-bot');
+    showProject('triage-bot');
+    expect(heard).toEqual(['triage-bot']);
+    expect(shownProject()).toBe('triage-bot');
+    expect(projectHeader()).toEqual({ 'x-shadowlap-project': 'triage-bot' });
+    stop();
+    showProject('research-agent');
+    expect(heard).toEqual(['triage-bot']);
+    showProject(null);
+  });
+
+  it('starts a confirmed first run as the project it was asked in, and says nothing was done when a dialog closed for a switch', () => {
+    // The record confirm opened on research-agent: the job names it, so a dashboard switched to triage-bot meanwhile refuses it (409).
+    const asked = { confirm: { title: 'Run this command in ~/research-agent?', text: '', command: 'shadowlap run -- uv run research-agent', button: 'Run and record' }, command: 'uv run research-agent', project: 'research-agent' };
+    expect(confirmedRecording(asked)).toEqual({ project: 'research-agent', command: 'uv run research-agent', confirmed: true });
+    expect(takeDialogDropped()).toBe(false);
+    noteDialogDropped();
+    expect(takeDialogDropped()).toBe(true);
+    expect(takeDialogDropped()).toBe(false);
+  });
+
+  it('starts on Cancel when asked to, or when the action is red and there is no field', () => {
+    expect(dialogFocus('lime', 'cancel')).toBe('.dlg-cancel');
+    expect(dialogFocus('danger', 'cancel')).toBe('.dlg-cancel');
+    expect(dialogFocus('danger')).toMatch(/, \.dlg-cancel$/);
+    expect(dialogFocus('lime')).toMatch(/^textarea, input.*, \.dlg-ok$/);
   });
 });
 
