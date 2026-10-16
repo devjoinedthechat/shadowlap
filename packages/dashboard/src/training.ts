@@ -201,7 +201,12 @@ export interface ModelCardView {
   baseUrl: string | null;
   /** Where it ran: `the recorded model`, `Anthropic API`, `Ollama, on this machine`. */
   via: string;
+  /** The mean over the ready tasks it was scored on. */
   mean: number | null;
+  /** The ready tasks it was scored on: fewer than all of them when a task became ready after it was scored. */
+  tasks: number;
+  /** `on 1 of 2 tasks` when it wasn't scored on every ready task, so its mean is over fewer; null when it was. */
+  coverage: string | null;
   /** The bar's width, 0 to 1. */
   bar: number;
   spent: number;
@@ -314,15 +319,23 @@ function pip(row: TaskScoreRow): PipView {
   return { score: row.score, kind: row.score >= 1 ? 'all' : row.score > 0 ? 'some' : 'none', attempt: row.attempt, runId: row.runId, href: row.runId ? `#/run/${row.runId}` : null };
 }
 
-/** Each model's mean over the ready tasks' attempts, by model and endpoint. */
-function modelMeans(scores: readonly TaskScoreRow[], ready: Set<string>): Map<string, number> {
-  const by = new Map<string, number[]>();
+/** Each model's scores on the ready tasks, by model and endpoint: the mean of every attempt, and the tasks they were on. */
+function modelScores(scores: readonly TaskScoreRow[], ready: Set<string>): Map<string, { mean: number; tasks: Set<string> }> {
+  const by = new Map<string, { xs: number[]; tasks: Set<string> }>();
   for (const r of scores) {
     if (!ready.has(r.golden)) continue;
     const k = modelKey(r.model, r.baseUrl);
-    by.set(k, [...(by.get(k) ?? []), r.score]);
+    const m = by.get(k) ?? { xs: [], tasks: new Set<string>() };
+    m.xs.push(r.score);
+    m.tasks.add(r.golden);
+    by.set(k, m);
   }
-  return new Map([...by].map(([k, xs]) => [k, mean(xs)]));
+  return new Map([...by].map(([k, m]) => [k, { mean: mean(m.xs), tasks: m.tasks }]));
+}
+
+/** Each model's mean over the ready tasks' attempts, by model and endpoint. */
+function modelMeans(scores: readonly TaskScoreRow[], ready: Set<string>): Map<string, number> {
+  return new Map([...modelScores(scores, ready)].map(([k, m]) => [k, m.mean]));
 }
 
 /** The note under the model picker: where the model runs, what an attempt costs, and the score it replaces. */
@@ -424,15 +437,20 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     m.first = Math.min(m.first, r.at);
     models.set(k, m);
   }
-  const means = modelMeans(input.scores, readySet);
+  const scored = modelScores(input.scores, readySet);
   const ordered = [...models.entries()].sort((a, b) => a[1].first - b[1].first || a[0].localeCompare(b[0]));
   const cards: ModelCardView[] = ordered.map(([k, m]) => {
-    const value = means.get(k) ?? null;
+    const s = scored.get(k);
+    const value = s?.mean ?? null;
+    const tasks = s?.tasks.size ?? 0;
     const local = !!m.baseUrl && LOOPBACK.test(m.baseUrl);
-    return { model: m.model, baseUrl: m.baseUrl, via: m.via, mean: value, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
+    return { model: m.model, baseUrl: m.baseUrl, via: m.via, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
   });
-  let best: { model: string; mean: number } | null = null;
-  for (const c of cards) if (c.mean !== null && (!best || c.mean > best.mean)) best = { model: c.model, mean: c.mean };
+  // Means over different tasks don't compare: the best is among the models scored on every ready
+  // task, and only when none was is it the best of the rest, with the tasks it covers.
+  const whole = cards.filter((c) => c.mean !== null && c.coverage === null);
+  let best: ModelCardView | null = null;
+  for (const c of whole.length ? whole : cards) if (c.mean !== null && (!best || c.mean > best.mean!)) best = c;
   const rows: ScoreRowView[] = ready.map((t) => ({
     golden: t.golden,
     name: t.name,
@@ -532,7 +550,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     strip: {
       pairs: { value: String(counts.all), sub: counts.all ? `${counts.high} high confidence · ${counts.medium} medium` : 'blame a failing run to make some', href: '#/training', high: counts.high, medium: counts.medium },
       tasks: { value: `${ready.length} / ${input.tasks.length}`, sub: input.tasksError ? 'the tasks can’t be read' : [blocked ? `${blocked} blocked` : '', notTask ? `${notTask} not a task` : ''].filter(Boolean).join(' · ') || (input.tasks.length ? 'every golden is a task' : 'no goldens yet'), href: '#/training/tasks', ready: ready.length, total: input.tasks.length, blocked, notTask },
-      best: { value: best ? best.mean.toFixed(2) : '—', sub: best ? `${best.model} · ${plural(cards.length, 'model')} scored` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
+      best: { value: best ? best.mean!.toFixed(2) : '—', sub: best ? `${best.model} · ${best.coverage ?? `${plural(cards.length, 'model')} scored`}` : 'no model scored yet', href: '#/training/tasks', model: best?.model ?? null, mean: best?.mean ?? null },
       // The UI adds the export's time (`at`) after the file, as it formats every time.
       left: { value: String(last?.pairs ?? 0), sub: last ? `pairs, to ${last.file === '-' ? 'stdout' : last.file}` : 'nothing until you export it', href: null, pairs: last?.pairs ?? 0, file: last?.file ?? null, at: last?.at ?? null },
     },

@@ -178,6 +178,24 @@ describe('the Training read model', () => {
     s.close();
   });
 
+  it('compares means over the same tasks: the best is among the models scored on every ready task', () => {
+    const s = Store.open(':memory:');
+    const ready = [task('goldens/a', 'ready', null), task('goldens/b', 'ready', null)];
+    // qwen was scored before b was a task, on a alone, where it did better than sonnet did on both.
+    const scores = [score('claude-sonnet-5', null, 'goldens/a', 1, 0.5, 100), score('claude-sonnet-5', null, 'goldens/b', 1, 1, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 1, 200)];
+    const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
+    expect(view.scores.cards.map((c) => [c.model, c.mean, c.coverage])).toEqual([
+      ['claude-sonnet-5', 0.75, null],
+      ['qwen2.5:7b', 1, 'on 1 of 2 tasks'],
+    ]);
+    expect(view.strip.best).toMatchObject({ value: '0.75', model: 'claude-sonnet-5', sub: 'claude-sonnet-5 · 2 models scored' });
+    // When no model was scored on every ready task, the best of the rest says what it covers.
+    const later = trainingView({ ...readTraining(s, { tasks: [...ready, task('goldens/c', 'ready', null)] }), scores });
+    expect(later.scores.cards.map((c) => c.coverage)).toEqual(['on 2 of 3 tasks', 'on 1 of 3 tasks']);
+    expect(later.strip.best).toMatchObject({ value: '1.00', model: 'qwen2.5:7b', sub: 'qwen2.5:7b · on 1 of 3 tasks' });
+    s.close();
+  });
+
   it('shows each golden as a task, warns when they all reward the same thing, and scores each model', () => {
     const s = Store.open(':memory:');
     // The store holds two goldens' runs; the budget golden was packed elsewhere and never imported.
@@ -203,10 +221,10 @@ describe('the Training read model', () => {
     const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
     expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
 
-    // Means count the ready tasks only: qwen's zeros on the blocked task don't.
-    expect(view.scores.cards.map((c) => [c.model, c.via, c.mean, c.cost])).toEqual([
-      ['claude-sonnet-5', 'the recorded model', 1, '≈$0.330 spent'],
-      ['qwen2.5:7b', 'Ollama, on this machine', 0.8, '$0, not a paid API'],
+    // Means count the ready tasks only: qwen's zeros on the blocked task don't, and its card says it was scored on one of the two.
+    expect(view.scores.cards.map((c) => [c.model, c.via, c.mean, c.cost, c.tasks, c.coverage])).toEqual([
+      ['claude-sonnet-5', 'the recorded model', 1, '≈$0.330 spent', 2, null],
+      ['qwen2.5:7b', 'Ollama, on this machine', 0.8, '$0, not a paid API', 1, 'on 1 of 2 tasks'],
     ]);
     expect(view.strip.best).toMatchObject({ value: '1.00', sub: 'claude-sonnet-5 · 2 models scored' });
     expect(view.scores.sub).toBe('mean share of checks passed, 2 tasks');

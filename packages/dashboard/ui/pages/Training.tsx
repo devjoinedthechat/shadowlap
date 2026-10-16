@@ -409,6 +409,8 @@ function Scores({ view }: { view: TrainingView }) {
                 <span className="rsub">{c.via}</span>
                 <div className="ovbig">
                   <b>{c.mean === null ? '—' : c.mean.toFixed(2)}</b>
+                  {/* Scored on fewer than every ready task (one became ready since): its mean is over those, and it says so. */}
+                  {c.coverage ? <span title="Score it again to include every ready task">{c.coverage}</span> : null}
                 </div>
                 <span className="sbar">
                   <i style={{ width: `${Math.round(Math.max(0, Math.min(1, c.bar)) * 1000) / 10}%` }} />
