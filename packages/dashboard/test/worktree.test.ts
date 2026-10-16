@@ -78,7 +78,7 @@ describe('which jobs share a tree', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'sl-tree-')));
     try {
       mkdirSync(join(root, 'agent'));
-      symlinkSync(join(root, 'agent'), join(root, 'link'));
+      symlinkSync(join(root, 'agent'), join(root, 'link'), process.platform === 'win32' ? 'junction' : undefined);
       expect(treeFolder(join(root, 'link'))).toBe(join(root, 'agent'));
       expect(treeFolder(join(root, 'gone'))).toBe(join(root, 'gone'));
       expect(treeFolder(null)).toBeNull();
