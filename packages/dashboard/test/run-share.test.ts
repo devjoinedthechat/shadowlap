@@ -299,7 +299,9 @@ describe('what the run page offers', () => {
   });
 
   it('never bisects a run blame found failing as if it passed', () => {
-    // Exited 0 and kept no checks of its own, but blame confirmed it fails the check it was given.
+    // Exited 0 and kept no checks of its own, but blame confirmed it fails the check it was given;
+    // its fix, which would name that check, isn't in this store (a pack carries the blame alone).
+    // With the fix here, run-find-commit.test.ts searches with its check.
     const id = addRun(store, { startedAt: T0 + 31, calls: 'l', meta: { blame: blameOf(1, null, T0) } });
     expect(runOffers(store, id, { redact: [], config: null })!.bisect).toMatchObject({
       failed: true,

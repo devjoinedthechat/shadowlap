@@ -12,10 +12,9 @@ import { blameOf } from './read-model-store.js';
 /**
  * Find the commit on a run blame found failing though it exited 0, from the server's offers to the
  * command the run page's dialog shows. Such a run kept no failed check of its own: bisect can only
- * judge each replay by the check blame found it failing (the fix's), as `--expect … --fork`. Once the
- * tests read model knows that check (`BisectChoices.expect`), the dialog offers the commits this
- * checkout has, each by its subject, and the command carries the check; until then, the page says
- * what to run from a terminal instead.
+ * judge each replay by the check blame found it failing (the fix's), as `--expect … --fork`. The tests
+ * read model gives that check (`BisectChoices.expect`), so the dialog offers the commits this checkout
+ * has, each by its subject, and the command carries the check.
  */
 
 const T0 = Date.UTC(2026, 9, 1, 10, 0);
@@ -78,21 +77,14 @@ afterAll(async () => {
 });
 
 describe('Find the commit on a run blame found failing though it exited 0', () => {
-  it('is searched by the check it fails, or says what to run from a terminal until the server knows that check', async () => {
+  it('is searched by the check it fails, from the commits this checkout has', async () => {
     const offer = (await getJson<{ bisect: BisectOffer }>(`runs/${blamed}/offers`)).bisect;
-    expect(offer).toMatchObject({ target: { kind: 'run', runId: blamed }, failed: true, fork: true, bad: second });
+    // The tests read model gives the check: the dialog offers this checkout's commits by subject,
+    // and its command judges each replay by the check, forked from where the requests differ.
+    expect(offer).toMatchObject({ target: { kind: 'run', runId: blamed }, failed: true, fork: true, bad: second, unavailable: null, expect: CHECK });
+    expect(offer.revisions).toEqual([expect.objectContaining({ rev: first, subject: 'Add the refund limit' })]);
     const copy = bisectCopy(blamed, offer);
-    if ('expect' in offer) {
-      // The tests read model gives the check: the dialog offers this checkout's commits by subject,
-      // and its command judges each replay by the check, forked from where the requests differ.
-      expect(offer).toMatchObject({ unavailable: null, expect: CHECK });
-      expect(offer.revisions).toEqual([expect.objectContaining({ rev: first, subject: 'Add the refund limit' })]);
-      expect(copy.choices[0]).toEqual({ value: first, label: `${first} · Add the refund limit` });
-      expect(copy.command(first)).toBe(`shadowlap bisect ${blamed.slice(0, 10)} --good ${first} --bad ${second} --expect '${JSON.stringify(CHECK)}' --fork`);
-    } else {
-      // Not yet: the page offers the search as unavailable, with the command that runs it.
-      expect(offer).toMatchObject({ args: null });
-      expect(offer.unavailable).toContain(`shadowlap bisect ${blamed.slice(0, 10)} --good <commit> --bad ${second} --expect '<checks>' --fork`);
-    }
+    expect(copy.choices[0]).toEqual({ value: first, label: `${first} · Add the refund limit` });
+    expect(copy.command(first)).toBe(`shadowlap bisect ${blamed.slice(0, 10)} --good ${first} --bad ${second} --expect '${JSON.stringify(CHECK)}' --fork`);
   });
 });

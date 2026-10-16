@@ -208,10 +208,12 @@ export function testOffer(store: Store, run: RunRecord, normalize: unknown): Tes
 }
 
 /**
- * Find the commit for a run blame found failing: one that exited 0 and kept no checks of its own
- * failed the check blame was given, which the tests' read model can't see on the run, so it would
- * look for where a passing run changes. Bisect needs that check (`--expect`, replayed with `--fork`),
- * and the job takes none: the page says so, with the command to run instead.
+ * Find the commit for a run blame found failing when this store holds no fix to say which check: one
+ * that exited 0 and kept no checks of its own failed the check blame was given. With the run's fix
+ * here, bisectChoices reads that check from it and searches with it (`--expect`, replayed with
+ * `--fork`), and this changes nothing. Without it (a pack carries a run's blame, never its fix), the
+ * tests' read model would look for where a passing run changes; bisect needs the check, and the job
+ * takes none: the page says so, with the command to run instead.
  */
 export function blamedBisect(run: RunRecord, b: BisectChoices | null): BisectChoices | null {
   if (!b || b.failed || b.unavailable || b.target.kind !== 'run' || !run.meta?.blame) return b;
