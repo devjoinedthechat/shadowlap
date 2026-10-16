@@ -42,7 +42,7 @@ function github(loc: StoreLocation, run: string): CiStep {
   if (provider === 'r2') {
     const text = [
       'steps:',
-      '  - uses: actions/checkout@v4',
+      '  - uses: actions/checkout@v7',
       `  - if: ${writerIf}`,
       `    run: ${run} --push`,
       '    env:',
@@ -80,7 +80,7 @@ function github(loc: StoreLocation, run: string): CiStep {
     '  contents: read',
     '',
     'steps:',
-    '  - uses: actions/checkout@v4',
+    '  - uses: actions/checkout@v7',
     `  - if: ${writerIf}`,
     ...auth[provider](false),
     `  - if: ${prIf}   # the pull request's own credentials: they write only under pr/ in the store`,
