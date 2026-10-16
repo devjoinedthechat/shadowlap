@@ -119,16 +119,16 @@ function madeModelCall(store: Store, run: RunRecord): boolean {
 /**
  * Run blame for a run that failed and was never blamed: a check it failed, or the agent's exit. A
  * capture has no command to run again, a run still recording has not failed yet, and a run that made
- * no model call has no answer of the model's to blame. An interrupted run's exit says nothing, so
- * its check is asked for, as the blame job asks.
+ * no model call has no answer of the model's to blame. Nor has an interrupted run (stopped, or timed
+ * out) that failed no check: blame replays a run to see it fail as recorded first, and a stop is not
+ * something the agent did, so it never does.
  */
 export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameOffer | null {
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
   // A blame probe's or a verify attempt's outcome belongs to the fix it was made for.
   if (run.meta?.probe || run.meta?.verify) return null;
   const failed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string').map((c) => c.label);
-  const exited = run.status === 'failed' || run.status === 'crashed';
-  if (!failed.length && !exited) return null;
+  if (!failed.length && run.status !== 'failed') return null;
   if (!madeModelCall(store, run)) return null;
   if (failed.length) {
     const own = run.meta?.expect;
@@ -139,7 +139,7 @@ export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameO
   }
   const suggested = fixForRun(store, run.runId);
   if (suggested?.role === 'unblamed' && suggested.expect !== undefined && suggested.expect !== null) return { from: 'fix', expect: suggested.expect, failed };
-  return failed.length || run.status === 'crashed' ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
+  return failed.length ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
 }
 
 const RULE_FIELDS = ['kind', 'name', 'path', 'pattern', 'replace'] as const;

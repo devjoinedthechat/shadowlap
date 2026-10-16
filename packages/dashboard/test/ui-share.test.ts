@@ -114,7 +114,9 @@ describe('Run blame and Find the commit', () => {
     expect(blameOfferFor({ blame: { from: 'ask', failed: ['x'] } }, facts({ blamed: true }))).toEqual({ from: 'ask', failed: ['x'] });
     // An older server.
     expect(blameOfferFor(null, facts())).toEqual({ from: 'exit', expect: null, failed: [] });
-    expect(blameOfferFor(null, facts({ status: 'crashed' }))).toEqual({ from: 'ask', failed: [] });
+    // Stopped: it never fails again as recorded, so there is nothing to blame, unless it failed a check.
+    expect(blameOfferFor(null, facts({ status: 'crashed' }))).toBeNull();
+    expect(blameOfferFor(null, facts({ status: 'crashed', failed: ['x'] }))).toEqual({ from: 'ask', failed: ['x'] });
     expect(blameOfferFor(null, facts({ status: 'completed', failed: ['at most 3 model calls'] }))).toEqual({ from: 'ask', failed: ['at most 3 model calls'] });
     expect(blameOfferFor(null, facts({ status: 'completed', failed: ['x'], ownExpect: { tools: { a: 1 } } }))).toEqual({ from: 'run', expect: { tools: { a: 1 } }, failed: ['x'] });
     expect(blameOfferFor(null, facts({ fixExpect: { tools: { b: 0 } } }))).toEqual({ from: 'fix', expect: { tools: { b: 0 } }, failed: [] });

@@ -224,14 +224,17 @@ describe('what the run page offers', () => {
     for (const id of [passed, blamed, cap, probe]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
   });
 
-  it('offers Run blame only where a model call can be blamed, and asks for an interrupted run’s check', () => {
+  it('offers Run blame only where a model call can be blamed, and never on a run that was stopped', () => {
     // Exited before its first model call, or made only tool calls: no answer of the model's to blame.
     const early = addRun(store, { startedAt: T0 + 28, status: 'failed' });
     const tools = addRun(store, { startedAt: T0 + 29, calls: 'bs', status: 'failed', meta: { checks: [{ ok: false, label: 'x', detail: null }] } });
     for (const id of [early, tools]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
-    // Interrupted: its exit says nothing about what a passing run does.
+    // Interrupted (stopped, or timed out): blame replays it to see it fail as recorded, and a stop never does.
     const stopped = addRun(store, { startedAt: T0 + 33, calls: 'll', status: 'crashed' });
-    expect(blameOffer(store, store.getRun(stopped)!, null)).toEqual({ from: 'ask', failed: [] });
+    expect(blameOffer(store, store.getRun(stopped)!, null)).toBeNull();
+    // One that failed a check before it was stopped is blamed on that check.
+    const checked = addRun(store, { startedAt: T0 + 35, calls: 'll', status: 'crashed', meta: { checks: [{ ok: false, label: 'send_email called 0 times', detail: null }] } });
+    expect(blameOffer(store, store.getRun(checked)!, null)).toEqual({ from: 'ask', failed: ['send_email called 0 times'] });
   });
 
   it('says the diverged test’s normalizer was added, and links the replay of its golden that passed since', () => {

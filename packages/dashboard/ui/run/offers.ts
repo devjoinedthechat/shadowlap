@@ -40,16 +40,17 @@ export interface BlameFacts {
 /**
  * Run blame for a failed run: what the server offers, or, from a server that offers nothing, the
  * same worked out from the run: the check the fix's labels suggest, the run's own --expect, a check
- * to ask for, or the exit status. Null where blame doesn't apply.
+ * to ask for, or the exit status. Null where blame doesn't apply, as on an interrupted run that
+ * failed no check (blame needs a run that fails again as recorded).
  */
 export function blameOfferFor(offers: Pick<RunOffers, 'blame'> | null, f: BlameFacts): BlameOffer | null {
   if (offers) return offers.blame;
   if (f.blamed || f.capture || !f.argv.length || f.status === 'running' || !f.modelCalls) return null;
   const failed = f.failed;
-  if (!failed.length && f.status !== 'failed' && f.status !== 'crashed') return null;
+  if (!failed.length && f.status !== 'failed') return null;
   if (f.fixExpect !== undefined && f.fixExpect !== null) return { from: 'fix', expect: f.fixExpect, failed };
   if (failed.length && f.ownExpect && typeof f.ownExpect === 'object' && !Array.isArray(f.ownExpect)) return { from: 'run', expect: f.ownExpect, failed };
-  if (failed.length || f.status === 'crashed') return { from: 'ask', failed };
+  if (failed.length) return { from: 'ask', failed };
   return { from: 'exit', expect: null, failed };
 }
 

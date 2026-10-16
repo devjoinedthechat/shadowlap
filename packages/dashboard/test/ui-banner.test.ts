@@ -110,6 +110,8 @@ describe('the run’s banner', () => {
     // A run that made no model call has nothing for blame to ask again.
     expect(bannerFor({ ...base, status: 'failed', modelCalls: 0 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · no model call to blame' });
     expect(bannerFor({ ...base, status: 'failed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · not blamed yet' });
+    // Nor has a run that was stopped: blame needs one that fails again as recorded.
+    expect(bannerFor({ ...base, status: 'crashed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the run was interrupted · blame needs a run that ended on its own' });
     expect(failureText({ status: 'completed', checks: [{ label: 'x', ok: true }], blame: null })).toBeNull();
   });
 
