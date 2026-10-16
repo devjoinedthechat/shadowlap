@@ -5,6 +5,7 @@ import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, repairJobA
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { storePrStates } from '../pr-state.js';
+import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 
 /**
@@ -114,7 +115,8 @@ function blameJob(req: JobRequest, store: Store, configDir: string | null): JobB
   const run = lookupRun(store, req.runId);
   if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
   const id = run.runId.slice(0, 10);
-  if (run.status === 'running') return { error: `${id} is still recording: blame it once it has ended`, status: 409 };
+  // A run its recorder left marked running was interrupted, as every page reads it: nothing failed to blame.
+  if (run.status === 'running') return { error: recordingNow(store, run) ? `${id} is still recording: blame it once it has ended` : `${id} was interrupted: its recorder stopped before it ended, so it has no failure to blame`, status: 409 };
   if (!hasRecordedCommand(run)) return { error: `${id} was imported from a capture and has no command to re-run: blame it in a terminal with yours, shadowlap blame ${id} -- <command>`, status: 409 };
   let expect: unknown;
   if ('expect' in req) {

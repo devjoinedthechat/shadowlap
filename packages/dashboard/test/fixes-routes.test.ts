@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
@@ -367,6 +368,22 @@ describe('the blame job', () => {
       expect(res.status).toBe(400);
       expect((await json(res)).error).toBe('that check is too long');
     }
+    expect(spawned).toEqual([]);
+  });
+
+  it('says a run its recorder left was interrupted, not that it is still recording', async () => {
+    // On disk, so its recorder can be named as a process that is gone, as when it was killed.
+    store.close();
+    const dbPath = join(project, 'shadowlap.db');
+    store = Store.open(dbPath);
+    const left = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 3_000 }).runId;
+    const db = new DatabaseSync(dbPath);
+    db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, left);
+    db.close();
+    await start();
+    const res = await job({ kind: 'blame', runId: left, expect: null });
+    expect(res.status).toBe(409);
+    expect((await json(res)).error).toBe(`${left.slice(0, 10)} was interrupted: its recorder stopped before it ended, so it has no failure to blame`);
     expect(spawned).toEqual([]);
   });
 
