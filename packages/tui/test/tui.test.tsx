@@ -245,15 +245,17 @@ describe('ease of use', () => {
 describe('a recording whose process was killed', () => {
   it('reads as interrupted, and its forks are on: nothing will add to it', async () => {
     const { store, runId } = goldenStore();
-    // Marked running, with no process to ask and nothing heard for two days.
-    const left = { ...store.getRun(runId)!, runId: '01M4Y6TKYXLEFT000000000000', status: 'running' as const, endedAt: null, startedAt: Date.now() - 2 * 86_400_000, meta: {} };
+    // Marked running, with no process to ask and nothing heard for two days. Its id starts apart
+    // from the golden's: the list shows ten characters, and which of two runs that share them comes
+    // first depends on the day the test runs (the golden was recorded on a fixed day).
+    const left = { ...store.getRun(runId)!, runId: '01M4Y6TKZZLEFT000000000000', status: 'running' as const, endedAt: null, startedAt: Date.now() - 2 * 86_400_000, meta: {} };
     store.importRun(left);
     const { lastFrame, stdin, unmount } = render(<App store={store} columns={100} rows={30} />);
     const list = await frameWith(lastFrame, left.runId.slice(0, 10));
     expect(list.split('\n').find((l) => l.includes(left.runId.slice(0, 10)))).toContain('interrupted');
     stdin.write('/');
     await tick(60);
-    stdin.write('01M4Y6TKYXLEFT');
+    stdin.write('01M4Y6TKZZLEFT');
     stdin.write('\r');
     await tick(60);
     stdin.write('\r');
