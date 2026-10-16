@@ -47,10 +47,14 @@ export function tooLargeNote(bytes: number, limit: number | null, format: Import
 
 export type TraceSource = 'langfuse' | 'langsmith';
 
-/** What each trace store keeps, and its name. */
-export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; keeps: string }>> = {
-  langfuse: { name: 'Langfuse', keeps: 'Generations keep the messages and model settings. Tool definitions often aren’t stored, so tools run live on replay unless their outputs are in the trace.' },
-  langsmith: { name: 'LangSmith', keeps: 'LLM runs keep the messages and model settings. Tool runs keep their outputs when you logged them; anything else runs live on replay.' },
+/**
+ * What each trace store keeps, its name, and what its trace ids look like: the field's placeholder
+ * names the format rather than showing a made-up id. Langfuse's SDKs write a UUID, or 32 hex
+ * characters since they moved onto OpenTelemetry; LangSmith's trace is its root run's UUID.
+ */
+export const TRACE_COPY: Readonly<Record<TraceSource, { name: string; id: string; keeps: string }>> = {
+  langfuse: { name: 'Langfuse', id: 'a UUID or 32 hex characters, from the trace’s page', keeps: 'Generations keep the messages and model settings. Tool definitions often aren’t stored, so tools run live on replay unless their outputs are in the trace.' },
+  langsmith: { name: 'LangSmith', id: 'a UUID, from the trace’s page in LangSmith', keeps: 'LLM runs keep the messages and model settings. Tool runs keep their outputs when you logged them; anything else runs live on replay.' },
 };
 
 /** A trace id as Langfuse and LangSmith write them, as the CLI checks it. */

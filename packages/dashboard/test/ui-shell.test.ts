@@ -4,6 +4,7 @@ import { BULK_MAX } from '../src/runs-list.js';
 import { dialogFocus } from '../ui/focus.js';
 import { stripScroll } from '../ui/place.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled } from '../ui/runspage/bulk.js';
+import { TRACE_COPY } from '../ui/runspage/imports.js';
 import { copyLine } from '../ui/runs.js';
 
 describe('a tab strip on a narrow screen', () => {
@@ -65,5 +66,13 @@ describe('dialogs', () => {
     expect(dialogFocus('lime')).toMatch(/textarea, input.*select, \.dlg-ok$/);
     expect(dialogFocus(undefined)).toMatch(/\.dlg-ok$/);
     expect(dialogFocus('danger')).toMatch(/textarea, input.*select, \.dlg-cancel$/);
+  });
+});
+
+describe('importing a trace', () => {
+  it('names the format of a trace id instead of offering a made-up one', () => {
+    expect(TRACE_COPY.langfuse.id).toBe('a UUID or 32 hex characters, from the trace’s page');
+    expect(TRACE_COPY.langsmith.id).toBe('a UUID, from the trace’s page in LangSmith');
+    for (const t of Object.values(TRACE_COPY)) expect(t.id).not.toMatch(/[0-9a-f]{8}/);
   });
 });

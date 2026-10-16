@@ -148,7 +148,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             </label>
             <label>
               Trace id
-              <input spellCheck={false} autoComplete="off" placeholder={`the id from the trace’s page in ${TRACE_COPY[source].name}`} value={trace.id} onChange={(e) => setTrace({ ...trace, id: e.target.value })} />
+              <input spellCheck={false} autoComplete="off" placeholder={TRACE_COPY[source].id} value={trace.id} onChange={(e) => setTrace({ ...trace, id: e.target.value })} />
             </label>
           </div>
           <p className="muted impnote">
