@@ -2,7 +2,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyLeft, fixRecords, markFixApplied, recordEvent, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { applyLeft, fixRecords, markFixApplied, quoteArgv, recordEvent, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
 
 /**
  * `shadowlap fix apply <fix>`: hands a verified fix over to the working tree. It `git apply`s the
@@ -15,7 +16,9 @@ import { applyLeft, fixRecords, markFixApplied, recordEvent, repairToApply, reso
  * marked applied. On a fix applied already, it finishes what was left: goldens not copied yet, and
  * a test that hasn't passed. A repair that came with a pull from the team store ran on a teammate's
  * machine: its patch goes in here, and its recordings, which stayed there, are neither copied nor
- * tested here (they are committed from that machine).
+ * tested here (they are committed from that machine). With the patch in, it replays the project's
+ * other goldens offline and names those that now diverge on what the patch changed, with the
+ * command that re-records them (`fix-outdated.ts`).
  *
  * What it reads from the store decides what it touches, so it trusts no path there: the repair's
  * directory must be `.shadowlap/repairs/<its id>`, its goldens inside that directory's `goldens/`,
@@ -54,6 +57,13 @@ export interface ApplyResult {
   /** Each golden, where it was copied to, and whether it was copied or already there. */
   goldens: Array<{ from: string; to: string; copied: boolean }>;
   tests: 'passed' | 'failed' | 'skipped';
+  /**
+   * The project's other goldens that now diverge on what the patch changed, each with the call and
+   * the request field; empty when none does, or when nothing was tested.
+   */
+  outdated: OutdatedGolden[];
+  /** The command that re-records them, or null. */
+  update: string | null;
 }
 
 const CLI_BIN = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
@@ -106,9 +116,9 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
   const again = fix.status === 'applied';
   const left = applyLeft(fix, repair, { pulled });
   if (again && !(left && (left.goldens || (left.test && o.test)))) {
-    return { fixId: fix.fixId, status: 'already-applied', again: false, patch: before?.patch ?? 'none', repairId: before?.repairId ?? null, goldens: [], tests: before?.tests ?? 'skipped' };
+    return { fixId: fix.fixId, status: 'already-applied', again: false, patch: before?.patch ?? 'none', repairId: before?.repairId ?? null, goldens: [], tests: before?.tests ?? 'skipped', outdated: [], update: null };
   }
-  const result: ApplyResult = { fixId: fix.fixId, status: 'applied', again, patch: 'none', repairId: repair?.repairId ?? null, goldens: [], tests: 'skipped' };
+  const result: ApplyResult = { fixId: fix.fixId, status: 'applied', again, patch: 'none', repairId: repair?.repairId ?? null, goldens: [], tests: 'skipped', outdated: [], update: null };
 
   if (repair) {
     const paths = repairPaths(repair);
@@ -178,6 +188,20 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
   const tests = result.tests === 'skipped' ? (before?.tests ?? 'skipped') : result.tests;
   markFixApplied(store, fix.fixId, { patch: again && before ? before.patch : result.patch, repairId: result.repairId, goldens, tests, by: who, via: 'fix apply' });
   recordEvent(store, { kind: 'fix.applied', actor: who, ref: fix.fixId, data: { title: fix.title, repairId: result.repairId, patch: result.patch, goldens: result.goldens.length, tests: result.tests, ...(again ? { again: true } : {}) } });
+
+  // The patch is in, and the fix is marked applied: what it changed in every request may leave the
+  // project's other goldens behind. Checked last, so a stop meanwhile loses nothing but the list.
+  if (repair?.report.patch && result.patch !== 'none' && o.test) {
+    const check = await outdatedGoldens(store, { cwd: o.cwd, goldens: o.goldens, patch: repair.report.patch, skip: goldens, log: o.log });
+    result.outdated = check.outdated;
+    if (result.outdated.length) {
+      result.update = quoteArgv(['shadowlap', 'test', ...result.outdated.map((g) => g.golden), '--update']);
+      const where = [...new Set(result.outdated.map((g) => `#${g.callNo} ${g.path}`))];
+      const n = result.outdated.length;
+      o.log(`  ! ${n === 1 ? '1 golden diverges' : `${n} goldens diverge`} on what the patch changed (${where.slice(0, 2).join(', ')}${where.length > 2 ? ', …' : ''}): ${result.outdated.map((g) => g.golden).join(', ')}`);
+      o.log(`    re-record ${n === 1 ? 'it' : 'them'} once the change is what you meant: ${result.update}`);
+    } else if (check.checked) o.log('  none of them diverges on what the patch changed');
+  }
   return result;
 }
 

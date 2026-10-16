@@ -652,8 +652,13 @@ function registerFixes(program: Command): void {
           ];
           process.stdout.write(`${result.tests === 'failed' ? p.red('✗') : p.green('✓')} ${shortFixId(found.fixId)} ${result.again ? 'finished applying' : 'applied'}: ${what.join(', ')}\n`);
           if (result.tests === 'failed') process.stdout.write(p.dim(`  the fix stays applied; once the test passes, run shadowlap fix apply ${shortFixId(found.fixId)} again\n`));
+          if (result.update) {
+            const n = result.outdated.length;
+            process.stdout.write(`${p.yellow('!')} ${n === 1 ? '1 other golden diverges' : `${n} other goldens diverge`} on what the patch changed: re-record ${n === 1 ? 'it' : 'them'} once the change is what you meant\n  ${safe(result.update)}\n`);
+          }
         }
-        emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(found.fixId) });
+        // Goldens to re-record are the next thing to do: the drawer offers Update goldens, and the fix beside it.
+        emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(found.fixId), ...(result.update ? { secondary: true } : {}) });
         emitJobEvent({ type: 'result', data: result });
         process.exitCode = result.tests === 'failed' ? 1 : 0;
       } catch (err) {

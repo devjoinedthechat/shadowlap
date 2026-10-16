@@ -239,7 +239,7 @@ describe('shadowlap fix', () => {
 
     const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
     expect(applied.code, applied.out).toBe(0);
-    expect(json(applied)).toEqual({ fixId, status: 'applied', again: false, patch: 'none', repairId: null, goldens: [], tests: 'skipped' });
+    expect(json(applied)).toEqual({ fixId, status: 'applied', again: false, patch: 'none', repairId: null, goldens: [], tests: 'skipped', outdated: [], update: null });
     expect(applied.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}` });
 
     const s = store();
@@ -310,10 +310,20 @@ describe('shadowlap fix', () => {
     expect(shown.verify[0]).toMatchObject({ verifyId: report.verifyId, verdict: 'accepted', code: 'repair candidate 3', label: 'repair candidate 3 · accepted', candidate: 3, repairId: report.repairId });
     expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git apply ${report.output.dir}/fix.patch`, pending: null, pulled: false });
 
+    // A golden recorded before the fix: the prompt the patch changes goes into its every request.
+    expect((await shadowlap(['pack', good, 'goldens/good-refund'])).code).toBe(0);
+
     const applied = await shadowlap(['fix', 'apply', fixId.slice(0, 13), '--json']);
     expect(applied.code, applied.out).toBe(0);
     const result = json(applied);
     expect(result).toMatchObject({ fixId, status: 'applied', patch: 'applied', repairId: report.repairId, tests: 'passed' });
+    // It replays the other goldens offline and names the one that diverges on what the patch changed.
+    expect(result.outdated).toEqual([{ golden: 'goldens/good-refund', callNo: 1, path: '$.system' }]);
+    expect(result.update).toBe('shadowlap test goldens/good-refund --update');
+    expect(applied.out).toContain("checking the project's other goldens against the patch: 1 replayed offline");
+    expect(applied.out).toContain('! 1 golden diverges on what the patch changed (#1 $.system): goldens/good-refund');
+    // The drawer's next step is updating it: the fix is a link beside it.
+    expect(applied.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}`, secondary: true });
     // Paths as apply reports them, with forward slashes on every system.
     expect(result.goldens).toEqual(report.output.goldens.map((g: string) => ({ from: g, to: `goldens/${basename(g)}`, copied: true })));
     expect(agentText()).toContain(FIX);
@@ -329,8 +339,10 @@ describe('shadowlap fix', () => {
 
     const s = store();
     try {
-      // fix apply tests the goldens it copied, and that test session is kept like any other.
-      expect(s.listEvents().map((e) => e.kind).filter((k) => k !== 'blame.done')).toEqual(['fix.applied', 'test.session', 'repair.accepted']);
+      // fix apply tests the goldens it copied, and that test session is kept like any other; its
+      // check of the other goldens keeps nothing.
+      expect(s.listEvents().map((e) => e.kind).filter((k) => k !== 'blame.done')).toEqual(['fix.applied', 'test.session', 'golden.packed', 'repair.accepted']);
+      expect(s.listTestSessions()).toHaveLength(1);
       expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ data: { passed: 2, failed: 0 } });
       expect(s.listEvents({ kinds: ['repair.accepted'] })[0]).toMatchObject({ ref: fixId, data: { repairId: report.repairId, title: 'Escalate refunds above the policy limit', verifyId: report.verifyId } });
     } finally {
