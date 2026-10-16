@@ -207,13 +207,6 @@ describe('the CI step', () => {
     expect(ciStep('github', parseStoreUrl('az://acct1/agent-runs')).text).toContain('client-id: ${{ vars.AZURE_PR_CLIENT_ID }}');
   });
 
-  it('pins each cloud’s sign-in action at its current major, on Node 24 like actions/checkout@v7', () => {
-    const uses = (url: string) => [...new Set([...ciStep('github', parseStoreUrl(url)).text.matchAll(/uses: (\S+)/g)].map((m) => m[1]))];
-    expect(uses('s3://northwind-agent-runs')).toEqual(['actions/checkout@v7', 'aws-actions/configure-aws-credentials@v6']);
-    expect(uses('gs://b-1/x')).toEqual(['actions/checkout@v7', 'google-github-actions/auth@v3']);
-    expect(uses('az://acct1/agent-runs')).toEqual(['actions/checkout@v7', 'azure/login@v3']);
-  });
-
   it('keeps R2 keys from pull requests, which run the tests without pushing', () => {
     const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'));
     expect(r2.oidc).toBe(false);
@@ -249,6 +242,13 @@ describe('the CI step', () => {
     expect(other.text).toContain('\nnpx shadowlap test tests/goldens/* --push\n');
     expect(other.text).toMatch(/\nSHADOWLAP_PR=<number> npx shadowlap test tests\/goldens\/\* --push$/);
     expect(ciStep('other', parseStoreUrl('r2://acct/agent-runs')).text).toMatch(/\nnpx shadowlap test goldens\/\*$/);
+  });
+
+  it('pins each cloud’s sign-in action at its current major, on Node 24 like actions/checkout@v7', () => {
+    const uses = (url: string) => [...new Set([...ciStep('github', parseStoreUrl(url)).text.matchAll(/uses: (\S+)/g)].map((m) => m[1]))];
+    expect(uses('s3://northwind-agent-runs')).toEqual(['actions/checkout@v7', 'aws-actions/configure-aws-credentials@v6']);
+    expect(uses('gs://b-1/x')).toEqual(['actions/checkout@v7', 'google-github-actions/auth@v3']);
+    expect(uses('az://acct1/agent-runs')).toEqual(['actions/checkout@v7', 'azure/login@v3']);
   });
 });
 
