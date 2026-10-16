@@ -158,9 +158,10 @@ function applyJob(req: JobRequest, store: Store): JobBuildResult {
 export function register(router: Router, ctx: RouteContext): void {
   const { store, jobs } = ctx;
   // A fix's pull request moves past "open" once the forge says so: asked with gh in the background
-  // while the pages are read, and written to the store, whose change brings the pages up to date. A
-  // read-only dashboard asks no one, as it changes nothing.
-  const prs = ctx.readOnly ? null : storePrStates(() => store);
+  // while the pages are read, and written to the store, whose change brings the pages up to date.
+  // Only pull requests on github.com and the project's own GitHub hosts are read. A read-only
+  // dashboard asks no one, as it changes nothing.
+  const prs = ctx.readOnly ? null : storePrStates(() => store, { projectDir: ctx.project?.path ?? null });
 
   router.get('/fixes', (r) => {
     const status = r.query.get('status') ?? 'all';

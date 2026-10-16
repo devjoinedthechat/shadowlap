@@ -4,7 +4,8 @@ import { delimiter, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordBlame, Store, type StoredFix } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
-import { isGithubPr, parsePrState, PrStates, startDashboard, type Dashboard, type FixList, type PrRead } from '../src/index.js';
+import { execFileSync } from 'node:child_process';
+import { ghEnv, isGithubPr, parsePrState, prHost, PrStates, readableHosts, remoteHost, startDashboard, type Dashboard, type FixList, type PrRead } from '../src/index.js';
 
 /**
  * A fix's pull request moves past "open" once the forge says so: read with gh in the background as
@@ -14,9 +15,11 @@ import { isGithubPr, parsePrState, PrStates, startDashboard, type Dashboard, typ
 
 const PR = 'https://github.com/acme/support-agent/pull/138';
 
-function fixWithPr(store: Store, url: string, state: 'open' | 'merged' | 'closed' = 'open'): StoredFix {
+/** A fix of its own for each title: another title is another check, which no fix joins. */
+function fixWithPr(store: Store, url: string, state: 'open' | 'merged' | 'closed' = 'open', title = 'issue_refund called with amount 240'): StoredFix {
   const run = makeRun(store);
-  const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', ci: 'github' });
+  const expect = title === 'issue_refund called with amount 240' ? EXPECT : { tools: { issue_refund: { count: 1 } } };
+  const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect, scope: null, command: 'shadowlap blame', title, checkText: 'issue_refund never called with {"amount":240}', ci: 'github' });
   store.mergeFixData(fix.fixId, { source: { pr: { url, number: 138, state } } });
   return store.getFix(fix.fixId)!;
 }
@@ -92,6 +95,71 @@ describe('reading a pull request’s state', () => {
     expect(() => failing.refresh([fix])).not.toThrow();
     store.close();
   });
+
+  it('stops asking a host gh is signed out of, and every host once gh is missing', () => {
+    const store = Store.open(':memory:');
+    const onCom = fixWithPr(store, PR);
+    const onOwn = fixWithPr(store, 'https://ghes.acme.example/acme/agent/pull/9', 'open', 'Refunds sent twice');
+    let now = 0;
+    const asked: string[] = [];
+    let answer: PrRead = { state: null, unusable: true };
+    const prs = new PrStates({ read: (url, done) => (asked.push(url), done(answer)), write: () => undefined, readable: () => true, now: () => now, everyMs: 10, pauseMs: 1_000 });
+    // Signed out of the company's server: github.com is still asked.
+    prs.refresh([onOwn]);
+    now += 100;
+    answer = { state: 'open' };
+    prs.refresh([onOwn, onCom]);
+    expect(asked).toEqual(['https://ghes.acme.example/acme/agent/pull/9', PR]);
+    // gh is gone: nobody is asked until the pause is over.
+    answer = { state: null, unusable: true, missing: true };
+    now += 100;
+    prs.refresh([onCom]);
+    now += 100;
+    prs.refresh([onCom, onOwn]);
+    expect(asked).toHaveLength(3);
+    now += 1_000;
+    prs.refresh([onCom]);
+    expect(asked).toHaveLength(4);
+    store.close();
+  });
+
+  it('reads pull requests only on github.com and the project’s own GitHub hosts', () => {
+    const store = Store.open(':memory:');
+    const planted = fixWithPr(store, 'https://evil.example/acme/agent/pull/1', 'open', 'Refunds sent twice');
+    const asked: string[] = [];
+    // A fix pulled from the team store can carry any address: one on another host is never handed to gh.
+    const prs = new PrStates({ read: (url, done) => (asked.push(url), done({ state: 'open' })), write: () => undefined });
+    prs.refresh([planted, fixWithPr(store, PR)]);
+    expect(asked).toEqual([PR]);
+    expect(prHost('https://GHES.acme.example:8443/acme/agent/pull/9')).toBe('ghes.acme.example');
+    // The project's origin remote, and GH_HOST, name hosts of its own.
+    const repo = mkdtempSync(join(tmpdir(), 'sl-pr-origin-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      execFileSync('git', ['remote', 'add', 'origin', 'git@ghes.acme.example:acme/agent.git'], { cwd: repo });
+      expect([...readableHosts(repo, {})].sort()).toEqual(['ghes.acme.example', 'github.com']);
+      expect([...readableHosts(null, { GH_HOST: 'https://other.example:8443' })].sort()).toEqual(['github.com', 'other.example']);
+      expect([...readableHosts(join(repo, 'missing'), {})]).toEqual(['github.com']);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+    for (const [remote, host] of [
+      ['https://github.com/acme/agent.git', 'github.com'],
+      ['https://user:secret@GHES.acme.example:8443/acme/agent', 'ghes.acme.example'],
+      ['ssh://git@ghes.acme.example:2222/acme/agent.git', 'ghes.acme.example'],
+      ['git@github.com:acme/agent.git', 'github.com'],
+      ['/srv/git/agent.git', null],
+    ] as const) expect(remoteHost(remote), remote).toBe(host);
+    store.close();
+  });
+
+  it('gives gh a token for a server of your own only for the host GH_HOST names', () => {
+    // gh's tokens for a server of your own are named GH_…_TOKEN or GITHUB_…_TOKEN; github.com's are GH_TOKEN and GITHUB_TOKEN.
+    const env = { PATH: '/bin', GH_TOKEN: 't', GITHUB_TOKEN: 't2', GH_SERVER_TOKEN: 's', GITHUB_SERVER_TOKEN: 's2', GH_HOST: 'ghes.acme.example' };
+    expect(ghEnv(PR, env)).toEqual({ PATH: '/bin', GH_TOKEN: 't', GITHUB_TOKEN: 't2', GH_HOST: 'ghes.acme.example', GH_PROMPT_DISABLED: '1', NO_COLOR: '1' });
+    expect(ghEnv('https://ghes.acme.example/acme/agent/pull/9', env)).toMatchObject({ GH_SERVER_TOKEN: 's', GITHUB_SERVER_TOKEN: 's2' });
+    expect(ghEnv('https://ghes.acme.example/acme/agent/pull/9', { GH_SERVER_TOKEN: 's' })).not.toHaveProperty('GH_SERVER_TOKEN');
+  });
 });
 
 // The stand-in for gh is a shell script, which Windows won't run by name.
@@ -102,16 +170,21 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
   let dash: Dashboard;
   let readOnly: Dashboard;
   let fixId: string;
+  let plantedId: string;
 
   beforeAll(async () => {
     // gh that says the pull request was merged, after a moment, and notes each time it is asked.
     bin = mkdtempSync(join(tmpdir(), 'sl-pr-gh-'));
-    writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" >> "${join(bin, 'asked')}"\nsleep 0.3\necho '{"state":"MERGED"}'\n`);
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" >> "${join(bin, 'asked')}"\nprintf '%s\\n' "\${GH_SERVER_TOKEN:-none}" >> "${join(bin, 'tokens')}"\nsleep 0.3\necho '{"state":"MERGED"}'\n`);
     chmodSync(join(bin, 'gh'), 0o755);
     path = process.env.PATH;
     process.env.PATH = `${bin}${delimiter}${process.env.PATH}`;
     store = Store.open(':memory:');
     fixId = fixWithPr(store, PR).fixId;
+    // A fix a pull brought with an address on someone else's host.
+    plantedId = fixWithPr(store, 'https://evil.example/acme/agent/pull/1', 'open', 'Refunds sent twice').fixId;
+    // A token for a server of your own, which no pull request on github.com gets.
+    process.env.GH_SERVER_TOKEN = 'server-token';
     readOnly = await startDashboard({ store, readOnly: true });
     dash = await startDashboard({ store, readOnly: false });
   });
@@ -121,6 +194,7 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
     await readOnly?.close();
     store?.close();
     process.env.PATH = path;
+    delete process.env.GH_SERVER_TOKEN;
     rmSync(bin, { recursive: true, force: true });
   });
 
@@ -130,21 +204,26 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
     return (await res.json()) as FixList;
   };
 
+  const sourceOf = (list: FixList, id: string) => list.fixes.find((f) => f.fixId === id)!.source;
+
   it('asks no one from a read-only dashboard', async () => {
-    expect((await fixes(readOnly)).fixes[0]!.source).toBe('from CI · PR #138');
+    expect(sourceOf(await fixes(readOnly), fixId)).toBe('from CI · PR #138');
     await new Promise((r) => setTimeout(r, 500));
     expect(existsSync(join(bin, 'asked'))).toBe(false);
   });
 
   it('answers at once, then shows the pull request merged once gh says so', async () => {
     const started = Date.now();
-    expect((await fixes(dash)).fixes[0]!.source).toBe('from CI · PR #138');
+    expect(sourceOf(await fixes(dash), fixId)).toBe('from CI · PR #138');
     // gh takes its time; the page didn't wait for it.
     expect(Date.now() - started).toBeLessThan(300);
     for (let i = 0; i < 100 && store.getFix(fixId)!.data.source?.pr?.state !== 'merged'; i++) await new Promise((r) => setTimeout(r, 50));
     expect(store.getFix(fixId)!.data.source?.pr).toMatchObject({ url: PR, number: 138, state: 'merged' });
-    expect((await fixes(dash)).fixes[0]!.source).toBe('from CI · PR #138 merged');
+    expect(sourceOf(await fixes(dash), fixId)).toBe('from CI · PR #138 merged');
+    // Only github.com's was asked about, and without the server's token, which isn't for it.
     expect(readFileSync(join(bin, 'asked'), 'utf8').split('\n').filter(Boolean)).toEqual(['pr', 'view', PR, '--json', 'state']);
+    expect(readFileSync(join(bin, 'tokens'), 'utf8').split('\n').filter(Boolean)).toEqual(['none']);
+    expect(store.getFix(plantedId)!.data.source?.pr?.state).toBe('open');
     // Merged is where it stays: nobody asks again.
     await fixes(dash);
     await new Promise((r) => setTimeout(r, 400));

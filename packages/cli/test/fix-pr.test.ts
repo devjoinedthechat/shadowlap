@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,5 +94,13 @@ describe.skipIf(process.platform === 'win32')('shadowlap fix pr', () => {
     expect(unknown.stdout).toContain('gh could not read it, so its state is as recorded');
     const missing = await shadowlap(['fix', 'pr', 'fx-NOPE']);
     expect(missing.code).toBe(1);
+  });
+
+  it('asks gh only about a pull request on github.com or a host of this project, which a pulled fix may not name', async () => {
+    await shadowlap(['fix', 'pr', fixId, 'https://evil.example/acme/support-agent/pull/7']);
+    const r = await shadowlap(['fix', 'pr', fixId]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toContain("PR #7 open · evil.example is neither github.com, GH_HOST nor this project's origin, so gh isn't asked and its state is as recorded");
+    expect(existsSync(join(bin, 'asked'))).toBe(false);
   });
 });
