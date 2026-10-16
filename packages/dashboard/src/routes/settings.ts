@@ -42,7 +42,8 @@ import { readTeamStoreInput } from '../team-store.js';
  *
  *   GET    /api/settings/matching                  normalizers, the clock, the run Calibrate takes
  *   GET    /api/settings/redaction[?run=<id>]      redaction rules, where they apply, runs to preview
- *   GET    /api/settings/redaction/preview?run=    what the rules would mask in that run (path rules too)
+ *   GET    /api/settings/redaction/preview?run=    what the rules would mask in that run (path rules too), read on a
+ *                                                   worker thread within limits (redaction-preview.ts)
  *   GET    /api/settings/agents                    the coding agents' files, and the section to paste
  *   GET    /api/settings/tools                     every tool across runs, hosts, MCP servers
  *   GET    /api/settings/tools/mcp?command=|url=   the `shadowlap mcp` line and client entry for a server (and `copy`, as typed)

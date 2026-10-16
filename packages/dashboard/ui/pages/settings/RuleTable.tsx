@@ -33,7 +33,7 @@ export function RuleTable({ list, rows, off, onRemove }: { list: RuleListName; r
           {rows.length === 0 ? (
             <tr>
               <td colSpan={5} className="none">
-                {list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: copies leave this machine as recorded.'}
+                <span>{list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: copies leave this machine as recorded.'}</span>
               </td>
             </tr>
           ) : null}
