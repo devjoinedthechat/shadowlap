@@ -201,6 +201,11 @@ export interface ModelCardView {
   baseUrl: string | null;
   /** Where it ran: `the recorded model`, `Anthropic API`, `Ollama, on this machine`. */
   via: string;
+  /**
+   * Its endpoint (`127.0.0.1:60863`), when another card has the same model name: the same model scored
+   * at two endpoints is two cards, told apart by it. Null otherwise.
+   */
+  where: string | null;
   /** The mean over the ready tasks it was scored on. */
   mean: number | null;
   /** The ready tasks it was scored on: fewer than all of them when a task became ready after it was scored. */
@@ -320,6 +325,16 @@ function fixHref(kind: PairSource['kind'], fix: SourceFix): string {
 function sourceHref(s: PairSource, fix: SourceFix | null, callNo: number | null): string {
   if (fix && s.kind !== 'repeat') return fixHref(s.kind, fix);
   return `#/run/${s.runId}${callNo ? `/${callNo}` : ''}/forks`;
+}
+
+/** An endpoint as a card names it: its host and port, or the provider's own API. */
+function endpointName(baseUrl: string | null): string {
+  if (!baseUrl) return "the provider's API";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
 }
 
 /** The share of checks passed, as a pip: every check, some, or none. */
@@ -476,8 +491,10 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     const value = s?.mean ?? null;
     const tasks = s?.tasks.size ?? 0;
     const local = !!m.baseUrl && LOOPBACK.test(m.baseUrl);
-    return { model: m.model, baseUrl: m.baseUrl, via: m.via, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
+    return { model: m.model, baseUrl: m.baseUrl, via: m.via, where: null, mean: value, tasks, coverage: tasks < ready.length ? `on ${tasks} of ${plural(ready.length, 'task')}` : null, bar: value ?? 0, spent: m.spent, cost: m.spent ? `${approx(m.spent)} spent` : local ? '$0, not a paid API' : '$0 spent', at: m.at };
   });
+  // The same model scored at two endpoints is two cards and two columns: each says its endpoint.
+  for (const c of cards) if (cards.some((o) => o !== c && o.model === c.model)) c.where = endpointName(c.baseUrl);
   // Means over different tasks don't compare: the best is among the models scored on every ready
   // task, and only when none was is it the best of the rest, with the tasks it covers.
   const whole = cards.filter((c) => c.mean !== null && c.coverage === null);

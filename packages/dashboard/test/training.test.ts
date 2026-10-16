@@ -196,6 +196,22 @@ describe('the Training read model', () => {
     s.close();
   });
 
+  it('tells apart one model scored at two endpoints by its endpoint, and only then', () => {
+    const s = Store.open(':memory:');
+    const ready = [task('goldens/a', 'ready', null)];
+    const scores = [score('claude-sonnet-5', null, 'goldens/a', 1, 1, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 0.5, 200), score('qwen2.5:7b', 'http://gpu-box:8000/v1', 'goldens/a', 1, 1, 300)];
+    const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
+    expect(view.scores.cards.map((c) => [c.model, c.where])).toEqual([
+      ['claude-sonnet-5', null],
+      ['qwen2.5:7b', '127.0.0.1:11434'],
+      ['qwen2.5:7b', 'gpu-box:8000'],
+    ]);
+    // Scored at its own provider and at an endpoint: the provider's card says so.
+    const both = trainingView({ ...readTraining(s, { tasks: ready }), scores: [...scores, score('claude-sonnet-5', 'http://127.0.0.1:8000/v1', 'goldens/a', 1, 1, 400)] });
+    expect(both.scores.cards.filter((c) => c.model === 'claude-sonnet-5').map((c) => c.where)).toEqual(["the provider's API", '127.0.0.1:8000']);
+    s.close();
+  });
+
   it('shows each golden as a task, warns when they all reward the same thing, and scores each model', () => {
     const s = Store.open(':memory:');
     // The store holds two goldens' runs; the budget golden was packed elsewhere and never imported.

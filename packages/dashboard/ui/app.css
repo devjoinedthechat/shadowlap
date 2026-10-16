@@ -1315,6 +1315,7 @@ a.kcell:hover { background: var(--hover); }
 .sbar i { display: block; height: 100%; border-radius: 3px; background: var(--o-rep); }
 .pips i.part { background: var(--o-stub); }
 table.score th.mh { font: 500 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--dim); }
+table.score th.mh small { display: block; margin-top: 2px; font: 11px var(--mono); color: var(--faint); }
 .scell { display: inline-flex; align-items: center; gap: 10px; }
 .scell em { font: 500 12.5px var(--mono); font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) {

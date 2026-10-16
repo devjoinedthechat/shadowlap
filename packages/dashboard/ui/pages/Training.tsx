@@ -416,7 +416,10 @@ function Scores({ view }: { view: TrainingView }) {
             {s.cards.map((c) => (
               <div className="mcard" key={`${c.model}\n${c.baseUrl ?? ''}`}>
                 <b className="mn">{c.model}</b>
-                <span className="rsub">{c.via}</span>
+                <span className="rsub">
+                  {c.via}
+                  {c.where ? ` · ${c.where}` : ''}
+                </span>
                 <div className="ovbig">
                   <b>{c.mean === null ? '—' : c.mean.toFixed(2)}</b>
                   {/* Scored on fewer than every ready task (one became ready since): its mean is over those, and it says so. */}
@@ -439,6 +442,7 @@ function Scores({ view }: { view: TrainingView }) {
                   {s.cards.map((c) => (
                     <th key={`${c.model}\n${c.baseUrl ?? ''}`} className="mh" title={c.baseUrl ?? c.via}>
                       {c.model}
+                      {c.where ? <small>{c.where}</small> : null}
                     </th>
                   ))}
                 </tr>
