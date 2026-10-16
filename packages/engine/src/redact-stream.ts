@@ -1,3 +1,4 @@
+import { rewriteJsonDocument } from './json-doc.js';
 import { rewriteText, type RewriteObserver } from './normalize.js';
 import type { Normalizer } from './types.js';
 
@@ -167,12 +168,36 @@ export function maskStreamed(events: unknown[], rules: Normalizer[], observer?: 
 const FIELD = /^(?:data|event|id|retry):|^:/;
 
 /**
- * A server-sent events body with its streamed text masked across events, or null when it is not one
- * or nothing changed. Strict on purpose: every line must be an SSE field, so no other text is taken
- * for a stream. Only the events whose pieces changed are written again (one `data:` line of JSON);
- * every other byte stays as it was, line endings included.
+ * The observer for one event of a stream: what the rules leave in it is told with the event it is
+ * in (from 1), since no path rule reaches into a stream's events.
+ */
+export function inEvent(observer: RewriteObserver | undefined, event: number): RewriteObserver | undefined {
+  if (!observer?.unmasked) return observer;
+  const unmasked = observer.unmasked.bind(observer);
+  return { ...observer, unmasked: (rule, text, at, count) => unmasked(rule, text, { ...at, event }, count) };
+}
+
+/**
+ * One event's data with the rules without a path applied: data that is JSON as a JSON document (its
+ * strings, its numbers and layout kept), any other data (`[DONE]`) as text.
+ */
+export function maskEventData(data: string, rules: Normalizer[], observer: RewriteObserver | undefined, event: number): string {
+  return rewriteJsonDocument(data, rules, null, inEvent(observer, event)) ?? rewriteText(data, rules, observer);
+}
+
+/**
+ * A server-sent events body with the rules without a path applied, or null when it is not one.
+ * Strict on purpose: every line must be an SSE field, so no other text is taken for a stream. First
+ * the streamed text is masked across events (maskStreamed), and an event whose pieces changed has
+ * its data written again as one `data:` line of JSON. Then each event's data is masked as
+ * maskEventData masks it, a JSON document by its strings, so a number in an event (a token count, a
+ * time) stays as recorded and the event stays JSON; the other lines are masked as text. Every other
+ * byte stays as it was, line endings included.
  */
 export function maskSseStream(text: string, rules: Normalizer[], observer?: RewriteObserver): string | null {
+  // A body whose first line is no field is no stream: said without reading the rest.
+  const first = /^[^\r\n]*/.exec(text)![0];
+  if (first !== '' && !FIELD.test(first)) return null;
   const blocks: Array<{ body: string; sep: string; data: unknown }> = [];
   const boundary = /\r\n\r\n|\n\n|\r\r/g;
   let from = 0;
@@ -198,27 +223,45 @@ export function maskSseStream(text: string, rules: Normalizer[], observer?: Rewr
   // A stream cut short ends without its blank line.
   if (from < text.length && !take(text.slice(from), '')) return null;
   if (!blocks.some((b) => b.data !== undefined)) return null;
-  const changed = maskStreamed(
+  const across = maskStreamed(
     blocks.map((b) => b.data),
     rules,
     observer,
   );
-  if (!changed.size) return null;
+  const isData = (line: string) => line.startsWith('data:');
+  const prefix = (line: string) => (line.startsWith('data: ') ? 'data: ' : 'data:');
   return blocks
     .map((b, i) => {
-      if (!changed.has(i)) return b.body + b.sep;
+      // Lines and the line endings between them, as they were: [line, eol, line, eol, …, line].
+      const parts = b.body.split(/(\r\n|\r|\n)/);
+      const lines = parts.filter((_, k) => k % 2 === 0);
+      const data = lines.filter(isData);
+      const other = (line: string) => rewriteText(line, rules, observer);
+      let payload: string[] | null = null;
+      if (across.has(i)) payload = [maskEventData(JSON.stringify(b.data), rules, observer, i + 1)];
+      else if (data.length) {
+        const joined = data.map((l) => l.slice(prefix(l).length)).join('\n');
+        const masked = maskEventData(joined, rules, observer, i + 1);
+        if (masked !== joined) payload = masked.split('\n');
+      }
+      if (!payload || (!across.has(i) && payload.length === data.length)) {
+        // The same lines: each keeps its prefix and its line ending.
+        let d = 0;
+        for (let k = 0; k < parts.length; k += 2) parts[k] = isData(parts[k]!) ? (payload ? prefix(parts[k]!) + payload[d++]! : parts[k]!) : other(parts[k]!);
+        return parts.join('') + b.sep;
+      }
+      // The data written again where its first line was (one line of JSON), the other fields where they were.
       const eol = b.body.includes('\r\n') ? '\r\n' : b.body.includes('\r') ? '\r' : '\n';
-      // The event's other fields stay where they were; its data becomes one line where the first was.
-      const lines: string[] = [];
+      const out: string[] = [];
       let written = false;
-      for (const line of b.body.split(/\r\n|\r|\n/)) {
-        if (!line.startsWith('data:')) lines.push(line);
+      for (const line of lines) {
+        if (!isData(line)) out.push(other(line));
         else if (!written) {
-          lines.push(`data: ${JSON.stringify(b.data)}`);
+          out.push(...payload.map((piece) => `data: ${piece}`));
           written = true;
         }
       }
-      return lines.join(eol) + b.sep;
+      return out.join(eol) + b.sep;
     })
     .join('');
 }

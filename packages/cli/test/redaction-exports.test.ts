@@ -31,7 +31,8 @@ const VALUES = {
   user: { value: 'user-7f3a9', marker: '<USER>' },
   // A tool rule with a path: the tool's arguments.
   key: { value: 'sk-live-5b1c', marker: '<KEY>' },
-  // An api rule with a path in what the call got back: a number in the model's answer, which no pattern rewrites.
+  // An api rule with a path in what the call got back: a number in the model's answer, which no
+  // pattern rewrites. Only a copy that is read masks it: a pack's replay hands the answer to the agent.
   ticket: { value: '9123456789012', marker: '<TICKET>' },
   // The model's answer and a tool's error: rules without a path.
   answer: { value: 'bob@example.com', marker: '<EMAIL>' },
@@ -56,8 +57,10 @@ const RULES = [
  * carries masked. Anything in neither list it must not carry at all.
  */
 const EXPECT: Record<RedactionExport['id'], { kept: Value[]; masked: Value[] } | null> = {
-  // Every request, response and error masked; the command line, labels and notes as recorded, since a replay runs the command.
-  pack: { kept: ['command', 'label', 'note'], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error'] },
+  // Every request masked, and the strings of every response and error; what a call got back as
+  // recorded otherwise (the ticket), and the command line, labels and notes, since a replay runs the
+  // command and hands the agent what each call got back.
+  pack: { kept: ['command', 'label', 'note', 'ticket'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
   // Everything, the run's details too: the file is read, never replayed.
   html: { kept: [], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error', 'command', 'label', 'note'] },
   // The model calls only, whole requests and responses: no tool calls, no command line.

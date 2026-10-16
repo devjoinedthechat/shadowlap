@@ -129,6 +129,29 @@ interface Doc {
   text: string;
   /** A streamed response, counted by what replaced each match: its bytes. */
   stream: Buffer | null;
+  /** A streamed response's events that are JSON, each as its text: an SSE event's data, an event stream frame's payload (and the event a base64 chunk holds). */
+  events: string[];
+}
+
+/** The JSON text of each event of a stream, as a reader of the stream reads it. */
+function eventTexts(body: Buffer): string[] {
+  const out: string[] = [];
+  const add = (text: string) => {
+    try {
+      const e = JSON.parse(text) as { bytes?: unknown };
+      out.push(text);
+      if (e && typeof e.bytes === 'string') add(Buffer.from(e.bytes, 'base64').toString('utf8'));
+    } catch {
+      // [DONE], or text that is no JSON
+    }
+  };
+  const frames = eventStreamFrames(body);
+  if (frames) for (const f of frames) add(f.payload.toString('utf8'));
+  else for (const block of body.toString('utf8').split(/\r?\n\r?\n/)) {
+    const data = block.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, ''));
+    if (data.length) add(data.join('\n'));
+  }
+  return out;
 }
 
 /** A streamed model response: an SSE body, an event stream, or Gemini's array of chunks (which is a JSON document too). */
@@ -147,7 +170,7 @@ function docs(store: Store, runId: string): Doc[] {
   const out: Doc[] = [];
   for (const c of store.getCalls(runId)) {
     const at = { callNo: c.callNo, kind: c.kind, name: c.name };
-    if (c.requestRef) out.push({ ...at, in: 'request', text: JSON.stringify(c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef)), stream: null });
+    if (c.requestRef) out.push({ ...at, in: 'request', text: JSON.stringify(c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef)), stream: null, events: [] });
     for (const e of [...c.attempts, ...(c.end ? [c.end] : [])]) {
       const bytes = e.responseRef ? store.getBlob(e.responseRef)! : null;
       const utf8 = bytes && Buffer.from(bytes.toString('utf8'), 'utf8').equals(bytes) ? bytes.toString('utf8') : null;
@@ -157,39 +180,43 @@ function docs(store: Store, runId: string): Doc[] {
       } catch {
         json = false;
       }
-      out.push({ ...at, in: 'response', text: json ? utf8! : '', stream: bytes && isStream(bytes, utf8) ? bytes : null });
-      out.push({ ...at, in: 'error', text: e.meta.error ? JSON.stringify(e.meta.error) : '', stream: null });
+      const stream = bytes && isStream(bytes, utf8) ? bytes : null;
+      out.push({ ...at, in: 'response', text: json ? utf8! : '', stream, events: stream && !json ? eventTexts(stream) : [] });
+      out.push({ ...at, in: 'error', text: e.meta.error ? JSON.stringify(e.meta.error) : '', stream: null, events: [] });
     }
   }
   return out;
 }
 
-/** A copy of the run made with `rules`, read back. */
-function copyWith(src: Store, runId: string, rules: Normalizer[]): { docs: Doc[]; store: Store } {
+/** A copy of the run made with `rules`, read back: a pack's, or with `read` a copy that is only read (export html). */
+function copyWith(src: Store, runId: string, rules: Normalizer[], read = false): { docs: Doc[]; store: Store } {
   const dst = Store.open(':memory:');
-  redactRun(src, runId, rules, dst);
+  redactRun(src, runId, rules, dst, { read });
   return { docs: docs(dst, runId), store: dst };
 }
 
 const shown = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 /**
- * What the preview should say, worked out from the copies: for rule k, the changes between the copy
- * made with the rules before it and the copy made with it too, each value once in the order read,
+ * What the preview should say, worked out from the copies: for rule k, the changes between the pack
+ * made with the rules before it and the pack made with it too, each value once in the order read,
  * counted as its matches (or 1 for a value a path rule puts in place of another), with the first
  * two as samples. The streams are counted by the replacements in the copy, which each rule here
- * makes unique. Then what each rule without a path matches in the numbers the last copy holds, and
- * in the keys of its requests and errors.
+ * makes unique. A rule's `returned` is worked out the same way from the copies that are read (export
+ * html), in what calls got back: what the pack leaves there. Then what each rule without a path
+ * matches in the numbers the last pack holds, and in the keys of its requests and errors.
  */
 function expected(src: Store, runId: string, rules: Normalizer[]) {
   const copies = [{ docs: docs(src, runId), store: null as Store | null }, ...rules.map((_, k) => copyWith(src, runId, rules.slice(0, k + 1)))];
-  const out = rules.map((rule, k) => {
+  const read = [copies[0]!, ...rules.map((_, k) => copyWith(src, runId, rules.slice(0, k + 1), true))];
+  const changed = (rule: Normalizer, before: Doc[], after: Doc[], only: (doc: Doc) => boolean) => {
     const seen = new Set<string>();
     let count = 0;
     const samples: Array<{ before: string; after: string }> = [];
     const regex = rule.pattern === undefined ? null : compilePattern(rule.pattern);
-    copies[k]!.docs.forEach((doc, d) => {
-      const next = copies[k + 1]!.docs[d]!;
+    before.forEach((doc, d) => {
+      if (!only(doc)) return;
+      const next = after[d]!;
       if (doc.stream) {
         // Each replacement leaves the rule's own replacement in the stream, once.
         count += occurrences(next.stream!, rule.replace) - occurrences(doc.stream, rule.replace);
@@ -206,17 +233,20 @@ function expected(src: Store, runId: string, rules: Normalizer[]) {
       }
     });
     return { count, samples };
-  });
+  };
+  const out = rules.map((rule, k) => ({
+    ...changed(rule, copies[k]!.docs, copies[k + 1]!.docs, () => true),
+    returned: rule.path === undefined ? { count: 0, samples: [] } : changed(rule, read[k]!.docs, read[k + 1]!.docs, (doc) => doc.in !== 'request'),
+  }));
   const last = copies[copies.length - 1]!;
   const unmasked = rules.map((rule) => {
     const values = new Map<string, number>();
     if (rule.path !== undefined || rule.pattern === undefined) return { count: 0, values: [] as string[] };
     const regex = compilePattern(rule.pattern);
     for (const doc of last.docs) {
-      if (!doc.text) continue;
-      // A rule without a path reads a request only in its scope; every response and error.
+      // A rule without a path reads a request only in its scope; every response and error, and every event of a stream.
       if (doc.in === 'request' && !normalizerApplies(rule, doc.kind, doc.name)) continue;
-      for (const tok of tokens(doc.text)) {
+      for (const tok of [doc.text, ...doc.events].flatMap((t) => (t ? tokens(t) : []))) {
         const key = tok.t === 's' && tok.key && doc.in !== 'response';
         if (tok.t !== 'n' && !key) continue;
         const text = key ? tok.value! : tok.raw;
@@ -227,7 +257,7 @@ function expected(src: Store, runId: string, rules: Normalizer[]) {
     }
     return { count: [...values.values()].reduce((s, n) => s + n, 0), values: [...values.keys()].map((v) => v.slice(1)) };
   });
-  for (const c of copies) c.store?.close();
+  for (const c of [...copies, ...read]) c.store?.close();
   return { rules: out, unmasked };
 }
 
@@ -389,14 +419,17 @@ function compare(store: Store, runId: string, rules: Normalizer[], o: { samples?
     expect({ rule: k + 1, count: r.count }).toEqual({ rule: k + 1, count: want.rules[k]!.count });
     if (o.samples !== false) expect({ rule: k + 1, samples: r.samples }).toEqual({ rule: k + 1, samples: want.rules[k]!.samples });
     expect({ rule: k + 1, unmasked: r.unmasked.count, values: r.unmasked.samples.map((s) => s.value) }).toEqual({ rule: k + 1, unmasked: want.unmasked[k]!.count, values: want.unmasked[k]!.values.slice(0, 2) });
+    expect({ rule: k + 1, returned: r.returned }).toEqual({ rule: k + 1, returned: want.rules[k]!.returned });
   });
   expect(preview.total).toBe(want.rules.reduce((s, r) => s + r.count, 0));
+  expect(preview.returned).toBe(want.rules.reduce((s, r) => s + r.returned.count, 0));
   return preview;
 }
 
 describe('the preview, against the copy', () => {
   it('counts and samples what the copy changes in generated documents, every rule alone and all together', () => {
     let changed = 0;
+    let returned = 0;
     let unmasked = 0;
     for (let seed = 1; seed <= 30; seed++) {
       const store = Store.open(':memory:');
@@ -404,11 +437,14 @@ describe('the preview, against the copy', () => {
       for (const rule of RULES) compare(store, runId, [rule]);
       const all = compare(store, runId, RULES);
       changed += all.total;
+      returned += all.returned;
       unmasked += all.unmasked;
       store.close();
     }
-    // The documents did hold what the rules are about, and numbers they match.
+    // The documents did hold what the rules are about, numbers they match, and values at the paths
+    // that only a copy that is read masks.
     expect(changed).toBeGreaterThan(300);
+    expect(returned).toBeGreaterThan(30);
     expect(unmasked).toBeGreaterThan(30);
   });
 
@@ -424,8 +460,9 @@ describe('the preview, against the copy', () => {
       return encodeEventStreamFrame(header, Buffer.from(JSON.stringify(payload)));
     };
     const bodies = [
-      // Anthropic: an address and a card split across deltas, a time in one piece, an order in a tool call's JSON.
-      sse([text('Mail ma'), text('ya@exam'), text('ple.com about card 4111 11'), text('11 1111 2222 at 1792155242516.'), { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"note":"order 4' } }, { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '17 for acct-99"}' } }]),
+      // Anthropic: an address and a card split across deltas, a time in one piece, an order in a tool
+      // call's JSON; and a count in an event that a card pattern matches, which stays a number.
+      sse([{ type: 'message_start', message: { id: 'msg_1', usage: { input_tokens: 1792155242518 } } }, text('Mail ma'), text('ya@exam'), text('ple.com about card 4111 11'), text('11 1111 2222 at 1792155242516.'), { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"note":"order 4' } }, { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '17 for acct-99"}' } }]),
       // OpenAI chat chunks: the content and a tool call's arguments in pieces.
       sse([{ choices: [{ index: 0, delta: { content: 'Write to lee@exa' } }] }, { choices: [{ index: 0, delta: { content: 'mple.com now' } }] }, { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"to":"kim@' } }] } }] }, { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: 'example.com"}' } }] } }] }]) + 'data: [DONE]\n\n',
       // Gemini's array of chunks.
@@ -441,6 +478,9 @@ describe('the preview, against the copy', () => {
       frame({ bytes: Buffer.from(JSON.stringify(text('Paid by ann@exa'))).toString('base64') }),
       frame({ bytes: Buffer.from(JSON.stringify(text('mple.com, acct-12'))).toString('base64') }),
       frame({ contentBlockIndex: 0, delta: { text: 'order 512 for bea@example.com' } }),
+      // ConverseStream's metadata, and a chunk's own usage: numbers a card pattern matches.
+      frame({ metadata: { usage: { inputTokens: 12 }, metrics: { latencyMs: 1792155242519 } } }),
+      frame({ bytes: Buffer.from(JSON.stringify({ type: 'message_delta', usage: { output_tokens: 1792155242520 } })).toString('base64') }),
     ]);
     const id = { kind: 'api' as const, name: 'POST /model/x/invoke-with-response-stream', fingerprint: 'b'.repeat(64), occurrence: 1 };
     store.appendCallStart({ runId: run.runId, callNo: 4, ...id, origin: 'live', effect: null, requestRef: storeApiRequest(store, { messages: [{ role: 'user', content: 'Go.' }] }), meta: {}, at: 4 });
@@ -452,12 +492,29 @@ describe('the preview, against the copy', () => {
     // Each value a stream splits counts once, as the copy masks it. Addresses: maya, lee and kim,
     // joe, ann and bea. Cards: two in the first stream (its time is text there), one in the chunks.
     expect(preview.rules.map((r) => r.count)).toEqual([6, 3, 2, 2]);
-    // The number the chunks carry as a number stays, and the preview says so.
-    expect(preview.rules[1]!.unmasked.samples).toEqual([{ value: '1792155242517', key: false, callNo: 3, kind: 'api', name: 'POST /v1/messages', in: 'response', path: '$[1].usageMetadata.totalTokenCount' }]);
-    // The copy holds none of what was matched in text.
+    // The numbers the events carry as numbers stay, and the preview says so, with the event each is
+    // in (the array of chunks is one JSON document, its first position the chunk).
+    const card = preview.rules[1]!.unmasked;
+    expect(card.count).toBe(4);
+    expect(card.samples).toEqual([
+      { value: '1792155242518', key: false, callNo: 1, kind: 'api', name: 'POST /v1/messages', in: 'response', path: '$.message.usage.input_tokens', event: 1 },
+      { value: '1792155242517', key: false, callNo: 3, kind: 'api', name: 'POST /v1/messages', in: 'response', path: '$[1].usageMetadata.totalTokenCount', event: null },
+    ]);
+    expect(card.reasons).toEqual(['stream']);
+    // The copy holds none of what was matched in text, and every event is JSON still.
     const copy = copyWith(store, run.runId, rules);
     const all = copy.docs.map((d) => (d.stream ? streamedText(d.stream) : d.text)).join('\n');
     expect(all).not.toMatch(/@example|4111|5500|acct-\d|order \d|1792155242516/);
+    const events = copy.docs.flatMap((d) => d.events);
+    expect(events.length).toBeGreaterThan(10);
+    expect(events.join('\n')).toContain('"input_tokens":1792155242518');
+    expect(events.join('\n')).toContain('"latencyMs":1792155242519');
+    expect(events.join('\n')).toContain('"output_tokens":1792155242520');
+    for (const d of copy.docs.filter((x) => x.stream)) {
+      const frames = eventStreamFrames(d.stream!);
+      if (frames) for (const f of frames) expect(() => JSON.parse(f.payload.toString('utf8'))).not.toThrow();
+      else for (const line of d.stream!.toString('utf8').split('\n')) if (line.startsWith('data: ') && line !== 'data: [DONE]') expect(() => JSON.parse(line.slice(6)), line).not.toThrow();
+    }
     copy.store.close();
     // A sample is the text the model streamed, as it adds up, before and after the rule.
     const streamed = 'Mail maya@example.com about card 4111 1111 1111 2222 at 1792155242516.';

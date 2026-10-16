@@ -82,18 +82,23 @@ export interface RewriteObserver {
   changed?(rule: number, before: unknown, after: unknown, count: number): void;
   /**
    * A rule's pattern matches something the rules leave as it is, so a copy carries it as recorded:
-   * a number, which a pattern never rewrites; a key where keys stay (a request's, an error's); or a
-   * number or object at a path rule's path, which its pattern can't apply to. Reported once every
-   * rule has applied, at `path` in the value (a key's own name last), with the text matched and how
-   * many matches it holds.
+   * a number, which a pattern never rewrites; a key where keys stay (a request's, an error's); or,
+   * for a rule with a path, a number at its path, or a string, number or key inside an object or
+   * list at its path, since its pattern applies only to a string there. Reported once every rule has
+   * applied, at `path` in the value (a key's own name last), with the text matched and how many
+   * matches it holds.
    */
   unmasked?(rule: number, text: string, at: UnmaskedAt, count: number): void;
 }
 
-/** Where a value the rules leave as it is sits: its path, and whether it is a key there (the key's own name ends the path). */
+/** Where a value the rules leave as it is sits, and what it is. */
 export interface UnmaskedAt {
+  /** Its path in the document (a key's own name ends it); in a stream, in its event. */
   path: Array<string | number>;
-  key: boolean;
+  /** A number; a key; or a string inside an object or list at the path of a rule with a pattern, which applies only at its path. */
+  what: 'number' | 'key' | 'string';
+  /** In a streamed response, the event it is in, from 1. */
+  event?: number;
 }
 
 /** Returns a deep copy of `value` with every applicable normalizer applied. */
@@ -133,44 +138,51 @@ export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind
 /**
  * What each rule's pattern matches in `value` (a request or an error, as JSON values, with every
  * rule already applied) that the rules leave as it is: for a rule without a path, every number and
- * every key, since only string values are rewritten; for a rule with a path and a pattern, a number,
- * object or list at its path, since a pattern applies to a string there. (true, false and null hold
- * nothing to mask.) `applies` says which rules apply here, `prefix` where `value` sits.
+ * every key, since only string values are rewritten; for a rule with a path and a pattern, a number
+ * at its path, and in an object or list at its path each string, number and key inside, since its
+ * pattern applies only to a string at its path. (true, false and null hold nothing to mask.)
+ * `applies` says which rules apply here, `prefix` where `value` sits.
  */
 export function reportUnmasked(value: unknown, rules: readonly Normalizer[], applies: (rule: Normalizer) => boolean, report: NonNullable<RewriteObserver['unmasked']>, prefix: Array<string | number> = []): void {
   rules.forEach((rule, i) => {
     if (rule.pattern === undefined || !applies(rule)) return;
     const regex = compilePattern(rule.pattern);
     // `path` is the walk's own, changed as it goes: copied when it is reported.
-    const test = (text: string, path: Array<string | number>, key: boolean) => {
+    const test = (text: string, path: Array<string | number>, what: UnmaskedAt['what']) => {
       const count = countMatches(text, regex);
-      if (count) report(i, text, { path: [...path], key }, count);
+      if (count) report(i, text, { path: [...path], what }, count);
     };
     if (rule.path === undefined) {
-      walkLeft(value, [...prefix], test);
+      walkLeft(value, [...prefix], test, false);
       return;
     }
     visitPaths(value, parsePath(rule.path), prefix, (leaf, path) => {
-      if (typeof leaf === 'number' || (leaf !== null && typeof leaf === 'object')) test(JSON.stringify(leaf), path, false);
+      if (typeof leaf === 'number') test(JSON.stringify(leaf), path, 'number');
+      else if (leaf !== null && typeof leaf === 'object') walkLeft(leaf, [...path], test, true);
     });
   });
 }
 
-/** Every number and every key in `value`, in order: what a rule without a path leaves as it is. */
-function walkLeft(value: unknown, path: Array<string | number>, test: (text: string, path: Array<string | number>, key: boolean) => void): void {
+/**
+ * Every number and every key in `value`, in order, and with `strings` every string too: what a rule
+ * without a path leaves as it is, or what a rule with a pattern leaves in an object at its path.
+ */
+function walkLeft(value: unknown, path: Array<string | number>, test: (text: string, path: Array<string | number>, what: UnmaskedAt['what']) => void, strings: boolean): void {
   if (ArrayBuffer.isView(value)) return;
-  if (typeof value === 'number') test(JSON.stringify(value), path, false);
-  else if (Array.isArray(value)) {
+  if (typeof value === 'number') test(JSON.stringify(value), path, 'number');
+  else if (typeof value === 'string') {
+    if (strings) test(value, path, 'string');
+  } else if (Array.isArray(value)) {
     value.forEach((v, i) => {
       path.push(i);
-      walkLeft(v, path, test);
+      walkLeft(v, path, test, strings);
       path.pop();
     });
   } else if (value !== null && typeof value === 'object') {
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       path.push(k);
-      test(k, path, true);
-      walkLeft(v, path, test);
+      test(k, path, 'key');
+      walkLeft(v, path, test, strings);
       path.pop();
     }
   }

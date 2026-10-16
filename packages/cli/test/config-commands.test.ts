@@ -283,7 +283,7 @@ describe('shadowlap redact', () => {
     expect(r.out).toContain(`${imported.runId.slice(0, 10)} (imported from captures/session.har): 0 values would be masked`);
   });
 
-  it('says what a copy leaves as it is, with the path rule that masks it, and that rule does', async () => {
+  it('says what a pack leaves as it is, with the path rule that masks it in the copies that are read, and that rule does', async () => {
     const store = Store.open(dbPath());
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd } });
     const call = (callNo: number, kind: 'clock' | 'tool', name: string, request: unknown, result: string) => {
@@ -291,9 +291,10 @@ describe('shadowlap redact', () => {
       store.appendCallStart({ runId: run.runId, callNo, ...id, origin: 'live', effect: kind === 'tool' ? 'read' : null, requestRef: store.putJson(request), meta: {}, at: callNo });
       store.appendCallEnd(id, { runId: run.runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(result)), outcome: 'ok', meta: {}, at: callNo });
     };
-    // The time the agent read, and a card on file: a number, and the same card as text.
+    // The time the agent read, a card on file (a number, and the same card as text), and the card sent to a charge as a number.
     call(1, 'clock', 'now', { label: 'now' }, '{"result":1792155242516}');
     call(2, 'tool', 'lookup_card', { args: { customer: 'C-311' } }, '{"result": {"card": 4111111111111111, "on_file": "4111 1111 1111 1111"}}');
+    call(3, 'tool', 'charge', { args: { card: 4111111111111111 } }, '{"result": {"ok": true}}');
     store.endRun(run.runId, 'completed');
     store.close();
     expect((await shadowlap(['redact', 'add', '--pattern', '/\\b(?:\\d[ -]?){13,16}\\b/', '--replace', '<CARD>'])).code).toBe(0);
@@ -310,29 +311,44 @@ describe('shadowlap redact', () => {
         '        = 1792155242516  call 1 clock now, response $.result',
         '        = 4111111111111111  call 2 tool lookup_card, response $.result.card',
         '        a path rule masks the whole value at its path, numbers included:',
+        "          shadowlap redact add --kind tool --name charge --path '$.args.card' --replace '<CARD>'",
+        '        a pack keeps what a call got back, since its replay hands it to the agent; export html, har and dataset mask it with:',
         "          shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'",
+        '        a clock or random read stays as recorded: a replay needs it',
         '',
       ].join('\n'),
     );
     r = await shadowlap(['redact', 'preview', run.runId, '--json']);
-    const preview = JSON.parse(r.out) as { total: number; unmasked: number; rules: Array<{ unmasked: { count: number; samples: Array<{ value: string; key: boolean; in: string; path: string }>; remedies: Array<{ rule: unknown; command: string }> } }> };
-    expect(preview).toMatchObject({ total: 1, unmasked: 2 });
-    expect(preview.rules[0]!.unmasked.samples.map((s) => [s.value, s.key, s.in, s.path])).toEqual([
-      ['1792155242516', false, 'response', '$.result'],
-      ['4111111111111111', false, 'response', '$.result.card'],
+    type Unmasked = { count: number; samples: Array<{ value: string; key: boolean; in: string; path: string; event: number | null }>; places: number; remedies: Array<{ rule: unknown; command: string; copies: string }>; covered: number[]; reasons: string[] };
+    const preview = JSON.parse(r.out) as { total: number; returned: number; unmasked: number; rules: Array<{ returned: { count: number }; unmasked: Unmasked }> };
+    expect(preview).toMatchObject({ total: 1, returned: 0, unmasked: 2 });
+    expect(preview.rules[0]!.unmasked.samples.map((s) => [s.value, s.key, s.in, s.path, s.event])).toEqual([
+      ['1792155242516', false, 'response', '$.result', null],
+      ['4111111111111111', false, 'response', '$.result.card', null],
     ]);
-    expect(preview.rules[0]!.unmasked.remedies).toEqual([{ rule: { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'" }]);
+    expect(preview.rules[0]!.unmasked).toMatchObject({
+      places: 2,
+      remedies: [
+        { rule: { kind: 'tool', name: 'charge', path: '$.args.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --name charge --path '$.args.card' --replace '<CARD>'", copies: 'all' },
+        { rule: { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'", copies: 'read' },
+      ],
+      covered: [],
+      reasons: ['replay'],
+    });
 
-    // The command it gives, run: the card is masked in a pack, and only the time is left as it was.
+    // The commands it gives, run: the charge's card is masked in a pack; the card the lookup returned
+    // only in a copy that is read, and the preview says which rule does it; the time is left everywhere.
+    expect((await shadowlap(['redact', 'add', '--kind', 'tool', '--name', 'charge', '--path', '$.args.card', '--replace', '<CARD>'])).code).toBe(0);
     expect((await shadowlap(['redact', 'add', '--kind', 'tool', '--name', 'lookup_card', '--path', '$.result.card', '--replace', '<CARD>'])).code).toBe(0);
     r = await shadowlap(['redact', 'preview', run.runId]);
-    expect(r.out).toContain(': 2 values would be masked, 1 left as it is\n');
-    expect(r.out).toContain('        = 1792155242516  call 1 clock now, response $.result\n        what a clock or random read returned stays as recorded: a replay needs it\n');
-    expect(r.out).toMatch(/#2 +tool · lookup_card +\$\.result\.card +whole value → <CARD> +1\n {8}- 4111111111111111\n {8}\+ <CARD>/);
+    expect(r.out).toContain(': 2 values would be masked, 2 left as they are; export html, har and dataset mask 1 more in what calls got back\n');
+    expect(r.out).toContain('        a pack keeps what a call got back, since its replay hands it to the agent; export html, har and dataset mask it (#3 already does)\n        a clock or random read stays as recorded: a replay needs it\n');
+    expect(r.out).toMatch(/#3 +tool · lookup_card +\$\.result\.card +whole value → <CARD> +0 +a pack keeps what calls got back, since its replay hands it to the agent\n {8}export html, har and dataset mask 1 in what calls got back:\n {8}- 4111111111111111\n {8}\+ <CARD>/);
     expect((await shadowlap(['pack', run.runId, join(cwd, 'packed')])).code).toBe(0);
     const blobs = readdirSync(join(cwd, 'packed', 'blobs')).map((f) => readFileSync(join(cwd, 'packed', 'blobs', f), 'utf8'));
     expect(blobs).toContain('{"result":1792155242516}');
-    expect(blobs.join('\n')).not.toContain('4111');
+    expect(blobs).toContain('{"result": {"card": 4111111111111111, "on_file": "<CARD>"}}');
+    expect(blobs).toContain('{"args":{"card":"<CARD>"}}');
   });
 
   it("previews the run's command line, labels and notes apart, which export html masks and pack keeps", async () => {

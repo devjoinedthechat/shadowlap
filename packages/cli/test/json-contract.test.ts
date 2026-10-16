@@ -142,9 +142,10 @@ describe('the JSON the CLI prints', () => {
     expect((await shadowlap(['redact', 'add', '--pattern', 'number', '--replace', '<N>'])).code).toBe(0);
     for (const list of ['normalize', 'redact']) expect(keys(json(await shadowlap([list, 'ls', '--json'])))).toEqual(fields('rules'));
     type Unmasked = { samples: object[]; remedies: object[] };
-    const preview = json<{ rules: Array<{ unmasked: Unmasked }> }>(await shadowlap(['redact', 'preview', recording, '--json']));
+    const preview = json<{ rules: Array<{ returned: object; unmasked: Unmasked }> }>(await shadowlap(['redact', 'preview', recording, '--json']));
     expect(keys(preview)).toEqual(fields('preview'));
     expect(keys(preview.rules[0])).toEqual(fields('previewRule'));
+    expect(keys(preview.rules[0]!.returned)).toEqual(fields('previewReturned'));
     const unmasked = preview.rules[1]!.unmasked;
     expect(keys(unmasked)).toEqual(fields('previewUnmasked'));
     expect(keys(unmasked.samples[0])).toEqual(fields('previewUnmaskedSample'));

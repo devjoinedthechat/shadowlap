@@ -149,6 +149,29 @@ describe('redactBytes on a streamed response', () => {
     }
   });
 
+  it('keeps a number an event holds as recorded, so every event stays JSON', () => {
+    const CARD: Normalizer = { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' };
+    // A count in an event that a card pattern matches: masked as text, the event would read "input_tokens":<CARD>.
+    const body = Buffer.from(
+      sse([
+        ['message_start', { type: 'message_start', message: { id: 'msg_1', usage: { input_tokens: 1792155242516, output_tokens: 1 } } }],
+        ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Card 4111 1111 1111 1111 on file.' } }],
+      ]),
+    );
+    const out = redactBytes(body, [CARD]).toString();
+    expect(out).toContain('data: {"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":1792155242516,"output_tokens":1}}}\n\n');
+    expect(out).toContain('"text":"Card <CARD>on file."');
+    for (const line of out.split('\n')) if (line.startsWith('data: ')) expect(() => JSON.parse(line.slice(6))).not.toThrow();
+    // An event's data over two lines, with and without the space after the colon: each line keeps its own.
+    const split = Buffer.from('event: x\r\ndata: {"note": "for bob@example.com",\r\ndata:"at": 1792155242516}\r\n\r\n');
+    expect(redactBytes(split, [EMAIL, CARD]).toString()).toBe('event: x\r\ndata: {"note": "for <EMAIL>",\r\ndata:"at": 1792155242516}\r\n\r\n');
+    // Bedrock's ConverseStream metadata keeps its latency as a number.
+    const header = Buffer.concat([Buffer.from([11]), Buffer.from(':event-type'), Buffer.from([7, 0, 8]), Buffer.from('metadata')]);
+    const frames = Buffer.concat([encodeEventStreamFrame(header, Buffer.from(JSON.stringify({ metadata: { usage: { inputTokens: 12 }, metrics: { latencyMs: 1792155242516 } }, note: 'paid 4111 1111 1111 1111' })))]);
+    const masked = eventStreamFrames(redactBytes(frames, [CARD]))!;
+    expect(JSON.parse(masked[0]!.payload.toString())).toEqual({ metadata: { usage: { inputTokens: 12 }, metrics: { latencyMs: 1792155242516 } }, note: 'paid <CARD>' });
+  });
+
   it('leaves what only looks like a stream to the rules as text', () => {
     // A line that is no SSE field: the body is text, masked as text.
     const body = Buffer.from('data: {"text":"maya@"}\nnot a field\n\ndata: {"text":"example.com"}\n\n');

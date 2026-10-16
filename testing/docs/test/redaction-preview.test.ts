@@ -2,8 +2,9 @@
 // `shadowlap redact preview` prints with them. Readers add their rules from the one and compare
 // their preview with the other, so both are made real here: the page's `redact add` commands write
 // the config, a store holds the run its sample describes (a clock read, a model call, a card a tool
-// returns as a number, a tool call that carries a key), and what the CLI prints for it is the page's
-// block, run ids masked. The run's details line is held to a second run that has some.
+// returns as a number and another tool is sent, a tool call that carries a key), and what the CLI
+// prints for it is the page's block, run ids masked. The run's details line is held to a second run
+// that has some.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,6 +68,7 @@ beforeAll(() => {
     { kind: 'clock', name: 'now', request: { label: 'now' }, response: '{"result":1792155242516}' },
     { kind: 'api', name: 'POST /v1/messages', request: { model: 'claude-sonnet-5', max_tokens: 1024, system, messages: [ask] }, response: JSON.stringify({ content: [{ type: 'tool_use', id: 't1', name: 'lookup_order', input: { order: '4417' } }] }) },
     { kind: 'tool', name: 'lookup_order', request: { args: { order: '4417' } }, response: '{"result": {"order": "4417", "card": 4111111111111111, "note": "paid with 4111 1111 1111 1111"}}' },
+    { kind: 'tool', name: 'refund_card', request: { args: { card: 4111111111111111, amount: 42 } }, response: '{"result": {"refunded": true}}' },
     { kind: 'tool', name: 'send_email', request: { args: { api_key: 'sk-live-123', to: 'bob@example.com' } }, response: '{"result": {"sent": true}}' },
   ]);
   details = recorded(store, ['node', 'agent.js', '--customer', 'erin@example.com'], [{ kind: 'clock', name: 'now', request: { label: 'now' }, response: '{"result":1792155242600}' }]);
