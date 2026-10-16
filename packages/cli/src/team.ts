@@ -520,6 +520,10 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   try {
     const runIds = runList(store, runArgs);
     const who = actor(t);
+    // A run whose recorder is gone (killed, out of memory) would wait for an end that never comes:
+    // ended as interrupted at its last call, as gc ends it, it goes now.
+    const named = new Set(runIds);
+    for (const { run, lastAt } of store.recordingRuns().abandoned) if (flags.all || named.has(run.runId)) store.endRun(run.runId, 'crashed', lastAt);
     if (!flags.json) {
       note(t, p.dim(`Pushing to ${target.loc.url} as ${safe(who ?? 'an unknown author')} with ${safe(await remote.credentials().catch(() => 'no credentials'))}`));
       if (target.pr) note(t, p.dim(`  ${pullRequestLine(target)}`));

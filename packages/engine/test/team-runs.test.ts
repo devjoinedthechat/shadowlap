@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Store, teamRunCounts, type RunMeta, type TeamRunRow } from '../src/index.js';
+import { abandonedRuns, Store, teamRunCounts, type RunMeta, type TeamRunRow } from '../src/index.js';
 
 /**
  * The team store's counts, by run: attempts are filed under the run they came from, as the Runs
@@ -81,6 +81,18 @@ describe('teamRunCounts', () => {
     listed(store, done);
     expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 1, onlyLocal: 0, queued: 1 });
     expect(teamRunCounts(store, `${KEY}?endpoint=https://minio.internal:9000`)).toMatchObject({ inStore: 0, onlyLocal: 1, queued: 0 });
+    store.close();
+  });
+
+  it('counts a recording whose recorder is gone, which a push ends and sends, but not one still recording', () => {
+    const store = Store.open(':memory:');
+    const now = Date.parse('2026-10-03T09:00:00Z');
+    // Killed two days ago, before it ended: still marked running, with nothing recording it.
+    store.importRun({ runId: '01K4ZZ0000000000000000LEFT', parentRunId: null, mode: 'record', status: 'running', divergence: null, command: cmd, codeVersion: null, startedAt: now - 2 * 86_400_000, endedAt: null });
+    // This process records this one.
+    run(store, { running: true });
+    expect(abandonedRuns(store, now)).toEqual(new Set(['01K4ZZ0000000000000000LEFT']));
+    expect(teamRunCounts(store, KEY, 500, abandonedRuns(store, now))).toMatchObject({ onlyLocal: 1, localRuns: ['01K4ZZ0000000000000000LEFT'] });
     store.close();
   });
 

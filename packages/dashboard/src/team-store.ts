@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { teamRunCounts, type Store, type TeamRunCounts } from '@shadowlap/engine';
+import { abandonedRuns, teamRunCounts, type Store, type TeamRunCounts } from '@shadowlap/engine';
 import { CREDENTIAL_HINTS, credentialsHere, formatStoreUrl, lastCheck, parseStoreUrl, shortStoreName, storeKey, storeKindName, type LastCheck, type Provider, type StoreLocation } from '@shadowlap/remote';
 
 /**
@@ -73,13 +73,17 @@ const LOCAL_IDS = 500;
 const VERSION_SQL = `SELECT (SELECT data_version FROM pragma_data_version()) AS dv, total_changes() AS tc`;
 const kept = new WeakMap<Store, { key: string; version: string; counts: TeamRunCounts }>();
 
-/** The by-run counts, read again only when the store changed: the status bar and the Overview ask on every reload. */
+/**
+ * The by-run counts, read again only when the store changed, or a recording's recorder went away
+ * meanwhile: the status bar and the Overview ask on every reload.
+ */
 export function countsOf(store: Store, key: string): TeamRunCounts {
   const v = store.query(VERSION_SQL)[0];
-  const version = `${String(v?.dv)}|${String(v?.tc)}`;
+  const ended = abandonedRuns(store);
+  const version = `${String(v?.dv)}|${String(v?.tc)}|${[...ended].sort().join(',')}`;
   const hit = kept.get(store);
   if (hit && hit.key === key && hit.version === version) return hit.counts;
-  const counts = teamRunCounts(store, key, LOCAL_IDS);
+  const counts = teamRunCounts(store, key, LOCAL_IDS, ended);
   kept.set(store, { key, version, counts });
   return counts;
 }

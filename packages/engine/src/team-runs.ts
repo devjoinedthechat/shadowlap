@@ -8,8 +8,9 @@ import type { Store } from './store.js';
  * under the run they came from and never counted on their own. A run is only on this machine when
  * it, or an attempt filed under it, isn't in the store's index yet: what the Runs page tags `local`,
  * and what a push of that run sends. Runs still recording (they go when they end) and runs pulled
- * from a pull request's folder (they never go) are left out. Settings → Store, Needs a look,
- * `shadowlap store show` and the summaries of push and pull all say these numbers.
+ * from a pull request's folder (they never go) are left out; a run whose recorder is gone (killed,
+ * out of memory) is counted, since a push ends it as interrupted and sends it. Settings → Store,
+ * Needs a look, `shadowlap store show` and the summaries of push and pull all say these numbers.
  */
 export interface TeamRunCounts {
   /** Runs the store's index lists, as far as this machine knows; attempts filed under their run. */
@@ -58,7 +59,7 @@ interface Row {
 }
 
 /** Every run here, with the run each attempt is filed under: the run it replayed, when that run is here too. */
-function runRows(store: Store): Row[] {
+function runRows(store: Store, ended: ReadonlySet<string>): Row[] {
   const raw = store.query(RUNS_SQL);
   // The fork blame rescued a run with is a probe, but it shows as a fork of its own.
   const rescued = new Set(raw.map((r) => r.rescued).filter((x): x is string => typeof x === 'string'));
@@ -68,16 +69,24 @@ function runRows(store: Store): Row[] {
     const parent = typeof r.parent === 'string' ? r.parent : null;
     const meta: ClassifiableMeta = { repeat: json(r.rep), probe: json(r.probe) as ClassifiableMeta['probe'], verify: json(r.verify), test: json(r.test) };
     const { attemptOf } = classifyRun({ runId: id, parentRunId: parent, mode: 'replay', status: r.status as RunStatus, divergence: null, meta }, { rescued: rescued.has(id) });
-    return { id, parent, status: r.status as RunStatus, pr: typeof r.pr === 'string' && r.pr !== '', under: attemptOf && here.has(attemptOf) ? attemptOf : null };
+    // A recording whose recorder is gone counts as ended: a push ends it, as interrupted, and sends it.
+    const status = r.status === 'running' && ended.has(id) ? 'crashed' : (r.status as RunStatus);
+    return { id, parent, status, pr: typeof r.pr === 'string' && r.pr !== '', under: attemptOf && here.has(attemptOf) ? attemptOf : null };
   });
+}
+
+/** Runs still marked recording whose recorder is gone: a push ends them and sends them. */
+export function abandonedRuns(store: Store, now = Date.now()): Set<string> {
+  return new Set(store.recordingRuns(now).abandoned.map((a) => a.run.runId));
 }
 
 /**
  * Counts a project's runs against one store (`remote`, the store's identity), by run. `limit` caps
- * the ids of runs only here that come back (newest first); the counts are always whole.
+ * the ids of runs only here that come back (newest first); the counts are always whole. `ended`:
+ * the recordings whose recorder is gone (`abandonedRuns`), when the caller has them already.
  */
-export function teamRunCounts(store: Store, remote: string, limit = 500): TeamRunCounts {
-  const runs = runRows(store);
+export function teamRunCounts(store: Store, remote: string, limit = 500, ended: ReadonlySet<string> = abandonedRuns(store)): TeamRunCounts {
+  const runs = runRows(store, ended);
   const team = new Map(store.query(TEAM_SQL, remote).map((t) => [String(t.id), { state: String(t.state), queued: t.state === 'queued', listed: Number(t.listed) === 1, under: typeof t.attempt_of === 'string' ? t.attempt_of : null }]));
   const listed = (id: string) => team.get(id)?.listed === true;
   const byId = new Map(runs.map((r) => [r.id, r]));

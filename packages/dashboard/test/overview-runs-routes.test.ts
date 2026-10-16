@@ -317,9 +317,10 @@ describe('a run its recorder left', () => {
   it('is ended as interrupted when it is pushed, as gc would, so the push sends it now', async () => {
     leave();
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
-    // Still marked running, so the store's count (and the CLI's) has it once it is ended.
+    // Still marked running, but nothing records it: the store's count (and the CLI's) has it
+    // already, since a push ends it and sends it.
     const before = await get<OverviewSummary>(dash, 'summary');
-    expect(before.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
+    expect(before.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
     expect(await built({ kind: 'push', runIds: [left] })).toEqual(['push', left]);
     expect(store.getRun(left)).toMatchObject({ status: 'crashed' });
     const after = await get<OverviewSummary>(dash, 'summary');
