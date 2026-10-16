@@ -841,19 +841,19 @@ shadowlap store push-from-ci on|off                      # whether CI pushes its
 Set up the [team store](./team.md#the-store). `set` checks the URL against the provider's scheme
 (with `--provider`, against that one only) and writes it to the config, keeping everything else;
 with `--check` it first checks the store as `check` does and writes nothing when that fails, then
-says what to fix and to run the same `store set … --check` again (run by the dashboard's setup,
-**Check access and connect** again), as the store setup's **Check access and connect** runs it. `check` proves this machine's credentials can list, write, read and delete a test object, and
-reports encryption, versioning and object lock, with a warning when versioning or object lock is
-off; it exits 1 when access fails. `policy` prints two policies scoped to the store's folder, each
-an IAM policy, role bindings, a role assignment or R2 token scopes: one for people and CI on
-protected branches, and one for pull requests' CI jobs, which may write only under `pr/`. `ci`
-prints a step for GitHub Actions, GitLab CI or any other CI, with short-lived credentials (OIDC)
-where the CI and the cloud allow it, and the pull-request credentials beside the protected
-branches' (on GitHub, for pull requests from the repository itself: a fork's gets no OIDC token, so
-its job skips them and runs the tests without pushing). `push-from-ci off` writes `"ciPush": false`
-to the config: `test --push` in CI then runs the tests and keeps their runs in the job (outside CI,
-`--push` still pushes), and the GitHub Action keeps the fixes it opens there too; `on` turns it
-back on. Each takes `--json`.
+says what to fix and to run the same `store set … --check` again (in the dashboard's store setup,
+**Check access and connect** again). `check` proves this machine's credentials can list, write, read
+and delete a test object, and reports encryption, versioning and object lock, with a warning when
+versioning or object lock is off; it exits 1 when access fails. `policy` prints two policies scoped
+to the store's folder, each an IAM policy, role bindings, a role assignment or R2 token scopes: one
+for people and CI on protected branches, and one for pull requests' CI jobs, which may write only
+under `pr/`. `ci` prints a step for GitHub Actions, GitLab CI or any other CI, with short-lived
+credentials (OIDC) where the CI and the cloud allow it, and the pull-request credentials beside the
+protected branches' (on GitHub, for pull requests from the repository itself: a fork's gets no OIDC
+token, so its job skips them and runs the tests without pushing). `push-from-ci off` writes
+`"ciPush": false` to the config: `test --push` in CI then runs the tests and keeps their runs in the
+job (outside CI, `--push` still pushes), and the GitHub Action keeps the fixes it opens there too;
+`on` turns it back on. Each takes `--json`.
 
 With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config, set }`:
 the store as written to the config and its `url` without the options after `?`, its parts, the
