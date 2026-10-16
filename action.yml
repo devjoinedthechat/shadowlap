@@ -40,7 +40,7 @@ inputs:
     description: The store that keeps the test history and the replays, relative to working-directory. Empty uses the project's, .shadowlap/shadowlap.db.
     default: ''
   push:
-    description: Push every test run and the session's report to the team store set in shadowlap.config.json (shadowlap test --push), and each fix that fix-on-failure opens, so teammates see it on their Fixes page. The job needs credentials for the bucket (shadowlap store ci prints the step); a pull request's job writes only to its own folder.
+    description: Push every test run and the session's report to the team store set in shadowlap.config.json (shadowlap test --push), and each fix that fix-on-failure opens, so teammates see it on their Fixes page. The job needs credentials for the bucket (shadowlap store ci prints the step); a pull request's job writes only to its own folder. A push that can't happen, such as one without credentials or from a fork's pull request, is a warning that says why; it never fails the job or keeps a fix's pull request from opening.
     default: 'false'
   fix-on-failure:
     description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence; never merges. Needs contents and pull-requests write permission, GH_TOKEN, the repairer's key, and the agent's own provider keys (blame and verify run it live).

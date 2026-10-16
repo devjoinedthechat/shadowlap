@@ -8,6 +8,11 @@
 // fix's own branch and fail the pull request's checks. Before the branch is pushed, that golden is
 // re-recorded on it: the recording verify accepted takes the place of its pack, once it replays
 // clean with the fix applied.
+//
+// With the push input (the dashboard's Settings → CI writes it when Push from CI is on), each fix
+// whose pull request opened goes to the team store too, for teammates' Fixes page. That comes after
+// the pull request, so it never keeps one from opening, and a push that can't happen warns in the
+// log and the job summary, with why, and never fails the job.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -232,6 +237,9 @@ function openPullRequest(root, branch, bodyFile, env) {
   return { pr: gh.stdout.trim().split('\n').at(-1) ?? '', why: null };
 }
 
+/** Why a fix stays out of the team store when the team turned pushing from CI off: their choice, not a failure. */
+const PUSH_OFF = 'Push from CI is off ("ciPush": false in shadowlap.config.json)';
+
 /**
  * Why the fixes CI opens can't go to the team store, or null when they can: none is set in
  * shadowlap.config.json, or the team turned pushing from CI off (`"ciPush": false`).
@@ -244,22 +252,88 @@ export function cannotPush(workdir) {
     // no config, or one shadowlap itself refuses: no store either way
   }
   if (typeof config.store !== 'string' || !config.store) return 'no team store is set in shadowlap.config.json (shadowlap store set <url>)';
-  if (config.ciPush === false) return 'Push from CI is off ("ciPush": false in shadowlap.config.json)';
+  if (config.ciPush === false) return PUSH_OFF;
   return null;
+}
+
+/**
+ * Whether GitHub runs this job for a pull request from a fork, which it gives no secrets and no cloud
+ * sign-in, so nothing can reach the team store's bucket: the pull request's head is another
+ * repository than its base, or one deleted since. `pull_request_target` runs as the base repository,
+ * with its secrets, so it isn't counted.
+ */
+export function forkPullRequest(env, read = (path) => readFileSync(path, 'utf8')) {
+  const event = env.GITHUB_EVENT_NAME ?? '';
+  if (!env.GITHUB_ACTIONS || env.GITHUB_ACTIONS === 'false' || !event.startsWith('pull_request') || event === 'pull_request_target' || !env.GITHUB_EVENT_PATH) return false;
+  try {
+    const pr = JSON.parse(read(env.GITHUB_EVENT_PATH)).pull_request;
+    if (!pr || typeof pr !== 'object') return false;
+    if (pr.head && pr.head.repo === null) return true;
+    const head = pr.head?.repo?.full_name;
+    const base = pr.base?.repo?.full_name;
+    return typeof head === 'string' && typeof base === 'string' && head.toLowerCase() !== base.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+/** What `shadowlap push` said went wrong: its `✗` line, the error itself, else the last thing it said. */
+function pushError(stderr) {
+  const lines = `${stderr ?? ''}`
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const said = lines.find((l) => l.startsWith('✗ '));
+  return said ? said.slice(2).trim() : (lines.at(-1) ?? '');
 }
 
 /**
  * Sends the fix CI opened to the team store, with the runs it is about and the ones blame, repair and
  * verify made (`shadowlap push --all`: this job's runs), so a teammate's pull brings it to their Fixes
- * page as "from CI · PR #138". A pull request's job writes only to its own folder and sends no fixes.
- * Returns null when it went, or why not; it never fails the job.
+ * page as "from CI · PR #138". It runs once the fix's pull request is open, so nothing here keeps that
+ * from opening, and it never throws or fails the job. How it went:
+ *
+ *   sent    the fix is in the team store
+ *   pr      a pull request's job, which writes only to the pull request's own folder (pr/<number>/)
+ *           and sends no fixes: the job's runs went there, and the fix stays off the team's Fixes page
+ *   off     the team turned pushing from CI off
+ *   failed  it couldn't happen, and why: no team store set, no credentials for the bucket (a pull
+ *           request from a fork gets none), the store out of reach, the fix refused…
  */
-function pushFix({ cli, db, workdir, env }) {
+export function pushFix({ cli, db, workdir, env, fixIds = [], read }) {
   const why = cannotPush(workdir);
-  if (why) return why;
-  const r = run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'push', '--all'], workdir, env);
-  if (r.status === 0) return null;
-  return `shadowlap push failed: ${`${r.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${r.status}`}`;
+  if (why) return { state: why === PUSH_OFF ? 'off' : 'failed', why, pr: null };
+  const r = run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'push', '--all', '--json'], workdir, env);
+  let out = null;
+  try {
+    out = JSON.parse(r.stdout);
+  } catch {
+    // no report: stderr says why
+  }
+  if (r.status !== 0 || !out || typeof out !== 'object') {
+    const said = pushError(r.stderr) || r.error?.message || `shadowlap push exited ${r.status ?? r.signal}`;
+    return { state: 'failed', why: forkPullRequest(env, read) ? `a pull request from a fork, whose job GitHub gives no secrets: ${said}` : said, pr: null };
+  }
+  if (out.pullRequest) return { state: 'pr', why: null, pr: String(out.pullRequest) };
+  const refused = (out.fixes?.failed ?? []).find((f) => fixIds.includes(f?.fixId));
+  if (refused) return { state: 'failed', why: `the store didn't take the fix: ${refused.reason}`, pr: null };
+  // A fix goes once one of its runs is in the store: one not sent while runs stayed here may have had none.
+  const sent = new Set(out.fixes?.sent ?? []);
+  const stayed = fixIds.some((id) => !sent.has(id)) ? (out.refused ?? [])[0] : null;
+  if (stayed) return { state: 'failed', why: `runs stayed in the job, so the fix may have too: ${stayed.reason}`, pr: null };
+  return { state: 'sent', why: null, pr: null };
+}
+
+/** A workflow command's message on one line, as GitHub reads it: `%`, CR and LF escaped. */
+const commandText = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
+/** What the job's log says about a fix's push: one that couldn't happen is a warning, with why. */
+export function pushLine(name, pushed) {
+  if (pushed.state === 'sent') return 'the fix was sent to the team store';
+  if (pushed.state === 'pr') return `the fix's runs went to pull request ${pushed.pr}'s own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page`;
+  if (pushed.state === 'off') return `the fix was not sent to the team store: ${pushed.why}`;
+  return `::warning title=Shadowlap::${commandText(`${name}: the fix is not in the team store, so teammates won't see it on their Fixes page: ${String(pushed.why ?? '').replace(/[\s.]+$/, '')}. Its pull request is open all the same.`)}`;
 }
 
 /** Runs repair for each failed check, one golden at a time, and says how each went. */
@@ -307,11 +381,16 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         // The fix records where it went, so the dashboard shows "from CI · PR #138" and follows its state.
         if (opened.pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, opened.pr], workdir, fixEnv);
         // With push, the fix goes to the team store, so it reaches teammates rather than ending with the job.
+        // Its pull request is open by now; a push that can't happen warns, and the job goes on.
         let pushed = null;
         if (opened.pr && push) {
-          const notPushed = pushFix({ cli, db, workdir, env: fixEnv });
-          pushed = notPushed === null;
-          log(notPushed ? `the fix was not sent to the team store: ${notPushed}` : 'the fix was sent to the team store');
+          const fixIds = (repair.fixes ?? []).map((f) => f?.fixId).filter((id) => typeof id === 'string');
+          try {
+            pushed = pushFix({ cli, db, workdir, env: fixEnv, fixIds });
+          } catch (err) {
+            pushed = { state: 'failed', why: err instanceof Error ? err.message : String(err), pr: null };
+          }
+          log(pushLine(r.name, pushed));
         }
         if (opened.pr) out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, goldenState: g, pushed });
         else out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, goldenState: g });
@@ -341,6 +420,15 @@ function goldenCell(g) {
   return g.state === 'recorded' ? ' · golden re-recorded' : ` · golden not re-recorded: run \`shadowlap test ${cell(g.golden)} --update\` on the branch`;
 }
 
+/** What the summary says about a fix and the team store, with push: in it, kept to a pull request's folder, or not (a warning when it couldn't go). */
+function pushCell(p) {
+  if (!p) return '';
+  if (p.state === 'sent') return ' · in the team store';
+  if (p.state === 'pr') return ` · not on the team's Fixes page: a pull request's job writes only to its own folder, \`pr/${cell(p.pr)}/\``;
+  if (p.state === 'off') return ` · not in the team store: ${cell(p.why)}`;
+  return ' · ⚠️ not in the team store';
+}
+
 /** The fixes for the job summary. */
 export function fixSummary(fixes, budget) {
   if (!fixes.length) return '';
@@ -354,12 +442,19 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f.goldenState)}${f.pushed ? ' · in the team store' : ''}`
+        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f.goldenState)}${pushCell(f.pushed)}`
         : f.outcome === 'skipped'
           ? cell(f.why)
           : `no fix: ${cell(f.why)}${goldenCell(f.goldenState)}`;
     const icon = f.outcome === 'opened' ? '✅' : f.outcome === 'skipped' ? '➖' : '❌';
     lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(budget).toFixed(2)}`} |`);
+  }
+  // A push that couldn't happen: each fix with why, under the table where the reasons have room.
+  const unsent = fixes.filter((f) => f.pushed?.state === 'failed');
+  if (unsent.length) {
+    const one = unsent.length === 1;
+    lines.push('', `⚠️ ${one ? 'A fix' : `${unsent.length} fixes`} couldn't go to the team store, so teammates won't see ${one ? 'it' : 'them'} on their Fixes page. ${one ? 'Its pull request is' : 'Their pull requests are'} open all the same.`, '');
+    for (const f of unsent) lines.push(`- \`${String(f.name).replace(/`/g, "'")}\`: ${String(f.pushed.why ?? '').replace(/\s*\r?\n\s*/g, ' ')}`);
   }
   lines.push('', 'Each pull request carries the patch verify accepted, its report and, for a golden that must replay exactly, the golden re-recorded under the fix. Nothing is merged: review each one like any other change.');
   return lines.join('\n') + '\n';

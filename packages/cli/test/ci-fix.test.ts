@@ -1,11 +1,13 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, cannotPush, fixSummary, goldenNote, planFixes, refreshGolden, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, cannotPush, fixSummary, forkPullRequest, goldenNote, planFixes, pushFix, pushLine, refreshGolden, repairArgs, type ReportResult } from '../../../action/fix.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
@@ -22,6 +24,21 @@ const RUN = join(ROOT, 'action', 'run.mjs');
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
 const FIX = 'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.';
 const EXPECT = { tools: { issue_refund: { count: 0, args: { amount: 240 } } } };
+/** None of the AWS credentials of the machine running the tests reaches a job given this; nor does an instance role. */
+const NO_AWS: NodeJS.ProcessEnv = {
+  AWS_ACCESS_KEY_ID: undefined,
+  AWS_SECRET_ACCESS_KEY: undefined,
+  AWS_SESSION_TOKEN: undefined,
+  AWS_PROFILE: undefined,
+  AWS_DEFAULT_PROFILE: undefined,
+  AWS_CONFIG_FILE: undefined,
+  AWS_SHARED_CREDENTIALS_FILE: undefined,
+  AWS_ROLE_ARN: undefined,
+  AWS_WEB_IDENTITY_TOKEN_FILE: undefined,
+  AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: undefined,
+  AWS_CONTAINER_CREDENTIALS_FULL_URI: undefined,
+  AWS_EC2_METADATA_DISABLED: 'true',
+};
 
 let mock: MockServer;
 let mode: 'refund' | 'alternate' = 'refund';
@@ -209,6 +226,66 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     }
   });
 
+  it('with push and no credentials for the bucket, opens the pull request all the same and warns in the job summary and the log', async () => {
+    await setUp({ expect: EXPECT });
+    const config = JSON.parse(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ ...config, store: 's3://northwind-agent-runs/team?region=eu-central-1' }, null, 2));
+    sh(project, 'git', ['commit', '-qam', 'Keep the runs in the team store']);
+    const home = mkdtempSync(join(tmpdir(), 'sl-cifix-home-'));
+    try {
+      // A job without the credentials step: no keys, no profile, no instance role to ask.
+      const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic', PUSH: 'true', FAIL_ON_DIVERGENCE: 'false' }, { ...NO_AWS, HOME: home, GITHUB_ACTIONS: 'true' });
+      // The pull request opened, and the push that couldn't happen failed nothing: the job's result is the tests'.
+      expect(r.code, r.out).toBe(0);
+      expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
+      expect(readFileSync(join(bin, 'args'), 'utf8').split('\n').slice(0, 2)).toEqual(['pr', 'create']);
+      // Said in the log as a warning, with why...
+      expect(r.out).toContain("::warning title=Shadowlap::refund-over-limit: the fix is not in the team store, so teammates won't see it on their Fixes page: No AWS credentials found.");
+      expect(r.out).toContain('Its pull request is open all the same.');
+      // ...and in the job summary: beside the fix, and why under the table.
+      expect(r.summary).toMatch(/golden re-recorded · ⚠️ not in the team store \|/);
+      expect(r.summary).toContain("⚠️ A fix couldn't go to the team store, so teammates won't see it on their Fixes page. Its pull request is open all the same.");
+      expect(r.summary).toContain('- `refund-over-limit`: No AWS credentials found.');
+      // The fix is still in the job's own store, with the pull request it went to.
+      expect(r.fixes[0]).toMatchObject({ status: 'verified' });
+      expect(r.fixes[0]!.source).toMatch(/PR #7$/);
+      // The test runs' push is as it always was: a warning of its own, and the tests decide the job.
+      expect(r.out).toContain('::warning title=shadowlap test --push::no credentials for s3://northwind-agent-runs/team');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("from a pull request's job, keeps every run to the pull request's own folder and says the fix stays off the team's Fixes page", async () => {
+    const key = 'AKIDCIFIXPREXAMPLE';
+    const s3 = await startFakeS3({ keys: { [key]: 'ci/pr/secret' }, bucket: 'northwind-agent-runs', versioning: 'Enabled' });
+    try {
+      await setUp({ expect: EXPECT });
+      const config = JSON.parse(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')) as Record<string, unknown>;
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ ...config, store: `s3://northwind-agent-runs/team?endpoint=${s3.url}` }, null, 2));
+      sh(project, 'git', ['commit', '-qam', 'Keep the runs in the team store']);
+      // GitHub's pull_request event, for pull request 12, with the branch checked out.
+      const r = await action(
+        { FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic', PUSH: 'true', FAIL_ON_DIVERGENCE: 'false' },
+        { ...NO_AWS, AWS_ACCESS_KEY_ID: key, AWS_SECRET_ACCESS_KEY: 'ci/pr/secret', GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/12/merge' },
+      );
+      expect(r.code, r.out).toBe(0);
+      expect(r.outputs).toMatchObject({ failed: '1', fixes: '1' });
+      expect(r.out).toContain("the fix's runs went to pull request 12's own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page");
+      expect(r.out).not.toContain('::warning title=Shadowlap::');
+      expect(r.summary).toContain("golden re-recorded · not on the team's Fixes page: a pull request's job writes only to its own folder, `pr/12/` |");
+      expect(r.summary).not.toContain('⚠️');
+      // Everything the job wrote is in pr/12/: its test runs and report, and every run the fix's job made; no fix.
+      const keys = [...s3.objects.keys()];
+      expect(keys.some((k) => k.startsWith('team/pr/12/tests/'))).toBe(true);
+      for (const runId of r.runs) expect(keys, runId).toContain(`team/pr/12/runs/${runId}/run.json`);
+      expect(keys.filter((k) => !k.startsWith('team/pr/12/'))).toEqual([]);
+      expect(keys.some((k) => k.includes('/fixes/'))).toBe(false);
+    } finally {
+      await s3.close();
+    }
+  });
+
   it('says why a fix stays in the job when no team store is set, or the team turned pushing from CI off', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-cifix-push-'));
     try {
@@ -313,7 +390,30 @@ describe('planning fixes from a test report', () => {
     expect(md).toContain('| ✅ | `c` | [Fix c](https://example.com/pr/2) · golden not re-recorded: run `shadowlap test goldens/c --update` on the branch | $0.50 of $2.00 |');
     expect(md).toContain('| ➖ | `drift` | diverged: never fixed automatically |  |');
     expect(md).toContain('Nothing is merged');
+    // Without push, nothing about the team store.
+    expect(md).not.toContain('team store');
     expect(fixSummary([], 2)).toBe('');
+  });
+
+  it('says in the job summary where each fix went with push, and why one couldn\'t go', () => {
+    const opened = (name: string, pushed: { state: 'sent' | 'pr' | 'off' | 'failed'; why: string | null; pr: string | null }) => ({ name, outcome: 'opened' as const, pr: `https://example.com/pr/${name}`, title: `Fix ${name}`, verify: null, spent: 0.5, why: null, goldenState: null, pushed });
+    const md = fixSummary(
+      [
+        opened('sent', { state: 'sent', why: null, pr: null }),
+        opened('in-pr', { state: 'pr', why: null, pr: '12' }),
+        opened('off', { state: 'off', why: 'Push from CI is off ("ciPush": false in shadowlap.config.json)', pr: null }),
+        opened('no-keys', { state: 'failed', why: 'No AWS credentials found. Set AWS_ACCESS_KEY_ID\nand AWS_SECRET_ACCESS_KEY', pr: null }),
+        opened('unreachable', { state: 'failed', why: "The S3-compatible store: couldn't reach 127.0.0.1:9000", pr: null }),
+      ],
+      2,
+    );
+    expect(md).toContain('| ✅ | `sent` | [Fix sent](https://example.com/pr/sent) · in the team store | $0.50 of $2.00 |');
+    expect(md).toContain("| ✅ | `in-pr` | [Fix in-pr](https://example.com/pr/in-pr) · not on the team's Fixes page: a pull request's job writes only to its own folder, `pr/12/` | $0.50 of $2.00 |");
+    expect(md).toContain('| ✅ | `off` | [Fix off](https://example.com/pr/off) · not in the team store: Push from CI is off ("ciPush": false in shadowlap.config.json) | $0.50 of $2.00 |');
+    expect(md).toContain('| ✅ | `no-keys` | [Fix no-keys](https://example.com/pr/no-keys) · ⚠️ not in the team store | $0.50 of $2.00 |');
+    // Each that couldn't go, with why, under the table; the pull requests are open all the same.
+    expect(md).toContain("⚠️ 2 fixes couldn't go to the team store, so teammates won't see them on their Fixes page. Their pull requests are open all the same.\n\n- `no-keys`: No AWS credentials found. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY\n- `unreachable`: The S3-compatible store: couldn't reach 127.0.0.1:9000\n");
+    expect(md.indexOf('⚠️ 2 fixes')).toBeLessThan(md.indexOf('Nothing is merged'));
   });
 
   it('re-records only a golden that must replay exactly, and only from a recording repair kept', () => {
@@ -327,5 +427,88 @@ describe('planning fixes from a test report', () => {
     expect(note).toContain('`goldens/refund-flow` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch.');
     expect(note).toContain('shadowlap test goldens/refund-flow --update');
     expect(note).toContain('It was not re-recorded automatically: the recording verify accepted does not replay clean on the branch (refund-flow: diverged at call 4).');
+  });
+});
+
+describe('pushing a fix CI opened to the team store', () => {
+  /** The newest job's folder; every one made is removed after each test. */
+  let dir = '';
+  const made: string[] = [];
+  afterEach(() => {
+    for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    dir = '';
+  });
+
+  /** A CI job's checkout: the config, a store with a finished run to push, and an environment with no credentials. */
+  function job(config: Record<string, unknown>, extra: NodeJS.ProcessEnv = {}): { workdir: string; db: string; env: NodeJS.ProcessEnv } {
+    dir = mkdtempSync(join(tmpdir(), 'sl-cifix-push-'));
+    made.push(dir);
+    mkdirSync(join(dir, 'home'));
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify(config));
+    const db = join(dir, 'ci.db');
+    const store = Store.open(db);
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    store.endRun(run.runId, 'completed');
+    store.close();
+    return { workdir: dir, db, env: { PATH: process.env.PATH ?? '', HOME: join(dir, 'home'), NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', AWS_EC2_METADATA_DISABLED: 'true', ...extra } };
+  }
+
+  /** A port on this machine nothing listens on. */
+  async function closedPort(): Promise<number> {
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as { port: number };
+    await new Promise((resolve) => server.close(resolve));
+    return port;
+  }
+
+  /** A GitHub event naming pull request 12 from `head` into northwind/agent, as GITHUB_EVENT_PATH holds it, in the job's folder. */
+  function event(name: string, head: string | null): string {
+    const path = join(dir, `${name}.json`);
+    writeFileSync(path, JSON.stringify({ number: 12, pull_request: { number: 12, head: { ref: 'feature', repo: head === null ? null : { full_name: head } }, base: { ref: 'main', repo: { full_name: 'northwind/agent' } } } }));
+    return path;
+  }
+
+  it('says why the fix stays out of the store, never throwing: no store set, Push from CI off, no credentials', () => {
+    expect(pushFix({ cli: CLI, ...job({}) })).toEqual({ state: 'failed', why: 'no team store is set in shadowlap.config.json (shadowlap store set <url>)', pr: null });
+    // The team's own choice, which is no failure.
+    expect(pushFix({ cli: CLI, ...job({ store: 's3://northwind-agent-runs/team', ciPush: false }) })).toEqual({ state: 'off', why: 'Push from CI is off ("ciPush": false in shadowlap.config.json)', pr: null });
+    // What push said, rather than its last line of advice.
+    const none = pushFix({ cli: CLI, ...job({ store: 's3://northwind-agent-runs/team?region=eu-central-1' }) });
+    expect(none).toMatchObject({ state: 'failed', pr: null });
+    expect(none.why).toMatch(/^No AWS credentials found\. /);
+  });
+
+  it('says so when the store is out of reach', async () => {
+    const port = await closedPort();
+    const r = pushFix({ cli: CLI, ...job({ store: `s3://northwind-agent-runs/team?endpoint=http://127.0.0.1:${port}` }, { AWS_ACCESS_KEY_ID: 'AKIDCIFIXEXAMPLE', AWS_SECRET_ACCESS_KEY: 'ci/secret' }) });
+    expect(r.state).toBe('failed');
+    expect(r.why).toContain(`couldn't reach 127.0.0.1:${port}`);
+  }, 30_000);
+
+  it('names a pull request from a fork, whose job GitHub gives no secrets', () => {
+    const checkout = job({ store: 's3://northwind-agent-runs/team?region=eu-central-1' });
+    const github = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: event('fork', 'someone/agent'), GITHUB_REF: 'refs/pull/12/merge' };
+    const r = pushFix({ cli: CLI, ...checkout, env: { ...checkout.env, ...github } });
+    expect(r.state).toBe('failed');
+    expect(r.why).toMatch(/^a pull request from a fork, whose job GitHub gives no secrets: No AWS credentials found\. /);
+    expect(forkPullRequest(github)).toBe(true);
+    // The repository's own pull request (names compared as GitHub does, in any case), one whose fork
+    // is gone, pull_request_target (it runs with the base's secrets), and jobs for no pull request.
+    expect(forkPullRequest({ ...github, GITHUB_EVENT_PATH: event('same', 'northwind/agent') })).toBe(false);
+    expect(forkPullRequest({ ...github, GITHUB_EVENT_PATH: event('case', 'Northwind/Agent') })).toBe(false);
+    expect(forkPullRequest({ ...github, GITHUB_EVENT_PATH: event('gone', null) })).toBe(true);
+    expect(forkPullRequest({ ...github, GITHUB_EVENT_NAME: 'pull_request_target' })).toBe(false);
+    expect(forkPullRequest({ ...github, GITHUB_EVENT_NAME: 'push' })).toBe(false);
+    expect(forkPullRequest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: github.GITHUB_EVENT_PATH })).toBe(false);
+    expect(forkPullRequest({ ...github, GITHUB_EVENT_PATH: join(dir, 'no-such-event.json') })).toBe(false);
+  });
+
+  it('says in the log how each went: a warning, on one line, only when it couldn\'t go', () => {
+    expect(pushLine('refund-flow', { state: 'sent', why: null, pr: null })).toBe('the fix was sent to the team store');
+    expect(pushLine('refund-flow', { state: 'pr', why: null, pr: '12' })).toBe("the fix's runs went to pull request 12's own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page");
+    expect(pushLine('refund-flow', { state: 'off', why: 'Push from CI is off', pr: null })).toBe('the fix was not sent to the team store: Push from CI is off');
+    expect(pushLine('refund-flow', { state: 'failed', why: '100% gone\nfor now', pr: null })).toBe("::warning title=Shadowlap::refund-flow: the fix is not in the team store, so teammates won't see it on their Fixes page: 100%25 gone%0Afor now. Its pull request is open all the same.");
+    expect(pushLine('refund-flow', { state: 'failed', why: 'No AWS credentials found.', pr: null })).toMatch(/: No AWS credentials found\. Its pull request is open all the same\.$/);
   });
 });
