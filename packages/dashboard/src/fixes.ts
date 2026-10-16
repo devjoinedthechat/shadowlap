@@ -1112,7 +1112,7 @@ export interface FixBundle {
   key: string;
   /** The run the attempts replayed: the bundle sits under it in the family. */
   parentRunId: string;
-  /** `blame · probe #5`, `verify · target`. */
+  /** `blame · probe #5`, `verify · target`; under a run several fixes share, with the fix's name: `verify · good · refund-bug`. */
   title: string;
   /** For a probe: the model call asked again; the one blame named is where the run was lost. */
   callNo: number | null;
@@ -1331,7 +1331,29 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       fixId: fix?.fixId ?? null,
     });
   }
+  nameSharedBundles(store, out);
   return out.sort((a, b) => a.at - b.at || a.key.localeCompare(b.key));
+}
+
+/**
+ * A run several fixes blamed or verified carries bundles from each, which would read the same
+ * ("verify · good" under a good run three fixes kept): there, each title names its fix, by its label
+ * or its short id ("verify · good · refund-bug").
+ */
+function nameSharedBundles(store: Store, bundles: FixBundle[]): void {
+  const fixesUnder = new Map<string, Set<string>>();
+  for (const b of bundles) if (b.fixId) fixesUnder.set(b.parentRunId, (fixesUnder.get(b.parentRunId) ?? new Set()).add(b.fixId));
+  const names = new Map<string, string>();
+  const nameOf = (fixId: string): string => {
+    let name = names.get(fixId);
+    if (name === undefined) {
+      const fix = store.getFix(fixId);
+      name = (fix ? fixLabelInfo(store, fix).label : null) ?? fixId.slice(0, 13);
+      names.set(fixId, name);
+    }
+    return name;
+  };
+  for (const b of bundles) if (b.fixId && (fixesUnder.get(b.parentRunId)?.size ?? 0) > 1) b.title = `${b.title} · ${nameOf(b.fixId)}`;
 }
 
 // ---- What a blame from the dashboard checks ------------------------------------------------------

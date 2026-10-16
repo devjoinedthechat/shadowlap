@@ -273,6 +273,33 @@ export const tokens = (n: number): string => Math.round(n).toLocaleString('en-US
 
 // ---------------------------------------------------------------------------------------------- the Forks view
 
+/** The HTTP status an error from the client carries (`ApiError`), or null. */
+const statusOf = (err: unknown): number | null => {
+  const status = typeof err === 'object' && err !== null ? (err as { status?: unknown }).status : undefined;
+  return typeof status === 'number' ? status : null;
+};
+
+/**
+ * A run's bundles for the Forks view, asked for with `get` (`GET /api/fixes/family/:runId`): null
+ * when the server doesn't know the run (404) or doesn't bundle attempts (405), and the view lists
+ * the attempts as runs. A server that doesn't bundle them isn't asked again. Any other failure is
+ * thrown, for the view to show.
+ */
+export function bundleSource(get: (runId: string) => Promise<FixBundle[]>): (runId: string) => Promise<FixBundle[] | null> {
+  let unsupported = false;
+  return async (runId) => {
+    if (unsupported) return null;
+    try {
+      return await get(runId);
+    } catch (err) {
+      const status = statusOf(err);
+      if (status === 405) unsupported = true;
+      if (status === 404 || status === 405) return null;
+      throw err;
+    }
+  };
+}
+
 /** The runs a family view leaves out because a bundle lists them: every attempt but the fork blame rescued a run with, which shows as a fork. */
 export function bundledRuns(bundles: readonly FixBundle[]): Set<string> {
   const out = new Set<string>();

@@ -45,7 +45,7 @@ export function ForksView({ runId }: { runId: string }) {
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);
   if (lineage.error) return <div className="empty">Could not load this run’s family: {lineage.error.message}</div>;
-  if (!lineage.data) return <div className="empty">Loading the family…</div>;
+  if (!lineage.data || fixes.loading) return <div className="empty">Loading the family…</div>;
   const nodes = lineage.data;
   const kids = new Map<string | null, LineageNode[]>();
   const ids = new Set(nodes.map((n) => n.runId));

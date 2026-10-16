@@ -1,6 +1,7 @@
 import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
+import { bundleSource } from './fixes/model.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
 import type { CallDetail, Changes, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
@@ -145,7 +146,6 @@ function saveBlob(blob: Blob, filename: string): void {
 export function createClient(token: string): Client {
   let hasChanges: boolean | null = null;
   let hasProvenance: boolean | null = null;
-  let hasBundles: boolean | null = null;
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -242,19 +242,8 @@ export function createClient(token: string): Client {
     fixes: () => request<FixList>('fixes'),
     fix: (fixId) => request<FixDetail>(`fixes/${id(fixId)}`),
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
-    fixBundles: async (runId) => {
-      if (hasBundles === false) return null;
-      try {
-        const out = await request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`);
-        hasBundles = true;
-        return out.bundles;
-      } catch (err) {
-        // A server that does not bundle them (405), or one that never heard of the run: the Forks view lists the attempts as runs.
-        if (err instanceof ApiError && err.status === 405) hasBundles = false;
-        if (err instanceof ApiError && (err.status === 404 || err.status === 405)) return null;
-        throw err;
-      }
-    },
+    // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
+    fixBundles: bundleSource((runId) => request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`).then((out) => out.bundles)),
   };
 }
 

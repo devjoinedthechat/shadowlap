@@ -231,6 +231,23 @@ describe('the Forks view’s bundles', () => {
     expect(b!.attempts.map((a) => a.note)).toEqual(['passed', 'failed']);
   });
 
+  it('names the fix of each bundle under a run several fixes verified, which would otherwise read the same', () => {
+    const { good, failing } = story();
+    const other = makeRun(store, { labels: ['double-email'] });
+    const { fix: second } = blame(other, { expect: { tools: { send_email: 1 } } });
+    const both = verifyReport([
+      { runId: other, role: 'target', pass: true },
+      { runId: good, role: 'good', pass: true },
+    ]);
+    recordVerdict(store, { report: both, expect: { tools: { send_email: 1 } }, command: 'shadowlap verify --fixes label:double-email --keeps label:good' });
+    for (const x of both.runs) attemptRuns(x.runId, x.attempts, (passed) => ({ verify: { role: x.role, passed } }));
+    const titles = fixBundles(store, good)!.map((b) => [b.title, b.fixId === second.fixId]);
+    expect(titles).toEqual(expect.arrayContaining([['verify · good · double-email', true], ['verify · good · refund-bug', false]]));
+    expect(titles.every(([t]) => / · (double-email|refund-bug)$/.test(t as string))).toBe(true);
+    // A run only one fix holds keeps the titles as they are.
+    expect(fixBundles(store, failing)!.every((b) => !/refund-bug|double-email/.test(b.title))).toBe(true);
+  });
+
   it('is served for a run and its prefix, and 404 for none', async () => {
     const { failing } = story();
     await start();

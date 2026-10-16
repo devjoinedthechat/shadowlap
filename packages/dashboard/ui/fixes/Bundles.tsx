@@ -17,12 +17,15 @@ const NONE: FixBundle[] = [];
 /**
  * The bundles in a run's family; the attempt runs they list, which the family leaves out; and the
  * forks blame rescued runs with, which show as forks of their own though they are attempts too.
+ * `loading` until the first answer: the family waits for it, so the attempts never show as runs
+ * first. A failed answer bundles nothing, and the family shows every run.
  */
-export function useFixBundles(runId: string): { bundles: FixBundle[]; bundled: Set<string>; rescued: Set<string> } {
+export function useFixBundles(runId: string): { bundles: FixBundle[]; bundled: Set<string>; rescued: Set<string>; loading: boolean } {
   const { client, tick, feeds, exported } = useApp();
   const loaded = useLoad(() => (exported ? null : client.fixBundles(runId)), `bundles:${runId}`, `${tick}:${feeds.fixes ?? 0}`);
   const bundles = loaded.data ?? NONE;
-  return useMemo(() => ({ bundles, bundled: bundledRuns(bundles), rescued: new Set(bundles.flatMap((b) => b.attempts.filter((a) => a.rescued).map((a) => a.runId))) }), [bundles]);
+  const loading = loaded.loading && loaded.data === null;
+  return useMemo(() => ({ bundles, bundled: bundledRuns(bundles), rescued: new Set(bundles.flatMap((b) => b.attempts.filter((a) => a.rescued).map((a) => a.runId))), loading }), [bundles, loading]);
 }
 
 export function FixBundleNode({ bundle: b, current }: { bundle: FixBundle; current: string }) {
