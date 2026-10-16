@@ -63,8 +63,11 @@ export function switchTakeoverModel(provider: string, method: string, path: stri
   return null;
 }
 
-/** Another provider's model, in words, for a refusal that says what does work. */
-const ELSEWHERE = "score Anthropic's or OpenAI's API, or a model at your own endpoint, instead";
+/** What does work for a cloud whose own models can't be switched, for a refusal that says so (`tasks score`'s). */
+export const CLOUD_ADVICE = "score Anthropic's or OpenAI's API, or a model at your own endpoint, instead";
+
+/** The clouds whose own models a takeover can't switch: their recordings are scored with another provider's model. */
+export const CLOUDS = new Set(['bedrock', 'vertex', 'azure']);
 
 /**
  * Why a model call of the recording's own provider can't be sent to another of its models, or null
@@ -72,9 +75,9 @@ const ELSEWHERE = "score Anthropic's or OpenAI's API, or a model at your own end
  * address, and an Azure deployment picks its model.
  */
 export function modelUnswitchable(provider: string | null, callName: string): string | null {
-  if (provider === 'bedrock') return `its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL: ${ELSEWHERE}`;
-  if (provider === 'vertex') return `its takeover call goes through Vertex AI, at the agent's own regional address: ${ELSEWHERE}`;
-  if (provider === 'azure') return `its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model: ${ELSEWHERE}`;
+  if (provider === 'bedrock') return 'its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL';
+  if (provider === 'vertex') return "its takeover call goes through Vertex AI, at the agent's own regional address";
+  if (provider === 'azure') return 'its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model';
   const m = /^([A-Z]+)\s+(\S+)/.exec(callName);
   const path = (m?.[2] ?? callName).split('?')[0] ?? '';
   if (!provider || !switchTakeoverModel(provider, m?.[1] ?? 'POST', path, 'm')) return `scoring can't change the model of ${provider ? `${/^[aeiou]/i.test(provider) ? 'an' : 'a'} ${provider}` : 'this'} request (${path})`;

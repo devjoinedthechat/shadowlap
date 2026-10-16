@@ -110,11 +110,13 @@ export function notesLine(notes: ModelsView['notes']): string | null {
 
 /**
  * The listed models left out because they can't answer any ready task, in one line: `Not offered:
- * Anthropic API, 2 models (refund-flow: it uses the OpenAI Responses API, …)`. A group of one names its model.
+ * gpt-prod (azure-refund: its takeover call goes through Azure OpenAI, …) · Anthropic API: claude-haiku-4-5,
+ * claude-opus-5-5 (refund-flow: it uses the OpenAI Responses API, …)`. Past three models, the rest are counted.
  */
 export function leftOutLine(leftOut: ScoreDialogView['leftOut'] | undefined): string | null {
   if (!leftOut?.length) return null;
-  return `Not offered: ${leftOut.map((l) => `${l.group}, ${l.models.length === 1 ? l.models[0] : `${l.models.length} models`} (${l.why})`).join(' · ')}`;
+  const names = (models: string[]) => (models.length > 3 ? `${models.slice(0, 3).join(', ')} and ${models.length - 3} more` : models.join(', '));
+  return `Not offered: ${leftOut.map((l) => `${l.models.length === 1 ? l.models[0] : `${l.group}: ${names(l.models)}`} (${l.why})`).join(' · ')}`;
 }
 
 // ---- the palette opens a Training dialog from any page ----

@@ -628,10 +628,10 @@ function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scor
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
       {busy ? <p className="trbusy">{busy}</p> : null}
-      {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint. */}
-      {notes && pick !== ENDPOINT ? <p className="trnotes">{notes}</p> : null}
+      {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint, unless the endpoint is all there is. */}
+      {notes && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{notes}</p> : null}
       {/* Models that can't answer any ready task, and why: what `tasks score` would refuse. */}
-      {leftOut && pick !== ENDPOINT ? <p className="trnotes">{leftOut}</p> : null}
+      {leftOut && (pick !== ENDPOINT || !d?.options.length) ? <p className="trnotes">{leftOut}</p> : null}
     </Dialog>
   );
 }

@@ -99,6 +99,6 @@ export { anthropicEventList, anthropicMessageEvents, anthropicMessageToOpenAICha
 export type { AnthropicMessage, ChatCompletion, ChatShape, OpenAITool, ToOpenAIOptions, TranslatedRequest } from './translate.js';
 export { awsEvent, chatCompletionToConverse, converseStreamBody, converseToOpenAIChat, eventStreamHeaders, type ConverseResponse, type ConverseStopReason } from './translate-converse.js';
 export { chatCompletionToGemini, geminiStreamBody, geminiToOpenAIChat, geminiUsesIds, type GeminiResponse } from './translate-gemini.js';
-export { anthropicAnswer, answerAs, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
+export { anthropicAnswer, answerAs, CLOUD_ADVICE, CLOUDS, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
 export { messagesOf, type DatasetMessage } from './dataset.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';

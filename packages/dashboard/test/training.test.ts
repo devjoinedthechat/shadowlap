@@ -288,8 +288,8 @@ describe('the Training read model', () => {
     ]);
     expect(dialog.options[2]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not responses: it uses the OpenAI Responses API, which only another model of its own provider can answer");
     expect(dialog.options[0]!.note).toContain("not responses: it was recorded on OpenAI's API, and claude-sonnet-5 is asked of Anthropic's API; converse: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API");
-    // Bedrock's own model answers its own task only by switching models there, which a signed URL doesn't allow.
-    expect(dialog.leftOut).toEqual([{ group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: "refund: it was recorded on Anthropic's API, and amazon.nova-pro-v1:0 is asked of Amazon Bedrock" }]);
+    // Bedrock's own model answers its own task only by switching models there, which a signed URL doesn't allow: that, not the others' providers, is why.
+    expect(dialog.leftOut).toEqual([{ group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: 'converse: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL' }]);
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
   });
 

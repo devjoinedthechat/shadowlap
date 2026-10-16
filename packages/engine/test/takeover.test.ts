@@ -49,7 +49,7 @@ describe('how a recorded call reaches the model under test', () => {
 
     expect(takeoverRefusal('bedrock', CONVERSE, local)).toBeNull();
     expect(takeoverRefusal('bedrock', BEDROCK_CLAUDE, claude)).toBeNull();
-    expect(takeoverRefusal('azure', AZURE, same)).toBe("its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model: score Anthropic's or OpenAI's API, or a model at your own endpoint, instead");
+    expect(takeoverRefusal('azure', AZURE, same)).toBe('its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model');
     expect(takeoverRefusal('vertex', VERTEX_CLAUDE, same)).toContain('Vertex AI');
     expect(takeoverRefusal('gemini', GEMINI, same)).toBeNull();
     expect(takeoverRefusal('openai', 'POST /v1/responses', local)).toBe('it uses the OpenAI Responses API, which only another model of its own provider can answer');

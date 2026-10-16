@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 import {
   attemptScore,
   chatShapeOf,
+  CLOUD_ADVICE,
+  CLOUDS,
   commandIsImported,
   describeTask,
   entryFor,
@@ -210,7 +212,9 @@ export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: nu
   // Found before anything runs: an attempt that can't reach the model would ask the recorded one, and be paid for.
   const why = takeoverRefusal(provider, call.name, target);
   if (!why) return null;
-  return target.route === 'same' ? `${task.golden} can't be scored with ${target.model}: ${why}` : `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${why}`;
+  // Another model of a cloud itself can't be asked; another provider's can, translated.
+  if (target.route === 'same') return `${task.golden} can't be scored with ${target.model}: ${why}${CLOUDS.has(provider) ? `: ${CLOUD_ADVICE}` : ''}`;
+  return `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${why}`;
 }
 
 /** Where a provider's calls go without a takeover: the environment's upstream for it, else its own API. */

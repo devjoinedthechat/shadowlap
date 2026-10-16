@@ -277,8 +277,8 @@ export function choiceTarget(c: Pick<ModelChoice, 'flags' | 'baseUrl'>): Takeove
 export interface ModelReach {
   /** The ready tasks it can answer, by golden. */
   tasks: string[];
-  /** The ready tasks it can't, each with why. */
-  refused: Array<{ golden: string; name: string; why: string }>;
+  /** The ready tasks it can't, each with why; `elsewhere`: the task was recorded on another provider than the one the model is asked of. */
+  refused: Array<{ golden: string; name: string; why: string; elsewhere: boolean }>;
 }
 
 /**
@@ -292,10 +292,9 @@ export function modelReach(c: Pick<ModelChoice, 'id' | 'flags' | 'baseUrl' | 'pr
   const out: ModelReach = { tasks: [], refused: [] };
   for (const t of tasks) {
     if (t.status !== 'ready') continue;
-    let why: string | null;
-    if (target.route === 'same' && c.provider && t.provider && t.provider !== c.provider) why = `it was recorded on ${onApi(t.provider)}, and ${c.id} is asked of ${onApi(c.provider)}`;
-    else why = t.callName ? takeoverRefusal(t.provider, t.callName, target) : 'its recording has no call to take over';
-    if (why) out.refused.push({ golden: t.golden, name: t.name, why });
+    const elsewhere = target.route === 'same' && !!c.provider && !!t.provider && t.provider !== c.provider;
+    const why = elsewhere ? `it was recorded on ${onApi(t.provider!)}, and ${c.id} is asked of ${onApi(c.provider!)}` : t.callName ? takeoverRefusal(t.provider, t.callName, target) : 'its recording has no call to take over';
+    if (why) out.refused.push({ golden: t.golden, name: t.name, why, elsewhere });
     else out.tasks.push(t.golden);
   }
   return out;

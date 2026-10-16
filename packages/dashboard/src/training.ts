@@ -376,7 +376,9 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
   for (const c of listing.choices) {
     const reach = modelReach(c, tasks);
     if (!reach.tasks.length) {
-      const why = reach.refused[0] ? refusal(reach.refused[0]) : 'no task is ready';
+      // Why its own provider's task can't ask it says more than that the others were recorded elsewhere.
+      const first = reach.refused.find((r) => !r.elsewhere) ?? reach.refused[0];
+      const why = first ? refusal(first) : 'no task is ready';
       const same = leftOut.find((l) => l.group === c.group && l.why === why);
       if (same) same.models.push(c.id);
       else leftOut.push({ group: c.group, models: [c.id], why });
