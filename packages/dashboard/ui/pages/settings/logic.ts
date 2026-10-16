@@ -252,6 +252,16 @@ export function gcDryRun(job: { done: boolean; code: number | null; result?: unk
 }
 
 /** What a dry run that found no runs would give back: the blobs nothing uses, and the unused space past 1 MB. */
+/**
+ * The Size row's words after the size: blobs are shared, and the space deleted runs left unused
+ * that Clean up old runs gives back, once no run is recording when one is (gc leaves the store
+ * alone while a recording writes to it).
+ */
+export function sizeNote(free: number, recording: number): string {
+  if (free < UNUSED_WORTH) return 'blobs shared between runs';
+  return `blobs shared between runs · ${bytesText(free)} unused, which Clean up old runs gives back${recording ? ' once no run is recording' : ''}`;
+}
+
 export function gcGivesBack(d: GcDryRun): number {
   return d.bytes + (d.free >= UNUSED_WORTH ? d.free : 0);
 }
@@ -350,8 +360,41 @@ export function mcpEntryText(name: string, entry: { command: string; args: reado
 export function copiedLineText(row: { name: string; file: string | null; line: string | null }): string {
   const line = row.line ?? '';
   const vars = [...new Set([...line.matchAll(/\$\{([A-Za-z_][\w]*)\}/g)].map((m) => m[1]!))];
-  const needs = [...(line.includes('•••') ? ['put back the ••• in it'] : []), ...(vars.length ? [`set ${orList(vars)} in its env`] : [])];
+  // Claude Code fills in ${…} in .mcp.json itself, from the environment it starts from.
+  const where = row.file === CLAUDE_CODE_FILE ? 'the environment Claude Code starts from' : 'its env';
+  const needs = [...(line.includes('•••') ? ['put back the ••• in it'] : []), ...(vars.length ? [`set ${orList(vars)} in ${where}`] : [])];
   return `Copied the line for ${row.name} · put it in front of the server in ${row.file ?? 'your client’s config'}${needs.length ? `, then ${needs.join(' and ')}` : ''}`;
+}
+
+/** Claude Code's project file: it fills in `${NAME}` in it from the environment Claude Code starts from, and won't start a server while NAME is unset there. */
+export const CLAUDE_CODE_FILE = '.mcp.json';
+
+/** The project's client config a copied entry goes in: the first one found, or null when there is none. */
+export function pasteFile(files: ReadonlyArray<{ path: string; found: boolean }>): string | null {
+  return files.find((f) => f.found)?.path ?? null;
+}
+
+/**
+ * The copied entry's environment for the file it goes in: in .mcp.json, the variable a URL's user
+ * and password became is `${NAME}`, which Claude Code fills in; elsewhere `…`, for its value.
+ */
+export function entryEnvFor(env: ReadonlyArray<{ name: string; value: string }>, basic: string | null | undefined, file: string | null): Array<{ name: string; value: string }> {
+  return env.map((e) => (file === CLAUDE_CODE_FILE && e.name === basic ? { name: e.name, value: `\${${e.name}}` } : { ...e }));
+}
+
+/**
+ * What "Add a server…" says under the entry, by what it hid: `basic`, the variable a URL's user and
+ * password became and where to set it (in .mcp.json's case, where Claude Code starts; for another
+ * file, the entry's env; with no file yet, either); `inCopy`, a URL's user and password in a
+ * command, which show as ••• in the copy too; `asTyped`, anything else that shows as ••• but is
+ * copied as typed (a URL's query, a key in its path, a token in a command). Null when nothing was.
+ */
+export function addServerNotes(shown: { line: string; hidden: boolean; basic?: string | null; copy?: { args: readonly string[] } | null }, file: string | null): { basic: { name: string; where: 'claude-code' | 'env' | 'either' } | null; inCopy: boolean; asTyped: boolean } | null {
+  if (!shown.hidden) return null;
+  const count = (text: string) => text.split('•••').length - 1;
+  const copied = count((shown.copy?.args ?? []).join(' '));
+  const basic = shown.basic ? { name: shown.basic, where: file === CLAUDE_CODE_FILE ? ('claude-code' as const) : file ? ('env' as const) : ('either' as const) } : null;
+  return { basic, inCopy: copied > 0, asTyped: count(shown.line) > copied };
 }
 
 /** The forms a server takes, each with the line that records one: what the page shows for a form no server here uses. */

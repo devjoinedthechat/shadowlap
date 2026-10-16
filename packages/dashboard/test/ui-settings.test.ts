@@ -10,9 +10,11 @@ import { settingsApi } from '../ui/settings-api.js';
 import {
   MCP_FORMS,
   SETTINGS_TABS,
+  addServerNotes,
   bytesText,
   ciShown,
   copiedLineText,
+  entryEnvFor,
   emptyRuleForm,
   gcDeleteCommand,
   gcDryRun,
@@ -23,6 +25,7 @@ import {
   mcpShortName,
   orList,
   partialLine,
+  pasteFile,
   pasteWhere,
   previewChip,
   proposedCount,
@@ -35,6 +38,7 @@ import {
   serverNameFor,
   settingsTab,
   shellWords,
+  sizeNote,
   suggestedReplace,
   syncText,
   typedSecret,
@@ -187,6 +191,13 @@ describe('sizes, times and lists', () => {
     expect(syncText(new Date(2025, 8, 30, 9, 0).getTime(), now)).toBe('Sep 30, 2025');
   });
 
+  it('says what Clean up gives back on the Size row, once no run is recording when one is', () => {
+    expect(sizeNote(0, 0)).toBe('blobs shared between runs');
+    expect(sizeNote(512 * 1024, 1)).toBe('blobs shared between runs');
+    expect(sizeNote(4.9 * 1024 * 1024, 0)).toBe('blobs shared between runs · 4.9 MB unused, which Clean up old runs gives back');
+    expect(sizeNote(4.9 * 1024 * 1024, 1)).toBe('blobs shared between runs · 4.9 MB unused, which Clean up old runs gives back once no run is recording');
+  });
+
   it('joins with "or"', () => {
     expect(orList([])).toBe('');
     expect(orList(['CLAUDE.md'])).toBe('CLAUDE.md');
@@ -269,6 +280,32 @@ describe('MCP servers', () => {
     expect(copiedLineText({ name: 'github', file: '.mcp.json', line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-github' })).toBe('Copied the line for github · put it in front of the server in .mcp.json');
     expect(copiedLineText({ name: 'db', file: '.mcp.json', line: "shadowlap mcp -- npx -y server-postgres 'postgresql://•••@db/prod'" })).toBe('Copied the line for db · put it in front of the server in .mcp.json, then put back the ••• in it');
     expect(copiedLineText({ name: 'stripe', file: '.cursor/mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .cursor/mcp.json, then set STRIPE_TOKEN in its env');
+    // Claude Code fills in ${…} in .mcp.json from the environment it starts from, and won't start the server without it.
+    expect(copiedLineText({ name: 'stripe', file: '.mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .mcp.json, then set STRIPE_TOKEN in the environment Claude Code starts from');
+  });
+
+  it('says what Add a server hid, what it copies as typed, and where a Basic header’s variable is set', () => {
+    const files = (...found: string[]) => ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json'].map((path) => ({ path, found: found.includes(path) }));
+    expect(pasteFile(files())).toBeNull();
+    expect(pasteFile(files('.vscode/mcp.json', '.mcp.json'))).toBe('.mcp.json');
+    expect(pasteFile(files('.cursor/mcp.json'))).toBe('.cursor/mcp.json');
+    // Nothing hidden: nothing to say.
+    expect(addServerNotes({ line: 'shadowlap mcp --url https://mcp.linear.app/mcp', hidden: false, basic: null, copy: { args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] } }, null)).toBeNull();
+    // A query shown hidden is copied as typed: said so, and nothing about a user and password that aren't there.
+    const query = addServerNotes({ line: "shadowlap mcp --url 'https://mcp.example.com/mcp?transport=•••&profile=•••'", hidden: true, basic: null, copy: { args: ['mcp', '--url', 'https://mcp.example.com/mcp?transport=sse&profile=work'] } }, '.mcp.json');
+    expect(query).toEqual({ basic: null, inCopy: false, asTyped: true });
+    // A user and password: the variable, set where the file's client reads it.
+    const basic = { line: "shadowlap mcp --url https://mcp.linear.app/mcp --header 'Authorization: Basic ${LINEAR_AUTH}'", hidden: true, basic: 'LINEAR_AUTH', copy: { args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Basic ${LINEAR_AUTH}'] } };
+    expect(addServerNotes(basic, '.mcp.json')).toEqual({ basic: { name: 'LINEAR_AUTH', where: 'claude-code' }, inCopy: false, asTyped: false });
+    expect(addServerNotes(basic, '.cursor/mcp.json')!.basic).toEqual({ name: 'LINEAR_AUTH', where: 'env' });
+    expect(addServerNotes(basic, null)!.basic).toEqual({ name: 'LINEAR_AUTH', where: 'either' });
+    // A command with a URL's user and password (••• in the copy too) and a token (copied as typed).
+    expect(addServerNotes({ line: "shadowlap mcp -- node s.js --api-key ••• 'postgresql://•••@db/prod'", hidden: true, basic: null, copy: { args: ['mcp', '--', 'node', 's.js', '--api-key', 'sk-1', 'postgresql://•••@db/prod'] } }, null)).toEqual({ basic: null, inCopy: true, asTyped: true });
+    // In .mcp.json the variable is a reference Claude Code fills in; elsewhere "…", for its value.
+    const env = [{ name: 'LINEAR_AUTH', value: '…' }];
+    expect(entryEnvFor(env, 'LINEAR_AUTH', '.mcp.json')).toEqual([{ name: 'LINEAR_AUTH', value: '${LINEAR_AUTH}' }]);
+    expect(entryEnvFor(env, 'LINEAR_AUTH', '.vscode/mcp.json')).toEqual(env);
+    expect(entryEnvFor(env, 'LINEAR_AUTH', null)).toEqual(env);
   });
 
   it('writes a client entry to paste under mcpServers', () => {

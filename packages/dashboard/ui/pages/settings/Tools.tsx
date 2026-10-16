@@ -8,7 +8,7 @@ import { useLoad } from '../../hooks.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, LoadProblem, Loading, useSettingsData } from './common.js';
-import { MCP_FORMS, copiedLineText, mcpEntryText, mcpRows, pasteWhere, serverNameFor, type McpRow } from './logic.js';
+import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, mcpRows, pasteFile, pasteWhere, serverNameFor, type McpRow } from './logic.js';
 
 /**
  * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
@@ -193,6 +193,11 @@ function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][
           </ul>
         </div>
       ) : null}
+      {(block.notes ?? []).map((n) => (
+        <p key={`${n.server}\u0000${n.text}`} className="fieldnote">
+          <code>{n.server}</code>: {n.text}.
+        </p>
+      ))}
     </>
   );
 }
@@ -256,9 +261,13 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
   const shown = asked === target.trim() ? line.data : null;
   // Named from what was typed until a name is given: linear for https://mcp.linear.app/mcp.
   const serverName = name.trim() || serverNameFor(transport, target);
-  const entry = shown ? mcpEntryText(serverName, shown.entry, shown.env ?? []) : '';
+  // The file the entry goes in decides how its environment is written: Claude Code fills in ${…} in .mcp.json itself.
+  const file = pasteFile(files);
+  const env = shown ? entryEnvFor(shown.env ?? [], shown.basic, file) : [];
+  const entry = shown ? mcpEntryText(serverName, shown.entry, env) : '';
   // Copied as typed, but for a URL's user and password, which never go on the clipboard. What shows hides any credential, as the table does.
-  const copied = shown ? mcpEntryText(serverName, shown.copy ?? shown.entry, shown.env ?? []) : '';
+  const copied = shown ? mcpEntryText(serverName, shown.copy ?? shown.entry, env) : '';
+  const notes = shown ? addServerNotes(shown, file) : null;
   const placeholder = transport === 'http' ? 'shadowlap mcp --url <server URL>' : 'shadowlap mcp -- <command>';
   return (
     <Dialog
@@ -266,6 +275,7 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
       text="Its tool calls are then recorded, replayed and fenced like any other tool."
       ok="Copy the entry"
       okDisabled={!shown}
+      keepOnSwitch
       onClose={onClose}
       onOk={() =>
         void copyText(copied).then((ok) => {
@@ -303,17 +313,32 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
       </p>
       {entry ? <pre className="codebox">{entry}</pre> : null}
       {line.error && asked === target.trim() ? <p className="fieldnote err">{line.error.message}</p> : null}
-      {shown?.basic ? (
-        <p className="fieldnote warn">
-          The URL’s user and password aren’t copied: <code>shadowlap mcp</code> sends them as an Authorization header. Set <code>{shown.basic}</code> in the entry’s env to their base64, from <code>printf &apos;user:password&apos; | base64</code>.
-        </p>
-      ) : shown?.hidden ? (
-        <p className="fieldnote warn">
-          {(shown.copy?.args ?? []).some((a) => a.includes('•••'))
-            ? 'A URL’s user and password show as •••, in the copy too: put them back in your own entry. Anything else that looks like a credential shows as ••• and is copied as you typed it: keep it out of a file you commit, or pass it in an environment variable.'
-            : 'Something that looks like a credential shows as •••. The copied entry has it as you typed it: keep it out of a file you commit, or pass it in an environment variable.'}
-        </p>
-      ) : null}
+      {notes ? <AddServerNote notes={notes} /> : null}
     </Dialog>
+  );
+}
+
+/** What "Add a server…" says about what it hid (`addServerNotes`): where the Basic header's variable is set, and what the copy has as typed. */
+function AddServerNote({ notes }: { notes: NonNullable<ReturnType<typeof addServerNotes>> }) {
+  const KEEP_OUT = 'keep it out of a file you commit, or pass it in an environment variable.';
+  const b = notes.basic;
+  const ref = b ? <code>{`\${${b.name}}`}</code> : null;
+  return (
+    <p className="fieldnote warn">
+      {b ? (
+        <>
+          The URL’s user and password aren’t copied: <code>shadowlap mcp</code> sends them as an Authorization header. Set <code>{b.name}</code> to their base64, from <code>printf &apos;user:password&apos; | base64</code>,{' '}
+          {b.where === 'claude-code' ? (
+            <>in the environment Claude Code starts from: it fills in {ref} in .mcp.json itself.</>
+          ) : b.where === 'env' ? (
+            <>in the entry’s env.</>
+          ) : (
+            <>in the entry’s env, or for .mcp.json in the environment Claude Code starts from, since it fills in {ref} itself.</>
+          )}{' '}
+        </>
+      ) : null}
+      {notes.inCopy ? 'A URL’s user and password show as •••, in the copy too: put them back in your own entry. ' : null}
+      {notes.asTyped ? (b || notes.inCopy ? `Anything else that looks like a credential shows as ••• and is copied as you typed it: ${KEEP_OUT}` : `Something that looks like a credential shows as •••. The copied entry has it as you typed it: ${KEEP_OUT}`) : null}
+    </p>
   );
 }

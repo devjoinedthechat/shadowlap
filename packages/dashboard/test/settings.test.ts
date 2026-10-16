@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
 import { PREVIEW_LIMITS, repeatsARepeat, tookTooLong } from '../src/redaction-preview.js';
-import { parseHeaderFlags } from '../../cli/src/mcp.js';
+import { mcpServerUrl, parseHeaderFlags } from '../../cli/src/mcp.js';
 import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpEntryAsTyped, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
@@ -348,23 +348,23 @@ describe('mcpServers', () => {
     expect(servers).toEqual([
       {
         name: 'filesystem', file: '.mcp.json', transport: 'stdio', target: 'npx -y @modelcontextprotocol/server-filesystem /srv/notes', viaShadowlap: false,
-        line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] }, hidden: false, env: [], putBack: [],
+        line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem /srv/notes', entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/notes'] }, hidden: false, env: [], putBack: [], notes: [],
         recordedAs: { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' },
       },
       {
         name: 'github', file: '.mcp.json', transport: 'stdio', target: 'docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', viaShadowlap: false,
         line: 'shadowlap mcp -- docker run -i --rm -e GITHUB_TOKEN ghcr.io/github/github-mcp-server --token •••', entry: { command: 'shadowlap', args: ['mcp', '--', 'docker', 'run', '-i', '--rm', '-e', 'GITHUB_TOKEN', 'ghcr.io/github/github-mcp-server', '--token', '•••'] }, hidden: true,
-        env: [{ name: 'GITHUB_TOKEN', value: '…' }], putBack: ['GITHUB_TOKEN', 'the ••• in its command'],
+        env: [{ name: 'GITHUB_TOKEN', value: '…' }], putBack: ['GITHUB_TOKEN', 'the ••• in its command'], notes: [],
         recordedAs: { transport: 'stdio', server: 'docker' },
       },
-      { name: 'notes', file: '.mcp.json', transport: 'stdio', target: 'node notes-server.js', viaShadowlap: true, line: 'shadowlap mcp --effect search=read -- node notes-server.js', entry: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] }, hidden: false, env: [], putBack: [], recordedAs: { transport: 'stdio', server: 'node' } },
+      { name: 'notes', file: '.mcp.json', transport: 'stdio', target: 'node notes-server.js', viaShadowlap: true, line: 'shadowlap mcp --effect search=read -- node notes-server.js', entry: { command: 'shadowlap', args: ['mcp', '--effect', 'search=read', '--', 'node', 'notes-server.js'] }, hidden: false, env: [], putBack: [], notes: [], recordedAs: { transport: 'stdio', server: 'node' } },
       // Its headers go along as --header, each value a variable shadowlap mcp reads from its environment.
       {
         name: 'stripe', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.stripe.com/?key=•••', viaShadowlap: false,
         line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: Bearer ${STRIPE_TOKEN}'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••', '--header', 'Authorization: Bearer ${STRIPE_TOKEN}'] }, hidden: true,
-        env: [{ name: 'STRIPE_TOKEN', value: '…' }], putBack: ['STRIPE_TOKEN (its Authorization header)', 'the ••• in its URL'], recordedAs: { transport: 'http', server: 'mcp.stripe.com' },
+        env: [{ name: 'STRIPE_TOKEN', value: '…' }], putBack: ['STRIPE_TOKEN (its Authorization header)', 'the ••• in its URL'], notes: [], recordedAs: { transport: 'http', server: 'mcp.stripe.com' },
       },
-      { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false, env: [], putBack: [], recordedAs: { transport: 'http', server: 'mcp.linear.app' } },
+      { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false, env: [], putBack: [], notes: [], recordedAs: { transport: 'http', server: 'mcp.linear.app' } },
     ]);
     // No value from an entry's environment or headers reaches the page, only their names (and a header's scheme).
     expect(JSON.stringify(servers)).not.toMatch(/ghp_|never_shown|sk_live/);
@@ -457,14 +457,41 @@ describe('mcpServers', () => {
     expect(db.entry.args.at(-1)).toBe('postgresql://•••@db.example.com:5432/prod');
     expect(db.putBack).toEqual(['the ••• in its command']);
     const remote = servers.find((s) => s.name === 'remote')!;
-    expect(remote).toMatchObject({ target: 'https://mcp.example.com/mcp', hidden: true, env: [{ name: 'REMOTE_AUTH', value: '…' }] });
+    // In .mcp.json the variable is a reference Claude Code fills in from the environment it starts from, and the put-back says so.
+    expect(remote).toMatchObject({ target: 'https://mcp.example.com/mcp', hidden: true, env: [{ name: 'REMOTE_AUTH', value: '${REMOTE_AUTH}' }], notes: [] });
     expect(remote.entry.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Basic ${REMOTE_AUTH}']);
-    expect(remote.putBack).toEqual(['REMOTE_AUTH (the base64 of its URL’s user:password, for its Authorization header)']);
+    expect(remote.putBack).toEqual(['REMOTE_AUTH (the base64 of its URL’s user:password, for its Authorization header), in the environment Claude Code starts from: it fills in ${REMOTE_AUTH} itself']);
     // What shadowlap mcp makes of the entry: the URL it accepts, the header from the variable.
+    expect(mcpServerUrl(remote.entry.args[2]!, true).host).toBe('mcp.example.com');
     expect(parseHeaderFlags([remote.entry.args[4]!], { REMOTE_AUTH: 'Ym9iOnMzY3JldA==' })).toEqual({ authorization: 'Basic Ym9iOnMzY3JldA==' });
-    // A server that sends its own Authorization header keeps it; its URL still loses the credentials.
+    // A server that sends its own Authorization header keeps it, and its URL goes without the user and password,
+    // which the proxy refuses there: nothing is asked back for them, and the block says why.
     const signed = servers.find((s) => s.name === 'signed')!;
-    expect(signed.entry.args.filter((a) => a.startsWith('Authorization'))).toEqual(['Authorization: Bearer ${SIGNED_TOKEN}']);
+    expect(signed.entry.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer ${SIGNED_TOKEN}']);
+    expect(mcpServerUrl(signed.entry.args[2]!, true).host).toBe('mcp.example.com');
+    expect(signed).toMatchObject({ target: 'https://mcp.example.com/mcp', hidden: true, notes: [expect.stringMatching(/^its URL’s user and password are left out: shadowlap mcp refuses them there, and its Authorization header signs in$/)] });
+    expect(signed.putBack.join(' ')).not.toContain('•••');
+    expect(toolsSettings({ store, cwd }).mcp.clientConfigs[0]!.notes).toEqual([{ server: 'signed', text: signed.notes[0] }]);
+  });
+
+  it('cuts a user and password at the last @ before the host, as a URL parser does, and keeps a header variable as “…” outside .mcp.json', () => {
+    put('.cursor/mcp.json', JSON.stringify({
+      mcpServers: {
+        db: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://admin:p@ss@db.example.com/prod'] },
+        remote: { url: 'https://bob:p@ss@mcp.example.com/mcp' },
+        broken: { command: 'node', args: ['server.js', 'https://bob:p/ss@host.example.com/mcp'] },
+      },
+    }));
+    const { servers } = mcpServers(cwd);
+    // No part of the password is left: not `ss@`, which cutting at the first @ would keep.
+    expect(JSON.stringify(servers)).not.toMatch(/admin|p@ss|ss@|bob|p\/ss/);
+    expect(servers.find((s) => s.name === 'db')!.entry.args.at(-1)).toBe('postgresql://•••@db.example.com/prod');
+    const remote = servers.find((s) => s.name === 'remote')!;
+    expect(remote.entry.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Basic ${REMOTE_AUTH}']);
+    expect(remote.env).toEqual([{ name: 'REMOTE_AUTH', value: '…' }]);
+    expect(remote.putBack).toEqual(['REMOTE_AUTH (the base64 of its URL’s user:password, for its Authorization header)']);
+    // Text no URL parser reads: everything up to its last @ is hidden.
+    expect(servers.find((s) => s.name === 'broken')!.target).toBe('node server.js https://•••@host.example.com/mcp');
   });
 
   it('knows shadowlap mcp behind a package runner, and reads a config file through a link', () => {
@@ -574,6 +601,30 @@ describe('mcpServerFor', () => {
     expect(() => mcpServerFor({ command: '   ' })).toThrow(/type the command that starts the server/);
     expect(() => mcpServerFor({ url: 'mcp.example.com' })).toThrow(/starts with http:\/\/ or https:\/\//);
     expect(() => mcpServerFor({ command: 'node "server.js' })).toThrow(/a quote is not closed/);
+  });
+
+  it('copies a typed URL as typed, its query and path included, less only its user and password', () => {
+    // A query: shown hidden, as the table hides it, and copied as typed, as the dialog says.
+    const query = 'https://mcp.example.com/mcp?transport=sse&profile=work';
+    expect(mcpServerFor({ url: query })).toMatchObject({ target: 'https://mcp.example.com/mcp?transport=•••&profile=•••', hidden: true, basic: null });
+    expect(mcpEntryAsTyped({ url: query })).toEqual({ command: 'shadowlap', args: ['mcp', '--url', query] });
+    // A key in the path, as in Zapier's URLs.
+    const keyed = 'https://actions.zapier.com/mcp/sk-ak-abc123def456/sse';
+    expect(mcpServerFor({ url: keyed }).target).toBe('https://actions.zapier.com/mcp/•••/sse');
+    expect(mcpEntryAsTyped({ url: keyed }).args).toEqual(['mcp', '--url', keyed]);
+    // A user and password with a query: the query as typed, the credentials as the Basic header's variable.
+    const both = mcpEntryAsTyped({ url: 'https://bob:s3cretpass@mcp.example.com/mcp?profile=work' });
+    expect(both.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp?profile=work', '--header', 'Authorization: Basic ${EXAMPLE_AUTH}']);
+    expect(mcpServerUrl(both.args[2]!, true).search).toBe('?profile=work');
+    // A password with an @ of its own: all of it goes, shown and copied.
+    const at = mcpServerFor({ url: 'https://bob:p@ss@mcp.linear.app/mcp' });
+    expect(at).toMatchObject({ target: 'https://mcp.linear.app/mcp', basic: 'LINEAR_AUTH', line: "shadowlap mcp --url https://mcp.linear.app/mcp --header 'Authorization: Basic ${LINEAR_AUTH}'" });
+    expect(mcpEntryAsTyped({ url: 'https://bob:p@ss@mcp.linear.app/mcp' })).toEqual(at.entry);
+    expect(mcpEntryAsTyped({ command: 'npx -y server-postgres postgresql://admin:p@ss@db/prod' }).args.at(-1)).toBe('postgresql://•••@db/prod');
+    expect(mcpServerFor({ command: 'npx -y server-postgres postgresql://admin:p@ss@db/prod' }).target).toBe('npx -y server-postgres postgresql://•••@db/prod');
+    // A URL no parser reads (a / in the password) is refused with what to do, never shown.
+    expect(() => mcpServerFor({ url: 'https://bob:p/ss@mcp.linear.app/mcp' })).toThrow(/isn’t a URL shadowlap mcp can reach/);
+    expect(() => mcpEntryAsTyped({ url: 'https://bob:p/ss@mcp.linear.app/mcp' })).toThrow(/isn’t a URL shadowlap mcp can reach/);
   });
 
   it('splits a command line as a shell does', () => {

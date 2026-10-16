@@ -205,6 +205,8 @@ export interface McpServerRow {
   env: Array<{ name: string; value: string }>;
   /** What a copy of its entry leaves out, to put back before the client starts it: `GITHUB_TOKEN`, `the ••• in its command`. */
   putBack: string[];
+  /** What a copy of its entry leaves out for good, and why: its URL's user and password, when its own Authorization header signs in. */
+  notes: string[];
   /** How `shadowlap mcp` names the server in what it records: its transport, and its host or its command (with the package a runner such as npx starts). */
   recordedAs: { transport: 'stdio' | 'http'; server: string };
   /** What the recordings hold from it (McpRecordedServer), or null when nothing was recorded through it. */
@@ -235,6 +237,8 @@ export interface ClientConfigBlock {
   text: string;
   /** Per server, each value the copy leaves out, to put back before the client starts it. */
   putBack: Array<{ server: string; values: string[] }>;
+  /** Per server, what the copy leaves out for good, and why (`McpServerRow.notes`). */
+  notes: Array<{ server: string; text: string }>;
 }
 
 export interface ToolsSettings {
@@ -868,7 +872,7 @@ export function hideUrlSecrets(url: string): string {
     const query = [...new Set(u.searchParams.keys())].map((k) => `${encodeURIComponent(k)}=${HIDDEN}`).join('&');
     return `${u.protocol}//${u.username || u.password ? `${HIDDEN}@` : ''}${u.host}${path}${query ? `?${query}` : ''}${u.hash ? `#${HIDDEN}` : ''}`;
   } catch {
-    return url;
+    return url.replace(USERINFO_LOOSE, `$1${HIDDEN}@`);
   }
 }
 
@@ -887,8 +891,14 @@ function withoutCredentials(url: string): { url: string; had: boolean } {
   }
 }
 
-/** A URL's scheme and the user and password after it, as typed: `https://` and `bob:s3cret@`. */
-const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^@/?#]*@/i;
+/**
+ * A URL's scheme and the user and password after it, as typed: `https://` and `bob:s3cret@`. Up to
+ * the last `@` before the host, as a URL parser splits them: a password may hold an `@` of its own
+ * (`bob:p@ss@host`), and all of it goes.
+ */
+const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#\\]*@/i;
+/** The same in text no URL parser takes (`https://bob:p/ss@host`): everything up to its last `@`, which is as far as a password could reach. */
+const USERINFO_LOOSE = /^([a-z][a-z0-9+.-]*:\/\/)\S*@/i;
 
 /** Words in a host that say nothing about which server it is: what's left names its variable (`LINEAR_AUTH` for mcp.linear.app). */
 const HOST_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'com', 'net', 'org', 'io', 'dev', 'ai', 'co', 'cloud']);
@@ -911,7 +921,7 @@ function hideUrlCredentials(text: string): string {
     if (!u.username && !u.password) return text;
     return text.replace(USERINFO, `$1${HIDDEN}@`);
   } catch {
-    return text;
+    return text.replace(USERINFO_LOOSE, `$1${HIDDEN}@`);
   }
 }
 
@@ -988,7 +998,7 @@ function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'
 }
 
 /** How a server entry is recorded, from its command and arguments: the row without its name, file, environment, what to put back and what was recorded. */
-type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'env' | 'putBack' | 'recorded'>;
+type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'env' | 'putBack' | 'notes' | 'recorded'>;
 
 function commandServer(command: string, args: string[]): ServerRecording {
   const shownArgs = hideSecrets(args);
@@ -1072,7 +1082,7 @@ function headerFlags(value: unknown, server: string, taken: Set<string>): Array<
  * Code), with what each copy leaves out to put back. Without a server, the docs' example. And the
  * forms no server in them uses, for the page to show beside them.
  */
-export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' | 'file' | 'transport' | 'entry' | 'env' | 'putBack'>>, docExample: string | null = null): { clientConfigs: ClientConfigBlock[]; otherForms: Array<'stdio' | 'http'> } {
+export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' | 'file' | 'transport' | 'entry' | 'env' | 'putBack'> & { notes?: readonly string[] }>, docExample: string | null = null): { clientConfigs: ClientConfigBlock[]; otherForms: Array<'stdio' | 'http'> } {
   const q = (v: string) => JSON.stringify(v);
   const blocks = MCP_FILES.flatMap(({ path, key }): ClientConfigBlock[] => {
     const here = servers.filter((s) => s.file === path);
@@ -1083,9 +1093,9 @@ export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' |
       return [...lines, '    }'].join('\n');
     });
     const text = ['{', `  ${q(key)}: {`, entries.join(',\n'), '  }', '}'].join('\n');
-    return [{ file: path, text, putBack: here.filter((s) => s.putBack.length).map((s) => ({ server: s.name, values: s.putBack })) }];
+    return [{ file: path, text, putBack: here.filter((s) => s.putBack.length).map((s) => ({ server: s.name, values: s.putBack })), notes: here.flatMap((s) => (s.notes ?? []).map((text) => ({ server: s.name, text }))) }];
   });
-  if (!blocks.length) return { clientConfigs: docExample === null ? [] : [{ file: null, text: docExample, putBack: [] }], otherForms: [] };
+  if (!blocks.length) return { clientConfigs: docExample === null ? [] : [{ file: null, text: docExample, putBack: [], notes: [] }], otherForms: [] };
   const used = new Set(servers.filter((s) => blocks.some((b) => b.file === s.file)).map((s) => s.transport));
   return { clientConfigs: blocks, otherForms: (['stdio', 'http'] as const).filter((t) => !used.has(t)) };
 }
@@ -1108,7 +1118,7 @@ export interface ServerFor extends ServerRecording {
 export function mcpServerFor(input: { command?: string | null; url?: string | null }): ServerFor {
   const url = input.url?.trim();
   if (url) {
-    if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('an MCP server URL starts with http:// or https://, such as https://mcp.example.com/mcp');
+    checkServerUrl(url);
     const basic = basicAuth(url, [], hostWord(url), new Set());
     if (!basic) return { ...urlServer(url), env: [], basic: null };
     return { ...urlServer(basic.url, [basic.header]), hidden: true, env: [{ name: basic.env, value: LEFT_OUT }], basic: basic.env };
@@ -1118,20 +1128,45 @@ export function mcpServerFor(input: { command?: string | null; url?: string | nu
   return { ...commandServer(argv[0]!, argv.slice(1)), env: [], basic: null };
 }
 
+/** A remote server's URL as `shadowlap mcp --url` takes one: http(s), with a host, that a URL parser can read. Throws with what to type instead. */
+function checkServerUrl(url: string): void {
+  const example = 'such as https://mcp.example.com/mcp';
+  if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new Error(`an MCP server URL starts with http:// or https://, ${example}`);
+  try {
+    new URL(url);
+  } catch {
+    throw new Error(`that isn’t a URL shadowlap mcp can reach, ${example}; a password with / ? or # in it goes in an Authorization header instead`);
+  }
+}
+
 /**
  * The client entry for what "Add a server…" has, as the person typed it: what Copy the entry
  * copies. The line and entry the dialog shows hide credentials (mcpServerFor); the copy keeps what
- * was typed, since the person typed it and the dialog says so, except a URL's user and password,
- * which never go on the clipboard: a remote server's become its Basic header's variable, and one
- * in a command shows as `•••@`, to put back in your own entry.
+ * was typed, since the person typed it and the dialog says so (a URL's query and path, a token in a
+ * command), except a URL's user and password, which never go on the clipboard: a remote server's
+ * become its Basic header's variable, and one in a command shows as `•••@`, to put back in your own
+ * entry.
  */
 export function mcpEntryAsTyped(input: { command?: string | null; url?: string | null }): { command: string; args: string[] } {
   const url = input.url?.trim();
-  if (url) return mcpServerFor({ url }).entry;
+  if (url) {
+    checkServerUrl(url);
+    const basic = basicAuth(url, [], hostWord(url), new Set());
+    return { command: 'shadowlap', args: ['mcp', '--url', basic?.url ?? url, ...(basic ? ['--header', basic.header] : [])] };
+  }
   const argv = splitCommandLine(input.command ?? '').map(hideUrlCredentials);
   if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
   if (shadowlapMcpArgs(argv[0]!, argv.slice(1))) return { command: argv[0]!, args: argv.slice(1) };
   return { command: 'shadowlap', args: ['mcp', '--', ...argv] };
+}
+
+/**
+ * A header's variable to put back, as its file needs it. Claude Code fills in `${NAME}` in
+ * .mcp.json itself, from the environment it starts from, and won't start the server while NAME is
+ * unset there; other clients pass the entry's env on to `shadowlap mcp`, which fills it in.
+ */
+export function headerPutBack(file: string | null, name: string, what: string): string {
+  return file === '.mcp.json' ? `${name} (${what}), in the environment Claude Code starts from: it fills in \${${name}} itself` : `${name} (${what})`;
 }
 
 /** The MCP servers a project's client configs list, with how each would be recorded. */
@@ -1161,25 +1196,30 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
       const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === 'string') : [];
       const env = envOf(entry.env);
       const putBack = env.filter((e) => e.value === LEFT_OUT).map((e) => e.name);
+      const notes: string[] = [];
       if (command) {
         const server = commandServer(command, args);
         if (server.hidden) putBack.push(`the ${HIDDEN} in its command`);
-        servers.push({ name, file: path, ...server, env, putBack });
+        servers.push({ name, file: path, ...server, env, putBack, notes });
       } else if (url) {
         const taken = new Set(env.map((e) => e.name));
         const headers = headerFlags(entry.headers, name, taken);
-        // A user and password in the URL become a Basic header: `shadowlap mcp --url` refuses them there.
+        // A user and password in the URL become a Basic header: `shadowlap mcp --url` refuses them
+        // there. Beside its own Authorization header they go, since that header signs in.
+        const bare = withoutCredentials(url);
         const basic = basicAuth(url, headers.map((h) => h.flag), name, taken);
         if (basic) headers.push({ flag: basic.header, env: basic.env });
-        const server = urlServer(basic?.url ?? url, headers.map((h) => h.flag));
+        else if (bare.had) notes.push(`its URL’s user and password are left out: shadowlap mcp refuses them there, and its Authorization header signs in`);
+        const server = urlServer(bare.url, headers.map((h) => h.flag));
         for (const h of headers) {
           if (!h.env) continue;
-          env.push({ name: h.env, value: LEFT_OUT });
-          putBack.push(h.env === basic?.env ? `${h.env} (the base64 of its URL’s user:password, for its Authorization header)` : `${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
+          // Claude Code fills in a reference in .mcp.json from its own environment: the variable is set there.
+          env.push({ name: h.env, value: path === '.mcp.json' ? `\${${h.env}}` : LEFT_OUT });
+          putBack.push(headerPutBack(path, h.env, h.env === basic?.env ? 'the base64 of its URL’s user:password, for its Authorization header' : `its ${h.flag.slice(0, h.flag.indexOf(':'))} header`));
         }
-        if (basic) server.hidden = true;
+        if (bare.had) server.hidden = true;
         if (server.target.includes(HIDDEN)) putBack.push(`the ${HIDDEN} in its URL`);
-        servers.push({ name, file: path, ...server, env, putBack });
+        servers.push({ name, file: path, ...server, env, putBack, notes });
       }
     }
     return { path, found: true, error: null };
