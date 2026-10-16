@@ -1601,3 +1601,9 @@ td.hist i.go { cursor: pointer; }
 .bisect .m + .m { flex-basis: 100%; }
 .dialog .ondisk.first { margin-top: 0; }
 .dialog .cmdline.upd { margin-top: 14px; }
+/* the verdict's command stays on one line and gives way to the rest of the line, its whole text on hover */
+.verdict.tv > div { min-width: 0; }
+.verdict.tv p code.vcmd { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.dialog p.hintx.unote { display: block; margin: 12px 0 0; }
+/* a test job's links (each failing golden's run, then Tests) wrap in a narrow drawer */
+.drawer footer { flex-wrap: wrap; }

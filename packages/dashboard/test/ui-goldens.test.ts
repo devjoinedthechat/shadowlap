@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, shortDate, sourceText, updatePlan } from '../ui/goldens.js';
+import { asksUpdate, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, shortDate, sourceText, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { DivergenceView, FailureView, GoldenRow, TestsView } from '../ui/types.js';
 
@@ -107,6 +107,9 @@ describe('the goldens table', () => {
     expect(historyTip({ revision: null, result: null, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
     // Updated, and its new recording failed the replay after it: both are said.
     expect(historyTip({ revision: 'd2e8a1f', result: 'fail', note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
+    // A pass whose replay had a connection blocked says so, after the update when there was one.
+    expect(historyTip({ revision: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: false, runId: null, at: T }, 'x').value).toBe('blocked connection to hooks.example.com:443');
+    expect(historyTip({ revision: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: true, runId: null, at: T }, 'x').value).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {
@@ -151,7 +154,7 @@ describe('the reports', () => {
     expect(failureHint(f)).toBe('A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.');
   });
 
-  it('says a live call the network guard blocked is what the agent tripped on', () => {
+  it('says a connection the network guard blocked is what the agent tripped on', () => {
     const f: FailureView = {
       golden: 'goldens/notify-ops',
       name: 'notify-ops',
@@ -165,7 +168,7 @@ describe('the reports', () => {
       bisect: null,
       found: null,
     };
-    expect(failureHint(f)).toBe('A live call to hooks.example.com:443 bypassed Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=hooks.example.com:443.');
+    expect(failureHint(f)).toBe('The agent connected to hooks.example.com:443 directly, past Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=hooks.example.com:443.');
     expect(failureHint({ ...f, blocked: null })).toBe('The agent exited with an error while it replayed: its last lines of output are above.');
   });
 
@@ -234,7 +237,9 @@ describe('the Update golden dialog', () => {
       ['Replaced only if they pass', 'in your working tree'],
       ['You review the change', 'in your pull request'],
     ]);
-    expect(plan.advise).toEqual({ path: '$.metadata.user_id', golden: 'goldens/refund-in-limit', text: 'looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.' });
+    expect(plan.advise).toEqual({ title: 'A normalizer fixes this for good', path: '$.metadata.user_id', text: 'looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.' });
+    expect(plan.instead).toEqual({ label: 'Add the normalizer instead', golden: 'goldens/refund-in-limit', run: 'normalize' });
+    expect(plan.note).toBeNull();
     expect(plan.command).toBe('shadowlap test goldens/refund-in-limit --update');
     expect(plan.ok).toBe('Update anyway');
   });
@@ -245,7 +250,9 @@ describe('the Update golden dialog', () => {
     expect(plan.title).toBe('Update 2 diverged goldens?');
     expect(plan.goldens.map((g) => g.where)).toEqual(['diverged at call 1', 'diverged at call 3']);
     expect(plan.steps[1]).toEqual(['Each one’s checks run', 'per golden']);
-    expect(plan.advise).toEqual({ path: null, golden: null, text: 'refund-in-limit diverged on values that change every run. Updating re-records it, and the next run diverges again.' });
+    expect(plan.advise).toEqual({ title: 'A normalizer fixes this for good', path: null, text: 'refund-in-limit diverged on values that change every run. Updating re-records it, and the next run diverges again.' });
+    // The amber box's button is for one golden: here each has its own panel.
+    expect(plan.instead).toBeNull();
   });
 
   it('plainly offers Update for a change that was meant, and counts a golden with no checks by its exit status', () => {
@@ -259,9 +266,79 @@ describe('the Update golden dialog', () => {
     expect(updatePlan(maybe, ['goldens/refund-in-limit']).advise).toBeNull();
   });
 
+  it('offers the rule and the update it still needs, when the rule alone can\'t make the replay match', () => {
+    const added = divergence('refund-in-limit', { volatile: { ...UUID, op: 'added' }, normalizerFixes: false, normalizeAndTest: [['normalize', 'add', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit', '--update']] });
+    const plan = updatePlan(view({ divergences: [added] }), ['goldens/refund-in-limit']);
+    expect(plan.advise!.text).toBe('is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.');
+    expect(plan.instead).toEqual({ label: 'Add the normalizer and update', golden: 'goldens/refund-in-limit', run: 'normalize-update' });
+    // A server that doesn't run normalize-and-test gets the note, and no button that would do nothing.
+    expect(updatePlan(view({ divergences: [added] }), ['goldens/refund-in-limit'], (k) => k !== 'normalize-and-test').instead).toBeNull();
+  });
+
+  it('says a re-run passes once the rule is in the config, and offers that instead of a normalizer', () => {
+    // The rule was added for another golden since this one's replay: alone it makes the replay match.
+    const plan = updatePlan(view({ divergences: [divergence('refund-in-limit', { rulesAdded: true })] }), ['goldens/refund-in-limit']);
+    expect(plan.advise).toEqual({ title: 'Its normalizer is in the config now', path: '$.metadata.user_id', text: 'is masked by a rule added since this replay, so a re-run passes without an update.' });
+    expect(plan.instead).toEqual({ label: 'Re-run instead', golden: 'goldens/refund-in-limit', run: 'rerun' });
+    expect(plan.ok).toBe('Update anyway');
+    expect(updatePlan(view({ divergences: [divergence('refund-in-limit', { rulesAdded: true })] }), ['goldens/refund-in-limit'], (k) => k !== 'test').instead).toBeNull();
+  });
+
+  it('says an update is the fix once the rule is in the config and alone can\'t make the replay match', () => {
+    // The panel says so too ("update the golden"), and offers no normalizer: the dialog agrees with it.
+    const left = divergence('limit-two', { rulesAdded: true, volatile: { ...UUID, op: 'added' }, normalizerFixes: false, normalizeAndTest: [['normalize', 'add', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/limit-two', '--update']] });
+    const v = view({ rows: [row('limit-two', { checks: ['issue_refund called 1 time'] })], divergences: [left], diverged: ['goldens/limit-two'] });
+    const plan = updatePlan(v, ['goldens/limit-two']);
+    expect(divergenceButtons(left, all).normalize).toBeNull();
+    expect(plan.advise).toBeNull();
+    expect(plan.instead).toBeNull();
+    expect(plan.note).toBe('The normalizer for $.metadata.user_id is in shadowlap.config.json already, so the run after this update matches.');
+    expect(plan.ok).toBe('Update');
+  });
+
+  it('leaves goldens whose rules are in the config out of the amber note for several', () => {
+    const fresh = divergence('refund-in-limit');
+    const rerun = divergence('refund-flow', { rulesAdded: true });
+    const left = divergence('limit-two', { rulesAdded: true, normalizerFixes: false, normalizeAndTest: [['normalize', 'add', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/limit-two', '--update']] });
+    const v = view({ divergences: [fresh, rerun, left], diverged: [fresh.golden, rerun.golden, left.golden] });
+    const plan = updatePlan(v, v.diverged);
+    expect(plan.advise!.text).toBe('refund-in-limit diverged on values that change every run. Updating re-records it, and the next run diverges again.');
+    expect(plan.note).toBe('The normalizers for refund-flow are in shadowlap.config.json now: a re-run passes without updating it.');
+    expect(plan.ok).toBe('Update anyway');
+    // All of them masked already: no amber note, and the update reads plainly.
+    const masked = view({ divergences: [left, { ...left, golden: 'goldens/limit-three', name: 'limit-three' }], diverged: [left.golden, 'goldens/limit-three'] });
+    expect(updatePlan(masked, masked.diverged)).toMatchObject({ advise: null, instead: null, note: null, ok: 'Update' });
+  });
+
   it('quotes what a shell would need quoting in the command', () => {
     expect(commandText(['test', 'goldens/my golden', '--update'])).toBe("shadowlap test 'goldens/my golden' --update");
     expect(commandText(['test', 'goldens/*'])).toBe('shadowlap test goldens/*');
+  });
+});
+
+describe('the palette', () => {
+  it('lists each golden by how it did last, from any page, and Update goldens… when any diverged', () => {
+    const entries = testsPalette(view({ rows: [...view().rows, row('broken', { last: { result: null, failure: null, line: "can't be read: no run.json", at: null, updated: false }, error: 'no run.json' }), row('new-one', { last: { result: null, failure: null, line: 'not run yet', at: null, updated: false } })] }), { update: true });
+    expect(entries.map((e) => [e.group, e.label, e.hint, e.to])).toEqual([
+      ['Actions', 'Update goldens…', 'shadowlap test --update', '#/tests?update'],
+      ['Tests', 'refund-over-limit', 'passing', '#/tests'],
+      ['Tests', 'refund-in-limit', 'failing', '#/tests'],
+      ['Tests', 'escalate-over-limit', 'passing', '#/tests'],
+      ['Tests', 'broken', 'can’t be read', '#/tests'],
+      ['Tests', 'new-one', 'not run yet', '#/tests'],
+    ]);
+    // Without the job, read-only, or with nothing diverged: the goldens alone.
+    expect(testsPalette(view(), { update: false }).some((e) => e.group === 'Actions')).toBe(false);
+    expect(testsPalette(view({ diverged: [] }), { update: true }).some((e) => e.group === 'Actions')).toBe(false);
+    // Before the first answer, and with no goldens: nothing.
+    expect(testsPalette(null, { update: true })).toEqual([]);
+    expect(testsPalette(view({ empty: true, rows: [] }), { update: true })).toEqual([]);
+  });
+
+  it('asks Tests for Update goldens… by its address, which nothing else matches', () => {
+    expect(TESTS_UPDATE_HASH).toBe('#/tests?update');
+    expect(['#/tests?update', '#/tests?x=1&update', '#/tests?update=1', '#/tests?update&x'].map(asksUpdate)).toEqual([true, true, true, true]);
+    expect(['#/tests', '#/tests?updates', '#/runs?update', '#/tests?q=update', '#/tests/update'].map(asksUpdate)).toEqual([false, false, false, false, false]);
   });
 });
 
@@ -278,6 +355,12 @@ describe('the jobs the screen starts', () => {
     // Add normalizer and re-run: two commands, the test's totals last.
     expect(jobStatus({ args: ['normalize'], done: true, code: 0 }, ['$ shadowlap test goldens/a', '✓ a: 10/10 replayed, 2 checks passed', '', '1 passed, 0 failed · 0 upstream requests'])).toEqual({ text: '1 passed · exit 0', tone: 'ok' });
     expect(jobStatus({ args: ['test'], done: true, code: 0 }, ['4 passed, 0 failed · 17 upstream requests'])).toEqual({ text: '4 passed · exit 0', tone: 'ok' });
+  });
+
+  it('says a stopped session was interrupted, not that it passed or failed', () => {
+    const stopped = ['✓ refund-flow: 8/8 replayed', '⏹ refund-in-limit: interrupted, so it has no result this time', '', '1 passed, 0 failed, 3 not run: interrupted · 0 upstream requests'];
+    expect(jobStatus({ args: ['test'], done: true, code: 143 }, stopped)).toEqual({ text: 'interrupted · exit 143', tone: 'warn' });
+    expect(jobStatus({ args: ['test'], done: true, code: 130 }, ['0 passed, 0 failed · 0 upstream requests'])).toEqual({ text: 'interrupted · exit 130', tone: 'warn' });
   });
 
   it('asks the CI endpoint for the panels\' options, leaving out what is not set', () => {

@@ -3,7 +3,7 @@ import type { TestsView } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
-import { commandText, updatePlan } from '../goldens.js';
+import { commandText, updatePlan, type UpdatePlan } from '../goldens.js';
 
 /**
  * The Tests screen's dialogs: Update golden (one or several, in the style of Remove project), Find
@@ -14,10 +14,11 @@ import { commandText, updatePlan } from '../goldens.js';
 /**
  * Update golden, or Update goldens… for every diverged one: what happens, the amber note when the
  * divergence is a value that changes every run (a normalizer is the lasting fix, offered instead
- * when the server runs it), and the command.
+ * when the server runs it) or when the rule already in the config makes a re-run pass, and the
+ * command. `has` says which jobs the server runs; `onInstead` runs the amber box's button.
  */
-export function UpdateGoldensDialog({ view, paths, onUpdate, onNormalize, onClose }: { view: TestsView; paths: string[]; onUpdate: () => void; onNormalize: ((golden: string) => void) | null; onClose: () => void }) {
-  const plan = updatePlan(view, paths);
+export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onClose }: { view: TestsView; paths: string[]; has: (kind: string) => boolean; onUpdate: () => void; onInstead: (instead: NonNullable<UpdatePlan['instead']>) => void; onClose: () => void }) {
+  const plan = updatePlan(view, paths, has);
   const one = plan.goldens.length === 1 ? plan.goldens[0]! : null;
   return (
     <Dialog title={plan.title} text={plan.text} ok={plan.ok} onOk={onUpdate} onClose={onClose}>
@@ -60,7 +61,7 @@ export function UpdateGoldensDialog({ view, paths, onUpdate, onNormalize, onClos
       </div>
       {plan.advise ? (
         <div className="dz advise">
-          <b>A normalizer fixes this for good</b>
+          <b>{plan.advise.title}</b>
           <small>
             {plan.advise.path ? (
               <>
@@ -69,13 +70,14 @@ export function UpdateGoldensDialog({ view, paths, onUpdate, onNormalize, onClos
             ) : null}
             {plan.advise.text}
           </small>
-          {plan.advise.golden && onNormalize ? (
-            <button className="btn sm" type="button" onClick={() => onNormalize(plan.advise!.golden!)}>
-              Add the normalizer instead
+          {plan.instead ? (
+            <button className="btn sm" type="button" onClick={() => onInstead(plan.instead!)}>
+              {plan.instead.label}
             </button>
           ) : null}
         </div>
       ) : null}
+      {plan.note ? <p className="hintx unote">{plan.note}</p> : null}
       <div className="cmdline upd">
         <b>$</b>
         {plan.command}

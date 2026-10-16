@@ -1,17 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { JOB_KINDS, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
+import { JOB_KINDS, type Client, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
 import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
-import { checkWords, commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, type ReportLine } from '../goldens.js';
+import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, testsPalette, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
-import { addPaletteSource } from '../palette-sources.js';
+import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { useApp, type PaletteCommand } from '../state.js';
+import { useApp } from '../state.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
 /**
@@ -28,25 +28,44 @@ type Open =
   | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean }
   | { kind: 'normalize-update'; name: string; golden: string; steps: string[][] };
 
-/** The last answer this page had, for the palette's Tests group; and an Update goldens… the palette asked for. */
-let latest: TestsView | null = null;
-let pendingUpdate = false;
+/**
+ * The goldens as the server last listed them, for the palette's Tests group on any page: this page
+ * keeps it current, and opening the palette loads it again (once at a time), so an open palette
+ * gains the group as soon as the answer lands.
+ */
+let known: TestsView | null = null;
+let loading: Promise<void> | null = null;
 
-addPaletteSource(({ app, go }) => {
-  const view = latest;
-  if (!view || app.exported) return [];
-  const out: PaletteCommand[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : 'not run yet', run: () => go(href.tests()) }));
-  if (view.diverged.length && !app.actionsOff && app.hasKind(JOB_KINDS.testUpdate))
-    out.unshift({
-      group: 'Actions',
-      label: 'Update goldens…',
-      hint: 'shadowlap test --update',
-      run: () => {
-        pendingUpdate = true;
-        go(href.tests());
-      },
+/** What the palette shows of an answer: a new one with the same names, results and divergences changes nothing there. */
+const paletteKey = (v: TestsView | null) => (v ? JSON.stringify([v.rows.map((r) => [r.name, r.last.result, !!r.error]), v.diverged]) : '');
+
+function keepTests(view: TestsView): void {
+  const before = paletteKey(known);
+  known = view;
+  if (paletteKey(view) !== before) paletteSourcesChanged();
+}
+
+function loadTests(client: Client): void {
+  if (client.exported || loading) return;
+  loading = client
+    .tests()
+    .then(keepTests, () => undefined)
+    .finally(() => {
+      loading = null;
     });
-  return out;
+}
+
+// Each golden opens Tests; Update goldens… opens Tests with its dialog (`#/tests?update`), from any page.
+addPaletteSource(({ app, go }) => {
+  if (app.exported) return [];
+  loadTests(app.client);
+  return testsPalette(known, { update: !app.actionsOff && app.hasKind(JOB_KINDS.testUpdate) }).map((e) => ({
+    group: e.group,
+    label: e.label,
+    hint: e.hint,
+    mono: e.mono,
+    run: () => (e.group === 'Actions' ? app.guard(() => go(e.to)) : go(e.to)),
+  }));
 });
 
 export function TestsPage() {
@@ -58,13 +77,29 @@ export function TestsPage() {
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
 
   useEffect(() => {
-    if (!view) return;
-    latest = view;
-    if (pendingUpdate) {
-      pendingUpdate = false;
-      if (view.diverged.length) setOpen({ kind: 'update', paths: view.diverged });
-    }
+    if (view) keepTests(view);
   }, [view]);
+
+  // Update goldens…, asked for by the palette or a link (#/tests?update), on arriving here or while
+  // here: the address goes back to #/tests at once, so nothing is left to open the dialog later.
+  const [asked, setAsked] = useState(false);
+  useEffect(() => {
+    const take = () => {
+      if (!asksUpdate(location.hash)) return;
+      navigate(href.tests(), true);
+      setAsked(true);
+    };
+    take();
+    window.addEventListener('hashchange', take);
+    return () => window.removeEventListener('hashchange', take);
+  }, []);
+  useEffect(() => {
+    if (!asked || !view) return;
+    setAsked(false);
+    if (actionsOff) toast(actionsOff);
+    else if (!view.diverged.length || !hasKind(JOB_KINDS.testUpdate)) toast('No golden diverged: there is nothing to update');
+    else setOpen({ kind: 'update', paths: view.diverged });
+  }, [asked, view, actionsOff, hasKind, toast]);
 
   const start = (kind: string, fields: Record<string, unknown>) => {
     setOpen(null);
@@ -220,21 +255,16 @@ export function TestsPage() {
         </section>
       </div>
       <p className="hintx tfoot">{view.note}</p>
+      {/* The dialog already says what an update does, so what it offers instead starts at once: the
+          rule and a re-run, the rule and the update it still needs, or a re-run alone. */}
       {open?.kind === 'update' ? (
         <UpdateGoldensDialog
           view={view}
           paths={open.paths}
+          has={hasKind}
           onClose={() => setOpen(null)}
           onUpdate={() => start(JOB_KINDS.testUpdate, open.paths.length === 1 ? { golden: open.paths[0] } : { goldens: open.paths })}
-          onNormalize={
-            hasKind(JOB_KINDS.normalizeAndTest)
-              ? (golden) => {
-                  const d = view.divergences.find((x) => x.golden === golden);
-                  setOpen(null);
-                  if (d) normalize(d);
-                }
-              : null
-          }
+          onInstead={(i) => start(i.run === 'rerun' ? JOB_KINDS.tests : JOB_KINDS.normalizeAndTest, { golden: i.golden })}
         />
       ) : null}
       {open?.kind === 'bisect' ? (
@@ -248,13 +278,14 @@ export function TestsPage() {
 function Verdict({ view, running }: { view: TestsView; running: boolean }) {
   const v = view.verdict;
   if (!v) {
+    const command = commandText(view.commands.run);
     return (
-      <div className="verdict n">
+      <div className="verdict tv n">
         <Badge tone="n">not run yet</Badge>
         <div>
           <h2>{view.goldens === 1 ? 'One golden, not tested yet' : `${view.goldens} goldens, none tested yet`}</h2>
           <p>
-            Run tests replays each one offline: <code>{commandText(view.commands.run)}</code>
+            Run tests replays each one offline: <SessionCommand text={command} />
           </p>
         </div>
       </div>
@@ -263,15 +294,24 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
   const line = sessionLine(view, running)!;
   const failing = v.state === 'failing';
   return (
-    <div className={`verdict ${failing ? 'no' : 'ok'}`}>
+    <div className={`verdict tv ${failing ? 'no' : 'ok'}`}>
       <Badge tone={failing ? 'no' : 'ok'}>{failing ? `${v.failing} failing` : 'passing'}</Badge>
       <div>
         <h2>{v.title}</h2>
         <p>
-          <code>{line.command}</code> · {line.rest}
+          <SessionCommand text={line.command} /> · {line.rest}
         </p>
       </div>
     </div>
+  );
+}
+
+/** The session's command on the verdict's line: on one line, cut short with its whole text on hover when it is longer than the line. */
+function SessionCommand({ text }: { text: string }) {
+  return (
+    <code className="vcmd" data-tip={tipText(text)}>
+      {text}
+    </code>
   );
 }
 
