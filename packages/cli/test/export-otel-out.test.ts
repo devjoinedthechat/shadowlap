@@ -52,12 +52,14 @@ beforeEach(() => {
   received.length = 0;
 });
 
-function otel(args: string[], env: Record<string, string> = {}): Promise<{ code: number | null; out: string; err: string }> {
+/** `export otel` in the project; `job` runs it as a dashboard job does, with its events pipe. */
+function otel(args: string[], env: Record<string, string> = {}, job = false): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, 'export', 'otel', runId, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', OTEL_EXPORTER_OTLP_ENDPOINT: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, 'export', 'otel', runId, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', OTEL_EXPORTER_OTLP_ENDPOINT: '', ...(job ? { SHADOWLAP_EVENTS_FD: '3' } : {}), ...env }, stdio: job ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
+    (child.stdio[3] as NodeJS.ReadableStream | undefined)?.on('data', () => {});
     child.stderr!.on('data', (d: Buffer) => (err += d.toString()));
     child.on('close', (code) => resolve({ code, out, err }));
   });
@@ -83,5 +85,31 @@ describe('export otel: where the trace goes', () => {
     expect(both.code, both.err).toBe(0);
     expect(existsSync(join(cwd, 'both.json'))).toBe(true);
     expect(received).toEqual(['POST /v1/traces']);
+  });
+
+  it('says where the trace went and why when no collector answers, and where it can go instead', async () => {
+    // A port nothing listens on: one that was just free.
+    const idle = createServer();
+    await new Promise<void>((ok) => idle.listen(0, '127.0.0.1', ok));
+    const port = (idle.address() as AddressInfo).port;
+    await new Promise<void>((ok) => idle.close(() => ok()));
+    const url = `http://127.0.0.1:${port}`;
+
+    const refused = await otel(['--endpoint', url]);
+    expect(refused.code).toBe(1);
+    expect(refused.err.trim()).toBe(`shadowlap: couldn't send the trace to ${url}/v1/traces: connection refused (ECONNREFUSED). Is a collector listening there? --out <file> writes it to a file instead.`);
+    expect(refused.out).toBe('');
+    // A file asked for alongside is written first, and the message says so; in a dashboard job, its dialog's words.
+    const kept = await otel(['--out', 'kept.json', '--endpoint', url]);
+    expect(kept.code).toBe(1);
+    expect(kept.err).toContain('The trace is in kept.json.');
+    expect(existsSync(join(cwd, 'kept.json'))).toBe(true);
+    const job = await otel(['--endpoint', url], {}, true);
+    expect(job.err).toContain('Is a collector listening there? Send it to a file instead.');
+    // An endpoint that isn't an address.
+    const typo = await otel(['--endpoint', 'localhost:4318']);
+    expect(typo.code).toBe(1);
+    expect(typo.err).toContain("couldn't send the trace to localhost:4318/v1/traces: that is not an http or https address, such as http://localhost:4318.");
+    expect(received).toEqual([]);
   });
 });

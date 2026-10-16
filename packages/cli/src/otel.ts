@@ -185,9 +185,51 @@ export function otlpHeaders(raw: string | undefined): Record<string, string> {
   return out;
 }
 
+/**
+ * A trace that never got an answer from the collector: nothing listening, a host that doesn't
+ * resolve, a connection cut, an address that isn't one. `code` is the system's (`ECONNREFUSED`), when
+ * there is one. An answer that refuses the trace is an error of its own (its status).
+ */
+export class OtlpUnreachable extends Error {
+  constructor(
+    readonly url: string,
+    readonly reason: string,
+    readonly code: string | null,
+  ) {
+    super(`couldn't send the trace to ${url}: ${reason}`);
+    this.name = 'OtlpUnreachable';
+  }
+}
+
+/** Why fetch got no answer, in a few words with the system's code: `connection refused (ECONNREFUSED)`. */
+function unreachable(err: unknown): { reason: string; code: string | null } {
+  const e = err as { name?: string; message?: string; cause?: { code?: unknown; message?: unknown } } | null;
+  const code = typeof e?.cause?.code === 'string' ? e.cause.code : null;
+  const words: Record<string, string> = {
+    ECONNREFUSED: 'connection refused',
+    ENOTFOUND: 'no such host',
+    EAI_AGAIN: 'its host name could not be looked up',
+    ECONNRESET: 'the connection was reset',
+    EHOSTUNREACH: 'the host cannot be reached',
+    ENETUNREACH: 'the network cannot be reached',
+    ETIMEDOUT: 'it did not answer in time',
+    UND_ERR_CONNECT_TIMEOUT: 'it did not answer in time',
+  };
+  if (code && words[code]) return { reason: `${words[code]} (${code})`, code };
+  const message = typeof e?.cause?.message === 'string' && e.cause.message ? e.cause.message : (e?.message ?? String(err));
+  return { reason: code ? `${message} (${code})` : message, code };
+}
+
 /** POSTs a trace to an OTLP/HTTP endpoint (`<endpoint>/v1/traces`, or as given when it already ends in /v1/traces). */
 export async function sendOtlp(endpoint: string, payload: unknown, headers: Record<string, string>): Promise<void> {
   const url = /\/v1\/traces\/?$/.test(endpoint) ? endpoint : `${endpoint.replace(/\/$/, '')}/v1/traces`;
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(payload) });
+  if (!/^https?:$/.test(URL.parse(url)?.protocol ?? '')) throw new OtlpUnreachable(url, 'that is not an http or https address, such as http://localhost:4318', null);
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(payload) });
+  } catch (err) {
+    const why = unreachable(err);
+    throw new OtlpUnreachable(url, why.reason, why.code);
+  }
   if (!res.ok) throw new Error(`OTLP export failed: ${res.status} ${res.statusText} from ${url}${res.status === 404 ? ' (is this the OTLP/HTTP endpoint, e.g. http://localhost:4318?)' : ''}`);
 }

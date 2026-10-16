@@ -5,8 +5,8 @@ import { Command, InvalidArgumentError } from 'commander';
 import { asTheyStand, DATASET_FORMATS, datasetRows, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
-import { emitJobEvent } from '../job-events.js';
-import { otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
+import { emitJobEvent, inDashboardJob } from '../job-events.js';
+import { OtlpUnreachable, otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
 import { ancestorsOf, fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -168,7 +168,16 @@ export function register(program: Command): void {
         process.stderr.write(`${p.green('✓')} wrote ${spans} spans for ${shortId(run.runId)} to ${flags.out}${masked}\n`);
       }
       if (endpoint) {
-        await sendOtlp(endpoint, payload, otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS));
+        try {
+          await sendOtlp(endpoint, payload, otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS));
+        } catch (err) {
+          if (!(err instanceof OtlpUnreachable)) throw err;
+          // No answer at all: say where it went and why, and where the trace can go instead (the
+          // dashboard's dialog sends it to a file; a terminal has --out).
+          const listening = err.code === 'ECONNREFUSED' ? ' Is a collector listening there?' : '';
+          const instead = flags.out ? ` The trace is in ${flags.out}.` : inDashboardJob() ? ' Send it to a file instead.' : ' --out <file> writes it to a file instead.';
+          throw new Error(`${err.message}.${listening}${instead}`);
+        }
         process.stderr.write(`${p.green('✓')} sent ${spans} spans for ${shortId(run.runId)} to ${endpoint}${masked}\n`);
       } else if (!flags.out) {
         process.stdout.write(JSON.stringify(payload) + '\n');
