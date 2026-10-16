@@ -1,11 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
-import { startDashboard, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
+import { commitsHere, commitSubjects, forgetCommits, startDashboard, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
 
 /**
  * Find the commit offers only commits this checkout has, on a run's page, on Tests and in the job
@@ -144,5 +144,45 @@ describe('Find the commit in this checkout', () => {
   it('names each commit a run’s Find the commit offers by its subject', async () => {
     const offered = (await getJson<{ bisect: Choices & { revisions: Array<{ rev: string; subject: string | null }> } }>(`tests/runs/${ids.failedHere}`)).bisect;
     expect(offered.revisions).toEqual([expect.objectContaining({ rev: first, subject: 'Start' })]);
+  });
+});
+
+describe('what git said about the commits, kept', () => {
+  it('keeps a commit found, asks again about a missing one after a minute, and forgets when told', () => {
+    const here = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-kept-')));
+    const there = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-commits-there-')));
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', ...args], { cwd }).toString().trim();
+    try {
+      git(here, 'init', '-q', '.');
+      writeFileSync(join(here, 'a.txt'), 'a\n');
+      git(here, 'add', '-A');
+      git(here, 'commit', '-qm', 'Start the agent');
+      const start = git(here, 'rev-parse', 'HEAD');
+      // A teammate's commit, made in their clone: not here until a fetch brings it.
+      git(there, 'clone', '-q', here, '.');
+      writeFileSync(join(there, 'a.txt'), 'b\n');
+      git(there, 'commit', '-qam', 'Escalate refunds above the limit');
+      const theirs = git(there, 'rev-parse', 'HEAD');
+      forgetCommits();
+      expect(commitsHere(here, [start, theirs, null], 0)).toEqual(new Set([start]));
+      expect(commitSubjects(here, [start, theirs], 0)).toEqual(new Map([[start, 'Start the agent']]));
+      git(here, 'fetch', '-q', there, 'HEAD');
+      // Git said it lacks the commit a moment ago: that stands for a minute, then git is asked again.
+      expect(commitsHere(here, [theirs], 30_000)).toEqual(new Set());
+      expect(commitsHere(here, [theirs], 61_000)).toEqual(new Set([theirs]));
+      expect(commitSubjects(here, [theirs], 61_000).get(theirs)).toBe('Escalate refunds above the limit');
+      // A commit found stays found, with its subject, without asking git again.
+      renameSync(join(here, '.git'), join(here, 'git-away'));
+      expect(commitsHere(here, [start, theirs], 120_000)).toEqual(new Set([start, theirs]));
+      // Forgotten, git is asked, and can't say.
+      forgetCommits();
+      expect(commitsHere(here, [start], 120_000)).toBeNull();
+      // Only a commit's hex name is ever handed to git.
+      expect(commitsHere(here, ['--output=/tmp/x', 'HEAD~1'], 0)).toEqual(new Set());
+    } finally {
+      forgetCommits();
+      rmSync(here, { recursive: true, force: true });
+      rmSync(there, { recursive: true, force: true });
+    }
   });
 });
