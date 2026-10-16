@@ -1165,7 +1165,7 @@ export function mcpEntryAsTyped(input: { command?: string | null; url?: string |
  * .mcp.json itself, from the environment it starts from, and won't start the server while NAME is
  * unset there; other clients pass the entry's env on to `shadowlap mcp`, which fills it in.
  */
-export function headerPutBack(file: string | null, name: string, what: string): string {
+function headerPutBack(file: string | null, name: string, what: string): string {
   return file === '.mcp.json' ? `${name} (${what}), in the environment Claude Code starts from: it fills in \${${name}} itself` : `${name} (${what})`;
 }
 
