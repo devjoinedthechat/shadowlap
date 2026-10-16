@@ -469,17 +469,27 @@ describe('dashboard server: its port', () => {
     }
   });
 
-  // Windows refuses a port in a range Hyper-V or WinNAT keeps (EACCES), Linux one below 1024 to a
-  // user; where the system lets this user have port 1 (macOS, root), there is nothing to see.
-  it('takes a free port when the system keeps the one asked for', async (ctx) => {
-    const probe = await listenOn(1);
-    probe.server?.close();
-    if (probe.code !== 'EACCES') return ctx.skip();
-    const d = await startDashboard({ store, dbPath: ':memory:', port: 1, uiDir });
+  // Windows refuses a port in a range Hyper-V or WinNAT keeps, and Linux one below 1024 to a user,
+  // with EACCES. Most machines here let this user have any port, so the system's answer is played.
+  it('takes a free port when the system keeps the one asked for', async () => {
+    const { Server } = await import('node:net');
+    const listen = Server.prototype.listen;
+    const KEPT = 47_999;
+    Server.prototype.listen = function (this: import('node:net').Server, ...args: unknown[]) {
+      if (args[0] !== KEPT) return listen.apply(this, args as Parameters<typeof listen>);
+      process.nextTick(() => this.emit('error', Object.assign(new Error(`listen EACCES: permission denied 127.0.0.1:${KEPT}`), { code: 'EACCES' })));
+      return this;
+    } as typeof listen;
     try {
-      expect(Number(new URL(d.url).port)).toBeGreaterThan(1);
+      const d = await startDashboard({ store, dbPath: ':memory:', port: KEPT, uiDir });
+      try {
+        expect(Number(new URL(d.url).port)).not.toBe(KEPT);
+        expect((await fetch(`${d.url}/api/meta`, { headers: { 'x-shadowlap-token': d.token } })).status).toBe(200);
+      } finally {
+        await d.close();
+      }
     } finally {
-      await d.close();
+      Server.prototype.listen = listen;
     }
   });
 });
