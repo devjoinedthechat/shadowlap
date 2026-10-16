@@ -33,6 +33,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 const short = (runId: string) => runId.slice(0, 10);
 const FIX_ID = /^fx-[\w-]+$/;
 const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
+/** Where the team store's entries open: Settings → Store, which shows the bucket, its last sync and what is only here. */
+const STORE_TAB = '#/settings/store';
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : []);
 /** Words joined by the feed's separator, the empty ones left out. */
 const parts = (...words: Array<string | null | false | undefined>) => words.filter(Boolean).join(' · ');
@@ -104,25 +106,25 @@ const EVENT_TEXT = new Map<string, Describe>([
   // In the projects pages' own words, so the feed and the project list say the same.
   ...(['project.added', 'project.setup', 'project.removed'] as const).map((kind): [string, Describe] => [kind, (e) => ({ kind: 'project', text: projectEventText(e) ?? kind, href: '#/' })]),
   // The team store's set-up, as the store commands record it; the bucket is the entry's ref.
-  ['store.set', (_e, d) => ({ kind: 'setting', text: str(d.previous) ? 'Store changed' : 'Store set' })],
+  ['store.set', (_e, d) => ({ kind: 'setting', text: str(d.previous) ? 'Store changed' : 'Store set', href: STORE_TAB })],
   [
     'store.checked',
     (_e, d) => {
-      if (d.ok === false) return { kind: 'fail', text: 'Store check failed' };
-      return { kind: 'setting', text: parts('Store checked', (d.versioning === 'off' || d.versioning === 'suspended') && 'versioning off', d.objectLock === 'off' && 'no object lock') };
+      if (d.ok === false) return { kind: 'fail', text: 'Store check failed', href: STORE_TAB };
+      return { kind: 'setting', text: parts('Store checked', (d.versioning === 'off' || d.versioning === 'suspended') && 'versioning off', d.objectLock === 'off' && 'no object lock'), href: STORE_TAB };
     },
   ],
-  ['store.ci', (_e, d) => ({ kind: 'setting', text: `Push from CI ${d.push === false ? 'off' : 'on'}` })],
+  ['store.ci', (_e, d) => ({ kind: 'setting', text: `Push from CI ${d.push === false ? 'off' : 'on'}`, href: STORE_TAB })],
   [
     'store.pushed',
     (_e, d) => {
       // `queued` is a count of runs left for later, or `true` for a push that was queued while they recorded.
       const queued = num(d.queued);
       const refused = num(d.refused);
-      return { kind: 'project', text: parts(`Pushed ${plural((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), 'run')} to the store`, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null) };
+      return { kind: 'project', text: parts(`Pushed ${plural((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), 'run')} to the store`, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null), href: STORE_TAB };
     },
   ],
-  ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.failed) ? `${num(d.failed)} failed` : null) })],
+  ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.failed) ? `${num(d.failed)} failed` : null), href: STORE_TAB })],
   ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
 ]);
 
