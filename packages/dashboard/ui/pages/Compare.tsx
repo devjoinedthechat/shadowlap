@@ -148,59 +148,58 @@ function Prefix({ c }: { c: CompareView }) {
   );
 }
 
+/** How many differing fields the panel shows. */
+const DIFF_SHOWN = 12;
+
 function FirstDifference({ c }: { c: CompareView }) {
   const f = c.firstRequestDifference!;
   const diff = f.diff ?? [];
+  const shown = diff.slice(0, DIFF_SHOWN);
+  // Each field as the mock shows it: what it is (`tool_result lookup_policy`, its path on hover), then its value on each side.
+  const side = (which: 'before' | 'after') =>
+    shown.length
+      ? shown.map((e, i) => {
+          const absent = which === 'before' ? e.op === 'added' : e.op === 'removed';
+          const value = absent ? '(absent)' : clip(jsonText(e[which], false), 600);
+          return (
+            <span key={i}>
+              <span title={e.what ? e.path : undefined}>{e.what ?? e.path}</span>
+              {'\n'}
+              {which === 'after' ? <span className="add">{value}</span> : `${value}\n`}
+            </span>
+          );
+        })
+      : `${f.kind} ${callName(f.kind, f.name)}`;
+  const count = diff.length > 1 ? `${diff.length} fields differ${diff.length > DIFF_SHOWN ? `; the first ${DIFF_SHOWN} are shown` : ''}.` : null;
+  const hints = f.hints ?? [];
   return (
     <section className="diffpanel boxed">
       <div>
         <h4>
           #{f.callNo} in <a href={href.run(c.a.runId, f.callNo)}>{shortId(c.a.runId)}</a>
         </h4>
-        <pre>
-          {diff.length
-            ? diff.slice(0, 12).map((e, i) => (
-                <span key={i}>
-                  {e.path}
-                  {'\n'}
-                  {e.op === 'added' ? '  (absent)' : `  ${clip(jsonText(e.before, false), 600)}`}
-                  {'\n'}
-                </span>
-              ))
-            : `${f.kind} ${callName(f.kind, f.name)}`}
-        </pre>
+        <pre>{side('before')}</pre>
       </div>
       <div>
         <h4>
           #{f.callNo} in <a href={href.run(c.b.runId, f.callNo)}>{shortId(c.b.runId)}</a>
         </h4>
-        <pre>
-          {diff.length
-            ? diff.slice(0, 12).map((e, i) => (
-                <span key={i}>
-                  {e.path}
-                  {'\n'}
-                  <span className="add">{e.op === 'removed' ? '  (absent)' : `  ${clip(jsonText(e.after, false), 600)}`}</span>
-                </span>
-              ))
-            : `${f.kind} ${callName(f.kind, f.name)}`}
-        </pre>
+        <pre>{side('after')}</pre>
       </div>
-      <div className="hint">
-        {diff.length ? (
-          <span title="Paths point into this call’s request, so an index counts entries inside it (messages, tools), not calls in the run.">
-            {diff.length === 1 ? 'One field differs' : `${diff.length} fields differ`}
-            {diff.length > 12 ? '; the first 12 are shown' : ''}, each by its path in this call’s request.
-          </span>
-        ) : (
-          'The stored requests are equal; they differ in what matching also reads: the headers that change model behaviour, or values normalizers treat differently.'
-        )}
-        {f.hints?.map((h, i) => (
-          <span key={i} className="hline">
-            {h.message}
-          </span>
-        ))}
-      </div>
+      {!diff.length || count || hints.length ? (
+        <div className="hint">
+          {!diff.length ? (
+            'The stored requests are equal; they differ in what matching also reads: the headers that change model behaviour, or values normalizers treat differently.'
+          ) : count ? (
+            <span title="Hover a name for its path in this call’s request: an index counts entries inside it (messages, tools), not calls in the run.">{count}</span>
+          ) : null}
+          {hints.map((h, i) => (
+            <span key={i} className="hline">
+              {h.message}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

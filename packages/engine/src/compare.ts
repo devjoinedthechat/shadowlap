@@ -7,6 +7,7 @@ import { finalAnswer } from './responses.js';
 import { sha256 } from './ids.js';
 import { loadApiRequest } from './manifest.js';
 import type { Palette } from './report.js';
+import { requestPathLabel } from './request-paths.js';
 import { plain } from './report.js';
 import { safeLine, safeText } from './text.js';
 import type { Store } from './store.js';
@@ -21,8 +22,11 @@ export interface CallDifference {
   callNo: number;
   kind: CallKind;
   name: string;
-  /** For a request difference: the structural diff of the two requests and normalizer hints. */
-  diff?: DiffEntry[];
+  /**
+   * For a request difference: the structural diff of the two requests and normalizer hints. Each
+   * entry also says what its path points at (`tool_result lookup_policy`), when the request names it.
+   */
+  diff?: Array<DiffEntry & { what?: string }>;
   hints?: Hint[];
   /** For a response difference: a one-line description. */
   detail?: string;
@@ -162,6 +166,19 @@ function responseDetail(store: Store, x: CallRecord, y: CallRecord): string {
   return d.length ? `${d.length} difference${d.length === 1 ? '' : 's'}, first at ${d[0]!.path}` : 'different bytes, same value';
 }
 
+/**
+ * A request diff's entries, each with what its path points at: in a model request, as the request
+ * names it (`tool_result lookup_policy`), found in the request that has it (a removal: the first's);
+ * in a tool's input, the tool and the field (`issue_refund · amount`).
+ */
+function labelled(diff: DiffEntry[], call: CallRecord, a: unknown, b: unknown): Array<DiffEntry & { what?: string }> {
+  return diff.map((e) => {
+    const field = e.path.replace(/^\$\.?/, '');
+    const what = call.kind === 'api' ? requestPathLabel(e.op === 'removed' ? a : b, e.path) : call.kind === 'tool' ? (field ? `${call.name} · ${field}` : call.name) : null;
+    return what ? { ...e, what } : e;
+  });
+}
+
 function courseOf(store: Store, calls: CallRecord[], from: number): RunCourse {
   const rest = calls.slice(from);
   return { calls: rest.length, modelCalls: rest.filter((c) => c.kind === 'api').length, path: pathOf(rest, null), answer: finalAnswer(store, rest) || null };
@@ -181,7 +198,10 @@ export function compareRuns(store: Store, a: RunRecord, aCalls: CallRecord[], b:
     const y = bCalls[i]!;
     const sameRequest = x.kind === y.kind && x.name === y.name && x.fingerprint === y.fingerprint;
     if (!sameRequest) {
-      const diff = x.kind === y.kind && x.name === y.name ? structuralDiff(request(store, x), request(store, y)) : [{ path: '$', op: 'changed' as const, before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}` }];
+      const same = x.kind === y.kind && x.name === y.name;
+      const qx = same ? request(store, x) : null;
+      const qy = same ? request(store, y) : null;
+      const diff = same ? labelled(structuralDiff(qx, qy), y, qx, qy) : [{ path: '$', op: 'changed' as const, before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
       const hints = diff.flatMap((e) => hintsFor(e, y.kind, y.name)).slice(0, 3);
       firstRequestDifference = { callNo: y.callNo, kind: y.kind, name: y.name, diff, ...(hints.length ? { hints } : {}) };
       after = { a: courseOf(store, aCalls, i), b: courseOf(store, bCalls, i) };

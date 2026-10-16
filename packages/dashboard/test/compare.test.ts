@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, storeApiRequest } from '@shadowlap/engine';
 import { codeChangeCache, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 
@@ -108,6 +108,23 @@ describe('GET /api/compare', () => {
     ids.before = run(rev.start!);
     ids.after = run(rev.policy!);
     ids.dirty = run(`${rev.policy}+dirty`);
+    // Two runs whose model call #2 saw the policy tool answer differently.
+    const policy = (result: string) => ({
+      model: 'claude-sonnet-5',
+      messages: [
+        { role: 'user', content: 'Refund order A-1042.' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'lookup_policy', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: result }] },
+      ],
+    });
+    for (const [name, result] of [['recorded', '{"approval":"tier2"}'], ['forked', '{"refund_limit":100,"approval":"tier2"}']] as const) {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: repo } });
+      const body = policy(result);
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: result, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, body), meta: { provider: 'anthropic' }, at: 1 });
+      store.endRun(r.runId, 'completed');
+      ids[name] = r.runId;
+    }
     dash = await startDashboard({ store, readOnly: true, project: { path: repo } });
   });
 
@@ -128,5 +145,10 @@ describe('GET /api/compare', () => {
     expect(c.code).toEqual({ commits: 2, newer: 'b', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
     expect((await get(ids.after!, ids.dirty!)).code).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
     expect((await get(ids.after!, ids.after!)).code).toBeNull();
+  });
+
+  it('names what differs in the first request that differs, as the design does, with its path kept', async () => {
+    const c = await get(ids.recorded!, ids.forked!);
+    expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);
   });
 });
