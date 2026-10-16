@@ -145,8 +145,9 @@ export function searchCalls(store: Store, query: string, opts: { limit?: number;
   const limit = opts.limit ?? 50;
   const hits: Array<{ hit: SearchHit; attempt: boolean }> = [];
   const runs = new Map<string, { startedAt: number; attempt: boolean; calls: Map<number, CallRecord> }>();
-  // Read past the limit, so the runs people made can come first even when attempts rank as high.
-  const read = opts.runId ? limit : Math.min(limit * 4, 1000);
+  // Read past the limit, so the runs people made can come first even when attempts rank as high:
+  // four times as many rows, at most 1,000 unless the limit asks for more, and never fewer than it.
+  const read = opts.runId ? limit : Math.max(limit, Math.min(limit * 4, 1000));
   for (const h of store.searchDocs(match, read, opts.runId)) {
     let run = runs.get(h.runId);
     if (!run) {

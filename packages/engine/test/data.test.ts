@@ -93,6 +93,19 @@ describe('search', () => {
     store.close();
   });
 
+  it('returns as many matches as asked for, past the rows it reads to rank attempts last', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/tmp' } });
+    for (let callNo = 1; callNo <= 1_050; callNo++) {
+      store.appendCallStart({ runId: run.runId, callNo, kind: 'tool', name: 'lookup_order', fingerprint: `f${callNo}`, occurrence: 0, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { note: `zebra ${callNo}` } }), meta: {}, at: callNo });
+    }
+    store.endRun(run.runId, 'completed');
+    expect(searchCalls(store, 'zebra', { limit: 1_500 })).toHaveLength(1_050);
+    expect(searchCalls(store, 'zebra', { limit: 1_020 })).toHaveLength(1_020);
+    expect(searchCalls(store, 'zebra', { limit: 7 })).toHaveLength(7);
+    store.close();
+  });
+
   it('takes query syntax as plain words, and forgets a deleted run', () => {
     expect(searchExpression('refund AND "order 42" NEAR(x')).toBe('"refund" "AND" "order 42" "NEAR(x"');
     expect(searchExpression('   ')).toBeNull();
