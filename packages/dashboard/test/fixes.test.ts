@@ -81,8 +81,9 @@ describe('the Fixes list', () => {
       ['no', 'rejected', 'Rejected'],
     ]);
     expect(x!.steps[0]!.meta).toBe('the budget of $0.05 is spent');
-    // It ran to the end, but no model call rescued the run: red, as a rejected change is.
-    expect(y!.steps[0]).toMatchObject({ state: 'no', short: 'not rescued', title: 'Not rescued from any model call' });
+    // It ran to the end, but no model call rescued the run: no call is blamed yet, so it is still to do.
+    expect(y!.steps[0]).toMatchObject({ state: 'todo', short: 'not rescued', title: 'Not rescued from any model call' });
+    expect(fixDetail(store, y!.fixId)!.defaultStep).toBe('blame');
   });
 
   it('says where a fix came from', () => {

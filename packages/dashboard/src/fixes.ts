@@ -49,8 +49,8 @@ import {
 
 export type StepKey = 'blame' | 'repair' | 'verify';
 /**
- * Done; to do; or ended without what the step looks for: a blame no model call rescued, or a
- * change verify rejected.
+ * Done, to do, or (Verify only) rejected. A blame no model call rescued is still to do: it found no
+ * call to blame, and its line says so ("not rescued").
  */
 export type StepState = 'done' | 'todo' | 'no';
 
@@ -376,7 +376,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
-    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'no', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
     else blame = { key: 'blame', n: '01', state: 'todo', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
