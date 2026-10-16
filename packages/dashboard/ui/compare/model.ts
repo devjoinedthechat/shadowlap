@@ -73,7 +73,7 @@ export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCar
  * The answers that changed, for the table: a model that answered a call the same way again (its text,
  * tool calls and thinking; only the new response's id or token counts differ) gave no different answer.
  */
-export function changedAnswers<T extends { sameAnswer?: unknown }>(c: { responseDifferences: readonly T[] }): T[] {
+export function changedAnswers(c: Pick<CompareView, 'responseDifferences'>): CompareView['responseDifferences'] {
   return c.responseDifferences.filter((r) => !r.sameAnswer);
 }
 
