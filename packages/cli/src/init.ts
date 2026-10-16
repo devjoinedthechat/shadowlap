@@ -293,16 +293,52 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
   return out;
 }
 
+/** Agent frameworks that call models through an OpenAI client of their own, which reads OPENAI_BASE_URL: Pydantic AI's `openai:` models, the OpenAI Agents SDK, CrewAI's LiteLLM, LangChain's ChatOpenAI, the AI SDK's and Mastra's openai provider. */
+const OPENAI_FRAMEWORKS: ReadonlySet<Framework['id']> = new Set(['pydantic-ai', 'openai-agents', 'openai-agents-python', 'crewai', 'langchain', 'langchain-python', 'ai-sdk', 'mastra']);
+
+/** The largest lockfile read for the packages it installs: a big project's is a few megabytes. */
+const MAX_LOCKFILE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Whether an OpenAI client is installed, though no dependency names it: an `[openai]` extra
+ * (`pydantic-ai-slim[openai]`), or `openai` in a lockfile, which pulls it in for another package.
+ */
+function openaiInstalled(cwd: string): boolean {
+  const read = (name: string) => {
+    try {
+      const p = join(cwd, name);
+      return statSync(p).size <= MAX_LOCKFILE_BYTES ? readFileSync(p, 'utf8') : '';
+    } catch {
+      return '';
+    }
+  };
+  // An extra in pyproject.toml or a requirements file: "pydantic-ai-slim[openai,anthropic]".
+  const extra = /[A-Za-z0-9][\w.-]*\[[^\]\n]*\bopenai\b[^\]\n]*\]/i;
+  if (['pyproject.toml', 'requirements.txt', 'requirements.in', 'Pipfile'].some((f) => extra.test(read(f)))) return true;
+  const locks: Array<[string, RegExp]> = [
+    ['uv.lock', /^name = "openai"$/m],
+    ['poetry.lock', /^name = "openai"$/m],
+    ['pdm.lock', /^name = "openai"$/m],
+    ['Pipfile.lock', /^\s*"openai": \{/m],
+    ['package-lock.json', /"node_modules\/openai"\s*:/],
+    ['pnpm-lock.yaml', /^\s*\/?openai@/m],
+    ['yarn.lock', /^"?openai@/m],
+    ['bun.lock', /^\s*"openai": \["openai@/m],
+  ];
+  return locks.some(([name, re]) => re.test(read(name)));
+}
+
 /**
  * An OpenAI-compatible server the project already uses: from the environment, a .env file or a base
  * URL fallback in code. OPENAI_BASE_URL reaches only an OpenAI client, so it is this project's
- * server only when the project uses one, or uses SDKs that can't be told: one whose model SDKs are
- * all another provider's (Anthropic's, Gemini's) never sends to it, wherever it is set.
+ * server unless every model client found is another provider's (Anthropic's, Gemini's): an OpenAI
+ * SDK, a framework that calls models through one (OPENAI_FRAMEWORKS), an OpenAI client installed for
+ * another package, or SDKs that can't be told all count.
  */
-function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>, providers: readonly Provider[]): InitReport['modelServer'] {
+function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>, providers: readonly Provider[], frameworks: readonly Framework[]): InitReport['modelServer'] {
   const toUpstream = (url: string) => url.replace(/\/+$/, '').replace(/\/v1$/, '');
   const local = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?/.test(url) && !url.includes('/openai');
-  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai');
+  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai') || frameworks.some((f) => OPENAI_FRAMEWORKS.has(f.id)) || openaiInstalled(cwd);
   if (openaiClient && env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
   for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);
@@ -509,7 +545,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     command: detectCommand(cwd, pkg, packageManager, languages, texts),
     tools,
     hardcodedBaseUrls,
-    modelServer: findModelServer(cwd, env, texts, providers),
+    modelServer: findModelServer(cwd, env, texts, providers, frameworks),
     scannedFiles: files.length,
     config: { path: configPath, existed: existsSync(configPath) },
   };

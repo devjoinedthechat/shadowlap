@@ -182,6 +182,25 @@ def send_page(to: str) -> dict:
     expect(formatInit(inspectProject(project(anthropic), env), palette, false)).not.toContain('SHADOWLAP_UPSTREAM_OPENAI');
   });
 
+  it('counts an OpenAI client a framework, an extra or a lockfile brings in, next to another provider’s SDK', () => {
+    const env = { OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1' };
+    const server = (files: Record<string, string>, given: Record<string, string> = env) => inspectProject(project(files), given).modelServer?.url ?? null;
+    // Pydantic AI's `openai:` models next to Anthropic's SDK: the agent's OpenAI calls go to the local server, from the environment or .env.
+    const pydantic = { 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "pydantic-ai-slim[openai]"]\n', 'agent.py': "from pydantic_ai import Agent\nagent = Agent('openai:llama3.2')\n" };
+    expect(server(pydantic)).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ ...pydantic, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }, {})).toBe('http://127.0.0.1:11434/v1');
+    // The OpenAI Agents SDK, CrewAI, LangChain or the AI SDK beside another provider's SDK.
+    expect(server({ 'requirements.txt': 'anthropic\nopenai-agents\n', 'agent.py': 'from agents import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'requirements.txt': 'anthropic\ncrewai\n', 'agent.py': 'from crewai import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@ai-sdk/anthropic': '^2.0.0', ai: '^5.0.0' } }), 'agent.mjs': "import { generateText } from 'ai';\n" })).toBe('http://127.0.0.1:11434/v1');
+    // An extra alone, or openai in the lockfile for another package.
+    expect(server({ 'requirements.txt': 'anthropic\nsome-agent-kit[openai]>=1\n', 'agent.py': 'import anthropic\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "some-agent-kit"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "openai"\nversion = "1.54.0"\n', 'agent.py': 'import anthropic\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/sdk': '^0.126.0', 'agent-kit': '^1.0.0' } }), 'package-lock.json': JSON.stringify({ packages: { 'node_modules/openai': { version: '6.0.0' } } }), 'agent.mjs': "import Anthropic from '@anthropic-ai/sdk';\n" })).toBe('http://127.0.0.1:11434/v1');
+    // Anthropic's SDK and nothing that brings an OpenAI client in: not this project's server.
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "anthropic"\n', 'agent.py': 'import anthropic\n' })).toBeNull();
+  });
+
   it('counts Python tools wrapped with the framework adapters as declared', () => {
     const py = project({
       'requirements.txt': 'openai-agents==0.20.0\nlanggraph\ncrewai\n',
