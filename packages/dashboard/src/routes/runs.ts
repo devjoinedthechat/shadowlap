@@ -49,7 +49,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const run = lookupRun(store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
-    const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, runId: run.runId, rules: redact });
+    const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, run, rules: redact });
     const p = provenance(store, run.runId, { ...ctx.read, ...(redact.length ? { redact } : {}), maskCount: () => mask });
     if (!p) throw new HttpError(404, `no run ${r.params.id}`);
     r.tagged(p);

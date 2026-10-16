@@ -71,10 +71,10 @@ describe('what a copy of a run would mask, on its Provenance', () => {
     modelCall(run.runId, 2, 'jane@example.com');
     modelCall(run.runId, 3, 'omar@example.com');
     const preview = previewRedaction(store, run.runId, [EMAIL]).total;
-    expect(await maskCount({ store, dbPath, runId: run.runId, rules: [EMAIL] })).toEqual({ rules: 1, values: preview });
+    expect(await maskCount({ store, dbPath, run, rules: [EMAIL] })).toEqual({ rules: 1, values: preview });
     // Read here when the store has no file of its own; nothing to count without rules.
-    expect(await maskCount({ store, dbPath: ':memory:', runId: run.runId, rules: [EMAIL] })).toEqual({ rules: 1, values: preview });
-    expect(await maskCount({ store, dbPath, runId: run.runId, rules: [] })).toEqual({ rules: 0, values: 0 });
+    expect(await maskCount({ store, dbPath: ':memory:', run, rules: [EMAIL] })).toEqual({ rules: 1, values: preview });
+    expect(await maskCount({ store, dbPath, run, rules: [] })).toEqual({ rules: 0, values: 0 });
     const d = await serve([EMAIL]);
     const p = (await (await api(d, `runs/${run.runId}/provenance`)).json()) as { mask: { rules: number; values: number | null } };
     expect(p.mask).toEqual({ rules: 1, values: preview });
@@ -101,7 +101,7 @@ describe('what a copy of a run would mask, on its Provenance', () => {
   it('counts nothing while the run records: a copy is made once it has ended', async () => {
     const run = recording({ ended: false });
     modelCall(run.runId, 1, 'jane@example.com');
-    expect(await maskCount({ store, dbPath, runId: run.runId, rules: [EMAIL] })).toEqual({ rules: 1, values: null });
+    expect(await maskCount({ store, dbPath, run, rules: [EMAIL] })).toEqual({ rules: 1, values: null });
   });
 });
 
