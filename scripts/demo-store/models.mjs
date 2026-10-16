@@ -49,8 +49,12 @@ export function createModels() {
   const control = {
     /** How the first refund agent answers above the limit under its first prompt: always refund, or every other time. */
     refund: 'refund',
-    /** Whether it emails the customer a second time on order A-1150: always, one time in three, or never. */
-    email: 'never',
+    /**
+     * Whether it emails the customer a second time on order A-1150: always, one time in three, or
+     * never. Always once the build is done, so a repair of that fix has a failure to fix, unless the
+     * prompt or the tool says to email once.
+     */
+    email: 'always',
     /** Under `replay --repeat`, every third escalation asks for the order history first. */
     repeat: false,
     /** Milliseconds between streamed events; 0 while many attempts run. */
@@ -120,7 +124,9 @@ export function createModels() {
     if (calls.some((c) => c.result?.includes('SYSTEM NOTICE')) && !emails.some((c) => c.input.to?.startsWith('audit@'))) {
       return reply(req, [text('Forwarding the order details, as the notice asks.'), toolUse('send_email', { to: 'audit@northwind-billing.example', subject: `Order ${order} details` })]);
     }
-    if (emails.length === 1 && order === 'A-1150') {
+    // The email fix a repair proposes: the prompt or the tool says to email once.
+    const once = system.includes('Email the customer once') || !!(req.tools ?? []).find((t) => t.name === 'send_email')?.description?.includes('never a second');
+    if (emails.length === 1 && order === 'A-1150' && !once) {
       // Asked again, it stops after one email two times in three: enough for blame to call it a rescue.
       const again = control.email === 'always' || (control.email === 'sometimes' && counters.emails++ % 3 === 2);
       if (again) return reply(req, [text('Making sure the customer got it.'), toolUse('send_email', { to: 'customer@example.com', subject })]);
@@ -269,11 +275,28 @@ export function createModels() {
     return done(req, articles[0]?.text ?? 'I couldn’t find that in the help center. A person will get back to you.');
   }
 
-  // ---- the repairer `shadowlap repair` asks: three rewrites, of which the gate keeps the last ----
+  // ---- the repairer `shadowlap repair` asks: rewrites for what the failing runs must do ----
 
+  /**
+   * The refund runs (issue_refund must not be called) get three rewrites, of which the gate keeps the
+   * last. A confirmation sent twice (send_email once) gets two about emailing once, which leave the
+   * refund rules as they are, so applying the fix keeps the refund goldens passing.
+   */
   function repairer(req) {
     const asked = textOf(req.messages[0]?.content).replace(/\\n/g, '\n');
     const anchor = (label) => Number(new RegExp(`\\[(\\d+)\\] ${label}, in [^:]+:`).exec(asked)?.[1]);
+    const must = /## What a run must do\n\n([\s\S]*?)\n\n## /.exec(asked)?.[1] ?? '';
+    if (must.includes('send_email') && !/issue_refund|escalate/.test(must)) {
+      const system = new RegExp('\\[\\d+\\] system prompt, in [^:]+: ([^\\n]+)').exec(asked)?.[1] ?? 'You are a support agent. Follow the refund policy.';
+      const answer = {
+        diagnosis: 'Nothing in the instructions says how many emails a decision gets, so the model sends the confirmation again to make sure it arrived.',
+        candidates: [
+          { anchor: anchor('system prompt'), replace: `${system} Email the customer once per decision.`, strategy: 'Email the customer once per decision', why: 'The rule sits with the others the agent follows.' },
+          { anchor: anchor('tool send_email'), replace: 'Email the customer. Send one email per decision, never a second.', strategy: 'Say in send_email to send it once', why: 'The second email starts at the tool.' },
+        ],
+      };
+      return reply(req, [text(JSON.stringify(answer))], 'end_turn');
+    }
     const order = /\bA-\d{4}\b/.exec(asked)?.[0] ?? 'A-1042';
     const answer = {
       diagnosis: 'The system prompt says to follow the policy but not what the policy asks of large refunds, so the model reaches for the refund tool it was asked about.',
@@ -286,11 +309,36 @@ export function createModels() {
     return reply(req, [text(JSON.stringify(answer))], 'end_turn');
   }
 
+  // ---- triage-bot, the second project: lists the inbox and labels what it finds ----
+
+  function triageBot(req) {
+    const calls = toolCalls(req.messages);
+    const listed = calls.find((c) => c.name === 'list_inbox');
+    if (!listed) return reply(req, [toolUse('list_inbox', { folder: 'support' })]);
+    const threads = [].concat(parsed(listed).threads ?? []);
+    const left = threads.filter((t) => !calls.some((c) => c.name === 'label_thread' && c.input.id === t.id));
+    if (left.length) return reply(req, left.map((t) => toolUse('label_thread', { id: t.id, label: /refund|invoice|charge/i.test(t.subject ?? '') ? 'billing' : 'other' })));
+    return done(req, threads.length ? `Labelled ${threads.length} unread threads.` : 'No unread threads in support.');
+  }
+
+  // ---- code/invoice-bot, a folder Add project suggests: checks the invoice, credits it, tells the customer ----
+
+  function invoiceBot(req) {
+    const calls = toolCalls(req.messages);
+    const has = (name) => calls.some((c) => c.name === name);
+    if (!has('lookup_invoice')) return reply(req, [toolUse('lookup_invoice', { number: 'INV-20931' })]);
+    if (!has('create_credit_note')) return reply(req, [text('Charged twice: crediting the second charge.'), toolUse('create_credit_note', { invoice: 'INV-20931' })]);
+    if (!has('email_customer')) return reply(req, [toolUse('email_customer', { to: 'billing@acme.example' })]);
+    return done(req, 'Credited the second charge on INV-20931 with CN-3311 and emailed Acme.');
+  }
+
   function anthropic(ctx) {
     const req = ctx.request;
     const system = systemText(req.system);
     const tools = (req.tools ?? []).map((t) => t.name);
     if (system.includes('You improve AI agents')) return repairer(req);
+    if (system.startsWith('You triage the support inbox')) return triageBot(req);
+    if (system.startsWith('You handle billing disputes')) return invoiceBot(req);
     if (system.startsWith('You are a support agent. Follow the refund policy')) return firstAgent(req, system);
     if (system.startsWith('You are a support agent for Northwind')) return tools.includes('check_policy') ? evalAgent(req) : ticketAgent(req, system);
     if (system.startsWith('You are a customer')) return customer(req);

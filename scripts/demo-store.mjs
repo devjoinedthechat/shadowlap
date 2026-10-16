@@ -13,7 +13,9 @@
 //   triage-bot/      a second project, added to the dashboard's project list and not set up yet
 //   research-agent/, code/invoice-bot/, Downloads/
 //                    folders Add project… suggests: a Python agent with two write tools that aren't
-//                    wrapped, a Node one whose tools are, and a folder that isn't a project
+//                    wrapped, a Node one whose tools are, and a folder that isn't a project. The Node
+//                    agents get this repository's node_modules, as support-agent does, and the mock
+//                    models answer them, so their setup can record a first run
 //   captures/        the sample files the imports read
 //   home/            the dashboard's own files (SHADOWLAP_HOME): its project list
 //   runs.json        the ids of the runs each step made, and the revisions, to find them by
@@ -660,6 +662,8 @@ async function importTraces() {
  */
 async function addProjects() {
   cpSync(join(kit, 'folders'), folder, { recursive: true });
+  // The Node agents import their SDKs as support-agent's do, so their setup's first recording runs.
+  for (const agent of ['triage-bot', join('code', 'invoice-bot')]) symlinkSync(join(root, 'node_modules'), join(folder, agent, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   const dash = spawn(process.execPath, [CLI, 'dashboard', '--no-open'], { cwd: project, env: { ...ENV, ...as('dana') }, stdio: ['ignore', 'pipe', 'pipe'] });
   const stopped = new Promise((r) => dash.on('close', r));
   try {
