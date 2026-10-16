@@ -47,6 +47,11 @@ export interface IndexEntry {
   calls: number;
   /** The hash of its synced metadata (labels, notes, results), so a pull knows when they changed. */
   metaHash: string;
+  /**
+   * For an attempt (`--repeat`, a blame probe, a verify attempt): the run it is filed under, so a
+   * machine that hasn't pulled it counts it with its run. Absent from segments older pushes wrote.
+   */
+  attemptOf?: string | null;
 }
 
 export interface IndexSegment {
@@ -224,6 +229,7 @@ export function parseSegment(bytes: Buffer, key: string): IndexSegment {
       labels: Array.isArray(e.labels) ? e.labels.filter((l): l is string => typeof l === 'string' && l.length <= 40 && LABEL.test(l)).slice(0, 50) : [],
       calls: typeof e.calls === 'number' && Number.isSafeInteger(e.calls) && e.calls >= 0 ? e.calls : 0,
       metaHash: e.metaHash,
+      ...(isRunId(e.attemptOf) ? { attemptOf: e.attemptOf } : {}),
     });
   }
   return { format: INDEX_FORMAT, version: LAYOUT_VERSION, at: typeof raw.at === 'number' ? raw.at : 0, by: nameOrNull(raw.by), runs };

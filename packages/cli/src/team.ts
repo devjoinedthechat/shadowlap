@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, resolveAuthor, safeText, Store, ulid, type RunRecord } from '@shadowlap/engine';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -20,6 +20,8 @@ import {
   recordCheck,
   shareReport,
   SHARE_DAYS,
+  storeKey,
+  attemptOfRun,
   LayoutError,
   StoreError,
   StoreUrlError,
@@ -255,7 +257,7 @@ export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Pr
   const check: StoreCheck = await checkStore(remote, { now: t.now });
   const last: LastCheck = { ok: check.ok, at: t.now(), encryption: check.encryption, versioning: check.versioning, objectLock: check.objectLock.state, credentials: check.credentials };
   withStore(t, (store) => {
-    recordCheck(store, target.loc.url, last);
+    recordCheck(store, storeKey(target.loc), last);
     recordEvent(store, { kind: 'store.checked', actor: actor(t), ref: target.loc.url, data: { ok: check.ok, versioning: check.versioning, objectLock: check.objectLock.state, encryption: check.encryption } });
   });
   const result = { ...check, pullRequest: target.pr };
@@ -345,10 +347,12 @@ export interface StoreStatus {
   region: string | null;
   pushedAt: number | null;
   pulledAt: number | null;
-  /** Runs in the store, as far as this machine knows (its pushes and the index it last read). */
+  /** Runs in the store, as far as this machine knows (its pushes and the index it last read); attempts filed under their run. */
   inStore: number;
-  /** Runs here that aren't in the store. */
+  /** Runs here with something not in the store: the run, or attempts filed under it. */
   onlyLocal: number;
+  /** Attempts only here, filed under runs here. */
+  localAttempts: number;
   /** Runs queued while recording, pushed when they end. */
   queued: number;
   /** The last `shadowlap store check` here. */
@@ -356,8 +360,9 @@ export interface StoreStatus {
 }
 
 export function storeStatus(store: Store, loc: StoreLocation, value: string): StoreStatus {
-  const sync = store.teamSync(loc.url);
-  const summary = store.teamSummary(loc.url);
+  const key = storeKey(loc);
+  const sync = store.teamSync(key);
+  const counts = teamRunCounts(store, key, 0);
   return {
     url: loc.url,
     store: value,
@@ -368,10 +373,11 @@ export function storeStatus(store: Store, loc: StoreLocation, value: string): St
     region: loc.region ?? null,
     pushedAt: sync?.pushedAt ?? null,
     pulledAt: sync?.pulledAt ?? null,
-    inStore: summary.inStore,
-    onlyLocal: store.teamLocalOnly(loc.url, 0).count,
-    queued: summary.queued,
-    check: lastCheck(store, loc.url),
+    inStore: counts.inStore,
+    onlyLocal: counts.onlyLocal,
+    localAttempts: counts.localAttempts,
+    queued: counts.queued,
+    check: lastCheck(store, key),
   };
 }
 
@@ -408,8 +414,49 @@ function runList(store: Store, args: string[]): string[] {
   });
 }
 
-function onlyLocal(store: Store, url: string): number {
-  return store.teamLocalOnly(url, 0).count;
+/**
+ * Runs among these ids and the attempts filed under runs (`--repeat`, blame's probes, verify's
+ * attempts), told apart as the Runs page tells them: a push or a pull says how many runs it moved,
+ * with their attempts, so its numbers read like every screen's.
+ */
+function byRun(store: Store, ids: readonly string[]): { runs: number; attempts: number } {
+  let attempts = 0;
+  for (const id of ids) {
+    const run = store.getRun(id);
+    const under = run ? attemptOfRun(store, run) : null;
+    if (under && store.getRun(under)) attempts++;
+  }
+  return { runs: ids.length - attempts, attempts };
+}
+
+/** "45 runs", "45 runs and 69 attempts": what a push or a pull moved, by run. */
+function runsAnd(n: { runs: number; attempts: number }): string {
+  return `${plural(n.runs, 'run')}${n.attempts ? ` and ${plural(n.attempts, 'attempt')}` : ''}`;
+}
+
+/** The runs a pull brought, their attempts counted apart, and the runs by who made them. */
+function pulledRuns(store: Store, ids: readonly string[]): { runs: string[]; attempts: number; byAuthor: Record<string, number> } {
+  const runs: string[] = [];
+  const byAuthor: Record<string, number> = {};
+  let attempts = 0;
+  for (const id of ids) {
+    const run = store.getRun(id);
+    const under = run ? attemptOfRun(store, run) : null;
+    if (under && store.getRun(under)) {
+      attempts++;
+      continue;
+    }
+    runs.push(id);
+    const who = run?.meta?.author ?? 'unknown';
+    byAuthor[who] = (byAuthor[who] ?? 0) + 1;
+  }
+  return { runs, attempts, byAuthor };
+}
+
+/** Runs only on this machine, and in the store, by run: what store show, push and pull say. */
+function runCounts(store: Store, loc: StoreLocation): { inStore: number; onlyLocal: number } {
+  const c = teamRunCounts(store, storeKey(loc), 0);
+  return { inStore: c.inStore, onlyLocal: c.onlyLocal };
 }
 
 /** A store or bucket-layout failure, in words, as a TeamError: the command prints it without a stack. */
@@ -431,6 +478,7 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   const store = Store.open(t.dbPath);
   let result: PushResult;
   let left: number;
+  let moved: Record<'pushed' | 'updated' | 'unchanged' | 'queued', { runs: number; attempts: number }>;
   try {
     const runIds = runList(store, runArgs);
     const who = actor(t);
@@ -443,12 +491,14 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
     } catch (err) {
       throw asTeamError(err, 'The runs that went up before it are in the store, listed for the team; push again to send the rest.');
     }
-    left = onlyLocal(store, target.loc.url);
+    left = runCounts(store, target.loc).onlyLocal;
+    moved = { pushed: byRun(store, result.pushed), updated: byRun(store, result.updated), unchanged: byRun(store, result.unchanged), queued: byRun(store, result.queued) };
     recordEvent(store, {
       kind: 'store.pushed',
       actor: who,
       ref: target.loc.url,
-      data: { pushed: result.pushed.length, updated: result.updated.length, repaired: result.repaired.length, queued: result.queued.length, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, ...(target.pr ? { pullRequest: target.pr } : {}) },
+      // By run, as Activity says it: the attempts filed under them are counted apart.
+      data: { pushed: moved.pushed.runs, updated: moved.updated.runs, attempts: moved.pushed.attempts + moved.updated.attempts, repaired: result.repaired.length, queued: moved.queued.runs, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, ...(target.pr ? { pullRequest: target.pr } : {}) },
     });
   } finally {
     store.close();
@@ -462,12 +512,12 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
     line(t, JSON.stringify(out, null, 2));
     return code;
   }
-  const parts = [plural(result.pushed.length, 'run') + ' pushed'];
-  if (result.updated.length) parts.push(`${result.updated.length} updated ${p.dim('(labels, notes, results)')}`);
-  if (result.unchanged.length) parts.push(`${result.unchanged.length} already there`);
+  const parts = [`${runsAnd(moved.pushed)} pushed`];
+  if (result.updated.length) parts.push(`${runsAnd(moved.updated)} updated ${p.dim('(labels, notes, results)')}`);
+  if (result.unchanged.length) parts.push(`${runsAnd(moved.unchanged)} already there`);
   if (result.repaired.length) parts.push(`${result.repaired.length} mended ${p.dim('(parts the store had lost, sent again)')}`);
   line(t, `${p.green('✓')} ${parts.join(', ')} · ${plural(result.blobs.uploaded, 'blob')} uploaded (${bytes(result.blobs.bytes)})${result.blobs.present ? `, ${result.blobs.present} already in the store` : ''}`);
-  if (result.queued.length) line(t, p.dim(`  ${plural(result.queued.length, 'run')} still recording: ${result.queued.length === 1 ? 'it goes' : 'they go'} when ${result.queued.length === 1 ? 'it ends' : 'they end'} (${result.queued.map((id) => shortId(id)).join(', ')})`));
+  if (result.queued.length) line(t, p.dim(`  ${runsAnd(moved.queued)} still recording: ${result.queued.length === 1 ? 'it goes' : 'they go'} when ${result.queued.length === 1 ? 'it ends' : 'they end'} (${result.queued.map((id) => shortId(id)).join(', ')})`));
   if (result.refused.length) problemLines(t, `${plural(result.refused.length, 'run')} stayed on this machine:`, result.refused);
   return code;
 }
@@ -489,7 +539,8 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
   const remote = openRemote(t, loc);
   const store = Store.open(t.dbPath);
   let result: PullResult;
-  let left: number;
+  let left: { inStore: number; onlyLocal: number };
+  let got: { runs: string[]; attempts: number; byAuthor: Record<string, number> };
   const prs: PullRequestPull[] = [];
   try {
     const log = flags.json ? {} : { log: (l: string) => note(t, p.dim(`  ${safe(l)}`)) };
@@ -501,7 +552,7 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
       // folders only when the store's own runs lack them.
       if (flags.includePr && (!runArgs.length || result.unknown.length)) {
         const main = result;
-        const own = new Set(store.teamRuns(loc.url).filter(teamRunInStore).map((r) => r.runId));
+        const own = new Set(store.teamRuns(storeKey(loc)).filter(teamRunInStore).map((r) => r.runId));
         const fetchExcluded = async (runIds: string[]) => {
           const r = await pull({ store, remote, actor: actor(t), now: t.now, ...log }, { runIds });
           main.pulled.push(...r.pulled);
@@ -525,18 +576,22 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
     } catch (err) {
       throw asTeamError(err);
     }
-    left = onlyLocal(store, loc.url);
+    left = runCounts(store, loc);
+    got = pulledRuns(store, result.pulled);
     recordEvent(store, {
       kind: 'store.pulled',
       actor: actor(t),
       ref: loc.url,
-      data: { pulled: result.pulled.length, merged: result.merged.length, failed: result.failed.length, byAuthor: result.byAuthor, ...(flags.includePr ? { pullRequests: prs.map((x) => ({ number: x.number, pulled: x.pulled.length })) } : {}) },
+      // By run, as Activity says it: the attempts filed under them are counted apart.
+      data: { pulled: got.runs.length, attempts: got.attempts, merged: result.merged.length, failed: result.failed.length, byAuthor: got.byAuthor, ...(flags.includePr ? { pullRequests: prs.map((x) => ({ number: x.number, pulled: x.pulled.length })) } : {}) },
     });
   } finally {
     store.close();
   }
-  for (const runId of [...result.pulled, ...prs.flatMap((x) => x.pulled)]) emitJobEvent({ type: 'run', runId, role: 'imported' }, t.env);
-  const out = { store: loc.url, ...result, onlyLocal: left, pullRequests: prs };
+  // The runs it brought, for the dashboard's drawer to open; their attempts are reached through them.
+  for (const runId of [...got.runs, ...prs.flatMap((x) => x.pulled)]) emitJobEvent({ type: 'run', runId, role: 'imported' }, t.env);
+  // Counted by run, as every screen counts them: attempts are filed under their run.
+  const out = { store: loc.url, ...result, inStore: left.inStore, onlyLocal: left.onlyLocal, pullRequests: prs };
   emitJobEvent({ type: 'result', data: out }, t.env);
   // Names that match nothing, or named runs that couldn't come: the command didn't do what it was asked.
   const failed = result.failed.length + prs.reduce((n, x) => n + x.failed.length, 0);
@@ -545,11 +600,11 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
     line(t, JSON.stringify(out, null, 2));
     return code;
   }
-  const by = Object.entries(result.byAuthor)
+  const by = Object.entries(got.byAuthor)
     .sort((a, b) => b[1] - a[1])
     .map(([who, n]) => `${safe(who.includes('@') ? who.split('@')[0]! : who)} ${n}`);
-  line(t, `${p.green('✓')} ${plural(result.pulled.length, 'run')} pulled${by.length ? ` ${p.dim(`(${by.join(', ')})`)}` : ''}${result.blobs.downloaded ? ` · ${plural(result.blobs.downloaded, 'blob')} (${bytes(result.blobs.bytes)})` : ''}${result.merged.length ? ` · ${plural(result.merged.length, "run's labels and notes", "runs' labels and notes")} merged` : ''}`);
-  line(t, p.dim(`  The store has ${plural(result.inStore, 'run')}; ${left} only on this machine${left ? ' (shadowlap push --all sends them)' : ''}.`));
+  line(t, `${p.green('✓')} ${runsAnd({ runs: got.runs.length, attempts: got.attempts })} pulled${by.length ? ` ${p.dim(`(${by.join(', ')})`)}` : ''}${result.blobs.downloaded ? ` · ${plural(result.blobs.downloaded, 'blob')} (${bytes(result.blobs.bytes)})` : ''}${result.merged.length ? ` · ${plural(result.merged.length, "run's labels and notes", "runs' labels and notes")} merged` : ''}`);
+  line(t, p.dim(`  The store has ${plural(left.inStore, 'run')}; ${left.onlyLocal} only on this machine${left.onlyLocal ? ' (shadowlap push --all sends them)' : ''}.`));
   if (result.needPush.length) line(t, p.dim(`  ${plural(result.needPush.length, 'run')} here ${result.needPush.length === 1 ? 'has' : 'have'} changes the store doesn't: the next push sends them.`));
   if (result.skippedDeleted.length) line(t, p.dim(`  ${plural(result.skippedDeleted.length, 'run')} deleted on this machine stay deleted; name one to pull it again.`));
   if (result.missing.length) note(t, p.yellow(`! ${plural(result.missing.length, 'run')} listed in the store ${result.missing.length === 1 ? 'is' : 'are'} gone from it, deleted there: ${result.missing.map((id) => shortId(id)).join(', ')}`));
@@ -641,7 +696,7 @@ export async function pushIfQueued(t: TeamEnv): Promise<void> {
   const url = target.loc.url;
   let ready: string[];
   try {
-    ready = withStore(t, (store) => queuedRuns(store, url).ready);
+    ready = withStore(t, (store) => queuedRuns(store, storeKey(target.loc)).ready);
   } catch {
     return;
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accessPolicy, ciStep, formatStoreUrl, HttpError, objectKey, objectLockHint, parseStoreUrl, schemeHint, shortStoreName, StoreUrlError, credentialsMayGoTo, transportError, versioningHint } from '@shadowlap/remote';
+import { accessPolicy, ciStep, formatStoreUrl, HttpError, objectKey, objectLockHint, parseStoreUrl, pullRequestLocation, schemeHint, shortStoreName, storeKey, StoreUrlError, credentialsMayGoTo, transportError, versioningHint } from '@shadowlap/remote';
 
 /**
  * What store setup reads and prints: store URLs checked against each provider's scheme, the access
@@ -59,6 +59,18 @@ describe('store URLs', () => {
     expect(shortStoreName(parseStoreUrl('az://northwindruns/agent-runs/x'))).toBe('northwindruns/agent-runs/x');
     expect(objectKey(loc, 'runs/x/run.json')).toBe('support-agent/runs/x/run.json');
     expect(objectKey(parseStoreUrl('s3://bucket-at-root'), 'index/x.json')).toBe('index/x.json');
+  });
+
+  it('keys what this machine knows of a store on the bucket and folder, and on the server an endpoint names', () => {
+    const plain = 's3://northwind-agent-runs/support-agent';
+    // Another region, profile or way of signing in reaches the same bucket.
+    for (const raw of [plain, `${plain}?region=eu-central-1`, `${plain}?profile=ci`, `${plain}/`]) expect(storeKey(parseStoreUrl(raw)), raw).toBe(plain);
+    // Another server is another store, however the endpoint is written.
+    const minio = storeKey(parseStoreUrl(`${plain}?endpoint=http://MinIO.internal:9000/&region=us-east-1`));
+    expect(minio).toBe(`${plain}?endpoint=http://minio.internal:9000`);
+    expect(storeKey(parseStoreUrl(`${plain}?endpoint=http://ceph.internal`))).not.toBe(minio);
+    // A pull request's folder is a store of its own, on the same server.
+    expect(storeKey(pullRequestLocation(parseStoreUrl(`${plain}?endpoint=http://minio.internal:9000`), '42'))).toBe(`${plain}/pr/42?endpoint=http://minio.internal:9000`);
   });
 });
 

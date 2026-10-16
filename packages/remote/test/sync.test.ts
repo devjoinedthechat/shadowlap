@@ -840,3 +840,23 @@ describe('runs imported from traces', () => {
     expect(b.store.getRun(trace.runId)!.meta?.covers).toEqual(['api', 'tool:lookup_order']);
   });
 });
+
+describe('attempts in the index', () => {
+  it('names the run each attempt is filed under, so a teammate counts it with its run before pulling it', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const rec = record(a.store, 'the recording');
+    const attempt = record(a.store, 'an attempt', { parent: rec.runId });
+    a.store.updateRunMeta(attempt.runId, { repeat: { group: 'g', attempt: 1, of: 1 } });
+    const fork = record(a.store, 'a fork', { parent: rec.runId });
+    await push(a, { all: true });
+    const entries = new Map(remote.keysUnder('index/').flatMap((k) => parseSegment(remote.objects.get(k)!.body, k).runs).map((e) => [e.runId, e]));
+    expect(entries.get(attempt.runId)!.attemptOf).toBe(rec.runId);
+    expect(entries.get(rec.runId)).not.toHaveProperty('attemptOf');
+    expect(entries.get(fork.runId)).not.toHaveProperty('attemptOf');
+    // A segment that says something else than a run id is read without it.
+    writeSegment(remote, '01K5CQ4N7G00000000000000ZZ', [{ runId: '01K5CQ4N7G00000000000000AA', parentRunId: null, startedAt: 1, metaHash: 'a'.repeat(64), attemptOf: '../../etc' }]);
+    const seg = parseSegment(remote.objects.get(keys.segment('01K5CQ4N7G00000000000000ZZ'))!.body, 'x');
+    expect(seg.runs[0]).not.toHaveProperty('attemptOf');
+  });
+});

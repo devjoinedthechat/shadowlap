@@ -1,9 +1,10 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { callRefs, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
 import { isPrecondition, StoreError, type ObjectStore } from './object-store.js';
 import { eachLimit } from './pool.js';
+import { storeKey } from './url.js';
 
 /**
  * Push and pull: runs between this machine's store and the team's bucket. Content-addressed, so a
@@ -116,8 +117,9 @@ function now(ctx: SyncContext): number {
   return ctx.now?.() ?? Date.now();
 }
 
+/** What this machine keeps about the store under: its identity (storeKey). */
 function remoteId(ctx: SyncContext): string {
-  return ctx.remote.location.url;
+  return storeKey(ctx.remote.location);
 }
 
 function json(value: unknown): Buffer {
@@ -144,7 +146,16 @@ export function runBlobs(store: Store, calls: readonly CallRecord[]): string[] {
   return [...out];
 }
 
-export function indexEntry(run: RunRecord, calls: number, hash: string): IndexEntry {
+/**
+ * The run an attempt is filed under (the run it replayed), as the Runs page files it, or null for
+ * a run that is no attempt. The fork blame rescued a run with is a probe that shows as a fork.
+ */
+export function attemptOfRun(store: Store, run: RunRecord): string | null {
+  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  return classifyRun(run, { rescued: parent?.meta?.blame?.rescuedRunId === run.runId }).attemptOf;
+}
+
+export function indexEntry(run: RunRecord, calls: number, hash: string, attemptOf: string | null = null): IndexEntry {
   return {
     runId: run.runId,
     parentRunId: run.parentRunId,
@@ -158,6 +169,7 @@ export function indexEntry(run: RunRecord, calls: number, hash: string): IndexEn
     labels: run.meta?.labels ?? [],
     calls,
     metaHash: hash,
+    ...(attemptOf ? { attemptOf } : {}),
   };
 }
 
@@ -315,7 +327,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   const row = ctx.store.teamRun(rid, run.runId);
   const localHash = metaHash(run.meta);
   if (!verify && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
-    return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash), index: false, repaired: false };
+    return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash, attemptOfRun(ctx.store, run)), index: false, repaired: false };
   }
   const written = await writeRun(ctx, run, row, known, tally);
   if ('refused' in written) return { kind: 'refused', reason: written.refused };
@@ -326,7 +338,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   // Not listed by any index this machine knows of, or listed as it was before: the index gets an entry.
   const unindexed = !row || row.remoteHash === null;
   const index = fresh || unindexed || row.remoteHash !== hash;
-  const entry = indexEntry(doc.run, doc.calls, hash);
+  const entry = indexEntry(doc.run, doc.calls, hash, attemptOfRun(ctx.store, run));
   // What both sides now agree on is the base of the next merge. remoteHash stays what the index
   // lists, so until push() has written the segment this run counts as not yet in the store.
   ctx.store.setTeamRun(rid, {
@@ -612,7 +624,7 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
   const synced = syncedMeta(doc.run.meta);
   const hash = metaHash(synced);
   const row = ctx.store.teamRun(remoteId(ctx), runId);
-  ctx.store.setTeamRun(remoteId(ctx), { runId, state: 'pulled', at: now(ctx), base: synced, baseHash: hash, remoteHash: row?.remoteHash ?? hash, entry: row?.entry ?? (indexEntry(doc.run, calls.length, hash) as unknown as Record<string, unknown>) });
+  ctx.store.setTeamRun(remoteId(ctx), { runId, state: 'pulled', at: now(ctx), base: synced, baseHash: hash, remoteHash: row?.remoteHash ?? hash, entry: row?.entry ?? (indexEntry(doc.run, calls.length, hash, attemptOfRun(ctx.store, doc.run)) as unknown as Record<string, unknown>) });
   return doc;
 }
 

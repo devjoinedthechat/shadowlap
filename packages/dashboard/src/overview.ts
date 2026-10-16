@@ -215,8 +215,8 @@ export interface NeedsLook {
 
 /**
  * The team store as Needs a look reads it: how many runs are only on this machine, as the store's
- * status counts them for Settings → Store and the CLI (`onlyLocal`): finished runs the store's
- * index doesn't list, attempts included, as `push --all` sends them.
+ * status counts them for Settings → Store and the CLI (`onlyLocal`): by run, a run counted once
+ * when it or the attempts filed under it aren't in the store's index yet, as the Runs page tags it.
  */
 export interface StoreNote {
   name: string;

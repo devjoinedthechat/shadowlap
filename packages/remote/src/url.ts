@@ -8,8 +8,11 @@
  *   gs://bucket/folder            Google Cloud Storage (?auth=hmac for its S3-compatible API)
  *   az://account/container/folder Azure Blob Storage
  *
- * The query carries only what the bucket name can't say. The URL without its query is the store's
- * identity: what this machine remembers it pushed and pulled is kept under it.
+ * The query carries only what the bucket name can't say. The URL without its query, with its
+ * endpoint when it names one (`storeKey`), is the store's identity: what this machine remembers it
+ * pushed and pulled is kept under it. A region, a profile or another way of signing in reaches the
+ * same bucket; another endpoint is another server, whose bucket of the same name holds nothing this
+ * machine pushed elsewhere.
  */
 
 export type Provider = 's3' | 'r2' | 'gcs' | 'azure';
@@ -178,6 +181,14 @@ export function formatStoreUrl(loc: StoreLocation): string {
   if (loc.auth) q.push(`auth=${loc.auth}`);
   if (loc.profile) q.push(`profile=${loc.profile}`);
   return q.length ? `${loc.url}?${q.join('&')}` : loc.url;
+}
+
+/**
+ * The store's identity, under which this machine keeps what it knows of it (what it pushed, pulled
+ * and checked): the URL without its query, and the endpoint when it names one.
+ */
+export function storeKey(loc: Pick<StoreLocation, 'url' | 'endpoint'>): string {
+  return loc.endpoint ? `${loc.url}?endpoint=${loc.endpoint}` : loc.url;
 }
 
 /** What kind of store a URL names, for a status line: an `?endpoint=` on s3:// is another S3-compatible store, not Amazon's. */

@@ -42,9 +42,9 @@ describe('the team store status', () => {
   it('names the bucket, the region and the folder, and what this machine knows of the store, and nothing else', () => {
     const store = Store.open(':memory:');
     const status = teamStoreStatus(store, input())!;
-    expect(status).toMatchObject({ url: ID, configured: URL_, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', region: 'eu-central-1', name: 'northwind-agent-runs/support-agent', syncedAt: null, check: null, ciPush: true });
+    expect(status).toMatchObject({ url: ID, key: ID, configured: URL_, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', region: 'eu-central-1', name: 'northwind-agent-runs/support-agent', syncedAt: null, check: null, ciPush: true });
     expect(Object.keys(status).sort()).toEqual(
-      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'syncedAt', 'url'].sort(),
+      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'key', 'localAttempts', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'syncedAt', 'url'].sort(),
     );
     store.close();
   });
@@ -105,6 +105,38 @@ describe('the team store status', () => {
     await pull({ store, remote: folder, actor: 'dana@northwind.example', pullRequest: '42', now: () => NOW });
     expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 2, onlyLocal: 0, localRuns: [] });
     ci.close();
+    store.close();
+  });
+});
+
+describe('counted by run', () => {
+  it('files attempts under their run, as the Runs page, Needs a look and store show count them', async () => {
+    const store = Store.open(':memory:');
+    const rec = run(store);
+    for (const attempt of [1, 2, 3]) {
+      const a = store.createRun({ mode: 'replay', parentRunId: rec, command: cmd, meta: { repeat: { group: 'g', attempt, of: 3 } } });
+      store.endRun(a.runId, 'completed');
+    }
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, localRuns: [rec], inStore: 0 });
+    const remote = new MemoryStore(parseStoreUrl(URL_));
+    const ctx = { store, remote, actor: 'dana@northwind.example', now: () => NOW };
+    // shadowlap push <run> sends the run alone: its attempts keep it local.
+    await push(ctx, { runIds: [rec] });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, localRuns: [rec], inStore: 1 });
+    await push(ctx, { all: true });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 0, localAttempts: 0, localRuns: [], inStore: 1 });
+    store.close();
+  });
+
+  it('keeps what it knows of a store under its identity: another endpoint is another store', async () => {
+    const store = Store.open(':memory:');
+    run(store);
+    const minio = 's3://northwind-agent-runs/support-agent?endpoint=https://minio.internal:9000';
+    await push({ store, remote: new MemoryStore(parseStoreUrl(minio)), actor: 'dana@northwind.example', now: () => NOW }, { all: true });
+    expect(teamStoreStatus(store, input({ store: minio }))).toMatchObject({ url: ID, key: `${ID}?endpoint=https://minio.internal:9000`, inStore: 1, onlyLocal: 0, pushedAt: NOW });
+    // The same bucket and folder on another server holds nothing this machine pushed.
+    expect(teamStoreStatus(store, input({ store: 's3://northwind-agent-runs/support-agent?endpoint=https://ceph.internal' }))).toMatchObject({ inStore: 0, onlyLocal: 1, pushedAt: null });
+    expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 0, onlyLocal: 1, pushedAt: null });
     store.close();
   });
 });

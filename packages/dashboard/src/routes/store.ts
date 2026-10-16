@@ -23,8 +23,8 @@ export function teamStoreFor(ctx: RouteContext): TeamStoreStatus | null {
  * Which of these runs are only on this machine: not pulled from a pull request's folder, and not
  * listed in the store's index. The Runs page's `local` tag. A recording in progress is one of them
  * until it is pushed, as the design tags it. How many runs are only here is the store status's
- * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store status` all say that one):
- * finished runs, the attempts bundled under them included, as `push --all` sends them.
+ * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store show` all say that one), counted
+ * the way these tags are: by run, a run whose attempts are only here counted once with them.
  */
 export function localRunIds(store: Store, remote: string, runIds: readonly string[]): Set<string> {
   if (!runIds.length) return new Set();
@@ -104,7 +104,7 @@ export function register(router: Router, ctx: RouteContext): void {
         if (!ids.includes(run.runId)) ids.push(run.runId);
       }
       // At most PUSH_MAX ids on the command line, the runs picked first.
-      const attempts = localAttempts(store, team.url, ids, PUSH_MAX - ids.length);
+      const attempts = localAttempts(store, team.key, ids, PUSH_MAX - ids.length);
       endAbandoned(store, new Set([...ids, ...attempts]));
       return { args: ['push', ...ids, ...attempts], ...(ids.length === 1 ? { runId: ids[0]! } : {}) };
     },

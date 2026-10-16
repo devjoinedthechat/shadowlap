@@ -1,5 +1,5 @@
 import { hasRecordedCommand, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
-import { parseStoreUrl, shortStoreName, teamRunInStore } from '@shadowlap/remote';
+import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { fixForRun } from './fixes.js';
 import { copyRules, type CopyRules } from './run-exports.js';
@@ -79,7 +79,7 @@ function teamOf(store: Store, run: RunRecord, raw: unknown): RunOffers['team'] {
   const name = shortStoreName(loc);
   if (run.status === 'running') return { store: name, state: 'recording' };
   if (run.meta?.imported?.pr) return { store: name, state: 'pull-request' };
-  const row = store.teamRun(loc.url, run.runId);
+  const row = store.teamRun(storeKey(loc), run.runId);
   return { store: name, state: row && teamRunInStore(row) ? 'in-store' : row?.state === 'queued' ? 'queued' : 'only-here' };
 }
 

@@ -1,4 +1,4 @@
-export { encodeKeyPath, encodeRfc3986, formatStoreUrl, objectKey, parseStoreUrl, PROVIDER_NAMES, PROVIDERS, SCHEMES, schemeHint, shortStoreName, storeKindName, StoreUrlError } from './url.js';
+export { encodeKeyPath, encodeRfc3986, formatStoreUrl, objectKey, parseStoreUrl, PROVIDER_NAMES, PROVIDERS, SCHEMES, schemeHint, shortStoreName, storeKey, storeKindName, StoreUrlError } from './url.js';
 export type { Provider, StoreLocation } from './url.js';
 export { isPrecondition, StoreError, transportError } from './object-store.js';
 export type { BucketInfo, GetResult, ObjectInfo, ObjectLock, ObjectStore, PutOptions, PutResult, SignedLink, StoreErrorCode, Versioning } from './object-store.js';
@@ -17,7 +17,7 @@ export { GCS_HMAC_VARS, openObjectStore, R2_VARS, credentialsMayGoTo, type OpenO
 export { checkStoredRun, INDEX_FORMAT, keys, LAYOUT_VERSION, LayoutError, parseRunDoc, parseSegment, RUN_FORMAT, storeProblem } from './layout.js';
 export type { IndexEntry, IndexSegment, StoredRunDoc } from './layout.js';
 export { LOCAL_ONLY_META, madeHere, MERGED_META, metaHash, reconcile, RESULT_META, sharedMeta, SYNCED_META, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
-export { indexEntry, pull, push, queuedRuns, runBlobs, teamRunInStore } from './sync.js';
+export { attemptOfRun, indexEntry, pull, push, queuedRuns, runBlobs, teamRunInStore } from './sync.js';
 export type { PullOptions, PullResult, PushOptions, PushResult, RunProblem, SyncContext } from './sync.js';
 export { checkStore, objectLockHint, versioningHint } from './check.js';
 export type { CheckStep, CheckStepName, StoreCheck } from './check.js';

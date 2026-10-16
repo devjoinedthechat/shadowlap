@@ -143,7 +143,7 @@ describe('push and pull through the bucket', () => {
     mstore.updateRunMeta(runId, { labels: ['refund-flow'] });
     mstore.close();
     expect(await teamPush(maya, [runId])).toBe(0);
-    expect(maya.take().out).toMatch(/0 runs pushed, 1 updated/);
+    expect(maya.take().out).toMatch(/0 runs pushed, 1 run updated/);
     expect(await teamPull(dana, [])).toBe(0);
     expect(dana.take().out).toContain("1 run's labels and notes merged");
     const dstore = Store.open(dana.dbPath);

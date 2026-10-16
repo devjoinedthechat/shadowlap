@@ -18,6 +18,8 @@ export { recordingsOfRun, testsEntryFor } from './run-checks.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
+// The team store's counts, by run (attempts filed under their run): Settings → Store, Needs a look, store show.
+export { teamRunCounts, type TeamRunCounts } from './team-runs.js';
 export { recordEvent, type EventKind, type RecordEventInput } from './events.js';
 export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
