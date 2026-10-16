@@ -72,7 +72,7 @@ The same table drives the cost figures in `shadowlap run`, `replay` and `show`.
 
 ## Actions
 
-`:` opens the fork menu for the selected call: only the actions that apply to it, one line each with its flag on the right, then the whole run's, then replaying and packing. The header names the call and its kind (`At #19 · search_web · read tool`), and the selected action's line on what it does is shown underneath.
+`:` opens the fork menu for the selected call: only the actions that apply to it, one line each with its flag on the right, then the whole run's, then replaying and packing. The header names the call and its kind (`At #19 · search_web · read tool`), and the selected action's line on what it does is shown underneath. On a run still recording, the forks, the replay and the pack are off until it finishes, and each says so ("fork once the recording finishes"), as in the dashboard; the run is tailed, so they turn on when it ends.
 
 | Key | Action | At | Runs |
 |---|---|---|---|
