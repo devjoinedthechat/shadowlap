@@ -324,9 +324,24 @@ export function mcpRows(mcp: { servers: readonly McpServerLike[]; recorded: read
   return rows;
 }
 
-/** A client entry to paste under `mcpServers`, as docs/mcp.md writes one. */
-export function mcpEntryText(name: string, entry: { command: string; args: readonly string[] }): string {
-  return `${JSON.stringify(name)}: {\n  "command": ${JSON.stringify(entry.command)},\n  "args": [${entry.args.map((a) => JSON.stringify(a)).join(', ')}]\n}`;
+/** A client entry to paste under `mcpServers`, as docs/mcp.md writes one, with its `env` when it has one. */
+export function mcpEntryText(name: string, entry: { command: string; args: readonly string[] }, env: ReadonlyArray<{ name: string; value: string }> = []): string {
+  const q = (v: string) => JSON.stringify(v);
+  const lines = [`${q(name)}: {`, `  "command": ${q(entry.command)},`, `  "args": [${entry.args.map(q).join(', ')}]${env.length ? ',' : ''}`];
+  if (env.length) lines.push(`  "env": { ${env.map((e) => `${q(e.name)}: ${q(e.value)}`).join(', ')} }`);
+  return [...lines, '}'].join('\n');
+}
+
+/**
+ * What the toast says once a row's `shadowlap mcp` line is copied: where it goes, and what in the
+ * line itself needs a value before the client starts it (a ••• it hides, a `${VAR}` its header
+ * reads). The entry's own environment stays as it is in the file, so it isn't named.
+ */
+export function copiedLineText(row: { name: string; file: string | null; line: string | null }): string {
+  const line = row.line ?? '';
+  const vars = [...new Set([...line.matchAll(/\$\{([A-Za-z_][\w]*)\}/g)].map((m) => m[1]!))];
+  const needs = [...(line.includes('•••') ? ['put back the ••• in it'] : []), ...(vars.length ? [`set ${orList(vars)} in its env`] : [])];
+  return `Copied the line for ${row.name} · put it in front of the server in ${row.file ?? 'your client’s config'}${needs.length ? `, then ${needs.join(' and ')}` : ''}`;
 }
 
 /** The forms a server takes, each with the line that records one: what the page shows for a form no server here uses. */

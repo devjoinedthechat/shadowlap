@@ -8,7 +8,7 @@ import { useLoad } from '../../hooks.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, LoadProblem, Loading, useSettingsData } from './common.js';
-import { MCP_FORMS, mcpEntryText, mcpRows, pasteWhere, serverNameFor, type McpRow } from './logic.js';
+import { MCP_FORMS, copiedLineText, mcpEntryText, mcpRows, pasteWhere, serverNameFor, type McpRow } from './logic.js';
 
 /**
  * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
@@ -209,7 +209,7 @@ function McpServer({ row }: { row: McpRow }) {
             {row.line ? (
               <>
                 {' · '}
-                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? `Copied the line for ${row.name} · put it in front of the server in ${row.file}${row.putBack.length ? `, then put back ${row.putBack.join(', ')}` : ''}` : 'Copying was refused by the browser'))}>
+                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? copiedLineText(row) : 'Copying was refused by the browser'))}>
                   copy the line
                 </button>
               </>
@@ -256,9 +256,9 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
   const shown = asked === target.trim() ? line.data : null;
   // Named from what was typed until a name is given: linear for https://mcp.linear.app/mcp.
   const serverName = name.trim() || serverNameFor(transport, target);
-  const entry = shown ? mcpEntryText(serverName, shown.entry) : '';
-  // Copied as typed: the person typed any credential in it. What shows hides it, as the table does.
-  const copied = shown ? mcpEntryText(serverName, shown.copy ?? shown.entry) : '';
+  const entry = shown ? mcpEntryText(serverName, shown.entry, shown.env ?? []) : '';
+  // Copied as typed, but for a URL's user and password, which never go on the clipboard. What shows hides any credential, as the table does.
+  const copied = shown ? mcpEntryText(serverName, shown.copy ?? shown.entry, shown.env ?? []) : '';
   const placeholder = transport === 'http' ? 'shadowlap mcp --url <server URL>' : 'shadowlap mcp -- <command>';
   return (
     <Dialog
@@ -303,7 +303,17 @@ function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp']['file
       </p>
       {entry ? <pre className="codebox">{entry}</pre> : null}
       {line.error && asked === target.trim() ? <p className="fieldnote err">{line.error.message}</p> : null}
-      {shown?.hidden ? <p className="fieldnote warn">Something that looks like a credential shows as •••. The copied entry has it as you typed it: keep it out of a file you commit, or pass it in an environment variable.</p> : null}
+      {shown?.basic ? (
+        <p className="fieldnote warn">
+          The URL’s user and password aren’t copied: <code>shadowlap mcp</code> sends them as an Authorization header. Set <code>{shown.basic}</code> in the entry’s env to their base64, from <code>printf &apos;user:password&apos; | base64</code>.
+        </p>
+      ) : shown?.hidden ? (
+        <p className="fieldnote warn">
+          {(shown.copy?.args ?? []).some((a) => a.includes('•••'))
+            ? 'A URL’s user and password show as •••, in the copy too: put them back in your own entry. Anything else that looks like a credential shows as ••• and is copied as you typed it: keep it out of a file you commit, or pass it in an environment variable.'
+            : 'Something that looks like a credential shows as •••. The copied entry has it as you typed it: keep it out of a file you commit, or pass it in an environment variable.'}
+        </p>
+      ) : null}
     </Dialog>
   );
 }

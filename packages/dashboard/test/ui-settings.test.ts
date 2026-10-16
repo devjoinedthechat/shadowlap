@@ -12,6 +12,7 @@ import {
   SETTINGS_TABS,
   bytesText,
   ciShown,
+  copiedLineText,
   emptyRuleForm,
   gcDeleteCommand,
   gcDryRun,
@@ -255,9 +256,17 @@ describe('MCP servers', () => {
     expect(splitCommandLine(MCP_FORMS.stdio.line).slice(0, 3)).toEqual(['shadowlap', 'mcp', '--']);
   });
 
+  it('says what a copied line needs, and nothing about the entry’s own environment', () => {
+    expect(copiedLineText({ name: 'github', file: '.mcp.json', line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-github' })).toBe('Copied the line for github · put it in front of the server in .mcp.json');
+    expect(copiedLineText({ name: 'db', file: '.mcp.json', line: "shadowlap mcp -- npx -y server-postgres 'postgresql://•••@db/prod'" })).toBe('Copied the line for db · put it in front of the server in .mcp.json, then put back the ••• in it');
+    expect(copiedLineText({ name: 'stripe', file: '.cursor/mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .cursor/mcp.json, then set STRIPE_TOKEN in its env');
+  });
+
   it('writes a client entry to paste under mcpServers', () => {
     expect(mcpEntryText('linear', { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] })).toBe('"linear": {\n  "command": "shadowlap",\n  "args": ["mcp", "--url", "https://mcp.linear.app/mcp"]\n}');
     expect(JSON.parse(`{${mcpEntryText('a "b"', { command: 'shadowlap', args: ['mcp', '--', 'x'] })}}`)).toEqual({ 'a "b"': { command: 'shadowlap', args: ['mcp', '--', 'x'] } });
+    // With the variable a URL's user and password became.
+    expect(JSON.parse(`{${mcpEntryText('linear', { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Basic ${LINEAR_AUTH}'] }, [{ name: 'LINEAR_AUTH', value: '…' }])}}`)).toEqual({ linear: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Basic ${LINEAR_AUTH}'], env: { LINEAR_AUTH: '…' } } });
   });
 });
 

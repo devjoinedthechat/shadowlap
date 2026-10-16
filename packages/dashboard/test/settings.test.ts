@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
 import { PREVIEW_LIMITS, repeatsARepeat, tookTooLong } from '../src/redaction-preview.js';
 import { parseHeaderFlags } from '../../cli/src/mcp.js';
-import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
+import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpEntryAsTyped, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -434,7 +434,32 @@ describe('mcpServers', () => {
     expect(servers.map((s) => [s.name, s.hidden])).toEqual([['remote', true], ['bridge', true], ['db', true]]);
     expect(servers[0]).toMatchObject({ target: 'https://mcp.example.com/mcp?api_key=•••', line: "shadowlap mcp --url 'https://mcp.example.com/mcp?api_key=•••'", viaShadowlap: true });
     expect(servers[1]!.entry.args).toEqual(['mcp', '--', 'npx', '-y', 'mcp-remote', 'https://mcp.example.com/sse?token=•••']);
-    expect(servers[2]!.target).toBe("node server.js --endpoint=https://db.example.com/x 'https://x.example.com/#•••'");
+    expect(servers[2]!.target).toBe("node server.js --endpoint=https://•••@db.example.com/x 'https://x.example.com/#•••'");
+  });
+
+  it('never shows or copies a URL’s user and password: a placeholder in a command, a Basic header for a remote server', () => {
+    put('.mcp.json', JSON.stringify({
+      mcpServers: {
+        db: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://admin:hunter2pass@db.example.com:5432/prod'] },
+        remote: { url: 'https://bob:s3cretpass@mcp.example.com/mcp' },
+        signed: { url: 'https://bob:s3cretpass@mcp.example.com/mcp', headers: { Authorization: 'Bearer abc' } },
+      },
+    }));
+    const { servers } = mcpServers(cwd);
+    expect(JSON.stringify(servers)).not.toMatch(/hunter2pass|s3cretpass|admin|bob/);
+    const db = servers.find((s) => s.name === 'db')!;
+    // The placeholder the put-back note names is there, in what is shown and in the entry copied.
+    expect(db.entry.args.at(-1)).toBe('postgresql://•••@db.example.com:5432/prod');
+    expect(db.putBack).toEqual(['the ••• in its command']);
+    const remote = servers.find((s) => s.name === 'remote')!;
+    expect(remote).toMatchObject({ target: 'https://mcp.example.com/mcp', hidden: true, env: [{ name: 'REMOTE_AUTH', value: '…' }] });
+    expect(remote.entry.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Basic ${REMOTE_AUTH}']);
+    expect(remote.putBack).toEqual(['REMOTE_AUTH (the base64 of its URL’s user:password, for its Authorization header)']);
+    // What shadowlap mcp makes of the entry: the URL it accepts, the header from the variable.
+    expect(parseHeaderFlags([remote.entry.args[4]!], { REMOTE_AUTH: 'Ym9iOnMzY3JldA==' })).toEqual({ authorization: 'Basic Ym9iOnMzY3JldA==' });
+    // A server that sends its own Authorization header keeps it; its URL still loses the credentials.
+    const signed = servers.find((s) => s.name === 'signed')!;
+    expect(signed.entry.args.filter((a) => a.startsWith('Authorization'))).toEqual(['Authorization: Bearer ${SIGNED_TOKEN}']);
   });
 
   it('knows shadowlap mcp behind a package runner, and reads a config file through a link', () => {
@@ -525,10 +550,20 @@ describe('mcpServerFor', () => {
       transport: 'stdio', target: "npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", viaShadowlap: false,
       line: "shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem '/srv/my notes'", entry: { command: 'shadowlap', args: ['mcp', '--', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/srv/my notes'] }, hidden: false,
       recordedAs: { transport: 'stdio', server: 'npx @modelcontextprotocol/server-filesystem' },
+      env: [],
+      basic: null,
     });
     expect(mcpServerFor({ url: ' https://mcp.linear.app/mcp ' })).toMatchObject({ transport: 'http', line: 'shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false });
     expect(mcpServerFor({ url: 'https://mcp.example.com/mcp?key=sk_live_1' })).toMatchObject({ target: 'https://mcp.example.com/mcp?key=•••', hidden: true });
     expect(mcpServerFor({ command: 'docker run -e GITHUB_TOKEN=ghp_x img' })).toMatchObject({ target: 'docker run -e GITHUB_TOKEN=••• img', hidden: true });
+    // A URL's user and password: a Basic header from a variable, shown and copied alike, never their text.
+    const basic = mcpServerFor({ url: 'https://bob:s3cretpass@mcp.linear.app/mcp' });
+    expect(basic).toMatchObject({ line: "shadowlap mcp --url https://mcp.linear.app/mcp --header 'Authorization: Basic ${LINEAR_AUTH}'", env: [{ name: 'LINEAR_AUTH', value: '…' }], basic: 'LINEAR_AUTH', hidden: true });
+    expect(mcpEntryAsTyped({ url: 'https://bob:s3cretpass@mcp.linear.app/mcp' })).toEqual(basic.entry);
+    expect(JSON.stringify(mcpEntryAsTyped({ command: 'npx -y server-postgres --conn=postgresql://admin:hunter2pass@db/prod sk_live_1' }))).not.toMatch(/hunter2pass|admin/);
+    expect(mcpEntryAsTyped({ command: 'npx -y server-postgres postgresql://admin:hunter2pass@db/prod' }).args.at(-1)).toBe('postgresql://•••@db/prod');
+    // Other values typed are copied as typed, as the dialog says.
+    expect(mcpEntryAsTyped({ command: 'docker run -e GITHUB_TOKEN=ghp_x img' }).args).toContain('GITHUB_TOKEN=ghp_x');
     // Already behind shadowlap mcp: said so, not wrapped twice.
     expect(mcpServerFor({ command: 'shadowlap mcp -- node notes.js' })).toMatchObject({ viaShadowlap: true, target: 'node notes.js', line: 'shadowlap mcp -- node notes.js' });
     expect(() => mcpServerFor({ command: '   ' })).toThrow(/type the command that starts the server/);
@@ -546,7 +581,7 @@ describe('secrets in commands and URLs', () => {
   it('hides a flag value, a --flag=value and a token by its shape', () => {
     expect(hideSecrets(['server', '--api-key', 'abc', '--name', 'x', '--token=t0k', 'sk-ant-123', 'xoxb-1-2', 'plain'])).toEqual(['server', '--api-key', '•••', '--name', 'x', '--token=•••', '•••', '•••', 'plain']);
     expect(hideSecrets(['docker', 'run', '-e', 'GITHUB_TOKEN=abc', '-e', 'LOG_LEVEL=debug', '--header', 'Authorization: Basic eHl6', 'C:\\notes', 'https://x.io/a'])).toEqual(['docker', 'run', '-e', 'GITHUB_TOKEN=•••', '-e', 'LOG_LEVEL=debug', '--header', 'Authorization: •••', 'C:\\notes', 'https://x.io/a']);
-    expect(hideUrlSecrets('https://user:pw@mcp.example.com/mcp?token=abc&x=1')).toBe('https://mcp.example.com/mcp?token=•••&x=•••');
+    expect(hideUrlSecrets('https://user:pw@mcp.example.com/mcp?token=abc&x=1')).toBe('https://•••@mcp.example.com/mcp?token=•••&x=•••');
     expect(hideUrlSecrets('https://mcp.example.com')).toBe('https://mcp.example.com');
   });
 

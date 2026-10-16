@@ -848,7 +848,10 @@ export function hideSecrets(argv: readonly string[]): string[] {
  */
 const plainSegment = (segment: string) => segment === '' || (/^[a-z0-9][a-z0-9._-]{0,23}$/.test(segment) && !keyLike(segment));
 
-/** A URL without its user, password, query values or fragment, and with path segments that may be keys hidden. */
+/**
+ * A URL with its user and password shown as `•••@` (a place to put them back, never their text),
+ * its query values and fragment hidden, and path segments that may be keys hidden.
+ */
 export function hideUrlSecrets(url: string): string {
   try {
     const u = new URL(url);
@@ -858,9 +861,52 @@ export function hideUrlSecrets(url: string): string {
       .join('/');
     if (!u.username && !u.password && !u.search && !u.hash && path === u.pathname) return url;
     const query = [...new Set(u.searchParams.keys())].map((k) => `${encodeURIComponent(k)}=${HIDDEN}`).join('&');
-    return `${u.protocol}//${u.host}${path}${query ? `?${query}` : ''}${u.hash ? `#${HIDDEN}` : ''}`;
+    return `${u.protocol}//${u.username || u.password ? `${HIDDEN}@` : ''}${u.host}${path}${query ? `?${query}` : ''}${u.hash ? `#${HIDDEN}` : ''}`;
   } catch {
     return url;
+  }
+}
+
+/**
+ * A remote server's URL without the user and password in it, which `shadowlap mcp --url` refuses:
+ * they go in an `Authorization: Basic` header instead. `had` says there were some.
+ */
+function withoutCredentials(url: string): { url: string; had: boolean } {
+  try {
+    const u = new URL(url);
+    if (!u.username && !u.password) return { url, had: false };
+    // Cut from the URL as typed, so the rest stays exactly as it was.
+    return { url: url.replace(USERINFO, '$1'), had: true };
+  } catch {
+    return { url, had: false };
+  }
+}
+
+/** A URL's scheme and the user and password after it, as typed: `https://` and `bob:s3cret@`. */
+const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^@/?#]*@/i;
+
+/** Words in a host that say nothing about which server it is: what's left names its variable (`LINEAR_AUTH` for mcp.linear.app). */
+const HOST_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'com', 'net', 'org', 'io', 'dev', 'ai', 'co', 'cloud']);
+
+/** The word a remote server's variables are named by: `linear` for https://mcp.linear.app/mcp, else `SERVER`. */
+function hostWord(url: string): string {
+  try {
+    const labels = new URL(url).hostname.split('.').slice(0, -1);
+    return labels.find((l) => /^[a-z][a-z0-9-]*$/i.test(l) && !HOST_NOISE.has(l.toLowerCase())) ?? 'server';
+  } catch {
+    return 'server';
+  }
+}
+
+/** Hides only a URL's user and password, as `•••@`: what a copied entry carries in their place, leaving the rest as typed. */
+function hideUrlCredentials(text: string): string {
+  if (!URL_LIKE.test(text)) return text.replace(/(=)([a-z][a-z0-9+.-]*:\/\/[^\s]+)$/i, (_m, eq: string, url: string) => `${eq}${hideUrlCredentials(url)}`);
+  try {
+    const u = new URL(text);
+    if (!u.username && !u.password) return text;
+    return text.replace(USERINFO, `$1${HIDDEN}@`);
+  } catch {
+    return text;
   }
 }
 
@@ -959,6 +1005,22 @@ function urlServer(url: string, headers: readonly string[] = []): ServerRecordin
   return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', ...args]), entry: { command: 'shadowlap', args }, hidden: shown !== url, recordedAs: { transport: 'http', server: httpServerName(url) } };
 }
 
+/**
+ * A remote server whose URL holds a user and password: `shadowlap mcp --url` refuses that, so the
+ * URL goes without them and they become `Authorization: Basic ${<SERVER>_AUTH}`, a variable for the
+ * person to set to their base64. Their text is never shown or copied. Null for a URL without them,
+ * or one that already sends an Authorization header.
+ */
+function basicAuth(url: string, headers: readonly string[], word: string, taken: Set<string>): { url: string; header: string; env: string } | null {
+  const bare = withoutCredentials(url);
+  if (!bare.had || headers.some((h) => /^authorization\s*:/i.test(h))) return null;
+  const base = `${envWord(word)}_AUTH`;
+  let env = base;
+  for (let i = 2; taken.has(env); i++) env = `${base}_${i}`;
+  taken.add(env);
+  return { url: bare.url, header: `Authorization: Basic \${${env}}`, env };
+}
+
 /** What stands in for a value the page never shows: an environment value to put back. */
 const LEFT_OUT = '…';
 /** A value that is only a reference the client, or `shadowlap mcp`, fills in from the environment (`${GITHUB_TOKEN}`, `${env:KEY}`): it holds no secret, so it is shown. */
@@ -1023,31 +1085,45 @@ export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' |
   return { clientConfigs: blocks, otherForms: (['stdio', 'http'] as const).filter((t) => !used.has(t)) };
 }
 
+/** What "Add a server…" shows for a URL with a user and password: the Basic header's variable, set in the entry's env. */
+export interface ServerFor extends ServerRecording {
+  /** The entry's environment: the variable a URL's user and password became, to set (value `…`). */
+  env: Array<{ name: string; value: string }>;
+  /** That variable's name, for the dialog to say how to set it; null without one. */
+  basic: string | null;
+}
+
 /**
  * "Add a server…": the `shadowlap mcp` line and client entry for a command or a URL typed into the
  * dialog, with credentials hidden as the table hides them (`hidden` then asks the person to put
- * the real value back in their own entry). Nothing is written. Throws with what to type instead.
+ * the real value back in their own entry). A URL's user and password become an `Authorization:
+ * Basic` header whose value is a variable in the entry's env (`basic` names it), since `shadowlap
+ * mcp --url` refuses them in the URL. Nothing is written. Throws with what to type instead.
  */
-export function mcpServerFor(input: { command?: string | null; url?: string | null }): ServerRecording {
+export function mcpServerFor(input: { command?: string | null; url?: string | null }): ServerFor {
   const url = input.url?.trim();
   if (url) {
     if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new Error('an MCP server URL starts with http:// or https://, such as https://mcp.example.com/mcp');
-    return urlServer(url);
+    const basic = basicAuth(url, [], hostWord(url), new Set());
+    if (!basic) return { ...urlServer(url), env: [], basic: null };
+    return { ...urlServer(basic.url, [basic.header]), hidden: true, env: [{ name: basic.env, value: LEFT_OUT }], basic: basic.env };
   }
   const argv = splitCommandLine(input.command ?? '');
   if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
-  return commandServer(argv[0]!, argv.slice(1));
+  return { ...commandServer(argv[0]!, argv.slice(1)), env: [], basic: null };
 }
 
 /**
  * The client entry for what "Add a server…" has, as the person typed it: what Copy the entry
- * copies. The line and entry the dialog shows hide credentials (mcpServerFor); the copy keeps them,
- * since the person typed them, and the dialog says so.
+ * copies. The line and entry the dialog shows hide credentials (mcpServerFor); the copy keeps what
+ * was typed, since the person typed it and the dialog says so, except a URL's user and password,
+ * which never go on the clipboard: a remote server's become its Basic header's variable, and one
+ * in a command shows as `•••@`, to put back in your own entry.
  */
 export function mcpEntryAsTyped(input: { command?: string | null; url?: string | null }): { command: string; args: string[] } {
   const url = input.url?.trim();
-  if (url) return { command: 'shadowlap', args: ['mcp', '--url', url] };
-  const argv = splitCommandLine(input.command ?? '');
+  if (url) return mcpServerFor({ url }).entry;
+  const argv = splitCommandLine(input.command ?? '').map(hideUrlCredentials);
   if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
   if (shadowlapMcpArgs(argv[0]!, argv.slice(1))) return { command: argv[0]!, args: argv.slice(1) };
   return { command: 'shadowlap', args: ['mcp', '--', ...argv] };
@@ -1085,14 +1161,19 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
         if (server.hidden) putBack.push(`the ${HIDDEN} in its command`);
         servers.push({ name, file: path, ...server, env, putBack });
       } else if (url) {
-        const headers = headerFlags(entry.headers, name, new Set(env.map((e) => e.name)));
-        const server = urlServer(url, headers.map((h) => h.flag));
+        const taken = new Set(env.map((e) => e.name));
+        const headers = headerFlags(entry.headers, name, taken);
+        // A user and password in the URL become a Basic header: `shadowlap mcp --url` refuses them there.
+        const basic = basicAuth(url, headers.map((h) => h.flag), name, taken);
+        if (basic) headers.push({ flag: basic.header, env: basic.env });
+        const server = urlServer(basic?.url ?? url, headers.map((h) => h.flag));
         for (const h of headers) {
           if (!h.env) continue;
           env.push({ name: h.env, value: LEFT_OUT });
-          putBack.push(`${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
+          putBack.push(h.env === basic?.env ? `${h.env} (the base64 of its URL’s user:password, for its Authorization header)` : `${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
         }
-        if (server.hidden) putBack.push(`the ${HIDDEN} in its URL`);
+        if (basic) server.hidden = true;
+        if (server.target.includes(HIDDEN)) putBack.push(`the ${HIDDEN} in its URL`);
         servers.push({ name, file: path, ...server, env, putBack });
       }
     }

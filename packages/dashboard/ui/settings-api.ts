@@ -37,7 +37,11 @@ export interface McpLine {
   line: string;
   entry: { command: string; args: string[] };
   hidden: boolean;
-  /** The entry as typed, credentials included: what Copy the entry copies. */
+  /** The entry's environment: the variable a URL's user and password became (value `…`, to set). */
+  env?: Array<{ name: string; value: string }>;
+  /** That variable, for an `Authorization: Basic` header; null without one. */
+  basic?: string | null;
+  /** The entry as typed, except a URL's user and password, which are never copied: what Copy the entry copies. */
   copy?: { command: string; args: string[] };
 }
 
