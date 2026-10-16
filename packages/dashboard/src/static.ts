@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
+import { asTheyStand, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetail, compare, lineage, listRuns, runDetail } from './api.js';
 import { isAttempt } from './run-cache.js';
 import type { MetaView } from './views.js';
@@ -14,6 +14,8 @@ import type { MetaView } from './views.js';
  * It is a copy of recorded data, so the redaction rules in shadowlap.config.json apply by default,
  * as they do to `shadowlap pack`, and to the run's command line, labels and notes too; as a pack,
  * it leaves out who made each run. Actions, search and live updates are not in an exported copy.
+ * A run its recorder left marked running (killed, out of memory) is in it as interrupted, as every
+ * screen shows it.
  */
 
 export interface ExportHtmlOptions {
@@ -143,6 +145,10 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
     // Ancestors first: a copied run keeps its parent only when the parent is already there.
     const ordered = [...asked].sort((a, b) => depth(opts.store, a) - depth(opts.store, b));
     for (const runId of ordered) redactRunWithDetails(opts.store, runId, rules, scratch);
+    // A run its recorder left reads interrupted, as the store it came from shows it: the copy knows no
+    // recorder to ask, so it is ended there at its last call, or the file would show it recording for good.
+    const records = asked.map((id) => opts.store.getRun(id)).filter((r): r is RunRecord => r !== null);
+    for (const r of asTheyStand(opts.store, records)) if (r.status === 'crashed' && r.endedAt !== null && scratch.getRun(r.runId)?.status === 'running') scratch.endRun(r.runId, 'crashed', r.endedAt);
     store = scratch;
   }
   try {

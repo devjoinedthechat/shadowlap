@@ -43,6 +43,21 @@ function forPack(run: RunRecord, keepAuthor: boolean): RunRecord {
   return { ...run, meta };
 }
 
+/**
+ * Runs as a copy of them holds them (a pack, an HTML file, a trace): one its recorder left marked
+ * running (killed, out of memory: see liveness.ts) was interrupted, as every screen and `ls` say,
+ * so it is `crashed`, ended at its last call, as gc ends it; a copy that kept it running would show
+ * it recording for good wherever it is opened. Every other run as it is. The store is not changed.
+ */
+export function asTheyStand<R extends RunRecord>(store: Store, runs: readonly R[]): R[] {
+  if (!runs.some((r) => r.status === 'running')) return [...runs];
+  const left = new Map(store.recordingRuns().abandoned.map((a) => [a.run.runId, a.lastAt]));
+  return runs.map((r) => {
+    const lastAt = r.status === 'running' ? left.get(r.runId) : undefined;
+    return lastAt === undefined ? r : { ...r, status: 'crashed' as const, endedAt: r.endedAt ?? lastAt };
+  });
+}
+
 export interface PackResult {
   dir: string;
   runs: string[];
@@ -107,7 +122,8 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
     if (!bytes) throw new Error(`missing blob ${hash}`);
     writeFileSync(join(dir, 'blobs', hash), bytes);
   }
-  const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: runs.map((r) => forPack(r, opts.keepAuthor === true)) };
+  // A run its recorder left goes in as interrupted, never as recording: unpacked, it would read running.
+  const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: asTheyStand(source, runs).map((r) => forPack(r, opts.keepAuthor === true)) };
   writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
   writeFileSync(join(dir, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
   if (store !== source) store.close();

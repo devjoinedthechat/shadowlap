@@ -1,4 +1,4 @@
-import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem } from './types.js';
+import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
 
 /**
  * The API's answers in the one shape the views read. Parts of the API name some fields their own
@@ -128,8 +128,39 @@ function normalizeIntervention(v: unknown): Intervention | null {
   return { flag: v.flag, value: str(v.value), callNo: int(v.callNo) };
 }
 
+const STATUSES: ReadonlyArray<RunStateView['status']> = ['running', 'completed', 'failed', 'crashed'];
+
+/** An outcome as the server classifies a run (`RunOutcome`), or null for anything else. */
+export function normalizeOutcome(v: unknown): RunOutcomeView | null {
+  if (!isObject(v)) return null;
+  switch (v.kind) {
+    case 'running':
+    case 'clean':
+    case 'none':
+      return { kind: v.kind };
+    case 'diverged':
+    case 'lost':
+      return int(v.callNo) !== null ? { kind: v.kind, callNo: int(v.callNo)! } : null;
+    case 'check-failed':
+      return { kind: 'check-failed', check: str(v.check) };
+    case 'passed':
+      return int(v.checks) !== null ? { kind: 'passed', checks: int(v.checks)! } : null;
+    default:
+      return null;
+  }
+}
+
+/** How a run stands, as the run endpoint says it (runs-list.ts `runState`); null when it says nothing usable. */
+export function normalizeState(v: unknown): RunStateView | null {
+  if (!isObject(v) || !STATUSES.includes(v.status as RunStateView['status']) || typeof v.failed !== 'boolean') return null;
+  const outcome = normalizeOutcome(v.outcome);
+  if (!outcome) return null;
+  return { status: v.status as RunStateView['status'], kind: str(v.kind) ?? '', outcome, failed: v.failed, interrupted: v.interrupted === true, label: str(v.label) ?? '' };
+}
+
 export function normalizeRunDetail(d: RunDetail): RunDetail {
   const out: RunDetail = { ...d, actions: normalizeActions(d.actions) };
+  if (d.state !== undefined) out.state = normalizeState(d.state);
   const forkAt = int(d.forkAt) ?? d.run.divergence?.callNo ?? null;
   if (d.cache !== undefined) {
     out.cache = isObject(d.cache)

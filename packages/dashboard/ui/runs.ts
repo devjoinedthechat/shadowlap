@@ -73,13 +73,35 @@ export function runType(r: RunLike): RunType {
   return r.status === 'completed' && r.calls > 0 ? 'clean' : 'replay';
 }
 
-/** A run that did not do what it should: the agent failed, a check failed, a test diverged, or blame found where it was lost. */
+/**
+ * A run that did not do what it should: the agent failed, a check failed, a test diverged, or blame
+ * found where it was lost. The server says so for every run it lists and for the run's own page
+ * (`failed`); without it, the same rule: a run that was only interrupted did not fail.
+ */
 export function isFailed(r: RunLike): boolean {
   if (typeof r.failed === 'boolean') return r.failed;
-  if (r.status === 'failed' || r.status === 'crashed') return true;
+  if (r.status === 'failed') return true;
   if (r.checks && r.checks.passed < r.checks.total) return true;
   if (r.blame && r.blame.callNo) return true;
   return !!r.test && !!r.divergence;
+}
+
+/**
+ * A run that stopped before it ended (Ctrl-C, a kill, a crash, a recorder that went away) and failed
+ * nothing else: every list, and its own page, says "interrupted" in a neutral tone, never a failure.
+ */
+export function isInterrupted(r: RunLike): boolean {
+  return r.status === 'crashed' && !isFailed(r);
+}
+
+/**
+ * What a failed run failed, in the words of the sidebar and Runs: a check (blame's among them, on a
+ * run that exited 0), or the agent's exit, which names no check.
+ */
+export function failedWord(r: RunLike): string {
+  const o = r.outcome;
+  if (o?.kind === 'lost' || (o?.kind === 'check-failed' && (o.check || r.status !== 'failed'))) return 'check failed';
+  return r.checks && r.checks.passed < r.checks.total ? 'check failed' : 'failed';
 }
 
 export function runOrigins(r: RunLike): Origin7[] | null {
@@ -98,18 +120,20 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   if (isLive(r)) return { kind: 'live', label: 'Recording now' };
   const t = runType(r);
   const failed = isFailed(r);
+  const cut = isInterrupted(r) ? ', interrupted' : '';
   if (t === 'clean') return { kind: 'clean', label: 'Clean replay' };
-  if (t === 'fork') return { kind: 'fork', label: `Fork at #${r.divergence!.callNo}` };
+  if (t === 'fork') return { kind: 'fork', label: `Fork at #${r.divergence!.callNo}${cut}` };
   if (t === 'capture') return { kind: 'cap', label: 'Imported capture' };
-  if (t === 'test') return failed ? { kind: 'fail', label: 'Test failed' } : { kind: 'test', label: 'Test replay' };
-  if (t === 'replay') return failed ? { kind: 'fail', label: 'Replay failed' } : { kind: 'clean', label: 'Replay' };
-  return failed ? { kind: 'fail', label: 'Recording, failed' } : { kind: 'rec', label: 'Recording' };
+  if (t === 'test') return failed ? { kind: 'fail', label: 'Test failed' } : { kind: 'test', label: `Test replay${cut}` };
+  if (t === 'replay') return failed ? { kind: 'fail', label: 'Replay failed' } : { kind: 'clean', label: `Replay${cut}` };
+  return failed ? { kind: 'fail', label: 'Recording, failed' } : { kind: 'rec', label: `Recording${cut}` };
 }
 
-/** The tag beside a run's id on its page and in Compare. */
+/** The tag beside a run's id on its page and in Compare: an interrupted recording, replay or test says so, in grey. */
 export function runTag(r: RunLike): { cls: string; text: string } {
   if (isLive(r)) return { cls: 'live', text: 'recording' };
   const t = runType(r);
+  if (isInterrupted(r) && (t === 'recording' || t === 'replay' || t === 'test')) return { cls: '', text: 'interrupted' };
   if (t === 'recording') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'recording' };
   if (t === 'clean') return { cls: 'clean', text: 'clean' };
   if (t === 'fork') return { cls: 'fork', text: `fork @${r.divergence!.callNo}` };
@@ -149,13 +173,15 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
   if (isLive(r)) return { text: `${runType(r) === 'recording' || runType(r) === 'capture' ? 'recording' : 'running'} · ${calls} so far` };
   const t = runType(r);
   if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
+  // Stopped before it ended, failing nothing else: what it is, then that, as the Forks view says it.
+  if (isInterrupted(r)) return { text: `${kindWord(r)} · interrupted · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
     return { text: `fork @${r.divergence!.callNo}${went}` };
   }
   if (t === 'capture') return { text: `capture · ${calls}` };
-  if (t === 'test') return isFailed(r) ? { err: 'test failed', text: r.divergence ? ` · diverged at #${r.divergence.callNo}` : ` · ${calls}` } : { text: 'test · offline · 0 upstream' };
-  if (isFailed(r)) return { err: r.checks && r.checks.passed < r.checks.total ? 'check failed' : 'failed', text: ` · ${calls}` };
+  if (t === 'test') return isFailed(r) ? { err: 'test failed', text: r.divergence && r.outcome?.kind !== 'check-failed' ? ` · diverged at #${r.divergence.callNo}` : ` · ${calls}` } : { text: counts && counts.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(counts.live)} live` : 'test · offline · 0 upstream' };
+  if (isFailed(r)) return { err: failedWord(r), text: ` · ${calls}` };
   return { text: `${runSource(r)} · ${calls}` };
 }
 
@@ -167,7 +193,8 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
     if (o.kind === 'running') return { tone: 'live', text: 'in progress' };
     if (o.kind === 'diverged' && typeof o.callNo === 'number') return { tone: 'err', text: `diverged at #${o.callNo}` };
     if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: `lost at #${o.callNo}` };
-    if (o.kind === 'check-failed') return { tone: 'err', text: 'check failed' };
+    // A check, or the agent's exit (an outcome that names no check), in the sidebar's words.
+    if (o.kind === 'check-failed') return { tone: 'err', text: failedWord(r) };
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: `${plural(o.checks, 'check')} passed` };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.
@@ -179,7 +206,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
     if (r.checks.passed < r.checks.total) return { tone: 'err', text: 'check failed' };
     return { tone: 'ok', text: `${plural(r.checks.total, 'check')} passed` };
   }
-  if (r.status === 'crashed') return { tone: 'err', text: 'interrupted' };
+  if (r.status === 'crashed') return { tone: 'n', text: 'interrupted' };
   if (r.status === 'failed') return { tone: 'err', text: 'failed' };
   const t = runType(r);
   if (t === 'clean' || t === 'test') return { tone: 'ok', text: 'clean' };
@@ -284,6 +311,7 @@ export function familyLine(r: RunLike): string {
   const n = o ? countOrigins(o) : null;
   const t = runType(r);
   if (r.status === 'running') return `recording · ${plural(r.calls, 'call')} so far`;
+  if (isInterrupted(r)) return `${kindWord(r)} · interrupted · ${plural(r.calls, 'call')}`;
   if (t === 'fork' && r.divergence) {
     const went = n ? `${num(n.rep)} replayed · ${num(n.live + n.fail)} live${n.block ? ` · ${num(n.block)} blocked` : ''}${n.stub ? ` · ${num(n.stub)} stubbed` : ''}` : plural(r.calls, 'call');
     return `fork @${r.divergence.callNo} · ${went} · ${approx(r.spent)}`;
@@ -292,7 +320,18 @@ export function familyLine(r: RunLike): string {
   if (t === 'test') return `test · replayed offline · ${plural(r.calls, 'call')}`;
   if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${money(r.captured)} as captured`;
   if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
-  return `recording · ${plural(r.calls, 'call')} · ${approx(r.spent)}`;
+  return `${isFailed(r) ? `${failedWord(r)} · ` : 'recording · '}${plural(r.calls, 'call')} · ${approx(r.spent)}`;
+}
+
+/** The Forks view's line, with what went wrong set apart: "check failed" in red before the rest, as the sidebar has it. */
+export function familyLineParts(r: RunLike): { err: string | null; text: string } {
+  const line = familyLine(r);
+  const t = runType(r);
+  if (t === 'recording' && isFailed(r) && !isInterrupted(r)) {
+    const word = failedWord(r);
+    if (line.startsWith(`${word} · `)) return { err: word, text: line.slice(word.length) };
+  }
+  return { err: null, text: line };
 }
 
 /** An attempt of one `replay --repeat`, as the run's family lists it. */
@@ -310,21 +349,25 @@ export interface RepeatAttempt {
  * One `replay --repeat` bundled in the Forks view, as the design words it: `replay --repeat 5`, then
  * "forked 5 attempts, 4 passed · ≈$0.141", then each attempt by its id. An attempt passed when its
  * checks did, or, without checks, when it exited cleanly (the first check of every outcome check is
- * the exit code). An attempt that left the path somewhere else than the others says where.
+ * the exit code). An attempt that left the path somewhere else than the others says where. One that
+ * was stopped before it ended (Ctrl-C, its recorder killed) neither passed nor failed: it is counted
+ * apart and marked `cut`, shown in grey as every list shows an interrupted run.
  */
-export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean }> } {
+export function repeatBundle(attempts: readonly RepeatAttempt[]): { title: string; line: string; attempts: Array<{ runId: string; text: string; ok: boolean; cut?: true }> } {
   const sorted = [...attempts].sort((a, b) => (a.repeat?.attempt ?? 0) - (b.repeat?.attempt ?? 0) || a.startedAt - b.startedAt);
   const ok = (n: RepeatAttempt) => (n.checks ? n.checks.passed === n.checks.total : n.status === 'completed');
+  const cut = (n: RepeatAttempt) => !n.checks && n.status === 'crashed';
   const forkAt = sorted[0]?.divergence?.callNo ?? null;
   const spent = sorted.reduce((s, n) => s + n.spent, 0);
   const passed = sorted.filter(ok).length;
+  const stopped = sorted.filter(cut).length;
   return {
     title: `replay --repeat ${sorted[0]?.repeat?.of ?? sorted.length}`,
-    line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${spent ? ` · ${approx(spent)}` : ''}`,
+    line: `${forkAt !== null ? 'forked ' : ''}${plural(sorted.length, 'attempt')}, ${num(passed)} passed${stopped ? `, ${num(stopped)} interrupted` : ''}${spent ? ` · ${approx(spent)}` : ''}`,
     attempts: sorted.map((n) => {
       const where = n.divergence && n.divergence.callNo !== forkAt ? ` · forked at #${n.divergence.callNo}` : '';
       const how = n.checks ? `checks ${n.checks.passed} of ${n.checks.total}` : n.status === 'completed' ? 'passed' : n.status === 'running' ? 'running' : n.status === 'crashed' ? 'interrupted' : 'failed';
-      return { runId: n.runId, text: `${shortId(n.runId)} · ${how}${where}`, ok: ok(n) };
+      return { runId: n.runId, text: `${shortId(n.runId)} · ${how}${where}`, ok: ok(n), ...(cut(n) ? { cut: true as const } : {}) };
     }),
   };
 }

@@ -660,6 +660,9 @@ describe('a run’s calls in the views', () => {
     const parent = indexCalls([{ callNo: 3, origin: 'live', latencyMs: 410 }]);
     expect(timeOf(call(3, 'tool', { origin: 'replayed', latencyMs: 1, replayedFrom: 3 }), [parent], false)).toEqual({ text: '410 ms', was: true });
     expect(timeOf(call(3, 'tool', { origin: 'replayed', latencyMs: 1 }), [], false)).toEqual({ text: '—', was: true });
+    // A clock read records no duration: blank, replayed or not.
+    expect(timeOf(call(1, 'clock', { origin: 'replayed', latencyMs: null, recordedMs: null }), [], false)).toEqual({ text: '', was: true });
+    expect(timeOf(call(1, 'clock', { latencyMs: null }), [], false)).toEqual({ text: '', was: false });
     expect(timeOf(call(5, 'api', { latencyMs: null, outcome: null }), [], true)).toEqual({ text: '…', was: false });
     expect(tokensText(call(1, 'api'))).toBe('3.0k → 80');
   });

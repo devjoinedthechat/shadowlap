@@ -66,3 +66,32 @@ export function scopeDepth(scope: string): number {
 export function scopeLeaf(scope: string): string {
   return scope.split('/').pop() ?? scope;
 }
+
+/**
+ * The scope the run page suggests blaming within, when none is picked: the top-level scope that acts
+ * (one that hands work to a scope nested in it, else the one with the most tool calls), so a model
+ * that plays the user in an eval is not what blame asks again. The first top-level scope otherwise.
+ */
+export function blameScope(calls: ReadonlyArray<ScopedCall & { kind?: string }>, chips: readonly string[]): string | null {
+  const top = chips.filter((s) => scopeDepth(s) === 0);
+  if (!top.length) return chips[0] ?? null;
+  const nests = top.filter((s) => chips.some((c) => c.startsWith(`${s}/`)));
+  const pool = nests.length ? nests : top;
+  const tools = (s: string) => calls.filter((c) => c.kind === 'tool' && inScope(c, s)).length;
+  return pool.reduce((best, s) => (tools(s) > tools(best) ? s : best), pool[0]!);
+}
+
+/**
+ * The scope bar's blame hint: the scope to blame within, and why in a few words. With a scope
+ * picked, that one. Otherwise the scope that acts (blameScope), and when the run's only other
+ * top-level scope makes no tool calls, a model that plays the user as in an eval, that it answers
+ * that one: "Blame only the agent, not the customer it answers", as the design says.
+ */
+export function scopeHint(calls: ReadonlyArray<ScopedCall & { kind?: string }>, chips: readonly string[], picked: string): { lead: string; scope: string } | null {
+  if (picked !== 'all') return { lead: 'Blame within this scope', scope: picked };
+  const scope = blameScope(calls, chips);
+  if (!scope) return null;
+  const others = chips.filter((s) => scopeDepth(s) === 0 && s !== scope);
+  const user = others.length === 1 && !calls.some((c) => c.kind === 'tool' && inScope(c, others[0]!)) ? others[0]! : null;
+  return { lead: user ? `Blame only the ${scopeLeaf(scope)}, not the ${scopeLeaf(user)} it answers` : 'Blame within one scope', scope };
+}

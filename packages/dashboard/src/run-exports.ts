@@ -10,7 +10,8 @@ import type { JobBuildResult, ProjectInfo } from './jobs.js';
  * arguments; nothing it sent becomes an argument as it is. What a job writes goes into the project
  * folder, under `.shadowlap/exports/` unless a pack names another folder there (decision 5): the
  * drawer names the file, and HTML and HAR also download. A run still recording is copied once it has
- * ended, and a file a copy would write through a link (or over a folder) is refused.
+ * ended (one its process left marked running was interrupted, and is copied as it is), and a file a
+ * copy would write through a link (or over a folder) is refused.
  */
 
 /** The job kinds this module builds, by what they make. */
@@ -32,10 +33,19 @@ type Built = JobBuildResult;
 /** Why a run can't be copied yet: it is still recording, and a copy of it would never end. */
 export const stillRecording = (run: Pick<RunRecord, 'runId'>) => `${run.runId.slice(0, 10)} is still recording: copy it once it has ended`;
 
+/**
+ * Whether a process is still recording the run, as the CLI asks before it copies one. A run its
+ * process left marked running was interrupted, as every list shows it: nothing will add to it, so it
+ * is copied as it is.
+ */
+export function recordingNow(store: Store, run: Pick<RunRecord, 'runId' | 'status'>): boolean {
+  return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
+}
+
 function runOf(store: Store, raw: unknown): { runId: string } | { error: string; status?: number } {
   const run = typeof raw === 'string' && raw ? lookupRun(store, raw) : null;
   if (!run) return { error: typeof raw === 'string' && raw ? `no run ${raw.slice(0, 40)}` : 'runId is required', status: typeof raw === 'string' && raw ? 404 : 400 };
-  if (run.status === 'running') return { error: stillRecording(run), status: 409 };
+  if (recordingNow(store, run)) return { error: stillRecording(run), status: 409 };
   return { runId: run.runId };
 }
 
@@ -238,7 +248,7 @@ export function exportDatasetJob(store: Store, project: ProjectInfo | null, req:
     if (typeof r !== 'string' || !RUN_ID.test(r)) return { error: 'a run id is not one' };
     const run = lookupRun(store, r);
     if (!run) return { error: `no run ${r}`, status: 404 };
-    if (run.status === 'running') return { error: stillRecording(run), status: 409 };
+    if (recordingNow(store, run)) return { error: stillRecording(run), status: 409 };
     if (!runIds.includes(run.runId)) runIds.push(run.runId);
   }
   const format = req.format ?? 'jsonl';

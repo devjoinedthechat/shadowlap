@@ -1,6 +1,6 @@
 /**
  * A run being recorded, on its page: where the selection goes as calls arrive, and when to say the
- * recording finished. No DOM here: the tests import it.
+ * recording finished or was interrupted. No DOM here: the tests import it.
  */
 
 export interface LiveStep {
@@ -25,7 +25,12 @@ export function followNewest(s: LiveStep): number | null {
   return s.selected === s.prevLast ? s.last : null;
 }
 
-/** Whether the recording just ended, for the toast that says so. */
-export function recordingEnded(s: Pick<LiveStep, 'wasStatus' | 'status'>): boolean {
-  return s.wasStatus === 'running' && s.status !== 'running';
+/**
+ * Whether the recording just ended, and how, for the toast that says so: `finished`, or `interrupted`
+ * when it stopped before it ended (Ctrl-C, its recorder killed), as every list then says; null while
+ * it records, and for a run that had already ended.
+ */
+export function recordingEnded(s: Pick<LiveStep, 'wasStatus' | 'status'>): 'finished' | 'interrupted' | null {
+  if (s.wasStatus !== 'running' || s.status === 'running') return null;
+  return s.status === 'crashed' ? 'interrupted' : 'finished';
 }

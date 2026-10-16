@@ -39,7 +39,10 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
     const prev = document.activeElement as HTMLElement | null;
     const first = ref.current?.querySelector<HTMLElement>(dialogFocus(tone, initialFocus));
     first?.focus();
-    if (first instanceof HTMLInputElement || first instanceof HTMLTextAreaElement) first.select();
+    // A line is selected, ready to type over; longer text to edit (a recorded result, a reply) keeps
+    // it, with the cursor at its end, as the design's dialogs do.
+    if (first instanceof HTMLInputElement) first.select();
+    else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
     return () => prev?.focus?.();
   }, []);
   return (

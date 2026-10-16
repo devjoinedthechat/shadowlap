@@ -1,7 +1,7 @@
 import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
-import { classifiable, depthOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
+import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
 
 /**
@@ -133,16 +133,66 @@ export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
  */
 export function withLiveness(store: Store, index: RunIndex): IndexedRun[] {
   if (!index.runs.some((r) => r.status === 'running')) return index.runs;
-  const left = new Set(store.recordingRuns().abandoned.map((x) => x.run.runId));
+  const left = leftRunning(store);
   if (!left.size) return index.runs;
-  return index.runs.map((r) => (left.has(r.runId) ? interrupted(index, r) : r));
+  return index.runs.map((r) => {
+    const lastAt = left.get(r.runId);
+    return lastAt === undefined ? r : interrupted(index, r, lastAt);
+  });
 }
 
-/** A run its recorder left, as an interrupted run: its outcome worked out again for that status (the kind stays). */
-function interrupted(index: RunIndex, r: IndexedRun): IndexedRun {
+/** The runs the store marks running that nothing records any more, with each one's last call (or its start). */
+function leftRunning(store: Store): Map<string, number> {
+  return new Map(store.recordingRuns().abandoned.map((x) => [x.run.runId, x.lastAt]));
+}
+
+/**
+ * A run its recorder left, as an interrupted run: ended at its last call, as gc ends it, with its
+ * outcome worked out again for that status (the kind stays).
+ */
+function interrupted(index: RunIndex, r: IndexedRun, lastAt: number): IndexedRun {
   const p = r.parentRunId ? index.byId.get(r.parentRunId) : undefined;
-  const outcome = runOutcome(classifiable({ ...r, status: 'crashed' }), { kind: r.kind, calls: r.calls, parent: p ? { calls: p.calls, status: p.status } : null, injected: r.injected, offline: r.offline });
-  return { ...r, status: 'crashed', outcome, failed: isFailedOutcome(outcome) };
+  const outcome = fixedOutcome(runOutcome(classifiable({ ...r, status: 'crashed' }), { kind: r.kind, calls: r.calls, parent: p ? { calls: p.calls, status: p.status } : null, injected: r.injected, offline: r.offline }), r.fixCheck);
+  return { ...r, status: 'crashed', endedAt: r.endedAt ?? lastAt, outcome, failed: isFailedOutcome(outcome) };
+}
+
+/**
+ * A run's state as every list shows it and its own page does: its status (`crashed` for one its
+ * recorder left running: interrupted), its kind, how it came out and whether that is a failure.
+ * Interrupted means stopped before it ended with nothing else that failed: the lists say so in a
+ * neutral tone, never as a failure.
+ */
+export interface RunState {
+  status: IndexedRun['status'];
+  /** When it ended: for one its recorder left, its last call, as gc would end it; null while it records. */
+  endedAt: number | null;
+  kind: RunKind;
+  outcome: RunOutcome;
+  failed: boolean;
+  interrupted: boolean;
+  /** The kind as the run list's line under the id says it: recording, fork @n, clean replay, … */
+  label: string;
+}
+
+/** One run's state, from the same index and liveness check the run list reads. */
+export function runState(store: Store, runId: string): RunState | null {
+  return runStates(store)(runId);
+}
+
+/**
+ * Each run's state as `runState` gives it, from one index and at most one liveness check: for a read
+ * model that tells several runs (a run's family, each run in it as the lists show it).
+ */
+export function runStates(store: Store): (runId: string) => RunState | null {
+  const index = loadRunIndex(store);
+  let left: Map<string, number> | null = null;
+  return (runId) => {
+    const found = index.byId.get(runId);
+    if (!found) return null;
+    const lastAt = found.status === 'running' ? (left ??= leftRunning(store)).get(runId) : undefined;
+    const r = lastAt === undefined ? found : interrupted(index, found, lastAt);
+    return { status: r.status, endedAt: r.endedAt, kind: r.kind, outcome: r.outcome, failed: r.failed, interrupted: r.status === 'crashed' && !r.failed, label: r.label };
+  };
 }
 
 export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean): ChipCounts {

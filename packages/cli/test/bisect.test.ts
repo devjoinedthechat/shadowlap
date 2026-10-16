@@ -1,10 +1,11 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { NO_COMMAND, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { mapArgv } from '../src/bisect.js';
 import { physicalPath } from '../src/real-path.js';
@@ -181,6 +182,21 @@ describe('shadowlap bisect', () => {
     expect(r.code).toBe(1);
     expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: `${recording.runId.slice(0, 10)} is still recording: find the commit once it has ended` } });
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
+  });
+
+  it('takes a run its recorder left as it stands, interrupted, not as one still recording', async () => {
+    const db = join(project, '.shadowlap', 'shadowlap.db');
+    const store = Store.open(db);
+    // Built from a capture, so the search stops at once, past where a run still recording is refused.
+    const left = store.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: project } });
+    store.close();
+    // Its recorder was killed: the store still names it, and it is gone.
+    const raw = new DatabaseSync(db);
+    raw.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, left.runId);
+    raw.close();
+    const r = await shadowlap(['bisect', left.runId, '--good', rev['Start the ticket agent']!, '--json']);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: expect.stringContaining('was imported from a capture and has no command to run at each commit') } });
   });
 });
 

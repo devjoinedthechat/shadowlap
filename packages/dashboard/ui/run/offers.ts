@@ -116,16 +116,25 @@ export interface BisectCopy {
 }
 
 /**
+ * What the server may add to Find the commit's choices: each commit's subject, from the project's git
+ * (`c91d0f4 · Escalate refunds above the limit`), and the check each replay is judged by, for a run
+ * blame found failing one though it exited 0 (`--expect`).
+ */
+type BisectFrom = Omit<BisectOffer, 'revisions'> & { revisions: ReadonlyArray<BisectOffer['revisions'][number] & { subject?: string | null }>; expect?: Record<string, unknown> | null };
+
+/**
  * Find the commit's dialog, from what the server offers: a run that failed looks for where it
  * started failing, from a commit where it still worked up to its own; one that passed, for the first
  * commit after its own that changes what it does. Replays are free unless they run live past where
- * they differ.
+ * they differ. Each commit is named by its subject when the server knows it, as the design does.
  */
-export function bisectCopy(runId: string, b: BisectOffer): BisectCopy {
+export function bisectCopy(runId: string, offer: BisectOffer): BisectCopy {
+  const b = offer as BisectFrom;
   const target = b.target.kind === 'golden' ? b.target.golden : shortId(b.target.runId);
   const upTo = b.bad ?? 'HEAD';
   const cost = b.live ? 'Each replay runs live from where its requests differ, so this costs tokens.' : 'Replays are free, so this costs no tokens.';
-  const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}` }));
+  const choices = b.revisions.map((r) => ({ value: r.rev, label: `${r.rev} · ${r.subject ? r.subject : `${r.runs === 1 ? '1 run' : `${num(r.runs)} runs`}${r.failed ? `, ${num(r.failed)} failed` : ''}`}` }));
+  const expect = b.expect && Object.keys(b.expect).length ? ` --expect ${quote(JSON.stringify(b.expect))}` : '';
   if (b.good && !choices.some((c) => c.value === b.good)) choices.unshift({ value: b.good, label: b.failed ? `${b.good} · where it last passed` : `${b.good} · this run` });
   return {
     title: `${bisectLabel(b).label.replace(/ it$/, '')} ${shortId(runId)}`,
@@ -135,7 +144,7 @@ export function bisectCopy(runId: string, b: BisectOffer): BisectCopy {
     label: b.failed ? 'A commit where it still worked' : 'Start from',
     choices,
     initial: b.good ?? choices[0]?.value ?? '',
-    command: (good) => `shadowlap bisect ${target} --good ${!good || good === '…' ? '…' : quote(good)}${b.bad ? ` --bad ${b.bad}` : ''}${b.fork ? ' --fork' : ''}`,
+    command: (good) => `shadowlap bisect ${target} --good ${!good || good === '…' ? '…' : quote(good)}${b.bad ? ` --bad ${b.bad}` : ''}${expect}${b.fork ? ' --fork' : ''}`,
   };
 }
 

@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
@@ -282,7 +282,7 @@ function recordingEnd(store: Store, run: RunRecord): ActivityItem {
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
   if (run.status === 'failed') return { ...item, kind: 'fail', text: `Recording failed · ${calls} · ${command(run)}` };
   if (checks?.failed) return { ...item, kind: 'fail', text: `Recorded ${calls} · check failed: ${checks.failed}` };
-  if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording stopped · ${calls} · ${command(run)}` };
+  if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording interrupted · ${calls} · ${command(run)}` };
   return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
 }
 
@@ -313,6 +313,7 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
     const parts = [`Replay diverged at #${d.callNo} · ${drifted}`];
     if (outcome) parts.push(outcome);
     else if (run.status === 'failed') parts.push('the agent failed');
+    else if (run.status === 'crashed') parts.push('interrupted');
     return { ...item, kind: 'fail', text: parts.join(' · ') };
   }
   if (d) {
@@ -322,6 +323,8 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
     if (s.byOrigin.stubbed) parts.push(`${s.byOrigin.stubbed} stubbed`);
     if (outcome) parts.push(outcome);
     else if (run.status === 'failed') parts.push('the agent failed');
+    // Stopped before it ended (Ctrl-C, a kill), as every list says it.
+    else if (run.status === 'crashed') parts.push('interrupted');
     return { ...item, kind: checks?.failed ? 'fail' : 'fork', text: parts.join(' · ') };
   }
   if (run.status === 'completed' && s.total > 0) {
@@ -332,7 +335,7 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
   // A replay that made no calls at all (nothing went through Shadowlap) is not clean, and not a failure either.
   // "Clean replay" is what its icon says: a replay that made no calls, or was stopped, gets the plain one.
   if (run.status === 'completed') return { ...item, kind: checks?.failed ? 'fail' : 'rec', text: `Replay finished · no calls${outcome ? ` · ${outcome}` : ''}` };
-  const what = run.status === 'crashed' ? 'Replay stopped' : 'Replay failed';
+  const what = run.status === 'crashed' ? 'Replay interrupted' : 'Replay failed';
   return { ...item, kind: run.status === 'crashed' ? 'rec' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
 }
 
@@ -428,8 +431,13 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
   for (const a of attempts) if (a.divergence) forks.set(a.divergence.callNo, (forks.get(a.divergence.callNo) ?? 0) + 1);
   const forkAt = [...forks.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0]?.[0] ?? null;
   let outcome: string;
-  const done = attempts.filter((a) => a.status !== 'running');
-  if (done.length && done.every((a) => a.meta?.checks?.length)) {
+  // An attempt stopped before it ended (Ctrl-C, its recorder killed) neither passed nor took a path of
+  // its own: it is counted apart, as the Forks view's bundle counts it.
+  const cut = attempts.filter((a) => a.status === 'crashed' && !a.meta?.checks?.length);
+  const done = attempts.filter((a) => a.status !== 'running' && !cut.includes(a));
+  if (!done.length && cut.length) {
+    outcome = `${plural(cut.length, 'attempt')} interrupted`;
+  } else if (done.length && done.every((a) => a.meta?.checks?.length)) {
     const passed = done.filter((a) => a.meta!.checks!.every((c) => c.ok)).length;
     outcome = `${passed} of ${done.length} passed their checks`;
   } else if (forkAt === null) {
@@ -445,6 +453,7 @@ function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undef
     const same = Math.max(0, ...paths.values());
     outcome = `${same} of ${done.length} took the same path`;
   }
+  if (done.length && cut.length) outcome += ` · ${cut.length} interrupted`;
   const parentId = parent?.runId ?? first.parentRunId ?? first.runId;
   return {
     id: `g:${first.meta?.repeat?.group ?? first.runId}`,
@@ -569,13 +578,19 @@ const stubCache = new WeakMap<Store, { key: string; stubs: Stub[] }>();
  */
 function derivedStubs(store: Store): Stub[] {
   const counts = store.changeCounts();
-  const key = `${counts.runs ?? 0}:${counts.events ?? 0}`;
+  // A run its recorder left (killed, out of memory) reads interrupted, as every list shows it, and
+  // ended at its last call: no longer recording. A recorder can stop with nothing in the store
+  // changing, so the runs it left are part of what the entries are worked out for.
+  const all = cachedRuns(store).runs;
+  const runs = asTheyStand(store, all);
+  const left = runs.filter((r, i) => r !== all[i]).map((r) => r.runId);
+  const key = `${counts.runs ?? 0}:${counts.events ?? 0}:${left.join(',')}`;
   const hit = stubCache.get(store);
   if (hit && hit.key === key) return hit.stubs;
   // The newest 10,000 of the events that stand in for what runs tell; older ones are left out of the feed.
   const telling = store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 });
   const imports = telling.filter((e) => GROUPED_KINDS.includes(e.kind));
-  const stubs = [...derived(store, cachedRuns(store).runs, coveredBy(telling)), ...importStubs(imports)].sort(order);
+  const stubs = [...derived(store, runs, coveredBy(telling)), ...importStubs(imports)].sort(order);
   stubCache.set(store, { key, stubs });
   return stubs;
 }

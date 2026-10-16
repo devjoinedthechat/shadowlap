@@ -1,10 +1,12 @@
-import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { captureSource } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
+// How a run stands, as the run list works it out: a run's page and its family read the same state.
+import { runState, runStates, type RunState } from './runs-list.js';
 
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
 
@@ -97,6 +99,13 @@ export interface RunDetail extends RunPageFacts {
   actions: ActionItem[];
   /** The fix the run takes part in, and how (Fixes' fixForRun): the banner's fix, blame and Run blame. */
   fix: FixForRun | null;
+  /**
+   * How the run stands, worked out as the run list works it out (runs-list.ts `runState`), so its
+   * page says what Runs, the sidebar and the Overview say: its kind, its outcome, whether it failed,
+   * and whether it was interrupted. `run.status` is that state's: a run its recorder left `running`
+   * reads `crashed`, ended at its last call (`run.endedAt`), as gc would end it.
+   */
+  state: RunState | null;
 }
 
 export interface CallDetail {
@@ -206,11 +215,15 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   if (!run) return null;
   const runId = run.runId;
   const calls = store.getCalls(runId);
-  const summary = summarizeRun(run, calls, [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
+  const state = runState(store, runId);
+  // Interrupted as the lists have it: a run its recorder left running is not recording any more,
+  // and ended at its last call, as gc would end it.
+  const shown = state && state.status !== run.status ? { ...run, status: state.status, endedAt: run.endedAt ?? state.endedAt } : run;
+  const summary = summarizeRun(shown, calls, [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   const analysis = analyseRun(store, run, calls);
   return {
-    run,
+    run: shown,
     label: runLabel(run, kindFacts(store, run, calls.length)),
     source: captureSource(run),
     summary,
@@ -220,6 +233,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),
+    state,
   };
 }
 
@@ -383,6 +397,7 @@ export interface LineageNode {
   parentRunId: string | null;
   depth: number;
   mode: RunRecord['mode'];
+  /** As the lists have it (runs-list.ts `runState`): a run its recorder left running reads `crashed`. */
   status: RunRecord['status'];
   label: string;
   divergence: { callNo: number; type: string } | null;
@@ -392,9 +407,17 @@ export interface LineageNode {
   startedAt: number;
   repeat: { group: string; attempt: number; of: number } | null;
   checks: { passed: number; total: number } | null;
+  /** How the run stands as the run list says it: its kind, how it came out, and whether that failed. */
+  kind?: RunKind;
+  outcome?: RunOutcome;
+  failed?: boolean;
 }
 
-/** Every run in the family of a run: its root recording and all that descends from it, depth first, oldest first. */
+/**
+ * Every run in the family of a run: its root recording and all that descends from it, depth first,
+ * oldest first, each standing as the run list says (an attempt or fork its recorder left is
+ * interrupted here as there).
+ */
 export function lineage(store: Store, idOrPrefix: string, options: ReadOptions = {}): LineageNode[] | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
@@ -407,17 +430,20 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
     root = parent;
   }
   const modelOf = modelResolver(store);
+  const stateOf = runStates(store);
   const out: LineageNode[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
     const calls = store.getCalls(r.runId);
     const s = summarizeRun(r, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
+    const state = stateOf(r.runId);
     out.push({
       runId: r.runId,
       parentRunId: r.parentRunId,
       depth,
       mode: r.mode,
-      status: r.status,
+      status: state?.status ?? r.status,
+      ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
       label: runLabel(r, kindFacts(store, r, calls.length)),
       divergence: r.divergence ? { callNo: r.divergence.callNo, type: r.divergence.type } : null,
       calls: calls.length,

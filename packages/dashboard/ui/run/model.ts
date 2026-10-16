@@ -1,5 +1,5 @@
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
-import type { BlameView, CallRow, CheckView, RunDetail } from '../types.js';
+import type { BlameView, CallRow, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
 import type { RunLike } from '../runs.js';
 import { modelCallOf, originOf } from './calls.js';
 
@@ -8,9 +8,14 @@ import { modelCallOf, originOf } from './calls.js';
  * line in the views. No DOM here.
  */
 
-/** A run's detail as the lists see a run, so the same words and icons apply. */
+/**
+ * A run's detail as the lists see a run, so the same words and icons apply: with the server's state
+ * (its kind, outcome and whether it failed, worked out as the run list works it out), the page reads
+ * an interrupted run, a test that forked and passed, or a fix's failing run as Runs does.
+ */
 export function runLikeOf(d: RunDetail): RunLike {
   const meta = d.run.meta;
+  const state = d.state ?? null;
   const checks = meta?.checks?.length ? { passed: meta.checks.filter((c) => c.ok).length, total: meta.checks.length } : null;
   return {
     runId: d.run.runId,
@@ -32,6 +37,41 @@ export function runLikeOf(d: RunDetail): RunLike {
     test: meta?.test ?? null,
     blame: blameOf(d),
     checks,
+    ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
+  };
+}
+
+/**
+ * A run of a family (the Forks view, Provenance's lineage) as the lists see it: with its state as the
+ * server's lineage gives it, the run list's own (its kind, outcome and whether it failed, an
+ * interrupted run's status), for an attempt the lists leave out too; from an older server that sends
+ * none, the run list's when the run is listed. So its icon and line say what Runs and the sidebar
+ * say; never another run's.
+ */
+export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined): RunLike {
+  // The lineage's own state when it has one; else the list's.
+  const s = n.outcome !== undefined ? { status: n.status, kind: n.kind ?? null, outcome: n.outcome, failed: n.failed } : listed ? { status: listed.status, kind: listed.kind ?? null, outcome: listed.outcome ?? null, failed: listed.failed } : null;
+  return {
+    runId: n.runId,
+    parentRunId: n.parentRunId,
+    mode: n.mode,
+    status: s?.status ?? n.status,
+    divergence: n.divergence,
+    command: listed?.command ?? '',
+    codeVersion: listed?.codeVersion ?? null,
+    startedAt: n.startedAt,
+    calls: n.calls,
+    spent: n.spent,
+    saved: n.saved,
+    captured: listed?.captured ?? 0,
+    imported: listed?.imported ?? false,
+    covers: listed?.covers ?? null,
+    source: listed?.source ?? null,
+    labels: listed?.labels ?? [],
+    origins: n.origins ?? listed?.origins ?? null,
+    test: listed?.test ?? null,
+    checks: n.checks,
+    ...(s ? { kind: s.kind, outcome: s.outcome, ...(typeof s.failed === 'boolean' ? { failed: s.failed } : {}) } : {}),
   };
 }
 

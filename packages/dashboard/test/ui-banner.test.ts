@@ -97,14 +97,14 @@ describe('the run’s banner', () => {
     expect(bannerFor({ ...base, checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called 0 times, but called 1 time · not blamed yet' });
     expect(failedCheckText({ label: 'at most 12 model calls' })).toBe('check failed: at most 12 model calls');
     // The line under the run's id says what the run did, as the design does; the banner, what was expected too.
-    expect(failedCheckShort({ label: 'send_email called 0 times', detail: 'called 1 time' })).toBe('check failed: send_email called 1 time');
-    expect(failedCheckShort({ label: 'issue_refund with {"amount":80} called 0 times', detail: 'called 2 times (1 blocked or stubbed); 1 call with other arguments' })).toBe('check failed: issue_refund with {"amount":80} called 2 times (1 blocked or stubbed)');
+    expect(failedCheckShort({ label: 'send_email called 0 times', detail: 'called 1 time' })).toBe('check failed: send_email called 1×');
+    expect(failedCheckShort({ label: 'issue_refund with {"amount":80} called 0 times', detail: 'called 2 times (1 blocked or stubbed); 1 call with other arguments' })).toBe('check failed: issue_refund with {"amount":80} called 2× (1 blocked or stubbed)');
     expect(failedCheckShort({ label: 'at most 12 model calls', detail: '13 model calls' })).toBe('check failed: at most 12 model calls, but 13 model calls');
-    expect(failureText({ status: 'completed', checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }], blame: null }, true)).toBe('check failed: send_email called 1 time');
+    expect(failureText({ status: 'completed', checks: [{ label: 'send_email called 0 times', ok: false, detail: 'called 1 time' }], blame: null }, true)).toBe('check failed: send_email called 1×');
     // A run with no checks of its own, failed by its fix's check: what it did, counted from its calls.
     const calls = [{ kind: 'api', name: 'POST /v1/messages' }, { kind: 'tool', name: 'send_email' }, { kind: 'tool', name: 'send_email' }];
-    expect(fixCheckShort('send_email never called', calls)).toBe('check failed: send_email called 2 times');
-    expect(fixCheckShort('send_email called at least 1 time', [])).toBe('check failed: send_email called 0 times');
+    expect(fixCheckShort('send_email never called', calls)).toBe('check failed: send_email called 2×');
+    expect(fixCheckShort('send_email called at least 1 time', [])).toBe('check failed: send_email called 0×');
     expect(fixCheckShort('the agent exits 0', calls)).toBe('check failed: “the agent exits 0”');
     expect(failureText({ status: 'crashed', checks: [], blame: null })).toBe('the run was interrupted');
     // A run that made no model call has nothing for blame to ask again.
@@ -156,6 +156,64 @@ describe('the run’s banner', () => {
   it('shows nothing for a run with nothing to say', () => {
     expect(bannerFor(base)).toBeNull();
     expect(bannerFor({ ...base, type: 'clean', checks: [{ label: 'exits 0', ok: true }], status: 'crashed' })).toMatchObject({ kind: 'failed' });
+  });
+});
+
+describe('the run’s banner, from the state the run list shares', () => {
+  const base: BannerInput = { status: 'completed', type: 'recording', divergence: null, intervention: null, rescued: null, blame: null, notRecorded: null, checks: [], fix: null, upstreamRequests: 15 };
+
+  it('says an interrupted run stopped, in a banner of its own, not that it failed', () => {
+    const cut = { ...base, status: 'crashed', outcome: { kind: 'none' }, interrupted: true, failed: false, modelCalls: 3, callCount: 8 };
+    expect(bannerFor(cut)).toEqual({ kind: 'interrupted', why: 'stopped before it ended: Ctrl-C, a kill or a crash · the 8 calls it made are kept' });
+    expect(bannerFor({ ...cut, callCount: 1 })).toMatchObject({ why: 'stopped before it ended: Ctrl-C, a kill or a crash · the call it made is kept' });
+    expect(bannerFor({ ...cut, callCount: 0 })).toMatchObject({ why: 'stopped before it ended: Ctrl-C, a kill or a crash · no call made yet' });
+    // One that failed a check before it stopped failed: that comes first.
+    expect(bannerFor({ ...cut, interrupted: false, failed: true, outcome: { kind: 'check-failed', check: 'send_email called once' }, checks: [{ label: 'send_email called once', ok: false }] })).toMatchObject({ kind: 'failed', why: 'check failed: send_email called once · not blamed yet' });
+  });
+
+  it('shows no failure the server does not count, such as an agent that exited 1 on an answer --fail-at injected', () => {
+    expect(bannerFor({ ...base, status: 'failed', outcome: { kind: 'none' }, failed: false })).toBeNull();
+  });
+
+  it('judges a test of a golden that may fork by its checks, saying where it forked', () => {
+    const forked = { ...base, type: 'test' as const, divergence: { callNo: 3, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata' }] }, upstreamRequests: 14 };
+    expect(bannerFor({ ...forked, outcome: { kind: 'passed' }, failed: false, checks: [{ label: 'at most 29000 input tokens', ok: true, count: 1, of: 1 }] })).toEqual({
+      kind: 'checks',
+      checks: [{ label: 'at most 29000 input tokens', text: 'at most 29000 input tokens · 1 of 1' }],
+      why: 'forked at #3, as its golden may · 14 upstream',
+    });
+    expect(bannerFor({ ...forked, outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true, modelCalls: 14, checks: [{ label: 'at most 29000 input tokens', ok: false, detail: '38337 input tokens' }] })).toMatchObject({
+      kind: 'failed',
+      why: 'check failed: at most 29000 input tokens, but 38337 input tokens · not blamed yet',
+    });
+    // Held to its recording, where it diverged is what it failed on.
+    expect(bannerFor({ ...forked, outcome: { kind: 'diverged' }, failed: true })).toMatchObject({ kind: 'diverged', callNo: 3 });
+  });
+
+  it('says a run a fix lists as failing failed that fix’s check, with how the fix stands', () => {
+    const calls = [{ kind: 'tool', name: 'issue_refund', detail: '{"order_id":"A-1077","amount":240}' }, { kind: 'tool', name: 'send_email', detail: '{"to":"c@example.com"}' }];
+    const fix = { id: 'fx-1', status: 'verified', title: 'Refunds above the limit issued without approval' };
+    expect(bannerFor({ ...base, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true, fix, calls })).toEqual({
+      kind: 'failed',
+      why: 'check failed: issue_refund called 1× with {"amount":240} · fixed: “Refunds above the limit issued without approval”, verified',
+      fix,
+      blamed: false,
+    });
+    expect(fixCheckShort('issue_refund never called with {"amount":80}', calls)).toBe('check failed: issue_refund called 0× with {"amount":80}');
+    // The line under the run's id leaves the arguments to the banner when every call of the tool had them.
+    expect(fixCheckShort('issue_refund never called with {"amount":240}', calls, true)).toBe('check failed: issue_refund called 1×');
+    expect(failureText({ status: 'completed', checks: [], blame: null, outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, calls }, true)).toBe('check failed: issue_refund called 1×');
+    const twice = [...calls, { kind: 'tool', name: 'issue_refund', detail: '{"order_id":"A-1078","amount":80}' }];
+    expect(fixCheckShort('issue_refund never called with {"amount":240}', twice, true)).toBe('check failed: issue_refund called 1× with {"amount":240}');
+    // Arguments cut short in the row can't be read: the check is named as it is.
+    expect(fixCheckShort('issue_refund never called with {"amount":240}', [{ kind: 'tool', name: 'issue_refund', detail: '{"order_id":"A-1…' }])).toBe('check failed: “issue_refund never called with {"amount":240}”');
+  });
+
+  it('names the tool a flag acted on only when the banner has not named it already', () => {
+    const at = (name: string) => ({ ...base, type: 'fork' as const, divergence: { callNo: 16, type: 'forced', name, replayedBefore: 15 } });
+    expect(bannerFor({ ...at('lookup_policy'), intervention: { flag: '--live-tool', value: 'lookup_policy', callNo: null } })).toMatchObject({ why: 'forced live with --live-tool lookup_policy · 15 calls replayed before it' });
+    expect(bannerFor({ ...at('get_ticket'), intervention: { flag: '--fail-at', value: '16=timeout', callNo: 16 }, flagCall: { kind: 'tool', name: 'get_ticket', attempts: 0 } })).toMatchObject({ why: 'answered with a timeout by --fail-at 16=timeout · the tool didn’t run · 15 calls replayed before it' });
+    expect(flagWhy({ flag: '--live-tool', value: 'search_web', callNo: null }, null, 'POST /v1/messages')).toBe('search_web forced live with --live-tool search_web');
   });
 });
 

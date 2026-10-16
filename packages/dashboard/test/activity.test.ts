@@ -113,7 +113,7 @@ describe('the activity feed', () => {
     expect(byId(items, `r:${ids.override}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #3 with --override 2 · 1 live' });
     expect(byId(items, `r:${ids.replayFailed}:end`)).toMatchObject({ kind: 'fail', text: 'Replay failed · 3/3 replayed' });
     // Only a clean replay gets the icon the mock calls "Clean replay".
-    expect(byId(items, `r:${ids.replayStopped}:end`)).toMatchObject({ kind: 'rec', text: 'Replay stopped · 3/3 replayed' });
+    expect(byId(items, `r:${ids.replayStopped}:end`)).toMatchObject({ kind: 'rec', text: 'Replay interrupted · 3/3 replayed' });
     expect(byId(items, `r:${ids.replayEmpty}:end`)).toMatchObject({ kind: 'rec', text: 'Replay finished · no calls' });
   });
 

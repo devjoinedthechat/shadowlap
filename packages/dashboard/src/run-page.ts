@@ -1,20 +1,17 @@
 import {
-  applyNormalizers,
   cacheMisses,
   canonicalModel,
   Lru,
-  compilePattern,
   conversationRequestFor,
   hasRecordedCommand,
-  loadApiRequest,
-  normalizerApplies,
+  previewRedaction,
   recordedDurations,
+  responseInfo,
   runConversations,
   runInterventions,
   runStamp,
   shortModel,
   showJson,
-  structuralDiff,
   summarizeRun,
   toolResultLine,
   type CacheMiss,
@@ -56,9 +53,14 @@ export interface CallFacts {
   cacheMiss: { sentAgain: number; previousCallNo: number } | null;
   /** A replayed call: how long the recording it came from waited for it (this run waited for none of it). */
   recordedMs: number | null;
+  /**
+   * A model call: the tools its answer asked for, in order, as the response names them, whether or
+   * not they ran here (a capture records none of them); null for other calls.
+   */
+  asks: string[] | null;
 }
 
-export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null });
+export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null });
 
 export interface RunAnalysis {
   conversations: RunConversations;
@@ -81,6 +83,9 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
   const cache = cacheMisses(calls, conversations);
   const recorded = run.mode === 'replay' ? recordedDurations(store, run, calls) : new Map<number, number>();
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
+  // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
+  const asks = new Map<number, string[]>();
+  for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, responseInfo(store, c).tools.map((t) => t.name));
   const analysis: RunAnalysis = {
     conversations,
     cache,
@@ -95,6 +100,7 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
         toolUseId: c?.toolUseId ?? null,
         cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
         recordedMs: recorded.get(callNo) ?? null,
+        asks: asks.get(callNo) ?? null,
       };
     },
   };
@@ -362,14 +368,18 @@ export interface RunProvenance {
   origins: Record<string, number>;
   /** The run and the runs it came from, the recording first. */
   lineage: Array<{ runId: string; parentRunId: string | null; mode: RunRecord['mode']; label: string; codeVersion: string | null; startedAt: number }>;
-  /** What a copy made now (pack, export html, dataset, pairs) would mask: the rules that apply and the values they hit; null values when not counted. */
-  mask: { rules: number; values: number | null };
+  /**
+   * What a copy made now (pack, export html, dataset, pairs) would mask: the rules that apply and the
+   * values they hit; null values when not counted, with why when it says, and `busy` when it is yet to
+   * be counted (the preview threads were busy): asked again, it is.
+   */
+  mask: { rules: number; values: number | null; why?: string; busy?: true };
   labels: string[];
   notes: RunNote[];
 }
 
-/** Counts what a set of redaction rules would mask in one run; the settings page's preview can stand in for it. */
-export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null } | null;
+/** Counts what a set of redaction rules would mask in one run: the dashboard passes the Redaction tab's preview (run-mask.ts). */
+export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; why?: string; busy?: true } | null;
 
 export interface ProvenanceOptions {
   prices?: Record<string, Price>;
@@ -388,34 +398,23 @@ function tally(values: Array<string | null | undefined>): Array<[string, number]
 }
 
 /**
- * Values a set of rules would rewrite in a run: each string a rule changes in a stored request
- * (tool arguments and model requests alike), and each match of a pathless pattern in a response.
+ * What a set of rules would mask in a run, as the Redaction tab's preview and `shadowlap redact
+ * preview` count it: each value a rule changes in what a pack copies (requests, responses, errors),
+ * once however many later requests of a conversation send it again. Read here, with no limit: the
+ * dashboard counts apart from its own thread instead (run-mask.ts). Throws for a run still recording.
  */
 export function countMasked(store: Store, runId: string, rules: Normalizer[]): number {
-  if (!rules.length) return 0;
-  let values = 0;
-  for (const c of store.getCalls(runId)) {
-    const applicable = rules.filter((r) => normalizerApplies(r, c.kind, c.name));
-    if (!applicable.length) continue;
-    try {
-      if (c.requestRef) {
-        const body = c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef);
-        for (const rule of applicable) values += structuralDiff(body, applyNormalizers(body, [rule], c.kind, c.name)).length;
-      }
-      const bytes = c.end?.responseRef ? store.getBlob(c.end.responseRef) : null;
-      const text = bytes?.toString('utf8');
-      if (text) {
-        for (const rule of applicable) {
-          if (rule.path !== undefined || rule.pattern === undefined) continue;
-          const re = compilePattern(rule.pattern);
-          values += [...text.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`))].length;
-        }
-      }
-    } catch {
-      // a call that can't be read masks nothing here
-    }
+  return rules.length ? previewRedaction(store, runId, rules).total : 0;
+}
+
+/** The count here, or null when there is none (a run still recording, a rule that can't be read). */
+function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: number; values: number | null } {
+  if (!rules.length) return { rules: 0, values: 0 };
+  try {
+    return { rules: rules.length, values: countMasked(store, runId, rules) };
+  } catch {
+    return { rules: rules.length, values: null };
   }
-  return values;
 }
 
 export function runProvenance(store: Store, run: RunRecord, options: ProvenanceOptions = {}): RunProvenance {
@@ -430,7 +429,7 @@ export function runProvenance(store: Store, run: RunRecord, options: ProvenanceO
     lineage.unshift({ runId: r.runId, parentRunId: r.parentRunId, mode: r.mode, label: runLabel(r, r === run ? calls.length : store.countCalls(r.runId)), codeVersion: r.codeVersion, startedAt: r.startedAt });
   }
   const rules = options.redact ?? [];
-  const mask = options.maskCount?.(store, run.runId) ?? { rules: rules.length, values: rules.length ? countMasked(store, run.runId, rules) : 0 };
+  const mask = options.maskCount?.(store, run.runId) ?? maskHere(store, run.runId, rules);
   return {
     runId: run.runId,
     label: runLabel(run, calls.length),

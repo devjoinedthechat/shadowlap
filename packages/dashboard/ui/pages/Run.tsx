@@ -140,7 +140,8 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
     const step = { wasStatus: prevStatus.current, status: run.run.status, prevLast: prevLast.current, last, selected };
     const next = followNewest(step);
     if (next !== null) navigate(href.run(runId, next, view), true);
-    if (recordingEnded(step)) toast(`Recording finished · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
+    const ended = recordingEnded(step);
+    if (ended) toast(`Recording ${ended} · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
     prevLast.current = last;
     prevStatus.current = run.run.status;
   }, [last, selected, runId, view, run.run.status, calls.length, toast]);
@@ -166,6 +167,13 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   };
   const [showDiff, setShowDiff] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
+  // `/` filters the calls: from another view it opens Calls first, and the field takes focus once it is there.
+  const [filterWanted, setFilterWanted] = useState(false);
+  useEffect(() => {
+    if (!filterWanted || (view ?? 'calls') !== 'calls') return;
+    filterRef.current?.focus();
+    setFilterWanted(false);
+  }, [filterWanted, view]);
   const forkMenu = useMenu();
   // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find the commit.
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
@@ -208,7 +216,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   );
 
   // The run's keys, while this page is open.
-  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, parentId: run.run.parentRunId, canFork, setView, filterRef });
+  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted });
   useEffect(() => {
     runKeys.current = (e) => {
       const k = keyState.current;
@@ -225,7 +233,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
       }
       if (e.key === '/') {
         if (k.v !== 'calls') k.setView('calls');
-        setTimeout(() => k.filterRef.current?.focus());
+        k.setFilterWanted(true);
         return true;
       }
       return false;

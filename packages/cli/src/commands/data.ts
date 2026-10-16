@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { DATASET_FORMATS, datasetRows, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
+import { asTheyStand, DATASET_FORMATS, datasetRows, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent } from '../job-events.js';
@@ -152,8 +152,10 @@ export function register(program: Command): void {
         throw err;
       }
       const calls = store.getCalls(run.runId);
+      // A run its recorder left is traced as interrupted, as every screen shows it, never as running.
+      const traced = asTheyStand(store, [run])[0]!;
       store.close();
-      const payload = runToOtlp(run, calls, { serviceName: flags.service, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), redact });
+      const payload = runToOtlp(traced, calls, { serviceName: flags.service, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), redact });
       // A file asked for is where the trace goes: it leaves the machine only for an endpoint named with it.
       const endpoint = flags.endpoint ?? (flags.out ? undefined : process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
       const spans = calls.length + 1;

@@ -37,6 +37,11 @@ export interface IndexedRun {
   rescues: string | null;
   outcome: RunOutcome;
   failed: boolean;
+  /**
+   * The check of the fix that lists the run among its failing runs (verify's target, a blamed run),
+   * in words: a run that kept no outcome of its own failed that check (`fixedOutcome`).
+   */
+  fixCheck: string | null;
   /** The kind as the run list's line under the id says it: recording, capture, fork @n, clean replay, replay, test. */
   label: string;
   /** For a run with no command (built from a capture): the file it came from. */
@@ -87,7 +92,10 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        CASE WHEN r.divergence IS NOT NULL AND r.meta -> '$.test' IS NOT NULL THEN EXISTS (
          SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error'
            AND (x.meta ->> '$.offline' = 1 OR x.meta ->> '$.error.name' = 'ShadowlapOffline')
-       ) ELSE 0 END AS offline
+       ) ELSE 0 END AS offline,
+       (SELECT f.check_text FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id
+         WHERE l.ref = r.run_id AND l.kind = 'failing'
+         ORDER BY f.status = 'applied', f.opened_at DESC LIMIT 1) AS fix_check
 FROM runs r
 ORDER BY r.started_at DESC, r.run_id DESC`;
 
@@ -137,6 +145,16 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
 /** What a run with no command came from, shown where its command would be: the capture's file name. */
 export function captureSource(run: { command: { argv: readonly string[] }; meta?: { imported?: { from: string } | null } }): string | null {
   return hasRecordedCommand(run) ? null : basename(run.meta?.imported?.from ?? '') || 'a capture';
+}
+
+/**
+ * How a run came out (the engine's `runOutcome`), with what Fixes knows on top: a run a fix lists
+ * among its failing runs (verify was told it fails, or blame reproduced it) that kept no outcome of
+ * its own failed that fix's check. The Runs table, the Overview, the calendar and the run's own page
+ * all read this, so a run says the same everywhere.
+ */
+export function fixedOutcome(outcome: RunOutcome, fixCheck: string | null): RunOutcome {
+  return outcome.kind === 'none' && fixCheck ? { kind: 'check-failed', check: fixCheck } : outcome;
 }
 
 /** The shape classification reads, from an indexed run. */
@@ -215,6 +233,7 @@ function readRunIndex(store: Store): RunIndex {
       meta: readMeta(row),
       injected: Number(row.injected) === 1,
       offline: Number(row.offline) === 1,
+      fixCheck: str(row.fix_check),
     };
   });
   const baseById = new Map(base.map((r) => [r.runId, r]));
@@ -228,7 +247,7 @@ function readRunIndex(store: Store): RunIndex {
     const parent = p ? { calls: p.calls, status: p.status } : null;
     const rescues = r.meta.probe ? (rescued.get(r.runId) ?? null) : null;
     const cls = classifyRun(c, { calls: r.calls, parent, rescued: rescues !== null });
-    const outcome = runOutcome(c, { kind: cls.kind, calls: r.calls, parent, injected: r.injected, offline: r.offline });
+    const outcome = fixedOutcome(runOutcome(c, { kind: cls.kind, calls: r.calls, parent, injected: r.injected, offline: r.offline }), r.fixCheck);
     return {
       ...r,
       kind: cls.kind,

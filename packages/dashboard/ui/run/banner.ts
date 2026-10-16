@@ -4,8 +4,10 @@ import type { RunType } from '../runs.js';
 /**
  * The run page's one banner: which it is, and what it says. A run shows at most one, in this order:
  * recording now; a fork blame rescued; a test that diverged; a fork (the flag that made it, or what
- * changed); where blame found the run lost; what was not recorded; the checks it passed; or that it
- * failed (with its fix, or Run blame). No DOM here: the tests import it, and `parts.tsx` draws it.
+ * changed); where blame found the run lost; what was not recorded; the checks it passed; that it was
+ * interrupted (neutral, as every list says it); or that it failed (with its fix, or Run blame). How
+ * the run came out is the server's state, the one Runs and the Overview read. No DOM here: the tests
+ * import it, and `parts.tsx` draws it.
  */
 
 /** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
@@ -44,6 +46,20 @@ export interface BannerInput {
   volatile?: { looks: string } | null;
   /** How many model calls the run made: one that made none has no answer of the model's to blame. */
   modelCalls?: number;
+  /**
+   * How the run came out, as the server says it for the run list too (`state.outcome`): a test whose
+   * golden may fork is judged by its checks, not where it forked; a run a fix lists as failing failed
+   * that fix's check. Absent from an older server: the banner works it out from the run.
+   */
+  outcome?: { kind: string; check?: string | null } | null;
+  /** Stopped before it ended, failing nothing else (`state.interrupted`). */
+  interrupted?: boolean;
+  /** Whether the server counts the run as failed (`state.failed`): when it says not, no failure banner. */
+  failed?: boolean;
+  /** The run's calls, to say a fix's check as what the run did (`send_email called 2 times`). */
+  calls?: ReadonlyArray<{ kind: string; name: string; detail?: string }>;
+  /** How many calls it made, for the interrupted banner. */
+  callCount?: number;
 }
 
 export type Banner =
@@ -54,6 +70,7 @@ export type Banner =
   | { kind: 'lost'; callNo: number; why: string; rescuedRunId: string | null }
   | { kind: 'not-recorded'; why: string }
   | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string }>; why: string | null }
+  | { kind: 'interrupted'; why: string }
   | { kind: 'failed'; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean };
 
 /** What made a fork diverge, in words. */
@@ -93,15 +110,17 @@ export function writesWord(flags: readonly FlagView[] | undefined): string | nul
  * --fail-at 19=529 · nothing sent". The call it names says more when the run has it: a tool's name,
  * a model call's retries.
  */
-export function flagWhy(iv: FlagView, call: BannerInput['flagCall']): string {
+export function flagWhy(iv: FlagView, call: BannerInput['flagCall'], forkName: string | null = null): string {
   const flag = flagText(iv)!;
   const n = iv.callNo ?? null;
   const at = n === null ? '' : `#${n}`;
+  // The banner names the call it forked at just before: a flag on that same tool doesn't name it again.
+  const named = (name: string | null | undefined) => (name && name !== forkName ? `${name} ` : '');
   switch (iv.flag) {
     case '--inject':
       return `instruction injected${at ? ` at ${at}` : ''} with ${flag}`;
     case '--fail-at':
-      if (call?.kind === 'tool') return `${call.name} answered with ${toolFailure(afterCall(iv.value))} by ${flag} · the tool didn’t run`;
+      if (call?.kind === 'tool') return `${named(call.name)}answered with ${toolFailure(afterCall(iv.value))} by ${flag} · the tool didn’t run`;
       return `answered with HTTP ${afterCall(iv.value) || '?'} by ${flag} · nothing sent${call && call.attempts > 0 ? ` · the SDK tried ${call.attempts + 1} times, then gave up` : ''}`;
     case '--override':
       if (call?.input) return `the user answered ${at || 'the call'} differently with ${flag}`;
@@ -117,7 +136,7 @@ export function flagWhy(iv: FlagView, call: BannerInput['flagCall']): string {
     case '--diverge-at':
       return `asked again with ${flag}`;
     case '--live-tool':
-      return `${iv.value ?? 'the tool'} forced live with ${flag}`;
+      return `${iv.value ? named(iv.value) : 'the tool '}forced live with ${flag}`;
     default:
       return flag;
   }
@@ -143,44 +162,94 @@ export function failedCheckText(c: { label: string; detail?: string | null }): s
   return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
 }
 
+/** How many times a tool was called, as the run page's short lines say it, the design's way: `2×`. */
+const timesShort = (n: number) => `${num(n)}×`;
+
 /**
  * A failed check as the line under the run's id says it: what happened. A check's label is what was
- * expected (`send_email called 0 times`) and its detail what the run did (`called 1 time`), so a
- * tool's count reads `send_email called 1 time`; any other check, the CLI's own words.
+ * expected (`send_email called 0 times`) and its detail what the run did (`called 2 times`), so a
+ * tool's count reads `send_email called 2×`; any other check, the CLI's own words.
  */
 export function failedCheckShort(c: { label: string; detail?: string | null }): string {
   const did = c.detail?.split(';')[0]?.trim();
   const at = c.label.lastIndexOf(' called ');
-  if (did?.startsWith('called ') && at > 0) return `check failed: ${c.label.slice(0, at)} ${did}`;
+  if (did?.startsWith('called ') && at > 0) return `check failed: ${c.label.slice(0, at)} ${did.replace(/^called ([\d,]+) times?\b/, (_m, n: string) => `called ${n}×`)}`;
   return failedCheckText(c);
+}
+
+/** Whether a tool call's arguments (its one-line JSON) hold every key and value a check names. */
+function argsHold(detail: string | undefined, want: Record<string, unknown>): boolean | null {
+  let args: unknown;
+  try {
+    args = JSON.parse(detail ?? '');
+  } catch {
+    return null;
+  }
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return false;
+  return Object.entries(want).every(([k, v]) => JSON.stringify((args as Record<string, unknown>)[k]) === JSON.stringify(v));
 }
 
 /**
  * The check of the fix a failed run belongs to (`send_email never called`), when the run kept none of
- * its own, as what the run did: a tool's count from the run's calls (`send_email called 1 time`);
- * any other check named as one, so it never reads as what happened.
+ * its own, as what the run did: a tool's count from the run's calls (`send_email called 2×`), or
+ * with the arguments the check names (`issue_refund called 1× with {"amount":240}`); any other check
+ * named as one, so it never reads as what happened. `terse`, for the line under the run's id, leaves
+ * the arguments to the banner when every call of the tool had them.
  */
-export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string; name: string }>): string {
+export function fixCheckShort(check: string, calls: ReadonlyArray<{ kind: string; name: string; detail?: string }>, terse = false): string {
+  const times = timesShort;
+  const withArgs = /^(\S+) (?:never called|called .+?) with (\{.*\})$/.exec(check);
+  if (withArgs) {
+    let want: unknown;
+    try {
+      want = JSON.parse(withArgs[2]!);
+    } catch {
+      want = null;
+    }
+    const tools = calls.filter((c) => c.kind === 'tool' && c.name === withArgs[1]);
+    const held = want && typeof want === 'object' && !Array.isArray(want) ? tools.map((c) => argsHold(c.detail, want as Record<string, unknown>)) : [null];
+    // Arguments cut short in the row can't be read: the check is then named as it is.
+    if (held.includes(null)) return `check failed: “${check}”`;
+    const n = held.filter(Boolean).length;
+    if (terse && n > 0 && n === tools.length) return `check failed: ${withArgs[1]} called ${times(n)}`;
+    return `check failed: ${withArgs[1]} called ${times(n)} with ${withArgs[2]}`;
+  }
   const m = /^(\S+) (?:never called|called .+)$/.exec(check);
   if (!m) return `check failed: “${check}”`;
   const n = calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length;
-  return `check failed: ${m[1]} called ${n === 1 ? '1 time' : `${num(n)} times`}`;
+  return `check failed: ${m[1]} called ${times(n)}`;
 }
 
-/** Why a run failed, in a few words, for the banner and the line under the run's id; null when it didn't. */
-export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame'>, short = false): string | null {
+/**
+ * Why a run failed, in a few words, for the banner and the line under the run's id; null when it
+ * didn't. Its own failed check first, then the agent's exit, then the check the server's outcome
+ * names (a fix's, for a run the fix lists as failing), then an interruption that failed something.
+ */
+export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' | 'outcome' | 'calls'>, short = false): string | null {
   const failedCheck = i.checks.find((c) => !c.ok);
   if (failedCheck) return short ? failedCheckShort(failedCheck) : failedCheckText(failedCheck);
   if (i.status === 'failed') return 'the agent exited with an error';
+  const o = i.outcome;
+  if (o?.kind === 'check-failed' && o.check) return fixCheckShort(o.check, i.calls ?? [], short);
   if (i.status === 'crashed') return 'the run was interrupted';
   return i.blame ? 'blame confirmed it fails' : null;
+}
+
+/** An interrupted run's line: what stopped, and what it kept. */
+function interruptedWhy(i: Pick<BannerInput, 'type' | 'callCount'>): string {
+  const n = i.callCount ?? null;
+  const kept = n === null ? '' : n === 0 ? ' · no call made yet' : ` · ${n === 1 ? 'the call' : `the ${num(n)} calls`} it made ${n === 1 ? 'is' : 'are'} kept`;
+  return `stopped before it ended: Ctrl-C, a kill or a crash${kept}`;
 }
 
 export function bannerFor(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
   if (i.rescued && d) return { kind: 'rescued', callNo: i.rescued.callNo, why: `a blame attempt that passed: the model was asked ${i.rescued.callNo !== null ? `#${i.rescued.callNo}` : 'the call'} again · ${writesWord(i.interventions) ?? 'writes stubbed'}` };
-  if (d) {
+  // A test of a golden that may fork went live from where it left the recording, and its checks
+  // judged it: where it forked is not what it failed on, so its banner is its checks, or its failure.
+  const forkedTest = i.type === 'test' && !!d && !!i.outcome && i.outcome.kind !== 'diverged';
+  if (d && !forkedTest) {
     const path = d.diff?.[0]?.path ?? null;
     const diff = !!d.diff?.length;
     if (i.type === 'test') {
@@ -191,7 +260,7 @@ export function bannerFor(i: BannerInput): Banner | null {
     const iv = i.intervention;
     // The flag names what the fork changed, and how the writes after it went; a fork without one is a change in the code.
     const writes = iv && iv.flag !== '--writes' ? writesWord(i.interventions) : null;
-    const what = iv ? `${flagWhy(iv, i.flagCall ?? null)}${writes ? ` · ${writes}` : ''}` : (forced ?? DIVERGED[d.type] ?? d.type);
+    const what = iv ? `${flagWhy(iv, i.flagCall ?? null, d.name)}${writes ? ` · ${writes}` : ''}` : (forced ?? DIVERGED[d.type] ?? d.type);
     // A model call answered with a failure says what the SDK did instead, as the design's line does; any other fork, what it replayed first.
     const failedModelCall = iv?.flag === '--fail-at' && i.flagCall?.kind !== 'tool';
     return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${replayedBefore(d.replayedBefore)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff };
@@ -204,8 +273,10 @@ export function bannerFor(i: BannerInput): Banner | null {
     return {
       kind: 'checks',
       checks: i.checks.map((c) => ({ label: c.label, text: `${c.label}${c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}` })),
-      why: i.type === 'test' || i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : null,
+      why: i.upstreamRequests === 0 ? 'replayed offline · 0 upstream' : forkedTest && d ? `forked at #${d.callNo}, as its golden may · ${num(i.upstreamRequests)} upstream` : null,
     };
+  if (i.interrupted) return { kind: 'interrupted', why: interruptedWhy(i) };
+  if (i.failed === false) return null;
   const failure = failureText(i);
   if (!failure) return null;
   // Blame ran but placed the failure on no call: no answer asked again saved the run, or it stopped first.

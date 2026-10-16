@@ -13,8 +13,8 @@ import { kindWord } from '../runs.js';
 import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
-import { modelLabel, originOf, runLikeOf } from './model.js';
-import { copyRules, endpointSamples, tallyProviders } from './provenance.js';
+import { lineageRunLike, modelLabel, originOf, runLikeOf } from './model.js';
+import { copyRules, endpointSamples, lineageWords, tallyProviders } from './provenance.js';
 
 /**
  * The providers a run's model calls went to, with how many calls each: the server's count when it
@@ -46,7 +46,7 @@ function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ 
  * what a copy made now would mask, and its labels and notes.
  */
 export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
-  const { client, meta, exported, toast } = useApp();
+  const { client, meta, exported, toast, runs } = useApp();
   const r = run.run;
   const s = run.summary;
   const lineage = useLoad(() => client.lineage(r.runId), r.runId);
@@ -55,6 +55,20 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   // The server's record of the run, when it works one out: on the run, or from its own endpoint.
   const fetched = useLoad(() => (run.provenance ? null : client.provenance(r.runId)), `${r.runId}:provenance`);
   const prov = run.provenance ?? fetched.data ?? null;
+  // What a copy would mask is yet to be counted while the redaction previews are busy (Settings →
+  // Redaction reading runs): asked again every few seconds, for a minute, until it is.
+  const counting = !!prov?.mask?.busy;
+  const { reload } = fetched;
+  const [asked, setAsked] = useState({ runId: r.runId, times: 0 });
+  const times = asked.runId === r.runId ? asked.times : 0;
+  useEffect(() => {
+    if (!counting || times >= 20) return;
+    const t = setTimeout(() => {
+      setAsked({ runId: r.runId, times: times + 1 });
+      reload();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [counting, times, reload, r.runId]);
   const providers = useProviders(run, prov);
   // Each model as the page names it everywhere (claude-opus-5), counted from the record when it says,
   // else from the calls; the id the provider recorded (a dated one) shows on hover when it says more.
@@ -93,6 +107,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   const labels = r.meta?.labels ?? [];
   const rules = prov?.mask?.rules ?? meta?.redactRules;
   const masked = prov?.mask?.values ?? null;
+  // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
+  const uncounted = prov?.mask?.why ?? null;
   const ledger = run.calls.some((c) => c.fingerprint || c.requestRef || c.responseRef);
   const rows: Array<[string, React.ReactNode]> = [
     ['Run', <code key="r">{r.runId}</code>],
@@ -150,14 +166,18 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
             {chain.length
               ? chain.map((n) => {
                   const here = n.runId === r.runId;
+                  const nodeLike = here ? like : lineageRunLike(n, runs?.find((x) => x.runId === n.runId));
+                  // What it is, or what it failed in red; an interrupted run says so after what it is.
+                  const words = lineageWords(nodeLike, n.label);
                   return (
                     <li key={n.runId} className={here ? 'here' : undefined}>
-                      <RunIcon run={{ ...like, runId: n.runId, parentRunId: n.parentRunId, mode: n.mode, status: n.status, divergence: n.divergence, calls: n.calls, test: here ? like.test ?? null : null, source: here ? like.source : null, covers: here ? like.covers : null }} className="" />
+                      <RunIcon run={nodeLike} className="" />
                       <a href={href.run(n.runId)}>
                         <code>{shortId(n.runId)}</code>
                       </a>
                       <small>
-                        {n.label}
+                        {words.err ? <em>{words.err}</em> : null}
+                        {words.text}
                         {here ? ' · this run' : ''}
                         {revOf.get(n.runId) ? ` · rev ${revOf.get(n.runId)}` : ''} · {stamp(n.startedAt)}
                       </small>
@@ -168,8 +188,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           </ol>
           <h3>Leaving this machine</h3>
           <p className="muted">
-            A copy made now (pack, export html, export dataset) applies{' '}
-            {copyRules(rules, masked)}
+            A copy made now (pack, export html, export dataset or export pairs) applies{' '}
+            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting)}</span>
             .{' '}
             <a className="more" href={href.settings('redaction')}>
               {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}

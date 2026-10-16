@@ -79,7 +79,10 @@ describe('an action’s dialog', () => {
 
   it('opens an override on the server’s starting value, else the recorded result', () => {
     expect(dialogCopy(a('o', 'Fork: override (--override)'), { ...ctx, callNo: 16, callName: 'lookup_order', recorded: { status: 'held' } })).toMatchObject({ title: 'Override #16 lookup_order', initial: '{\n  "status": "held"\n}', multiline: true });
-    expect(dialogCopy(a('o', 'Override this tool’s result', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '{"status":"held"}' } }), { ...ctx, recorded: { other: 1 } }).initial).toBe('{"status":"held"}');
+    // The server's starting value, laid out to edit as the design shows it; a string stays the JSON the CLI reads.
+    expect(dialogCopy(a('o', 'Override this tool’s result', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '{"status":"held"}' } }), { ...ctx, recorded: { other: 1 } }).initial).toBe('{\n  "status": "held"\n}');
+    expect(dialogCopy(a('o', 'Override this tool’s result', { flag: '--override 16=…', prompt: { label: 'Result:', initial: '"sent"' } }), { ...ctx, recorded: 'sent' }).initial).toBe('"sent"');
+    expect(dialogCopy(a('o', 'Fork: override (--override)'), { ...ctx, callNo: 16, recorded: 'sent' }).initial).toBe('"sent"');
     expect(dialogCopy(a('u', 'Answer differently as the user…', { flag: '--override 9=…', prompt: { label: 'Reply:', initial: 'Yes please' } }), { ...ctx, callNo: 9, recorded: { text: 'Yes please' } })).toMatchObject({ title: 'Answer #9 differently', initial: 'Yes please' });
   });
 

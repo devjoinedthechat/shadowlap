@@ -36,6 +36,13 @@ afterAll(() => {
 
 const proj = () => ({ name: 'demo', path: project });
 
+/** A run its recorder was killed in: still marked running, with no process recording it. */
+function abandoned(startedAt: number): string {
+  const runId = `01K4ZZ${String(startedAt).slice(-8)}LEFT`.padEnd(26, '0').slice(0, 26);
+  store.importRun({ runId, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['node', 'agent.mjs'], cwd: project }, codeVersion: null, startedAt, endedAt: null });
+  return runId;
+}
+
 describe('the Share menu’s jobs', () => {
   it('writes HTML and HAR into .shadowlap/exports, with the runs it came from in the HTML', () => {
     const id = addRun(store, { startedAt: T0, calls: 'll' });
@@ -112,6 +119,12 @@ describe('the Share menu’s jobs', () => {
     // One recording among the runs of a dataset stops it, naming that run.
     const ended = addRun(store, { startedAt: T0 + 6, calls: 'l' });
     expect(exportDatasetJob(store, proj(), { runIds: [ended, live] })).toEqual(refused);
+    // A run its recorder left marked running was interrupted, as every list shows it: nothing will
+    // add to it, so it is copied as it is, as the CLI copies it.
+    const left = abandoned(T0 + 7);
+    expect(exportHtmlJob(store, proj(), { runId: left })).toMatchObject({ args: ['export', 'html', left, expect.any(String), '--lineage'] });
+    expect(packJob(store, proj(), { runId: left })).toMatchObject({ args: ['pack', left, expect.any(String)] });
+    expect(exportDatasetJob(store, proj(), { runIds: [ended, left] })).toMatchObject({ args: expect.arrayContaining([ended, left]) });
   });
 
   it('never packs into the store’s own folder, however its name is cased or whatever link leads there', () => {
@@ -197,6 +210,8 @@ describe('what the run page offers', () => {
     expect(team(queued)!.state).toBe('queued');
     expect(team(fromPr)!.state).toBe('pull-request');
     expect(team(live)!.state).toBe('recording');
+    // One its recorder left marked running was interrupted: it is only here, and Push sends it as it is.
+    expect(team(abandoned(T0 + 15))).toEqual({ store: 'northwind-agent-runs/support-agent', state: 'only-here' });
     expect(runOffers(store, local, { redact: [], config: null })!.team).toBeNull();
     expect(runOffers(store, local, { redact: [], config: { store: 'not a url' } })!.team).toBeNull();
     expect(runOffers(store, 'ZZZZZZZZ', { redact: [], config: null })).toBeNull();

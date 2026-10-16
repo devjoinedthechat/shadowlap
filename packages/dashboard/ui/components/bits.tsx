@@ -10,7 +10,7 @@ import { Icon } from './Icon.js';
  */
 
 /** The small capitals above a title. */
-export function Eyebrow({ tone, children }: { tone?: 'fork' | 'err' | undefined; children: ReactNode }) {
+export function Eyebrow({ tone, children }: { tone?: 'fork' | 'err' | 'n' | undefined; children: ReactNode }) {
   return (
     <div className={`eyebrow${tone ? ` ${tone}` : ''}`}>
       <i />

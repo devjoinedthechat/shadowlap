@@ -67,6 +67,17 @@ export function shareNote(offers: Pick<RunOffers, 'copies'> | null | undefined, 
   return { text: `${head}, ${trace === 0 ? 'none' : num(trace)} to a trace.`, link: 'Settings' };
 }
 
+/**
+ * The most runs one dataset takes, as the server's `export-dataset` job does (run-exports.ts
+ * `MAX_DATASET_RUNS`): every id goes on the CLI's command line.
+ */
+export const DATASET_MAX_RUNS = 500;
+
+/** Why a dataset can't be made from this many runs (the Runs page picks up to 1,000), or null when it can. */
+export function datasetTooMany(count: number): string | null {
+  return count > DATASET_MAX_RUNS ? `One dataset takes at most ${num(DATASET_MAX_RUNS)} runs: pick fewer, or export a label from a terminal with shadowlap export dataset --label <label>.` : null;
+}
+
 /** The folder a pack goes into unless another is typed: inside the project's exports folder (decision 5). */
 export function defaultPackFolder(runId: string): string {
   return `.shadowlap/exports/${runId.slice(0, 10).toLowerCase()}`;

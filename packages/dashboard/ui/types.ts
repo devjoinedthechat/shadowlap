@@ -55,6 +55,8 @@ export interface CallRowExtras {
   recordedMs?: number | null;
   /** What a tool returned, short enough for a table cell. */
   resultShort?: string | null;
+  /** A model call: the tools its answer asked for, in order (a capture records none of their calls). */
+  asks?: string[] | null;
   /** Which conversation of the run the call belongs to (a batch run holds many). */
   conversation?: number | null;
   /** A model call whose request starts its conversation. */
@@ -128,16 +130,32 @@ export interface ProvenanceView {
   providers?: Array<{ provider: string; calls: number }>;
   calls?: { model: number; tool: number; other: number; scopes: number };
   upstream?: { requests: number; spent: number };
-  /** What a copy made now would mask: the rules that apply, and the values they hit (null when not counted). */
-  mask?: { rules: number; values: number | null } | null;
+  /** What a copy made now would mask: the rules that apply, and the values they hit (null when not counted, with why when it says; `busy` while it is yet to be counted). */
+  mask?: { rules: number; values: number | null; why?: string; busy?: true } | null;
   startedUtc?: string;
   endedUtc?: string | null;
   /** The run and the runs it came from, the recording first, each with its code version. */
   lineage?: Array<{ runId: string; codeVersion: string | null }>;
 }
 
+/**
+ * How a run stands, as the server works it out for the run list and the run's page alike: its kind,
+ * its outcome, whether that is a failure, and whether it was interrupted (stopped before it ended,
+ * with nothing else that failed). `status` is the status the lists show.
+ */
+export interface RunStateView {
+  status: 'running' | 'completed' | 'failed' | 'crashed';
+  kind: string;
+  outcome: RunOutcomeView;
+  failed: boolean;
+  interrupted: boolean;
+  label: string;
+}
+
 /** What `/api/runs/:id` may add for the run page. */
 export interface RunDetailExtras {
+  /** How the run stands, as Runs, the sidebar and the Overview say it; absent from an older server. */
+  state?: RunStateView | null;
   /** The recorded duration of every replayed call, summed up the parent chain. */
   notWaitedMs?: number | null;
   forkAt?: number | null;

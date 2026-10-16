@@ -128,6 +128,16 @@ describe('Run blame and Find the commit', () => {
     expect(bisectCopy(RUN, offer({ target: { kind: 'golden', golden: 'goldens/research' } })).command('x1')).toBe('shadowlap bisect goldens/research --good x1 --bad d2e8a1f');
   });
 
+  it('names each commit by its subject, and judges a run blame found failing by that check, when the server says', () => {
+    const revisions = [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, subject: 'Escalate refunds above the limit' }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }];
+    const c = bisectCopy(RUN, { ...offer({ fork: true, live: true, good: null }), revisions, expect: { tools: { send_email: 1 } } } as BisectOffer);
+    expect(c.choices).toEqual([
+      { value: 'c91d0f4', label: 'c91d0f4 · Escalate refunds above the limit' },
+      { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed' },
+    ]);
+    expect(c.command('c91d0f4')).toBe(`shadowlap bisect 01M50J6C69 --good c91d0f4 --bad d2e8a1f --expect '{"tools":{"send_email":1}}' --fork`);
+  });
+
   it('looks for what changed a run that passed, not what broke it', () => {
     const passed = offer({ failed: false, good: 'a7b3c2e', bad: null, revisions: [{ rev: 'c91d0f4', at: 0, runs: 3, failed: 0 }] });
     expect(bisectLabel(passed)).toEqual({ label: 'Find the commit that changed it', hint: 'Replays it at the commits after its own, halving each time, and names the first where it does something else' });
@@ -182,6 +192,17 @@ describe('the Calls view’s detail', () => {
     expect(callDetail(calls[4]!, asked.get(7) ?? null)).toEqual({ text: 'end_turn', err: false });
     // A server that doesn't say which call asked: the model and the stop reason, as before.
     expect(callDetail(calls[4]!)).toEqual({ text: 'sonnet-5 · end_turn', err: false });
+  });
+
+  it('names the tools a model call’s answer asked for when no tool call of the run says so, as in a capture', () => {
+    const asking = call(1, 'api', { stopReason: 'tool_use', asks: ['get_ticket'] });
+    expect(callDetail(asking)).toEqual({ text: '→ get_ticket', err: false });
+    expect(callDetail({ ...asking, asks: ['lookup', 'lookup', 'notify'] }, null)).toEqual({ text: '→ lookup ×2, notify', err: false });
+    // The calls that ran win: they count what was made.
+    expect(callDetail(asking, 'get_ticket ×2')).toEqual({ text: '→ get_ticket ×2', err: false });
+    expect(callDetail({ ...asking, asks: [] }, null)).toEqual({ text: 'tool_use', err: false });
+    // An answer known to ask for nothing says how it stopped, as when the run's tool calls say so.
+    expect(callDetail({ ...asking, stopReason: 'end_turn', asks: [] })).toEqual({ text: 'end_turn', err: false });
   });
 
   it('shows the value a clock read or a random value gave beside it, with no result line', () => {
