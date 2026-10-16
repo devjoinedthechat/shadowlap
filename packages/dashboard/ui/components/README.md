@@ -23,7 +23,7 @@ that comes from data goes there, everything else is a class.
 
 | Component | File | Notes |
 |---|---|---|
-| `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). Esc or a click on the dimmed page cancels. |
+| `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). Esc or a click on the dimmed page cancels. It opens on its first field, else its action, but on Cancel when the action is red (`dialogFocus` in `focus.ts`). |
 | `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`), its first item focused once it shows, ↑ ↓ between items (passing over buttons hidden until hovered), closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |

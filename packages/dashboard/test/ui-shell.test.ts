@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 import { BULK_MAX } from '../src/runs-list.js';
+import { dialogFocus } from '../ui/focus.js';
 import { stripScroll } from '../ui/place.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled } from '../ui/runspage/bulk.js';
 import { copyLine } from '../ui/runs.js';
@@ -56,5 +57,13 @@ describe('the bulk bar', () => {
       { done: ['a'], attempts: ['a1'], skipped: [], blobs: 2, bytes: 10 },
       { done: ['b'], attempts: [], skipped: [{ runId: 'c', reason: 'still recording' }], blobs: 1, bytes: 5 },
     ])).toEqual({ done: ['a', 'b'], attempts: ['a1'], skipped: [{ runId: 'c', reason: 'still recording' }], blobs: 3, bytes: 15 });
+  });
+});
+
+describe('dialogs', () => {
+  it('start on the field, else on the action, but on Cancel when the action is red', () => {
+    expect(dialogFocus('lime')).toMatch(/textarea, input.*select, \.dlg-ok$/);
+    expect(dialogFocus(undefined)).toMatch(/\.dlg-ok$/);
+    expect(dialogFocus('danger')).toMatch(/textarea, input.*select, \.dlg-cancel$/);
   });
 });

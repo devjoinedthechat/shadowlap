@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { choiceAnswer } from '../actions.js';
+import { dialogFocus } from '../focus.js';
 import { useLayer } from '../state.js';
 import type { PromptChoice } from '../types.js';
 import { CmdLine } from './bits.js';
@@ -7,7 +8,8 @@ import { CmdLine } from './bits.js';
 /**
  * A dialog over a dimmed page: a title, a line that says what will happen, a body, and Cancel beside
  * the action. Esc or a click on the dimmed page cancels. The first field, or the action, gets focus,
- * and focus goes back where it was when it closes.
+ * and focus goes back where it was when it closes. A red action that can't be undone (`danger`) with
+ * no field starts on Cancel, so a second Enter doesn't delete what the first one only asked about.
  */
 
 export interface DialogProps {
@@ -31,7 +33,7 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
   useLayer('dialog', true, onClose);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('textarea, input:not([type="checkbox"]):not([type="hidden"]), select, .dlg-ok');
+    const first = ref.current?.querySelector<HTMLElement>(dialogFocus(tone));
     first?.focus();
     if (first instanceof HTMLInputElement || first instanceof HTMLTextAreaElement) first.select();
     return () => prev?.focus?.();
@@ -45,7 +47,7 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
         </header>
         {children ? <div className="db">{children}</div> : null}
         <footer>
-          <button type="button" className="btn" onClick={onClose}>
+          <button type="button" className="btn dlg-cancel" onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
           {ok ? (
