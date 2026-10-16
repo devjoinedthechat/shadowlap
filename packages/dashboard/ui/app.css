@@ -1796,6 +1796,12 @@ input, textarea, select { font-variant-ligatures: none; font-feature-settings: "
 /* a note under an MCP server's name wraps rather than widening the Server column past the mock's */
 .egrp.mcp td small.mnote { max-width: 240px; }
 .egrp.mcp .mcptable th:first-child { width: 22%; }
+/* the Remove dialog on a phone: each path on disk under its words, rather than both squeezed onto one line */
+@media (max-width: 520px) {
+  .dialog .ondisk li { grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; }
+  .dialog .ondisk li i { grid-row: span 2; align-self: start; }
+  .dialog .ondisk li code { grid-column: 2; max-width: 100%; }
+}
 
 /* training: what the mock drew inline, and what the real page links that it didn't (an attempt's run from its pip) */
 .trgap { margin-top: 16px; }
