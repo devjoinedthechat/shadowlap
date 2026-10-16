@@ -119,8 +119,8 @@ export function register(program: Command): void {
     .command('otel')
     .description('A run as an OpenTelemetry trace (OTLP/HTTP JSON, GenAI semantic conventions): printed, written to a file, or sent to a collector')
     .argument('<run>', 'run id or unique prefix')
-    .option('--endpoint <url>', 'OTLP/HTTP endpoint, e.g. http://localhost:4318 (default: $OTEL_EXPORTER_OTLP_ENDPOINT; headers from $OTEL_EXPORTER_OTLP_HEADERS)')
-    .option('--out <file>', 'write the JSON here instead of stdout')
+    .option('--endpoint <url>', 'OTLP/HTTP endpoint, e.g. http://localhost:4318 (default: $OTEL_EXPORTER_OTLP_ENDPOINT, unless --out is given; headers from $OTEL_EXPORTER_OTLP_HEADERS)')
+    .option('--out <file>', 'write the JSON here instead of stdout, and send it nowhere unless --endpoint is given too')
     .option('--service <name>', 'service.name resource attribute', 'shadowlap-agent')
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json (a trace carries no prompt text; the rules without a path apply to its names, command line and errors)')
     .action(async (runArg: string, flags: { endpoint?: string; out?: string; service: string; redact: boolean }) => {
@@ -131,7 +131,8 @@ export function register(program: Command): void {
       const calls = store.getCalls(run.runId);
       store.close();
       const payload = runToOtlp(run, calls, { serviceName: flags.service, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), redact });
-      const endpoint = flags.endpoint ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+      // A file asked for is where the trace goes: it leaves the machine only for an endpoint named with it.
+      const endpoint = flags.endpoint ?? (flags.out ? undefined : process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
       const spans = calls.length + 1;
       if (flags.out) {
         writeFileSync(flags.out, JSON.stringify(payload) + '\n');

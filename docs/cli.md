@@ -716,13 +716,13 @@ masked text is spread back over the same events. The rules are named in the log
 
 ```sh
 shadowlap export otel <run>                                   # OTLP JSON to stdout
-shadowlap export otel <run> --out trace.json
+shadowlap export otel <run> --out trace.json                  # a file only, even with OTEL_EXPORTER_OTLP_ENDPOINT set
 shadowlap export otel <run> --endpoint http://localhost:4318  # or OTEL_EXPORTER_OTLP_ENDPOINT
 shadowlap export otel <run> --no-redact                       # skip the config's redaction rules
 shadowlap export otel <run> --service refund-agent            # service.name, default shadowlap-agent
 ```
 
-A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved.
+A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved. With `--out` the trace goes to that file and nowhere else unless `--endpoint` is given too; without either, it goes to `OTEL_EXPORTER_OTLP_ENDPOINT` when that is set, else to stdout.
 
 A trace carries no prompt text, tool arguments or results. The redaction rules without a path apply to what it does carry from the run: span names, the command line (`process.command_args`), model and tool names, and error messages; Shadowlap's own ids and fixed values stay as they are. A rule that can't be read stops the export.
 
