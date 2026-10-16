@@ -303,6 +303,7 @@ describe('shadowlap tasks', () => {
     const asked = anthropic.requests.slice(before);
     expect(asked.map((x) => x.body.model)).toEqual(['weak-model', 'weak-model', 'weak-model', 'weak-model']);
     expect(r.events.filter((e) => e.type === 'run')).toHaveLength(2);
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open the scores', href: '#/training/tasks' }]);
     expect(r.events.at(-1)).toMatchObject({ type: 'result', data: { model: 'weak-model', baseUrl: null, via: 'Anthropic API', mean: 1 / 3, attempts: 2 } });
     withStore(db, (s) => {
       const rows = s.listTaskScores();
@@ -389,6 +390,10 @@ describe('shadowlap tasks', () => {
     expect(down.code).toBe(1);
     expect(down.out).toContain("my-finetune didn't answer #5");
     expect(down.out).toContain("isn't reachable");
+    expect(down.out).toContain('✗ no attempt was scored');
+    // Nothing new to see on the scores, so a dashboard job ends on its reason, with no link there.
+    expect(down.events.filter((e) => e.type === 'link')).toEqual([]);
+    expect(down.events.at(-1)).toMatchObject({ type: 'result', data: { model: 'my-finetune', mean: null } });
     withStore(db, (s) => {
       const stopped = s.allRuns().filter((x) => x.meta?.task?.baseUrl === 'http://127.0.0.1:9/v1');
       expect(stopped).toHaveLength(1);

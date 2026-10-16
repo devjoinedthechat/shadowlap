@@ -324,7 +324,8 @@ export function register(program: Command): void {
         if (flags.json) log(line);
         else process.stdout.write(`${line}\n`);
       } else log(`${p.red('✗')} no attempt was scored`);
-      emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
+      // The scores show something new only when an attempt was scored: a job that scored none ends on its reason.
+      if (done.length) emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
       emitJobEvent({ type: 'result', data: report });
       if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
       process.exitCode = report.mean !== null && !skipped.length && scores.every((s) => !s.stopped) ? 0 : 1;
