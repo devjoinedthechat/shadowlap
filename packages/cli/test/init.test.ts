@@ -130,6 +130,29 @@ def send_page(to: str) -> dict:
     expect(text).toContain('SHADOWLAP_UPSTREAM_OPENAI=http://localhost:11434 shadowlap run -- uv run agent.py');
   });
 
+  it('starts a Python project by the script its pyproject.toml declares', () => {
+    const scripted = (manifest: string, lock: Record<string, string>) => inspectProject(project({ 'pyproject.toml': manifest, ...lock, 'main.py': 'print(1)\n' }), {}).command;
+    const declared = '[project]\nname = "research-agent"\n\n[project.scripts]\nresearch-agent = "research_agent.main:run"\n';
+    expect(scripted(declared, { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'research-agent'], from: '[project.scripts] in pyproject.toml' });
+    expect(scripted(declared, {})).toEqual({ argv: ['research-agent'], from: '[project.scripts] in pyproject.toml' });
+    expect(scripted('[tool.poetry]\nname = "x"\n\n[tool.poetry.scripts]\nagent = "x.cli:main"\n', { 'poetry.lock': '' })).toEqual({ argv: ['poetry', 'run', 'agent'], from: '[tool.poetry.scripts] in pyproject.toml' });
+    // Without one, the entry file.
+    expect(scripted('[project]\nname = "x"\n', { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'main.py'], from: 'main.py' });
+  });
+
+  it('starts a Node project by the file its package.json names, before guessing one by its name', () => {
+    const started = (pkg: Record<string, unknown>, more: Record<string, string> = {}) => inspectProject(project({ 'package.json': JSON.stringify({ name: 'triage-bot', ...pkg }), 'agent.js': 'export const runAgent = () => {};\n', 'main.js': 'console.log(1)\n', ...more }), {}).command;
+    // agent.js only exports the agent; main.js, which package.json names, runs it.
+    expect(started({ main: 'main.js' })).toEqual({ argv: ['node', 'main.js'], from: 'package.json main: main.js' });
+    expect(started({ main: './lib/run' }, { 'lib/run.js': '' })).toEqual({ argv: ['node', 'lib/run.js'], from: 'package.json main: ./lib/run' });
+    expect(started({ bin: { triage: 'cli.mjs', other: 'other.js' }, main: 'main.js' }, { 'cli.mjs': '' })).toEqual({ argv: ['node', 'cli.mjs'], from: 'package.json bin.triage: cli.mjs' });
+    expect(started({ bin: 'src/cli.ts' }, { 'src/cli.ts': '' })).toEqual({ argv: ['npx', 'tsx', 'src/cli.ts'], from: 'package.json bin: src/cli.ts' });
+    // A start script still comes first; a file that isn't there, or outside the folder, is passed over.
+    expect(started({ main: 'main.js', scripts: { start: 'node agent.js' } })).toEqual({ argv: ['npm', 'start'], from: 'package.json scripts.start: node agent.js' });
+    expect(started({ main: 'gone.js' })).toEqual({ argv: ['node', 'agent.js'], from: 'agent.js' });
+    expect(started({ main: '../elsewhere/main.js' })).toEqual({ argv: ['node', 'agent.js'], from: 'agent.js' });
+  });
+
   it('counts Python tools wrapped with the framework adapters as declared', () => {
     const py = project({
       'requirements.txt': 'openai-agents==0.20.0\nlanggraph\ncrewai\n',

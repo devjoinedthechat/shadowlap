@@ -7,6 +7,7 @@ import * as files from './files.js';
 import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
 import * as meta from './meta.js';
+import * as projects from './projects.js';
 import * as runs from './runs.js';
 // The run page: what it offers to do with a run, show --json, and the Share menu's exports.
 import * as runPage from './run-page.js';
@@ -48,6 +49,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   fixes,
   tests,
   settings,
+  // Several projects behind one dashboard: the switcher, Add a project, the setup, removing one.
+  projects,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

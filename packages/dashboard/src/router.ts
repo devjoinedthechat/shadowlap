@@ -59,6 +59,12 @@ export interface RouteOptions {
    * every method but GET. A POST that changes nothing (a preview, a dry run) passes false.
    */
   write?: boolean;
+  /**
+   * On a dashboard that serves several projects, a request that isn't a GET is refused when the
+   * page that sends it shows another project than the current one (it would act on the wrong one).
+   * A route that names what it acts on itself, a project or a job by its id, passes true.
+   */
+  anyProject?: boolean;
 }
 
 interface Route {
@@ -67,6 +73,7 @@ interface Route {
   parts: string[];
   handler: Handler;
   write: boolean;
+  anyProject: boolean;
 }
 
 export interface Match {
@@ -74,6 +81,8 @@ export interface Match {
   params: Record<string, string>;
   write: boolean;
   pattern: string;
+  /** The route names what it acts on: a page showing another project may call it (`RouteOptions.anyProject`). */
+  anyProject: boolean;
 }
 
 const PARAM = /^:([A-Za-z_]\w*)$/;
@@ -96,7 +105,7 @@ export class Router {
     if (new Set(names).size !== names.length) throw new Error(`route ${pattern}: a parameter name is used twice`);
     const shape = parts.map((p) => (p.startsWith(':') ? ':' : p)).join('/');
     if (this.routes.some((r) => r.method === method && r.parts.map((p) => (p.startsWith(':') ? ':' : p)).join('/') === shape)) throw new Error(`route ${method} ${pattern} is registered twice`);
-    this.routes.push({ method, pattern, parts, handler, write: options.write ?? method !== 'GET' });
+    this.routes.push({ method, pattern, parts, handler, write: options.write ?? method !== 'GET', anyProject: options.anyProject ?? false });
     return this;
   }
 
@@ -165,7 +174,7 @@ export class Router {
       // A literal earlier in the path beats a parameter there: compare literal-or-not left to right.
       if (!best || rank > best.rank) best = { route, params, rank };
     }
-    if (best) return { handler: best.route.handler, params: best.params, write: best.route.write, pattern: best.route.pattern };
+    if (best) return { handler: best.route.handler, params: best.params, write: best.route.write, pattern: best.route.pattern, anyProject: best.route.anyProject };
     const path = `/api/${segments.join('/')}`;
     if (otherMethod) throw new HttpError(405, `${method} is not allowed on ${path}`);
     throw new HttpError(404, `no endpoint ${method} ${path}`);

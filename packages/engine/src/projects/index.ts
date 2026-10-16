@@ -13,5 +13,5 @@ export { MADE_FOLDERS, RecordingsError, deleteRecordings, madeFiles, recordingIn
 export { ProjectError, ProjectRegistry, REGISTRY_FILE, REGISTRY_VERSION, emptySetup, nameConfirms, projectSlug, setupRunOf } from './registry.js';
 export type { AddedProject, ConfirmedCommand, ProjectEntry, ProjectErrorCode, ProjectSetup, RegistryOptions, RemovedEntry, RemovedProject, SetupPatch } from './registry.js';
 export { LIVE_RUN_MS, SETUP_STAGES, calibrationOutcome, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isAttempt, isLiveRun, isRecording, isSetupStage, laterStage, runTotals, stageAtLeast, storeFacts, unwrappedTools } from './setup.js';
-export type { CalibrationOutcome, EffectiveSetup, FactsSource, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './setup.js';
+export type { CalibrationOutcome, EffectiveSetup, FactsSource, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './setup.js';
 export { StoreReader, readStore, readStoreFacts } from './store-reader.js';

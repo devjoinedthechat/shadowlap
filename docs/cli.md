@@ -13,7 +13,7 @@ Reads the project in the current directory and prints the steps to a first recor
 - the language and package manager, from `package.json`, `pyproject.toml`, requirements files and lockfiles;
 - the model SDKs (Anthropic, OpenAI, Gemini, and the AI SDK and LangChain provider packages), from dependencies or imports;
 - the agent framework and its version: the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner, Pydantic AI, the OpenAI Agents SDK for Python, CrewAI;
-- the command that starts the agent, from `package.json` scripts or a conventional entry file;
+- the command that starts the agent, from `package.json` scripts, the file `package.json` names (its `bin`, then its `main`), a script `pyproject.toml` declares (`[project.scripts]`, run with `uv run` in a uv project), or a conventional entry file;
 - every tool definition it can find, whether it declares an effect, and a suggested effect for those that don't. The suggestion goes by the tool name's leading verb, and a name with no hint gets `write`, which never runs again after a fork;
 - a model server the project already points at, such as Ollama in `OPENAI_BASE_URL`, and the `SHADOWLAP_UPSTREAM_OPENAI` value that keeps it as the upstream.
 

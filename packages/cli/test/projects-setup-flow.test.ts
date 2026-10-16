@@ -138,12 +138,16 @@ describe('a project’s setup, step by step through the CLI', () => {
     if (!golden.ok) return;
     const packed = await job(ctx, setupJobArgs.pack(runId, golden.path), env);
     expect(packed.code, packed.out).toBe(0);
+    // Packed is not tested: the step stays open until the golden's test passed.
+    expect(host.setup(id)).toMatchObject({ stage: 'clean', steps: { tested: false }, golden: golden.path, goldenTest: null });
     const hits = mock.requests.length;
     const tested = await job(ctx, setupJobArgs.test(golden.path), env);
     expect(tested.code, tested.out).toBe(0);
     expect(mock.requests.length, 'the test replays offline').toBe(hits);
+    // `shadowlap test` kept the golden's result in the store: that is what completes step 4.
+    expect(host.setup(id)).toMatchObject({ stage: 'tested', steps: { tested: true }, golden: golden.path, goldenTest: { ok: true, reason: null } });
     registry.noteTested(id, runId, golden.path);
-    expect(host.setup(id)).toMatchObject({ stage: 'tested', golden: golden.path, goldenFrom: 'tested' });
+    expect(host.setup(id)).toMatchObject({ stage: 'tested', golden: golden.path, goldenTest: { ok: true } });
     // Packing again over it is refused, unless it is this run again.
     expect(goldenPath(golden.path, { folder })).toMatchObject({ ok: false, taken: true });
     expect(goldenPath(golden.path, { folder, runId })).toEqual({ ok: true, path: golden.path });

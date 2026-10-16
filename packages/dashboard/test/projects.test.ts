@@ -93,6 +93,7 @@ describe('addProjectPage', () => {
       { path: `${HOME}/research-agent`, display: '~/research-agent', name: 'research-agent', folder: kind('Python · uv', 'Python · uv · pyproject.toml'), added: false, projectId: null },
       { path: `${HOME}/triage-bot`, display: '~/triage-bot', name: 'triage-bot', folder: kind('Node · npm', 'Node · npm · package.json'), added: true, projectId: 'triage-bot' },
       { path: `${HOME}/Downloads`, display: '~/Downloads', name: 'Downloads', folder: kind(null), added: false, projectId: null },
+      { path: `${HOME}/web-agent`, display: '~/web-agent', name: 'web-agent', folder: kind('Node · pnpm', 'Node · pnpm · package.json · pnpm-lock.yaml'), added: false, projectId: null },
     ],
   };
 
@@ -100,8 +101,10 @@ describe('addProjectPage', () => {
     const v = addProjectPage({ query: '', suggestions, home: HOME });
     expect(v.title).toBe('Add a project');
     expect(v.intro).toBe('Pick the folder your agent’s code is in. Nothing runs until you click.');
+    // Those that can be added first, then those already added, then those without project files.
     expect(v.folders.map((f) => [f.display, f.note, f.disabled])).toEqual([
       ['~/research-agent', 'Python · uv · pyproject.toml', false],
+      ['~/web-agent', 'Node · pnpm · package.json · pnpm-lock.yaml', false],
       ['~/triage-bot', 'already added', true],
       ['~/Downloads', 'no project files found', false],
     ]);
@@ -132,6 +135,8 @@ describe('addProjectPage', () => {
   it('says when a folder comes back with its runs', () => {
     expect(addedMessage({ project: entry('support-agent'), again: true, runs: 12 }, HOME)).toBe('Added ~/support-agent back · 12 runs');
     expect(addedMessage({ project: entry('triage-bot'), again: false, runs: 0 }, HOME)).toBe('Added ~/triage-bot');
+    // New to the dashboard, with runs recorded in a terminal.
+    expect(addedMessage({ project: entry('big-agent'), again: false, runs: 20000 }, HOME)).toBe('Added ~/big-agent · 20,000 runs');
   });
 });
 
@@ -346,19 +351,40 @@ describe('setupView', () => {
     // An earlier recording stays the setup's, and the empty one is still pointed out.
     const kept = view(entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN }), facts({ runs: 2, recordings: [typo, run()] }));
     expect(kept.record).toMatchObject({ state: 'done', recorded: { runId: RUN }, empty: { runId: typo.runId } });
+    // Once the replay is clean, an empty recording after it no longer concerns the setup.
+    const clean = view(entry('research-agent', { stage: 'clean', findings: findings({ tools: [], wrap: [] }), runId: RUN, calibration: { added: [] } }), facts({ runs: 2, recordings: [typo, run()] }));
+    expect(clean.record).toMatchObject({ state: 'done', recorded: { runId: RUN }, empty: null });
   });
 
-  it('offers the free golden path the server found, and counts a pack made in a terminal as kept', () => {
+  it('offers the free golden path the server found, and keeps a pack made in a terminal open until its test passes', () => {
     const p = entry('research-agent', { stage: 'recorded', findings: findings({ tools: [], wrap: [] }), runId: RUN });
     const f = facts({ runs: 1, recordings: [run()] });
     const offered = view(p, f, { golden: 'goldens/research-agent-2' });
-    expect(offered.test).toMatchObject({ golden: { value: 'goldens/research-agent-2', enabled: false }, cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent-2', 'shadowlap test goldens/research-agent-2'] });
-    const packed = view(p, f, { golden: 'goldens/research-agent-2' }, [{ path: 'goldens/q3', runIds: [RUN] }]);
-    expect(packed.test).toMatchObject({ state: 'done', cli: [], golden: null, result: { text: 'Packed as goldens/q3. shadowlap test goldens/q3 replays it offline.', link: { label: 'Open Tests', href: '#/tests' } } });
-    // Packed without calibrating first: step 3 was skipped.
-    expect(packed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'done']);
-    expect(packed.skip).toBeNull();
-    expect(packed.done).toMatchObject({ title: 'research-agent is set up.' });
+    expect(offered.test).toMatchObject({ golden: { value: 'goldens/research-agent-2', enabled: false }, cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent-2', 'shadowlap test goldens/research-agent-2'], packed: null });
+    // Packed, its test not run: the step stays open, with the test to run.
+    const packs = [{ path: 'goldens/q3', runIds: [RUN] }];
+    const packed = view(p, f, { golden: 'goldens/research-agent-2' }, packs);
+    expect(packed.test).toMatchObject({
+      state: 'current',
+      cli: ['shadowlap test goldens/q3'],
+      golden: null,
+      redaction: null,
+      result: null,
+      button: { label: 'Run the test', action: 'testgolden', enabled: true },
+      packed: { golden: 'goldens/q3', failed: false, text: 'Packed as goldens/q3. Its test replays it offline: run it to finish.', link: null },
+    });
+    expect(packed.done).toBeNull();
+    expect(packed.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
+    // Its test failed: why, and where to look.
+    const test = (ok: boolean) => ({ golden: 'goldens/q3', ok, at: 30, reason: ok ? null : 'diverged at call 4 (api POST /v1/messages).', goldenRunId: RUN });
+    const failed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(false)] }), {}, packs);
+    expect(failed.test).toMatchObject({ state: 'current', button: { label: 'Run the test again', action: 'testgolden' }, packed: { failed: true, text: 'goldens/q3 failed its test: diverged at call 4 (api POST /v1/messages). Fix what changed, or record again, then run it again.', link: { label: 'Open Tests', href: '#/tests' } } });
+    // Passed: done. Packed without calibrating first: step 3 was skipped.
+    const passed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(true)] }), {}, packs);
+    expect(passed.test).toMatchObject({ state: 'done', cli: [], button: null, packed: null, result: { text: 'goldens/q3 replayed clean offline', link: { label: 'Open Tests', href: '#/tests' } } });
+    expect(passed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'done']);
+    expect(passed.skip).toBeNull();
+    expect(passed.done).toMatchObject({ title: 'research-agent is set up.' });
   });
 
   it('counts a clean replay as step 3, and never shows another recording’s calibration', () => {
@@ -408,6 +434,13 @@ describe('removeDialog', () => {
     expect(v.onDisk.map((r) => r.label)).toEqual(['The folder and its code', 'Its store, empty so far', 'Its settings']);
     expect(v.deleteZone).toBeNull();
     expect(v).toMatchObject({ canRemove: false, why: 'The only project can’t be removed' });
+  });
+
+  it('says a folder that is gone holds nothing to keep', () => {
+    const v = removeDialog({ project: entry('old-agent'), stats: { runs: 0, attempts: 0, goldens: 0, missing: true }, projects: 2, home: HOME });
+    expect(v.onDisk).toEqual([{ key: 'code', label: 'Its folder, not on disk any more', path: '~/old-agent' }]);
+    expect(v.keep).toMatchObject({ note: 'Put the folder back and add it again to bring it all back.', crossedOut: 'code' });
+    expect(v.deleteZone).toBeNull();
   });
 
   it('words one run and one golden in the singular', () => {

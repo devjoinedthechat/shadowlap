@@ -58,6 +58,11 @@ export interface AppState {
   feeds: Readonly<Record<string, number>>;
   live: LiveRun[];
   refresh: () => void;
+  /**
+   * Loads the meta and the run list again at once, as after switching projects: what the page had
+   * was another project's, so the run list is emptied first and the change feed starts over.
+   */
+  reload: () => Promise<void>;
   /** Why actions cannot run here, shown on the disabled control; null when they can. */
   actionsOff: string | null;
   /** Whether the server runs a job kind (`meta.jobKinds`); a server that lists none runs none of them. */
@@ -184,7 +189,11 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     if (client.exported || conn !== 'ok') return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A poll on its way: a tab shown again waits for it rather than sending a second.
+    let busy = false;
     const poll = async () => {
+      timer = undefined;
+      busy = true;
       try {
         const ch = await client.changes(cursor.current);
         if (!alive) return;
@@ -203,13 +212,24 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       } catch (err) {
         if (alive) fail(err);
         return;
+      } finally {
+        busy = false;
       }
       if (alive && connRef.current === 'ok') timer = setTimeout(poll, document.hidden ? POLL_MS * 5 : POLL_MS);
     };
     timer = setTimeout(poll, POLL_MS);
+    // A hidden tab asks every 10 s; shown again, it asks at once, so a project switched to in another
+    // tab (or a run that ended meanwhile) shows before anything is clicked here.
+    const shown = () => {
+      if (document.hidden || !alive || busy || connRef.current !== 'ok') return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(poll, 0);
+    };
+    document.addEventListener('visibilitychange', shown);
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', shown);
     };
   }, [client, conn, fail, loadRuns, connRef]);
 
@@ -251,6 +271,20 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const refresh = useCallback(() => {
     if (client.exported) return;
     loadRuns().catch(fail);
+  }, [client, loadRuns, fail]);
+
+  const reload = useCallback(async () => {
+    if (client.exported) return;
+    cursor.current = null;
+    setRuns(null);
+    try {
+      const m = await client.meta();
+      setMeta(m);
+      setLive(m.live ?? []);
+      await loadRuns();
+    } catch (err) {
+      fail(err);
+    }
   }, [client, loadRuns, fail]);
 
   const readOnly = !!meta && !meta.static && (meta.readOnly === true || !meta.actions);
@@ -383,6 +417,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       feeds,
       live,
       refresh,
+      reload,
       actionsOff,
       hasKind,
       guard,
@@ -405,7 +440,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, feeds, live, refresh, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

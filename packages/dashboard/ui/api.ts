@@ -4,6 +4,7 @@ import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
 import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
+import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView } from './types.js';
@@ -48,6 +49,11 @@ export const JOB_KINDS = {
   testUpdate: 'test-update',
   bisect: 'bisect',
   normalizeAndTest: 'normalize-and-test',
+  // A project's setup (the projects slice registers these): inspect the folder, record a first run,
+  // keep it as a golden (pack, then test).
+  inspect: 'init',
+  record: 'record',
+  keepGolden: 'pack-test',
 } as const;
 
 export class ApiError extends Error {
@@ -175,6 +181,10 @@ export interface Client {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+
+  // ---- Projects
+  /** Projects: the switcher, Add a project, removing one, and the setup (`projects-api.ts`). */
+  projects: ProjectsApi;
 }
 
 
@@ -229,7 +239,8 @@ export function createClient(token: string): Client {
     const cached = method === 'GET' ? etags.get(path) : undefined;
     const res = await fetch(`/api/${path}`, {
       ...init,
-      headers: { 'x-shadowlap-token': token, ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
+      // The project the page shows: a change asked for while another is current is refused (projects-api.ts).
+      headers: { 'x-shadowlap-token': token, ...projectHeader(), ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
     });
     if (res.status === 304 && cached) return cached.body as T;
     const text = await res.text();
@@ -239,7 +250,10 @@ export function createClient(token: string): Client {
     } catch {
       body = { error: text };
     }
-    if (!res.ok) throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
+    if (!res.ok) {
+      noteRefusal(res.status, body);
+      throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
+    }
     const etag = res.headers.get('etag');
     if (etag && method === 'GET') etags.set(path, { etag, body });
     return body as T;
@@ -262,7 +276,11 @@ export function createClient(token: string): Client {
   }
   return {
     exported: false,
-    meta: () => request<Meta>('meta').then((m) => shape(m, normalizeMeta)),
+    meta: () =>
+      request<Meta>('meta').then((m) => {
+        showProject(m.project?.id);
+        return shape(m, normalizeMeta);
+      }),
     runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
     run: (runId) => request<RunDetail>(`runs/${id(runId)}`).then((d) => shape(d, normalizeRunDetail)),
     call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
@@ -365,6 +383,7 @@ export function createClient(token: string): Client {
     testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
     settings: settingsApi(request),
+    projects: projectsApi(request),
   };
 }
 
@@ -432,5 +451,6 @@ export function createExportedClient(data: StaticPayload): Client {
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
+    projects: noProjects(readOnly),
   };
 }

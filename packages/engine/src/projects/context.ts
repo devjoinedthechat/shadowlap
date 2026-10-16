@@ -28,7 +28,10 @@ export interface ProjectContext<C = unknown> {
   readonly cwd: string;
   /** Its configuration, read through the loader the host was given, and again when the file changes. */
   config(): C;
-  /** Its store, opened on first use. A project whose folder is gone has none: this throws. */
+  /**
+   * Its store, opened on first use. A project whose folder is gone has none: this throws, also
+   * when the folder went away (moved, deleted) after the store was opened.
+   */
   store(): Store;
   /** Whether the store exists yet, without creating it. */
   hasStore(): boolean;
@@ -88,8 +91,21 @@ class Context<C> implements ProjectContext<C> {
     return value;
   }
 
+  /**
+   * The open store, while it is still where the project keeps it. One whose file went away while it
+   * was open (the folder moved or deleted, the store deleted) is closed: what it holds is no longer
+   * the project's, and what was written to it would be lost.
+   */
+  private stillOpen(): Store | null {
+    if (!this.opened) return null;
+    if (this.dbPath === ':memory:' || existsSync(this.dbPath)) return this.opened;
+    this.close();
+    return null;
+  }
+
   store(): Store {
-    if (this.opened) return this.opened;
+    const open = this.stillOpen();
+    if (open) return open;
     // Opening a store creates its folder; a project whose folder was deleted must not get it back.
     if (!existsSync(this.path)) throw new ProjectError('folder', `${this.path} doesn’t exist any more. Remove the project, or put the folder back.`);
     this.opened = this.openStore(this.dbPath);
@@ -97,11 +113,12 @@ class Context<C> implements ProjectContext<C> {
   }
 
   hasStore(): boolean {
-    return this.opened !== null || existsSync(this.dbPath);
+    return this.stillOpen() !== null || existsSync(this.dbPath);
   }
 
   facts(options: { keep?: string | null } = {}): StoreFacts {
-    if (this.opened) return storeFacts(this.opened, Date.now(), options);
+    const open = this.stillOpen();
+    if (open) return storeFacts(open, Date.now(), options);
     if (!existsSync(this.path)) return emptyStoreFacts();
     try {
       return readStoreFacts(this.dbPath, Date.now(), options);
@@ -317,23 +334,30 @@ export class ProjectHost<C = unknown> {
    */
   stats(): Record<string, ProjectCounts> {
     const out: Record<string, ProjectCounts> = {};
-    for (const p of this.entries()) {
-      const missing = !existsSync(p.path);
-      let facts: StoreFacts = emptyStoreFacts();
-      let unreadable: string | null = null;
-      if (!missing) {
-        try {
-          facts = this.context(p.id).facts();
-        } catch (err) {
-          // a store from a newer version, or one that isn't a database
-          unreadable = (err as Error).message;
-        }
-      }
-      // As `deriveSetup` has it: done only once finished with runs; a finished project with none left starts again.
-      const settingUp = unreadable ? p.setup.stage !== 'done' : !(p.setup.stage === 'done' && facts.runs > 0);
-      out[p.id] = { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing, settingUp, unreadable, madeFiles: missing ? [] : madeFiles(p.path) };
-    }
+    for (const p of this.entries()) out[p.id] = this.counts(p);
     return out;
+  }
+
+  /** One project's counts, as {@link stats} gives every project's: for the Remove dialog, which needs only its own. */
+  statsOf(id: string): ProjectCounts {
+    return this.counts(this.need(id));
+  }
+
+  private counts(p: ProjectEntry): ProjectCounts {
+    const missing = !existsSync(p.path);
+    let facts: StoreFacts = emptyStoreFacts();
+    let unreadable: string | null = null;
+    if (!missing) {
+      try {
+        facts = this.context(p.id).facts();
+      } catch (err) {
+        // a store from a newer version, or one that isn't a database
+        unreadable = (err as Error).message;
+      }
+    }
+    // As `deriveSetup` has it: done only once finished with runs; a finished project with none left starts again.
+    const settingUp = unreadable ? p.setup.stage !== 'done' : !(p.setup.stage === 'done' && facts.runs > 0);
+    return { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing, settingUp, unreadable, madeFiles: missing ? [] : madeFiles(p.path) };
   }
 
   /** Where a project's setup is, from the list, its store and the goldens in its repository. */

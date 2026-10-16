@@ -33,7 +33,7 @@ export { SETUP_STAGES, calibrationOutcome, deriveSetup, emptyStoreFacts, readSto
 export type { AddedProject, ConfirmedCommand, ProjectContext, ProjectCounts, ProjectEntry, ProjectErrorCode, ProjectHostOptions, ProjectSetup, RegistryOptions, RemovedProject } from './projects/index.js';
 export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, SuggestOptions } from './projects/index.js';
 export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';
-export type { CalibrationOutcome, EffectiveSetup, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
+export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { describeChanges, type RunChanges } from './changes.js';

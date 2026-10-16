@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
 import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
-import { defaultDbPath, loadConfig } from '../config.js';
+import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
+import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
 import { projectGoldens } from '../goldens.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
@@ -29,15 +30,19 @@ export function register(program: Command): void {
       const dbPath = resolve(opts.db ?? defaultDbPath(cwd));
       // A read-only dashboard shows a store; it never makes one.
       if (flags.readOnly && !existsSync(dbPath)) throw new Error(`no store at ${dbPath}: --read-only shows an existing store and never creates one (record a run first, or point --db at a store)`);
-      const store = openStore(opts);
       if (flags.call !== undefined && !runArg) throw new Error('--call needs a run: shadowlap dashboard <run> --call <n>');
-      const runId = runArg ? requireRun(store, runArg).runId : undefined;
       const config = loadConfig(cwd);
+      // One dashboard for the projects on this machine (~/.shadowlap/projects.json): it opens on this
+      // folder, added to the list if it isn't on it, and switching swaps the store, the config and the
+      // folder its jobs run in. A read-only dashboard shows this store alone.
+      const projects = flags.readOnly ? null : ProjectHost.open<ShadowlapConfig>(cwd, { registry: new ProjectRegistry(), loadConfig: (dir: string) => loadConfig(dir), dbPath });
+      const store = projects ? projects.current().store() : openStore(opts);
+      const runId = runArg ? requireRun(store, runArg).runId : undefined;
       const { cliSpawner, startDashboard, openInBrowser } = await import('@shadowlap/dashboard');
-      // Actions run this same CLI against the same store, like the terminal UI's, with a pipe to report what they made.
+      // Actions run this same CLI against the project's store, like the terminal UI's, with a pipe to report what they made.
       const spawnCli = flags.readOnly ? undefined : cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd });
       const dash = await startDashboard({
-        store,
+        ...(projects ? { projects } : { store }),
         dbPath,
         port: flags.port,
         ...(spawnCli ? { spawnCli } : {}),
@@ -67,7 +72,9 @@ export function register(program: Command): void {
       });
       await dash.close();
       release();
-      store.close();
+      // The host opened the stores it served, the start folder's among them.
+      if (projects) projects.close();
+      else store.close();
     });
 
   program

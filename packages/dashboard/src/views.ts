@@ -71,6 +71,11 @@ export interface JobView {
   lines: string[];
   /** Output lines so far, counted from the first (the job keeps the last 2,000): pass it as `after`. */
   total: number;
+  /**
+   * On a dashboard that serves several projects, the project the job runs in: its runs and links are
+   * that project's, so a page showing another one switches before it opens them.
+   */
+  project?: { id: string; name: string };
 }
 
 /** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output and its result, which `GET /api/jobs/:id` has. */
@@ -88,6 +93,19 @@ export interface ProjectView {
   name: string;
   /** Its absolute path. */
   path: string;
+  /** Its id in the dashboard's project list, on a dashboard that serves several (`GET /api/projects`). */
+  id?: string;
+  /** Its folder as the switcher shows it: `~/support-agent`. */
+  display?: string;
+  /** Its setup isn't finished: once it has runs, the Overview shows the setup. */
+  settingUp?: boolean;
+  /**
+   * Why its store can't be opened (its folder is gone, or the store is from a newer Shadowlap): the
+   * dashboard shows an empty stand-in for it, and refuses its jobs with this reason.
+   */
+  problem?: string;
+  /** Part of the dashboard couldn't start for this project (a feature's module failed): what failed, for the switcher to say. */
+  notice?: string;
 }
 
 /** `GET /api/meta`: what the shell needs once, and the status bar. */

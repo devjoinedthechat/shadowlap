@@ -248,7 +248,12 @@ export interface Meta {
   jobKinds?: string[];
   /** The most an upload may hold, in bytes; null when uploads are not possible. */
   uploadLimit?: number | null;
-  project?: { name: string; path: string } | null;
+  /**
+   * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
+   * whether its setup is finished, why its store can't be opened (`problem`), and what part of the
+   * dashboard couldn't start for it (`notice`).
+   */
+  project?: { name: string; path: string; id?: string; display?: string; settingUp?: boolean; problem?: string; notice?: string } | null;
   /** How many redaction rules a copy made now applies. */
   redactRules?: number | null;
 }
@@ -293,6 +298,8 @@ export interface JobView {
   links?: JobLink[];
   files?: JobFile[];
   result?: unknown;
+  /** With several projects: the one the job runs in (its runs and links are that project's). */
+  project?: { id: string; name: string };
 }
 
 /** A job in `GET /api/jobs`: everything but its output and its result. */

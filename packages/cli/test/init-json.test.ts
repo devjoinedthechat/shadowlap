@@ -73,7 +73,7 @@ describe('shadowlap init --json', () => {
       commandFrom: 'agent.py',
       config: 'wrote an empty shadowlap.config.json',
     });
-    expect(j.folder).toMatchObject({ kind: 'Python · uv', label: 'Python · uv · pyproject.toml', files: ['pyproject.toml', 'uv.lock'] });
+    expect(j.folder).toMatchObject({ kind: 'Python · uv', label: 'Python · uv · pyproject.toml · uv.lock', files: ['pyproject.toml', 'uv.lock'] });
     // Everything the report had is still there, for scripts that read it.
     expect(j.providers).toEqual([{ id: 'anthropic', via: 'anthropic' }]);
     expect(j.config).toMatchObject({ existed: false, created: true });

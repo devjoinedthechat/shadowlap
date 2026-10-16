@@ -54,7 +54,7 @@ export interface ProjectSetup {
   calibration: { added: Array<{ path: string; why: string | null }> } | null;
   /** The golden kept as a test (step 4), relative to the folder. */
   golden: string | null;
-  /** Finished with Skip the rest, before a golden was kept. */
+  /** Finished with Skip the rest, before the golden's test passed (or before there was a golden). */
   skipped: boolean;
   updatedAt: number;
 }
@@ -318,6 +318,11 @@ export class ProjectRegistry {
   private readonly now: () => number;
   private readonly actor: (folder: string) => string | null;
   private readonly lockTimeoutMs: number;
+  /**
+   * The list as last read, with the file's identity then: a dashboard asks for it several times a
+   * request, and it is read again only once the file changed (each write replaces it).
+   */
+  private cached: { key: string; state: State } | null = null;
 
   constructor(options: RegistryOptions = {}) {
     this.env = options.env ?? process.env;
@@ -402,12 +407,13 @@ export class ProjectRegistry {
    * Adds a folder picked in the dashboard: it must be an existing folder with project files, under
    * the home folder or a configured root, not hidden or a system folder ({@link checkFolder}). A
    * folder that was a project before comes back with its runs, and with its setup finished if it
-   * was; one that already has recordings and goldens counts as set up.
+   * was. One whose store already holds runs (made in a terminal) counts as set up, as it does when
+   * `shadowlap dashboard` starts there: Shadowlap is in use there, so its Overview shows its runs.
    */
   add(folder: string): AddedProject {
     const check = checkFolder(folder, { home: this.home, roots: this.configuredRoots(), requireProjectFiles: true });
     if (!check.ok) throw new ProjectError('folder', check.why);
-    return this.addFolder(check.path);
+    return this.addFolder(check.path, { inUse: true });
   }
 
   /**
@@ -614,7 +620,7 @@ export class ProjectRegistry {
    * store, which is also what brings the finished setup back if the folder is added again. The
    * dashboard offers it only after the first recording (`ProjectHost.finishSetup` checks), and
    * passes what the setup found: its recording, the golden kept from it, and whether the setup is
-   * finished before a golden was kept. Without them, the list's own say.
+   * finished before that golden's test passed. Without them, the list's own say.
    */
   finishSetup(id: string, options: { runId?: string | null; golden?: string | null; skipped?: boolean } = {}): ProjectEntry {
     const at = this.now();
@@ -655,7 +661,22 @@ export class ProjectRegistry {
     return p;
   }
 
+  /** The list from the file, or as last read while the file is unchanged. A change reads it afresh (`parse`). */
   private read(): State {
+    let key: string | null = null;
+    try {
+      const st = statSync(this.file);
+      key = `${st.ino}:${st.size}:${st.mtimeMs}`;
+    } catch {
+      // not there yet, or unreadable: read below says which
+    }
+    if (key !== null && this.cached?.key === key) return this.cached.state;
+    const state = this.parse();
+    this.cached = key === null ? null : { key, state };
+    return state;
+  }
+
+  private parse(): State {
     let text: string;
     try {
       text = readFileSync(this.file, 'utf8');
@@ -682,7 +703,8 @@ export class ProjectRegistry {
   private mutate<T>(fn: (state: State) => T): T {
     try {
       return withFileLock(this.file, this.lockTimeoutMs, () => {
-        const state = this.read();
+        // Read afresh, and never the copy kept for readers: the change is made to what this reads.
+        const state = this.parse();
         if (typeof state.raw.version === 'number' && state.raw.version > REGISTRY_VERSION) throw new ProjectError('registry', newerList(this.file));
         const result = fn(state);
         const rawProjects = Array.isArray(state.raw.projects) ? state.raw.projects : [];

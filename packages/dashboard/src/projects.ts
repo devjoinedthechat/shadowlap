@@ -186,6 +186,9 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
       selected: picked?.path === f.path,
     }),
   );
+  // As the design lists them: folders that can be added first, then those already added, then those without project files.
+  const rank = (f: AddFolderItem) => (f.added ? 1 : f.kind ? 0 : 2);
+  folders.sort((a, b) => rank(a) - rank(b));
   const pickedDisplay = picked ? tildePath(picked.path, input.home) : null;
   const addable = !!picked && !!picked.folder.kind && !picked.added;
   const error = !picked ? null : picked.added ? `${pickedDisplay} is already in the dashboard.` : picked.folder.kind ? null : (picked.folder.why ?? `${pickedDisplay} has no project files.`);
@@ -215,10 +218,10 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
   };
 }
 
-/** The toast after adding: a folder added again says its runs came back. */
+/** The toast after adding: a folder added again says its runs came back, one recorded in a terminal how many it has. */
 export function addedMessage(added: { project: ProjectEntry; again: boolean; runs: number }, home: string): string {
   const path = tildePath(added.project.path, home);
-  return added.again ? `Added ${path} back · ${plural(added.runs, 'run')}` : `Added ${path}`;
+  return added.again ? `Added ${path} back · ${plural(added.runs, 'run')}` : added.runs ? `Added ${path} · ${plural(added.runs, 'run')}` : `Added ${path}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -284,7 +287,7 @@ export interface RecordStep extends StepBase {
    * replaces it.
    */
   again: { label: string; action: 'record'; command: { value: string; enabled: boolean }; cli: string[] } | null;
-  /** The newest recording held no calls: nothing was recorded, and why that usually is. */
+  /** The newest recording held no calls: nothing was recorded, and why that usually is (until the replay is made clean). */
   empty: { runId: string; href: string; text: string } | null;
 }
 
@@ -305,8 +308,12 @@ export interface TestStep extends StepBase {
   redaction: { rules: number; text: string; href: string } | null;
   /** The golden's path, editable until it is packed. */
   golden: { value: string; enabled: boolean } | null;
-  button: { label: string; action: 'packgolden'; enabled: boolean } | null;
+  /** Pack as a golden (then its test runs), or once it is packed, Run the test. */
+  button: { label: string; action: 'packgolden' | 'testgolden'; enabled: boolean } | null;
+  /** Its test passed: the step is done. */
   result: { text: string; link: { label: string; href: string } } | null;
+  /** Packed, and its test not passed yet: never run, or failed (with why, and where to look). */
+  packed: { golden: string; failed: boolean; text: string; link: { label: string; href: string } | null } | null;
 }
 
 export interface SetupView {
@@ -448,7 +455,8 @@ export function setupView(input: SetupInput): SetupView {
       ? `${plural(missed.length, 'tool')} ${missed.length === 1 ? 'wasn’t' : 'weren’t'} wrapped, so ${missed.length === 1 ? 'its' : 'their'} calls aren’t in this recording. ${wrappedSince ? `${missed.length === 1 ? 'It is' : 'They are'} wrapped now: record again` : `Wrap ${missed.length === 1 ? 'it' : 'them'} and record again`} before you keep it as a test.`
       : null,
     again: missed.length && !clean && !tested && !finished ? { label: 'Record again', action: 'record', command, cli: commands.record } : null,
-    empty: setup.empty
+    // Until the replay is made clean: past that, a later recording that held nothing changes nothing for the setup.
+    empty: setup.empty && !clean && !tested && !finished
       ? {
           runId: setup.empty.runId,
           href: `#/run/${setup.empty.runId}`,
@@ -484,29 +492,33 @@ export function setupView(input: SetupInput): SetupView {
     stopped: last?.stopped ?? null,
   };
 
-  // 4 · Keep it as a test
+  // 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
+  // in a terminal) whose test hasn't passed keeps the step open, with the test to run.
   const calls = totals?.calls ?? 0;
+  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
+  const failed = packedOnly !== null && setup.goldenTest?.ok === false;
   const test: TestStep = {
     key: 'test',
     n: 4,
     title: 'Keep it as a test',
-    state: state(tested, clean),
-    cli: tested ? [] : commands.test,
-    text: tested ? null : 'Packs the run into the repository, and CI replays it offline on every commit.',
-    redaction: tested
-      ? null
-      : {
-          rules: input.redactRules,
-          text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
-          href: '#/settings/redaction',
-        },
-    golden: tested ? null : { value: golden, enabled: clean },
-    button: tested ? null : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
-    result: tested
-      ? {
-          text: setup.goldenFrom === 'tested' ? `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}` : `Packed as ${golden}. shadowlap test ${golden} replays it offline.`,
-          link: { label: 'Open Tests', href: '#/tests' },
-        }
+    state: state(tested, clean || packedOnly !== null),
+    cli: tested ? [] : packedOnly ? [`shadowlap test ${packedOnly}`] : commands.test,
+    text: tested || packedOnly ? null : 'Packs the run into the repository, and CI replays it offline on every commit.',
+    redaction:
+      tested || packedOnly
+        ? null
+        : {
+            rules: input.redactRules,
+            text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
+            href: '#/settings/redaction',
+          },
+    golden: tested || packedOnly ? null : { value: golden, enabled: clean },
+    button: tested ? null : packedOnly ? { label: failed ? 'Run the test again' : 'Run the test', action: 'testgolden', enabled: true } : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
+    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: '#/tests' } } : null,
+    packed: packedOnly
+      ? failed
+        ? { golden: packedOnly, failed: true, text: `${packedOnly} failed its test${setup.goldenTest?.reason ? `: ${setup.goldenTest.reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: '#/tests' } }
+        : { golden: packedOnly, failed: false, text: `Packed as ${packedOnly}. Its test replays it offline: run it to finish.`, link: null }
       : null,
   };
 
@@ -571,22 +583,25 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
   // Copies of what was recorded that deleting the recordings leaves: said in both places, so nobody deleting for privacy is surprised.
   const made = (stats.madeFiles ?? []).filter((m) => MADE_NAMES[m]);
   const madeText = listed(made.map((m) => MADE_NAMES[m]!));
-  const onDisk: OnDiskRow[] = [
-    { key: 'code', label: 'The folder and its code', path },
-    { key: 'rec', label: stats.runs ? 'Its recordings' : 'Its store, empty so far', path: '.shadowlap/shadowlap.db' },
-    { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
-    ...(stats.goldens ? [{ key: 'gold' as const, label: stats.goldens === 1 ? 'Its golden' : `Its ${stats.goldens} goldens`, path: 'goldens/' }] : []),
-    ...(made.length ? [{ key: 'made' as const, label: `Its ${madeText}`, path: made.map((m) => `${m}/`).join(' · ') }] : []),
-  ];
+  // A folder that is gone holds nothing to keep: the dialog says so rather than listing what was in it.
+  const onDisk: OnDiskRow[] = stats.missing
+    ? [{ key: 'code', label: 'Its folder, not on disk any more', path }]
+    : [
+        { key: 'code', label: 'The folder and its code', path },
+        { key: 'rec', label: stats.runs ? 'Its recordings' : 'Its store, empty so far', path: '.shadowlap/shadowlap.db' },
+        { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
+        ...(stats.goldens ? [{ key: 'gold' as const, label: stats.goldens === 1 ? 'Its golden' : `Its ${stats.goldens} goldens`, path: 'goldens/' }] : []),
+        ...(made.length ? [{ key: 'made' as const, label: `Its ${madeText}`, path: made.map((m) => `${m}/`).join(' · ') }] : []),
+      ];
   return {
     title: `Remove ${project.name} from the dashboard?`,
     project: { id: project.id, name: project.name, path, initial: initial(project.name), summary: stats.runs ? `${runsLabel(stats.runs)}${stats.goldens ? ` · ${plural(stats.goldens, 'golden')}` : ''}` : 'no runs yet' },
     onDisk,
     keep: {
       text: 'The dashboard stops listing it. Nothing on disk changes.',
-      note: 'Adding the folder again brings it all back.',
+      note: stats.missing ? 'Put the folder back and add it again to bring it all back.' : 'Adding the folder again brings it all back.',
       button: { label: 'Remove', style: 'solid' },
-      crossedOut: null,
+      crossedOut: stats.missing ? 'code' : null,
       done: `Removed ${project.name} · its folder and recordings are untouched`,
     },
     deleteZone: stats.runs

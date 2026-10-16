@@ -145,7 +145,8 @@ describe('shadowlap normalize', () => {
 describe('a broken or long rule in the file', () => {
   /** `shadowlap dashboard` in the background: its address and session token, and how to stop it. */
   function dashboard(): Promise<{ origin: string; token: string; stop: () => Promise<void> }> {
-    const child = spawn(process.execPath, [CLI, 'dashboard', '--no-open'], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // The dashboard keeps its list of projects in SHADOWLAP_HOME: the test's own, never the real one.
+    const child = spawn(process.execPath, [CLI, 'dashboard', '--no-open'], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_HOME: join(cwd, '.sl-home') }, stdio: ['ignore', 'pipe', 'pipe'] });
     const closed = new Promise<void>((resolve) => child.on('close', () => resolve()));
     let err = '';
     return new Promise((resolve, reject) => {

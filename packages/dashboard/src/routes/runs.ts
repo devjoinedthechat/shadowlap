@@ -7,11 +7,11 @@ import { exportHtml, withAncestors } from '../static.js';
 
 /** Runs: the list, one run, its calls, family and provenance, labels and notes, the HTML download, delete. */
 export function register(router: Router, ctx: RouteContext): void {
-  const { store } = ctx;
-
-  router.get('/runs', (r) => r.tagged({ runs: listRuns(store, ctx.read) }));
+  // `ctx.store` is read in each handler: on a dashboard with several projects it is the current one's.
+  router.get('/runs', (r) => r.tagged({ runs: listRuns(ctx.store, ctx.read) }));
 
   router.get('/runs/:id', (r) => {
+    const store = ctx.store;
     const d = runDetail(store, r.params.id!, ctx.read);
     if (!d) throw new HttpError(404, `no run ${r.params.id}`);
     r.tagged(d);
@@ -21,6 +21,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // recording, or one a replay in progress still serves answers from, is left alone. A write, so a
   // read-only dashboard refuses it before it gets here.
   router.delete('/runs/:id', (r) => {
+    const store = ctx.store;
     const out = deleteRuns(store, [r.params.id!]);
     if ('error' in out) throw new HttpError(400, out.error);
     const skipped = out.skipped[0];
@@ -29,6 +30,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   router.get('/runs/:id/calls/:n', (r) => {
+    const store = ctx.store;
     const n = Number(r.params.n);
     const d = Number.isInteger(n) ? callDetail(store, r.params.id!, n, ctx.read) : null;
     if (!d) throw new HttpError(404, `no call #${r.params.n} in run ${r.params.id}`);
@@ -38,6 +40,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // The run's record for the Provenance tab, with what a copy made now would mask under the
   // project's redaction rules, read afresh as the download reads them.
   router.get('/runs/:id/provenance', (r) => {
+    const store = ctx.store;
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const p = provenance(store, r.params.id!, { ...ctx.read, ...(redact.length ? { redact } : {}) });
     if (!p) throw new HttpError(404, `no run ${r.params.id}`);
@@ -45,12 +48,14 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   router.get('/runs/:id/lineage', (r) => {
+    const store = ctx.store;
     const nodes = lineage(store, r.params.id!, ctx.read);
     if (!nodes) throw new HttpError(404, `no run ${r.params.id}`);
     r.tagged({ nodes });
   });
 
   router.post('/runs/:id/labels', async (r) => {
+    const store = ctx.store;
     const body = await r.body();
     const out = changeLabels(store, r.params.id!, body.add, body.remove);
     if ('error' in out) throw new HttpError(out.status, out.error);
@@ -58,6 +63,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   router.post('/runs/:id/notes', async (r) => {
+    const store = ctx.store;
     const body = await r.body();
     const out = addNote(store, r.params.id!, body.callNo, body.text);
     if ('error' in out) throw new HttpError(out.status, out.error);
@@ -68,6 +74,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // too. Its ancestors come along so a fork still shows what it parted from, and the project's
   // redaction rules apply, exactly as `shadowlap export html --lineage` does.
   router.get('/runs/:id/export', (r) => {
+    const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);

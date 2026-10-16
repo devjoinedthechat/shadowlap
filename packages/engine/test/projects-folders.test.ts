@@ -51,13 +51,13 @@ describe('describeFolder', () => {
   it('names the language, the package manager and the project files', () => {
     expect(kind({ 'pyproject.toml': '', 'uv.lock': '' }, 'uv')).toEqual({
       kind: 'Python · uv',
-      label: 'Python · uv · pyproject.toml',
+      label: 'Python · uv · pyproject.toml · uv.lock',
       languages: ['python'],
       managers: ['uv'],
       files: ['pyproject.toml', 'uv.lock'],
       why: null,
     });
-    expect(kind({ 'package.json': '{}', 'package-lock.json': '{}' }, 'npm')).toMatchObject({ kind: 'Node · npm', label: 'Node · npm · package.json' });
+    expect(kind({ 'package.json': '{}', 'package-lock.json': '{}' }, 'npm')).toMatchObject({ kind: 'Node · npm', label: 'Node · npm · package.json · package-lock.json' });
     expect(kind({ 'package.json': '{}', 'pnpm-lock.yaml': '' }, 'pnpm')).toMatchObject({ kind: 'Node · pnpm', files: ['package.json', 'pnpm-lock.yaml'] });
     expect(kind({ 'requirements.txt': 'anthropic==0.69.0\n' }, 'pip')).toMatchObject({ kind: 'Python · pip', label: 'Python · pip · requirements.txt' });
     expect(kind({ 'Cargo.toml': '', 'Cargo.lock': '' }, 'rust')).toMatchObject({ kind: 'Rust · cargo' });
@@ -119,7 +119,7 @@ describe('suggestFolders', () => {
     expect(suggestFolders('~/AGENT', { home }).folders.map((f) => f.display)).toEqual(['~/research-agent', '~/support-agent']);
     const code = suggestFolders('~/code/', { home });
     expect(code.listed).toBe('~/code/');
-    expect(code.folders.map((f) => [f.display, f.folder.label])).toEqual([['~/code/invoice-bot', 'Node · pnpm · package.json']]);
+    expect(code.folders.map((f) => [f.display, f.folder.label])).toEqual([['~/code/invoice-bot', 'Node · pnpm · package.json · pnpm-lock.yaml']]);
     // Without ~, a path is read from the home folder too.
     expect(suggestFolders('code/inv', { home }).folders.map((f) => f.display)).toEqual(['~/code/invoice-bot']);
     expect(suggestFolders(`${home}/code/`, { home }).folders.map((f) => f.display)).toEqual(['~/code/invoice-bot']);

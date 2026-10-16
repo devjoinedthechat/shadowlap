@@ -1,5 +1,6 @@
-import { clock, isoDay, num, tildePath, whenShort } from '../format.js';
+import { clock, isoDay, num, whenShort } from '../format.js';
 import { useNow } from '../hooks.js';
+import { storePath } from '../projects.js';
 import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
@@ -29,7 +30,7 @@ export function StatusBar() {
       {exported ? (
         <span>EXPORTED COPY{meta?.exportedAt ? ` · ${isoDay(meta.exportedAt)}` : ''}</span>
       ) : (
-        <span title={meta?.dbPath ?? undefined}>STORE {meta?.dbPath ? tildePath(meta.dbPath) : '…'}</span>
+        <span title={meta?.dbPath ?? undefined}>STORE {meta?.dbPath ? storePath(meta) : '…'}</span>
       )}
       <span className="sep" />
       <span>

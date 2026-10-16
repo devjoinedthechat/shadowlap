@@ -130,14 +130,38 @@ describe('deriveSetup', () => {
     expect(deriveSetup({ stage: 'recorded', runId: 'R1', unwrappedAtRecord: ['x'] }, facts({ runs: 1, recordings: [r1] })).unwrappedAtRecord).toEqual(['x']);
   });
 
-  it('counts a clean replay of the recording as step 3, and a pack of it in the repository as step 4', () => {
+  it('counts a clean replay of the recording as step 3, and a pack of it in the repository whose test passed as step 4', () => {
     const replayed = fact('R1', 'completed', { replayedClean: true });
     expect(deriveSetup({ stage: 'inspected', runId: null }, facts({ runs: 2, recordings: [replayed] }))).toMatchObject({ stage: 'clean', steps: { recorded: true, clean: true, tested: false } });
     const packs = [{ path: 'goldens/other', runIds: ['OTHER'] }, { path: 'goldens/agent', runIds: ['R1'] }];
+    // Packed is not tested: the golden is known, its test hasn't run.
     const packed = deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 1, recordings: [fact('R1')] }), { packs });
-    expect(packed).toMatchObject({ stage: 'tested', steps: { recorded: true, clean: false, tested: true }, golden: 'goldens/agent', goldenFrom: 'packed' });
-    // Tested from the setup: the list's golden.
-    expect(deriveSetup({ stage: 'tested', runId: 'R1', golden: 'goldens/q3' }, facts({ runs: 1, recordings: [fact('R1')] }))).toMatchObject({ stage: 'tested', golden: 'goldens/q3', goldenFrom: 'tested' });
+    expect(packed).toMatchObject({ stage: 'recorded', steps: { recorded: true, clean: false, tested: false }, golden: 'goldens/agent', goldenTest: null });
+    // Its test failed, then passed: the newest result decides.
+    const test = (ok: boolean, over: object = {}) => ({ golden: 'goldens/agent', ok, at: 5, reason: ok ? null : 'diverged at call 2', goldenRunId: 'R1', ...over });
+    expect(deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 1, recordings: [fact('R1')], tests: [test(false)] }), { packs })).toMatchObject({ stage: 'recorded', steps: { tested: false }, goldenTest: { ok: false, reason: 'diverged at call 2' } });
+    expect(deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 1, recordings: [fact('R1')], tests: [test(true)] }), { packs })).toMatchObject({ stage: 'tested', steps: { recorded: true, tested: true }, golden: 'goldens/agent', goldenTest: { ok: true } });
+    // A test of another recording packed under the same name says nothing about this one.
+    expect(deriveSetup({ stage: 'recorded', runId: 'R1' }, facts({ runs: 1, recordings: [fact('R1')], tests: [test(true, { goldenRunId: 'OLD' })] }), { packs })).toMatchObject({ steps: { tested: false }, goldenTest: null });
+    // Tested from the setup, noted in the list, with no result in the store: the list's word for it.
+    expect(deriveSetup({ stage: 'tested', runId: 'R1', golden: 'goldens/q3' }, facts({ runs: 1, recordings: [fact('R1')] }))).toMatchObject({ stage: 'tested', golden: 'goldens/q3', goldenTest: null });
+    // The store's newest result wins over the list (which got as far as a clean replay before).
+    expect(deriveSetup({ stage: 'tested', runId: 'R1', golden: 'goldens/q3' }, facts({ runs: 1, recordings: [fact('R1')], tests: [test(false, { golden: 'goldens/q3' })] }))).toMatchObject({ stage: 'clean', steps: { clean: true, tested: false } });
+  });
+
+  it('reads each golden’s newest test from the store, open or read-only', () => {
+    const d = realpathSync(mkdtempSync(join(tmpdir(), 'sl-setup-tests-')));
+    dirs.push(d);
+    const path = join(d, 'shadowlap.db');
+    const store = Store.open(path);
+    const session = store.startTestSession({ command: ['shadowlap', 'test'], revision: null, actor: null });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/agent', ok: false, at: 10, reason: 'diverged', goldenRunId: 'R1' });
+    const later = store.startTestSession({ command: ['shadowlap', 'test'], revision: null, actor: null });
+    store.addTestResult({ sessionId: later.sessionId, golden: 'goldens/agent', ok: true, at: 20, goldenRunId: 'R1' });
+    const expected = [{ golden: 'goldens/agent', ok: true, at: 20, reason: null, goldenRunId: 'R1' }];
+    expect(storeFacts(store).tests).toEqual(expected);
+    store.close();
+    expect(readStoreFacts(path).tests).toEqual(expected);
   });
 
   it('is done once finished, with runs; a project with imports only is still set up', () => {
@@ -146,6 +170,12 @@ describe('deriveSetup', () => {
     // Finished: each step done only when there is something to show for it.
     const finished = deriveSetup({ stage: 'done', runId: 'R', calibration: { added: [] }, golden: null }, facts({ runs: 1, recordings: [fact('R')] }));
     expect(finished).toMatchObject({ stage: 'done', steps: { recorded: true, clean: true, tested: false }, golden: null });
+    // Finished with its golden packed and tested: done. Skipped before the test passed: not, until one does.
+    const packs = [{ path: 'goldens/x', runIds: ['R'] }];
+    expect(deriveSetup({ stage: 'done', runId: 'R', golden: 'goldens/x' }, facts({ runs: 1, recordings: [fact('R')] }), { packs }).steps.tested).toBe(true);
+    expect(deriveSetup({ stage: 'done', runId: 'R', golden: 'goldens/x', skipped: true }, facts({ runs: 1, recordings: [fact('R')] }), { packs }).steps.tested).toBe(false);
+    const passing = facts({ runs: 1, recordings: [fact('R')], tests: [{ golden: 'goldens/x', ok: true, at: 9, reason: null, goldenRunId: 'R' }] });
+    expect(deriveSetup({ stage: 'done', runId: 'R', golden: 'goldens/x', skipped: true }, passing, { packs }).steps.tested).toBe(true);
   });
 });
 
