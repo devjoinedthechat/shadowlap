@@ -94,10 +94,13 @@ export function isInterrupted(r: RunLike): boolean {
   return r.status === 'crashed' && !isFailed(r);
 }
 
-/** What a failed run failed, in the sidebar's words: a check (blame's among them), or the agent's exit. */
-function failedWord(r: RunLike): string {
+/**
+ * What a failed run failed, in the words of the sidebar and Runs: a check (blame's among them, on a
+ * run that exited 0), or the agent's exit, which names no check.
+ */
+export function failedWord(r: RunLike): string {
   const o = r.outcome;
-  if (o?.kind === 'lost' || (o?.kind === 'check-failed' && o.check)) return 'check failed';
+  if (o?.kind === 'lost' || (o?.kind === 'check-failed' && (o.check || r.status !== 'failed'))) return 'check failed';
   return r.checks && r.checks.passed < r.checks.total ? 'check failed' : 'failed';
 }
 
@@ -170,12 +173,13 @@ export function sideLine(r: RunLike): { text: string; err?: string } {
   if (isLive(r)) return { text: `${runType(r) === 'recording' || runType(r) === 'capture' ? 'recording' : 'running'} · ${calls} so far` };
   const t = runType(r);
   if (t === 'clean') return { text: counts ? `clean replay · ${num(counts.rep)}/${num(r.calls)}` : `clean replay · ${calls}` };
+  // Stopped before it ended, failing nothing else: what it is, then that, as the Forks view says it.
+  if (isInterrupted(r)) return { text: `${kindWord(r)} · interrupted · ${calls}` };
   if (t === 'fork') {
     const went = counts ? ` · ${num(counts.live + counts.fail)} live${counts.block ? ` · ${num(counts.block)} blocked` : ''}${counts.stub ? ` · ${num(counts.stub)} stubbed` : ''}` : ` · ${calls}`;
     return { text: `fork @${r.divergence!.callNo}${went}` };
   }
   if (t === 'capture') return { text: `capture · ${calls}` };
-  if (isInterrupted(r)) return { text: `${kindWord(r)} · interrupted · ${calls}` };
   if (t === 'test') return isFailed(r) ? { err: 'test failed', text: r.divergence && r.outcome?.kind !== 'check-failed' ? ` · diverged at #${r.divergence.callNo}` : ` · ${calls}` } : { text: counts && counts.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(counts.live)} live` : 'test · offline · 0 upstream' };
   if (isFailed(r)) return { err: failedWord(r), text: ` · ${calls}` };
   return { text: `${runSource(r)} · ${calls}` };
@@ -189,7 +193,8 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'n'; tex
     if (o.kind === 'running') return { tone: 'live', text: 'in progress' };
     if (o.kind === 'diverged' && typeof o.callNo === 'number') return { tone: 'err', text: `diverged at #${o.callNo}` };
     if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: `lost at #${o.callNo}` };
-    if (o.kind === 'check-failed') return { tone: 'err', text: 'check failed' };
+    // A check, or the agent's exit (an outcome that names no check), in the sidebar's words.
+    if (o.kind === 'check-failed') return { tone: 'err', text: failedWord(r) };
     if (o.kind === 'passed' && typeof o.checks === 'number') return { tone: 'ok', text: `${plural(o.checks, 'check')} passed` };
     if (o.kind === 'clean') return { tone: 'ok', text: 'clean' };
     // A run cut short (its recorder stopped before it ended) has no outcome, but says why.

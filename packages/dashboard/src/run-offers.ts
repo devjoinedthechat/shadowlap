@@ -4,6 +4,7 @@ import { lookupRun } from './api.js';
 import { fixForRun } from './fixes.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
+import { runState } from './runs-list.js';
 
 /**
  * What the run page offers to do with a run beyond its own record, worked out from the project's
@@ -216,6 +217,18 @@ export function passingBisect(b: BisectChoices | null, head: string | null | und
   return { ...b, args: null, unavailable: `this run passed at ${b.good}, which is HEAD: there is no later commit to search yet` };
 }
 
+/**
+ * The store as Find the commit reads a run its recorder left marked running: as the run list has
+ * it, interrupted and ended at its last call, as one stopped with Ctrl-C reads, never as one still
+ * recording. Any other run is read as it is.
+ */
+function asListed(store: Store, run: RunRecord): Store {
+  const state = runState(store, run.runId);
+  if (!state || state.status === run.status) return store;
+  const shown: RunRecord = { ...run, status: state.status, endedAt: run.endedAt ?? state.endedAt };
+  return Object.create(store, { getRun: { value: (id: string) => (id === run.runId ? shown : store.getRun(id)) } }) as Store;
+}
+
 export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInput): RunOffers | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
@@ -224,7 +237,7 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     copies: copyRules(input.redact),
     team: teamOf(store, run, input.config?.store),
     blame: blameOffer(store, run, input.config?.tests),
-    bisect: passingBisect(blamedBisect(run, bisectChoices(store, run.runId, { goldens: input.goldens ?? [] })), input.head),
+    bisect: passingBisect(blamedBisect(run, bisectChoices(asListed(store, run), run.runId, { goldens: input.goldens ?? [] })), input.head),
     test: testOffer(store, run, input.config?.normalize),
   };
 }

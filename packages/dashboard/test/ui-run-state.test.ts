@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
-import { familyLine, familyLineParts, isFailed, isInterrupted, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
+import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
 import { blameScope, scopeChips, scopeHint } from '../ui/scopes.js';
@@ -27,12 +27,35 @@ describe('an interrupted run, everywhere it is shown', () => {
     const replay: RunLike = { ...cut, mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', kind: 'replay' };
     expect(sideLine(replay)).toEqual({ text: 'replay · interrupted · 8 calls' });
     expect(runTag(replay)).toEqual({ cls: '', text: 'interrupted' });
+    // So does a fork, in the sidebar as in the Forks view: what it is, then that it stopped.
+    const fork: RunLike = { ...cut, mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', divergence: { callNo: 3, type: 'request_changed' }, origins: 'rrllllll', kind: 'fork' };
+    expect(sideLine(fork)).toEqual({ text: 'fork @3 · interrupted · 8 calls' });
+    expect(familyLine(fork)).toBe('fork @3 · interrupted · 8 calls');
+    expect(runOutcome(fork)).toEqual({ tone: 'n', text: 'interrupted' });
+    expect(runGlyph(fork)).toEqual({ kind: 'fork', label: 'Fork at #3, interrupted' });
+    // The fork's tag says what it is; its page's eyebrow says that it stopped.
+    expect(runTag(fork)).toEqual({ cls: 'fork', text: 'fork @3' });
   });
 
   it('is interrupted without the server too: a stop is not a failure', () => {
     const older: RunLike = { ...base, status: 'crashed' };
     expect(isFailed(older)).toBe(false);
     expect(runOutcome(older)).toEqual({ tone: 'n', text: 'interrupted' });
+  });
+
+  it('says a run whose agent exited with an error failed, in Runs as in the sidebar; a check, when one failed', () => {
+    // The engine's outcome for an agent's error exit names no check.
+    const exited: RunLike = { ...base, status: 'failed', kind: 'recording', outcome: { kind: 'check-failed', check: null }, failed: true };
+    expect(runOutcome(exited)).toEqual({ tone: 'err', text: 'failed' });
+    expect(sideLine(exited)).toEqual({ err: 'failed', text: ' · 8 calls' });
+    const checked: RunLike = { ...exited, outcome: { kind: 'check-failed', check: 'issue_refund never called' } };
+    expect(runOutcome(checked)).toEqual({ tone: 'err', text: 'check failed' });
+    expect(sideLine(checked)).toEqual({ err: 'check failed', text: ' · 8 calls' });
+    // Blame confirmed a run that exited 0 fails the check it was given, though it placed it on no call.
+    const blamed: RunLike = { ...exited, status: 'completed' };
+    expect(runOutcome(blamed)).toEqual({ tone: 'err', text: 'check failed' });
+    expect(sideLine(blamed)).toEqual({ err: 'check failed', text: ' · 8 calls' });
+    expect(failedWord(blamed)).toBe('check failed');
   });
 
   it('fails as the server says when it failed something before it stopped', () => {
@@ -62,6 +85,19 @@ describe('a run of the family, in Forks and in Provenance’s lineage', () => {
     // A recording the list doesn't hold is drawn from the lineage alone: a recording, whatever the page shows.
     expect(runGlyph(lineageRunLike(node(), undefined))).toEqual({ kind: 'rec', label: 'Recording' });
     expect(runGlyph(lineageRunLike(node({ mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', divergence: { callNo: 5, type: 'forced' } }), undefined))).toEqual({ kind: 'fork', label: 'Fork at #5' });
+  });
+
+  it('reads its state from the lineage when the server sends it, for an attempt the lists leave out too', () => {
+    // A --repeat attempt its recorder left: the lineage says interrupted, and the list doesn't hold it.
+    const attempt = node({ mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', divergence: { callNo: 3, type: 'request_changed' }, status: 'crashed', kind: 'fork', outcome: { kind: 'none' }, failed: false, repeat: { group: 'g1', attempt: 2, of: 3 } });
+    const like = lineageRunLike(attempt, undefined);
+    expect(like).toMatchObject({ status: 'crashed', kind: 'fork', outcome: { kind: 'none' }, failed: false });
+    expect(familyLine(like)).toBe('fork @3 · interrupted · 8 calls');
+    // The lineage's state wins over a list row read before the recorder was found gone.
+    const stale = { runId: attempt.runId, status: 'running', kind: 'fork', outcome: { kind: 'running' }, failed: false, command: 'node agent.mjs', labels: [] } as unknown as RunListItem;
+    expect(lineageRunLike(attempt, stale)).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, command: 'node agent.mjs' });
+    // An attempt of a --repeat bundle says so beside its id.
+    expect(repeatBundle([{ runId: attempt.runId, status: like.status, divergence: { callNo: 3 }, spent: 0, startedAt: 0, repeat: { attempt: 2, of: 3 }, checks: null }]).attempts[0]!.text).toBe('01K5CQ4N7G · interrupted');
   });
 });
 

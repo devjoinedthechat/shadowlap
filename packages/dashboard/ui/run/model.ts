@@ -42,16 +42,20 @@ export function runLikeOf(d: RunDetail): RunLike {
 }
 
 /**
- * A run of a family (the Forks view, Provenance's lineage) as the lists see it: with the run list's
- * state when the run is listed (its kind, outcome and whether it failed, an interrupted run's
- * status), so its icon and line say what Runs and the sidebar say; never another run's.
+ * A run of a family (the Forks view, Provenance's lineage) as the lists see it: with its state as the
+ * server's lineage gives it, the run list's own (its kind, outcome and whether it failed, an
+ * interrupted run's status), for an attempt the lists leave out too; from an older server that sends
+ * none, the run list's when the run is listed. So its icon and line say what Runs and the sidebar
+ * say; never another run's.
  */
 export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined): RunLike {
+  // The lineage's own state when it has one; else the list's.
+  const s = n.outcome !== undefined ? { status: n.status, kind: n.kind ?? null, outcome: n.outcome, failed: n.failed } : listed ? { status: listed.status, kind: listed.kind ?? null, outcome: listed.outcome ?? null, failed: listed.failed } : null;
   return {
     runId: n.runId,
     parentRunId: n.parentRunId,
     mode: n.mode,
-    status: listed?.status ?? n.status,
+    status: s?.status ?? n.status,
     divergence: n.divergence,
     command: listed?.command ?? '',
     codeVersion: listed?.codeVersion ?? null,
@@ -67,7 +71,7 @@ export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined):
     origins: n.origins ?? listed?.origins ?? null,
     test: listed?.test ?? null,
     checks: n.checks,
-    ...(listed ? { kind: listed.kind ?? null, outcome: listed.outcome ?? null, ...(typeof listed.failed === 'boolean' ? { failed: listed.failed } : {}) } : {}),
+    ...(s ? { kind: s.kind, outcome: s.outcome, ...(typeof s.failed === 'boolean' ? { failed: s.failed } : {}) } : {}),
   };
 }
 

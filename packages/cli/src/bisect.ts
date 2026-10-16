@@ -198,7 +198,8 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
     const found = project.findRun(input.target);
     if (!found) throw new BisectError(`${input.target} is neither a golden (a directory with a run.json) nor a run in ${input.opts.db ?? defaultDbPath(projectDir)}`);
     // Its recording isn't whole yet: replaying the part that is would answer for a run that never was.
-    if (found.status === 'running') throw new BisectError(`${shortId(found.runId)} is still recording: find the commit once it has ended`);
+    // One its recorder left (killed, out of memory) was interrupted: it is copied as it stands (packRun).
+    if (found.status === 'running' && project.recordingRuns().live.some((r) => r.run.runId === found.runId)) throw new BisectError(`${shortId(found.runId)} is still recording: find the commit once it has ended`);
     packRun(project, found.runId, scratch);
     unpackRun(store, scratch);
     return { run: store.getRun(found.runId)!, kind: 'run', name: shortId(found.runId), golden: found.meta?.test?.golden ?? null };

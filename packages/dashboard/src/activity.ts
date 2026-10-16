@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
@@ -294,6 +294,7 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
     const parts = [`Replay diverged at #${d.callNo} · ${drifted}`];
     if (outcome) parts.push(outcome);
     else if (run.status === 'failed') parts.push('the agent failed');
+    else if (run.status === 'crashed') parts.push('interrupted');
     return { ...item, kind: 'fail', text: parts.join(' · ') };
   }
   if (d) {
@@ -303,6 +304,8 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
     if (s.byOrigin.stubbed) parts.push(`${s.byOrigin.stubbed} stubbed`);
     if (outcome) parts.push(outcome);
     else if (run.status === 'failed') parts.push('the agent failed');
+    // Stopped before it ended (Ctrl-C, a kill), as every list says it.
+    else if (run.status === 'crashed') parts.push('interrupted');
     return { ...item, kind: checks?.failed ? 'fail' : 'fork', text: parts.join(' · ') };
   }
   if (run.status === 'completed' && s.total > 0) {
@@ -550,13 +553,19 @@ const stubCache = new WeakMap<Store, { key: string; stubs: Stub[] }>();
  */
 function derivedStubs(store: Store): Stub[] {
   const counts = store.changeCounts();
-  const key = `${counts.runs ?? 0}:${counts.events ?? 0}`;
+  // A run its recorder left (killed, out of memory) reads interrupted, as every list shows it, and
+  // ended at its last call: no longer recording. A recorder can stop with nothing in the store
+  // changing, so the runs it left are part of what the entries are worked out for.
+  const all = cachedRuns(store).runs;
+  const runs = asTheyStand(store, all);
+  const left = runs.filter((r, i) => r !== all[i]).map((r) => r.runId);
+  const key = `${counts.runs ?? 0}:${counts.events ?? 0}:${left.join(',')}`;
   const hit = stubCache.get(store);
   if (hit && hit.key === key) return hit.stubs;
   // The newest 10,000 of the events that stand in for what runs tell; older ones are left out of the feed.
   const telling = store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 });
   const imports = telling.filter((e) => GROUPED_KINDS.includes(e.kind));
-  const stubs = [...derived(store, cachedRuns(store).runs, coveredBy(telling)), ...importStubs(imports)].sort(order);
+  const stubs = [...derived(store, runs, coveredBy(telling)), ...importStubs(imports)].sort(order);
   stubCache.set(store, { key, stubs });
   return stubs;
 }

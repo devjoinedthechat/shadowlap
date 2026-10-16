@@ -8,7 +8,7 @@ import { copyText } from '../dom.js';
 import { dur, shortId, stamp } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { compareTarget, isFailed, isInterrupted, runTag, runType } from '../runs.js';
+import { compareTarget, failedWord, isFailed, isInterrupted, runTag, runType } from '../runs.js';
 import { useApp } from '../state.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
@@ -46,7 +46,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
     : type === 'test' && d && (!outcome || outcome.kind === 'diverged')
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
       : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }, true) ?? (run.fix?.check ? fixCheckShort(run.fix.check, run.calls, true) : null));
-  const checkFailed = !!failure?.startsWith('check failed');
+  // A check (blame's among them), or the agent's exit: the word Runs and the sidebar use.
+  const checkFailed = !!failure?.startsWith('check failed') || (failed && failedWord(like) === 'check failed');
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
   const stopped = cut ? ' · interrupted' : '';
   const eyebrow = live ? (
@@ -55,7 +56,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
     <Eyebrow tone="fork">
       {rescued ? 'rescued by blame · ' : ''}fork @{r.divergence!.callNo}
       {parent ? <> of {parent}</> : null}
-      {stopped}
+      {/* A fork keeps its own colour; that it stopped is said in grey, as on every other run. */}
+      {cut ? <span className="n">{stopped}</span> : null}
     </Eyebrow>
   ) : type === 'clean' || type === 'replay' ? (
     <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>
