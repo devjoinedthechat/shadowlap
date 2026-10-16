@@ -125,31 +125,31 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // Check access and connect: `store set <url> --provider <p> --check`, which checks the bucket with
-  // this machine's credentials and writes the store to the config only when that works. Once it
-  // starts, the setup of that store is under way, so the tab goes on to the next steps.
+  // this machine's credentials and writes the store to the config only when that works.
   ctx.jobs.registerJobKind('store-set', {
     title: () => 'Connecting the store',
-    build: (req, { store }) => {
+    build: (req) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!isProvider(req.provider)) return { error: 'provider is s3, gcs, azure or r2' };
       if (typeof req.url !== 'string' || !req.url.trim() || req.url.length > 2048) return { error: 'url: the bucket and folder, such as s3://my-bucket/agent-runs' };
       let configured: string;
-      let key: string;
       try {
-        const loc = parseStoreUrl(req.url, req.provider);
-        configured = formatStoreUrl(loc);
-        key = storeKey(loc);
+        configured = formatStoreUrl(parseStoreUrl(req.url, req.provider));
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
       }
-      const provider = req.provider;
-      return {
-        args: ['store', 'set', configured, '--provider', provider, '--check'],
-        started: () => {
-          recordSetup(store, key, { startedAt: Date.now(), finishedAt: null });
-        },
-      };
+      return { args: ['store', 'set', configured, '--provider', req.provider, '--check'] };
     },
+  });
+  // Once it has connected the store (the check passed, the config names it), the setup of that store
+  // is under way, and Settings → Store goes on to the next steps. One that failed starts nothing.
+  ctx.jobs.onJob((n) => {
+    if (n.type !== 'end' || n.job.kind !== 'store-set' || n.job.code !== 0) return;
+    try {
+      recordSetup(ctx.store, storeKey(parseStoreUrl(n.job.args[2] ?? '')), { startedAt: n.job.startedAt, finishedAt: null });
+    } catch {
+      // not a store URL: not a job this module built
+    }
   });
 
   // Push: the runs picked with the attempts bundled under them (their ancestors go too, as the CLI

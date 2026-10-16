@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
-import { parseStoreUrl, push, recordCheck } from '@shadowlap/remote';
+import { parseStoreUrl, push, recordCheck, storeKey } from '@shadowlap/remote';
+
+const storeKeyOf = (url: string) => storeKey(parseStoreUrl(url));
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import { checkSetupUrl, recordSetup, setupCommand, setupRecord, storeSetupView, type StoreSetupView } from '../src/store-setup.js';
 import { MemoryStore } from '../../remote/test/fakes/memory.js';
@@ -162,6 +164,8 @@ describe('what Settings → Store shows', () => {
     expect(storeTabMode({ configured: false, setupActive: false, starting: true, finishedNow: false })).toBe('setup');
     expect(storeTabMode({ configured: true, setupActive: true, starting: false, finishedNow: false })).toBe('setup');
     expect(storeTabMode({ configured: true, setupActive: false, starting: false, finishedNow: true })).toBe('setup');
+    // Started on this page: the steps stay while the store and the setup are read again.
+    expect(storeTabMode({ configured: true, setupActive: false, starting: true, finishedNow: false })).toBe('setup');
     // A store set with the CLI shows as it is.
     expect(storeTabMode({ configured: true, setupActive: false, starting: false, finishedNow: false })).toBe('store');
   });
@@ -179,12 +183,28 @@ describe('the setup routes', () => {
     expect((await get<StoreSetupView>(ro, 'store/setup')).store).toBeNull();
   });
 
-  it('connects a bucket with store set --check, and marks the setup started once the command runs', async () => {
+  it('connects a bucket with store set --check, and marks the setup started once that worked', async () => {
     const res = await post(dash, 'jobs', { kind: 'store-set', provider: 's3', url: `  ${URL_}  ` });
     expect(res.status, await res.clone().text()).toBe(202);
-    await finished((await res.json()) as JobView);
+    const job = await finished((await res.json()) as JobView);
     expect(spawned.at(-1)).toEqual(['store', 'set', URL_, '--provider', 's3', '--check']);
-    expect(setupRecord(store, KEY).startedAt).toBeGreaterThan(0);
+    expect(job.code).toBe(0);
+    expect(setupRecord(store, KEY).startedAt).toBe(job.startedAt);
+    // A check that fails starts nothing: the store it named isn't set.
+    const other = 's3://northwind-agent-runs/elsewhere';
+    const failing = await startDashboard({ store, dbPath: ':memory:', project: { path: project }, spawnCli: (args, o) => cliSpawner({ command: [process.execPath, FAKE], cwd: tmpdir() })(['fail'], o) });
+    try {
+      const r = await fetch(`${failing.url}/api/jobs`, { method: 'POST', headers: { 'x-shadowlap-token': failing.token, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'store-set', provider: 's3', url: other }) });
+      const started = (await r.json()) as JobView;
+      for (let i = 0; i < 300; i++) {
+        const v = (await (await fetch(`${failing.url}/api/jobs/${started.id}`, { headers: { 'x-shadowlap-token': failing.token } })).json()) as JobView;
+        if (v.done) break;
+        await new Promise((ok) => setTimeout(ok, 20));
+      }
+    } finally {
+      await failing.close();
+    }
+    expect(setupRecord(store, storeKeyOf(other)).startedAt).toBeNull();
     // What the browser sends is checked first: the wrong scheme, an unknown provider, no URL.
     for (const [body, error] of [
       [{ provider: 'gcs', url: URL_ }, /A Google Cloud store starts with gs:\/\//],

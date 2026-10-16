@@ -32,12 +32,13 @@ export function setupStates(view: Pick<StoreSetupView, 'connected' | 'pushed' | 
 export type StoreTabMode = 'no-store' | 'setup' | 'store';
 
 /**
- * No store yet, until someone starts the setup; the setup while it is under way (started here and
- * not finished, or finished a moment ago, so its last step and Go to the overview stay in view); the
- * store as it stands otherwise, which is also what a store set with the CLI shows.
+ * No store yet, until someone starts the setup; the setup while it is under way (started on this
+ * page, or here before and not finished, or finished a moment ago, so its last step and Go to the
+ * overview stay in view); the store as it stands otherwise, which is also what a store set with the
+ * CLI shows.
  */
 export function storeTabMode(o: { configured: boolean; setupActive: boolean; starting: boolean; finishedNow: boolean }): StoreTabMode {
-  if (o.finishedNow) return 'setup';
-  if (!o.configured) return o.starting ? 'setup' : 'no-store';
+  if (o.finishedNow || o.starting) return 'setup';
+  if (!o.configured) return 'no-store';
   return o.setupActive ? 'setup' : 'store';
 }
