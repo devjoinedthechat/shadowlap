@@ -1602,6 +1602,8 @@ code.tipped { cursor: help; }
 .preview .fieldnote { margin-top: 10px; }
 .pvrule .pvd { grid-column: 3; font-size: 12px; }
 .pvrule .pvs span { overflow-wrap: anywhere; }
+.set .pvrule { grid-template-columns: auto minmax(34px, max-content) minmax(0, 1fr); }
+@media (max-width: 640px) { .set .pvrule { grid-template-columns: auto minmax(28px, max-content) minmax(0, 1fr); } }
 .agentfiles .ok { color: var(--accent); }
 .egrp p.none { margin: 0; }
 .egrp.mcp p.none { margin: 0 0 12px; }

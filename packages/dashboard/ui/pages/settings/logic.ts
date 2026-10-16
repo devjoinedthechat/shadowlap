@@ -8,25 +8,7 @@ import type { CiOptions, CiPullRequest, CiWorkflowsView } from '../../settings-a
  * when the server doesn't serve them. The tests import it.
  */
 
-/** Settings' tabs in order, by the address each has (`#/settings/<key>`). CI keeps the address Alerts had. */
-export const SETTINGS_TABS: ReadonlyArray<{ key: SettingsTab; label: string }> = [
-  { key: 'matching', label: 'Matching' },
-  { key: 'redaction', label: 'Redaction' },
-  { key: 'alerts', label: 'CI' },
-  { key: 'agents', label: 'Coding agents' },
-  { key: 'tools', label: 'Tools' },
-  { key: 'project', label: 'Project' },
-  { key: 'store', label: 'Store' },
-];
-
-export type SettingsTab = 'matching' | 'redaction' | 'alerts' | 'agents' | 'tools' | 'project' | 'store';
-
-/** The tab an address opens: Matching without one, null for one that isn't a tab. `ci` reads as the CI tab too. */
-export function settingsTab(tab: string | null): SettingsTab | null {
-  if (!tab) return 'matching';
-  if (tab === 'ci') return 'alerts';
-  return SETTINGS_TABS.some((t) => t.key === tab) ? (tab as SettingsTab) : null;
-}
+export { SETTINGS_TABS, settingsTab, type SettingsTab } from './tabs.js';
 
 // ---- the Add dialog ----
 

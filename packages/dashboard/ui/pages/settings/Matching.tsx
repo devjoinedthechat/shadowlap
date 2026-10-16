@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, runEdit, useSettingsData } from './common.js';
+import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
 /**
@@ -14,9 +14,10 @@ export function MatchingTab() {
   const { client } = app;
   const { data, error, reload } = useSettingsData(() => client.settings.matching(), 'settings:matching');
   const [adding, setAdding] = useState(false);
+  const editor = useEditor(data?.config.version ?? null, reload);
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Matching" />;
-  const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : null);
+  const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
   const cal = data.calibrate;
   const canCalibrate = !!cal.argv && !app.actionsOff && app.hasKind(JOB_KINDS.calibrate);
@@ -40,7 +41,7 @@ export function MatchingTab() {
           list="normalize"
           rows={data.rules}
           off={off}
-          onRemove={(row) => void runEdit(app, () => client.settings.removeRule('normalize', row.n, version), { ok: (r) => removedText('normalize', r.n), reload })}
+          onRemove={(row) => void editor.run(() => client.settings.removeRule('normalize', row.n, version), (r) => removedText('normalize', r.n))}
         />
         <div className="setrow">
           <div>
@@ -56,8 +57,9 @@ export function MatchingTab() {
                 disabled={!!off}
                 title={off ?? (k === 'exact' ? 'Dates must match exactly' : 'Dates near each run’s start match across days')}
                 onClick={() => {
-                  if (data.clock.mode === k && data.clock.explicit) return;
-                  void runEdit(app, () => client.settings.setClock(k, version), { ok: (r) => `clock: ${r.clock} · written to ${CONFIG_FILE}`, reload });
+                  // The mode it has already, written or not (auto is what a file without one means): nothing to write.
+                  if (data.clock.mode === k) return;
+                  void editor.run(() => client.settings.setClock(k, version), (r) => `clock: ${r.clock} · written to ${CONFIG_FILE}`);
                 }}
               >
                 {k}

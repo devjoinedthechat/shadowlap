@@ -253,12 +253,15 @@ export function register(router: Router, ctx: RouteContext): void {
     if (job.kind !== 'calibrate') throw new HttpError(400, 'that job is not a calibration');
     if (!job.done) throw new HttpError(409, 'the calibration is still running');
     const result = job.result as { runId?: unknown; written?: unknown } | null;
+    // The recording it replayed must be this project's: a drawer left open across a switch of
+    // projects must not write one project's normalizers into another's config.
+    const runId = job.runId ?? (typeof result?.runId === 'string' ? result.runId : null);
+    if (!runId || !ctx.store.getRun(runId)) throw new HttpError(409, 'that calibration replayed a run this project doesn’t have: add what it proposed from its own project, or run Calibrate here');
     const rules = proposedRules(result);
     if (!rules.length) throw new HttpError(409, 'the calibration proposed nothing to add');
     const cwd = folder();
     try {
       const saved = await editWhenFree((o) => addRules(cwd, 'normalize', rules, o));
-      const runId = typeof result?.runId === 'string' ? result.runId : null;
       log(saved.events.map((e) => ({ ...e, runId, data: { ...e.data, via: 'calibrate' } })));
       r.json({ added: saved.rules.filter((x) => x.added).map((x) => x.n), already: saved.rules.filter((x) => !x.added).map((x) => x.n), version: saved.file.version });
     } catch (err) {

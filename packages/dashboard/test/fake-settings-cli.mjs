@@ -21,6 +21,8 @@ if (cmd === 'calibrate') {
         { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>', why: 'this looks like a UUID' },
         { kind: 'tool', name: 'save_report', path: '$.args.path', replace: '<PATH>', why: 'a value generated on each run' },
       ];
+  // A calibration still running, for as long as a test needs one.
+  if (process.env.FAKE_HOLD_MS) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_HOLD_MS)));
   if (clean) console.log('  round 1  clean: 2/2 calls replayed');
   else {
     console.log('  round 1  diverged at call 1 (api POST /v1/messages)');
@@ -35,7 +37,8 @@ if (cmd === 'calibrate') {
   const olderThan = at('--older-than');
   const before = at('--before');
   const count = Number(process.env.FAKE_GC_COUNT ?? 2);
-  const cutoff = before !== undefined ? Number(before) : 1_757_000_000_000;
+  // A dry run from a gc that names neither a cutoff nor --keep (an older Shadowlap's report).
+  const cutoff = process.env.FAKE_GC_NO_CUTOFF === '1' ? null : before !== undefined ? Number(before) : 1_757_000_000_000;
   const report = { dryRun, olderThanDays: olderThan !== undefined ? Number(olderThan) : null, keep: null, cutoff, total: 9, count, runs: [], expect: `${count}-0123456789abcdef`, blobs: 3, bytes: 2048, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, deferred: false, store: { path: 'x.db', before: 4096, after: dryRun ? null : 2048 } };
   emit({ type: 'result', data: report });
   console.log(dryRun ? `✓ dry run: would delete ${count} runs and free 2.0 kB. To delete exactly these runs: shadowlap gc --before ${cutoff} --expect ${report.expect}` : `✓ deleted ${count} runs and 3 blobs · store 4.0 kB → 2.0 kB`);

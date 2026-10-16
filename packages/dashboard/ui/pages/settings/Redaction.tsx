@@ -2,9 +2,10 @@ import { Fragment, useEffect, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { tipText } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
+import { num } from '../../format.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, runEdit, useSettingsData } from './common.js';
+import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
 import { maskedLine, partialLine, previewChip } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
@@ -23,9 +24,10 @@ export function RedactionTab() {
   const { data, error, reload } = useSettingsData(() => client.settings.redaction(), 'settings:redaction');
   const [adding, setAdding] = useState(false);
   const [run, setRun] = useState<string | null>(kept.run);
+  const editor = useEditor(data?.config.version ?? null, reload);
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Redaction" />;
-  const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : null);
+  const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
   const pick = run && data.runs.some((r) => r.runId === run) ? run : data.previewRunId;
   return (
@@ -45,7 +47,7 @@ export function RedactionTab() {
             Applied to the copy whenever a run leaves this machine: <Where where={data.where} />. The local store is never modified, and API keys and authorization headers are never stored at all.
           </p>
         </div>
-        <RuleTable list="redact" rows={data.rules} off={off} onRemove={(row) => void runEdit(app, () => client.settings.removeRule('redact', row.n, version), { ok: (r) => removedText('redact', r.n), reload })} />
+        <RuleTable list="redact" rows={data.rules} off={off} onRemove={(row) => void editor.run(() => client.settings.removeRule('redact', row.n, version), (r) => removedText('redact', r.n))} />
         <Preview
           data={data}
           pick={pick}
@@ -175,7 +177,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
               <span className="chip" title={`#${r.n}`}>
                 {previewChip(r.rule)}
               </span>
-              <span className="pvn">{r.count}</span>
+              <span className="pvn">{num(r.count)}</span>
               {r.samples.length ? (
                 r.samples.map((s, i) => (
                   <div className="pvs" key={i}>
@@ -191,7 +193,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           {view.preview.details.count ? (
             <div className="pvrule">
               <span className="chip">command line, labels, notes</span>
-              <span className="pvn">{view.preview.details.count}</span>
+              <span className="pvn">{num(view.preview.details.count)}</span>
               {view.preview.details.samples.map((s, i) => (
                 <div className="pvs" key={i}>
                   <span className="del">{s.before}</span>

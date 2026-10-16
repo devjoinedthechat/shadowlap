@@ -21,10 +21,11 @@ import { ToolsTab } from './settings/Tools.js';
  */
 export function SettingsPage({ tab }: { tab: string | null }) {
   const current = settingsTab(tab);
-  // An address that isn't a tab (an old one, a typo) opens Matching in its place.
+  // An address that isn't a tab (an old one, a typo) opens Matching in its place, and `ci` the CI
+  // tab at its own address, so the address and the breadcrumb name the tab shown.
   useEffect(() => {
-    if (!current) navigate(href.settings('matching'), true);
-  }, [current]);
+    if (current !== tab) navigate(href.settings(current ?? 'matching'), true);
+  }, [current, tab]);
   const shown: SettingsTab = current ?? 'matching';
   return (
     <Page>

@@ -4,7 +4,7 @@ import { copyText } from '../../dom.js';
 import { num } from '../../format.js';
 import type { StoreSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, runEdit, useSettingsData } from './common.js';
+import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
 import { syncText } from './logic.js';
 
 /**
@@ -17,6 +17,7 @@ export function StoreTab() {
   const app = useApp();
   const { client } = app;
   const { data, error, reload } = useSettingsData(() => client.settings.store(), 'settings:store');
+  const editor = useEditor(data?.config.version ?? null, reload);
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Store" />;
   if (!data.configured || !data.status) {
@@ -30,7 +31,7 @@ export function StoreTab() {
   }
   const s = data.status;
   const version = data.config.version ?? 'absent';
-  const off = app.actionsOff;
+  const off = app.actionsOff ?? (editor.busy ? SAVING : null);
   const push = jobButton(app, JOB_KINDS.push, 'shadowlap push --all');
   const pull = jobButton(app, JOB_KINDS.pull, 'shadowlap pull');
   return (
@@ -104,7 +105,7 @@ export function StoreTab() {
                 title={off ?? `shadowlap store push-from-ci ${on ? 'on' : 'off'}`}
                 onClick={() => {
                   if (s.ciPush === on) return;
-                  void runEdit(app, () => client.settings.setCiPush(on, version), { ok: () => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`, reload });
+                  void editor.run(() => client.settings.setCiPush(on, version), () => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`);
                 }}
               >
                 {on ? 'On' : 'Off'}

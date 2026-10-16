@@ -24,7 +24,7 @@ export interface PreviewLimitsConfig {
 }
 
 /** What a preview may read and how long it may take. The server reads these for every preview; tests lower them. */
-export const PREVIEW_LIMITS: PreviewLimitsConfig = { maxCalls: 2000, maxBytes: 64 * 1024 * 1024, softMs: 5000, hardMs: 15_000, workers: 2 };
+export const PREVIEW_LIMITS: PreviewLimitsConfig = { maxCalls: 2000, maxBytes: 64 * 1024 * 1024, softMs: 5000, hardMs: 10_000, workers: 2 };
 
 /** What the worker is given: the store's file, the run, the rules as the config has them, the limits. */
 export interface PreviewWork {

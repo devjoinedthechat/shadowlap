@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -198,11 +198,25 @@ describe('editing shadowlap.config.json', () => {
   });
 
   it('refuses every edit on a read-only dashboard', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ pattern: 'uuid', replace: '<UUID>' }], store: 's3://b/f' }));
+    const before = readFileSync(join(project, 'shadowlap.config.json'), 'utf8');
     const ro = await startDashboard({ store, dbPath, readOnly: true, project: { path: project } });
     try {
-      const res = await send('POST', 'settings/rules/normalize', { rule: { pattern: 'uuid' }, expect: 'absent' }, ro);
-      expect(res.status).toBe(403);
-      expect((await api('settings/matching', {}, ro)).status).toBe(200);
+      const v = (await get<{ config: { version: string } }>('settings/matching')).config.version;
+      const edits = [
+        await send('POST', 'settings/rules/normalize', { rule: { pattern: 'uuid' }, expect: v }, ro),
+        await api(`settings/rules/normalize/1?expect=${v}`, { method: 'DELETE' }, ro),
+        await send('PUT', 'settings/clock', { mode: 'exact', expect: v }, ro),
+        await send('PUT', 'settings/store/ci-push', { on: false, expect: v }, ro),
+        await send('POST', 'settings/calibrate/write', { jobId: 'any' }, ro),
+        await send('POST', 'jobs', { kind: 'calibrate' }, ro),
+        await send('POST', 'jobs', { kind: 'gc' }, ro),
+      ];
+      expect(edits.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403, 403]);
+      expect(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')).toBe(before);
+      expect(store.listEvents()).toEqual([]);
+      // Reading stays open: every tab, and the preview.
+      for (const tab of ['matching', 'redaction', 'agents', 'tools', 'project', 'store']) expect((await api(`settings/${tab}`, {}, ro)).status, tab).toBe(200);
     } finally {
       await ro.close();
     }
@@ -352,6 +366,38 @@ describe('calibrate', () => {
     await waitJob(written.id);
   });
 
+  it('adds nothing from a job that is not a finished calibration', async () => {
+    const run = recording();
+    const d2 = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project, env: { ...process.env, FAKE_HOLD_MS: '1500' } }), project: { path: project } });
+    try {
+      const started = (await (await send('POST', 'jobs', { kind: 'calibrate', runId: run.runId }, d2)).json()) as JobView;
+      const early = await send('POST', 'settings/calibrate/write', { jobId: started.id }, d2);
+      expect(early.status).toBe(409);
+      expect(await error(early)).toBe('the calibration is still running');
+      const dry = (await (await send('POST', 'jobs', { kind: 'gc' }, d2)).json()) as JobView;
+      const other = await send('POST', 'settings/calibrate/write', { jobId: dry.id }, d2);
+      expect(other.status).toBe(400);
+      expect(await error(other)).toBe('that job is not a calibration');
+      expect((await send('POST', 'settings/calibrate/write', {}, d2)).status).toBe(400);
+      expect(store.listEvents()).toEqual([]);
+    } finally {
+      await d2.close();
+    }
+  });
+
+  it("adds nothing from a calibration of a run this project's store doesn't have", async () => {
+    // As when a drawer stays open across a switch to another project: its run is in the other store.
+    const run = recording();
+    const started = (await (await job({ kind: 'calibrate' })).json()) as JobView;
+    await waitJob(started.id);
+    store.deleteRun(run.runId);
+    const res = await send('POST', 'settings/calibrate/write', { jobId: started.id });
+    expect(res.status).toBe(409);
+    expect(await error(res)).toMatch(/replayed a run this project doesn’t have/);
+    expect(existsSync(join(project, 'shadowlap.config.json'))).toBe(false);
+    expect(store.listEvents()).toEqual([]);
+  });
+
   it('has nothing to add for a recording that replays clean', async () => {
     const run = recording();
     const d2 = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project, env: { ...process.env, FAKE_CLEAN: '1' } }), project: { path: project } });
@@ -389,6 +435,23 @@ describe('clean up old runs', () => {
     expect((await job({ kind: 'gc', confirm: 'gone' })).status).toBe(409);
     expect((await job({ kind: 'gc', olderThanDays: 0 })).status).toBe(400);
     expect(((await (await job({ kind: 'gc', olderThanDays: 90 })).json()) as JobView).args).toEqual(['gc', '--older-than', '90', '--dry-run']);
+  });
+
+  it('has nothing to confirm from a dry run that names neither a cutoff nor runs to keep', async () => {
+    const d2 = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project, env: { ...process.env, FAKE_GC_NO_CUTOFF: '1' } }), project: { path: project } });
+    try {
+      const dry = (await (await send('POST', 'jobs', { kind: 'gc' }, d2)).json()) as JobView;
+      for (let i = 0; i < 400; i++) {
+        const v = (await (await api(`jobs/${dry.id}`, {}, d2)).json()) as JobView;
+        if (v.done) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      const res = await send('POST', 'jobs', { kind: 'gc', confirm: dry.id }, d2);
+      expect(res.status).toBe(409);
+      expect(await error(res)).toMatch(/the dry run picked no runs/);
+    } finally {
+      await d2.close();
+    }
   });
 
   it('has nothing to confirm when the dry run found no runs', async () => {

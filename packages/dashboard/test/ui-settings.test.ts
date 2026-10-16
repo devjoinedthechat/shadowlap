@@ -5,6 +5,7 @@ import { validateRule } from '@shadowlap/engine';
 import { alertsYaml, fixOnFailureYaml } from '../src/ci-yaml.js';
 import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
+import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
 import { settingsApi } from '../ui/settings-api.js';
 import {
   CI_DEFAULTS,
@@ -60,6 +61,8 @@ describe('the Settings tabs', () => {
     expect(settingsTab('store')).toBe('store');
     expect(settingsTab('plan')).toBeNull();
     expect(settingsTab('members')).toBeNull();
+    // The breadcrumb names the tab shown, whatever the address said.
+    expect(['alerts', 'ci', null, 'tools', 'plan'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Matching']);
   });
 });
 

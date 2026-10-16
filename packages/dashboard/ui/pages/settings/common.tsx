@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { useApp, type AppState } from '../../state.js';
@@ -57,6 +57,44 @@ export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok:
     app.toast(editErrorText(err));
     return null;
   }
+}
+
+/** What an edit's controls say while the last edit is on its way. */
+export const SAVING = 'Saving the last change…';
+
+/**
+ * A tab's edits, one at a time: from the click until the tab shows the file the edit wrote, `busy`
+ * is true and another edit is not sent, so a double click removes one rule rather than sending a
+ * second edit against the file the first one just changed. Never longer than a few seconds.
+ */
+export function useEditor(version: string | null, reload: () => void): { busy: boolean; run: <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string) => Promise<T | null> } {
+  const app = useApp();
+  const [waiting, setWaiting] = useState<{ from: string | null } | null>(null);
+  const sending = useRef(false);
+  // The tab shows another file than the one the edit started from: the edit has landed.
+  useEffect(() => {
+    if (waiting && version !== waiting.from) setWaiting(null);
+  }, [version, waiting]);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setTimeout(() => setWaiting(null), 4000);
+    return () => clearTimeout(t);
+  }, [waiting]);
+  const run = async <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string): Promise<T | null> => {
+    if (sending.current || waiting) return null;
+    sending.current = true;
+    const from = version;
+    setWaiting({ from });
+    try {
+      const result = await runEdit(app, edit, { ok, reload });
+      // Refused, or nothing changed: there is no new file to wait for.
+      if (!result || result.version === from) setWaiting(null);
+      return result;
+    } finally {
+      sending.current = false;
+    }
+  };
+  return { busy: waiting !== null, run };
 }
 
 /** An edit's refusal in the page's words. */
