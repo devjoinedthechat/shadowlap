@@ -225,7 +225,7 @@ describe('MCP servers', () => {
     expect(pasteWhere([{ path: '.mcp.json', found: true }, { path: '.vscode/mcp.json', found: true }])).toBe('under mcpServers in .mcp.json');
     expect(pasteWhere([])).toBe('under mcpServers in your client’s config (servers in VS Code’s)');
     // The form a project's servers don't use, as the line that records one.
-    expect(splitCommandLine(MCP_FORMS.http.line)).toEqual(['shadowlap', 'mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer ${TOKEN}']);
+    expect(splitCommandLine(MCP_FORMS.http.line)).toEqual(['shadowlap', 'mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $TOKEN']);
     expect(splitCommandLine(MCP_FORMS.stdio.line).slice(0, 3)).toEqual(['shadowlap', 'mcp', '--']);
   });
 

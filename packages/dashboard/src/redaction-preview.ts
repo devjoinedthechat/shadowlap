@@ -63,6 +63,16 @@ function workerScript(): URL {
 }
 
 let reading = 0;
+/** Threads asked to end and not yet gone: each holds the store's file open until it is. */
+const ending = new Set<Promise<unknown>>();
+
+/**
+ * Resolves once every preview thread asked to end has ended and let go of the store's file. The
+ * dashboard waits for it when it closes: Windows can't delete or move a file another thread holds.
+ */
+export async function previewsEnded(): Promise<void> {
+  await Promise.allSettled([...ending]);
+}
 
 /**
  * The preview of one run, read on a worker thread against the store at `dbPath`. Resolves with the
@@ -87,7 +97,9 @@ export function previewApart(work: { dbPath: string; runId: string; rules: Norma
       reading--;
       clearTimeout(timer);
       o.signal?.removeEventListener('abort', stop);
-      void worker.terminate();
+      const ended = worker.terminate().catch(() => undefined);
+      ending.add(ended);
+      void ended.finally(() => ending.delete(ended));
       done();
     };
     const busy = () => new PreviewError(503, 'The store is busy with another command: pick the run again in a moment.');

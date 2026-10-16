@@ -6,7 +6,7 @@ import { request as httpsRequest } from 'node:https';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
-import { isLoopbackUrl, lookupRegistration, processAncestors, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
+import { isLoopbackUrl, lookupRegistration, parentRegistration, processAncestors, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
 import { isLoopbackHost } from './loopback.js';
 import { startCommand } from './start-command.js';
 
@@ -74,13 +74,19 @@ export function discoverSidecar(env: NodeJS.ProcessEnv = process.env, cwd = proc
  * registration of the nearest ancestor Shadowlap started (see agent-registry.ts), which is how a
  * proxy started with a minimal environment under `shadowlap test`, `blame`, `verify` or
  * `replay --repeat` finds its run; else, where the process tree can't be read, the active run's
- * file in the working directory.
+ * file in the working directory. On Windows, where the tree takes PowerShell (seconds on a busy
+ * machine), the parent's registration is looked for first: an agent whose own MCP client started
+ * the proxy is found without the tree.
  */
-export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), skip: DiscoverySkip = () => {}, o: { home?: string | null; waitMs?: number } = {}): Promise<SidecarLookup> {
+export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), skip: DiscoverySkip = () => {}, o: { home?: string | null; waitMs?: number; platform?: NodeJS.Platform } = {}): Promise<SidecarLookup> {
   if (env.SHADOWLAP_URL) {
     // Without a run id, as a test runner's host sets it (a slot's URL), the URL itself picks the run, as for the SDKs.
     if (isLoopbackUrl(env.SHADOWLAP_URL)) return { kind: 'sidecar', target: { url: env.SHADOWLAP_URL.replace(/\/$/, ''), runId: env.SHADOWLAP_RUN_ID ?? '' }, from: 'SHADOWLAP_URL' };
     skip(`SHADOWLAP_URL ${env.SHADOWLAP_URL} is not a loopback address; ignoring it`);
+  }
+  if ((o.platform ?? process.platform) === 'win32') {
+    const direct = parentRegistration({ cwd, skip, ...(o.home !== undefined ? { home: o.home } : {}) });
+    if (direct) return direct;
   }
   const chain = processAncestors(skip);
   const registered = await lookupRegistration({ cwd, chain, skip, ...(o.home !== undefined ? { home: o.home } : {}), ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}) });
@@ -442,7 +448,12 @@ export interface McpHttpProxyOptions {
 /** Headers the proxy sets itself on every request. */
 const MANAGED_HEADERS = new Set(['accept', 'content-type', 'content-length', 'host', 'mcp-session-id', 'mcp-protocol-version', 'connection', 'transfer-encoding']);
 
-/** `Name: value` flags into headers, with `${NAME}` taken from the environment, so a token can stay in the client config's env block. */
+/**
+ * `Name: value` flags into headers, with `$NAME` and `${NAME}` taken from the environment, so a token
+ * can stay in the client config's env block and off the command line; `$$` is a `$` itself. `$NAME`
+ * is for a client that fills in `${…}` itself, from its own environment, before it starts the proxy
+ * (Claude Code does, in .mcp.json): written so, it reaches the proxy untouched.
+ */
 export function parseHeaderFlags(flags: string[], env: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const out: Record<string, string> = {};
   for (const f of flags) {
@@ -450,11 +461,16 @@ export function parseHeaderFlags(flags: string[], env: NodeJS.ProcessEnv = proce
     const name = i > 0 ? f.slice(0, i).trim().toLowerCase() : '';
     if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name)) throw new Error(`--header expects <name>: <value>, got "${f}"`);
     if (MANAGED_HEADERS.has(name)) throw new Error(`--header: ${name} is set by the proxy itself`);
-    const value = f.slice(i + 1).trim().replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, v: string) => {
-      const found = env[v];
-      if (found === undefined) throw new Error(`--header ${name}: \${${v}} is not set in the environment`);
-      return found;
-    });
+    const value = f
+      .slice(i + 1)
+      .trim()
+      .replace(/\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (whole: string, braced: string | undefined, bare: string | undefined) => {
+        if (whole === '$$') return '$';
+        const v = (braced ?? bare)!;
+        const found = env[v];
+        if (found === undefined) throw new Error(`--header ${name}: ${braced ? `\${${v}}` : `$${v}`} is not set in the environment (a $ itself is written $$)`);
+        return found;
+      });
     if (/[^\t\x20-\x7e\x80-\xff]/.test(value)) throw new Error(`--header ${name}: the value has a character a header can't carry (a line break, say)`);
     out[name] = value;
   }

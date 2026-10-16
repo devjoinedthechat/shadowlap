@@ -257,7 +257,9 @@ describe('ProjectHost', () => {
     host.close();
   });
 
-  it('lets go of a store whose folder moves away while it is open, and opens it again once it is back', () => {
+  // Windows refuses to move or delete a folder while a file in it is open, and the store is open while
+  // it is served: there, a served project's folder can't move away.
+  it.skipIf(process.platform === 'win32')('lets go of a store whose folder moves away while it is open, and opens it again once it is back', () => {
     const { registry, loadConfig, support } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });
     const ctx = host.current();

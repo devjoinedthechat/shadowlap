@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import { useState } from 'react';
 import { truncate } from '../render.js';
 
-export { actionContext, buildActions, forkMenuTitle, notRun, type Action } from '../actions.js';
+export { actionContext, buildActions, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from '../actions.js';
 import type { Action } from '../actions.js';
 
 interface Props {

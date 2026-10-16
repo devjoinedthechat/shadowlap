@@ -2,7 +2,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findRegistration, lookupRegistration, parentFromProcStat, processAncestors, registerAgent, registryDirs, startsAgents, type ProcessInfo } from '../src/agent-registry.js';
+import { findRegistration, firstError, lookupRegistration, parentFromProcStat, parentRegistration, powershellArgs, processAncestors, registerAgent, registryDirs, startsAgents, WINDOWS_PROCESS_TABLE, type ProcessInfo } from '../src/agent-registry.js';
+import { findSidecar } from '../src/mcp.js';
 import { isLoopbackHost } from '../src/loopback.js';
 
 /**
@@ -116,6 +117,41 @@ describe('the agent registry', () => {
     // A registration that appears while it waits is taken: the CLI writes it as soon as the agent starts.
     setTimeout(() => registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01LATE' }, { cwd: project, home }), 50);
     expect(await lookupRegistration({ cwd: project, home, chain, waitMs: 2000 })).toMatchObject({ kind: 'sidecar', target: { runId: '01LATE' } });
+  });
+
+  it('finds the parent agent without the process tree, and only while the command that registered it runs', () => {
+    // This test process plays the proxy: its parent is the agent, and the "CLI" that registered it is this process.
+    registerAgent(process.ppid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01PARENT' }, { cwd: project, home });
+    expect(parentRegistration({ cwd: project, home })).toMatchObject({ kind: 'sidecar', target: { runId: '01PARENT' } });
+    // A file left by a CLI that was killed: its writer is gone, so the file is stale even where the parent can't be compared.
+    const file = join(home, '.shadowlap', 'agents', `${process.ppid}.json`);
+    rmSync(file);
+    writeFileSync(file, JSON.stringify({ v: 1, pid: process.ppid, parent: 2 ** 22 - 7, url: 'http://127.0.0.1:5000/t/abc', runId: '01STALE' }), { mode: 0o600 });
+    const skipped: string[] = [];
+    expect(parentRegistration({ cwd: project, home, skip: (r) => skipped.push(r) })).toBeNull();
+    expect(skipped.join()).toMatch(/which has ended: left over from an earlier run/);
+  });
+
+  it('looks for the parent first on Windows, where the process tree takes PowerShell', async () => {
+    registerAgent(process.ppid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, { cwd: project, home });
+    const found = await findSidecar({}, project, () => {}, { home, platform: 'win32', waitMs: 0 });
+    expect(found).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, from: join(home, '.shadowlap', 'agents', `${process.ppid}.json`) });
+  });
+
+  it('lists processes on Windows without a cmdlet, so PowerShell never reads its modules to find one', () => {
+    const args = powershellArgs(WINDOWS_PROCESS_TABLE);
+    expect(args.slice(0, -1)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
+    // -EncodedCommand is the script in UTF-16LE, base64: no quoting rule of a command line touches it.
+    expect(Buffer.from(args.at(-1)!, 'base64').toString('utf16le')).toBe(WINDOWS_PROCESS_TABLE);
+    expect(WINDOWS_PROCESS_TABLE).toContain("$PSModuleAutoLoadingPreference = 'None'");
+    // Every command is a .NET call or the language's own: no Verb-Noun cmdlet, and no pipeline into one.
+    expect(WINDOWS_PROCESS_TABLE).not.toMatch(/\b[A-Z][a-z]+-[A-Z][A-Za-z]+\b/);
+    expect(WINDOWS_PROCESS_TABLE).not.toContain('|');
+    expect(WINDOWS_PROCESS_TABLE).toContain('FROM Win32_Process');
+    // Started that way, PowerShell writes its errors as CLIXML: a proxy's log still names the error.
+    const clixml = '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="Error">_x001B_[31;1mMethodInvocationException: _x001B_[31;1mException calling ".ctor" with "1" argument(s): "Access &amp; more denied"_x001B_[0m_x000A_</S><S S="Error">second_x000A_</S></Objs>';
+    expect(firstError(clixml)).toBe('MethodInvocationException: Exception calling ".ctor" with "1" argument(s): "Access & more denied"');
+    expect(firstError('ps: illegal option\nusage: ps')).toBe('ps: illegal option');
   });
 
   it("looks in the project's folder and every folder above the proxy's", async () => {

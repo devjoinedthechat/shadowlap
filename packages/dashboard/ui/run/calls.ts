@@ -94,7 +94,8 @@ export function callDetail(c: CallLike, asked?: string | null): { text: string; 
 export function resultLine(c: CallLike): { text: string; err: boolean } | null {
   if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked') return { text: 'blocked', err: true };
-  if (c.resultShort) return { text: `${c.origin === 'stubbed' ? 'stubbed ' : ''}${c.resultShort}`, err: false };
+  // The server's line already says `stubbed …` for a write its stand-in answered.
+  if (c.resultShort) return { text: c.resultShort, err: false };
   if (c.origin === 'stubbed') return { text: 'stubbed', err: false };
   if (isFailure(c) && c.error) return { text: c.error, err: true };
   return null;

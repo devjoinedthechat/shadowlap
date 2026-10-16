@@ -443,3 +443,53 @@ describe('dashboard server: actions', () => {
     expect((await api(`runs/${runId}`)).status).toBe(404);
   });
 });
+
+describe('dashboard server: its port', () => {
+  /** Listens on a port with a plain server: how the system answers, and the server to close. */
+  function listenOn(port: number): Promise<{ server: import('node:net').Server | null; code: string | null }> {
+    return import('node:net').then(
+      ({ createServer }) =>
+        new Promise((resolve) => {
+          const server = createServer();
+          server.once('error', (err: NodeJS.ErrnoException) => resolve({ server: null, code: err.code ?? 'error' }));
+          server.listen(port, '127.0.0.1', () => resolve({ server, code: null }));
+        }),
+    );
+  }
+
+  it('takes a free port when the one asked for is taken', async () => {
+    const { server: taken } = await listenOn(0);
+    const port = (taken!.address() as import('node:net').AddressInfo).port;
+    const d = await startDashboard({ store, dbPath: ':memory:', port, uiDir });
+    try {
+      expect(new URL(d.url).port).not.toBe(String(port));
+    } finally {
+      await d.close();
+      taken!.close();
+    }
+  });
+
+  // Windows refuses a port in a range Hyper-V or WinNAT keeps, and Linux one below 1024 to a user,
+  // with EACCES. Most machines here let this user have any port, so the system's answer is played.
+  it('takes a free port when the system keeps the one asked for', async () => {
+    const { Server } = await import('node:net');
+    const listen = Server.prototype.listen;
+    const KEPT = 47_999;
+    Server.prototype.listen = function (this: import('node:net').Server, ...args: unknown[]) {
+      if (args[0] !== KEPT) return listen.apply(this, args as Parameters<typeof listen>);
+      process.nextTick(() => this.emit('error', Object.assign(new Error(`listen EACCES: permission denied 127.0.0.1:${KEPT}`), { code: 'EACCES' })));
+      return this;
+    } as typeof listen;
+    try {
+      const d = await startDashboard({ store, dbPath: ':memory:', port: KEPT, uiDir });
+      try {
+        expect(Number(new URL(d.url).port)).not.toBe(KEPT);
+        expect((await fetch(`${d.url}/api/meta`, { headers: { 'x-shadowlap-token': d.token } })).status).toBe(200);
+      } finally {
+        await d.close();
+      }
+    } finally {
+      Server.prototype.listen = listen;
+    }
+  });
+});

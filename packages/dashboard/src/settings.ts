@@ -693,11 +693,15 @@ function httpServerName(url: string): string {
 
 // ---- MCP client configs ----
 
-/** Where MCP clients keep a project's servers, and the key each uses for them. */
-const MCP_FILES: Array<{ path: string; key: string }> = [
-  { path: '.mcp.json', key: 'mcpServers' },
-  { path: '.cursor/mcp.json', key: 'mcpServers' },
-  { path: '.vscode/mcp.json', key: 'servers' },
+/**
+ * Where MCP clients keep a project's servers, the key each uses for them, and how its client fills
+ * in a variable from its own environment: `${NAME}` in Claude Code's `.mcp.json`, `${env:NAME}` in
+ * Cursor's and VS Code's.
+ */
+const MCP_FILES: Array<{ path: string; key: string; ref: (name: string) => string }> = [
+  { path: '.mcp.json', key: 'mcpServers', ref: (name) => `\${${name}}` },
+  { path: '.cursor/mcp.json', key: 'mcpServers', ref: (name) => `\${env:${name}}` },
+  { path: '.vscode/mcp.json', key: 'servers', ref: (name) => `\${env:${name}}` },
 ];
 
 /** Where the JSON string starting at `i` (a `"`) ends: the index just past its closing quote. */
@@ -793,9 +797,10 @@ function hideValue(text: string, depth = 0): string {
   const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=([\s\S]+)$/.exec(text);
   if (assigned && depth < 3) return secretName(assigned[1]!) ? `${assigned[1]}=${HIDDEN}` : `${assigned[1]}=${hideValue(assigned[2]!, depth + 1)}`;
   if (URL_LIKE.test(text)) return hideUrlSecrets(text);
-  const header = /^([\w-]+)\s*:\s*\S/.exec(text);
-  if (header && secretName(header[1]!)) return `${header[1]}: ${HIDDEN}`;
-  if (SECRET_VALUE.test(text) || /^Bearer\s/i.test(text)) return HIDDEN;
+  const header = /^([\w-]+)\s*:\s*(\S[\s\S]*)$/.exec(text);
+  // A header whose value is only a variable (`Authorization: Bearer $ISSUES_TOKEN`) holds no secret.
+  if (header && secretName(header[1]!) && !headerReference(header[2]!)) return `${header[1]}: ${HIDDEN}`;
+  if (SECRET_VALUE.test(text) || (/^Bearer\s/i.test(text) && !headerReference(text))) return HIDDEN;
   return text.replace(CONNECTION_SECRET, (_m, key: string) => `${key}=${HIDDEN}`);
 }
 
@@ -928,7 +933,7 @@ function commandServer(command: string, args: string[]): ServerRecording {
   return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]), recordedAs: { transport: 'stdio', server: stdioServerName(command, args) } };
 }
 
-/** A remote server by its URL, with the `--header` flags `shadowlap mcp --url` sends (`Authorization: Bearer ${STRIPE_TOKEN}`). */
+/** A remote server by its URL, with the `--header` flags `shadowlap mcp --url` sends (`Authorization: Bearer $STRIPE_TOKEN`). */
 function urlServer(url: string, headers: readonly string[] = []): ServerRecording {
   const shown = hideUrlSecrets(url);
   const args = ['mcp', '--url', shown, ...headers.flatMap((h) => ['--header', h])];
@@ -939,6 +944,17 @@ function urlServer(url: string, headers: readonly string[] = []): ServerRecordin
 const LEFT_OUT = '…';
 /** A value that is only a reference the client, or `shadowlap mcp`, fills in from the environment (`${GITHUB_TOKEN}`, `${env:KEY}`): it holds no secret, so it is shown. */
 const REFERENCE = /^\$\{[^}\s]+\}$/;
+/**
+ * A variable `shadowlap mcp` reads from its own environment in a header (`$STRIPE_TOKEN`), which
+ * no client fills in: the form a header is copied in, since a client that fills in `${…}` itself
+ * (Claude Code) would put the token on the proxy's command line. It holds no secret either.
+ */
+const PROXY_REFERENCE = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
+/** A header's value, or its token after the scheme (`Bearer $STRIPE_TOKEN`), that is only a reference. */
+function headerReference(text: string): boolean {
+  const token = SCHEME.exec(text.trim())?.[2]?.trim() ?? text.trim();
+  return REFERENCE.test(token) || PROXY_REFERENCE.test(token);
+}
 /** An Authorization header's scheme, kept in front of the variable that stands for its token. */
 const SCHEME = /^(Bearer|Basic|Token|Bot)\s+(\S[\s\S]*)$/i;
 const ENV_NAME = /^[A-Za-z_][\w.-]{0,99}$/;
@@ -954,24 +970,33 @@ function envOf(value: unknown): Array<{ name: string; value: string }> {
 }
 
 /**
- * A remote server's headers as `shadowlap mcp --header` flags. A value that is a reference stays as
- * it is; any other becomes `${SERVER_HEADER}` (an Authorization header keeps its scheme:
- * `Bearer ${STRIPE_TOKEN}`), a variable added to the entry's environment for the person to set.
- * Only the scheme word is read from a value; its text never leaves here.
+ * A remote server's headers as `shadowlap mcp --header` flags, each value a variable the proxy reads
+ * from its environment as `$NAME`, never `${NAME}`: Claude Code fills in `${…}` in .mcp.json itself,
+ * which would put the token on the proxy's command line, and refuses the config when the variable
+ * isn't set. A value already in that form stays as it is. A reference the client fills in
+ * (`${STRIPE_TOKEN}`, `${env:STRIPE_TOKEN}`, `${input:token}`) moves to the entry's environment,
+ * which the client fills in the same way (`ref` writes a plain variable as this file's client does),
+ * so nothing is left to put back. Any other value becomes `$SERVER_HEADER` (an Authorization header
+ * keeps its scheme: `Bearer $STRIPE_TOKEN`), a variable added to the entry's environment as `…` for
+ * the person to set. Only the scheme word is read from a value; its text never leaves here.
  */
-function headerFlags(value: unknown, server: string, taken: Set<string>): Array<{ flag: string; env: string | null }> {
+function headerFlags(value: unknown, server: string, taken: Set<string>, ref: (name: string) => string): Array<{ flag: string; env: string | null; value: string }> {
   if (!isObject(value)) return [];
   return Object.entries(value)
     .filter(([name]) => HEADER_NAME.test(name))
     .map(([name, v]) => {
       const text = typeof v === 'string' ? v.trim() : '';
       const scheme = SCHEME.exec(text);
-      if (REFERENCE.test(text) || (scheme && REFERENCE.test(scheme[2]!.trim()))) return { flag: `${name}: ${text}`, env: null };
-      const base = `${envWord(server)}_${scheme && /^authorization$/i.test(name) ? 'TOKEN' : envWord(name)}`;
+      const token = scheme ? scheme[2]!.trim() : text;
+      const lead = scheme ? `${scheme[1]} ` : '';
+      if (PROXY_REFERENCE.test(token)) return { flag: `${name}: ${text}`, env: null, value: '' };
+      // A plain variable (`${STRIPE_TOKEN}`, `${env:STRIPE_TOKEN}`) keeps its name; another reference is named as a value would be.
+      const plain = REFERENCE.test(token) ? /^\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(token)?.[1] : undefined;
+      const base = plain ?? `${envWord(server)}_${scheme && /^authorization$/i.test(name) ? 'TOKEN' : envWord(name)}`;
       let env = base;
       for (let i = 2; taken.has(env); i++) env = `${base}_${i}`;
       taken.add(env);
-      return { flag: `${name}: ${scheme ? `${scheme[1]} ` : ''}\${${env}}`, env };
+      return { flag: `${name}: ${lead}$${env}`, env, value: plain ? ref(plain) : REFERENCE.test(token) ? token : LEFT_OUT };
     });
 }
 
@@ -1032,7 +1057,7 @@ export function mcpEntryAsTyped(input: { command?: string | null; url?: string |
 /** The MCP servers a project's client configs list, with how each would be recorded. */
 export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 'recorded'>>; files: Array<{ path: string; found: boolean; error: string | null }> } {
   const servers: Array<Omit<McpServerRow, 'recorded'>> = [];
-  const files = MCP_FILES.map(({ path, key }) => {
+  const files = MCP_FILES.map(({ path, key, ref }) => {
     const full = join(cwd, path);
     let st: Stats;
     try {
@@ -1061,12 +1086,13 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
         if (server.hidden) putBack.push(`the ${HIDDEN} in its command`);
         servers.push({ name, file: path, ...server, env, putBack });
       } else if (url) {
-        const headers = headerFlags(entry.headers, name, new Set(env.map((e) => e.name)));
+        const headers = headerFlags(entry.headers, name, new Set(env.map((e) => e.name)), ref);
         const server = urlServer(url, headers.map((h) => h.flag));
         for (const h of headers) {
           if (!h.env) continue;
-          env.push({ name: h.env, value: LEFT_OUT });
-          putBack.push(`${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
+          // A reference goes in as it is, for the client to fill in; a value is left for the person to put back.
+          env.push({ name: h.env, value: h.value });
+          if (h.value === LEFT_OUT) putBack.push(`${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
         }
         if (server.hidden) putBack.push(`the ${HIDDEN} in its URL`);
         servers.push({ name, file: path, ...server, env, putBack });

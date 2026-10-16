@@ -9,7 +9,7 @@ import { copyToClipboard } from '../clipboard.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, runLabel } from '../data.js';
 import { truncate } from '../render.js';
 import { displayOrigin, kindLabel, originColor } from '../theme.js';
-import { actionContext, ActionsView, buildActions, forkMenuTitle, notRun, type Action } from './ActionsView.js';
+import { actionContext, ActionsView, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from './ActionsView.js';
 import { DiffView } from './DiffView.js';
 import { Inspector, TABS, type PlayState, type Tab } from './Inspector.js';
 import { OutputPane } from './OutputPane.js';
@@ -104,6 +104,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const onPlayTick = useCallback((next: PlayState) => setPlay(next), []);
 
   const summary = useMemo(() => summarizeRun(run, calls, [], [], summaryOptions), [run, calls, summaryOptions]);
+  // Marked running: still recording, or left so by a recording process that was killed.
+  const recording = useMemo(() => recordingNow(store, run), [store, run]);
   const listWidth = Math.max(36, Math.floor(width * 0.5));
   // Panes are `height - 2` tall (header + footer) with a 2-row border; the inspector also spends a row on tabs.
   const listRows = Math.max(1, height - 4);
@@ -287,7 +289,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     summary.cost.spent ? `≈${formatUsd(summary.cost.spent)} spent` : '',
     summary.cost.captured ? `≈${formatUsd(summary.cost.captured)} captured` : '',
     summary.durationMs !== null ? formatDuration(summary.durationMs) : '',
-    run.status === 'running' ? 'recording…' : run.status === 'completed' ? '' : run.status,
+    run.status === 'running' ? (recording ? 'recording…' : 'interrupted') : run.status === 'completed' ? '' : run.status,
     ago(run.startedAt),
     run.codeVersion ? `@${run.codeVersion}` : '',
   ]
@@ -315,12 +317,13 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       {mode.kind === 'diff' ? (
         <DiffView divergence={run.divergence} width={width} height={height - 2} scroll={diffScroll} />
       ) : mode.kind === 'actions' ? (
-        <ActionsView actions={buildActions(run, current, actionContext(store, current))} title={forkMenuTitle(current)} width={width} height={height - 2} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
+        <ActionsView actions={terminalActions(run, current, { ...actionContext(store, current), recording })} title={forkMenuTitle(current)} width={width} height={height - 2} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
       ) : mode.kind === 'prompt' ? (
         <Box flexDirection="column" width={width} height={height - 2} borderStyle="round" borderColor="cyan" paddingX={1}>
           <Text bold>{mode.action.label}</Text>
           {mode.action.hint ? <Text color="gray">{mode.action.hint}</Text> : null}
           <TextInput
+            stacked
             label={mode.action.prompt!.label}
             {...(mode.action.prompt!.initial !== undefined ? { initial: mode.action.prompt!.initial } : {})}
             {...(mode.action.prompt!.placeholder !== undefined ? { placeholder: mode.action.prompt!.placeholder } : {})}

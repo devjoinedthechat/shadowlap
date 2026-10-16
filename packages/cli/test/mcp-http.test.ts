@@ -329,6 +329,11 @@ describe('shadowlap mcp --url', () => {
   it('checks the headers and the URL it is given', () => {
     expect(parseHeaderFlags(['Authorization: Bearer ${TOKEN}', 'X-Team:  support '], { TOKEN: 'abc' })).toEqual({ authorization: 'Bearer abc', 'x-team': 'support' });
     expect(() => parseHeaderFlags(['Authorization: Bearer ${MISSING}'], {})).toThrow(/\$\{MISSING\} is not set/);
+    // $NAME too, for a client that fills in ${…} itself before it starts the proxy; $$ is a $ itself.
+    expect(parseHeaderFlags(['Authorization: Bearer $TOKEN', 'X-Price: $$5 and $$TOKEN'], { TOKEN: 'abc' })).toEqual({ authorization: 'Bearer abc', 'x-price': '$5 and $TOKEN' });
+    expect(() => parseHeaderFlags(['Authorization: Bearer $MISSING'], {})).toThrow(/\$MISSING is not set in the environment \(a \$ itself is written \$\$\)/);
+    // A $ before anything that can't start a name stays as it is.
+    expect(parseHeaderFlags(['X-Cost: $5 or $ 6'], {})).toEqual({ 'x-cost': '$5 or $ 6' });
     expect(() => parseHeaderFlags(['Mcp-Session-Id: forged'])).toThrow(/set by the proxy itself/);
     expect(() => parseHeaderFlags(['no colon'])).toThrow(/<name>: <value>/);
     expect(() => parseHeaderFlags(['X-Team: a\r\nX-Evil: 1'])).toThrow(/can't carry/);

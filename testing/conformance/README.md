@@ -10,8 +10,8 @@ npm install && npm run build          # at the repository root, first
 node --test --test-reporter=spec testing/conformance/conformance.test.mjs
 ```
 
-That runs the TypeScript and Python SDKs. `python3` on the path is enough for the Python half; it is
-skipped if absent.
+That runs the TypeScript and Python SDKs. A Python 3 on the path is enough for the Python half
+(`SHADOWLAP_PYTHON`, else `python3`, else `python`, as on Windows); it is skipped if there is none.
 
 ## What is covered
 

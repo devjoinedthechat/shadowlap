@@ -19,7 +19,7 @@ Reads the project in the current directory and prints the steps to a first recor
 
 It warns about a model client constructed with a literal base URL: `shadowlap run` cannot redirect it, so its calls would not be recorded.
 
-`init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter (`wrap`). The addresses it prints (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password, or a key in the query, is left out, and a model server that had one gets no `upstream`. Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done, and `project` says whether it could (`noted`), and why not (the project list was busy, or a newer Shadowlap wrote it); in a terminal, a line on stderr says so.
+`init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter (`wrap`). The addresses it prints (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password, or a key in the query, is left out, and a model server that had one gets no `upstream`. Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done, and `project` says whether it could (`noted`), and why not (the project list was busy, or a newer Shadowlap wrote it); in a terminal, a line on stderr says so. The rest of the object is what was found: `cwd`, `languages`, `packageManager`, `providers` (each SDK and the package it came `via`), `frameworks`, `command` (its `argv` and where it came `from`), `tools` (each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped`), `scannedFiles`, `config` (its `path`, whether it `existed` and was `created`) and `folder` (the kind of project the folder holds).
 
 ## run
 
@@ -28,6 +28,8 @@ shadowlap run -- <command> [args...]
 ```
 
 Records a run. `--summary-json <file>` also writes its summary as JSON, and `--guard warn|off` sets the [network guard](./how-it-works.md#the-network-guard) (default `warn`). Starts a sidecar, sets `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `SHADOWLAP_URL` and `SHADOWLAP_RUN_ID` for the child, preloads [in-process capture](./providers.md#in-process-capture), the network guard and [recorded user input](./sdk.md#what-a-person-types) into Node and Python children, and exits with the child's exit code. The run's status is `completed`, `failed` (non-zero exit) or `crashed` (interrupted: Ctrl-C, or a stop signal that reached Shadowlap or the agent). On Windows a command that is a batch file, such as `npm start` or `npx tsx agent.ts`, runs through cmd.exe, its arguments passed on as given. What the run did unrecorded is kept on it for its page in the [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach without Shadowlap, and the tools [`init`](#init) finds in the project with no declared effect that the run never recorded.
+
+`--summary-json` writes `{ "exitCode", "summary" }`: the agent's exit code and the run's summary, which has `runId`, `mode`, `status`, `total` (calls), `byOrigin` and `byKind` (calls per origin and per kind), `upstreamRequests` (live calls that reached a provider), `injected` (calls `--fail-at` answered), `refused` (model calls an intervention couldn't be applied to), `imported`, `tokensNotRespent`, `cost` (`spent`, `saved` and `captured` in USD, and `unknownModels` with no price), `durationMs`, `notReached` (interventions the run never got to), `warnings` and `divergence` (the report, or `null`).
 
 ## replay
 
@@ -62,6 +64,8 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
 | `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
+
+Exit status: the agent's, except 1 with `--strict` when the replay diverged, and 1 when a [check](#checks-on-a-replay) failed. With `--repeat`, 0 only when every attempt asked for ran, exited 0 and passed its checks (with `--strict`, 1 when any attempt diverged); a `--repeat` cut short exits 1. A run still recording is refused, exit status 1, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, with `checks` (each check and whether it passed) when the replay has checks; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, `summary` and `checks`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
 
 See [Interventions](./interventions.md) for what each one does to the conversation prefix, and what each provider takes. A change the recorded request can't take (a system message on Gemini, a field Converse has no place for, a write tool to plant in) is refused before anything runs, with the reason; an intervention the replay never reached is named in its summary.
 
@@ -181,7 +185,8 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
 | `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
-| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for `verify` |
+| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y` | As for `verify` |
+| `--json` | The report as JSON on stdout ([fields](./repair.md#json)) |
 
 Exit status 0 when a candidate is accepted and handed over as asked, 1 otherwise. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
 
@@ -228,6 +233,11 @@ It trusts nothing it reads from the store: the repair's directory must be `.shad
 | `verify` | One entry per change verified, newest first: its `verdict`, whether it `counts` and a `note` saying why not (or that it was rejected after the fix was applied), `headline`, `oracle`, each run's `role`, `attempts`, `outcome` and where it went (`note`), the token and cost changes per run, and what it took to find out |
 | `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
 | `actions` | What can be done next: `repair` for an open fix; `apply` for a verified or applied one (`kind` is `patch`, or `mark` when there is no patch, with the `gitApply` command, and `pending` saying what applying left undone); `applied` once it is applied |
+| `fixId`, `href`, `failing`, `good`, `openedAt`, `verifiedAt`, `appliedAt`, `openedBy` | As in `fix ls`, and who opened it |
+| `blames`, `repairs`, `defaultStep`, `defaultVerify` | Every blame (`blameId`, `runId`, `at`, `outcome`, `lostAt`, `confidence`) and repair (`repairId`, `at`, `outcome`, `accepted`, `title`) behind the fix, newest first; the step the dashboard opens at, and the verdict it shows first |
+| `commands`, `repairer`, `applied` | The `blame`, `repair` and `verify` commands to run it again; the repairer the config names (`name`, whether it is `configured`); and, once applied, how (`patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via`) |
+
+`fix ls --json` prints `{ fixes, counts }`: each fix as its row in the list, with `fixId`, `href` (where the dashboard shows it), `status`, `title`, `label`, `labels`, `check`, how many runs are `failing` and `good`, its `steps`, `source`, when it was `openedAt`, `verifiedAt` and `appliedAt` (epoch milliseconds, or `null`), why it is `broken`, and the `attempts` and USD `spent` behind it; and the `counts` of `all`, `open` and `verified` fixes, applied ones counted as verified. `fix apply --json` prints `{ fixId, status, again, patch, repairId, goldens, tests }`: `status` is `applied`, or `already-applied` when nothing was left to do; `again` when it finished a fix applied before; what became of the `patch` (`applied`, `already` in the tree, or `none` to apply); the `repairId`; each golden's `from`, `to` and whether it was `copied`; and the `tests` (`passed`, `failed` or `skipped`). An error prints `{ fixId, status, error }` with `status` `error`, as the `--json` row says.
 
 Blame, repair, verify and apply each log an activity event in the store (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`, `fix.applied`).
 
@@ -268,6 +278,8 @@ shadowlap show <run> [--json] [--request <call>] [--response <call>]
 
 The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. `--request n` and `--response n` print the stored payloads.
 
+`--json` prints `{ "run", "summary", "calls" }`: the run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`), its summary as [`run --summary-json`](#run) writes it, and every call as stored (`callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`). The dashboard's Provenance tab copies the same object.
+
 ## ls
 
 ```sh
@@ -305,7 +317,9 @@ shadowlap search refund policy             # every word must appear
 shadowlap search '"refund policy"' --run 01M2P9PVCP -n 50 [--json]
 ```
 
-Searches what runs recorded: prompts, model responses, tool arguments and tool results. Quoted words must appear together. Each match names the run, the call and where the text was found, and ends with the `shadowlap ui <run> --call <n>` that opens it. The index is built the first time you search and updated for runs that changed since; each model call indexes only the turns it added to the conversation, so a long run is indexed once, not once per call.
+Searches what runs recorded: prompts, model responses, tool arguments and tool results. Quoted words must appear together. Each match names the run, the call and where the text was found, and ends with the `shadowlap ui <run> --call <n>` that opens it. Matches in attempts (blame's probes, verify's attempts, `replay --repeat`'s), which repeat the run they came from word for word, come after those in the runs you made, as in the dashboard's search. The index is built the first time you search and updated for runs that changed since; each model call indexes only the turns it added to the conversation, so a long run is indexed once, not once per call.
+
+`--json` prints one object per match: `runId`, `callNo`, `kind`, `name`, `field` (`prompt`, `response`, `arguments` or `result`), `snippet` (the text around the match) and `runStartedAt`. Exit status 1 when nothing matches, as for `grep`.
 
 ## ui
 
@@ -338,6 +352,8 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 | `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
 | `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
 
+The `--json` report is `{ version, session, revision, passed, failed, interrupted, results }`, one result per pack: its `name`, `dir` and `golden` (as test history names it), `mode` (`replay`, or `fork` for a recording that forks on purpose), `ok`, the `failure` kind with its one-line `message` and the `details` the terminal shows, the agent's last lines of `output` when it failed, `seconds`, the replay shown (`runId`) and every attempt's (`runs`, each `runId` and `ok`), the recording replayed (`goldenRunId`), `calls` by origin (`total`, `replayed`, `live`, `blocked`, `stubbed`), `upstreamRequests`, `tokensNotRespent`, the `divergence` (`type`, `callNo`, `kind`, `name`), its `checks` (`ok`, `label`, `detail`) with the `expect` they came from, `attempts` for a recording that repeats (`total`, `passed`, `required`), and, with `--update`, what it `updated` (`from`, `to`, `calls`, `changes`).
+
 ## bisect
 
 ```sh
@@ -356,6 +372,8 @@ shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>]
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
 
+`--json` prints `{ outcome, target, good, bad, commits, steps, first, untested, why, replays, tokens, upstreamRequests, spent, seconds }`: the `outcome` (`found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped`, with `why` when there is no answer), the `target` (`kind` `golden` or `run`, its `name` and `runId`), the `good` and `bad` commits and the `commits` between them, each replay in `steps` (`rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds`), the `first` bad commit with `why` it fails there, the `untested` commits just before it, and what it took: `replays`, `tokens`, `upstreamRequests`, USD `spent` and `seconds`. A commit is `{ rev, short, subject, author, date }`.
+
 ## pack, unpack
 
 ```sh
@@ -363,7 +381,7 @@ shadowlap pack <run> <dir> [--lineage] [--no-redact]
 shadowlap unpack <dir>
 ```
 
-`pack` writes a run as a directory: `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/`. Stable names and one file per blob keep it git-friendly, so it can be committed as a CI golden or shared. The [redaction rules](./normalizers-and-redaction.md#redaction) in `shadowlap.config.json` are applied to the copy, and who made each run (its author, often an email) is left out of it; the local store is never modified. `unpack` imports a pack, treating it as untrusted input: every record is validated, every blob is verified against its hash, and a pack that fails a check imports nothing. Runs that already exist are skipped. Imported runs are marked, and `unpack` prints the command each one would run on replay:
+`pack` writes a run as a directory: `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/`. A run still recording is packed once it has ended, as every export waits for it: half a run would make a golden that never matches; until then `pack` refuses it, exit status 1, and with `--lineage` it waits for every run the pack would hold. Stable names and one file per blob keep it git-friendly, so it can be committed as a CI golden or shared. The [redaction rules](./normalizers-and-redaction.md#redaction) in `shadowlap.config.json` are applied to the copy (`--no-redact` skips them, and says how many it skipped), and who made each run (its author, often an email) is left out of it; the local store is never modified. `unpack` imports a pack, treating it as untrusted input: every record is validated, every blob is verified against its hash, and a pack that fails a check imports nothing. Runs that already exist are skipped. Imported runs are marked, and `unpack` prints the command each one would run on replay:
 
 ```
 imported 01K5CQ4N7G8M2XWQH6V3T9RB1D  command: node dist/agent.js --task 'triage inbox'
@@ -510,7 +528,7 @@ dashboard, the command also reports each run to the job that started it.
 shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json] [--guard <mode>] [-y]
 ```
 
-Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made for this project, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--max-rounds` is how many replays to try first (default 8); `--guard` and `-y` are as for `replay`. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made for this project, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--max-rounds` is how many replays to try first (default 8); `--guard` and `-y` are as for `replay`. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. Exit status 0 when the replay ends clean, with or without proposals, and 1 when calibration stops before it is clean, or when the run named is still recording. See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 
@@ -567,9 +585,9 @@ Both edit `shadowlap.config.json` in the working directory. [Normalizers](./norm
 
 - `add` takes a pattern (named, such as `uuid` or `email`, or `/regex/flags`), a path, or both. A pattern alone masks matches in every string; a path alone replaces the whole value there; `--name` scopes the rule to one tool or call. It refuses a rule that would change nothing or that it can't read, and for redaction a replacement the rule would rewrite again. Adding a rule that is already there changes nothing.
 - `rm` takes the number `ls` shows (`2` or `#2`), or the tool name, path or pattern of exactly one rule.
-- `ls --json` prints `{ file, exists, version, rules }`, each rule with its number `n`; one the config can't load has `error` instead.
+- `ls --json` prints `{ file, exists, version, error, rules }`: `error` says why the list can't be read (it isn't a list; `ls` then exits 1), else `null`; each rule has its number `n`, and one the config can't load has `error` instead.
 - `--expect <version>` refuses the edit when the file is no longer the version `ls --json` printed.
-- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, as `pack` applies them, and on a line of its own what they match in the run's command line, labels and notes (`details`), which `export html`, `dataset` and `otel` mask and `pack` keeps. Nothing is written. [Preview](./normalizers-and-redaction.md#preview).
+- `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, as `pack` applies them, and on a line of its own what they match in the run's command line, labels and notes (`details`), which `export html`, `dataset` and `otel` mask and `pack` keeps. Nothing is written. [Preview](./normalizers-and-redaction.md#preview). `--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "rules", "details" }`: the calls read and those that couldn't be, `total` masked, each rule with its number `n`, the `rule`, its `count`, up to two `samples` (`before`, `after`), how many requests a path rule `reached` and a `note` when it reached none; `details` has a `count`, `samples` and the `rules` that match there.
 
 Each add and rm is recorded in the project's activity, in a store that exists.
 
@@ -588,7 +606,7 @@ shadowlap mcp [--effect <tool=effect>]... -- <server command>
 shadowlap mcp --url <server> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
 ```
 
-A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`${VAR}` read from the environment) with every request; headers go over plain http only to this machine, or anywhere with `--allow-http`. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. The proxy finds its run even when the client starts it with a minimal environment, and when it was started under Shadowlap but can't record, it refuses write tools rather than run them unrecorded. On Windows a server command that is a batch file (`npx -y …`) runs through cmd.exe. See [MCP servers](./mcp.md).
+A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`$VAR` or `${VAR}` read from the environment) with every request; headers go over plain http only to this machine, or anywhere with `--allow-http`. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. The proxy finds its run even when the client starts it with a minimal environment, and when it was started under Shadowlap but can't record, it refuses write tools rather than run them unrecorded. On Windows a server command that is a batch file (`npx -y …`) runs through cmd.exe. See [MCP servers](./mcp.md).
 
 ## diff
 
@@ -598,13 +616,15 @@ shadowlap diff <a> <b> [--json]
 
 Two runs call by call, aligned by position. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response, the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently, or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
 
+`--json` prints the comparison: `a` and `b` (each `runId` and `calls`), `identicalPrefix` and those calls (`prefix`, the first 500), `firstRequestDifference` (`callNo`, `kind`, `name` and the structural `diff`, or `null`), `responseDifferences`, `after` (each run's course from the first difference on), `onlyInA`, `onlyInB`, and `changes` (`systemPrompt`, `tools`, `models`, `code`).
+
 ## dashboard
 
 ```sh
 shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a taken port falls back to a free one. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. It needs a store to show and never creates one. See [Dashboard](./dashboard.md).
+A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a port that is taken, or that the system keeps for itself (a range Windows reserves), falls back to a free one. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. It needs a store to show and never creates one. See [Dashboard](./dashboard.md).
 
 ## doctor
 
@@ -612,7 +632,7 @@ A local web UI over the store: runs and forks, a timeline of calls by origin, th
 shadowlap doctor [--json]
 ```
 
-Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH, the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking.
+Checks what support would check: Node and the built-in SQLite, the guard preloads, Python on the PATH, the store (runs, size, schema, runs a killed process left marked running), a stale `.shadowlap/active.json`, the configuration (every rule, price and MCP effect parsed), and agent-process environment that leaked into your shell (`SHADOWLAP_URL`, `NODE_OPTIONS`, `PYTHONPATH`). Each problem comes with the fix. Exit status 1 when something is blocking. `--json` prints the checks as a list, each `{ "name", "verdict", "detail" }` with `verdict` `ok`, `warn` or `fail`, and a `fix` where there is one.
 
 ## rm, gc
 
@@ -621,7 +641,7 @@ shadowlap rm <run...> [--forks]
 shadowlap gc [--older-than <days> | --before <time>] [--keep <n>] [--expect <count>-<digest>] [--dry-run] [--json]
 ```
 
-`rm` deletes runs; their forks keep their data but lose the link. `gc` deletes old runs (`--older-than 30`, `--keep 200`; runs still recording are never touched), removes blobs nothing references any more, and vacuums the store. The TUI's `x` does the same as `rm` for one run.
+`rm` deletes runs; their forks keep their data but lose the link. A run still recording, and one a run in progress replays from (a replay, fork or attempt of it serves its answers from it), is left, with the reason, as the dashboard leaves it, and `rm` then exits 1. `gc` deletes old runs (`--older-than 30`, `--keep 200`; runs still recording are never touched), removes blobs nothing references any more, and vacuums the store. The TUI's `x` does the same as `rm` for one run.
 
 While any run is still recording, in this project's store and from any process, no blob is collected and the store isn't vacuumed: a recording stores a blob just before the call that references it, and reuses a blob already stored, so a blob that looks unreferenced may be one it is about to use. `gc` still deletes the old runs, says which runs are recording, and frees their blobs on a later run. `rm` collects blobs under the same rule.
 
@@ -637,9 +657,9 @@ A run whose recording process was killed (`kill -9`, out of memory, a machine th
 ✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
 ```
 
-The size is what those blobs take in the store. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the store's size `before` and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
+The size is what those blobs take in the store. With no run to delete, the dry run says so, and how much of the store's file is free space that `gc` would give back by vacuuming it. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the `store`: its `path`, its size `before` and, after a real run, `after`, and the space inside it that is `free`, which a vacuum gives back. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
 
-To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids), and refuses, deleting nothing, when the runs that match now are different, even the same number of others. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
+To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids), and refuses, deleting nothing and with exit status 1, when the runs that match now are different, even the same number of others. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
 
 ## export html
 
@@ -651,7 +671,7 @@ shadowlap export html <run> --no-redact        # skip the config's redaction rul
 
 One HTML file with the dashboard's views and the run's data built into it: calls, conversations, responses, the divergence diff, the context and timeline views, and comparison between the runs it holds. It opens from a file, an artifact or a pull request comment, on a machine that has neither Shadowlap nor the recording, and it loads nothing from the network. Actions, live updates and search across runs belong to the dashboard, not to a copy.
 
-It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says so when there are none. Like a pack, it leaves out who made each run. A 30-call run is roughly 500 kB.
+It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says how many applied, that there were none, or, with `--no-redact`, how many it skipped. A run still recording is refused, exit status 1 (every export waits for a run to end, or the copy would show it recording for good); with `--lineage`, so is a run whose ancestor is still recording. Like a pack, it leaves out who made each run. A 30-call run is roughly 500 kB.
 
 ## export dataset
 
@@ -660,7 +680,7 @@ shadowlap export dataset --label good --out good.jsonl
 shadowlap export dataset <run...> --calls model --format openai-chat
 ```
 
-Recordings as an eval or fine-tuning dataset, one JSON line per example. Select runs by id, by `--label` (repeatable: all of them) or `--all`.
+Recordings as an eval or fine-tuning dataset, one JSON line per example. Select runs by id, by `--label` (repeatable: all of them) or `--all`. A run named that is still recording is refused, exit status 1; one picked by `--label` or `--all` is left for a later export, and the command says how many.
 
 | Option | Effect |
 |---|---|
@@ -672,7 +692,7 @@ Recordings as an eval or fine-tuning dataset, one JSON line per example. Select 
 | `--format openai-chat` | `{ messages }`, the recorded answer as the last assistant message |
 | `--no-redact` | Skip the redaction rules |
 
-Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. The redaction rules apply to each model call's request and response as `pack` applies them, path rules included, before its conversation and answer are read; then the rules without a path apply to every string of the row, its command line, labels and notes too. A rule that can't be read stops the export.
+Messages are the conversation exactly as the model saw it, in a provider-neutral shape: system, user, assistant (with its tool calls and their ids) and tool results, whichever provider recorded it. `metadata` carries the run and call, the model, labels, notes, outcome check results, the command, code version and fork point. The redaction rules apply to each model call's request and response as `pack` applies them, path rules included, before its conversation and answer are read; then the rules without a path apply to every string of the row, its command line, labels and notes too. A rule that can't be read stops the export. The command says how many rules applied, that there were none, or, with `--no-redact`, how many it skipped.
 
 ## export pairs
 
@@ -712,7 +732,7 @@ included), and the rules without a path to the URL, the headers and the response
 A model streams its text in pieces, so an address it writes back arrives split across events; each
 run of pieces (a block's text, a tool call's arguments) is masked as the text it adds up to, and the
 masked text is spread back over the same events. The rules are named in the log
-(`_shadowlap.redactions`). `--no-redact` skips them; the command says when there are none to apply.
+(`_shadowlap.redactions`). `--no-redact` skips them; the command says when there are none to apply, and how many it skipped. A run still recording is refused, exit status 1, as by every export.
 
 ## export otel
 
@@ -726,7 +746,7 @@ shadowlap export otel <run> --service refund-agent            # service.name, de
 
 A run as one OpenTelemetry trace: a span for the run and a child span per call, using the GenAI semantic conventions (`gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reasons`, `gen_ai.tool.name`) plus `shadowlap.*` attributes for the origin, effect, fingerprint and cost. Trace and span ids are derived from the run id, so exporting twice updates the same trace. Headers for an authenticated collector come from `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`). No OpenTelemetry SDK is involved. With `--out` the trace goes to that file and nowhere else unless `--endpoint` is given too; without either, it goes to `OTEL_EXPORTER_OTLP_ENDPOINT` when that is set, else to stdout.
 
-A trace carries no prompt text, tool arguments or results. The redaction rules without a path apply to what it does carry from the run: span names, the command line (`process.command_args`), model and tool names, and error messages; Shadowlap's own ids and fixed values stay as they are. A rule that can't be read stops the export.
+A trace carries no prompt text, tool arguments or results. The redaction rules without a path apply to what it does carry from the run: span names, the command line (`process.command_args`), model and tool names, and error messages; Shadowlap's own ids and fixed values stay as they are, and the command says how many rules applied. A rule that can't be read stops the export. A run still recording is refused, exit status 1, as by every export.
 
 ## push, pull
 
@@ -753,6 +773,19 @@ folder, `pr/<number>/` in the store. `pull` leaves those folders out unless give
 runs it brings from one stay on this machine: `push --all` leaves them out, and `push` refuses one
 by name.
 
+`push --json` prints `{ store, pullRequest, pushed, updated, unchanged, queued, repaired, refused, blobs, segment, onlyLocal }`:
+the store, the pull request whose folder it wrote to (or `null`), the runs `pushed`, `updated`
+(labels, notes or results merged), `unchanged`, `queued` (still recording) and `repaired` (parts
+the bucket lost, sent again), each run `refused` with why, the `blobs` `uploaded`, already
+`present` and their `bytes`, the index `segment` it wrote (or `null`), and how many runs are still
+`onlyLocal`. `pull --json` prints `{ store, pulled, merged, needPush, skippedDeleted, missing, unknown, failed, skippedSegments, blobs, segments, inStore, byAuthor, onlyLocal, pullRequests }`:
+the runs `pulled` and `merged`, the merged ones whose changes the next push sends (`needPush`),
+runs deleted here and not pulled again (`skippedDeleted`), runs gone from the store (`missing`),
+names that match no run (`unknown`), runs that couldn't come (`failed`, with why) and index
+segments that couldn't be read (`skippedSegments`), the `blobs` `downloaded` and their `bytes`, the
+`segments` read, the runs `inStore` and `onlyLocal` here, the pulled runs `byAuthor`, and with
+`--include-pr` each pull request's folder (`pullRequests`).
+
 ## share
 
 ```sh
@@ -761,7 +794,11 @@ shadowlap share <run> [--lineage] [--json]
 
 Writes the run's [HTML report](#export-html), with every redaction rule applied, to the
 [team store](./team.md#share-links) and prints a presigned link that expires after 7 days. Anyone
-with the link can open it, without an account. `--lineage` includes the run's ancestors.
+with the link can open it, without an account. `--lineage` includes the run's ancestors. A run still recording, or with `--lineage` one whose ancestor is, is shared once it has ended: until then `share` refuses it, exit status 1, before anything is asked of the store.
+`--json` prints `{ runId, url, expiresAt, note, store, key, bytes, redacted, rules, runs }`: the link
+(`url`) and when it expires (`expiresAt`, epoch milliseconds), a `note` when it may stop working
+sooner (it was signed with temporary credentials), the store and the object's `key` in it, its `bytes`, whether it is `redacted`
+and with how many `rules`, and the `runs` it holds.
 
 ## store
 
@@ -786,6 +823,21 @@ where the CI and the cloud allow it, and the pull-request credentials beside the
 branches'. `push-from-ci off` writes `"ciPush": false` to the config: `test --push` in CI then runs
 the tests and keeps their runs in the job (outside CI, `--push` still pushes); `on` turns it back
 on. Each takes `--json`.
+
+With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config }`:
+the store as written to the config and its `url` without the options after `?`, its parts, the
+store it replaced (`previous`) and the config file's path. `check` prints
+`{ url, credentials, steps, ok, encryption, versioning, objectLock, warnings, notes, failure, pullRequest }`:
+where the `credentials` came from, each step (`name`, `ok`, `detail`, `code`), whether all passed
+(`ok`), the bucket's `encryption`, `versioning` and `objectLock` (`state`, `detail`), its
+`warnings`, what couldn't be checked (`notes`), the kind of the first `failure`, and the pull
+request whose folder it checked. `show` prints `{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, queued, check }`:
+the last push and pull (epoch milliseconds), the runs `inStore`, `onlyLocal` and `queued` to go
+when they end, and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
+`credentials`). `policy` prints `{ provider, writer, pullRequest, notes }`, each policy with whom
+it is `for`, its `kind`, its `text` and `notes`. `ci` prints `{ ci, provider, file, text, oidc, pullRequests, notes }`:
+the step's `text` and the `file` it goes in, whether it uses short-lived credentials (`oidc`), and
+whether pull requests' jobs push to their `own-folder` or not at all (`no-push`, in `pullRequests`). `push-from-ci` prints `{ ciPush, previous, config }`.
 
 ## Environment
 

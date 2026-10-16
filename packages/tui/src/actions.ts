@@ -1,4 +1,4 @@
-import { commandIsImported, hasRecordedCommand, literalValue, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, literalValue, noLateSystemMessage, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
 
 /**
  * The actions palette and the dashboard's fork menu: everything the CLI can do from the selected
@@ -46,6 +46,18 @@ export interface Action {
 /** What an action needs beyond the run and the call: the call's recorded result, for an override that starts from it. */
 export interface ActionContext {
   result?: unknown;
+  /**
+   * Whether a process is recording the run right now (the store's `recordingRuns().live`, as
+   * `recordingNow` reads it). A run whose recorder stopped without ending it stays `running` for
+   * good, and is not: nothing will add to it, so it is replayed, forked and packed as the CLI does
+   * one that ended. Left out, a run marked `running` counts as recording.
+   */
+  recording?: boolean;
+}
+
+/** Whether a process is recording the run now: marked `running`, and its recorder still there. */
+export function recordingNow(store: Store, run: RunRecord): boolean {
+  return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
 }
 
 /** A recorded user input: what the agent read from a person, recorded like a read tool (`user_input`, `meta.input`). */
@@ -78,6 +90,62 @@ export const CAPTURE_NOTE = 'A capture has no command. Replay it with yours firs
 export function buildActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext = {}): Action[] {
   if (!hasRecordedCommand(run)) return captureActions(run);
   return guardImported(run, baseActions(run, call, context));
+}
+
+/**
+ * The terminal UI's fork menu: the dashboard's, which ends the whole run's part with Find the commit.
+ * The dashboard runs that as the tests' bisect job, from its own offers; the terminal UI runs
+ * `shadowlap bisect` itself.
+ */
+export function terminalActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext = {}): Action[] {
+  const actions = buildActions(run, call, context);
+  const find = bisectAction(run);
+  // After the whole run's other actions, before what isn't a fork.
+  let at = actions.length;
+  while (at > 0 && actions[at - 1]!.group !== 'run') at--;
+  const all = find ? [...actions.slice(0, at), find, ...actions.slice(at)] : actions;
+  // A run still recording has no end to replay to yet: as in the dashboard, its replays, forks and
+  // copies wait for it to finish (the terminal UI tails it, so they turn on when it does). One its
+  // recorder left marked running has ended, as far as anything will add to it.
+  if (!(context.recording ?? run.status === 'running')) return all;
+  return all.map((a) => (a.key === 'n' || a.disabled ? a : { ...a, disabled: WAITS[a.key] ?? 'fork once the recording finishes' }));
+}
+
+/** What an action that waits for a run still recording says, by its key; every other one is a fork. */
+const WAITS: Record<string, string> = { r: 'replay once the recording finishes', p: 'pack once the recording finishes', b: 'look for the commit once the recording finishes' };
+
+/**
+ * Find the commit: a run that failed is looked for where it started failing, between a commit where
+ * it still worked and HEAD; one that passed, where it started doing something else after its own
+ * commit. Replays are offline, so it costs nothing. Not for a capture, which has no command to run
+ * at each commit; off for a run from someone else's pack, whose command it would run at every one,
+ * and for a run recorded outside git.
+ */
+export function bisectAction(run: RunRecord): Action | null {
+  if (!hasRecordedCommand(run)) return null;
+  const failed = run.status === 'failed' || (run.meta?.checks ?? []).some((c) => !c.ok);
+  const own = run.codeVersion?.replace(/\+dirty$/, '') || null;
+  const disabled = commandIsImported(run)
+    ? 'This run came from an imported pack: bisect would run its command at every commit. Replay it with your own command first, and bisect that run'
+    : !own
+      ? 'Recorded outside a git repository: there are no commits to search'
+      : null;
+  return {
+    key: 'b',
+    label: failed ? 'Find the commit that broke it' : 'Find the commit that changed it',
+    flag: 'bisect --good …',
+    group: 'run',
+    hint: failed
+      ? 'Replays it at commits between one where it still worked and HEAD, halving each time, and names the first where it fails. Replays are offline: no tokens.'
+      : 'Replays it at the commits after its own, halving each time, and names the first where it does something else. Replays are offline: no tokens.',
+    ...(disabled ? { disabled } : {}),
+    prompt: {
+      label: failed ? 'A commit where it still worked (a sha, a tag or a branch):' : 'The commit to search from (its own, by default):',
+      ...(failed ? { placeholder: 'v1.4.0' } : { initial: own ?? '' }),
+      build: (v) => (v.trim() ? ['bisect', run.runId, '--good', v.trim()] : []),
+    },
+    opensRun: false,
+  };
 }
 
 /** Why a prompt's answer ran nothing: the only answers that do are a command, or a yes. */
@@ -291,7 +359,8 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
         label: 'Inject an instruction',
         flag: `--inject ${n}=… --inject-as user`,
         group: 'call',
-        hint: 'Not every model takes a system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.',
+        // Named when the call's model is one that rejects it outright, as the dialog the dashboard opens says.
+        hint: `${noLateSystemMessage(model) ? `${noLateSystemMessage(model)} takes no` : 'Not every model takes a'} system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.`,
         prompt: { label: `Instruction to add at #${n}:`, placeholder: 'Prefer sources from 2026.', build: (v) => ['replay', id, '--inject', `${n}=${v}`, '--inject-as', 'user'] },
         opensRun: true,
       },

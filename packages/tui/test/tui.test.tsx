@@ -221,6 +221,55 @@ describe('ease of use', () => {
     expect(frame).toContain(runId.slice(0, 10));
     store.close();
   });
+
+  it('leaves a run that is still recording, and says why', async () => {
+    const { store } = goldenStore();
+    // Recorded by this process, which is still running.
+    const live = store.createRun({ mode: 'record', command: { argv: ['python', 'chat.py'], cwd: '.' } });
+    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    await tick(60);
+    stdin.write('/');
+    await tick(60);
+    stdin.write('chat');
+    stdin.write('\r');
+    await tick(60);
+    stdin.write('x');
+    await tick(60);
+    stdin.write('y');
+    await frameWith(lastFrame, `${live.runId.slice(0, 10)} was not deleted: still recording; delete it once that has ended`);
+    expect(store.getRun(live.runId)).not.toBeNull();
+    store.close();
+  });
+});
+
+describe('a recording whose process was killed', () => {
+  it('reads as interrupted, and its forks are on: nothing will add to it', async () => {
+    const { store, runId } = goldenStore();
+    // Marked running, with no process to ask and nothing heard for two days.
+    const left = { ...store.getRun(runId)!, runId: '01M4Y6TKYXLEFT000000000000', status: 'running' as const, endedAt: null, startedAt: Date.now() - 2 * 86_400_000, meta: {} };
+    store.importRun(left);
+    const { lastFrame, stdin, unmount } = render(<App store={store} columns={100} rows={30} />);
+    const list = await frameWith(lastFrame, left.runId.slice(0, 10));
+    expect(list.split('\n').find((l) => l.includes(left.runId.slice(0, 10)))).toContain('interrupted');
+    stdin.write('/');
+    await tick(60);
+    stdin.write('01M4Y6TKYXLEFT');
+    stdin.write('\r');
+    await tick(60);
+    stdin.write('\r');
+    // The timeline's header says so where it would say recording….
+    const header = (await frameWith(lastFrame, 'interrupted · 2d ago')).split('\n')[0]!;
+    expect(header).toContain(left.runId.slice(0, 10));
+    expect(header).not.toContain('recording…');
+    stdin.write(':');
+    const menu = await frameWith(lastFrame, 'The whole run');
+    expect(menu).not.toContain('once the recording finishes');
+    // Nothing tails it: no call will come, so nothing reads the store while it stays open (a read
+    // of the closed store would throw from a timer).
+    store.close();
+    await tick(1200);
+    unmount();
+  });
 });
 
 describe('scopes, labels and the dashboard', () => {
@@ -342,6 +391,34 @@ describe('actions palette', () => {
     await tick(80);
     frame = plain(lastFrame());
     expect(frame).toContain(fork.runId.slice(0, 10));
+    store.close();
+  });
+
+  it('puts a prompt\'s label on its own lines, above what is typed, however long it is', async () => {
+    const { store, runId } = goldenStore();
+    // The golden is a pack's run: each fork's prompt starts with what replaying it runs.
+    const spawnCli = () => {
+      throw new Error('nothing is run here');
+    };
+    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli as never} columns={100} rows={30} />);
+    await tick(60);
+    stdin.write('j');
+    stdin.write('j'); // #3, the first model call
+    await tick(60);
+    stdin.write(':');
+    await frameWith(lastFrame, 'Inject an instruction');
+    stdin.write('i');
+    await frameWith(lastFrame, 'Instruction to add at #3:');
+    stdin.write('Be brief.');
+    const frame = await frameWith(lastFrame, '› Be brief.');
+    const lines = frame.split('\n').map((l) => l.replace(/^[\s│]+|[\s│]+$/g, ''));
+    // What is typed has its line to itself, and the label wraps above it, every word whole.
+    const at = lines.findIndex((l) => l.startsWith('› Be brief.'));
+    expect(lines[at]).toBe('› Be brief.');
+    const label = 'This run came from an imported pack; replaying it runs: node testing/reference-agent/dist/main.js. Instruction to add at #3:';
+    expect(lines.slice(0, at).join(' ')).toContain(label);
+    expect(lines[at + 1]).toBe('Enter to confirm · Esc to cancel');
+    stdin.write('\u001b');
     store.close();
   });
 

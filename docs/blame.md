@@ -116,6 +116,7 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 
 | Field | |
 |---|---|
+| `runId` | The run blamed |
 | `outcome` | `blamed`, `unrescuable` or `stopped`; `error` when blame refused, with `error.reason` (`passes`, `diverged`, `bypassed`, `prefix`, `no-model-calls`, `interrupted`) and `error.message` |
 | `blamed`, `lost` | `{ callNo, step, passes, attempts }` for the blamed call and the one after it, or `null` |
 | `confidence` | `high`, `medium` or `low` |

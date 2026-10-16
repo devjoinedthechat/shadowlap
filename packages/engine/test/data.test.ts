@@ -71,6 +71,41 @@ describe('search', () => {
     store.close();
   });
 
+  it('shows the runs people made before the attempts that repeat them word for word', () => {
+    const { store, runId } = golden();
+    // Five attempts of blame on the run, each a copy of it, newer than it.
+    const dir = join(mkdtempSync(join(tmpdir(), 'sl-search-attempts-')), 'pack');
+    const manifest = JSON.parse(readFileSync(join(GOLDEN, 'run.json'), 'utf8'));
+    const calls = readFileSync(join(GOLDEN, 'calls.jsonl'), 'utf8');
+    for (let i = 0; i < 5; i++) {
+      cpSync(GOLDEN, dir, { recursive: true });
+      const id = `01M4Y6TKYXFKR5CE85WD7NJYE${i}`;
+      manifest.runs[0] = { ...manifest.runs[0], runId: id, parentRunId: runId, mode: 'replay', startedAt: manifest.runs[0].startedAt + 1000 + i, meta: { probe: { of: runId, callNo: 3, attempt: i + 1, passed: false } } };
+      writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
+      writeFileSync(join(dir, 'calls.jsonl'), calls.split(runId).join(id));
+      expect(unpackRun(store, dir).imported).toEqual([id]);
+    }
+    const hits = searchCalls(store, '"You are a research agent"', { limit: 3 });
+    expect(hits[0]).toMatchObject({ runId, field: 'prompt' });
+    expect(hits.slice(1).every((h) => h.runId !== runId)).toBe(true);
+    // Within one run, the index's order as it was.
+    expect(searchCalls(store, 'config.json', { runId: `01M4Y6TKYXFKR5CE85WD7NJYE0` }).every((h) => h.runId === '01M4Y6TKYXFKR5CE85WD7NJYE0')).toBe(true);
+    store.close();
+  });
+
+  it('returns as many matches as asked for, past the rows it reads to rank attempts last', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/tmp' } });
+    for (let callNo = 1; callNo <= 1_050; callNo++) {
+      store.appendCallStart({ runId: run.runId, callNo, kind: 'tool', name: 'lookup_order', fingerprint: `f${callNo}`, occurrence: 0, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { note: `zebra ${callNo}` } }), meta: {}, at: callNo });
+    }
+    store.endRun(run.runId, 'completed');
+    expect(searchCalls(store, 'zebra', { limit: 1_500 })).toHaveLength(1_050);
+    expect(searchCalls(store, 'zebra', { limit: 1_020 })).toHaveLength(1_020);
+    expect(searchCalls(store, 'zebra', { limit: 7 })).toHaveLength(7);
+    store.close();
+  });
+
   it('takes query syntax as plain words, and forgets a deleted run', () => {
     expect(searchExpression('refund AND "order 42" NEAR(x')).toBe('"refund" "AND" "order 42" "NEAR(x"');
     expect(searchExpression('   ')).toBeNull();

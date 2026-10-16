@@ -4,6 +4,7 @@
  * A model request repeats the whole conversation before it, so each model call indexes only the turns
  * it adds: a long run's index grows with its content, not with the square of it.
  */
+import { classifyRun } from './classify.js';
 import { normalizeConversation, type TurnBlock } from './conversation.js';
 import { loadApiRequest } from './manifest.js';
 import { normalizeResponse } from './responses.js';
@@ -131,23 +132,33 @@ export function searchExpression(query: string): string | null {
   return parts.length ? parts.join(' ') : null;
 }
 
+/**
+ * The calls whose recorded content matches, best first. Attempts (blame's probes, verify's attempts,
+ * `replay --repeat`'s) repeat the run they came from word for word, so they rank after the runs
+ * people made: a search shows the recording before five copies of it. A search within one run
+ * (`runId`) keeps the index's order.
+ */
 export function searchCalls(store: Store, query: string, opts: { limit?: number; runId?: string } = {}): SearchHit[] {
   const match = searchExpression(query);
   if (!match) return [];
   updateSearchIndex(store);
-  const out: SearchHit[] = [];
-  const runs = new Map<string, { startedAt: number; calls: Map<number, CallRecord> }>();
-  for (const h of store.searchDocs(match, opts.limit ?? 50, opts.runId)) {
+  const limit = opts.limit ?? 50;
+  const hits: Array<{ hit: SearchHit; attempt: boolean }> = [];
+  const runs = new Map<string, { startedAt: number; attempt: boolean; calls: Map<number, CallRecord> }>();
+  // Read past the limit, so the runs people made can come first even when attempts rank as high:
+  // four times as many rows, at most 1,000 unless the limit asks for more, and never fewer than it.
+  const read = opts.runId ? limit : Math.max(limit, Math.min(limit * 4, 1000));
+  for (const h of store.searchDocs(match, read, opts.runId)) {
     let run = runs.get(h.runId);
     if (!run) {
       const record = store.getRun(h.runId);
       if (!record) continue;
-      run = { startedAt: record.startedAt, calls: new Map(store.getCalls(h.runId).map((c) => [c.callNo, c])) };
+      run = { startedAt: record.startedAt, attempt: classifyRun(record).attemptOf !== null, calls: new Map(store.getCalls(h.runId).map((c) => [c.callNo, c])) };
       runs.set(h.runId, run);
     }
     const call = run.calls.get(h.callNo);
     if (!call) continue;
-    out.push({ runId: h.runId, callNo: h.callNo, kind: call.kind, name: call.name, field: h.field, snippet: h.snippet, runStartedAt: run.startedAt });
+    hits.push({ hit: { runId: h.runId, callNo: h.callNo, kind: call.kind, name: call.name, field: h.field, snippet: h.snippet, runStartedAt: run.startedAt }, attempt: run.attempt });
   }
-  return out;
+  return [...hits.filter((h) => !h.attempt), ...hits.filter((h) => h.attempt)].slice(0, limit).map((h) => h.hit);
 }

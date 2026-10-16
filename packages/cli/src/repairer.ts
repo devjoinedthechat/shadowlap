@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { estimateCost, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
+import { startCommand } from './start-command.js';
 
 /**
  * The model `shadowlap repair` asks for candidate fixes: the only model call in the repair loop that is
@@ -194,26 +195,46 @@ export async function askRepairer(r: Repairer, prompt: { system: string; user: s
 const CLAUDE_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_REMOTE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION'];
 
 /**
+ * How Claude Code is started for a repair: print mode, no tools, the answer held to the schema, and
+ * the system prompt read from `systemFile`. The prompt itself goes on stdin. Neither holds a line
+ * break on the command line, which on Windows an npm-installed `claude` (a batch file, run through
+ * cmd.exe) could not carry.
+ */
+export function claudeCodeArgs(systemFile: string, model: string | null): string[] {
+  return ['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2', '--system-prompt-file', systemFile, '--json-schema', JSON.stringify(SCHEMA), ...(model ? ['--model', model] : [])];
+}
+
+/**
  * The user's own Claude Code, in print mode: `claude -p` with the prompt on stdin, no tools, and the
  * answer held to the schema. It runs in an empty directory, so no project's instructions reach the
- * prompt. Shadowlap never sees how Claude Code is signed in; it runs the binary the user installed.
+ * prompt; its system prompt is a file beside that directory. Shadowlap never sees how Claude Code is
+ * signed in; it runs the binary the user installed, through cmd.exe when that is a batch file.
  */
 async function askClaudeCode(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
   const bin = process.env.SHADOWLAP_CLAUDE || 'claude';
   const env = { ...process.env };
   for (const v of CLAUDE_SESSION_VARS) delete env[v];
-  const cwd = mkdtempSync(join(tmpdir(), 'shadowlap-repairer-'));
-  const args = ['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2', '--system-prompt', prompt.system, '--json-schema', JSON.stringify(SCHEMA), ...(r.model ? ['--model', r.model] : [])];
+  const dir = mkdtempSync(join(tmpdir(), 'shadowlap-repairer-'));
+  const cwd = join(dir, 'work');
+  mkdirSync(cwd);
+  const systemFile = join(dir, 'system-prompt.md');
+  writeFileSync(systemFile, prompt.system);
+  const start = startCommand(bin, claudeCodeArgs(systemFile, r.model || null), { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '';
   let stderr = '';
   const code = await new Promise<number>((resolveCode, reject) => {
-    const child = spawn(bin, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
-    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+    const child = spawn(start.command, start.args, start.options);
+    child.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
+    child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
     child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`the claude-code repairer runs Claude Code, and ${bin} was not found: install it, or set SHADOWLAP_CLAUDE to its path`) : err));
-    child.on('exit', (c) => resolveCode(c ?? 1));
-    child.stdin.end(prompt.user);
-  }).finally(() => rmSync(cwd, { recursive: true, force: true }));
+    // On 'close', not 'exit': the last of stdout can arrive after the process exits, through
+    // cmd.exe most of all, and the report is read whole.
+    child.on('close', (c) => resolveCode(c ?? 1));
+    // A claude that exits before reading its prompt (a bad flag, say) closes stdin under us: its
+    // exit and stderr say why, not an EPIPE.
+    child.stdin!.on('error', () => {});
+    child.stdin!.end(prompt.user);
+  }).finally(() => rmSync(dir, { recursive: true, force: true }));
   let d: { is_error?: boolean; result?: string; structured_output?: unknown; modelUsage?: Record<string, unknown>; total_cost_usd?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
   try {
     d = JSON.parse(stdout);

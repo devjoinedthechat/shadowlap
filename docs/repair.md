@@ -101,7 +101,7 @@ Any model from any vendor, configured rather than built in:
 
 `--repairer` overrides the config, and `repair.baseUrl` points it at a gateway. Claude is asked with high effort and structured output. On models that support it, the API's server-side fallback answers a policy decline from another model in the same call, and the report names the model that answered. It is called once per repair, so even the most capable model costs little next to the replays.
 
-Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt. It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one. The cost reported is Claude Code's own estimate.
+Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt. It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one. Its system prompt is a file (`--system-prompt-file`) and the request goes on stdin, so the command line carries no line break, and on Windows a `claude` npm installed, a batch file, runs through cmd.exe. The cost reported is Claude Code's own estimate.
 
 Without a repairer, repair still tries the fixes that need none (`--stronger`), and says it skipped the rest.
 
@@ -124,7 +124,25 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | **No fix to try** | 1 | No failing run was rescued, so there is no passing path to learn from. With `--stronger`, not even a stronger model rescued them: look at the code and the tools |
 | **Stopped** | 1 | Ctrl-C or `--budget`; what was found so far is reported |
 
-`--json` prints the whole report, each candidate with its verification, for scripts and [coding agents](./agents.md). It adds `repairId` (the directory name the repair is kept under), `verifyId` (the verdict kept for the accepted candidate, or `null`), `fixes`, each fix it reported to with `fixId`, `title`, `status`, whether the verdict `counts` for it (`null` without a verdict) and `why` not, and `error` when the hand-over failed.
+## JSON
+
+`--json` prints the whole report on stdout, each candidate with its verification, for scripts and [coding agents](./agents.md):
+
+| Field | |
+|---|---|
+| `outcome`, `why` | `fixed`, `not-fixed`, `no-diagnosis` (no failing run was rescued) or `stopped`, and why it isn't fixed (`null` when it is) |
+| `targets` | Per failing run shown to the repairer: `runId`, `outcome` (`blamed`, `unrescuable`, `stopped`, `error`), where it was lost (`callNo`, its model call `step` of `steps`), the fork that rescued it (`rescuedRunId`) and the model that did when it wasn't the recorded one (`rescuedBy`), whether a blame already kept was `reused`, what the agent answered there in the recording and in the rescue (`recorded`, `rescued`), and a `note` |
+| `holdout`, `good`, `heldOutAutomatically` | The held-out failing runs and the good runs, and whether the held-out ones were taken from `--fixes` because none were named |
+| `oracle` | What a passing run must do |
+| `repairer`, `diagnosis`, `anchors` | The repairer (`provider`, `model`, the model that `served` the answer, its `cost`), what it said went wrong, and how many places in your code it could rewrite |
+| `candidates` | Each rewrite tried: `id`, `source` (`repairer`, or `model` for a switch to the model that rescued the runs), `strategy`, `why`, the `surface` and `file` it changes, at `offset`, the text `before` and `after`, its `size`, its `state` (`accepted`, `rejected`, `invalid`, `untried`, `build-failed`, `incomplete`), the `reason` it wasn't kept, and its `verify` report, [as `verify --json` prints one](./verify.md#json) |
+| `accepted`, `patch` | The accepted candidate's `id` and its unified diff, or `null` |
+| `cost` | What `blame`, the `repairer` and `verify` cost, in USD |
+| `output` | What was handed over: the repair's `dir`, its `patch` and `report` files, the `goldens` recorded under the fix, whether it was `applied`, and the `branch` and `pr` |
+| `warnings` | What the evidence lacks, and where a hand-over stopped |
+| `repairId`, `verifyId` | The directory name the repair is kept under, and the verdict kept for the accepted candidate, or `null` |
+| `fixes` | Each [fix](#the-fix-it-reports-to) it reported to: `fixId`, `title`, `status`, whether the verdict `counts` for it (`null` without a verdict) and `why` not |
+| `error` | Only when the hand-over failed: why |
 
 ## Options
 

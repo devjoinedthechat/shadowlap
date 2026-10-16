@@ -166,18 +166,57 @@ export interface ProcessInfo {
 }
 
 /**
+ * What PowerShell runs to list the processes on Windows: WMI's Win32_Process through .NET, one line
+ * per process. It uses no cmdlet, so PowerShell never searches its module path for one: the first
+ * use of a cmdlet such as Get-CimInstance makes it read every module installed, which on a machine
+ * with many (a CI runner has each cloud's SDK) took about 20 seconds per proxy.
+ */
+export const WINDOWS_PROCESS_TABLE = [
+  "$PSModuleAutoLoadingPreference = 'None'",
+  "[void][Reflection.Assembly]::LoadWithPartialName('System.Management')",
+  "$q = [Management.ManagementObjectSearcher]::new('SELECT ProcessId, ParentProcessId, CommandLine FROM Win32_Process')",
+  'foreach ($p in $q.Get()) { [Console]::Out.WriteLine("$($p.ProcessId)`t$($p.ParentProcessId)`t$($p.CommandLine)") }',
+].join('; ');
+
+/** PowerShell's arguments for a script, passed encoded, so no quoting rule of the command line can change it. */
+export function powershellArgs(script: string): string[] {
+  return ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')];
+}
+
+/**
+ * The first thing a command said on stderr, for a log line. PowerShell started with
+ * -EncodedCommand writes its errors as CLIXML, so the first error's text is read out of that.
+ */
+export function firstError(stderr: string): string {
+  const text = stderr.trim();
+  if (!text.startsWith('#< CLIXML')) return text.split(/\r?\n/)[0] ?? '';
+  const m = /<S S="Error">([\s\S]*?)<\/S>/.exec(text);
+  if (!m) return '';
+  return m[1]!
+    .replace(/_x001B_\[[0-9;]*m/g, '')
+    .replace(/_x([0-9A-F]{4})_/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .trim()
+    .split(/\r?\n/)[0]!;
+}
+
+/**
  * Every process with its parent and command line, from `ps` (macOS and the BSDs) or PowerShell
  * (Windows). Null when the system won't say, and `note` is told why.
  */
 function processTable(note?: (why: string) => void): Map<number, ProcessInfo> | null {
   const failed = (cmd: string, r: SpawnSyncReturns<string>) => {
-    const said = (r.stderr ?? '').trim().split(/\r?\n/)[0];
+    const said = firstError(r.stderr ?? '');
     note?.(`${cmd} ${r.error ? `didn't start (${r.error.message})` : r.status === 0 ? 'printed nothing' : `exited ${r.status ?? r.signal}`}${said ? `: ${said}` : ''}`);
     return null;
   };
   try {
     if (process.platform === 'win32') {
-      const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)" }'], { encoding: 'utf8', timeout: 20_000, windowsHide: true });
+      const r = spawnSync('powershell.exe', powershellArgs(WINDOWS_PROCESS_TABLE), { encoding: 'utf8', timeout: 20_000, windowsHide: true });
       if (r.status !== 0 || !r.stdout) return failed('powershell.exe', r);
       const table = new Map<number, ProcessInfo>();
       for (const line of r.stdout.split(/\r?\n/)) {
@@ -337,6 +376,12 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
         skip(`${file} names parent ${j.parent}, but process ${pid}'s parent is ${parent}: left over from an earlier run, ignoring it`);
         continue;
       }
+      // Where the chain stops, the parent can't be compared: the Shadowlap command that wrote the
+      // file must at least still be running, or the file outlived it.
+      if (parent === undefined && !alive(j.parent!)) {
+        skip(`${file} was written by process ${j.parent}, which has ended: left over from an earlier run, ignoring it`);
+        continue;
+      }
       if (!isLoopbackUrl(j.url!)) {
         const answer = refuse(`${file} points at ${j.url}, which is not this machine`);
         if (answer) return answer;
@@ -348,6 +393,31 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
   return null;
 }
 
+/** The folders a proxy reads registrations from: the home folder's (strict), then the project's and every folder above it. */
+function lookupDirs(cwd: string | undefined, home: string | null | undefined): RegistryDir[] {
+  const h = home === undefined ? safeHome() : home;
+  const own = h ? join(h, FOLDER) : null;
+  return [...(own ? [{ dir: own, strict: true }] : []), ...projectDirs(cwd ?? process.cwd()).filter((d) => d !== own).map((dir) => ({ dir, strict: false }))];
+}
+
+/** This process and its parent: all that is known without reading the process tree. */
+function parentChain(): ProcessInfo[] {
+  return [
+    { pid: process.pid, ppid: process.ppid, args: null },
+    { pid: process.ppid, ppid: -1, args: null },
+  ];
+}
+
+/**
+ * The registration of the process that started this one, found without reading the process tree:
+ * the usual case, where the MCP client that starts the proxy is the agent itself. On Windows the
+ * tree takes PowerShell, which can take seconds on a busy machine, so a proxy looks here first.
+ * Null when its parent has none, and the tree decides.
+ */
+export function parentRegistration(o: { cwd?: string; home?: string | null; skip?: (reason: string) => void } = {}): SidecarLookup | null {
+  return findRegistration(parentChain(), lookupDirs(o.cwd, o.home), o.skip);
+}
+
 /**
  * The run an MCP proxy started with a minimal environment belongs to: the registration of its
  * nearest Shadowlap-started ancestor. When an ancestor is a Shadowlap command that starts agents
@@ -355,13 +425,11 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
  * answer is `unusable`, so writes are refused rather than run unrecorded.
  */
 export async function lookupRegistration(o: { cwd?: string; home?: string | null; chain?: ProcessInfo[] | null; skip?: (reason: string) => void; waitMs?: number } = {}): Promise<SidecarLookup> {
-  const home = o.home === undefined ? safeHome() : o.home;
-  const own = home ? join(home, FOLDER) : null;
-  const dirs: RegistryDir[] = [...(own ? [{ dir: own, strict: true }] : []), ...projectDirs(o.cwd ?? process.cwd()).filter((d) => d !== own).map((dir) => ({ dir, strict: false }))];
+  const dirs = lookupDirs(o.cwd, o.home);
   const chain = o.chain === undefined ? processAncestors(o.skip) : o.chain;
   if (!chain) {
     // Only the parent is known: enough for a client that is the agent itself.
-    return findRegistration([{ pid: process.pid, ppid: process.ppid, args: null }, { pid: process.ppid, ppid: -1, args: null }], dirs, o.skip) ?? { kind: 'none' };
+    return findRegistration(parentChain(), dirs, o.skip) ?? { kind: 'none' };
   }
   const found = findRegistration(chain, dirs, o.skip);
   if (found) return found;

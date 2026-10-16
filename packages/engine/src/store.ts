@@ -596,6 +596,9 @@ export interface CreateRunInput {
   meta?: RunMeta;
 }
 
+/** How long a write that only keeps a cache (saveRunStats) waits for another command's lock before it gives up. */
+const CACHE_WAIT_MS = 100;
+
 /** Creates a file readable only by its owner, unless something already exists at the path. */
 /**
  * The schema version a store records, or null when it has never been stamped (a database this
@@ -1509,6 +1512,18 @@ export class Store {
   }
 
   /**
+   * Why a run can't be deleted now, or null. A run a process is still recording (or replaying) is
+   * left alone, and so is one a run in progress reads from: a replay, a fork or an attempt of it
+   * serves its answers from it as it goes. A run its process left marked running holds nothing up,
+   * as for gc. `live` is the runs in progress, when the caller has them already.
+   */
+  deletionHold(runId: string, live: readonly RunRecord[] = this.recordingRuns().live.map((r) => r.run)): string | null {
+    const run = live.find((r) => r.runId === runId);
+    if (run) return run.mode === 'record' ? 'still recording' : 'still running';
+    return live.some((r) => r.parentRunId === runId) ? 'a replay of it is still running' : null;
+  }
+
+  /**
    * The MCP servers recorded tool calls came through (`shadowlap mcp` names each in the call's
    * `meta.mcp`): per server, its calls, the latest, and the tools it offered when last listed,
    * with their effects, or null when no call carried the list. One query over all runs.
@@ -1583,10 +1598,14 @@ export class Store {
   /**
    * Keeps what a read model worked out about finished runs (`run_stats`), so no later read, in this
    * process or the next, reads their calls again. A run deleted meanwhile is skipped. Best effort:
-   * false when the store can't be written just now, and the caller keeps its numbers in memory.
+   * false when the store can't be written just now, and the caller keeps its numbers in memory. It
+   * waits a moment for the write lock, not the 10 s anything else waits: a dashboard saves these on
+   * its only thread, which would stop answering while another command holds the store.
    */
   saveRunStats(rows: ReadonlyArray<{ runId: string; key: string; stats: string }>): boolean {
     if (!rows.length) return true;
+    const wait = Number((this.db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 10_000);
+    this.db.exec(`PRAGMA busy_timeout = ${Math.min(wait, CACHE_WAIT_MS)}`);
     try {
       this.transaction(() => {
         const put = this.db.prepare(`INSERT OR REPLACE INTO run_stats (run_id, key, stats) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM runs WHERE run_id = ?)`);
@@ -1595,6 +1614,8 @@ export class Store {
       return true;
     } catch {
       return false;
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${wait}`);
     }
   }
 

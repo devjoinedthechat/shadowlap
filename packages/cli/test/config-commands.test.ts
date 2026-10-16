@@ -374,7 +374,10 @@ describe('shadowlap gc', () => {
     expect(JSON.parse(r.out)).toMatchObject({ count: 0, runs: [], blobs: 2, deferred: false, recording: [], abandonedCount: 0 });
     r = await shadowlap(['gc', '--dry-run']);
     expect(r.out).toContain('▸ no runs to delete (--older-than <days> or --keep <n> picks them)');
-    expect(r.out).toContain('✓ dry run: would free 0 B.');
+    // Nothing to delete: no command that deletes, and what a vacuum alone would give back.
+    expect(r.out).toMatch(/✓ dry run: nothing to delete\.( The store has .+ free inside its file, which shadowlap gc gives back\.)?\n/);
+    expect(r.out).not.toContain('--expect');
+    expect(JSON.parse((await shadowlap(['gc', '--dry-run', '--json'])).out).store).toEqual({ path: dbPath(), before: expect.any(Number), after: null, free: expect.any(Number) });
   });
 
   it('keeps its report small however many runs a clean-up deletes', async () => {
@@ -429,6 +432,94 @@ describe('shadowlap gc', () => {
     expect(r.code, r.err).toBe(0);
     expect(r.out).toContain('0 blobs, 0 B freed');
     expect(r.out).toContain(`blobs are left while a run is still recording (${live.slice(0, 10)}); shadowlap gc frees them once it ends`);
+  });
+
+  it('leaves a run in progress, and the run a replay in progress reads from, as the dashboard does', async () => {
+    const { done, live } = seedRuns();
+    // live is recorded by this process, which is still running: rm leaves it, and says why.
+    let r = await shadowlap(['rm', live]);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`left ${live.slice(0, 10)}: still recording; delete it once that has ended`);
+    // A replay of done, still running here: done serves its answers, so it stays too.
+    const store = Store.open(dbPath());
+    const replay = store.createRun({ mode: 'replay', parentRunId: done, command: { argv: ['node', 'agent.js'], cwd } });
+    store.close();
+    r = await shadowlap(['rm', done, '--forks']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`left ${done.slice(0, 10)}: a replay of it is still running`);
+    expect(r.err).toContain(`left ${replay.runId.slice(0, 10)}: still running`);
+    const check = Store.open(dbPath());
+    expect(check.getRun(done)).not.toBeNull();
+    check.endRun(replay.runId, 'completed');
+    check.close();
+    // Once the replay has ended, both go.
+    r = await shadowlap(['rm', done, '--forks']);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain('deleted 2 runs');
+  });
+
+  it('copies a run once it has ended, as the dashboard\'s Share does', async () => {
+    const { done, live } = seedRuns();
+    for (const args of [['pack', live, 'goldens/half'], ['export', 'html', live, 'half.html'], ['export', 'har', live, 'half.har'], ['export', 'otel', live, '--out', 'half.json'], ['export', 'dataset', live]]) {
+      const r = await shadowlap(args);
+      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.err).toContain(`${live.slice(0, 10)} is still recording: ${args[0] === 'pack' ? 'pack' : 'export'} it once it has ended`);
+    }
+    expect(existsSync(join(cwd, 'goldens', 'half'))).toBe(false);
+    // Picked by --all, it waits for a later export; the run that ended goes.
+    const all = await shadowlap(['export', 'dataset', '--all', '--out', 'all.jsonl']);
+    expect(all.code, all.err).toBe(0);
+    expect(all.err).toContain('1 run is still recording, left for a later export');
+    expect(readFileSync(join(cwd, 'all.jsonl'), 'utf8')).toContain(done);
+    expect(readFileSync(join(cwd, 'all.jsonl'), 'utf8')).not.toContain(live);
+    // Nor is it replayed, forked or calibrated: there is no end to replay to yet.
+    for (const [verb, args] of [['replay', ['replay', live]], ['replay', ['replay', live, '--diverge-at', '1']], ['calibrate', ['calibrate', live]]] as const) {
+      const r = await shadowlap([...args]);
+      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.err).toContain(`${live.slice(0, 10)} is still recording: ${verb} it once it has ended`);
+    }
+    // A copy with its lineage waits for every run in it: a fork that ended, of a run still recording.
+    const store = Store.open(dbPath());
+    const fork = store.createRun({ mode: 'replay', parentRunId: live, command: { argv: ['node', 'agent.js'], cwd } });
+    store.endRun(fork.runId, 'completed');
+    store.close();
+    for (const args of [['pack', fork.runId, 'goldens/fork', '--lineage'], ['export', 'html', fork.runId, 'fork.html', '--lineage']]) {
+      const r = await shadowlap(args);
+      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.err).toContain(`${live.slice(0, 10)}, which ${fork.runId.slice(0, 10)} was forked from, is still recording: ${args[0] === 'pack' ? 'pack' : 'export'} ${fork.runId.slice(0, 10)} with --lineage once it has ended, or without --lineage now`);
+    }
+    expect((await shadowlap(['pack', fork.runId, 'goldens/fork'])).code).toBe(0);
+    // The team store's share link copies it too, so it waits as well (before anything is asked of the store).
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ store: 's3://team-bucket/shadowlap' }));
+    const shared = await shadowlap(['share', live]);
+    expect(shared.code).toBe(1);
+    expect(shared.err).toContain(`${live.slice(0, 10)} is still recording: share it once it has ended`);
+  });
+
+  it('copies and replays a run whose recorder stopped without ending it: nothing will add to it', async () => {
+    seedRuns();
+    const left = abandonedRun(Date.now() - 60_000);
+    const r = await shadowlap(['pack', left, 'goldens/left']);
+    expect(r.code, r.err).toBe(0);
+    expect(existsSync(join(cwd, 'goldens', 'left', 'run.json'))).toBe(true);
+    const replay = await shadowlap(['replay', left, '--', process.execPath, '-e', '']);
+    expect(replay.code, replay.err).toBe(0);
+    expect(replay.err).toContain(`replaying run`);
+  });
+
+  it('says --no-redact skipped the rules, not that there were none', async () => {
+    const { done } = seedRuns();
+    const plain = await shadowlap(['export', 'dataset', done, '--out', 'plain.jsonl']);
+    expect(plain.err).toContain('no redaction rules in shadowlap.config.json: the dataset holds the conversations as recorded');
+    expect((await shadowlap(['redact', 'add', '--pattern', 'email', '--replace', '<EMAIL>'])).code).toBe(0);
+    expect((await shadowlap(['redact', 'add', '--kind', 'tool', '--path', '$.args.api_key', '--replace', '<KEY>'])).code).toBe(0);
+    const skipped = (holds: string) => `--no-redact: the 2 redaction rules in shadowlap.config.json were not applied; ${holds}`;
+    expect((await shadowlap(['export', 'dataset', done, '--no-redact', '--out', 'raw.jsonl'])).err).toContain(skipped('the dataset holds the conversations as recorded'));
+    expect((await shadowlap(['export', 'har', done, 'raw.har', '--no-redact'])).out).toContain(skipped('the HAR holds the prompts and responses as recorded'));
+    expect((await shadowlap(['export', 'html', done, 'raw.html', '--no-redact'])).out).toContain(skipped('the file holds the prompts and tool data as recorded'));
+    expect((await shadowlap(['pack', done, 'raw-pack', '--no-redact'])).err).toContain(skipped('the pack holds everything the agent saw'));
+    // With the rules, each says how many applied.
+    expect((await shadowlap(['export', 'html', done, 'masked.html'])).out).toContain('2 redaction rules applied');
   });
 
   it('cleans up nothing, and creates no store, in a project that has never recorded', async () => {

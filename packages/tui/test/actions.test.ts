@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CallRecord, RunRecord } from '@shadowlap/engine';
-import { actionMissing, buildActions, CAPTURE_NOTE, forkArgs, forkMenuTitle, splitCommand } from '../src/actions.js';
+import { Store, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { actionMissing, buildActions, CAPTURE_NOTE, forkArgs, forkMenuTitle, recordingNow, splitCommand, terminalActions } from '../src/actions.js';
 
 const ID = '01K5CQ4N7G0000000000000000';
 const run = (meta?: RunRecord['meta'], extra: Partial<RunRecord> = {}): RunRecord => ({
@@ -34,7 +34,10 @@ describe('the fork menu at a call', () => {
     // Inject always goes in as the user: every provider takes that, and the hint says why.
     const inject = actions.find((a) => a.key === 'i')!;
     expect(inject.prompt!.build('Be brief.')).toEqual(['replay', ID, '--inject', '3=Be brief.', '--inject-as', 'user']);
-    expect(inject.hint).toContain('--inject-as user');
+    // A model that rejects one outright is named, as the design's dialog names it.
+    expect(inject.hint).toBe('Claude Sonnet 5 takes no system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.');
+    const other = buildActions(run(), { ...call, meta: { model: 'gpt-5.2' } }).find((a) => a.key === 'i')!;
+    expect(other.hint).toMatch(/^Not every model takes a system message mid-conversation, so it goes in as part of the last user message \(--inject-as user\)/);
     expect(actions.find((a) => a.key === 'm')!.prompt!.placeholder).toBe('claude-sonnet-5');
     const fail = actions.find((a) => a.key === 'f')!;
     expect(fail.prompt!.initial).toBe('429');
@@ -207,6 +210,69 @@ describe('actions on a run built from a capture', () => {
     expect(keys(actions)).toEqual(['r', 'p']);
     expect(actionMissing(capture(), 'i')).toBe(CAPTURE_NOTE);
     expect(actionMissing(run(), 'i')).toBe('no action "i" here');
+  });
+});
+
+describe('the terminal UI\'s fork menu', () => {
+  it('ends the whole run\'s part with Find the commit, as the dashboard\'s does, running bisect itself', () => {
+    const failed = run(undefined, { status: 'failed', codeVersion: 'a1b2c3d' });
+    const actions = terminalActions(failed, call);
+    expect(keys(actions, 'run')).toEqual(['e', 's', 'b']);
+    // The same items as the dashboard's otherwise, in the same order.
+    expect(actions.filter((a) => a.key !== 'b').map((a) => a.key)).toEqual(buildActions(failed, call).map((a) => a.key));
+    const find = actions.find((a) => a.key === 'b')!;
+    expect([find.label, find.flag, find.opensRun, find.disabled]).toEqual(['Find the commit that broke it', 'bisect --good …', false, undefined]);
+    expect(find.prompt!.label).toBe('A commit where it still worked (a sha, a tag or a branch):');
+    expect(find.prompt!.build(' v1.4.0 ')).toEqual(['bisect', ID, '--good', 'v1.4.0']);
+    expect(find.prompt!.build('  ')).toEqual([]);
+    // A run that failed a check counts as failed; one that passed searches the commits after its own.
+    expect(terminalActions(run({ checks: [{ ok: false, label: 'issue_refund never called', detail: null }] }, { codeVersion: 'a1b2c3d' }), call).find((a) => a.key === 'b')!.label).toBe('Find the commit that broke it');
+    const passed = terminalActions(run(undefined, { codeVersion: 'a1b2c3d+dirty' }), call).find((a) => a.key === 'b')!;
+    expect([passed.label, passed.prompt!.initial]).toEqual(['Find the commit that changed it', 'a1b2c3d']);
+  });
+
+  it('waits for a run still recording to finish before it replays, forks or packs it, as the dashboard does', () => {
+    const live = run(undefined, { status: 'running', endedAt: null, codeVersion: 'a1b2c3d' });
+    const actions = terminalActions(live, call);
+    expect(actions.map((a) => [a.key, a.disabled])).toEqual([
+      ['r', 'replay once the recording finishes'],
+      ['i', 'fork once the recording finishes'],
+      ['m', 'fork once the recording finishes'],
+      ['g', 'fork once the recording finishes'],
+      ['f', 'fork once the recording finishes'],
+      ['a', 'fork once the recording finishes'],
+      ['e', 'fork once the recording finishes'],
+      ['s', 'fork once the recording finishes'],
+      ['b', 'look for the commit once the recording finishes'],
+      ['p', 'pack once the recording finishes'],
+    ]);
+    expect(terminalActions(live, call, { recording: true }).map((a) => a.disabled)).toEqual(actions.map((a) => a.disabled));
+    // Once it has ended, they are on again.
+    expect(terminalActions({ ...live, status: 'completed', endedAt: 1 }, call).every((a) => !a.disabled)).toBe(true);
+  });
+
+  it('treats a run its recorder left marked running as ended, as the CLI does: nothing will add to it', () => {
+    const left = run(undefined, { status: 'running', endedAt: null, codeVersion: 'a1b2c3d' });
+    expect(terminalActions(left, call, { recording: false }).every((a) => !a.disabled)).toBe(true);
+    // Read from the store: a run this process records is live; one whose recorder has gone is not.
+    const store = Store.open(':memory:');
+    const recording = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    expect(recordingNow(store, recording)).toBe(true);
+    // No process to ask, and nothing heard from it for two days: left by its recorder.
+    const gone: RunRecord = { ...run(), runId: '01K5CQ4N7G00000000000000GN', status: 'running', endedAt: null, startedAt: Date.now() - 2 * 24 * 3_600_000 };
+    store.importRun(gone);
+    expect(recordingNow(store, gone)).toBe(false);
+    store.endRun(recording.runId, 'completed');
+    expect(recordingNow(store, store.getRun(recording.runId)!)).toBe(false);
+    store.close();
+  });
+
+  it('turns Find the commit off outside git and for a pack\'s run, and leaves it out for a capture', () => {
+    expect(terminalActions(run(), call).find((a) => a.key === 'b')!.disabled).toBe('Recorded outside a git repository: there are no commits to search');
+    const packed = run({ imported: { at: 1, from: 'goldens/refund' } }, { codeVersion: 'a1b2c3d' });
+    expect(terminalActions(packed, call).find((a) => a.key === 'b')!.disabled).toMatch(/^This run came from an imported pack: bisect would run its command at every commit/);
+    const capture = run({ imported: { at: 1, from: 'traffic.har' }, covers: ['api'] }, { command: { argv: [], cwd: '/' }, codeVersion: 'a1b2c3d' });
+    expect(terminalActions(capture, undefined).some((a) => a.key === 'b')).toBe(false);
   });
 });
 

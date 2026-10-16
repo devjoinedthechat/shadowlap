@@ -104,6 +104,8 @@ shadowlap tasks
 
 Every pack under `goldens/` is listed, and every directory the `tests` entries name. **One-sided** means every ready task rewards the same behaviour, so a model that does only that scores full marks: a model trained to escalate every refund passes tasks that all reward escalating. The warning names a task that rewards something else once it is ready. `--json` prints the tasks and the warning as JSON.
 
+`tasks --json` prints `{ tasks, oneSided }`. Each task has its `golden` and `name`, `status` (`ready`, `blocked`, `not-a-task`, `no-golden`) and a `note` saying why it isn't ready, the `runId` of its recording, the `takeover` (`callNo`, `why`, and `from`: `config`, `blame`, `input` for the model call after the last recorded input, or `first`), the `scope` the model under test plays and the `scopes` the golden's model calls were made in, what it `rewards`, its `checks`, the tools that run `after` the takeover (`live`, `stubbed`), the calls replayed before it (`prefix`), the `model`, `provider` and endpoint (`callName`) the recording asked there, and the `tokensAfter` it used from there on. `oneSided` is `null`, or what every ready task `rewards`, those `tasks`, and the task that rewards something else (`opposite`) when there is one.
+
 ## Scoring a model
 
 ```sh
@@ -195,6 +197,8 @@ Your own endpoint: shadowlap tasks score --model <name> --base-url <url>
 ```
 
 The models the ready tasks' recordings used, every model each configured provider lists (Anthropic's and OpenAI's `/v1/models`, with the keys already in the environment, and the models Ollama has installed on this machine, or at `OLLAMA_HOST`), and the models and endpoints scored before, each with its last mean score. An attempt's price is the model's price times the tokens the recordings used after their takeovers, averaged over the tasks; a model on this machine costs $0. Each list is asked once, all at the same time, and a provider that has no key, isn't running or doesn't answer within `--timeout` (1500 ms) becomes a note instead. Nothing is sent to Anthropic's or OpenAI's API without its key. `--json` prints the choices, each with the flags `tasks score` takes to ask it.
+
+`tasks models --json` prints `{ choices, notes, tokens, tasks }`: each choice's `group` and `id`, how it was found (`via`) and `where` it runs, the endpoint it is asked at (`baseUrl`), the `flags` `tasks score` takes, its estimated USD `perAttempt`, whether it is `local`, and its `lastScore`; each provider that couldn't be listed as a `note` under its `group`; the `tokens` an attempt is expected to use after its takeover (`inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`), which prices are estimated from; and the number of ready `tasks`.
 
 ## In the dashboard
 

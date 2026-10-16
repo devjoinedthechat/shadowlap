@@ -195,8 +195,8 @@ It replays the recording at commits between the two, halving the range each time
 The Shadowlap action is the one step to add after your agent is built:
 
 ```yaml
-- uses: actions/checkout@v4
-- uses: actions/setup-node@v4
+- uses: actions/checkout@v7
+- uses: actions/setup-node@v7
   with: { node-version: 22 }
 - run: npm ci && npm run build          # whatever your agent needs to run
 - uses: devjoinedthechat/shadowlap@main
@@ -250,7 +250,7 @@ When a recording fails and the logs aren't enough, keep the failed replay as a f
     run=$(shadowlap --db replays.db ls --json -n 100000 | jq -r --arg g "$golden" "$pick")
     shadowlap --db replays.db export html "$run" failed-run.html --lineage
 - if: failure()
-  uses: actions/upload-artifact@v4
+  uses: actions/upload-artifact@v7
   with: { name: shadowlap-run, path: failed-run.html }
 ```
 
@@ -285,7 +285,7 @@ It needs:
 - a branch checked out. A pull request's own workflow checks out a detached merge commit, so check out its branch, and the fix becomes a pull request into it:
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v7
   with:
     ref: ${{ github.head_ref || github.ref }}
 ```

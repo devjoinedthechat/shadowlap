@@ -234,7 +234,10 @@ export function register(program: Command): void {
         return;
       }
       if (runs.length === 0) {
-        process.stdout.write(p.dim('no runs yet: shadowlap run -- <command>\n'));
+        // Runs to show, but none with the labels asked for: say that, not that nothing was recorded.
+        const labelled = flags.label.length > 0 && store.listRuns(1).length > 0;
+        store.close();
+        process.stdout.write(p.dim(labelled ? `no runs labelled ${flags.label.map((l) => safe(l)).join(' and ')}\n` : 'no runs yet: shadowlap run -- <command>\n'));
         return;
       }
       const row = (r: RunRecord, indent: string): string[] => {
@@ -273,6 +276,8 @@ export function register(program: Command): void {
       try {
         const runId = flags.run ? requireRun(store, flags.run).runId : undefined;
         const hits = searchCalls(store, query.join(' '), { limit: flags.limit, ...(runId ? { runId } : {}) });
+        // Nothing found is exit status 1, as for grep, whatever the output.
+        if (!hits.length) process.exitCode = 1;
         if (flags.json) {
           process.stdout.write(JSON.stringify(hits.map((h) => ({ ...h, snippet: h.snippet.split(MATCH_START).join('').split(MATCH_END).join('') })), null, 2) + '\n');
           return;
