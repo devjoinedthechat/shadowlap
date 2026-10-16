@@ -230,7 +230,9 @@ export function RuleDialog({
           </div>
           <p className="muted advnote">
             {f.mode === 'whole'
-              ? 'No pattern: the whole value at the path is replaced.'
+              ? list === 'redact'
+                ? 'No pattern: the whole value at the path is replaced, a number too. The path reaches what a call got back as well: a tool’s result is under $.result.'
+                : 'No pattern: the whole value at the path is replaced.'
               : f.mode === 'regex'
                 ? `A regex as /…/flags; typed without slashes, it gets them.${list === 'redact' ? ' Use a lookbehind, such as /(?<=key=)\\w+/, to keep what comes before the secret.' : ''}`
                 : f.kind === 'tool' || f.kind === 'api'
