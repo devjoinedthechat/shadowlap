@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
+import { copyCompares } from '../runs.js';
 import { useApp, useLayer } from '../state.js';
 
 /** The shortcuts panel (?): Anywhere, Go to, and On a run, dimmed away from a run. */
@@ -30,7 +31,7 @@ const or = (a: string, b: string) => (
 );
 
 function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
-  const { exported } = useApp();
+  const { exported, meta } = useApp();
   useLayer('dialog', true, close);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -54,7 +55,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
       'Go to',
       true,
       exported
-        ? [[then('g', 'r'), 'Runs'], [then('g', 'c'), 'Compare']]
+        ? [[then('g', 'r'), 'Runs'], ...(copyCompares(meta?.runIds) ? ([[then('g', 'c'), 'Compare']] as Array<[ReactNode, string]>) : [])]
         : [
             [then('g', 'o'), 'Overview'],
             [then('g', 'r'), 'Runs'],

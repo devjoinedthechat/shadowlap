@@ -341,6 +341,11 @@ export function exportStartRun(runIds: readonly string[], runs: ReadonlyArray<{ 
   return runIds.find((id) => !parents.has(id)) ?? runIds[0] ?? null;
 }
 
+/** Whether an exported copy has Compare: it holds two runs or more. A copy of one run has nothing to compare it with. */
+export function copyCompares(runIds: readonly string[] | null | undefined): boolean {
+  return (runIds?.length ?? 0) >= 2;
+}
+
 /** What an exported copy's project block says under its name: how many runs it holds, and that none runs from it. */
 export function copyLine(runIds: readonly string[] | null | undefined): string {
   return `${plural(runIds?.length ?? 0, 'run')} · nothing runs from here`;

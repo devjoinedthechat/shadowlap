@@ -18,7 +18,7 @@ import { Page } from '../components/Page.js';
 import { setupShowsOn } from '../projects.js';
 import { href, type Route } from '../route.js';
 import { navigate, useRoute } from '../router.js';
-import { exportStartRun } from '../runs.js';
+import { copyCompares, exportStartRun } from '../runs.js';
 import { useApp } from '../state.js';
 import { ExpiredCard, OfflineBar } from './Connection.js';
 import { Keyboard } from './Keyboard.js';
@@ -39,13 +39,14 @@ export function Shell() {
   const pageKey = route.page === 'run' ? `run:${route.id}` : route.page;
   useEffect(() => closeJobs(), [pageKey, closeJobs]);
 
-  // An exported copy holds runs and Compare between them: it opens on the run that was shared, the
-  // one the runs it came from lead to, whichever order the copy lists them in.
+  // An exported copy holds runs and Compare between them (when it holds two or more): it opens on the
+  // run that was shared, the one the runs it came from lead to, whichever order the copy lists them in.
   useEffect(() => {
     if (!exported || !meta || !runs) return;
     const start = exportStartRun(meta.runIds ?? [], runs);
+    const compares = route.page === 'compare' && copyCompares(meta.runIds);
     if (route.page === 'overview' && start) navigate(href.run(start), true);
-    else if (route.page !== 'run' && route.page !== 'runs' && route.page !== 'compare' && route.page !== 'overview') navigate(href.runs(), true);
+    else if (route.page !== 'run' && route.page !== 'runs' && !compares && route.page !== 'overview') navigate(href.runs(), true);
   }, [exported, meta, runs, route]);
 
   return (

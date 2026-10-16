@@ -5,7 +5,7 @@ import { dialogFocus } from '../ui/focus.js';
 import { stripScroll } from '../ui/place.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled } from '../ui/runspage/bulk.js';
 import { TRACE_COPY } from '../ui/runspage/imports.js';
-import { copyLine } from '../ui/runs.js';
+import { copyCompares, copyLine } from '../ui/runs.js';
 
 describe('a tab strip on a narrow screen', () => {
   // A strip 358px wide, scrolled to its start; tabs from the start of its content.
@@ -32,6 +32,12 @@ describe('an exported copy’s project block', () => {
     expect(copyLine(['01M51X7D66'])).toBe('1 run · nothing runs from here');
     expect(copyLine(['01M51X7D66', '01M51X7H8Q'])).toBe('2 runs · nothing runs from here');
     expect(copyLine(undefined)).toBe('0 runs · nothing runs from here');
+  });
+
+  it('has Compare only when it holds two runs or more', () => {
+    expect(copyCompares(['01M51X7D66'])).toBe(false);
+    expect(copyCompares(undefined)).toBe(false);
+    expect(copyCompares(['01M51X7EDD', '01M51X7H8Q'])).toBe(true);
   });
 });
 

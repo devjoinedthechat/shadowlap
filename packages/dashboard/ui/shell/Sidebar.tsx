@@ -5,7 +5,7 @@ import { Icon, type IconName } from '../components/Icon.js';
 import { paletteKeyLabel } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
 import { href, navSection, type Route } from '../route.js';
-import { isAttempt, runTree, sideLine } from '../runs.js';
+import { copyCompares, isAttempt, runTree, sideLine } from '../runs.js';
 import { useApp } from '../state.js';
 import { ProjectBlock } from './ProjectBlock.js';
 
@@ -18,10 +18,7 @@ export function Sidebar({ route }: { route: Route }) {
   const section = navSection(route);
   const count = meta?.counts?.runs ?? listed.length;
   const items: Array<[string, IconName, string, string, number | null]> = exported
-    ? [
-        ['runs', 'runs', 'Runs', href.runs(), count],
-        ['compare', 'compare', 'Compare', href.compare(), null],
-      ]
+    ? [['runs', 'runs', 'Runs', href.runs(), count], ...(copyCompares(meta?.runIds) ? [['compare', 'compare', 'Compare', href.compare(), null] as [string, IconName, string, string, number | null]] : [])]
     : [
         ['overview', 'home', 'Overview', href.overview(), null],
         ['runs', 'runs', 'Runs', href.runs(), count],
