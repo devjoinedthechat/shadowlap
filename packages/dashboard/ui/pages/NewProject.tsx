@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CmdLine, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import type { AddProjectView } from '../projects-api.js';
+import { expectProject, type AddProjectView } from '../projects-api.js';
 import { codeParts } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -81,6 +81,7 @@ export function NewProjectPage() {
       client.projects.add(path).then(
         async (out) => {
           toast(out.message);
+          expectProject(out.project.id);
           await app.reload();
           navigate(href.overview());
         },

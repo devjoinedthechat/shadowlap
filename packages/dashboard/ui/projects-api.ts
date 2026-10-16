@@ -99,6 +99,25 @@ export function noteRefusal(status: number, body: unknown): void {
   for (const l of switched) l({ id: current.id, name: current.name });
 }
 
+/** Where a change of project made from this page lands once the project's meta has arrived. */
+let landing: { id: string; to: string } | null = null;
+
+/**
+ * A change made from this page makes `id` the current project (a switch, adding a folder, removing
+ * the current one): once its meta arrives the page goes to `to` (the Overview unless a link named
+ * another page), rather than taking the change for one made elsewhere.
+ */
+export function expectProject(id: string, to = '#/'): void {
+  landing = { id, to };
+}
+
+/** The page a change made here asked to land on, once `id` is current; null for a change made elsewhere. Asked once. */
+export function takeLanding(id: string): string | null {
+  const to = landing?.id === id ? landing.to : null;
+  landing = null;
+  return to;
+}
+
 /** Hears a switch made elsewhere, as a refused request reveals it; returns what stops it. */
 export function onProjectSwitched(listener: (current: { id: string; name: string }) => void): () => void {
   switched.add(listener);

@@ -120,3 +120,30 @@ export function storePath(meta: Pick<Meta, 'dbPath' | 'project'>): string {
 export function exportedLine(runs: number): string {
   return `${plural(runs, 'run')} · nothing runs from here`;
 }
+
+/**
+ * Whether a page stays as it is when the dashboard switches to another project elsewhere (another
+ * tab switched, or removed the project this one showed): a page every project has (the Overview,
+ * Runs, Tests, Fixes, Training, Settings, Add a project, the setup) stays, with whatever is typed or
+ * open on it, and reads the current project's data; one that names a run, a pair of runs or a fix of
+ * the project it showed has nothing to show in the other and goes to the Overview.
+ */
+export function keepsPageOnSwitch(route: Route): boolean {
+  switch (route.page) {
+    case 'run':
+    case 'notfound':
+      return false;
+    case 'compare':
+      return !route.a && !route.b;
+    case 'fixes':
+      return !route.id;
+    default:
+      return true;
+  }
+}
+
+/** What the page says once it has turned to the project switched to elsewhere: `refused` when a change it asked for was refused for it. */
+export function switchedText(o: { from: string | null; to: string; refused: boolean }): string {
+  if (o.refused && o.from) return `Nothing was done in ${o.from}: the dashboard switched to ${o.to} elsewhere, and this page shows ${o.to} now.`;
+  return `The dashboard switched to ${o.to} elsewhere: this page shows it now.`;
+}

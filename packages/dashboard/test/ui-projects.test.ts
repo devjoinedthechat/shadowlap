@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { aroundRunId, aroundWord, codeParts, exportedLine, liveCalls, nameMatches, recordingLine, setupShowsOn, stepClass, storePath, terminalLine } from '../ui/projects.js';
-import { noteRefusal, onProjectSwitched, projectHeader, showProject } from '../ui/projects-api.js';
+import { aroundRunId, aroundWord, codeParts, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupShowsOn, stepClass, storePath, switchedText, terminalLine } from '../ui/projects.js';
+import { expectProject, noteRefusal, onProjectSwitched, projectHeader, showProject, takeLanding } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
 import type { Meta } from '../ui/types.js';
@@ -146,5 +146,26 @@ describe('the project block of an exported copy', () => {
   it('counts the runs it holds in words', () => {
     expect(exportedLine(1)).toBe('1 run · nothing runs from here');
     expect(exportedLine(2)).toBe('2 runs · nothing runs from here');
+  });
+});
+
+describe('a switch made elsewhere', () => {
+  it('keeps a page every project has, with what is open on it, and leaves one that names the other project’s runs or fixes', () => {
+    for (const hash of ['#/', '#/runs', '#/compare', '#/fixes', '#/tests', '#/training/tasks', '#/settings/redaction', '#/new', '#/setup']) expect(keepsPageOnSwitch(parseRoute(hash)), hash).toBe(true);
+    for (const hash of ['#/run/01M51X7HV4', '#/run/01M51X7HV4/3/context', '#/compare/01M51X7HV4/01M51X7HR0', '#/fixes/fx-01M51X6N0C', '#/nowhere']) expect(keepsPageOnSwitch(parseRoute(hash)), hash).toBe(false);
+  });
+
+  it('says what happened, and that nothing was done when a change was refused for it', () => {
+    expect(switchedText({ from: 'support-agent', to: 'triage-bot', refused: true })).toBe('Nothing was done in support-agent: the dashboard switched to triage-bot elsewhere, and this page shows triage-bot now.');
+    expect(switchedText({ from: 'support-agent', to: 'triage-bot', refused: false })).toBe('The dashboard switched to triage-bot elsewhere: this page shows it now.');
+  });
+
+  it('tells a change made here (a switch, an add, a remove) from one made elsewhere, once', () => {
+    expect(takeLanding('triage-bot')).toBeNull();
+    expectProject('triage-bot');
+    expect(takeLanding('support-agent')).toBeNull();
+    expectProject('triage-bot', '#/tests');
+    expect(takeLanding('triage-bot')).toBe('#/tests');
+    expect(takeLanding('triage-bot')).toBeNull();
   });
 });
