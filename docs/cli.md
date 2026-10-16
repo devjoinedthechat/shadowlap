@@ -848,9 +848,10 @@ an IAM policy, role bindings, a role assignment or R2 token scopes: one for peop
 protected branches, and one for pull requests' CI jobs, which may write only under `pr/`. `ci`
 prints a step for GitHub Actions, GitLab CI or any other CI, with short-lived credentials (OIDC)
 where the CI and the cloud allow it, and the pull-request credentials beside the protected
-branches'. `push-from-ci off` writes `"ciPush": false` to the config: `test --push` in CI then runs
-the tests and keeps their runs in the job (outside CI, `--push` still pushes); `on` turns it back
-on. Each takes `--json`.
+branches' (on GitHub, for pull requests from the repository itself: a fork's gets no OIDC token, so
+its job skips them and runs the tests without pushing). `push-from-ci off` writes `"ciPush": false`
+to the config: `test --push` in CI then runs the tests and keeps their runs in the job (outside CI,
+`--push` still pushes); `on` turns it back on. Each takes `--json`.
 
 With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config }`:
 the store as written to the config and its `url` without the options after `?`, its parts, the

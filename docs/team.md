@@ -215,9 +215,11 @@ pushes every test run, with the golden it replayed, and the session's report. CI
 access to the bucket; `shadowlap store ci --provider github|gitlab|other` prints a step that uses
 short-lived credentials (OIDC) wherever the CI and the cloud allow it: an AWS role, Google workload
 identity federation or an Azure federated credential, so no key is stored in CI. Beside it is the
-step for pull requests, with credentials of their own; see [Pull requests](#pull-requests). R2 has
-no OIDC, so its token's keys go in the CI's secrets, for protected branches only. A missing store
-or missing credentials is a warning: the tests still decide the job's result.
+step for pull requests, with credentials of their own; see [Pull requests](#pull-requests). On
+GitHub that step is only for pull requests from your own repository: a fork's gets no OIDC token,
+so its job skips the step and runs the tests without pushing. R2 has no OIDC, so its token's keys
+go in the CI's secrets, for protected branches only. A missing store or missing credentials is a
+warning: the tests still decide the job's result.
 `shadowlap store push-from-ci off` turns pushing from CI off for the whole team (it writes
 `"ciPush": false` to `shadowlap.config.json`) without touching the CI files; `on` turns it back on.
 With the GitHub Action, `push: true` does this, and also sends each fix its
@@ -228,9 +230,9 @@ writes sets `push: true` and says the job needs the bucket's credentials, and wh
 step doesn't push. A fix that can't go (no credentials, the store out of reach) is a warning in the
 job summary and the log, with why: it never keeps the fix's pull request from opening, and the
 job's result is the tests'. A pull request's own job keeps to its folder and sends no fixes, and
-one from a fork, which GitHub gives no secrets and no OIDC token, pushes nothing: its credentials
-step can't sign in either, and [Fixes in the team store](./ci.md#fixes-in-the-team-store) says how
-to keep that step from failing the job.
+one from a fork, which GitHub gives no secrets and no OIDC token, pushes nothing: it skips the pull
+request's credentials step, so the job goes on, and its push warns. See
+[Fixes in the team store](./ci.md#fixes-in-the-team-store).
 
 ## Pull requests
 
@@ -255,7 +257,9 @@ writes to the team's runs:
   `shadowlap store ci` prints the step that gives a pull request's job those credentials and
   protected branches the others, and says what the cloud should trust: a role, service account or
   application for the main branch only, and another for pull requests. A pull request can edit the
-  workflow file; it can't change which credentials the cloud gives it.
+  workflow file; it can't change which credentials the cloud gives it. On GitHub, a pull request
+  from a fork gets no OIDC token, so the step is only for your repository's own pull requests: a
+  fork's job skips it and tests without pushing, with a warning, rather than failing on it.
 - **What is read is checked,** as for any run from the store: every blob against its hash, every
   record as strictly as a pack's.
 

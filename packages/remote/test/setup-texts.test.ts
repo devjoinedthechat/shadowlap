@@ -207,6 +207,23 @@ describe('the CI step', () => {
     expect(ciStep('github', parseStoreUrl('az://acct1/agent-runs')).text).toContain('client-id: ${{ vars.AZURE_PR_CLIENT_ID }}');
   });
 
+  it("leaves a fork's pull request out of the pull-request credentials, which GitHub gives it no token for, so its job goes on to warn", () => {
+    for (const url of ['s3://northwind-agent-runs/support-agent', 'gs://b-1/x', 'az://acct1/agent-runs']) {
+      const step = ciStep('github', parseStoreUrl(url));
+      const ifs = [...step.text.matchAll(/^ {2}- if: (.+)$/gm)].map((m) => m[1]);
+      // The writer's credentials never in a pull request's job; the pull request's own only in one from this repository.
+      expect(ifs, url).toEqual(["${{ !startsWith(github.event_name, 'pull_request') }}", "startsWith(github.event_name, 'pull_request') && github.event.pull_request.head.repo.full_name == github.repository"]);
+      expect(step.text, url).toContain("  # a pull request's own credentials, which write only under pr/; a fork's job gets none\n  - if: startsWith(");
+      // Then the tests run for every job, a fork's too, and push warns when there are no credentials.
+      expect(step.text.trimEnd().endsWith('  - run: npx shadowlap test goldens/* --push'), url).toBe(true);
+      expect(step.notes.join(' '), url).toContain('A pull request from a fork gets no OIDC token from GitHub, so its job skips the credentials and runs the tests without pushing');
+    }
+    // R2's pull-request step has no credentials to fail on: every pull request runs the tests, a fork's included.
+    const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'));
+    expect(r2.text).toContain("  - if: startsWith(github.event_name, 'pull_request')   # R2 tokens can't be kept to pr/: pull requests test without pushing\n    run: npx shadowlap test goldens/*");
+    expect(r2.text).not.toContain('head.repo');
+  });
+
   it('keeps R2 keys from pull requests, which run the tests without pushing', () => {
     const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'));
     expect(r2.oidc).toBe(false);
