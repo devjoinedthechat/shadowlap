@@ -48,6 +48,13 @@ export function Popover({ anchor, onClose, children, className = '', align = 'ri
   useEffect(() => {
     if (placed) ref.current?.querySelector<HTMLElement>('button:not([disabled]), a[href]')?.focus();
   }, [placed]);
+  // Closed while it has the focus (Esc, a pick), it hands the focus back to the button that opened it.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    return () => {
+      if (el?.contains(document.activeElement)) anchor?.focus();
+    };
+  }, [anchor]);
 
   useEffect(() => {
     anchor?.setAttribute('aria-expanded', 'true');
