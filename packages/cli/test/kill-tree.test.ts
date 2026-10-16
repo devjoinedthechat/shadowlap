@@ -43,17 +43,22 @@ describe('killTree', () => {
     const exited = new Promise<void>((resolve) => agent.once('exit', () => resolve()));
     killTree(agent, 'SIGKILL', { group: true });
     await exited;
-    // Nothing is left in the group: signalling it soon finds no process (the system reaps the child Node didn't start).
+    // Nothing is left in the group: signalling it soon finds no process (the system reaps the child
+    // Node didn't start). While a member is still being torn down, macOS can answer EPERM: on a
+    // machine busy with other test runs that takes a while, so only ESRCH counts as empty.
     const empty = async () => {
-      for (let i = 0; i < 40; i++) {
+      let last = 'still running';
+      for (let i = 0; i < 100; i++) {
         try {
           process.kill(-agent.pid!, 0);
+          last = 'still running';
         } catch (err) {
-          return (err as NodeJS.ErrnoException).code;
+          last = (err as NodeJS.ErrnoException).code ?? 'unknown';
+          if (last === 'ESRCH') return last;
         }
         await new Promise((r) => setTimeout(r, 50));
       }
-      return 'still running';
+      return last;
     };
     expect(await empty()).toBe('ESRCH');
   });
