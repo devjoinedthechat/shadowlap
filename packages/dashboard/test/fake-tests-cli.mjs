@@ -1,7 +1,8 @@
 // Stands in for the shadowlap CLI in the Tests routes' tests. It prints the command it was given and
 // reports on fd 3 the way `shadowlap test` does: the replay it made, a link to it, and the Tests link.
 // A golden whose name has "broken" in it fails; `normalize add` succeeds unless its replacement is <FAIL>.
-import { writeSync } from 'node:fs';
+// While the file FAKE_TESTS_HOLD names exists, `test` waits: a session still running.
+import { existsSync, writeSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const fd = Number(process.env.SHADOWLAP_EVENTS_FD);
@@ -19,6 +20,8 @@ if (args[0] === 'normalize') {
   process.exit(0);
 }
 if (args[0] === 'test') {
+  const hold = process.env.FAKE_TESTS_HOLD;
+  while (hold && existsSync(hold)) await new Promise((r) => setTimeout(r, 20));
   const broken = args.some((a) => a.includes('broken'));
   const runId = broken ? '01K5CQ4V5K0000000000000001' : '01K5CQ4V5K0000000000000002';
   emit({ type: 'run', runId, role: broken ? 'failing' : 'passing' });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, plainCell, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
+import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, plainCell, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
@@ -106,7 +106,7 @@ describe('the working tree', () => {
 
   it('reads the server’s jobs with this tab’s own on top, and forgets one the server lost', () => {
     const listed = [blaming, { ...repairing, done: false }];
-    const watched = [{ job: { ...repairing, done: true } }, { job: packing }, { job: blaming, lost: true }];
+    const watched: Array<{ job: TreeJob; lost?: boolean }> = [{ job: { ...repairing, done: true } }, { job: packing }, { job: blaming, lost: true }];
     expect(mergeTreeJobs(listed, watched)).toEqual([{ ...repairing, done: true }, packing]);
     expect(mergeTreeJobs(null, [{ job: blaming }])).toEqual([blaming]);
     expect(mergeTreeJobs(undefined, [])).toEqual([]);

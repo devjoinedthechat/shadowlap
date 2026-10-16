@@ -1,4 +1,4 @@
-import { hasRecordedCommand, normalizeAddArgs, normalizeAddCommand, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { fixOfRun, hasRecordedCommand, normalizeAddArgs, normalizeAddCommand, recorderGone, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -48,12 +48,27 @@ export interface TestsSessionView {
   actor: string | null;
   /** A signal stopped it: the goldens after the one it was replaying didn't run. */
   interrupted: boolean;
+  /**
+   * It hasn't ended and its process is still there: it is running now, from this dashboard, another
+   * one or a terminal. False for one that ended, or whose process is gone (it did not finish).
+   */
+  live: boolean;
+}
+
+/** A golden's result since the session the verdict's line shows, from a session that ran only some goldens. */
+export interface SinceResult {
+  golden: string;
+  name: string;
+  ok: boolean;
+  revision: string | null;
+  at: number;
 }
 
 /**
- * The banner at the top of the screen: how each golden on disk did the last time it ran (a session
- * may run only some of them, as Run tests on one golden does), with the newest session's command,
- * revision, time and upstream requests.
+ * The banner at the top of the screen: how each golden on disk stands, by its last result (a session
+ * may run only some of them, as Add normalizer and re-run does), with the line of the newest session
+ * that ran them all (or one running now): its command, revision, time, its own passed and failed
+ * counts and upstream requests. What ran since in sessions that ran only some goldens is `since`.
  */
 export interface TestsVerdict {
   state: 'failing' | 'passing';
@@ -66,13 +81,23 @@ export interface TestsVerdict {
   /** `refund-in-limit diverged at call 1` (the first failing golden, in the table's order), `All 4 goldens pass`, or `3 of 4 goldens pass, 1 not run yet`. */
   title: string;
   first: { golden: string; name: string; reason: string; runId: string | null } | null;
-  /** The newest session with a result. */
+  /**
+   * The newest session that ran every golden tested before it (a full run, as CI's), or one running
+   * now that names them all; without one, the newest session with a result. Its counts are its own.
+   */
   session: TestsSessionView;
+  /** Goldens run again since that session by sessions that ran only some, each by its newest result, in the table's order. */
+  since: SinceResult[];
 }
 
 /** A golden at one revision: a cell of its history. */
 export interface HistoryCell {
   revision: string | null;
+  /**
+   * Where the result shown was tested: the column's revision, or, for a golden run again on its own
+   * (Add normalizer and re-run, Run tests on it) with changes on top, `<revision>+dirty`.
+   */
+  tested: string | null;
   /** Null: it wasn't a golden yet, or wasn't tested at that revision. */
   result: 'pass' | 'fail' | null;
   /** Why it failed, for the hover. */
@@ -115,6 +140,28 @@ export interface FoundCommit {
   replays: number;
   tokens: number;
   at: number;
+}
+
+/** What Find the commit said when it named no first bad commit: why, and between which commits it looked. */
+export interface BisectMiss {
+  why: string;
+  good: string | null;
+  bad: string | null;
+  at: number;
+}
+
+/**
+ * A commit Find the commit's dialog offers as one where the golden still worked: a revision it was
+ * tested at before it failed, and how it did there.
+ */
+export interface BisectRevision {
+  rev: string;
+  at: number;
+  result: 'pass' | 'fail';
+  /** Tested under the checks the golden has now: a pass under other checks may be a commit where it already fails them. */
+  sameChecks: boolean;
+  /** The commit's subject, when the project's git has the commit (added by the route). */
+  subject?: string | null;
 }
 
 /** A golden whose last replay diverged, as the CLI prints it, with what each button runs. */
@@ -161,10 +208,16 @@ export interface DivergenceView {
    * make it match.
    */
   rulesAdded: boolean;
-  /** Find the commit: from the last revision where it passed to the one where it failed (null: HEAD). */
+  /** Find the commit: from the last revision where it passed under today's checks to the one where it failed (null: HEAD). */
   bisect: BisectRange | null;
-  /** What Find the commit found, once it has run since this failure. */
+  /** What Find the commit found, kept until the golden passes again. */
   found: FoundCommit | null;
+  /** Find the commit ran since and named no first bad commit (it already failed at the good one, say): why, until it passes again or finds one. */
+  missed: BisectMiss | null;
+  /** Commits to offer as good ones when Find the commit asks, newest first. */
+  revisions: BisectRevision[];
+  /** Why its pack can't be read, or null: such a golden can't be bisected. */
+  unreadable: string | null;
 }
 
 /** Find the commit for a golden: the command, and whether its replays cost tokens. */
@@ -194,6 +247,9 @@ export interface FailureView {
   blocked: string[] | null;
   bisect: BisectRange | null;
   found: FoundCommit | null;
+  missed: BisectMiss | null;
+  revisions: BisectRevision[];
+  unreadable: string | null;
 }
 
 export interface TestsView {
@@ -268,12 +324,23 @@ function sessionView(store: Store, s: TestSession): TestsSessionView {
     passed = results.filter((r) => r.ok).length;
     failed = results.length - passed;
   }
-  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, upstreamRequests: s.upstreamRequests, actor: s.actor, interrupted: s.interrupted };
+  return { id: s.sessionId, command: s.command.join(' '), revision: s.revision, startedAt: s.startedAt, endedAt: s.endedAt, passed, failed, upstreamRequests: s.upstreamRequests, actor: s.actor, interrupted: s.interrupted, live: sessionLive(store, s) };
 }
 
 /** When a session last did something: its end, or its newest result while it has none. */
 function lastActive(store: Store, s: TestSession): number {
   return s.endedAt ?? store.listTestResults({ sessionId: s.sessionId, limit: 1 })[0]?.at ?? s.startedAt;
+}
+
+/**
+ * Whether a session that hasn't ended is running now: the process the store names for it is still
+ * there (on this machine; elsewhere, it was heard from lately), as for a run still recording. One
+ * whose process was killed, or that names none, did not finish.
+ */
+function sessionLive(store: Store, s: TestSession): boolean {
+  if (s.endedAt !== null) return false;
+  const owner = store.testSessionOwner(s.sessionId);
+  return owner !== null && !recorderGone(owner, lastActive(store, s));
 }
 
 /** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
@@ -335,9 +402,14 @@ export function resultLine(r: TestResult, checks: readonly string[]): string {
     }
     return r.reason ?? 'failed';
   }
-  // An update is said by the result's status ("updated"), so the line is what the replay did.
   const parts: string[] = [];
   const n = data.checks?.length ?? 0;
+  // Re-recorded by `test --update`, and replaced because its checks passed: where, and that they did.
+  if (data.updated) {
+    parts.push(`updated${r.revision ? ` at ${r.revision}` : ''}`);
+    parts.push(n ? `${n === 1 ? 'check' : 'checks'} passed` : data.calls ? `${data.calls.replayed}/${data.calls.total} replayed` : 'exited 0');
+    return parts.join(' · ');
+  }
   if (data.attempts) {
     parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
   } else if (data.divergence) {
@@ -407,14 +479,26 @@ function normalizeSteps(volatile: VolatileValues, golden: string): string[][] | 
   return [...volatile.values.map((v) => normalizeAddArgs(v.normalizer)), volatile.coversAll ? ['test', golden] : ['test', golden, '--update']];
 }
 
+/** The checks a result was judged by, as their labels in order: none when it ran without any. */
+const labelsOf = (r: TestResult): string[] => (r.data?.checks ?? []).map((c) => c.label).sort();
+
+/** Whether a result was judged by the checks a golden has now (`now`, as the CLI labels them). */
+export function underChecks(r: TestResult, now: readonly string[]): boolean {
+  const had = labelsOf(r);
+  const want = [...now].sort();
+  return had.length === want.length && had.every((label, i) => label === want[i]);
+}
+
 /**
  * Find the commit for a failing golden, from the newest result that passed before the failure at
- * another revision. Best is a pass of the recording that fails now, tested as committed: a pass of
- * an earlier recording of the golden (before an update) may be a commit where this one already
- * fails, and uncommitted changes are not part of what bisect checks out.
+ * another revision, under the checks the golden has now: a pass under other checks (one added since,
+ * say) may be a commit where it already fails them, and bisect would find nothing. Best is a pass of
+ * the recording that fails now, tested as committed: a pass of an earlier recording of the golden
+ * (before an update) may be a commit where this one already fails, and uncommitted changes are not
+ * part of what bisect checks out.
  */
-function bisectFor(golden: string, history: readonly TestResult[], failed: TestResult, live: boolean): BisectRange | null {
-  const passed = history.filter((r) => r.ok && r.at < failed.at && r.revision && committed(r.revision) !== committed(failed.revision));
+function bisectFor(golden: string, history: readonly TestResult[], failed: TestResult, live: boolean, checks: readonly string[]): BisectRange | null {
+  const passed = history.filter((r) => r.ok && r.at < failed.at && r.revision && committed(r.revision) !== committed(failed.revision) && underChecks(r, checks));
   const rank = (r: TestResult) => (failed.goldenRunId && r.goldenRunId === failed.goldenRunId ? 0 : 2) + (r.revision!.endsWith('+dirty') ? 1 : 0);
   // Newest first, so the first of the best rank is the newest of it.
   const good = passed.reduce<TestResult | null>((best, r) => (!best || rank(r) < rank(best) ? r : best), null);
@@ -424,16 +508,134 @@ function bisectFor(golden: string, history: readonly TestResult[], failed: TestR
   return { good: goodRev, bad, args: ['bisect', golden, '--good', goodRev, ...(bad ? ['--bad', bad] : [])], live };
 }
 
-/** The newest first bad commit bisect found for each golden (from the `bisect.found` activity events). */
-function foundCommits(store: Store): Map<string, FoundCommit> {
-  const out = new Map<string, FoundCommit>();
-  for (const e of store.listEvents({ kinds: ['bisect.found'], limit: 500 })) {
+/** How many commits Find the commit's dialog offers at most. */
+const DIALOG_REVISIONS = 12;
+
+/**
+ * The commits a golden was tested at before it failed, newest first, for Find the commit's dialog to
+ * offer as good ones: each as committed (bisect checks out commits), with how it did there (its
+ * newest result, a committed one before one with changes on top) and whether under today's checks.
+ */
+function bisectRevisions(history: readonly TestResult[], failed: TestResult, checks: readonly string[]): BisectRevision[] {
+  const out = new Map<string, { r: TestResult; rev: string }>();
+  for (const r of history) {
+    const rev = committed(r.revision);
+    if (!rev || r.at >= failed.at || rev === committed(failed.revision)) continue;
+    const seen = out.get(rev);
+    // Newest first: keep the first, unless it had changes on top and this one is the commit itself.
+    if (!seen || (seen.r.revision !== rev && r.revision === rev)) out.set(rev, { r, rev });
+  }
+  return [...out.values()]
+    .sort((a, b) => b.r.at - a.r.at)
+    .slice(0, DIALOG_REVISIONS)
+    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', sameChecks: underChecks(r, checks) }));
+}
+
+/** What Find the commit last said about each golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
+type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
+
+function bisectAnswers(store: Store): Map<string, BisectAnswer> {
+  const out = new Map<string, BisectAnswer>();
+  // Newest first: the first answer for a golden is its latest.
+  for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
+    if (!e.ref || out.has(e.ref)) continue;
+    if (e.kind === 'bisect.none') {
+      const d = (e.data ?? {}) as { why?: unknown; good?: unknown; bad?: unknown };
+      out.set(e.ref, { found: null, missed: { why: String(d.why ?? 'no first bad commit'), good: typeof d.good === 'string' ? d.good : null, bad: typeof d.bad === 'string' ? d.bad : null, at: e.at } });
+      continue;
+    }
     const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; untested?: unknown; replays?: unknown; tokens?: unknown } | null;
-    if (!e.ref || out.has(e.ref) || typeof d?.first?.rev !== 'string') continue;
+    if (typeof d?.first?.rev !== 'string') continue;
     const untested = Array.isArray(d.untested) ? d.untested.filter((x): x is string => typeof x === 'string') : [];
-    out.set(e.ref, { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), untested, replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at });
+    out.set(e.ref, { found: { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), untested, replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at }, missed: null });
   }
   return out;
+}
+
+/**
+ * What Find the commit said about a failing golden, while it still stands: until the golden passes
+ * again (a pass since means the failure it answered is over), or a newer search answers instead.
+ */
+function standingAnswer(answer: BisectAnswer | undefined, history: readonly TestResult[]): BisectAnswer | null {
+  if (!answer) return null;
+  const at = answer.found?.at ?? answer.missed!.at;
+  return history.some((r) => r.ok && r.at > at) ? null : answer;
+}
+
+/** How many of the newest sessions the history and the verdict's line are read from. */
+const SESSION_WINDOW = 200;
+
+/** A pattern among `test`'s arguments as a regular expression: `*` and `?` within one folder name, as the CLI expands them. */
+function globRe(pattern: string): RegExp {
+  const body = [...pattern].map((c) => (c === '*' ? '[^/]*' : c === '?' ? '[^/]' : c.replace(/[.+^${}()|[\]\\]/g, '\\$&'))).join('');
+  return new RegExp(`^${body}$`);
+}
+
+/**
+ * Whether a session's command asks for every golden in `need`: each named, or matched by a pattern
+ * (`goldens/*`, which the CLI expands). What a session asked to run, whether or not it got through
+ * them (one stopped by a signal), and what one running now will run.
+ */
+export function asksForAll(command: readonly string[], need: readonly string[]): boolean {
+  const args = command.slice(command.indexOf('test') + 1).map((a) => a.replace(/^\.\//, '').replace(/\/+$/, ''));
+  const patterns = args.filter((a) => /[*?]/.test(a)).map(globRe);
+  const named = new Set(args);
+  return need.every((p) => named.has(p) || patterns.some((re) => re.test(p)));
+}
+
+/** Where a result shows in the history: a column of its own revision, or, run again with changes on top, the column of the commit under them. */
+const columnOf = (revision: string | null, columns: ReadonlySet<string | null>): string | null | undefined => (columns.has(revision) ? revision : columns.has(committed(revision)) ? committed(revision) : undefined);
+
+/** The sessions the screen reads: the history's columns, the results they show, and the session the verdict's line names. */
+interface SessionsRead {
+  /** The history's columns, oldest first. */
+  revisions: Array<string | null>;
+  /** The results of every session read, newest first. */
+  results: TestResult[];
+  /** The column each session that ran every golden fills, by its id; a session that ran only some fills none of its own. */
+  columnOf: Map<string, string | null>;
+  shown: TestSession | null;
+}
+
+/**
+ * Tells the sessions that ran every golden from those that ran some. A full session (CI's, Run
+ * tests) asked for each golden on disk that had been tested before it started (`goldens/*`, or each
+ * by name), or ran each of them; a golden packed since can't count against it. The history's columns
+ * are the revisions of the newest full sessions, so Add normalizer and re-run or Update golden,
+ * which run one golden, add no column of dashes for the others: their result shows in the column of
+ * its revision, or of the commit under it when they ran with changes on top. The verdict's line
+ * names the newest full session, with its own counts and command, also one stopped by a signal or
+ * running now. Without any full session, every session counts as one.
+ */
+function testSessions(store: Store, goldens: readonly GoldenSource[], max: number): SessionsRead {
+  const all = store.listTestSessions({ limit: SESSION_WINDOW });
+  const results = store.listTestResults({ sessionIds: all.map((s) => s.sessionId), limit: 100_000 });
+  const ran = new Map<string, Set<string>>();
+  for (const r of results) {
+    let set = ran.get(r.sessionId);
+    if (!set) ran.set(r.sessionId, (set = new Set()));
+    set.add(r.golden);
+  }
+  // A session counts once it has a result, or while it runs: one stopped before its first golden ended says nothing.
+  const sessions = all.filter((s) => ran.has(s.sessionId) || sessionLive(store, s));
+  const firstAt = store.firstTestResultAt();
+  const readable = goldens.filter((g) => !unreadable(g)).map((g) => g.path);
+  const full = (s: TestSession): boolean => {
+    const need = readable.filter((p) => (firstAt.get(p) ?? Infinity) < s.startedAt);
+    if (asksForAll(s.command, need)) return true;
+    const got = ran.get(s.sessionId) ?? new Set<string>();
+    return need.every((p) => got.has(p));
+  };
+  let whole = sessions.filter(full);
+  if (!whole.length) whole = sessions;
+  const revisions: Array<string | null> = [];
+  for (const s of whole) {
+    if (!revisions.includes(s.revision)) revisions.push(s.revision);
+    if (revisions.length >= max) break;
+  }
+  revisions.reverse();
+  const columnOf = new Map(whole.filter((s) => revisions.includes(s.revision)).map((s) => [s.sessionId, s.revision] as const));
+  return { revisions, results, columnOf, shown: whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null };
 }
 
 /** Results newest first, grouped by golden. */
@@ -454,20 +656,13 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
  */
 export function testsView(store: Store, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
-  const sessions = store.listTestSessions({ limit: 500, withResults: true });
-  const last = sessions[0] ?? null;
-
-  // Columns: the revisions of the most recent sessions, oldest first.
-  const revisions: Array<string | null> = [];
-  for (const s of sessions) {
-    if (!revisions.includes(s.revision)) revisions.push(s.revision);
-    if (revisions.length >= (options.revisions ?? 6)) break;
-  }
-  revisions.reverse();
+  const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
+  const { revisions } = sessionsView;
   // Only what the page shows is read: each golden's newest result, and the results of the sessions
-  // at the revisions it has columns for.
+  // the history's columns are made of.
   const latestOf = new Map(store.latestTestResults().map((r) => [r.golden, r]));
-  const history = byGolden(store.listTestResults({ sessionIds: sessions.filter((s) => revisions.includes(s.revision)).map((s) => s.sessionId), limit: 100_000 }));
+  const history = byGolden(sessionsView.results);
+  const columns = new Set(revisions);
 
   const rows: GoldenRow[] = goldens.map((g) => {
     const list = history.get(g.path) ?? [];
@@ -485,10 +680,12 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       modeHint: mode.hint,
       checks: g.checks,
       history: revisions.map((rev) => {
-        const here = list.filter((x) => x.revision === rev);
+        // Its own column's sessions, and a session that ran only some goldens there, or on that
+        // commit with changes on top (Add normalizer and re-run), where no column is its own.
+        const here = list.filter((x) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOf(x.revision, columns)) === rev);
         // The newest result there, ringed when any session there updated it: a run after the update keeps the ring.
         const r = here[0] ?? null;
-        return { revision: rev, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
+        return { revision: rev, tested: r?.revision ?? null, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
       }),
       last: latest
         ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: lineOf(store, latest, g.checks), at: latest.at, updated: !!latest.data?.updated }
@@ -500,14 +697,17 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
 
   const divergences: DivergenceView[] = [];
   const failures: FailureView[] = [];
-  const commits = foundCommits(store);
+  const answers = bisectAnswers(store);
   for (const row of rows) {
     const latest = latestOf.get(row.path);
     if (!latest || latest.ok) continue;
+    const past = store.listTestResults({ golden: row.path, limit: 1000 });
     // A pack that can't be read can't be bisected either.
-    const bisect = row.error ? null : bisectFor(row.path, store.listTestResults({ golden: row.path, limit: 1000 }), latest, row.mode === 'fork');
-    const seen = commits.get(row.path);
-    const found = seen && seen.at >= latest.at ? seen : null;
+    const bisect = row.error ? null : bisectFor(row.path, past, latest, row.mode === 'fork', row.checks);
+    const answer = standingAnswer(answers.get(row.path), past);
+    const found = answer?.found ?? null;
+    const missed = answer?.missed ?? null;
+    const revisionsToOffer = row.error ? [] : bisectRevisions(past, latest, row.checks);
     const d = latest.failure === 'diverged' ? divergenceOf(latest) : null;
     if (d) {
       const volatile = volatileOf(latest, d);
@@ -528,18 +728,23 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
         rulesAdded: volatile.values.length > 0 && volatile.values.every((v) => (options.normalizers ?? []).some((n) => sameRule(n, v.normalizer))),
         bisect,
         found,
+        missed,
+        revisions: revisionsToOffer,
+        unreadable: row.error,
       });
     } else {
       const blocked = blockedTargets(store, latest);
-      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, blocked: blocked.length ? blocked : null, bisect, found });
+      failures.push({ golden: row.path, name: row.name, runId: row.runId, failure: latest.failure ?? 'error', reason: latest.reason ?? 'failed', checks: latest.data?.checks ?? null, details: latest.data?.details ?? null, output: latest.data?.output ?? null, blocked: blocked.length ? blocked : null, bisect, found, missed, revisions: revisionsToOffer, unreadable: row.error });
     }
   }
 
   // The verdict counts every golden on disk by its last result, whichever session that came from: a
-  // session that ran one golden says nothing about the others.
+  // session that ran one golden says nothing about the others. Its line is a session's own: the
+  // newest that ran them all (or runs them now), with what ran since in sessions that ran some.
   let verdict: TestsVerdict | null = null;
   const lastResults = goldens.map((g) => latestOf.get(g.path)).filter((r): r is TestResult => r !== undefined);
-  if (last && lastResults.length) {
+  const shown = sessionsView.shown;
+  if (shown && lastResults.length) {
     const failed = lastResults.filter((r) => !r.ok);
     const first = failed[0] ?? null;
     const total = goldens.length;
@@ -553,7 +758,8 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       // One golden: "All 1 goldens pass" isn't English.
       title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass, ${untested} not run yet` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
-      session: sessionView(store, last),
+      session: sessionView(store, shown),
+      since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, revision: r.revision, at: r.at })),
     };
   }
 
@@ -692,14 +898,20 @@ export interface TestRunBanner {
    * `normalizerFixes` is false (as on the Tests screen); null when no value that changes every run diverged.
    */
   normalizeAndTest: string[][] | null;
+  /**
+   * Every rule Add normalizer would add is in the config's normalizers now (as `normalizers` gives
+   * them): what is left is to run the golden again, or to update it when the rules alone can't make
+   * it match. As on the Tests screen, where the button becomes Re-run.
+   */
+  rulesAdded: boolean;
 }
 
 /**
  * For a run made by `shadowlap test` whose golden failed because it diverged: its golden and the
  * actions on it. Null for any other run, a replay of a golden that may fork (it diverges by design)
- * included.
+ * included. `normalizers` are the rules in the config now.
  */
-export function testRunBanner(store: Store, runId: string): TestRunBanner | null {
+export function testRunBanner(store: Store, runId: string, options: { normalizers?: readonly Normalizer[] } = {}): TestRunBanner | null {
   const run = store.getRun(runId);
   const test = run?.meta?.test;
   if (!run || !test || !run.divergence) return null;
@@ -718,6 +930,7 @@ export function testRunBanner(store: Store, runId: string): TestRunBanner | null
     rerun: ['test', test.golden],
     update: ['test', test.golden, '--update'],
     normalizeAndTest: normalizeSteps(found, test.golden),
+    rulesAdded: found.values.length > 0 && found.values.every((v) => (options.normalizers ?? []).some((n) => sameRule(n, v.normalizer))),
   };
 }
 
@@ -735,8 +948,17 @@ export interface BisectChoices {
   good: string | null;
   /** Where it fails: the run's own revision for a failed run (null: HEAD, as for one made with uncommitted changes). */
   bad: string | null;
-  /** Revisions to choose a good one from, newest first: where its golden or its command ran before it, and how those runs went. */
-  revisions: Array<{ rev: string; at: number; runs: number; failed: number }>;
+  /**
+   * Revisions to choose a good one from, newest first: where its golden or its command ran before it,
+   * and how those runs went; `subject` is the commit's, once the project's git was asked (commits-here.ts).
+   */
+  revisions: Array<{ rev: string; at: number; runs: number; failed: number; subject?: string | null }>;
+  /**
+   * The check bisect judges each replay by (`--expect`), for a run blame found failing it: the check
+   * of the fix it fails in. A run that exited 0 and kept no failed check of its own failed only that
+   * one, so without it bisect would look for where a passing run changes. Null (or absent) otherwise.
+   */
+  expect?: Record<string, unknown> | null;
   /**
    * A run that failed on its own (an exit status, a crash, a check) rather than by diverging: each
    * replay at an older commit runs live from where its requests differ, so the outcome decides. That
@@ -777,16 +999,23 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const own = committed(run.codeVersion);
   // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
   const result = ofGolden ? store.listTestResults({ sessionId: run.meta!.test!.session, golden: golden!, limit: 1 })[0] : undefined;
-  const failed = result ? !result.ok : runFailed(run) || (ofGolden && !!run.divergence);
+  // A run in a fix as failing its check (blame found it so, or a repair or verify did), though it
+  // exited 0 with no check of its own failed: that check is the one it failed.
+  const blamed = !ofGolden && !runFailed(run) ? blamedCheck(store, run) : null;
+  const failed = result ? !result.ok : runFailed(run) || (ofGolden && !!run.divergence) || blamed !== null;
   let revisions: BisectChoices['revisions'];
   let sameRecording: string | null = null;
+  let passedHere: string | null = null;
   if (ofGolden) {
     const at = new Map<string, { rev: string; at: number; runs: number; failed: number }>();
     for (const r of store.listTestResults({ golden: golden!, limit: 10_000 })) {
       if (r.at >= before || !clean(r.revision) || r.revision === own) continue;
-      // Newest first: the first pass of the recording this replay failed on is the one to offer, as an
-      // earlier recording of the golden (before an update) may already fail where it passed.
-      if (!sameRecording && r.ok && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
+      // Newest first: the first pass of the recording this replay failed on, under the checks the
+      // golden has now, is the one to offer: an earlier recording of the golden (before an update), or
+      // a pass under other checks, may be a commit where it already fails.
+      const counts = r.ok && underChecks(r, source!.checks);
+      if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
+      if (!passedHere && counts) passedHere = r.revision;
       const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0 };
       row.runs++;
       if (!r.ok) row.failed++;
@@ -802,8 +1031,12 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   }
   const target: BisectChoices['target'] = ofGolden ? { kind: 'golden', golden: golden! } : { kind: 'run', runId: run.runId };
   const fork = !ofGolden && failed;
-  // A run that passed is the good end itself; bisect then looks up to HEAD.
-  const good = failed ? (sameRecording ?? revisions.find((r) => r.failed < r.runs)?.rev ?? null) : clean(run.codeVersion) ? run.codeVersion : null;
+  // The check a forked replay is judged by: the run's own `--expect` when a check of it failed, else
+  // the one blame found it failing. A golden's checks come from the config, as the CLI finds them.
+  const expect = fork ? (run.meta?.checks?.some((c) => !c.ok) && plainObject(run.meta.expect) ? run.meta.expect : blamed) : null;
+  // A run that passed is the good end itself; bisect then looks up to HEAD. One that failed only
+  // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
+  const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? (sameRecording ?? passedHere) : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';
@@ -812,7 +1045,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run was imported from a capture, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Replayed with --fork, only the exit status and the checks decide; the CLI takes the checks of the
   // golden it was a replay of from the config, and has none otherwise.
-  else if (fork && !exitFailed(run) && !source?.checks.length) unavailable = `this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${run.runId} --good <commit> --expect '<checks>' --fork`;
+  else if (fork && !exitFailed(run) && !source?.checks.length && !expect) unavailable = `this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${run.runId} --good <commit> --expect '<checks>' --fork`;
   const ref = target.kind === 'golden' ? target.golden : target.runId;
   return {
     target,
@@ -820,11 +1053,28 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
     good,
     bad,
     revisions: revisions.slice(0, 30),
+    expect,
     fork,
     live: fork || (ofGolden && source!.mode === 'fork'),
     unavailable,
-    args: good && !unavailable ? ['bisect', ref, '--good', good, ...(bad ? ['--bad', bad] : []), ...(fork ? ['--fork'] : [])] : null,
+    args: good && !unavailable ? bisectArgs(ref, good, bad, fork, expect) : null,
   };
+}
+
+const plainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * The check blame found a run failing: that of the fix it fails in (the `--expect` the first blame of
+ * that failure was given). Null when the run fails in no fix, or its fix judges by the exit status alone.
+ */
+function blamedCheck(store: Store, run: RunRecord): Record<string, unknown> | null {
+  const check = fixOfRun(store, run.runId)?.check.expect;
+  return plainObject(check) && Object.keys(check).length ? check : null;
+}
+
+/** `bisect` for a target between two commits: forked and judged by a check when the run failed on its own. */
+export function bisectArgs(ref: string, good: string, bad: string | null, fork: boolean, expect: Record<string, unknown> | null): string[] {
+  return ['bisect', ref, '--good', good, ...(bad ? ['--bad', bad] : []), ...(expect ? ['--expect', JSON.stringify(expect)] : []), ...(fork ? ['--fork'] : [])];
 }
 
 // ---- jobs: what the Tests actions run ----
@@ -917,7 +1167,8 @@ export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource
  * Find the commit: for a golden (`golden`, from the Tests screen) or a run (`runId`, from its page or
  * the calendar), from `good` up to `bad` (default: where it failed, else HEAD, which is also where
  * it stops when `here` says this checkout lacks the commit it failed at). A replay of a golden on
- * disk bisects the golden; a run that failed on its own replays with `--fork`.
+ * disk bisects the golden; a run that failed on its own replays with `--fork`, judged by the check it
+ * failed when one is known (`BisectChoices.expect`): its own `--expect`, or the one blame found it failing.
  */
 export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>, options: { here?: (revs: string[]) => ReadonlySet<string> | null } = {}): TestsJob {
   const good = checkedRevision(req.good);
@@ -944,5 +1195,6 @@ export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: R
   // with no commit named. `here` asks the project's git; when it can't say, the commit stays.
   if (!bad && upTo && options.here?.([upTo])?.has(upTo) === false) upTo = null;
   if (upTo === good) return { error: `${good} is where it fails: choose an earlier commit where it still worked` };
-  return { title: 'Finding the commit', args: ['bisect', ref, '--good', good, ...(upTo ? ['--bad', upTo] : []), ...(choices.fork ? ['--fork'] : [])], runId: req.runId as string };
+  // A run blame found failing a check, or one whose own --expect failed: each replay is judged by it.
+  return { title: 'Finding the commit', args: bisectArgs(ref, good, upTo, choices.fork, choices.expect ?? null), runId: req.runId as string };
 }

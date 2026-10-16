@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { JOB_KINDS, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
+import { JOB_KINDS, type BisectMiss, type BisectRevision, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
 import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
-import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, type ReportLine } from '../goldens.js';
+import { treeBusy } from '../fixes/model.js';
+import { useServerJobs } from '../fixes/tree.js';
+import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revLabel, sessionLine, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -21,12 +23,12 @@ import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './
  * result), each failure as the CLI prints it with what fixes it, and how to run them in CI.
  */
 
-/** The jobs that change what this page shows: while one runs, Run tests waits. */
+/** The jobs that change what this page shows: while one of this tab's runs, the verdict's session reads as running. */
 const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
 
 type Open =
   | { kind: 'update'; paths: string[] }
-  | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean }
+  | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: BisectRevision[]; tried: string | null }
   | { kind: 'normalize-update'; name: string; golden: string; steps: string[][] };
 
 // The palette's Tests group on every page (tests-palette.ts): an open palette reads it again once the goldens land.
@@ -35,11 +37,15 @@ onTestsChanged(paletteSourcesChanged);
 
 export function TestsPage() {
   const app = useApp();
-  const { client, tick, hasKind, actionsOff, guard, watchJob, jobs, toast } = app;
+  const { client, tick, hasKind, actionsOff, guard, watchJob, jobs, toast, meta } = app;
   const loaded = useLoad(() => client.tests(), 'tests', tick);
   const view = loaded.data;
   const [open, setOpen] = useState<Open | null>(null);
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
+  // What the server is running, from every tab and terminal dashboard: a test job, or a repair
+  // holding the working tree, makes it refuse an action that replays or rewrites the goldens.
+  const serverJobs = useServerJobs();
+  const wait = (verb: string): string | null => actionsOff ?? testsBusy(serverJobs, verb, meta?.project?.id ?? null) ?? treeBusy(serverJobs, 'reads', verb, meta?.project?.path ?? null);
 
   useEffect(() => {
     if (view) keepTests(view);
@@ -61,16 +67,17 @@ export function TestsPage() {
   useEffect(() => {
     if (!asked || !view) return;
     setAsked(false);
-    if (actionsOff) toast(actionsOff);
+    const why = wait('update them');
+    if (why) toast(why);
     else if (!view.diverged.length || !hasKind(JOB_KINDS.testUpdate)) toast('No golden diverged: there is nothing to update');
     else setOpen({ kind: 'update', paths: view.diverged });
+    // Asked once: `wait` reads the jobs as they are when it is.
   }, [asked, view, actionsOff, hasKind, toast]);
 
   const start = (kind: string, fields: Record<string, unknown>) => {
     setOpen(null);
     guard(() => watchJob(client.startJob(kind, fields)));
   };
-  const off = actionsOff ?? undefined;
   const header = (actions?: ReactNode) => <PageHeader eyebrow="goldens · shadowlap test" title="Tests" text="Every recording CI replays offline, and how it did at each revision." actions={actions} />;
 
   if (!view) {
@@ -90,6 +97,8 @@ export function TestsPage() {
     );
   }
 
+  const runWait = wait('run the tests');
+  const updateWait = wait('update them');
   const actions = (
     <>
       <a className="btn" href={href.settings('alerts')}>
@@ -97,7 +106,7 @@ export function TestsPage() {
         CI settings
       </a>
       {view.diverged.length && hasKind(JOB_KINDS.testUpdate) ? (
-        <button className="btn" type="button" disabled={!!off} title={off} onClick={() => guard(() => setOpen({ kind: 'update', paths: view.diverged }))}>
+        <button className="btn" type="button" disabled={!!updateWait} title={updateWait ?? undefined} onClick={() => guard(() => setOpen({ kind: 'update', paths: view.diverged }))}>
           Update goldens…
         </button>
       ) : null}
@@ -105,7 +114,7 @@ export function TestsPage() {
         Copy CI command
       </button>
       {hasKind(JOB_KINDS.tests) ? (
-        <button className="btn lime" type="button" disabled={!!off || running} title={off ?? (running ? 'The tests are running' : undefined)} onClick={() => start(JOB_KINDS.tests, {})}>
+        <button className="btn lime" type="button" disabled={!!runWait} title={runWait ?? undefined} onClick={() => start(JOB_KINDS.tests, {})}>
           Run tests
         </button>
       ) : null}
@@ -119,11 +128,13 @@ export function TestsPage() {
     else if (run === 'normalize-update' && d.normalizeAndTest) setOpen({ kind: 'normalize-update', name: d.name, golden: d.golden, steps: d.normalizeAndTest });
     else if (run === 'normalize') start(JOB_KINDS.normalizeAndTest, { golden: d.golden });
   };
-  const findCommit = (name: string, golden: string, range: { good: string; bad: string | null; live: boolean } | null) => {
-    const live = range?.live ?? view.rows.find((r) => r.path === golden)?.mode === 'fork';
+  const findCommit = (f: Pick<DivergenceView, 'name' | 'golden' | 'bisect' | 'missed' | 'revisions'>) => {
+    // Once a search over the known range named no first bad commit, it asks for an older good one.
+    const range = f.missed ? null : f.bisect;
+    const live = range?.live ?? view.rows.find((r) => r.path === f.golden)?.mode === 'fork';
     // Free replays over a known range start at once; a search that needs a good commit, or costs tokens, asks first.
-    if (range && !live) start(JOB_KINDS.bisect, { golden, good: range.good, ...(range.bad ? { bad: range.bad } : {}) });
-    else setOpen({ kind: 'bisect', name, golden, range: range ? { good: range.good, bad: range.bad } : null, live });
+    if (range && !live) start(JOB_KINDS.bisect, { golden: f.golden, good: range.good, ...(range.bad ? { bad: range.bad } : {}) });
+    else setOpen({ kind: 'bisect', name: f.name, golden: f.golden, range: range ? { good: range.good, bad: range.bad } : null, live, revisions: f.revisions, tried: f.missed?.good ?? null });
   };
 
   return (
@@ -158,8 +169,10 @@ export function TestsPage() {
       </section>
       {view.divergences.map((d) => {
         const b = divergenceButtons(d, hasKind);
+        const normalizeWait = wait(b.normalize?.run === 'rerun' ? 'run it again' : 'add the normalizer');
+        const goldenWait = wait('update it');
         return (
-          <ReportPanel key={d.golden} name={d.name} runId={d.runId} lines={reportLines(d.text)} found={d.found}>
+          <ReportPanel key={d.golden} name={d.name} runId={d.runId} lines={reportLines(d.text)} found={d.found} missed={d.missed}>
             {b.note === 'maybe-real' && d.volatile ? (
               <p className="hintx tnote">
                 <code>{d.volatile.path}</code> changed, and it may be a real change, such as another customer or another order. If it is made anew on every run, add the normalizer; if the change was intended, update the golden.
@@ -171,17 +184,17 @@ export function TestsPage() {
             ) : null}
             <div className="actions">
               {b.normalize ? (
-                <button className={`btn${b.normalize.lead ? ' lime' : ''}`} type="button" disabled={!!off} title={off} onClick={() => guard(() => normalize(d))}>
+                <button className={`btn${b.normalize.lead ? ' lime' : ''}`} type="button" disabled={!!normalizeWait} title={normalizeWait ?? undefined} onClick={() => guard(() => normalize(d))}>
                   {b.normalize.label}
                 </button>
               ) : null}
               {b.update ? (
-                <button className="btn" type="button" disabled={!!off} title={off} onClick={() => guard(() => setOpen({ kind: 'update', paths: [d.golden] }))}>
+                <button className="btn" type="button" disabled={!!goldenWait} title={goldenWait ?? undefined} onClick={() => guard(() => setOpen({ kind: 'update', paths: [d.golden] }))}>
                   Update golden
                 </button>
               ) : null}
               {b.bisect ? (
-                <button className="btn" type="button" disabled={!!off} title={off} onClick={() => guard(() => findCommit(d.name, d.golden, d.bisect))}>
+                <button className="btn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => guard(() => findCommit(d))}>
                   {b.bisect.range && !b.bisect.live ? 'Find the commit' : 'Find the commit…'}
                 </button>
               ) : null}
@@ -191,7 +204,7 @@ export function TestsPage() {
         );
       })}
       {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={off} canBisect={hasKind(JOB_KINDS.bisect)} onBisect={() => guard(() => findCommit(f.name, f.golden, f.bisect))} />
+        <FailurePanel key={f.golden} f={f} off={actionsOff ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
       ))}
       <div className="grid2 gpanel">
         <section className="panel">
@@ -233,7 +246,16 @@ export function TestsPage() {
         />
       ) : null}
       {open?.kind === 'bisect' ? (
-        <FindCommitDialog name={open.name} golden={open.golden} range={open.range} live={open.live} onClose={() => setOpen(null)} onRun={(good, bad) => start(JOB_KINDS.bisect, { golden: open.golden, good, ...(bad ? { bad } : {}) })} />
+        <FindCommitDialog
+          name={open.name}
+          golden={open.golden}
+          range={open.range}
+          live={open.live}
+          revisions={open.revisions}
+          tried={open.tried}
+          onClose={() => setOpen(null)}
+          onRun={(good, bad) => start(JOB_KINDS.bisect, { golden: open.golden, good, ...(bad ? { bad } : {}) })}
+        />
       ) : null}
       {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden })} /> : null}
     </Page>
@@ -265,6 +287,14 @@ function Verdict({ view, running }: { view: TestsView; running: boolean }) {
         <h2>{v.title}</h2>
         <p>
           <SessionCommand text={line.command} /> · {line.rest}
+          {line.since ? (
+            <>
+              {' · '}
+              <span className="tsince" data-tip={line.sinceTip ? tipText(line.sinceTip) : undefined}>
+                {line.since}
+              </span>
+            </>
+          ) : null}
         </p>
       </div>
     </div>
@@ -287,7 +317,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
     <tr className={row.runId ? undefined : 'still'} onClick={row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : undefined}>
       <td>
         <code>{row.name}</code>
-        <span className="rsub">
+        <span className="rsub gsrc">
           {'runId' in source ? (
             <>
               from{' '}
@@ -340,7 +370,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
         {last.result === 'pass' ? (
           <span className="st ok">
             <i />
-            {last.updated ? 'updated' : 'passed'}
+            passed
           </span>
         ) : last.result === 'fail' ? (
           <span className="st err">
@@ -388,8 +418,18 @@ function BisectCard({ found }: { found: FoundCommit }) {
   );
 }
 
-/** A failed golden's report, as the CLI prints it, with what Find the commit found above the buttons. */
-function ReportPanel({ name, runId, lines, found, children }: { name: string; runId: string | null; lines: ReportLine[]; found: FoundCommit | null; children: ReactNode }) {
+/** Find the commit named no first bad commit between the commits it was given: where it looked, and why. */
+function BisectMissLine({ missed }: { missed: BisectMiss }) {
+  return (
+    <div className="bisect miss">
+      <span className="k">find the commit</span>
+      <span className="m">{missedLine(missed)}</span>
+    </div>
+  );
+}
+
+/** A failed golden's report, as the CLI prints it, with what Find the commit found (or that it found none) above the buttons. */
+function ReportPanel({ name, runId, lines, found, missed, children }: { name: string; runId: string | null; lines: ReportLine[]; found: FoundCommit | null; missed: BisectMiss | null; children: ReactNode }) {
   return (
     <section className="panel gpanel">
       <header>
@@ -404,7 +444,7 @@ function ReportPanel({ name, runId, lines, found, children }: { name: string; ru
       </header>
       <div className="pbody">
         <ReportLines lines={lines} />
-        {found ? <BisectCard found={found} /> : null}
+        {found ? <BisectCard found={found} /> : missed ? <BisectMissLine missed={missed} /> : null}
         {children}
       </div>
     </section>
@@ -412,14 +452,13 @@ function ReportPanel({ name, runId, lines, found, children }: { name: string; ru
 }
 
 /** A failed check, a non-zero exit, no calls: as `test --markdown` prints it, with no normalizer to offer. */
-function FailurePanel({ f, off, canBisect, onBisect }: { f: FailureView; off: string | undefined; canBisect: boolean; onBisect: () => void }) {
-  const bisect = canBisect && !f.found;
+function FailurePanel({ f, off, button, onBisect }: { f: FailureView; off: string | undefined; button: { range: boolean; live: boolean } | null; onBisect: () => void }) {
   return (
-    <ReportPanel name={f.name} runId={f.runId} lines={failureLines(f)} found={f.found}>
-      {bisect ? (
+    <ReportPanel name={f.name} runId={f.runId} lines={failureLines(f)} found={f.found} missed={f.missed}>
+      {button ? (
         <div className="actions">
           <button className="btn" type="button" disabled={!!off} title={off} onClick={onBisect}>
-            {f.bisect && !f.bisect.live ? 'Find the commit' : 'Find the commit…'}
+            {button.range && !button.live ? 'Find the commit' : 'Find the commit…'}
           </button>
         </div>
       ) : null}

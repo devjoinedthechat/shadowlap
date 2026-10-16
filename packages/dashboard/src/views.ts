@@ -8,6 +8,8 @@
 export interface JobLink {
   label: string;
   href: string;
+  /** Beside the job's primary action rather than one of its own: the drawer shows it as a plain link. */
+  secondary?: boolean;
 }
 
 /**

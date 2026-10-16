@@ -1,5 +1,7 @@
+import { hostname } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { NO_COMMAND, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
+import { NO_COMMAND, recordBlame, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
+import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
 import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
@@ -22,8 +24,8 @@ function run(store: Store, runId: string, imported = false) {
   store.createRun({ runId, mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, ...(imported ? { meta: { imported: { at: T0, from: 'x' } } } : {}) });
 }
 
-function session(store: Store, revision: string, at: number, results: Array<{ golden: string; ok: boolean; failure?: 'diverged' | 'check'; reason?: string; runId: string; data?: TestResultData }>) {
-  const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision, actor: 'ci', startedAt: at });
+function session(store: Store, revision: string, at: number, results: Array<{ golden: string; ok: boolean; failure?: 'diverged' | 'check'; reason?: string; runId: string; data?: TestResultData }>, command = ['shadowlap', 'test', 'goldens/*']) {
+  const s = store.startTestSession({ command, revision, actor: 'ci', startedAt: at });
   results.forEach((r, i) => store.addTestResult({ sessionId: s.sessionId, golden: r.golden, ok: r.ok, ...(r.failure ? { failure: r.failure } : {}), reason: r.reason ?? null, runId: r.runId, revision, at: at + i + 1, data: r.data ?? { mode: 'replay', calls: { total: 8, replayed: 8, live: 0, blocked: 0, stubbed: 0 } } }));
   store.finishTestSession(s.sessionId, { passed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, upstreamRequests: 0, endedAt: at + 100 });
   return s;
@@ -87,16 +89,23 @@ describe('the Tests screen', () => {
   it('counts every golden by its last result after a session that ran only one of them', () => {
     const store = sampleStore();
     // Run tests on one golden, as Add normalizer and re-run or a per-golden Run tests does.
-    session(store, 'e3f9b20', T0 + DAY, [{ golden: 'goldens/refund-flow', ok: true, runId: 'R_D_FLOW' }]);
+    session(store, 'e3f9b20', T0 + DAY, [{ golden: 'goldens/refund-flow', ok: true, runId: 'R_D_FLOW' }], ['shadowlap', 'test', 'goldens/refund-flow']);
     const view = testsView(store, goldens);
     // refund-in-limit still fails: its last result is the one from the full session.
     expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 2, untested: 0, title: 'refund-in-limit diverged at call 1', first: { golden: 'goldens/refund-in-limit' } });
-    // The line under it is the newest session's: its command, revision and time.
-    expect(view.verdict!.session).toMatchObject({ revision: 'e3f9b20', passed: 1, failed: 0 });
+    // The line under it is the newest session that ran them all, with its own counts; what ran since on its own is said apart.
+    expect(view.verdict!.session).toMatchObject({ revision: 'd2e8a1f', command: 'shadowlap test goldens/*', passed: 2, failed: 1 });
+    expect(view.verdict!.since).toEqual([{ golden: 'goldens/refund-flow', name: 'refund-flow', ok: true, revision: 'e3f9b20', at: T0 + DAY + 1 }]);
     expect(view.rows.map((r) => r.last.result)).toEqual(['pass', 'fail', 'pass']);
+    // It adds no column of dashes for the others: the history is the full sessions'.
+    expect(view.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f']);
     // Once it passes too, all of them do.
-    session(store, 'e3f9b20', T0 + 2 * DAY, [{ golden: 'goldens/refund-in-limit', ok: true, runId: 'R_E_LIMIT' }]);
-    expect(testsView(store, goldens).verdict).toMatchObject({ state: 'passing', failing: 0, passing: 3, title: 'All 3 goldens pass', first: null });
+    session(store, 'e3f9b20', T0 + 2 * DAY, [{ golden: 'goldens/refund-in-limit', ok: true, runId: 'R_E_LIMIT' }], ['shadowlap', 'test', 'goldens/refund-in-limit']);
+    expect(testsView(store, goldens).verdict).toMatchObject({ state: 'passing', failing: 0, passing: 3, title: 'All 3 goldens pass', first: null, session: { revision: 'd2e8a1f' } });
+    expect(testsView(store, goldens).verdict!.since.map((x) => [x.name, x.ok])).toEqual([
+      ['refund-flow', true],
+      ['refund-in-limit', true],
+    ]);
     // A golden added since has not run yet, and the verdict says so rather than "all pass".
     const more = [...goldens, { path: 'goldens/new-one', runId: null, packedAt: T0, mode: 'replay' as const, repeat: 1, passes: 1, checks: [] }];
     expect(testsView(store, more).verdict).toMatchObject({ state: 'passing', passing: 3, untested: 1, title: '3 of 4 goldens pass, 1 not run yet' });
@@ -110,7 +119,8 @@ describe('the Tests screen', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-in-limit', ok: true, runId: 'R_F_LIMIT', revision: 'f00ba47', at: T0 + DAY + 10 });
     const view = testsView(store, goldens);
     // Its result counts in the verdict, the table and its history, and its own line counts what it has.
-    expect(view.verdict).toMatchObject({ state: 'passing', passing: 3, session: { id: s.sessionId, revision: 'f00ba47', endedAt: null, passed: 1, failed: 0, interrupted: false } });
+    // Its process is still there (this one), so it is running, wherever it was started.
+    expect(view.verdict).toMatchObject({ state: 'passing', passing: 3, session: { id: s.sessionId, revision: 'f00ba47', endedAt: null, passed: 1, failed: 0, interrupted: false, live: true } });
     expect(view.revisions.at(-1)).toBe('f00ba47');
     expect(view.rows[1]!.history.at(-1)).toMatchObject({ revision: 'f00ba47', result: 'pass' });
     expect(view.rows[1]!.last.result).toBe('pass');
@@ -120,9 +130,53 @@ describe('the Tests screen', () => {
     store.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + DAY + 30, interrupted: true });
     expect(testsView(store, goldens).verdict!.session).toMatchObject({ endedAt: T0 + DAY + 30, passed: 1, interrupted: true });
     expect(testsSummary(store, { goldens }).lastRunAt).toBe(T0 + DAY + 30);
-    // One that started and has no result yet changes nothing.
-    store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'aaa0000', startedAt: T0 + 2 * DAY });
+    // One that started and has no result yet, whose process is gone, changes nothing.
+    const gone = { pid: 2_147_483_646, host: hostname() };
+    store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'aaa0000', startedAt: T0 + 2 * DAY, owner: gone });
     expect(testsView(store, goldens).verdict!.session.id).toBe(s.sessionId);
+    // One whose process runs, started in a terminal or from another dashboard, reads as running before its first result.
+    const now = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'bbb0000', startedAt: T0 + 3 * DAY });
+    expect(testsView(store, goldens).verdict!.session).toMatchObject({ id: now.sessionId, endedAt: null, passed: 0, failed: 0, live: true });
+    store.close();
+  });
+
+  it('tells a session whose process was killed from one still running', () => {
+    const store = sampleStore();
+    const gone = { pid: 2_147_483_646, host: hostname() };
+    const killed = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'f00ba47', startedAt: T0 + DAY, owner: gone });
+    store.addTestResult({ sessionId: killed.sessionId, golden: 'goldens/refund-flow', ok: true, revision: 'f00ba47', at: T0 + DAY + 10 });
+    expect(testsView(store, goldens).verdict!.session).toMatchObject({ id: killed.sessionId, endedAt: null, live: false });
+    // A session from elsewhere names no process: it is not running here.
+    const elsewhere = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'f00ba48', startedAt: T0 + 2 * DAY, owner: null });
+    store.addTestResult({ sessionId: elsewhere.sessionId, golden: 'goldens/refund-flow', ok: true, revision: 'f00ba48', at: T0 + 2 * DAY + 10 });
+    expect(store.testSessionOwner(elsewhere.sessionId)).toBeNull();
+    expect(testsView(store, goldens).verdict!.session).toMatchObject({ id: elsewhere.sessionId, live: false });
+    // Ended, a session names no process any more.
+    const ran = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'f00ba49', startedAt: T0 + 3 * DAY });
+    expect(store.testSessionOwner(ran.sessionId)).toMatchObject({ pid: process.pid });
+    store.finishTestSession(ran.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
+    expect(store.testSessionOwner(ran.sessionId)).toBeNull();
+    store.close();
+  });
+
+  it('shows a golden run again on its own in the column of the commit under it, and a full session stopped early as the one it was', () => {
+    const store = sampleStore();
+    // Add normalizer and re-run at d2e8a1f, with the rule in the working tree: its revision is d2e8a1f+dirty.
+    session(store, 'd2e8a1f+dirty', T0 + DAY, [{ golden: 'goldens/refund-in-limit', ok: true, runId: 'R_D_LIMIT' }], ['shadowlap', 'test', 'goldens/refund-in-limit']);
+    const view = testsView(store, goldens);
+    expect(view.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f']);
+    expect(view.rows[1]!.history.at(-1)).toMatchObject({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'pass', runId: null });
+    // The other goldens keep their own results there.
+    expect(view.rows[0]!.history.at(-1)).toMatchObject({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass' });
+    // A session asked to run them all, stopped after one: still the line's, interrupted, with a column of its own.
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*', '--junit', 'report.xml'], revision: 'e3f9b20', startedAt: T0 + 2 * DAY });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-flow', ok: true, revision: 'e3f9b20', at: T0 + 2 * DAY + 1 });
+    store.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + 2 * DAY + 2, interrupted: true });
+    const after = testsView(store, goldens);
+    expect(after.verdict!.session).toMatchObject({ id: s.sessionId, interrupted: true, passed: 1, failed: 0 });
+    expect(after.verdict!.since).toEqual([]);
+    expect(after.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f', 'e3f9b20']);
+    expect(after.rows[1]!.history.at(-1)).toMatchObject({ revision: 'e3f9b20', result: null });
     store.close();
   });
 
@@ -131,7 +185,7 @@ describe('the Tests screen', () => {
     const view = testsView(store, goldens);
     expect(view.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f']);
     const [flow, limit, over] = view.rows;
-    expect(flow).toMatchObject({ name: 'refund-flow', source: { kind: 'run', runId: 'GOLDEN_FLOW' }, modeLabel: 'replay', modeHint: 'must send exactly the requests it recorded', last: { result: 'pass', line: '8/8 replayed · check passed', updated: true }, runId: 'R_C_FLOW' });
+    expect(flow).toMatchObject({ name: 'refund-flow', source: { kind: 'run', runId: 'GOLDEN_FLOW' }, modeLabel: 'replay', modeHint: 'must send exactly the requests it recorded', last: { result: 'pass', line: 'updated at d2e8a1f · check passed', updated: true }, runId: 'R_C_FLOW' });
     expect(flow!.history.map((h) => h.result)).toEqual(['pass', 'pass', 'pass']);
     expect(flow!.history.map((h) => h.updated)).toEqual([false, false, true]);
     // A pack made elsewhere, never tested at the first revision; its failing run is the one to open.
@@ -239,7 +293,7 @@ describe('the Tests screen', () => {
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
     expect(view.verdict!.title).toBe('x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
-    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, blocked: null, bisect: null, found: null }]);
+    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, blocked: null, bisect: null, found: null, missed: null, revisions: [], unreadable: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
     store.close();
   });
@@ -397,9 +451,10 @@ describe('the Tests screen', () => {
 
   it('bisects from where the recording that fails now passed, and says when the search costs tokens', () => {
     const store = Store.open(':memory:');
-    const day = (n: number, revision: string, ok: boolean, goldenRunId: string) => {
+    const escalates = [{ ok: true, label: 'escalate called 1 time', detail: null }];
+    const day = (n: number, revision: string, ok: boolean, goldenRunId: string, checks: TestResultData['checks'] = escalates) => {
       const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision, startedAt: T0 + n * DAY });
-      store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok, ...(ok ? {} : { failure: 'check' as const, reason: 'check failed: escalate called 1 time, but called 0 times' }), revision, goldenRunId, at: T0 + n * DAY + 1 });
+      store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok, ...(ok ? {} : { failure: 'check' as const, reason: 'check failed: escalate called 1 time, but called 0 times' }), revision, goldenRunId, at: T0 + n * DAY + 1, data: { checks } });
       store.finishTestSession(s.sessionId, { passed: ok ? 1 : 0, failed: ok ? 0 : 1, upstreamRequests: 0, endedAt: T0 + n * DAY + 2 });
     };
     day(0, 'aaa1111', true, 'REC_1');
@@ -410,6 +465,73 @@ describe('the Tests screen', () => {
     const fork: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: ['escalate called 1 time'] };
     const [f] = testsView(store, [fork]).failures;
     expect(f!.bisect).toEqual({ good: 'bbb2222', bad: 'ddd4444', args: ['bisect', 'goldens/x', '--good', 'bbb2222', '--bad', 'ddd4444'], live: true });
+    // The dialog offers each commit it was tested at before, newest first, with how it did there.
+    expect(f!.revisions).toEqual([
+      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', sameChecks: true },
+      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', sameChecks: true },
+      { rev: 'aaa1111', at: T0 + 1, result: 'pass', sameChecks: true },
+    ]);
+    store.close();
+  });
+
+  it('starts Find the commit only from a pass under the checks a golden has now', () => {
+    const store = Store.open(':memory:');
+    const day = (n: number, revision: string, ok: boolean, checks?: TestResultData['checks']) => {
+      const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision, startedAt: T0 + n * DAY });
+      store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok, ...(ok ? {} : { failure: 'check' as const, reason: 'check failed: send_email called 0 times, but called 1 time' }), revision, goldenRunId: 'REC', at: T0 + n * DAY + 1, data: checks ? { checks } : {} });
+      store.finishTestSession(s.sessionId, { passed: ok ? 1 : 0, failed: ok ? 0 : 1, upstreamRequests: 0, endedAt: T0 + n * DAY + 2 });
+    };
+    // It passed at aaa1111 with no checks, then a commit added one ("Research runs must not email"), which it fails.
+    day(0, 'aaa1111', true);
+    day(1, 'bbb2222', false, [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }]);
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] };
+    const [f] = testsView(store, [x]).failures;
+    // No pass under today's check: the page asks for a good commit, offering aaa1111 as passed under other checks.
+    expect(f!.bisect).toBeNull();
+    expect(f!.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', sameChecks: false }]);
+    store.close();
+  });
+
+  it('keeps what Find the commit said until the golden passes again, and says when it found none', () => {
+    const store = sampleStore();
+    const ref = 'goldens/refund-in-limit';
+    recordEvent(store, { kind: 'bisect.found', ref, at: T0 + 60_000, data: { first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30' }, why: 'diverged at call 1', replays: 3, tokens: 0 } });
+    // The next session fails it again: the answer stands.
+    session(store, 'e3f9b20', T0 + DAY, [
+      { golden: 'goldens/refund-flow', ok: true, runId: 'R_E_FLOW' },
+      { golden: ref, ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R_E_LIMIT' },
+      { golden: 'goldens/refund-over-limit', ok: true, runId: 'R_E_OVER' },
+    ]);
+    // Its report, a divergence or another failure, whichever it was last.
+    const report = () => {
+      const view = testsView(store, goldens);
+      return [...view.divergences, ...view.failures].find((x) => x.golden === ref)!;
+    };
+    expect(report().found).toMatchObject({ rev: '4e7b2d1' });
+    // A search that named none since takes its place, with why, and the button asks for an older good commit.
+    recordEvent(store, { kind: 'bisect.none', ref, at: T0 + DAY + 60_000, data: { outcome: 'fails-at-good', why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'e3f9b20' } });
+    const d = report();
+    expect(d.found).toBeNull();
+    expect(d.missed).toEqual({ why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'e3f9b20', at: T0 + DAY + 60_000 });
+    // Once it passes, the answers are about a failure that is over.
+    session(store, 'f00ba47', T0 + 2 * DAY, [{ golden: ref, ok: true, runId: 'R_F_LIMIT' }], ['shadowlap', 'test', ref]);
+    session(store, 'f00ba48', T0 + 3 * DAY, [{ golden: ref, ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R_G_LIMIT' }], ['shadowlap', 'test', ref]);
+    const again = report();
+    expect(again.found).toBeNull();
+    expect(again.missed).toBeNull();
+    store.close();
+  });
+
+  it('offers no Find the commit for a golden whose pack can’t be read', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'aaa1111', startedAt: T0 });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: true, revision: 'aaa1111', at: T0 + 1 });
+    store.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + 2 });
+    const t = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'bbb2222', startedAt: T0 + DAY });
+    store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/x', ok: false, failure: 'error', reason: "run.json can't be read", revision: 'bbb2222', at: T0 + DAY + 1 });
+    store.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: T0 + DAY + 2 });
+    const [f] = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], error: "run.json can't be read" }]).failures;
+    expect(f).toMatchObject({ unreadable: "run.json can't be read", bisect: null, revisions: [] });
     store.close();
   });
 });
@@ -468,7 +590,10 @@ describe('the diverged-test banner on a run', () => {
       rerun: ['test', 'goldens/refund-in-limit'],
       update: ['test', 'goldens/refund-in-limit', '--update'],
       normalizeAndTest: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']],
+      rulesAdded: false,
     });
+    // Once its rule is in the config, the run's page can offer a re-run, as Tests does.
+    expect(testRunBanner(store, replay.runId, { normalizers: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] })!.rulesAdded).toBe(true);
     const recording = store.createRun({ mode: 'record', command: { argv: ['node'], cwd: '/p' } });
     expect(testRunBanner(store, recording.runId)).toBeNull();
     expect(testRunBanner(store, 'nope')).toBeNull();
@@ -555,6 +680,24 @@ describe('Find the commit from a run', () => {
     store.close();
   });
 
+  it('judges each replay by the check blame found a run failing, though it exited 0', () => {
+    const store = Store.open(':memory:');
+    const { make } = history(store);
+    // It exited 0 and kept no failed check of its own: only the fix's check says it failed.
+    const quiet = make('fff6666', T0 + 5 * DAY, 'completed');
+    recordBlame(store, { runId: quiet, report: blameReport(quiet), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' });
+    const c = bisectChoices(store, quiet, { goldens: [] })!;
+    // How other runs of the command exited says nothing about the check: the good commit is chosen.
+    expect(c).toMatchObject({ target: { kind: 'run', runId: quiet }, failed: true, good: null, bad: 'fff6666', fork: true, live: true, expect: EXPECT, unavailable: null, args: null });
+    expect(c.revisions.map((r) => r.rev)).toEqual(['eee5555', 'ddd4444', 'bbb2222', 'aaa1111']);
+    // The job forks each replay and judges it by that check.
+    expect(bisectJob(store, [], { runId: quiet, good: 'bbb2222' })).toEqual({ title: 'Finding the commit', args: ['bisect', quiet, '--good', 'bbb2222', '--bad', 'fff6666', '--expect', JSON.stringify(EXPECT), '--fork'], runId: quiet });
+    // A run that failed a check given with its own --expect is judged by that one.
+    const own = make('fff6666', T0 + 6 * DAY, 'completed', { expect: { tools: { send_email: 1 } }, checks: [{ ok: false, label: 'send_email called 1 time' }] } as never);
+    expect(bisectChoices(store, own, { goldens: [] })).toMatchObject({ failed: true, fork: true, expect: { tools: { send_email: 1 } }, unavailable: null });
+    store.close();
+  });
+
   it('offers where the recording that failed last passed, and says a golden that may fork costs tokens', () => {
     const store = Store.open(':memory:');
     const at = (n: number, revision: string, ok: boolean, goldenRunId: string, golden = 'goldens/f') => {
@@ -569,6 +712,8 @@ describe('Find the commit from a run', () => {
     at(1, 'bbb2222', true, 'REC_2');
     at(2, 'ccc3333', true, 'REC_1');
     const failing = at(3, 'ddd4444', false, 'REC_2');
+    // Each judged by the golden's check, as the config gives it.
+    for (const r of store.listTestResults({ golden: 'goldens/f' })) store.addTestResult({ ...r, data: { checks: [{ ok: r.ok, label: 'escalate called 1 time', detail: null }] } });
     const fork: GoldenSource = { path: 'goldens/f', runId: 'REC_2', packedAt: null, mode: 'fork', repeat: 3, passes: 3, checks: ['escalate called 1 time'] };
     expect(bisectChoices(store, failing, { goldens: [fork] })).toMatchObject({ target: { kind: 'golden', golden: 'goldens/f' }, good: 'bbb2222', bad: 'ddd4444', fork: false, live: true, args: ['bisect', 'goldens/f', '--good', 'bbb2222', '--bad', 'ddd4444'] });
     store.close();

@@ -25,13 +25,14 @@ export { blameCheckFor, DEFAULT_REPAIRER, fixBundles, fixDetail, fixesSummary, f
 export type { BlameCheck, BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, RepairStep, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 export { ghReader, GH_TIMEOUT_MS, isGithubPr, openPullRequest, parsePrState, PrStates, storePrStates, type PrRead, type PrReader, type PrState, type PrStatesOptions } from './pr-state.js';
 // Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
-export { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob } from './tests.js';
-export type { BisectChoices, BisectRange, DivergenceView, FailingTest, FailureView, FoundCommit, GoldenList, GoldenRow, GoldenSource, HistoryCell, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
+export { bisectArgs, bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob } from './tests.js';
+export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailingTest, FailureView, FoundCommit, GoldenList, GoldenRow, GoldenSource, HistoryCell, SinceResult, TestRunBanner, TestsJob, TestsOptions, TestsSessionView, TestsSummary, TestsVerdict, TestsView } from './tests.js';
 export { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, repairerKey, WORKFLOW_FILE } from './ci-yaml.js';
 export type { AlertsSettings, FixOnFailureSettings } from './ci-yaml.js';
 export { ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from './ci-workflows.js';
 export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from './ci-workflows.js';
-export { TEST_JOB_KINDS, testsBuild } from './routes/tests.js';
+export { TEST_JOB_KINDS, testsBuild, testsBusy } from './routes/tests.js';
+export { choicesHere, choicesInCheckout, commitsHere, commitSubjects, forgetCommits, rangeHere, revisionsHere } from './commits-here.js';
 // Settings: one read model per tab; edits go through the engine's config-file module.
 export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, readShippedDoc, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from './settings.js';
 export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, MatchingSettings, McpRecordedServer, McpServerRow, ProjectSettings, RedactionSettings, RuleForm, RuleRow, SettingsContext, ToolRow, ToolsSettings } from './settings.js';

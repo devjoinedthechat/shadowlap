@@ -26,7 +26,7 @@ that comes from data goes there, everything else is a class.
 | `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`), its first item focused once it shows, ↑ ↓ between items (passing over buttons hidden until hovered), closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
-| `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. A job of another project than the page shows says which, and its links switch to that project first. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
+| `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. It ends on one primary action: a link the command marks `secondary` (each failing golden's run, beside Tests) shows as a plain link above the buttons. A job of another project than the page shows says which, and its links switch to that project first. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
 | `ToastHost` | `Toast.tsx` | One toast at a time: `useApp().toast(text)`. |
 | `HoverCardLayer`, `tipText`, `tipCard` | `HoverCard.tsx` | Hover cards in one style, a title and coloured rows. Put `data-tip={tipCard(title, rows)}` on any element; one layer follows the pointer. |
 
@@ -98,7 +98,9 @@ view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, whic
 when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),
 why an action can't start while a repair or an apply holds the project's working tree
 (`tree.ts`: `useTreeBusy(use, verb)` gives the reason, or null; any button that runs the agent can
-read it as Run blame, Repair from here and Apply the patch do), and the logic they share, DOM-free
+read it as Run blame, Repair from here, Apply the patch and the Tests actions do, and
+`useServerJobs()` is the job list it reads, every tab's, for a page that waits on other jobs too,
+as Tests waits on a test job with `testsBusy` from `goldens.ts`), and the logic they share, DOM-free
 and tested (`model.ts`: chips, steps, the Blame step's row of calls, the change cut to what changed,
 report.md read as blocks, the drawer's outcome words, which jobs hold which tree).
 

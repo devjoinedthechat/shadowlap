@@ -1,5 +1,5 @@
 import { href } from './route.js';
-import type { CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestsView } from './types.js';
+import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -27,18 +27,72 @@ export function shortDate(date: string | number): string {
 const n = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
 
 /**
- * The line under the verdict: the newest session's command, revision and time, how the goldens on
- * disk stand, and its upstream requests. `running` is whether a test job of this dashboard is still
- * going, which tells a session in progress from one whose process was killed.
+ * The line under the verdict, all of it one session's: the newest that ran every golden (or runs
+ * them now), its command, revision and time, its own passed and failed counts, and its upstream
+ * requests; then, when goldens ran again since on their own (Add normalizer and re-run, Update
+ * golden), how they did, with each one's result in `sinceTip`. A session that hasn't ended is
+ * running while its process is (`live`, from the server, wherever it was started; `running`, a test
+ * job of this tab's), and otherwise did not finish.
  */
-export function sessionLine(view: TestsView, running = false): { command: string; rest: string } | null {
+export function sessionLine(view: TestsView, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null } | null {
   const v = view.verdict;
   if (!v) return null;
   const s = v.session;
-  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${v.passing} passed, ${v.failing} failed${v.untested ? `, ${v.untested} not run yet` : ''}`, n(s.upstreamRequests, 'upstream request')];
+  const live = s.endedAt === null && !s.interrupted && (s.live || running);
+  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${s.passed} passed, ${s.failed} failed${live ? ' so far' : ''}`, n(s.upstreamRequests, 'upstream request')];
   if (s.interrupted) parts.push('interrupted');
-  else if (s.endedAt === null) parts.push(running ? 'running' : 'did not finish');
-  return { command: s.command, rest: parts.join(' · ') };
+  else if (s.endedAt === null) parts.push(live ? 'running' : 'did not finish');
+  const since = v.since ?? [];
+  const failed = since.filter((x) => !x.ok).length;
+  const sinceText = !since.length ? null : since.length === 1 ? `since: ${since[0]!.name} ${since[0]!.ok ? 'passed' : 'failed'}` : `since: ${since.length} goldens ran again, ${failed ? `${failed} failed` : 'all passed'}`;
+  const sinceTip = since.length ? since.map((x) => `${x.name} ${x.ok ? 'passed' : 'failed'}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join('\n') : null;
+  return { command: s.command, rest: parts.join(' · '), since: sinceText, sinceTip };
+}
+
+/**
+ * The jobs that replay or rewrite the goldens on disk, by what each is doing, as the server tells
+ * them apart: while one runs in a project, another is refused there (409), so its button waits.
+ */
+const TEST_FAMILY = new Map<string, string>([
+  ['test', 'a test session'],
+  ['test-update', 'an update of goldens'],
+  ['normalize-and-test', 'a normalizer and its re-run'],
+  ['pack-test', 'a new golden being packed and tested'],
+]);
+
+/**
+ * Why a Tests action that replays or rewrites goldens waits, as the server would refuse it: one of
+ * those jobs is running in this project (`projectId`, null on a dashboard serving one store). `verb`
+ * is what to do once it is done. Null when it can start.
+ */
+export function testsBusy(jobs: ReadonlyArray<{ kind?: string | undefined; done: boolean; project?: { id: string } | undefined }>, verb: string, projectId: string | null = null): string | null {
+  const j = jobs.find((x) => !x.done && !!x.kind && TEST_FAMILY.has(x.kind) && (x.project?.id ?? null) === projectId);
+  const doing = j?.kind ? TEST_FAMILY.get(j.kind)! : null;
+  return doing ? `${doing.charAt(0).toUpperCase()}${doing.slice(1)} is running: ${verb} once it is done.` : null;
+}
+
+/** The running test job among these, for the palette's Run the tests to open rather than start another. */
+export function runningTests<T extends { kind?: string | undefined; done: boolean }>(jobs: readonly T[]): T | null {
+  return jobs.find((x) => !x.done && x.kind === 'test') ?? null;
+}
+
+/**
+ * The commits Find the commit's dialog offers as good ones, newest first, as the mock words them:
+ * `c91d0f4 · Escalate refunds above the limit`, with how the golden did there when it didn't pass
+ * under today's checks. `initial` is the one to start on: the newest that passed under them, older
+ * than `tried` when a search from that one named no first bad commit (it already failed there); ''
+ * when none is known, for the dialog to ask for any commit.
+ */
+export function revisionChoices(revisions: readonly BisectRevision[], tried: string | null = null): { options: Array<{ value: string; label: string }>; initial: string } {
+  const options = revisions.map((r) => {
+    const how = r.result === 'fail' ? ' · failed here' : r.sameChecks ? '' : ' · passed under other checks';
+    return { value: r.rev, label: `${revLabel(r.rev)} · ${r.subject || shortDate(r.at)}${how}` };
+  });
+  const at = tried ? revisions.findIndex((r) => r.rev === tried || r.rev.startsWith(tried) || tried.startsWith(r.rev)) : -1;
+  // Nothing older than the one tried is known: the dialog starts on a field for any commit ('').
+  const older = at >= 0 ? revisions.slice(at + 1) : revisions;
+  const initial = older.find((r) => r.result === 'pass' && r.sameChecks)?.rev ?? older[0]?.rev ?? '';
+  return { options, initial };
 }
 
 /** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top. */
@@ -55,8 +109,10 @@ export function revLabel(rev: string | null): string {
  */
 export function historyTip(cell: HistoryCell, name: string): { title: string; label: string; value: string; color: string } {
   const title = `${cell.revision ?? 'no revision'} · ${name}`;
-  if (cell.result === 'pass') return { title, label: 'passed', value: [cell.updated ? 'updated here: re-recorded, its checks passed' : null, cell.note].filter(Boolean).join(' · '), color: 'var(--o-rep)' };
-  if (cell.result === 'fail') return { title, label: 'failed', value: cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : (cell.note ?? ''), color: 'var(--err)' };
+  // Run again on its own with changes on top of this commit (Add normalizer and re-run): said, as it isn't the commit alone.
+  const again = cell.tested && cell.tested !== cell.revision ? `run again at ${cell.tested}` : null;
+  if (cell.result === 'pass') return { title, label: 'passed', value: [cell.updated ? 'updated here: re-recorded, its checks passed' : null, again, cell.note].filter(Boolean).join(' · '), color: 'var(--o-rep)' };
+  if (cell.result === 'fail') return { title, label: 'failed', value: [again, cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : cell.note].filter(Boolean).join(' · '), color: 'var(--err)' };
   return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
 }
 
@@ -137,9 +193,15 @@ export function failureHint(f: FailureView): string {
   }
 }
 
+/**
+ * A word of a command as a person types it: a plain word as it is (`~` inside one too, as in
+ * `HEAD~3`), a placeholder such as `<commit>` as it reads, anything else in single quotes.
+ */
+const shellWord = (a: string): string => (/^[\w@%+=:,./*-][\w@%+=:,./*~-]*$/.test(a) || /^<[a-z][a-z -]*>$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`);
+
 /** The command to run, as a person would type it: `shadowlap test goldens/x --update`. */
 export function commandText(args: readonly string[]): string {
-  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./*-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
+  return `shadowlap ${args.map(shellWord).join(' ')}`;
 }
 
 export interface DivergenceButtons {
@@ -150,7 +212,10 @@ export interface DivergenceButtons {
    */
   normalize: { label: string; lead: boolean; run: 'normalize' | 'normalize-update' | 'rerun' } | null;
   update: { lead: boolean } | null;
-  /** Find the commit, unless it already ran since this failure: with a range to start from, or asking for a good commit. */
+  /**
+   * Find the commit, unless what it found still stands or the pack can't be read: with a range to
+   * start from, or asking for a good commit (always, once a search between the known ones named none).
+   */
   bisect: { range: boolean; live: boolean } | null;
   /** A changed id that may be a real change: the screen says so, and leads with neither fix. */
   maybeReal: boolean;
@@ -174,15 +239,32 @@ export function divergenceButtons(d: DivergenceView, has: (kind: string) => bool
   return {
     normalize,
     update: has('test-update') ? { lead: false } : null,
-    bisect: d.found || !has('bisect') ? null : { range: !!d.bisect, live: !!d.bisect?.live },
+    bisect: findCommitButton(d, has),
     maybeReal: d.maybeReal,
     note: steps && d.rulesAdded ? (updates ? 'rules-added-update' : 'rules-added') : d.maybeReal && d.volatile ? 'maybe-real' : null,
   };
 }
 
+/**
+ * Find the commit under a failure (a divergence, or a check, an exit, no calls): none while what it
+ * found stands (the card says it), for a pack that can't be read, or where the server runs no bisect.
+ * It starts from the range the page knows, or asks for a good commit when there is none, or when a
+ * search over that range already named none.
+ */
+export function findCommitButton(f: Pick<DivergenceView, 'found' | 'missed' | 'bisect' | 'unreadable'>, has: (kind: string) => boolean): { range: boolean; live: boolean } | null {
+  if (f.found || f.unreadable || !has('bisect')) return null;
+  return { range: !!f.bisect && !f.missed, live: !!f.bisect?.live };
+}
+
 /** What Find the commit found, for the card above the buttons. */
 export function foundLine(f: FoundCommit): { rev: string; subject: string; meta: string } {
   return { rev: f.rev, subject: f.subject, meta: [f.author, f.date ? shortDate(f.date) : null, n(f.tokens, 'token')].filter(Boolean).join(' · ') };
+}
+
+/** When Find the commit named no first bad commit: where it looked, and why, for the line above the buttons. */
+export function missedLine(m: BisectMiss): string {
+  const between = m.good ? ` between ${revLabel(m.good)} and ${m.bad ? revLabel(m.bad) : 'HEAD'}` : '';
+  return `No first bad commit${between}: ${m.why}`;
 }
 
 export interface UpdatePlan {

@@ -706,9 +706,11 @@ export class JobManager {
         if (typeof ev.href !== 'string' || ev.href.length > 512 || !HREF.test(ev.href)) return;
         const label = typeof ev.label === 'string' ? clean(ev.label, 120) : '';
         if (!label) return;
+        // The drawer ends on one primary action; a secondary link shows beside it as a plain one.
+        const link: JobLink = { label, href: ev.href, ...(ev.secondary === true ? { secondary: true } : {}) };
         const at = job.links.findIndex((l) => l.href === ev.href);
-        if (at >= 0) job.links[at] = { label, href: ev.href };
-        else if (job.links.length < MAX_LINKS) job.links.push({ label, href: ev.href });
+        if (at >= 0) job.links[at] = link;
+        else if (job.links.length < MAX_LINKS) job.links.push(link);
         else return;
         this.version++;
         return;

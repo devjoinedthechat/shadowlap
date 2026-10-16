@@ -243,6 +243,15 @@ CREATE TABLE IF NOT EXISTS test_results (
 );
 CREATE INDEX IF NOT EXISTS test_results_golden ON test_results (golden, at);
 
+-- v4: tests. The process running each test session not ended yet, as run_owners does for runs, so
+-- a session still running (in a terminal, from another dashboard) is told from one whose process
+-- was killed. The row goes when the session ends or is deleted.
+CREATE TABLE IF NOT EXISTS test_session_owners (
+  session_id  TEXT    PRIMARY KEY REFERENCES test_sessions(session_id) ON DELETE CASCADE,
+  pid         INTEGER NOT NULL,
+  host        TEXT    NOT NULL
+);
+
 -- v4: settings. The process recording each run still running, so a clean-up can tell a recording
 -- from a run whose process was killed. The row goes when its run ends or is deleted.
 CREATE TABLE IF NOT EXISTS run_owners (
@@ -343,7 +352,11 @@ export interface TestSession {
   interrupted: boolean;
 }
 
-export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> & Pick<TestSession, 'command'>;
+export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt' | 'revision' | 'actor'>> &
+  Pick<TestSession, 'command'> & {
+    /** The process running it, until it ends: this one unless given; null names none (a session recorded elsewhere). */
+    owner?: RunOwner | null;
+  };
 
 /** Why a golden failed: its replay sent a request the recording doesn't have, a check failed, the agent exited non-zero, it made no calls, or it couldn't run at all. */
 export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error';
@@ -995,6 +1008,9 @@ export class Store {
     this.db
       .prepare(`INSERT INTO test_sessions (session_id, started_at, ended_at, command, revision, passed, failed, upstream_requests, actor, interrupted) VALUES (?, ?, NULL, ?, ?, 0, 0, 0, ?, 0)`)
       .run(session.sessionId, session.startedAt, JSON.stringify(session.command), session.revision, session.actor);
+    // Who runs it, until it ends (testSessionOwner).
+    const owner = input.owner === undefined ? currentOwner() : input.owner;
+    if (owner) this.db.prepare(`INSERT OR REPLACE INTO test_session_owners (session_id, pid, host) VALUES (?, ?, ?)`).run(session.sessionId, owner.pid, owner.host);
     return session;
   }
 
@@ -1003,6 +1019,16 @@ export class Store {
     this.db
       .prepare(`UPDATE test_sessions SET ended_at = ?, passed = ?, failed = ?, upstream_requests = ?, interrupted = ? WHERE session_id = ?`)
       .run(totals.endedAt ?? Date.now(), totals.passed, totals.failed, totals.upstreamRequests, totals.interrupted ? 1 : 0, sessionId);
+    this.db.prepare(`DELETE FROM test_session_owners WHERE session_id = ?`).run(sessionId);
+  }
+
+  /**
+   * The process running a session that hasn't ended, for `recorderGone` to ask; null once it ended,
+   * and for a session no process here was named for (one from before owners were kept).
+   */
+  testSessionOwner(sessionId: string): RunOwner | null {
+    const row = this.db.prepare(`SELECT pid, host FROM test_session_owners WHERE session_id = ?`).get(sessionId);
+    return row ? { pid: Number(row.pid), host: String(row.host) } : null;
   }
 
   getTestSession(sessionId: string): TestSession | null {
@@ -1088,6 +1114,12 @@ export class Store {
       .prepare(`SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY golden ORDER BY at DESC, session_id DESC) AS n FROM test_results ${where}) WHERE n = 1 ORDER BY at DESC, golden ASC`)
       .all(...(options.until !== undefined ? [options.until] : []))
       .map(rowToTestResult);
+  }
+
+  /** When each golden was first tested: the time of its oldest result, by golden. */
+  firstTestResultAt(): Map<string, number> {
+    const rows = this.db.prepare(`SELECT golden, MIN(at) AS first FROM test_results GROUP BY golden`).all();
+    return new Map(rows.map((r) => [String(r.golden), Number(r.first)]));
   }
 
   /** The runs `shadowlap test` made for these goldens (`meta.test.golden`), newest first. */

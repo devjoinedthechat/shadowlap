@@ -346,7 +346,7 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [--json]
 ```
 
-[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one.
+[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one. The answer is kept in the project's activity either way: the first bad commit, or why there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of them can't be tested), which the dashboard's Tests shows above the golden's buttons until it passes again. A search stopped with Ctrl-C keeps nothing.
 
 | Option | Effect |
 |---|---|

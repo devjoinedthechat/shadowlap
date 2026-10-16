@@ -165,6 +165,15 @@ describe('shadowlap bisect', () => {
     const fails = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Ask for brevity']!]);
     expect(fails.code).toBe(1);
     expect(fails.stdout).toContain(`no first bad commit: it already fails at ${rev['Ask for brevity']}: diverged at call 1`);
+    // Each answer is kept, for Tests to show above the golden's buttons until it passes again.
+    const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+    const none = store.listEvents({ kinds: ['bisect.none'] });
+    store.close();
+    expect(none.map((e) => [e.ref, (e.data as { outcome: string }).outcome])).toEqual([
+      ['goldens/summary', 'fails-at-good'],
+      ['goldens/summary', 'passes-at-bad'],
+    ]);
+    expect(none[0]!.data).toMatchObject({ why: expect.stringContaining(`it already fails at ${rev['Ask for brevity']}`), good: rev['Ask for brevity'], bad: rev['Mark summaries as drafts'] });
     const backwards = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Mention the prompt']!, '--bad', rev['Describe the agent']!]);
     expect(backwards.code).toBe(1);
     expect(backwards.out).toContain(`--good ${rev['Mention the prompt']} comes after --bad ${rev['Describe the agent']}`);

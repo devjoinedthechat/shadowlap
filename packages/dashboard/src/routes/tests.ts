@@ -1,6 +1,7 @@
 import type { Normalizer } from '@shadowlap/engine';
+import { describeEvent } from '../activity.js';
 import { ciWorkflows, fixPreview, gitFacts, parseCiOptions } from '../ci-workflows.js';
-import { choicesInCheckout, commitsHere, rangeHere } from '../commits-here.js';
+import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
@@ -20,7 +21,8 @@ import { bisectChoices, bisectJob, normalizeAndTestJob, runTestsJob, testPattern
  *   normalize-and-test   { golden | runId, path? }       `normalize add` for each value made anew on every run, then `test` on the golden
  *
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
- * naming any other is refused.
+ * naming any other is refused. Jobs that replay or rewrite those packs run one at a time in a
+ * project (`testsBusy`): a second is refused with a 409 that names the one running.
  */
 
 /** The folder the project keeps its goldens in. */
@@ -29,9 +31,33 @@ const FOLDER = 'goldens';
 /** The job kinds this module registers, by what they do. */
 export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test' } as const;
 
+/**
+ * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
+ * would replay a pack the other is rewriting, or report a session the other's results land in. A
+ * setup's Keep it as a test packs a new golden and tests it. Bisect replays in worktrees of its own.
+ */
+const TEST_FAMILY = new Map<string, string>([
+  ['test', 'a test session'],
+  ['test-update', 'an update of goldens'],
+  ['normalize-and-test', 'a normalizer and its re-run'],
+  ['pack-test', 'a new golden being packed and tested'],
+]);
+
+/**
+ * Why a job that replays or rewrites the goldens can't start now in this project (`projectId`, null
+ * on a dashboard that serves one store): another such job is running there. `verb` is what to do
+ * once it is done. Null when it can start.
+ */
+export function testsBusy(jobs: ReadonlyArray<{ kind: string; done: boolean; project?: { id: string } }>, projectId: string | null, verb: string): string | null {
+  const j = jobs.find((x) => !x.done && TEST_FAMILY.has(x.kind) && (x.project?.id ?? null) === projectId);
+  const doing = j ? TEST_FAMILY.get(j.kind)! : null;
+  return doing ? `${doing.charAt(0).toUpperCase()}${doing.slice(1)} is running: ${verb} once it is done` : null;
+}
+
 /** A tests job as the job runner takes it: `steps` become the first command and the ones `then` runs. */
-export function testsBuild(job: TestsJob): JobBuildResult {
+export function testsBuild(job: TestsJob, busy: string | null = null): JobBuildResult {
   if ('error' in job) return { error: job.error };
+  if (busy) return { error: busy, status: 409 };
   const runId = job.runId ? { runId: job.runId } : {};
   if ('args' in job) return { title: job.title, args: job.args, ...runId };
   const [first, ...then] = job.steps;
@@ -42,31 +68,39 @@ export function testsBuild(job: TestsJob): JobBuildResult {
 /**
  * Tests' Find the commit as the project's checkout can run it: a golden whose last pass was at a
  * commit this checkout lacks (a CI test session's merge commit, a teammate's) asks for a good one,
- * and one that failed at such a commit is searched up to HEAD. As it is without a project folder or
- * when git can't say.
+ * and one that failed at such a commit is searched up to HEAD. The commits its dialog offers are
+ * those this checkout has, each with its subject. As it is without a project folder or when git
+ * can't say.
  */
 function rangesInCheckout(view: TestsView, root: string | null | undefined): TestsView {
-  const ranges = [...view.divergences, ...view.failures].map((d) => d.bisect).filter((b): b is BisectRange => !!b);
-  if (!root || !ranges.length) return view;
-  const here = commitsHere(root, ranges.flatMap((b) => [b.good, b.bad]));
+  const all = [...view.divergences, ...view.failures];
+  const revs = all.flatMap((d) => [d.bisect?.good ?? null, d.bisect?.bad ?? null, ...d.revisions.map((r) => r.rev)]);
+  if (!root || !revs.some(Boolean)) return view;
+  const here = commitsHere(root, revs);
   if (!here) return view;
-  const inCheckout = <T extends { golden: string; bisect: BisectRange | null }>(d: T): T => (d.bisect ? { ...d, bisect: rangeHere(d.golden, d.bisect, here) } : d);
+  const subjects = commitSubjects(root, revs);
+  const inCheckout = <T extends { golden: string; bisect: BisectRange | null; revisions: TestsView['divergences'][number]['revisions'] }>(d: T): T => ({ ...d, bisect: d.bisect ? rangeHere(d.golden, d.bisect, here) : null, revisions: revisionsHere(d.revisions, here, subjects) });
   return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
 }
 
+// Find the commit that named no first bad commit, in the activity feed: why, so the next search starts elsewhere.
+describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? 'Find the commit'}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: '#/tests' }));
+
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
+  // The rules in the config now: a divergence they already mask needs only a re-run. A config that
+  // can't be read leaves that out rather than the whole screen.
+  const normalizers = (): Normalizer[] => {
+    try {
+      return ctx.config().normalize;
+    } catch {
+      return [];
+    }
+  };
+  const busy = (projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb);
 
   router.get('/tests', (r) => {
-    // The rules in the config now: a divergence they already mask needs only a re-run. A config that
-    // can't be read leaves that out rather than the whole screen.
-    let normalizers: Normalizer[] = [];
-    try {
-      normalizers = ctx.config().normalize;
-    } catch {
-      // the screen still shows the goldens
-    }
-    r.tagged(rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers }), ctx.project?.path));
+    r.tagged(rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find the commit's
@@ -78,7 +112,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const before = raw === null || raw === '' ? undefined : Number(raw);
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
     const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
-    r.tagged({ banner: testRunBanner(ctx.store, run.runId), bisect: bisect && choicesInCheckout(ctx.project?.path, bisect) });
+    r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && choicesInCheckout(ctx.project?.path, bisect) });
   });
 
   router.get('/ci/workflows', (r) => {
@@ -102,11 +136,11 @@ export function register(router: Router, ctx: RouteContext): void {
   // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that failed.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.test, {
     title: () => 'Running the tests',
-    build: (req) => testsBuild(runTestsJob(goldens(), req, { folder: FOLDER })),
+    build: (req, { projectId }) => testsBuild(runTestsJob(goldens(), req, { folder: FOLDER }), busy(projectId, req.golden === undefined ? 'run the tests' : 'run it again')),
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
     title: () => 'Updating goldens',
-    build: (req) => testsBuild(updateGoldensJob(goldens(), req)),
+    build: (req, { projectId }) => testsBuild(updateGoldensJob(goldens(), req), busy(projectId, 'update it')),
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
     title: () => 'Finding the commit',
@@ -114,6 +148,6 @@ export function register(router: Router, ctx: RouteContext): void {
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.normalize, {
     title: () => 'Adding a normalizer',
-    build: (req, { store }) => testsBuild(normalizeAndTestJob(store, goldens(), req)),
+    build: (req, { store, projectId }) => testsBuild(normalizeAndTestJob(store, goldens(), req), busy(projectId, 'add the normalizer')),
   });
 }

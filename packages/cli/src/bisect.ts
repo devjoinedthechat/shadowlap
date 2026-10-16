@@ -406,26 +406,37 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     store.close();
     report.seconds = (Date.now() - started) / 1000;
     if (stopped && report.outcome === 'stopped') report.why = 'interrupted';
-    if (report.outcome === 'found') record(input, projectDir, report);
+    // An answer either way, but not a search cut short: the Tests screen shows it above the golden's buttons.
+    if (report.outcome !== 'stopped') record(input, projectDir, report);
   }
 }
 
-/** Logs the find in the project's activity. */
+/**
+ * Logs the answer in the project's activity: the first bad commit (`bisect.found`), or why there is
+ * none between the commits given (`bisect.none`: it passes at the bad one, it already fails at the
+ * good one, or one of them can't be tested), so the next search can start from another commit.
+ */
 function record(input: BisectInput, projectDir: string, report: BisectReport): void {
   let store: Store | null = null;
   try {
     store = openStore(input.opts);
-    const first = report.first!;
-    recordEvent(store, {
-      kind: 'bisect.found',
-      actor: resolveAuthor({ cwd: projectDir }),
-      ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}),
-      ref: report.target.name,
-      // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
-      data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
-    });
+    const where = { actor: resolveAuthor({ cwd: projectDir }), ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}), ref: report.target.name };
+    const first = report.first;
+    if (report.outcome === 'found' && first) {
+      recordEvent(store, {
+        kind: 'bisect.found',
+        ...where,
+        // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
+        data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
+      });
+    } else {
+      // Why, without the advice for the command line: Tests offers an older commit itself.
+      const atGood = report.steps.find((s) => s.rev === report.good.rev);
+      const why = report.outcome === 'fails-at-good' && atGood ? `it already fails at ${report.good.short}: ${atGood.result}` : (report.why ?? report.outcome);
+      recordEvent(store, { kind: 'bisect.none', ...where, data: { outcome: report.outcome, why, good: report.good.short, bad: report.bad.short, replays: report.replays, tokens: report.tokens } });
+    }
   } catch {
-    // the find is printed either way
+    // the answer is printed either way
   } finally {
     store?.close();
   }

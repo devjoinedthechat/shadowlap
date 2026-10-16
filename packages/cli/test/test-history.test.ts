@@ -82,10 +82,10 @@ describe('shadowlap test history', () => {
     s.close();
 
     expect(r.events[0]).toEqual({ type: 'run', runId: replayId, role: 'passing' });
-    // One golden: a link to its replay, as Add normalizer and re-run opens it, then Tests.
+    // One golden: a link to its replay, as Add normalizer and re-run opens it, then Tests beside it.
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
       { type: 'link', label: 'Open the passing run', href: `#/run/${replayId}` },
-      { type: 'link', label: 'Tests', href: '#/tests' },
+      { type: 'link', label: 'Tests', href: '#/tests', secondary: true },
     ]);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as Record<string, unknown> & { results: Array<Record<string, unknown>> };
     expect(report).toMatchObject({ session: session!.sessionId, revision: session!.revision, passed: 1, failed: 0 });
@@ -110,7 +110,7 @@ describe('shadowlap test history', () => {
     s.close();
   });
 
-  it('links a dashboard job over several goldens to the replay of each that failed, then Tests', async () => {
+  it('ends a dashboard job over several goldens on Tests, with the replay of each that failed beside it', async () => {
     cpSync(GOLDEN, join(work, 'goldens', 'no-email'), { recursive: true });
     // The same recording, with a check its agent breaks: it sends the email the check rules out.
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/no-email': { expect: { tools: { send_email: 0 } } } } }));
@@ -120,7 +120,7 @@ describe('shadowlap test history', () => {
     const failed = s.listTestResults({ golden: 'goldens/no-email' })[0]!;
     expect(failed).toMatchObject({ ok: false, failure: 'check' });
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
-      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}` },
+      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}`, secondary: true },
       { type: 'link', label: 'Tests', href: '#/tests' },
     ]);
     s.close();

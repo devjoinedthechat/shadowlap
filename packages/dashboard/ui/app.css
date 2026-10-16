@@ -1718,8 +1718,15 @@ td.hist i.go { cursor: pointer; }
 .verdict.tv p code.vcmd { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .dialog p.hintx.unote { display: block; margin: 12px 0 0; }
 .dialog p.hintx.unote code { font-size: 12px; color: var(--dim); }
-/* a test job's links (each failing golden's run, then Tests) wrap in a narrow drawer */
+/* a job's buttons wrap in a narrow drawer; links beside its one primary action (each failing golden's run) sit above them */
 .drawer footer { flex-wrap: wrap; }
+.drawer .jlinks { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 10px 14px 0; font-size: 12.5px; }
+/* where a golden came from stays on one line under its name, however many revisions the history shows */
+table.gt .rsub.gsrc { white-space: nowrap; }
+/* goldens run again since the session the verdict names: a quiet note, their results on hover */
+.verdict.tv p .tsince { color: var(--dim); cursor: help; }
+/* Find the commit named no first bad commit: where it looked and why, in the card's place */
+.bisect.miss .m { color: var(--dim); }
 /* ---- Settings: the spacing the mock wrote inline, and what the real tabs add ---- */
 .set > .kvs { padding: 4px 18px 0; }
 .set > .pbody + .kvs { padding: 0 18px 6px; }

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import type { TestsView } from '../api.js';
+import type { BisectRevision, TestsView } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
-import { commandText, updatePlan, type UpdatePlan } from '../goldens.js';
+import { commandText, revisionChoices, updatePlan, type UpdatePlan } from '../goldens.js';
 
 /**
  * The Tests screen's dialogs: Update golden (one or several, in the style of Remove project), Find
@@ -90,38 +90,63 @@ export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onC
   );
 }
 
+/** The select's option that turns it into a field for any commit, tag or branch. */
+const ANOTHER = '\u0000another';
+
 /**
- * Find the commit for a golden when it can't just start: no revision where it passed is known, so it
- * asks for a commit where it still worked; or the golden may fork, so each replay runs live from
- * where it forks and the search costs tokens, which it says before it starts.
+ * Find the commit for a golden when it can't just start: no revision where it passed under today's
+ * checks is known, or a search from it (`tried`) named no first bad commit, so it asks for a commit
+ * where it still worked, offering the commits the golden was tested at with their subjects (as the
+ * mock's select does), starting on an older one than `tried`, or any other; or the golden may fork,
+ * so each replay runs live from where it forks and the search costs tokens, which it says first.
  */
-export function FindCommitDialog({ name, golden, range, live, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; onRun: (good: string, bad: string | null) => void; onClose: () => void }) {
-  const [good, setGood] = useState('');
-  const rev = good.trim();
-  const ok = !!range || /^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev);
-  const args = ['bisect', golden, '--good', range?.good ?? (rev || '<commit>'), ...(range?.bad ? ['--bad', range.bad] : [])];
+export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (good: string, bad: string | null) => void; onClose: () => void }) {
+  const choices = revisionChoices(revisions, tried);
+  const [picked, setPicked] = useState(choices.initial);
+  const [own, setOwn] = useState(!choices.initial);
+  const [typed, setTyped] = useState('');
+  const rev = range ? range.good : own ? typed.trim() : picked;
+  const ok = /^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev);
+  const args = ['bisect', golden, '--good', rev || '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])];
   const between = range ? `between ${range.good} and ${range.bad ?? 'HEAD'}` : 'between a good one and HEAD';
   const cost = live ? 'It may fork, so each replay runs live from where it forks: this costs tokens.' : 'Replays are free, so this costs no tokens.';
-  const run = () => ok && onRun(range?.good ?? rev, range?.bad ?? null);
+  const run = () => ok && onRun(rev, range?.bad ?? null);
   return (
     <Dialog title={`Find the commit that broke ${name}`} text={`Replays ${name} at commits ${between}, halving each time, and names the first where it fails. ${cost}`} ok="Find the commit" okDisabled={!ok} onOk={run} onClose={onClose}>
       {range ? null : (
         <div className="form one">
           <label>
             A commit where it still worked
-            <input
-              type="text"
-              value={good}
-              placeholder="a sha, a tag or a branch"
-              spellCheck={false}
-              onChange={(e) => setGood(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  run();
-                }
-              }}
-            />
+            {own ? (
+              <input
+                type="text"
+                value={typed}
+                placeholder="a sha, a tag or a branch"
+                spellCheck={false}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    run();
+                  }
+                }}
+              />
+            ) : (
+              <select
+                value={picked}
+                onChange={(e) => {
+                  if (e.target.value === ANOTHER) setOwn(true);
+                  else setPicked(e.target.value);
+                }}
+              >
+                {choices.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+                <option value={ANOTHER}>Another commit…</option>
+              </select>
+            )}
           </label>
         </div>
       )}

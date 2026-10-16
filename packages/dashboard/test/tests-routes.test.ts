@@ -158,6 +158,42 @@ describe('GET /api/tests/runs/:id', () => {
   });
 });
 
+describe('one job at a time on the goldens', () => {
+  it('refuses a test, an update or a normalizer while a test job runs in the project, naming it, and starts Find the commit', async () => {
+    const hold = join(project, 'hold-tests');
+    writeFileSync(hold, '');
+    process.env.FAKE_TESTS_HOLD = hold;
+    let first: JobView | null = null;
+    try {
+      const started = await post({ kind: 'test' });
+      expect(started.status, await started.clone().text()).toBe(202);
+      first = (await started.json()) as JobView;
+      for (const [body, why] of [
+        [{ kind: 'test' }, 'A test session is running: run the tests once it is done'],
+        [{ kind: 'test', golden: 'goldens/refund-flow' }, 'A test session is running: run it again once it is done'],
+        [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'A test session is running: update it once it is done'],
+        [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'A test session is running: add the normalizer once it is done'],
+      ] as const) {
+        const res = await post(body);
+        expect(res.status, JSON.stringify(body)).toBe(409);
+        expect(((await res.json()) as { error: string }).error).toBe(why);
+      }
+      // Find the commit replays in worktrees of its own: it doesn't wait.
+      const bisect = await post({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' });
+      expect(bisect.status).toBe(202);
+    } finally {
+      rmSync(hold, { force: true });
+      delete process.env.FAKE_TESTS_HOLD;
+    }
+    for (let i = 0; i < 400 && first; i++) {
+      if ((await getJson<JobView>(dash, `jobs/${first.id}`)).done) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    // Once it is done, the next one starts.
+    expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
+  });
+});
+
 describe('GET /api/ci/workflows', () => {
   it('gives both panels with their defaults, the project\'s goldens, repository and failures', async () => {
     const ci = await getJson<CiWorkflowsView>(dash, 'ci/workflows');

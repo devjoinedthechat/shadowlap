@@ -45,6 +45,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   const files = job.files ?? [];
   const folders = files.filter((f) => f.directory);
   const links = job.links ?? [];
+  // One primary action at the end of the footer; a link beside it (each failing golden's run) reads as a plain link above.
+  const primary = links.filter((l) => !l.secondary);
+  const beside = links.filter((l) => l.secondary);
   const opens = job.done && job.newRunId && (job.opensRun || links.length === 0) && !links.some((l) => l.href.includes(job.newRunId!));
   // What the job's own feature adds: calibrate's "Add it (--write)", a clean-up's "Delete N runs".
   // Only where the job ran: from another project's page it would act on the wrong one.
@@ -86,6 +89,15 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           ))}
         </div>
       ) : null}
+      {beside.length ? (
+        <div className="jlinks">
+          {beside.map((l) => (
+            <a key={l.href + l.label} className="more" href={l.href} title={there} onClick={follow(l.href)}>
+              {l.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
       <footer>
         {files.filter((f) => !f.directory).map((f) => (
           <button
@@ -107,7 +119,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           Close
         </button>
         {Footer && !lost ? <Footer job={job} /> : null}
-        {links.map((l) => (
+        {primary.map((l) => (
           <a key={l.href + l.label} className="btn lime" href={l.href} title={there} onClick={follow(l.href)}>
             {l.label}
           </a>
