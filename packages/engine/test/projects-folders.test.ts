@@ -103,15 +103,16 @@ describe('suggestFolders', () => {
     const s = suggestFolders('', { home });
     expect(s.listed).toBe('~/');
     expect(s.note).toBeNull();
+    // `~/code` holds a project and no project files of its own: the project stands in its place.
     expect(s.folders.map((f) => [f.display, f.folder.kind])).toEqual([
+      ['~/code/invoice-bot', 'Node · pnpm'],
       ['~/research-agent', 'Python · uv'],
       ['~/support-agent', 'Python · Node'],
       ['~/triage-bot', 'Node · npm'],
-      ['~/code', null],
       ['~/Downloads', null],
     ]);
     // Paths are real paths; names are what the folder is called.
-    expect(s.folders[0]).toMatchObject({ path: join(home, 'research-agent'), name: 'research-agent', added: false, projectId: null });
+    expect(s.folders[1]).toMatchObject({ path: join(home, 'research-agent'), name: 'research-agent', added: false, projectId: null });
   });
 
   it('completes a typed name, matches at the start first, and descends into a typed folder', () => {
@@ -123,6 +124,36 @@ describe('suggestFolders', () => {
     // Without ~, a path is read from the home folder too.
     expect(suggestFolders('code/inv', { home }).folders.map((f) => f.display)).toEqual(['~/code/invoice-bot']);
     expect(suggestFolders(`${home}/code/`, { home }).folders.map((f) => f.display)).toEqual(['~/code/invoice-bot']);
+  });
+
+  it('lists the projects one level inside a folder without project files, by their name or the folder’s', () => {
+    expect(suggestFolders('~/inv', { home }).folders.map((f) => [f.display, f.name])).toEqual([['~/code/invoice-bot', 'invoice-bot']]);
+    expect(suggestFolders('~/co', { home }).folders.map((f) => f.display)).toEqual(['~/code/invoice-bot']);
+    // A folder that holds none is listed as it is, and still opens when typed.
+    expect(suggestFolders('~/Down', { home }).folders.map((f) => [f.display, f.folder.kind])).toEqual([['~/Downloads', null]]);
+    const inside = files(tempDir('sl-inside-'), {
+      'work/agent-a/package.json': '{}',
+      'work/.hidden-agent/package.json': '{}',
+      'work/node_modules/pkg/package.json': '{}',
+      'work/notes/readme.md': '',
+      'Pictures/2026/x.jpg': '',
+    });
+    symlinkSync(join(home, 'research-agent'), join(inside, 'work', 'linked-agent'));
+    // Never through a link, into a hidden or system folder, or past one level.
+    expect(suggestFolders('', { home: inside }).folders.map((f) => f.display)).toEqual(['~/work/agent-a', '~/Pictures']);
+    expect(checkFolder('~/work/agent-a', { home: inside })).toMatchObject({ ok: true });
+  });
+
+  it('looks into at most so many folders and subfolders for projects one level down', () => {
+    const many = tempDir('sl-many-');
+    const tree: Record<string, string> = {};
+    for (let i = 0; i < SUGGEST_LIMITS.insideEach + 5; i++) tree[`box/p${String(i).padStart(2, '0')}/package.json`] = '{}';
+    files(many, tree);
+    const listed = suggestFolders('', { home: many, limit: 100 }).folders.map((f) => f.display);
+    expect(listed).toHaveLength(SUGGEST_LIMITS.insideEach);
+    expect(listed[0]).toBe('~/box/p00');
+    // Typed into, the folder lists every one.
+    expect(suggestFolders('~/box/', { home: many, limit: 100 }).folders).toHaveLength(SUGGEST_LIMITS.insideEach + 5);
   });
 
   it('never leaves the home folder: not by .., an absolute path or a link', () => {
@@ -163,7 +194,7 @@ describe('suggestFolders', () => {
 
   it('takes a system folder’s name for an ordinary folder deeper down', () => {
     const deeper = files(tempDir('sl-deeper-'), { 'code/library/package.json': '{}', 'code/Applications/agent/pyproject.toml': '', 'Library/agent/package.json': '{}', 'code/node_modules/x/package.json': '{}' });
-    expect(suggestFolders('~/code/', { home: deeper }).folders.map((f) => f.name)).toEqual(['library', 'Applications']);
+    expect(suggestFolders('~/code/', { home: deeper }).folders.map((f) => f.display)).toEqual(['~/code/Applications/agent', '~/code/library']);
     expect(checkFolder('~/code/library', { home: deeper })).toMatchObject({ ok: true, path: join(deeper, 'code', 'library') });
     expect(checkFolder('~/code/Applications/agent', { home: deeper }).ok).toBe(true);
     expect(checkFolder('~/Library/agent', { home: deeper })).toMatchObject({ ok: false, code: 'system' });

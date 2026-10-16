@@ -1,3 +1,4 @@
+import { classifyRun } from '../classify.js';
 import { hasRecordedCommand } from '../pack.js';
 import type { Price } from '../prices.js';
 import { summarizeRun } from '../report.js';
@@ -144,9 +145,9 @@ export interface GoldenTestFact {
 }
 
 export interface StoreFacts {
-  /** Runs, attempts left out, as the status bar counts them. */
+  /** Runs, attempts left out, as the status bar counts them ({@link countRunsAndAttempts}). */
   runs: number;
-  /** Attempts: one of `replay --repeat`, or of a `blame` or `verify`. */
+  /** Attempts bundled under their run: one of `replay --repeat`, or of a `blame` or `verify`. */
   attempts: number;
   /** Runs recorded in the folder with `shadowlap run`, newest first: not imported, not a replay, not an attempt. */
   recordings: RunFact[];
@@ -182,6 +183,28 @@ export function isAttempt(run: RunRecord): boolean {
   return Boolean(run.meta?.repeat || run.meta?.probe || run.meta?.verify);
 }
 
+/**
+ * Runs and attempts as the status bar, the Runs page and Settings → Project count them
+ * (`classifyRun`): an attempt is bundled under the run it replayed while that run is in the store.
+ * The fork blame rescued a run with is a probe that shows as a fork of its own, and an attempt whose
+ * run is gone has nowhere else to show: both count as runs. So the switcher and the Remove dialog
+ * say the number the rest of the dashboard says.
+ */
+export function countRunsAndAttempts(runs: readonly RunRecord[]): { runs: number; attempts: number } {
+  const ids = new Set(runs.map((r) => r.runId));
+  const rescued = new Set<string>();
+  for (const r of runs) {
+    const id = (r.meta?.blame as { rescuedRunId?: unknown } | undefined)?.rescuedRunId;
+    if (typeof id === 'string') rescued.add(id);
+  }
+  let attempts = 0;
+  for (const r of runs) {
+    const c = classifyRun(r, { rescued: rescued.has(r.runId) });
+    if (c.attemptKind && c.attemptOf && ids.has(c.attemptOf)) attempts++;
+  }
+  return { runs: runs.length - attempts, attempts };
+}
+
 /** A recording made in the folder: what the setup's second step makes. */
 export function isRecording(run: RunRecord): boolean {
   return run.mode === 'record' && run.parentRunId === null && !run.meta?.imported && hasRecordedCommand(run) && !isAttempt(run);
@@ -205,9 +228,9 @@ export function storeFacts(store: FactsSource, now: number = Date.now(), options
   const facts = emptyStoreFacts();
   // Replays that ended without a divergence, by the run they replay, with how they ended.
   const replays = new Map<string, Array<{ runId: string; status: RunStatus }>>();
-  for (const run of store.allRuns()) {
-    if (isAttempt(run)) facts.attempts++;
-    else facts.runs++;
+  const all = store.allRuns();
+  Object.assign(facts, countRunsAndAttempts(all));
+  for (const run of all) {
     const live = isLiveRun(run, now);
     if (live) facts.live = true;
     if (run.mode === 'replay' && run.parentRunId && !run.divergence && (run.status === 'completed' || run.status === 'failed') && !isAttempt(run)) {

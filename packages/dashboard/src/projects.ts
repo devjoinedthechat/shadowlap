@@ -75,7 +75,7 @@ export interface SwitcherItem {
   /** Its store can't be read (from a newer Shadowlap, or not a database): `why` says so, on hover. */
   unreadable: boolean;
   why?: string;
-  /** The line under the name: `~/triage-bot · no runs yet · setting up`. */
+  /** The line under the name: `~/triage-bot · no runs yet · setting up`, a long path cut to its last folders (`shortPath`). */
   detail: string;
   /** The × that removes it: shown only while there is more than one project. */
   removable: boolean;
@@ -89,6 +89,24 @@ export interface SwitcherView {
   items: SwitcherItem[];
   add: { label: string; hint: string; href: string };
   note: string;
+}
+
+/**
+ * A folder as a line under a project's name shows it: as it is up to `max` characters (`~/triage-bot`),
+ * else its last folders after `…/`, so a long path outside the home folder keeps the line short.
+ * The whole path shows on hover.
+ */
+export function shortPath(path: string, max = 32): string {
+  if (path.length <= max) return path;
+  const sep = !path.includes('/') && path.includes('\\') ? '\\' : '/';
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  let out = parts[parts.length - 1] ?? path;
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const next = `${parts[i]}${sep}${out}`;
+    if (next.length + 2 > max) break;
+    out = next;
+  }
+  return `…${sep}${out}`;
 }
 
 /** The switcher at the top of the sidebar: every project with its path and runs, the current one marked. */
@@ -110,7 +128,7 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
       settingUp,
       missing,
       unreadable,
-      detail: [path, missing ? 'folder not found' : unreadable ? 'store can’t be read' : runsLabel(stats.runs), ...(settingUp && !missing && !unreadable ? ['setting up'] : [])].join(' · '),
+      detail: [shortPath(path), missing ? 'folder not found' : unreadable ? 'store can’t be read' : runsLabel(stats.runs), ...(settingUp && !missing && !unreadable ? ['setting up'] : [])].join(' · '),
       ...(unreadable ? { why: stats.unreadable! } : {}),
       removable,
       removeLabel: `Remove ${p.name} from the dashboard`,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveSetup, emptySetup, emptyStoreFacts, type FolderKind, type FolderSuggestions, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
-import { addProjectPage, addedMessage, nameMatches, projectEventText, projectSwitcher, removeDialog, setupView, type SetupInput } from '../src/projects.js';
+import { addProjectPage, addedMessage, nameMatches, projectEventText, projectSwitcher, removeDialog, setupView, shortPath, type SetupInput } from '../src/projects.js';
 
 const HOME = '/home/dana';
 const RUN = '01K5CQ7A3M00000000000000AB';
@@ -53,6 +53,14 @@ describe('projectSwitcher', () => {
     expect(v.items[1]!.removeLabel).toBe('Remove triage-bot from the dashboard');
     expect(v.add).toEqual({ label: 'Add project…', hint: 'a folder with your agent’s code', href: '#/new' });
     expect(v.note).toBe('Each project keeps its own store.');
+  });
+
+  it('keeps a long folder to its last folders on the line, the whole path on hover', () => {
+    const deep = '/srv/build/workspaces/team-agents/2026/support/refund-agent';
+    const v = projectSwitcher({ projects: [entry('refund-agent', { stage: 'done' }, deep)], current: 'refund-agent', stats: { 'refund-agent': { runs: 2, attempts: 0, goldens: 0 } }, home: HOME });
+    expect(v.items[0]).toMatchObject({ path: deep, detail: '…/2026/support/refund-agent · 2 runs' });
+    expect(shortPath('~/support-agent')).toBe('~/support-agent');
+    expect(shortPath('C:\\Users\\dana\\work\\clients\\northwind\\agents\\refund-agent')).toBe('…\\northwind\\agents\\refund-agent');
   });
 
   it('offers no × for the only project, and says when a folder is gone', () => {

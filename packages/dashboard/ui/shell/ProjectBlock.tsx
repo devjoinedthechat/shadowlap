@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Meta } from '../api.js';
 import { Icon } from '../components/Icon.js';
 import { Popover, useMenu } from '../components/Popover.js';
-import { compactPath, projectOfStore } from '../format.js';
+import { compactPath, plural, projectOfStore } from '../format.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { onProjectSwitched, type ProjectsView } from '../projects-api.js';
@@ -67,7 +67,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
         <span className="pa">S</span>
         <span className="pn">
           <b>Exported copy</b>
-          <small>{meta.runIds?.length ?? 0} runs · nothing runs from here</small>
+          <small>{plural(meta.runIds?.length ?? 0, 'run')} · nothing runs from here</small>
         </span>
       </div>
     );
@@ -162,7 +162,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
                 type="button"
                 role="menuitem"
                 onClick={() => pick(p.id)}
-                title={p.why ?? undefined}
+                title={p.why ?? p.path}
                 aria-keyshortcuts={p.removable ? 'Delete' : undefined}
                 onKeyDown={(e) => {
                   // The × shows under the pointer only: from the keyboard, Delete on the project removes it.

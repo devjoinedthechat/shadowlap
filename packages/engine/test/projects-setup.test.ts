@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, recordEvent } from '../src/index.js';
-import { LIVE_RUN_MS, calibrationOutcome, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, readStoreFacts, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
+import { LIVE_RUN_MS, calibrationOutcome, countRunsAndAttempts, deriveSetup, earlierStage, emptyStoreFacts, initialSetup, isLiveRun, laterStage, readStoreFacts, runTotals, stageAtLeast, storeFacts, type RunFact, type SetupFindings, type StoreFacts } from '../src/projects/index.js';
 
 const dirs: string[] = [];
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -241,6 +241,27 @@ describe('storeFacts', () => {
     expect(f.live).toBe(true);
     expect(f.addedBefore).toBe(true);
     expect(f.setupEvent).toBeNull();
+    store.close();
+  });
+
+  it('counts runs and attempts as the status bar does: a rescued fork and an attempt whose run is gone are runs', () => {
+    const store = freshStore();
+    const make = (opts: { mode?: 'record' | 'replay'; parent?: string; meta?: Record<string, unknown> } = {}) => {
+      const run = store.createRun({ mode: opts.mode ?? 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/x' }, ...(opts.parent ? { parentRunId: opts.parent } : {}), ...(opts.meta ? { meta: opts.meta } : {}) });
+      store.endRun(run.runId, 'completed');
+      return run.runId;
+    };
+    const failed = make();
+    const rescued = make({ mode: 'replay', parent: failed, meta: { probe: { of: failed, callNo: 3, passed: true } } });
+    make({ mode: 'replay', parent: failed, meta: { probe: { of: failed, callNo: 3, passed: false } } });
+    store.updateRunMeta(failed, { blame: { at: 1, outcome: 'blamed', callNo: 3, rescuedRunId: rescued } } as never);
+    // A verify attempt of a run since deleted, and a test run (never an attempt).
+    const gone = make();
+    make({ mode: 'replay', parent: gone, meta: { verify: { role: 'target', passed: true } } });
+    store.deleteRun(gone);
+    make({ mode: 'replay', parent: failed, meta: { test: { golden: 'goldens/x', session: 's1' } } });
+    expect(countRunsAndAttempts(store.allRuns())).toEqual({ runs: 4, attempts: 1 });
+    expect(storeFacts(store)).toMatchObject({ runs: 4, attempts: 1 });
     store.close();
   });
 
