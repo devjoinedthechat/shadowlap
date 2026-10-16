@@ -5,20 +5,21 @@ import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
-import { FILE_FORMATS, FORMAT_LABEL, guessImportFormat, IMPORT_ACCEPT, keyList, tooLargeNote, TRACE_COPY, TRACE_ID, type FileFormat, type TraceSource } from './imports.js';
+import { FILE_FORMATS, fileHead, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, pickedFormat, TRACE_COPY, TRACE_ID, type ImportFileFormat, type TraceSource } from './imports.js';
 
 /**
- * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and
- * changeable, YAML refused with the reason), or a Langfuse or LangSmith trace by its host and id,
- * read with the keys already on this machine. The file goes up first (`POST /api/uploads`), then
- * the import job runs the CLI; the drawer ends with a link to each run it made.
+ * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
+ * first bytes, and changeable; YAML refused with the reason), or a Langfuse or LangSmith trace by
+ * its host and id, read with the keys already on this machine. The file goes up first
+ * (`POST /api/uploads`), then the import job runs the CLI; the drawer ends with a link to each run
+ * it made.
  */
 
 type Source = 'file' | TraceSource;
 
 interface Picked {
   file: File;
-  format: FileFormat | null;
+  format: ImportFileFormat | null;
   error: string | null;
 }
 
@@ -33,11 +34,15 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   const sources = useLoad(() => client.importSources(), 'import-sources');
   const limit = sources.data?.uploadLimit ?? meta?.uploadLimit ?? null;
 
+  // The newest file picked: reading another's first bytes may end after it, and must not replace it.
+  const picking = useRef(0);
   const pick = (file: File | undefined) => {
     if (!file) return;
-    const g = guessImportFormat(file.name);
-    const big = tooLargeNote(file.size, limit, g.format);
-    setPicked({ file, format: g.format, error: g.error ?? big });
+    const n = ++picking.current;
+    // Its first bytes tell a HAR saved as .json from a nock recording, and OTLP lines from LiteLLM's.
+    void fileHead(file).then((head) => {
+      if (n === picking.current) setPicked({ file, ...pickedFormat(file.name, file.size, head, limit) });
+    });
   };
   const drop = (e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
@@ -121,10 +126,10 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               <code>{picked.file.name}</code>
               <label className="pick">
                 <span className="sr">Format</span>
-                <select value={picked.format} onChange={(e) => setPicked({ ...picked, format: e.target.value as FileFormat })}>
+                <select value={picked.format} onChange={(e) => setPicked({ ...picked, format: e.target.value as ImportFileFormat })}>
                   {FILE_FORMATS.map((f) => (
                     <option key={f} value={f}>
-                      {FORMAT_LABEL[f]}
+                      {IMPORT_FILE_FORMATS[f]}
                     </option>
                   ))}
                 </select>

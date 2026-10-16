@@ -1,4 +1,5 @@
 import { isAbsolute, relative, sep } from 'node:path';
+import { IMPORT_FILE_FORMATS, type ImportFileFormat } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 
@@ -13,8 +14,8 @@ import type { Router } from '../router.js';
  */
 
 /** The file formats `shadowlap import` reads, each its own subcommand: the CLI detects nothing. */
-export const FILE_FORMATS = ['har', 'nock', 'vcr', 'litellm', 'otel'] as const;
-export type FileFormat = (typeof FILE_FORMATS)[number];
+export const FILE_FORMATS = Object.keys(IMPORT_FILE_FORMATS) as ImportFileFormat[];
+export type FileFormat = ImportFileFormat;
 export const TRACE_SOURCES = ['langfuse', 'langsmith'] as const;
 export type TraceSource = (typeof TRACE_SOURCES)[number];
 

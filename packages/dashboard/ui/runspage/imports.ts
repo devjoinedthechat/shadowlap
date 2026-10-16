@@ -1,42 +1,45 @@
+import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
+
 /**
- * Import a capture or a trace: which format a file is, guessed from its name and changeable, and
- * what each trace store keeps. The CLI detects nothing (the format is its subcommand), so the
- * dialog says which it will run. No DOM here: the tests import it.
+ * Import a capture or a trace: which format a file is, and what each trace store keeps. The format
+ * is the engine's `guessImportFormat` (the file's name, then its first bytes when the name says
+ * nothing); the CLI detects nothing (the format is its subcommand), so the dialog says which it
+ * will run and lets the person change it. No DOM here: the tests import it.
  */
 
-export type FileFormat = 'har' | 'nock' | 'vcr' | 'litellm' | 'otel';
-export const FILE_FORMATS: readonly FileFormat[] = ['har', 'nock', 'vcr', 'litellm', 'otel'];
+export { IMPORT_FILE_FORMATS, type ImportFileFormat };
 
-/** The format select's words. */
-export const FORMAT_LABEL: Readonly<Record<FileFormat, string>> = { har: 'HAR', nock: 'nock', vcr: 'VCR (JSON)', litellm: 'LiteLLM', otel: 'OpenTelemetry' };
+/** The formats the select offers, in the CLI's order; `IMPORT_FILE_FORMATS` names each. */
+export const FILE_FORMATS = Object.keys(IMPORT_FILE_FORMATS) as ImportFileFormat[];
 
 /** What the file picker offers. */
 export const IMPORT_ACCEPT = '.har,.json,.jsonl,.yaml,.yml';
 
-const YAML = 'A YAML cassette has to be converted to JSON first: Shadowlap reads JSON, so no YAML parser is trusted with a file from anywhere.';
-const UNKNOWN = 'Not a format Shadowlap imports. It reads HAR, nock or VCR as JSON, LiteLLM JSONL, and OpenTelemetry OTLP JSON.';
+/** How much of a file's start the guess reads: enough for the top-level keys that say what it is. */
+export const HEAD_BYTES = 4096;
+
+/** A file's first bytes, or undefined when the browser can't read them (its name alone decides then). */
+export async function fileHead(file: Blob): Promise<Uint8Array | undefined> {
+  try {
+    return new Uint8Array(await file.slice(0, HEAD_BYTES).arrayBuffer());
+  } catch {
+    return undefined;
+  }
+}
 
 /**
- * The format a file's name says: .har is HAR, .jsonl is LiteLLM, and .json is OpenTelemetry (OTLP
- * JSON) when the name says otel, otlp or trace, VCR when it says cassette or vcr, and nock otherwise.
- * YAML, and anything else, is refused with the reason.
+ * What the dialog makes of a file picked: the format `guessImportFormat` gives its name and first
+ * bytes (a HAR saved as .json is HAR, OTLP lines in a .jsonl are OpenTelemetry), or why it can't
+ * be imported from here: YAML or another format, with the engine's reason, or a file larger than
+ * the dashboard takes.
  */
-export function guessImportFormat(name: string): { format: FileFormat; error: null } | { format: null; error: string } {
-  const dot = name.lastIndexOf('.');
-  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
-  if (ext === 'yaml' || ext === 'yml') return { format: null, error: YAML };
-  if (ext === 'har') return { format: 'har', error: null };
-  if (ext === 'jsonl') return { format: 'litellm', error: null };
-  if (ext === 'json') {
-    if (/otel|otlp|trace/i.test(name)) return { format: 'otel', error: null };
-    if (/cassette|vcr/i.test(name)) return { format: 'vcr', error: null };
-    return { format: 'nock', error: null };
-  }
-  return { format: null, error: UNKNOWN };
+export function pickedFormat(name: string, bytes: number, head: Uint8Array | string | undefined, limit: number | null): { format: ImportFileFormat | null; error: string | null } {
+  const g = guessImportFormat(name, head);
+  return { format: g.format, error: g.reason ?? tooLargeNote(bytes, limit, g.format) };
 }
 
 /** A file larger than the dashboard takes: what to do instead. */
-export function tooLargeNote(bytes: number, limit: number | null, format: FileFormat | null): string | null {
+export function tooLargeNote(bytes: number, limit: number | null, format: ImportFileFormat | null): string | null {
   if (limit === null || bytes <= limit) return null;
   const mb = (n: number) => `${Math.round(n / (1024 * 1024))} MB`;
   return `This file is ${mb(bytes)}, more than the dashboard takes (${mb(limit)}): import it in a terminal with shadowlap import ${format ?? '<format>'} <file>.`;

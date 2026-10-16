@@ -4,7 +4,7 @@ import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookS
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
-import { guessImportFormat, keyList, tooLargeNote } from '../ui/runspage/imports.js';
+import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, pickedFormat, tooLargeNote } from '../ui/runspage/imports.js';
 import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
 import type { DayCount, NeedsLookRow } from '../ui/types.js';
 
@@ -178,19 +178,38 @@ describe('the Runs calendar', () => {
 });
 
 describe('importing a file', () => {
-  it('guesses the format from the name, and refuses YAML and anything else with the reason', () => {
-    expect(guessImportFormat('traffic.har')).toEqual({ format: 'har', error: null });
-    expect(guessImportFormat('cap/2026-09-30.jsonl')).toEqual({ format: 'litellm', error: null });
-    expect(guessImportFormat('otel-traces.json').format).toBe('otel');
-    expect(guessImportFormat('OTLP_export.JSON').format).toBe('otel');
-    expect(guessImportFormat('my-trace.json').format).toBe('otel');
-    expect(guessImportFormat('refund_cassette.json').format).toBe('vcr');
-    expect(guessImportFormat('vcr-run.json').format).toBe('vcr');
-    expect(guessImportFormat('recording.json').format).toBe('nock');
-    expect(guessImportFormat('cassette.yaml')).toEqual({ format: null, error: expect.stringMatching(/^A YAML cassette has to be converted to JSON first/) });
-    expect(guessImportFormat('cassette.yml').format).toBeNull();
-    expect(guessImportFormat('notes.txt')).toEqual({ format: null, error: expect.stringMatching(/^Not a format Shadowlap imports/) });
-    expect(guessImportFormat('Makefile').format).toBeNull();
+  it('guesses the format as the engine does, from the name and then the first bytes, and refuses YAML and anything else with the reason', () => {
+    const guess = (name: string, head?: string) => pickedFormat(name, 100, head === undefined ? undefined : new TextEncoder().encode(head), 64 * 1024 * 1024);
+    expect(guess('traffic.har')).toEqual({ format: 'har', error: null });
+    expect(guess('cap/2026-09-30.jsonl')).toEqual({ format: 'litellm', error: null });
+    expect(guess('otel-traces.json').format).toBe('otel');
+    expect(guess('OTLP_export.JSON').format).toBe('otel');
+    expect(guess('refund_cassette.json').format).toBe('vcr');
+    expect(guess('recording.json').format).toBe('nock');
+    // What the name doesn't say, the content does: a HAR saved as .json, OTLP lines in a .jsonl.
+    const har = JSON.stringify({ log: { version: '1.2', creator: { name: 'Chrome' }, entries: [] } });
+    const otlp = JSON.stringify({ resourceSpans: [{ resource: { attributes: [] }, scopeSpans: [] }] });
+    expect(guess('capture.json', har)).toEqual({ format: 'har', error: null });
+    expect(guess('collector-spans.jsonl', `${otlp}\n${otlp}\n`)).toEqual({ format: 'otel', error: null });
+    expect(guess('capture.json', JSON.stringify([{ scope: 'https://api.anthropic.com:443', method: 'POST', path: '/v1/messages' }]))).toEqual({ format: 'nock', error: null });
+    expect(guess('worker-1.jsonl', '{"format":"shadowlap-capture","v":1}\n')).toEqual({ format: 'litellm', error: null });
+    expect(guess('cassette.yaml')).toEqual({ format: null, error: expect.stringMatching(/^A YAML cassette has to be converted to JSON first/) });
+    expect(guess('cassette.yml', 'interactions:\n').format).toBeNull();
+    expect(guess('notes.txt')).toEqual({ format: null, error: expect.stringMatching(/^Not a format Shadowlap imports/) });
+    expect(guess('Makefile').format).toBeNull();
+    // The select names every format the CLI imports, as the engine names them.
+    expect(FILE_FORMATS.map((f) => IMPORT_FILE_FORMATS[f])).toEqual(['HAR', 'nock', 'VCR (JSON)', 'LiteLLM', 'OpenTelemetry']);
+  });
+
+  it('reads only the start of a file to guess it, and a file too large to send says so', async () => {
+    const big = new Blob([JSON.stringify({ log: { entries: [] } }), ' '.repeat(3 * HEAD_BYTES)]);
+    const head = await fileHead(big);
+    expect(head?.length).toBe(HEAD_BYTES);
+    expect(pickedFormat('download.json', big.size, head, null)).toEqual({ format: 'har', error: null });
+    expect(pickedFormat('download.json', 100 * 1024 * 1024, head, 64 * 1024 * 1024)).toEqual({ format: 'har', error: 'This file is 100 MB, more than the dashboard takes (64 MB): import it in a terminal with shadowlap import har <file>.' });
+    // A file the browser can't read is guessed from its name alone.
+    const unreadable = { slice: () => ({ arrayBuffer: () => Promise.reject(new Error('gone')) }) } as unknown as Blob;
+    expect(await fileHead(unreadable)).toBeUndefined();
   });
 
   it('says what to do with a file larger than the dashboard takes, and names the keys a trace needs', () => {
