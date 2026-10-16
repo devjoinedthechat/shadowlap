@@ -76,7 +76,10 @@ async function action(inputs: Record<string, string>) {
   for (const [k, v] of Object.entries(inputs)) vars[`INPUT_${k}`] = v;
   const r = await run([RUN], vars);
   const outputs = Object.fromEntries(readFileSync(output, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
-  const result = { ...r, outputs, summary: readFileSync(summary, 'utf8') };
+  // The fixes CI's store kept, as `fix ls --json` lists them: where each came from.
+  const listed = await run([CLI, '--db', join(dir, 'ci.db'), 'fix', 'ls', '--json']);
+  const fixes = listed.code === 0 ? (JSON.parse(listed.out.slice(listed.out.indexOf('{'))) as { fixes: Array<{ fixId: string; source: string | null; status: string }> }).fixes : [];
+  const result = { ...r, outputs, summary: readFileSync(summary, 'utf8'), fixes };
   rmSync(dir, { recursive: true, force: true });
   return result;
 }
@@ -133,6 +136,10 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
     expect(r.out).toContain('::notice title=Shadowlap::refund-over-limit: opened https://github.com/example/agent/pull/7');
+    // The fix in CI's store names the pull request it went to, as Fixes shows it.
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes[0]).toMatchObject({ status: 'verified' });
+    expect(r.fixes[0]!.source).toMatch(/PR #7$/);
 
     // The branch has the fix and is on the remote; HEAD, the working tree and main are as they were.
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);

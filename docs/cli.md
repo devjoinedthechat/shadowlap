@@ -192,6 +192,7 @@ shadowlap fix ls [--status open|verified|applied] [--json]
 shadowlap fix show <fix> [--json]
 shadowlap fix title <fix> <title...>
 shadowlap fix apply <fix> [--goldens <dir>] [--no-test] [--build <command>] [--json]
+shadowlap fix pr <fix> [<url>] [--json]
 ```
 
 A fix is one failure, from the blame that reproduced it to a change that held. A [blame](./blame.md#fixes) opens one or joins one, by the run's labels, else its check; [verify](./verify.md#verdicts-are-kept) and [repair](./repair.md#the-fix-it-reports-to) report to the fix of the runs they were given, and their verdict counts for it only when it checked the fix's check on a run that failed it. Fix ids look like `fx-01M3RZ4XKN…`; any unique prefix works, with or without `fx-`, and the list shows the first ten characters.
@@ -199,6 +200,7 @@ A fix is one failure, from the blame that reproduced it to a change that held. A
 - **`fix ls`** lists fixes, the most recently opened first: status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step got (*lost at #5 · prompt fix · 3 of 3 held*). A second line gives the check, where the fix came from (*from CI · PR #138*) and when it was opened, and a third says so when an applied fix doesn't hold.
 - **`fix show`** prints a fix and its three steps: where the run was lost and the probes that found it; the change, the candidates tried and why each was dropped; and every verdict, with each run's role and outcome, and why one doesn't count. It ends with what to do next.
 - **`fix title`** replaces the title derived from the check with one of your own; blames that join the fix later keep it.
+- **`fix pr`** records the pull request opened for a fix, given its `https://` link: `repair --pr` and CI's [fix on failure](./ci.md#fix-on-failure) record theirs, so the list says where the fix went (*from CI · PR #138*). With no link it reads where the recorded pull request stands from GitHub, with `gh pr view` (installed and signed in), and records it: *open*, *merged* or *closed*. When `gh` can't say, the state stays as recorded and the line says why. The [dashboard](./dashboard.md) reads it the same way, in the background, while Fixes is open.
 - **`fix apply`** hands a verified fix over. It runs `git apply` on the accepted repair's `fix.patch`, copies the recordings the fixed code made into the goldens folder, runs [`shadowlap test`](#test) on them, and marks the fix applied. A patch already in the tree, applied by hand, committed, or left there by `repair --apply`, is recognised with `git apply --reverse --check` and only marked. When the working tree has changes the patch conflicts with, nothing is changed, and the message says whether to commit or stash them or to apply the patch by hand. A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only marked applied.
 
 Run again on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied: it copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and runs the test when it hasn't passed, on goldens copied before where they are. With nothing left, it does nothing; with `--no-test` it says when a test is still to pass. A test that fails leaves the fix applied, marked as not holding, until a run of `fix apply` passes it.
@@ -211,7 +213,7 @@ It trusts nothing it reads from the store: the repair's directory must be `.shad
 | `--goldens <dir>` | `fix apply`: where the recordings go. Default `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them |
 | `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test |
-| `--json` | The list, the fix, or what `fix apply` did, as JSON: the dashboard's read model of Fixes. An id that matches no fix, or several, prints `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }` |
+| `--json` | The list, the fix, what `fix apply` did, or the fix's pull request (`fix pr`: `{ fixId, pr: { url, number, state } }`), as JSON: the dashboard's read model of Fixes. An id that matches no fix, or several, prints `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }` |
 
 `fix apply` exits 1 when the fix is still open, when the patch does not apply, or when the test fails; a patch that applied stays applied. Run it in the folder the repair ran in, where its directory under `.shadowlap/repairs/` is.
 
