@@ -46,7 +46,8 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   const { client, live, tick, exported, meta } = useApp();
   // While either run records, each change to the store reads the comparison again; once both have ended, once more.
   const refresh = comparingLive(live, a, b) ? tick : 'ended';
-  const cmp = useLoad(() => client.compare(a, b), `${a}:${b}`, refresh);
+  // The server's comparison, with the code card's commits when it can read the project's git (an exported copy has none).
+  const cmp = useLoad<CompareView>(() => client.compare(a, b), `${a}:${b}`, refresh);
   const ra = useLoad(() => client.run(a), a, refresh);
   const rb = useLoad(() => client.run(b), b, refresh);
   const c = cmp.data;
