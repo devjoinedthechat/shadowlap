@@ -153,6 +153,11 @@ describe('redactionSettings', () => {
     expect(redactionSettings({ store, cwd }, { runId: old.runId.slice(0, 12) })).toMatchObject({ previewRunId: old.runId, previewError: null });
     expect(redactionSettings({ store, cwd }, { runId: live.runId })).toMatchObject({ previewRunId: null, previewError: `${live.runId.slice(0, 10)} is still recording; preview it once it has ended` });
     expect(redactionSettings({ store, cwd }, { runId: 'NOPE' })).toMatchObject({ previewRunId: null, previewError: 'no run matches NOPE' });
+    // Newer runs that aren't recordings made here (an import, a replay): the preview still opens on the recording.
+    const imported = store.createRun({ mode: 'record', command: { argv: [], cwd }, startedAt: 30, meta: { imported: { at: 30, from: 'capture.har' }, covers: ['api'] } as RunMeta });
+    store.endRun(imported.runId, 'completed', 31);
+    recording({ at: 40, mode: 'replay' });
+    expect(redactionSettings({ store, cwd }).previewRunId).toBe(run.runId);
   });
 
   it('reads no run\'s calls, however long the run: the preview is read apart', () => {

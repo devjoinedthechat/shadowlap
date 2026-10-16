@@ -394,10 +394,14 @@ export function proposedRules(result: unknown): Array<Partial<Record<'kind' | 'n
 /** How many runs the preview's run picker lists. */
 const PREVIEW_RUNS = 100;
 
+/** A recording made here with `shadowlap run`: not a replay, an import, a pack or an attempt. What a copy most often carries. */
+const madeHere = (r: RunRecord) => r.mode === 'record' && !r.meta?.imported && !(Array.isArray(r.meta?.covers) && r.meta.covers.length) && !r.meta?.repeat && !r.meta?.probe && !r.meta?.verify;
+
 /**
  * The Redaction tab: the rules, where they apply, and the runs a preview can be made for. `runId`
- * picks the run to preview first; without one, the newest run that has ended. Nothing here reads a
- * run's calls: the preview is read apart (redactionPreview).
+ * picks the run to preview first; without one, the newest recording made here that has ended (what
+ * a pack most often holds, rather than an import or a replay), else the newest run that has ended.
+ * Nothing here reads a run's calls: the preview is read apart (redactionPreview).
  */
 export function redactionSettings(ctx: SettingsContext, options: { runId?: string | null } = {}): RedactionSettings {
   const { info, file } = loadConfigFile(ctx.cwd, 'redact');
@@ -405,8 +409,9 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
   // Every run but those a process is still recording: one its process abandoned can be previewed.
   const recording = new Set(ctx.store.recordingRuns().live.map((r) => r.run.runId));
   const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => !recording.has(r.runId));
-  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: runLabel(r) }));
-  let previewRunId: string | null = ended[0]?.runId ?? null;
+  const listed = ended.slice(0, PREVIEW_RUNS);
+  const runs = listed.map((r) => ({ runId: r.runId, label: runLabel(r) }));
+  let previewRunId: string | null = (listed.find(madeHere) ?? listed[0])?.runId ?? null;
   let previewError: string | null = null;
   if (options.runId) {
     let run: RunRecord | null = null;
