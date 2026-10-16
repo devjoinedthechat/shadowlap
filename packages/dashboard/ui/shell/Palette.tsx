@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { JOB_KINDS, type SearchHit } from '../api.js';
+import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { callName, shortId } from '../format.js';
@@ -14,6 +14,9 @@ import { useApp, useLayer, type PaletteCommand } from '../state.js';
  * Search or jump to (⌘K, Ctrl K, or / away from a run): This run, Go to, Actions, Runs, Fixes,
  * Tests, Projects, and, from three characters, what runs recorded. Every typed word must match.
  */
+
+/** The jobs that run the goldens: while one runs, the palette offers no second session. */
+const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
 export function Palette({ route }: { route: Route }) {
   const app = useApp();
   const { palette, setPalette } = app;
@@ -26,7 +29,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   useLayer('dialog', true, close);
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
-  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [hits, setHits] = useState<RecordedHit[]>([]);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
@@ -54,7 +57,9 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           ['Add a project', href.newProject()],
         ];
     for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', run: () => go(to) });
-    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests))
+    // Not a second session while one started here runs: Tests' own button says so meanwhile.
+    const testsRunning = app.jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
+    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !testsRunning)
       out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.tests, {}))) });
     out.push({ group: 'Actions', label: 'Keyboard shortcuts', hint: '?', run: () => app.setHelp(true) });
     for (const source of paletteSources()) {

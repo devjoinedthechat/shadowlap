@@ -13,6 +13,20 @@ export interface PaletteEntry {
   hint: string;
 }
 
+/**
+ * The Actions group in the design's order, whichever page added each: what a failing golden or the
+ * training data asks for first, then what runs the agent, and Keyboard shortcuts last. An action not
+ * named here goes before Keyboard shortcuts, in the order it was added.
+ */
+export const ACTION_ORDER: readonly string[] = ['Update goldens…', 'Export preference pairs…', 'Score a model on the tasks…', 'Run the tests', 'Import a capture…', 'Calibrate'];
+
+/** Where an action sits in its group: its place in ACTION_ORDER, then unnamed actions, then Keyboard shortcuts. */
+export function actionRank(label: string): number {
+  if (label === 'Keyboard shortcuts') return ACTION_ORDER.length + 1;
+  const i = ACTION_ORDER.indexOf(label);
+  return i < 0 ? ACTION_ORDER.length : i;
+}
+
 /** With nothing typed: This run, Go to, Actions, this many of the newest runs, and Projects. */
 export const EMPTY_RUNS = 5;
 /** Typed items shown at most, before what runs recorded. */
@@ -25,17 +39,19 @@ export function words(query: string): string[] {
 /**
  * The items a query shows. Every typed word must appear in the label or the hint. Groups keep their
  * order; within a group, a label that starts with the first word comes first, then one that
- * contains it, then the rest. Runs come in the order given (newest first).
+ * contains it, then the rest. Actions keep the design's order (`ACTION_ORDER`) among equals; runs
+ * come in the order given (newest first).
  */
 export function matchPalette<T extends PaletteEntry>(items: readonly T[], query: string, limit = MAX_ITEMS): T[] {
   const w = words(query);
   const order = (g: PaletteGroup) => GROUP_ORDER.indexOf(g);
+  const action = (x: PaletteEntry) => (x.group === 'Actions' ? actionRank(x.label) : 0);
   if (!w.length) {
     let runs = 0;
     return items
       .filter((x) => x.group !== 'Fixes' && x.group !== 'Tests' && x.group !== 'In recorded data' && (x.group !== 'Runs' || runs++ < EMPTY_RUNS))
       .map((x, i) => ({ x, i }))
-      .sort((a, b) => order(a.x.group) - order(b.x.group) || a.i - b.i)
+      .sort((a, b) => order(a.x.group) - order(b.x.group) || action(a.x) - action(b.x) || a.i - b.i)
       .map((m) => m.x);
   }
   const first = w[0]!;
@@ -47,7 +63,7 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
       return { x, i, score: label.startsWith(first) ? 0 : label.includes(first) ? 1 : 2 };
     })
     .filter((m): m is { x: T; i: number; score: number } => m !== null)
-    .sort((a, b) => order(a.x.group) - order(b.x.group) || a.score - b.score || a.i - b.i)
+    .sort((a, b) => order(a.x.group) - order(b.x.group) || a.score - b.score || action(a.x) - action(b.x) || a.i - b.i)
     .slice(0, limit)
     .map((m) => m.x);
 }
@@ -55,15 +71,26 @@ export function matchPalette<T extends PaletteEntry>(items: readonly T[], query:
 /** Recorded data is searched from this many characters. */
 export const RECORDED_MIN_CHARS = 3;
 
-/** Hits from what runs recorded: at most `max`, and at most `perRun` from any one run. */
-export function limitRecorded<H extends { runId: string }>(hits: readonly H[], max = 6, perRun = 2): H[] {
+/**
+ * Hits from what runs recorded: at most `max`, and at most `perRun` from any one run. Hits from runs
+ * of their own (recordings, forks, tests) come first. An attempt (`--repeat`, a blame probe, a verify
+ * attempt: `attemptOf` names its run) replays its run's text, so its hit is left out when that run
+ * has one of its own, and the attempts of one run share that run's `perRun`: a blame's probes don't
+ * fill the list with one snippet.
+ */
+export function limitRecorded<H extends { runId: string; attemptOf?: string | null }>(hits: readonly H[], max = 6, perRun = 2): H[] {
+  const own = hits.filter((h) => !h.attemptOf);
+  const attempts = hits.filter((h) => h.attemptOf);
+  const hasOwn = new Set(own.map((h) => h.runId));
   const seen = new Map<string, number>();
   const out: H[] = [];
-  for (const h of hits) {
+  for (const h of [...own, ...attempts]) {
     if (out.length >= max) break;
-    const n = seen.get(h.runId) ?? 0;
+    if (h.attemptOf && hasOwn.has(h.attemptOf)) continue;
+    const key = h.attemptOf ?? h.runId;
+    const n = seen.get(key) ?? 0;
     if (n >= perRun) continue;
-    seen.set(h.runId, n + 1);
+    seen.set(key, n + 1);
     out.push(h);
   }
   return out;

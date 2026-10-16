@@ -5,7 +5,7 @@ import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
 import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
-import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
+import { ACTION_ORDER, highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
@@ -107,6 +107,24 @@ describe('palette', () => {
   it('keeps at most six hits from recorded data, two per run', () => {
     const hits = ['a', 'a', 'a', 'b', 'c', 'c', 'd', 'e', 'f'].map((runId, i) => ({ runId, i }));
     expect(limitRecorded(hits).map((h) => h.i)).toEqual([0, 1, 3, 4, 5, 6]);
+  });
+
+  it('shows the runs recorded data came from before their attempts, and an attempt only for a run with no hit of its own', () => {
+    // A blame's probes replay the recording's text: the search finds them first, five alike.
+    const probe = (runId: string) => ({ runId, attemptOf: 'rec' });
+    const hits = [probe('p1'), probe('p2'), probe('p3'), probe('p4'), probe('p5'), { runId: 'test', attemptOf: null }, { runId: 'rec', attemptOf: null }, { runId: 'fork', attemptOf: null }, { runId: 'r1', attemptOf: 'gone-run' }, { runId: 'r2', attemptOf: 'gone-run' }, { runId: 'r3', attemptOf: 'gone-run' }];
+    expect(limitRecorded(hits).map((h) => h.runId)).toEqual(['test', 'rec', 'fork', 'r1', 'r2']);
+    // Only probes found: two of them stand for their run, not five.
+    expect(limitRecorded(hits.slice(0, 5)).map((h) => h.runId)).toEqual(['p1', 'p2']);
+    // Hits that say nothing about attempts keep the server's order.
+    expect(limitRecorded([{ runId: 'x' }, { runId: 'y' }]).map((h) => h.runId)).toEqual(['x', 'y']);
+  });
+
+  it('orders Actions as the design does, whichever page added them, with Keyboard shortcuts last', () => {
+    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run the tests', 'Calibrate', 'Import a capture…', 'Something new…', 'Score a model on the tasks…', 'Export preference pairs…', 'Update goldens…'].map((label) => ({ group: 'Actions', label, hint: '' }));
+    expect(matchPalette(actions, '').map((x) => x.label)).toEqual([...ACTION_ORDER, 'Something new…', 'Keyboard shortcuts']);
+    // Typed, a better match still leads.
+    expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export preference pairs…', 'Update goldens…']);
   });
 
   it('marks the first typed word and the server’s matches', () => {

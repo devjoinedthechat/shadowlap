@@ -66,7 +66,7 @@ to as `{id, status, title}` or as the fixes read model's `{role, fix, blame}`) i
 views' shape there, once. A new field goes in `types.ts` as optional, and in `normalize.ts` when its shape needs it.
 
 The logic behind the components has no DOM and is unit-tested: `route.ts` (routes and links),
-`palette.ts` (matching), `strip.ts` (cells and grouping), `origins.ts`, `runs.ts` (what a run is and
+`palette.ts` (matching, the Actions group's order, and which hits from recorded data show: a run's own before its attempts'), `strip.ts` (cells and grouping), `origins.ts`, `runs.ts` (what a run is and
 how it ended, the Forks view's lines, the run an exported copy opens on), `recorded.ts` (a replayed
 call's recorded duration), `cache.ts` (where the cache stopped hitting, and what the Context view
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
