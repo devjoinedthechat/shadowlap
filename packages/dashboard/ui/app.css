@@ -1567,6 +1567,18 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* the run header's eyebrow wraps a golden's long path onto a line of its own rather than running under the actions */
 .rhead .eyebrow { flex-wrap: wrap; row-gap: 4px; }
 .rhead .eyebrow code { overflow-wrap: anywhere; }
+/* a run that was interrupted (stopped before it ended, failing nothing else): its page, Runs, the
+   sidebar and the Overview say so in grey, never as a failure */
+.eyebrow.n { color: var(--dim); }
+.eyebrow.n i { background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent); }
+.banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
+.banner.n .bk { color: var(--dim); }
+/* a run's page at a phone's width: the origin filters wrap under each other, and why a run failed
+   wraps like the sentence it is */
+.rhead .meta > span.bad { white-space: normal; }
+@media (max-width: 640px) {
+  .toolbar .ofilter { flex-wrap: wrap; row-gap: 4px; }
+}
 
 /* compare */
 .pickers .arrow { color: var(--faint); }
@@ -1813,19 +1825,3 @@ table.tasks a.rlink:hover code { text-decoration: underline; text-underline-offs
 .pg1 .pgof a { color: inherit; text-decoration: none; }
 .pg1 .pgof a:hover code { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 .pg1 .pgof code { font-size: 12px; color: inherit; }
-
-/* ============ run page: a run that was interrupted ============
-   It stopped before it ended and failed nothing else: its page, Runs, the sidebar and the Overview say
-   so in grey, never as a failure. */
-.eyebrow.n { color: var(--dim); }
-.eyebrow.n i { background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent); }
-.banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
-.banner.n .bk { color: var(--dim); }
-
-/* ============ run page at a phone's width ============
-   Nothing on a run's page is wider than the screen: the origin filters wrap under each other, and why
-   a run failed wraps like the sentence it is. */
-.rhead .meta > span.bad { white-space: normal; }
-@media (max-width: 640px) {
-  .toolbar .ofilter { flex-wrap: wrap; row-gap: 4px; }
-}
