@@ -189,7 +189,7 @@ describe('a fork\'s record in a copy', () => {
       expect(readFileSync(join(cwd, 'fork-pack', 'calls.jsonl'), 'utf8')).not.toContain('maya@example.com');
       const html = await shadowlap(['export', 'html', fork, join(cwd, 'fork.html')]);
       expect(html.code, html.out).toBe(0);
-      expect(html.out).toContain('redacted');
+      expect(html.out).toContain('1 redaction rule applied');
       expect(readFileSync(join(cwd, 'fork.html'), 'utf8')).not.toContain('maya@example.com');
     } finally {
       rmSync(join(cwd, 'shadowlap.config.json'), { force: true });

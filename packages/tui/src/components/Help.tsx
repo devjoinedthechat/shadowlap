@@ -14,7 +14,7 @@ const ROWS: Array<[string, string]> = [
   ['[ / ]', 'previous / next call that ran live, was fenced, or failed'],
   ['n', 'jump to the divergence (forks only)'],
   ['d', 'divergence diff'],
-  [':', 'actions: replay, fork (force tool live, diverge here, override, inject, model), add normalizer, pack'],
+  [':', 'the fork menu: what applies to the call, then repeat, stub writes, find the commit; replay, normalizer, pack'],
   ['y', 'copy the request (or the response, on that tab) to the clipboard'],
   ['w', 'write the call\'s request and response to a JSON file in the working directory'],
   ['p', 'open the parent run'],
