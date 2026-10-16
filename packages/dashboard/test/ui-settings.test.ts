@@ -31,6 +31,7 @@ import {
   runListKey,
   ruleInput,
   ruleProblem,
+  ruleWarning,
   serverNameFor,
   settingsTab,
   shellWords,
@@ -115,6 +116,14 @@ describe('the Add dialog', () => {
     expect(ruleProblem(form({ mode: 'regex' }))).toMatch(/regex/);
     expect(ruleProblem(form({ mode: 'whole' }))).toMatch(/path/);
     expect(ruleProblem(form({ path: 'metadata.user_id' }))).toMatch(/starts with \$/);
+  });
+
+  it('warns about a regex that can take minutes on some text, and still adds it, as the CLI does', () => {
+    expect(ruleWarning(form({ mode: 'regex', regex: '(a+)+$' }))).toBe('It repeats a group that repeats itself, as (a+)+ does, which can take minutes on some text: write it without the outer repeat.');
+    expect(ruleWarning(form({ mode: 'regex', regex: '/(\\w*\\s?)*/i' }))).not.toBeNull();
+    expect(ruleProblem(form({ mode: 'regex', regex: '(a+)+$' }))).toBeNull();
+    for (const regex of ['req_[a-z0-9]+', '(?<=key=)\\w+', '\\b(?:\\d[ -]?){13,16}\\b', '']) expect(ruleWarning(form({ mode: 'regex', regex })), regex).toBeNull();
+    expect(ruleWarning(form({}))).toBeNull();
   });
 
   it('shows the command that adds the very same rule, quoted for a shell', () => {

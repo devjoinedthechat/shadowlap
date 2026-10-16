@@ -1,3 +1,4 @@
+import { repeatsARepeat } from '../../../src/regex-shape.js';
 import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 
 /**
@@ -88,6 +89,15 @@ export function ruleProblem(f: RuleFormState): string | null {
   if (f.mode === 'whole' && !f.path.trim()) return 'Give the path whose whole value is replaced.';
   if (f.path.trim() && !f.path.trim().startsWith('$')) return 'A path starts with $, such as $.metadata.user_id.';
   return null;
+}
+
+/**
+ * What the dialog warns about but still adds, as the CLI does: a regex that repeats a group that
+ * repeats itself, as (a+)+, which can take minutes on some text, in every replay or copy it reads.
+ */
+export function ruleWarning(f: RuleFormState): string | null {
+  if (f.mode !== 'regex' || !f.regex.trim() || !repeatsARepeat(regexLiteral(f.regex))) return null;
+  return 'It repeats a group that repeats itself, as (a+)+ does, which can take minutes on some text: write it without the outer repeat.';
 }
 
 /** An argument as a shell takes it, quoted only when it has to be. */
