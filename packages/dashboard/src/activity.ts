@@ -81,7 +81,8 @@ const EVENT_TEXT = new Map<string, Describe>([
       return { kind: failed ? 'fail' : 'test', text: `Tests ran · ${num(d.passed) ?? 0} passed, ${failed} failed`, href: '#/tests' };
     },
   ],
-  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: '#/tests' })],
+  // A golden's answer opens Tests, where it shows above the golden's buttons; a run's, the run.
+  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' })],
   [
     'blame.done',
     (e, d) => {
@@ -268,17 +269,36 @@ function recordingEnd(store: Store, run: RunRecord): ActivityItem {
   return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
 }
 
-function testEnd(store: Store, run: RunRecord, test: { golden: string; session: string }): ActivityItem {
+/**
+ * A golden's replays in one test session, as one entry: a golden that may fork runs several
+ * attempts, and its result, not each attempt, says how it did. The entry opens the replay the
+ * result names (the one that failed, or the newest), and is told as of the newest attempt's end.
+ */
+function testEntry(store: Store, attempts: RunRecord[]): ActivityItem {
+  const newest = attempts.reduce((a, b) => ((b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a));
+  const test = newest.meta!.test!;
+  const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
+  const shown = (result?.runId ? attempts.find((r) => r.runId === result.runId) : undefined) ?? newest;
+  return { ...testEnd(store, shown, test, result), id: `r:${newest.runId}:end`, at: newest.endedAt ?? newest.startedAt };
+}
+
+function testEnd(store: Store, run: RunRecord, test: { golden: string; session: string }, result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0]): ActivityItem {
   const f = facts(store, run);
   const golden = basename(test.golden.replace(/[\\/]+$/, '')) || test.golden;
   const checks = checksOutcome(run);
   const d = run.divergence;
   const item = { ...base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt) };
   const drifted = d ? drift(d) : null;
-  // Tests: the golden's result in its session says how it did, once it has one. A golden that may
-  // fork diverges by design, and passes on its checks; without the result, the run says it.
-  const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
-  if (result?.ok) return { ...item, kind: 'test', text: `Test passed · ${golden} · ${checks ? `${checks.passed} of ${checks.total} checks passed` : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`}` };
+  // Tests: the golden's result in its session says how it did, once it has one: its attempts, or
+  // its checks. A golden that may fork diverges by design, and passes on its checks; without the
+  // result, the run says it.
+  const attempts = result?.data?.attempts;
+  const judged = result?.data?.checks ?? null;
+  if (result?.ok) {
+    const how = attempts ? `${attempts.passed} of ${attempts.total} attempts passed` : judged?.length ? `${judged.filter((c) => c.ok).length} of ${judged.length} checks passed` : checks ? `${checks.passed} of ${checks.total} checks passed` : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
+    return { ...item, kind: 'test', text: `Test passed · ${golden} · ${how}` };
+  }
+  if (attempts && result) return { ...item, kind: 'fail', text: `Test failed · ${golden} · ${attempts.passed} of ${attempts.total} attempts passed, ${attempts.required} needed` };
   const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
   if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
   const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null);
@@ -288,7 +308,7 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
 }
 
 function replayEnd(store: Store, run: RunRecord): ActivityItem {
-  if (run.meta?.test) return testEnd(store, run, run.meta.test);
+  if (run.meta?.test) return testEntry(store, [run]);
   const f = facts(store, run);
   const s = f.summary;
   const checks = checksOutcome(run);
@@ -490,6 +510,8 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
   const stubs: Stub[] = [];
   const byId = cachedRuns(store).byId;
   const groups = new Map<string, RunRecord[]>();
+  // A golden's replays in one test session, by session and golden: one entry each (testEntry).
+  const tested = new Map<string, RunRecord[]>();
   const unpacked: RunRecord[] = [];
   const captured: RunRecord[] = [];
   for (const run of runs) {
@@ -522,8 +544,20 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
       });
       if (run.status !== 'running') stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => recordingEnd(store, run) });
     } else if (run.status !== 'running') {
+      const test = m?.test;
+      if (test && typeof test.session === 'string' && typeof test.golden === 'string') {
+        const key = `${test.session}\n${test.golden}`;
+        const list = tested.get(key);
+        if (list) list.push(run);
+        else tested.set(key, [run]);
+        continue;
+      }
       stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => replayEnd(store, run) });
     }
+  }
+  for (const attempts of tested.values()) {
+    const newest = attempts.reduce((a, b) => ((b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a));
+    stubs.push({ id: `r:${newest.runId}:end`, at: newest.endedAt ?? newest.startedAt, render: () => testEntry(store, attempts) });
   }
   for (const attempts of groups.values()) {
     attempts.sort((a, b) => time(a.meta!.repeat!.attempt, 0) - time(b.meta!.repeat!.attempt, 0));
