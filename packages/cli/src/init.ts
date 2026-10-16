@@ -145,6 +145,39 @@ function pythonDependencies(cwd: string): Set<string> {
   return names;
 }
 
+/**
+ * The extras Python dependencies are asked for with (`pydantic-ai-slim[openai,anthropic]`), from
+ * pyproject.toml (its dependency arrays, and Poetry's `extras = [...]`), requirements files and
+ * Pipfile: an extra named after a provider installs that provider's SDK.
+ */
+function pythonExtras(cwd: string): Array<{ name: string; extra: string }> {
+  const out: Array<{ name: string; extra: string }> = [];
+  const add = (name: string, list: string) => {
+    for (const e of list.split(',')) {
+      const extra = e.trim().replace(/^["']|["']$/g, '').toLowerCase();
+      if (extra) out.push({ name: name.toLowerCase().replace(/_/g, '-'), extra });
+    }
+  };
+  const spec = (text: string) => {
+    const m = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*\[([^\]\n]*)\]/.exec(text);
+    if (m) add(m[1]!, m[2]!);
+  };
+  const table = (line: string) => {
+    const m = /^\s*([\w.-]+)\s*=\s*\{[^}]*\bextras\s*=\s*\[([^\]]*)\]/.exec(line);
+    if (m) add(m[1]!, m[2]!);
+  };
+  const read = (f: string) => (existsSync(join(cwd, f)) ? readFileSync(join(cwd, f), 'utf8') : '');
+  const pyproject = read('pyproject.toml');
+  for (const s of tomlRequirements(pyproject, ['dependencies', 'requires'])) spec(s);
+  for (const line of pyproject.split('\n')) table(line);
+  for (const f of ['requirements.txt', 'requirements-dev.txt', 'requirements.in']) for (const line of read(f).split('\n')) if (!line.trim().startsWith('#')) spec(line);
+  for (const line of read('Pipfile').split('\n')) table(line);
+  return out;
+}
+
+/** Extras that install a provider's SDK, by the provider (Pydantic AI's names). */
+const EXTRA_PROVIDERS: Record<string, Provider['id']> = { openai: 'openai', anthropic: 'anthropic', google: 'gemini', gemini: 'gemini', 'google-genai': 'gemini', vertexai: 'vertex', bedrock: 'bedrock' };
+
 function sourceFiles(cwd: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, depth: number) => {
@@ -293,15 +326,21 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
   return out;
 }
 
-/** Agent frameworks that call models through an OpenAI client of their own, which reads OPENAI_BASE_URL: Pydantic AI's `openai:` models, the OpenAI Agents SDK, CrewAI's LiteLLM, LangChain's ChatOpenAI, the AI SDK's and Mastra's openai provider. */
-const OPENAI_FRAMEWORKS: ReadonlySet<Framework['id']> = new Set(['pydantic-ai', 'openai-agents', 'openai-agents-python', 'crewai', 'langchain', 'langchain-python', 'ai-sdk', 'mastra']);
+/**
+ * Agent frameworks that bring an OpenAI client of their own, which reads OPENAI_BASE_URL: the OpenAI
+ * Agents SDK, CrewAI (OpenAI is its default model), Mastra's model router, and Pydantic AI as a whole
+ * (`pydantic-ai`, not `pydantic-ai-slim`, which has it only with its `[openai]` extra). LangChain and
+ * the AI SDK reach OpenAI only through a package of their own for it (`langchain-openai`,
+ * `@ai-sdk/openai`), which counts as an OpenAI SDK.
+ */
+const OPENAI_FRAMEWORKS: ReadonlySet<Framework['id']> = new Set(['openai-agents', 'openai-agents-python', 'crewai', 'mastra']);
 
 /** The largest lockfile read for the packages it installs: a big project's is a few megabytes. */
 const MAX_LOCKFILE_BYTES = 16 * 1024 * 1024;
 
 /**
- * Whether an OpenAI client is installed, though no dependency names it: an `[openai]` extra
- * (`pydantic-ai-slim[openai]`), or `openai` in a lockfile, which pulls it in for another package.
+ * Whether an OpenAI client is installed though no dependency names it: `openai` in a lockfile,
+ * which pulls it in for another package. (An `[openai]` extra names it: see pythonExtras.)
  */
 function openaiInstalled(cwd: string): boolean {
   const read = (name: string) => {
@@ -312,9 +351,6 @@ function openaiInstalled(cwd: string): boolean {
       return '';
     }
   };
-  // An extra in pyproject.toml or a requirements file: "pydantic-ai-slim[openai,anthropic]".
-  const extra = /[A-Za-z0-9][\w.-]*\[[^\]\n]*\bopenai\b[^\]\n]*\]/i;
-  if (['pyproject.toml', 'requirements.txt', 'requirements.in', 'Pipfile'].some((f) => extra.test(read(f)))) return true;
   const locks: Array<[string, RegExp]> = [
     ['uv.lock', /^name = "openai"$/m],
     ['poetry.lock', /^name = "openai"$/m],
@@ -332,13 +368,14 @@ function openaiInstalled(cwd: string): boolean {
  * An OpenAI-compatible server the project already uses: from the environment, a .env file or a base
  * URL fallback in code. OPENAI_BASE_URL reaches only an OpenAI client, so it is this project's
  * server unless every model client found is another provider's (Anthropic's, Gemini's): an OpenAI
- * SDK, a framework that calls models through one (OPENAI_FRAMEWORKS), an OpenAI client installed for
- * another package, or SDKs that can't be told all count.
+ * SDK, a framework that brings one (OPENAI_FRAMEWORKS, Pydantic AI as a whole), an OpenAI client
+ * installed for another package, or SDKs that can't be told all count.
  */
 function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>, providers: readonly Provider[], frameworks: readonly Framework[]): InitReport['modelServer'] {
   const toUpstream = (url: string) => url.replace(/\/+$/, '').replace(/\/v1$/, '');
   const local = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?/.test(url) && !url.includes('/openai');
-  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai') || frameworks.some((f) => OPENAI_FRAMEWORKS.has(f.id)) || openaiInstalled(cwd);
+  const framework = frameworks.some((f) => OPENAI_FRAMEWORKS.has(f.id) || (f.id === 'pydantic-ai' && f.package === 'pydantic-ai'));
+  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai') || framework || openaiInstalled(cwd);
   if (openaiClient && env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
   for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);
@@ -494,6 +531,8 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   };
   for (const [name, id] of Object.entries(JS_PROVIDERS)) if (deps[name]) addProvider(id, name);
   for (const [name, id] of Object.entries(PY_PROVIDERS)) if (py.has(name)) addProvider(id, name);
+  // An extra that installs a provider's SDK with a framework: `pydantic-ai-slim[openai]`. (A provider's own SDK's extras, as `anthropic[bedrock]`, add a transport, not an SDK.)
+  for (const { name, extra } of pythonExtras(cwd)) if (EXTRA_PROVIDERS[extra] && !(name in PY_PROVIDERS)) addProvider(EXTRA_PROVIDERS[extra], `${name}[${extra}]`);
   if (deps['@openai/agents']) addProvider('openai', '@openai/agents');
   // Scripts without a dependency file (a requirements.txt nobody wrote): the imports tell.
   const IMPORTS: Array<[RegExp, Provider['id'], string]> = [

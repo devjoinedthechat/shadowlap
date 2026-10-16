@@ -188,11 +188,18 @@ def send_page(to: str) -> dict:
     // Pydantic AI's `openai:` models next to Anthropic's SDK: the agent's OpenAI calls go to the local server, from the environment or .env.
     const pydantic = { 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "pydantic-ai-slim[openai]"]\n', 'agent.py': "from pydantic_ai import Agent\nagent = Agent('openai:llama3.2')\n" };
     expect(server(pydantic)).toBe('http://127.0.0.1:11434/v1');
+    // The extra installs OpenAI's SDK: it is one of the project's SDKs, named by what brought it.
+    expect(inspectProject(project(pydantic), {}).providers).toEqual([{ id: 'anthropic', via: 'anthropic' }, { id: 'openai', via: 'pydantic-ai-slim[openai]' }]);
     expect(server({ ...pydantic, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }, {})).toBe('http://127.0.0.1:11434/v1');
-    // The OpenAI Agents SDK, CrewAI, LangChain or the AI SDK beside another provider's SDK.
+    // Pydantic AI as a whole, the OpenAI Agents SDK, CrewAI or Mastra beside another provider's SDK: each brings an OpenAI client.
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "pydantic-ai>=1"]\n', 'agent.py': 'from pydantic_ai import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
     expect(server({ 'requirements.txt': 'anthropic\nopenai-agents\n', 'agent.py': 'from agents import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
     expect(server({ 'requirements.txt': 'anthropic\ncrewai\n', 'agent.py': 'from crewai import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
-    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@ai-sdk/anthropic': '^2.0.0', ai: '^5.0.0' } }), 'agent.mjs': "import { generateText } from 'ai';\n" })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@ai-sdk/anthropic': '^2.0.0', '@mastra/core': '^0.20.0' } }), 'agent.mjs': "import { Agent } from '@mastra/core/agent';\n" })).toBe('http://127.0.0.1:11434/v1');
+    // The AI SDK, LangChain or Pydantic AI's slim package with Anthropic's provider alone: every client is Anthropic's.
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@ai-sdk/anthropic': '^2.0.0', ai: '^5.0.0' } }), 'agent.mjs': "import { generateText } from 'ai';\n" })).toBeNull();
+    expect(server({ 'requirements.txt': 'langchain\nlangchain-anthropic\n', 'agent.py': 'from langchain_anthropic import ChatAnthropic\n' })).toBeNull();
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["pydantic-ai-slim[anthropic]"]\n', 'agent.py': 'from pydantic_ai import Agent\n' })).toBeNull();
     // An extra alone, or openai in the lockfile for another package.
     expect(server({ 'requirements.txt': 'anthropic\nsome-agent-kit[openai]>=1\n', 'agent.py': 'import anthropic\n' })).toBe('http://127.0.0.1:11434/v1');
     expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "some-agent-kit"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "openai"\nversion = "1.54.0"\n', 'agent.py': 'import anthropic\n' })).toBe('http://127.0.0.1:11434/v1');
