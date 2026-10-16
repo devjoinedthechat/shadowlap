@@ -9,13 +9,13 @@ import { navigate } from '../router.js';
 import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, named } from './bulk.js';
+import { bulkToast, datasetOff, inBatches, joinDeleted, joinLabelled, named } from './bulk.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
- * Compare (exactly two) and Delete, then Clear. Label and Delete act on every run picked at once,
- * by its full id; Pack (one run after another) and Dataset start the run page's export jobs, Push
- * the team store's.
+ * Compare (exactly two) and Delete, then Clear. Label and Delete act on every run picked by its full
+ * id, a thousand to a request; Pack (one run after another) and Dataset (at most 500 runs) start the
+ * run page's export jobs, Push the team store's.
  */
 
 /** What the bar needs of a run picked: it may no longer be on the page shown. */
@@ -38,6 +38,8 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   // through, and is left alone by a delete.
   const ended = runs.filter((r) => !isLive(r));
   const off = actionsOff ?? undefined;
+  // The bar picks up to 1,000 runs; one dataset takes fewer.
+  const tooMany = datasetOff(ended.length);
 
   // Each run into share/<id>, one after another: pack takes one run, and a dashboard runs at most
   // 16 jobs at once.
@@ -89,7 +91,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           </button>
         ) : null}
         {hasKind(JOB_KINDS.dataset) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
+          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooMany} title={off ?? tooMany ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
             Dataset
           </button>
         ) : null}
@@ -125,7 +127,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           onClose={() => setOpen(null)}
           onRun={(label) => {
             setOpen(null);
-            client.labelRuns(ids, [label]).then(
+            inBatches(ids, (part) => client.labelRuns(part, [label])).then(joinLabelled).then(
               (out) => {
                 toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
                 onDone();
@@ -146,7 +148,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           onOk={() => {
             setOpen(null);
             const doomed = ended.map((r) => r.runId);
-            client.deleteRuns(doomed).then(
+            inBatches(doomed, (part) => client.deleteRuns(part)).then(joinDeleted).then(
               (out) => {
                 toast(bulkToast({ verb: 'Deleted', done: out.done, of: doomed.length, skipped: out.skipped }));
                 clear();
