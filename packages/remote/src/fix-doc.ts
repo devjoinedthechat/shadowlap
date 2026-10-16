@@ -73,6 +73,10 @@ const line: Check = (v, w) => {
 const num: Check = (v, w) => {
   if (typeof v !== 'number' || !Number.isFinite(v)) fail(w, 'must be a number');
 };
+/** A number in a report: JSON keeps a NaN or an infinity as null, as this machine's own copy of it would. */
+const amount: Check = (v, w) => {
+  if (v !== null && (typeof v !== 'number' || !Number.isFinite(v))) fail(w, 'must be a number');
+};
 const bool: Check = (v, w) => {
   if (typeof v !== 'boolean') fail(w, 'must be true or false');
 };
@@ -118,38 +122,38 @@ const record =
     for (const [k, x] of Object.entries(v)) c(x, `${w}.${k}`);
   };
 
-const footprint = obj({ inputTokens: num, outputTokens: num, cost: nullable(num) });
+const footprint = obj({ inputTokens: amount, outputTokens: amount, cost: nullable(amount) });
 const block = obj({ type: oneOf('text', 'thinking', 'tool_call') });
-const blameAttempt = obj({ runId, passed: bool, exitCode: num, failures: arr(str), spent: num, upstreamRequests: num });
-const blameProbe = obj({ callNo: num, step: num, attempts: arr(blameAttempt), passes: num, rescued: bool });
+const blameAttempt = obj({ runId, passed: bool, exitCode: amount, failures: arr(str), spent: amount, upstreamRequests: amount });
+const blameProbe = obj({ callNo: amount, step: amount, attempts: arr(blameAttempt), passes: amount, rescued: bool });
 const blameReport = obj({
   outcome: oneOf('blamed', 'unrescuable', 'stopped'),
   blamed: nullable(blameProbe),
   lost: nullable(blameProbe),
   probes: arr(blameProbe),
-  nonMonotone: arr(obj({ lost: num, rescued: num })),
+  nonMonotone: arr(obj({ lost: amount, rescued: amount })),
   confidence: oneOf('high', 'medium', 'low'),
   runId,
-  steps: num,
-  attemptsPerProbe: num,
-  needed: num,
+  steps: amount,
+  attemptsPerProbe: amount,
+  needed: amount,
   rescue: obj({ fields: record(any) }),
   oracle: arr(str),
   recordedFailures: arr(str),
-  contrast: nullable(obj({ callNo: num, recorded: arr(block), rescued: arr(block), rescuedRunId: runId })),
-  attempts: num,
-  spent: num,
-  upstreamRequests: num,
+  contrast: nullable(obj({ callNo: amount, recorded: arr(block), rescued: arr(block), rescuedRunId: runId })),
+  attempts: amount,
+  spent: amount,
+  upstreamRequests: amount,
   unknownModels: arr(str),
   stopReason: nullable(str),
   warnings: arr(str),
 });
-const verifyAttempt = obj({ runId, passed: bool, exitCode: num, failures: arr(str), forkedAt: nullable(num), spent: num, upstreamRequests: num, footprint });
+const verifyAttempt = obj({ runId, passed: bool, exitCode: amount, failures: arr(str), forkedAt: nullable(amount), spent: amount, upstreamRequests: amount, footprint });
 const verifiedRun = obj({
   runId,
   role: oneOf('target', 'holdout', 'good'),
   attempts: arr(verifyAttempt),
-  passes: num,
+  passes: amount,
   deterministic: bool,
   verdict: oneOf('pass', 'fail', 'open'),
   recorded: obj({ passed: nullable(bool), failures: arr(str), footprint }),
@@ -159,14 +163,14 @@ const verifyReport = obj({
   reasons: arr(str),
   warnings: arr(str),
   runs: arr(verifiedRun),
-  attemptsPerRun: num,
-  needed: num,
+  attemptsPerRun: amount,
+  needed: amount,
   oracle: arr(str),
   fields: record(any),
   codeVersion: nullable(str),
-  attempts: num,
-  spent: num,
-  upstreamRequests: num,
+  attempts: amount,
+  spent: amount,
+  upstreamRequests: amount,
   unknownModels: arr(str),
   stopReason: nullable(str),
   replayWarnings: arr(str),
@@ -174,9 +178,9 @@ const verifyReport = obj({
 const repairTarget = obj({
   runId,
   outcome: oneOf('blamed', 'unrescuable', 'stopped', 'error'),
-  callNo: nullable(num),
-  step: nullable(num),
-  steps: num,
+  callNo: nullable(amount),
+  step: nullable(amount),
+  steps: amount,
   rescuedRunId: nullable(runId),
   rescuedBy: nullable(str),
   reused: bool,
@@ -185,16 +189,16 @@ const repairTarget = obj({
   note: nullable(str),
 });
 const repairCandidate = obj({
-  id: num,
+  id: amount,
   source: oneOf('repairer', 'model'),
   strategy: str,
   why: str,
   surface: str,
   file: line,
-  offset: num,
+  offset: amount,
   before: str,
   after: str,
-  size: num,
+  size: amount,
   state: oneOf('invalid', 'untried', 'build-failed', 'rejected', 'incomplete', 'accepted'),
   reason: nullable(str),
   verify: nullable(verifyReport),
@@ -207,13 +211,13 @@ const repairReport = obj({
   good: arr(runId),
   heldOutAutomatically: bool,
   oracle: arr(str),
-  repairer: nullable(obj({ provider: line, model: line, served: nullable(line), cost: nullable(num) })),
+  repairer: nullable(obj({ provider: line, model: line, served: nullable(line), cost: nullable(amount) })),
   diagnosis: nullable(str),
-  anchors: num,
+  anchors: amount,
   candidates: arr(repairCandidate),
-  accepted: nullable(num),
+  accepted: nullable(amount),
   patch: nullable(str),
-  cost: obj({ blame: num, repairer: nullable(num), verify: num }),
+  cost: obj({ blame: amount, repairer: nullable(amount), verify: amount }),
   output: obj({ dir: nullable(line), patch: nullable(line), report: nullable(line), goldens: arr(line), applied: bool, branch: nullable(line), pr: nullable(line) }),
   warnings: arr(str),
 });
