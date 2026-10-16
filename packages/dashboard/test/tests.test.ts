@@ -697,9 +697,20 @@ describe('the diverged-test banner on a run', () => {
       update: ['test', 'goldens/refund-in-limit', '--update'],
       normalizeAndTest: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-in-limit']],
       rulesAdded: false,
+      cause: null,
     });
     // Once its rule is in the config, the run's page can offer a re-run, as Tests does.
     expect(testRunBanner(store, replay.runId, { normalizers: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] })!.rulesAdded).toBe(true);
+    // What made a replay diverge, when a masked change comes first: as the CLI kept it, or as the config's rules leave it.
+    const prompt = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.mjs'], cwd: '/p' }, meta: { test: { golden: 'goldens/refund-flow', session: s.sessionId } } });
+    const diff = [{ path: '$.metadata.user_id', op: 'changed' as const, before: UUID_A, after: UUID_B }, { path: '$.system', op: 'changed' as const, before: 'Escalate.', after: 'Refund.' }];
+    store.setDivergence(prompt.runId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-flow', ok: false, failure: 'diverged', runId: prompt.runId });
+    const rule = { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+    expect(testRunBanner(store, prompt.runId)!.cause).toBeNull();
+    expect(testRunBanner(store, prompt.runId, { normalizers: [rule] })!.cause).toBe('$.system');
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/refund-flow', ok: false, failure: 'diverged', runId: prompt.runId, data: { divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff, cause: '$.system', text: '' } } });
+    expect(testRunBanner(store, prompt.runId)!.cause).toBe('$.system');
     const recording = store.createRun({ mode: 'record', command: { argv: ['node'], cwd: '/p' } });
     expect(testRunBanner(store, recording.runId)).toBeNull();
     expect(testRunBanner(store, 'nope')).toBeNull();

@@ -975,6 +975,12 @@ export interface TestRunBanner {
    * it match. As on the Tests screen, where the button becomes Re-run.
    */
   rulesAdded: boolean;
+  /**
+   * The change that made it diverge: the first the rules in force didn't mask, as the CLI kept it
+   * with the golden's result (or, for a result kept before it did, as `normalizers` leave it). The
+   * run's divergence lists the masked changes too. Null when nothing says.
+   */
+  cause: string | null;
 }
 
 /**
@@ -989,8 +995,12 @@ export function testRunBanner(store: Store, runId: string, options: { normalizer
   const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
   if (result?.failure !== 'diverged') return null;
   // As judged when it ran, under the normalizers in force then; judged again for older history.
-  const kept = result.runId === run.runId ? result.data?.divergence?.volatile : undefined;
+  const ownResult = result.runId === run.runId;
+  const kept = ownResult ? result.data?.divergence?.volatile : undefined;
   const found = kept ? storedVolatile(kept) : volatileValues(run.divergence);
+  const keptCause = ownResult ? result.data?.divergence?.cause : undefined;
+  const d = run.divergence;
+  const cause = keptCause !== undefined ? keptCause : options.normalizers?.length && d.type === 'request_changed' ? ((d.diff ?? []).find((e) => !maskedChange(e, options.normalizers!, d))?.path ?? null) : null;
   return {
     golden: test.golden,
     session: test.session,
@@ -1002,6 +1012,7 @@ export function testRunBanner(store: Store, runId: string, options: { normalizer
     update: ['test', test.golden, '--update'],
     normalizeAndTest: normalizeSteps(found, test.golden),
     rulesAdded: found.values.length > 0 && found.values.every((v) => (options.normalizers ?? []).some((n) => sameRule(n, v.normalizer))),
+    cause,
   };
 }
 

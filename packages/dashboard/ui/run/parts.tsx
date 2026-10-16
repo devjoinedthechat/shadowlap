@@ -164,7 +164,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           {call(b.callNo)}
           <code>{r.divergence?.name ?? ''}</code>
           <Why>{b.why}</Why>
-          {b.path ? <span className="path">~ {test?.volatile?.path ?? b.path}</span> : null}
+          {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
           <span className="end">
             {add?.kind === 'added' ? (
               <>
