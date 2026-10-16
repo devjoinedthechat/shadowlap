@@ -110,6 +110,22 @@ describe('shadowlap test history', () => {
     s.close();
   });
 
+  it('links a dashboard job over several goldens to the replay of each that failed, then Tests', async () => {
+    cpSync(GOLDEN, join(work, 'goldens', 'no-email'), { recursive: true });
+    // The same recording, with a check its agent breaks: it sends the email the check rules out.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/no-email': { expect: { tools: { send_email: 0 } } } } }));
+    const r = await shadowlap(['test', 'goldens/*', '--cwd', ROOT]);
+    expect(r.code, r.out).toBe(1);
+    const s = store();
+    const failed = s.listTestResults({ golden: 'goldens/no-email' })[0]!;
+    expect(failed).toMatchObject({ ok: false, failure: 'check' });
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([
+      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}` },
+      { type: 'link', label: 'Tests', href: '#/tests' },
+    ]);
+    s.close();
+  });
+
   it('keeps what the agent printed last when it exits with an error, for the Tests screen', async () => {
     const r = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT], { AGENT_FAIL_AFTER_CALL: '5' });
     expect(r.code).toBe(1);
