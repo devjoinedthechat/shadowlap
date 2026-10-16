@@ -2,7 +2,7 @@ import { hasRecordedCommand, type Normalizer, type RunRecord, type Store } from 
 import { parseStoreUrl, shortStoreName, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { fixForRun } from './fixes.js';
-import { copyRules, type CopyRules } from './run-exports.js';
+import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 
 /**
@@ -77,7 +77,8 @@ function teamOf(store: Store, run: RunRecord, raw: unknown): RunOffers['team'] {
     return null;
   }
   const name = shortStoreName(loc);
-  if (run.status === 'running') return { store: name, state: 'recording' };
+  // A run its recorder left marked running was interrupted: only here, and pushed as it is.
+  if (recordingNow(store, run)) return { store: name, state: 'recording' };
   if (run.meta?.imported?.pr) return { store: name, state: 'pull-request' };
   const row = store.teamRun(loc.url, run.runId);
   return { store: name, state: row && teamRunInStore(row) ? 'in-store' : row?.state === 'queued' ? 'queued' : 'only-here' };
