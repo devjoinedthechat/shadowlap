@@ -1,5 +1,5 @@
-import { resolve, sep } from 'node:path';
-import { formatUsd, parseTaskFields, type CallRecord } from '@shadowlap/engine';
+import { resolve } from 'node:path';
+import { formatUsd, parseTaskFields, testsEntryFor, type CallRecord } from '@shadowlap/engine';
 
 /**
  * Outcome checks for `shadowlap test`. A golden normally passes only when the replay is clean, which
@@ -242,22 +242,13 @@ export function parseTests(raw: unknown): TestEntry[] {
   return Object.entries(raw).map(([recording, spec]) => ({ recording, spec: parseSpec(spec, `${CONFIG}: tests["${recording}"]`) }));
 }
 
-/** The entry for a recording directory. An exact path wins over a pattern; `*` matches within the last part only. */
+/**
+ * The entry for a recording directory (relative to the current folder, or absolute). An exact path
+ * wins over a pattern; `*` matches within the last part only. The engine's `testsEntryFor` decides,
+ * so the dashboard finds a run's checks the same way.
+ */
 export function specFor(entries: TestEntry[], recordingDir: string, configDir: string): TestSpec | null {
-  const target = resolve(recordingDir).replace(/[\\/]+$/, '');
-  let pattern: TestSpec | null = null;
-  for (const e of entries) {
-    const full = resolve(configDir, e.recording).replace(/[\\/]+$/, '');
-    if (!full.includes('*')) {
-      if (full === target) return e.spec;
-      continue;
-    }
-    const cut = full.lastIndexOf(sep);
-    const [dir, last] = [full.slice(0, cut), full.slice(cut + 1)];
-    const re = new RegExp(`^${last.split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^\\\\/]*')}$`);
-    if (!pattern && target.slice(0, target.lastIndexOf(sep)) === dir && re.test(target.slice(target.lastIndexOf(sep) + 1))) pattern = e.spec;
-  }
-  return pattern;
+  return testsEntryFor(entries, resolve(recordingDir), configDir)?.spec ?? null;
 }
 
 /** Every expected value is present: objects partially, anything else exactly. */

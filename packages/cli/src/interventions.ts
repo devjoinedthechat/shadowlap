@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { estimateCost, finalAnswer, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { estimateCost, finalAnswer, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -134,14 +134,9 @@ export function checksOfRun(store: Store, run: RunRecord, cwd: string): { spec: 
     return null;
   }
   if (!tests.length) return null;
-  const seen = new Set<string>();
-  for (let r: RunRecord | null = run; r && !seen.has(r.runId); r = r.parentRunId ? store.getRun(r.parentRunId) : null) {
-    seen.add(r.runId);
-    for (const dir of [r.meta?.test?.golden, r.meta?.imported?.from]) {
-      if (!dir) continue;
-      const spec = specFor(tests, dir, cwd);
-      if (spec) return { spec, source: dir };
-    }
+  for (const dir of recordingsOfRun(store, run)) {
+    const spec = specFor(tests, dir, cwd);
+    if (spec) return { spec, source: dir };
   }
   return null;
 }
