@@ -3,9 +3,10 @@ import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 import { BULK_MAX } from '../src/runs-list.js';
 import { dialogFocus } from '../ui/focus.js';
 import { stripScroll } from '../ui/place.js';
-import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled } from '../ui/runspage/bulk.js';
+import { exportedLine } from '../ui/projects.js';
+import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
 import { TRACE_COPY } from '../ui/runspage/imports.js';
-import { copyCompares, copyLine } from '../ui/runs.js';
+import { copyCompares } from '../ui/runs.js';
 
 describe('a tab strip on a narrow screen', () => {
   // A strip 358px wide, scrolled to its start; tabs from the start of its content.
@@ -29,9 +30,9 @@ describe('a tab strip on a narrow screen', () => {
 
 describe('an exported copy’s project block', () => {
   it('counts the runs it holds in words', () => {
-    expect(copyLine(['01M51X7D66'])).toBe('1 run · nothing runs from here');
-    expect(copyLine(['01M51X7D66', '01M51X7H8Q'])).toBe('2 runs · nothing runs from here');
-    expect(copyLine(undefined)).toBe('0 runs · nothing runs from here');
+    expect(exportedLine(1)).toBe('1 run · nothing runs from here');
+    expect(exportedLine(2)).toBe('2 runs · nothing runs from here');
+    expect(exportedLine(0)).toBe('0 runs · nothing runs from here');
   });
 
   it('has Compare only when it holds two runs or more', () => {
@@ -65,6 +66,18 @@ describe('the bulk bar', () => {
       { done: ['b'], attempts: [], skipped: [{ runId: 'c', reason: 'still recording' }], blobs: 1, bytes: 5 },
     ])).toEqual({ done: ['a', 'b'], attempts: ['a1'], skipped: [{ runId: 'c', reason: 'still recording' }], blobs: 3, bytes: 15 });
   });
+
+  it('prints every id a Delete of a few runs takes, and the first few and how many more for a long pick', () => {
+    const ids = Array.from({ length: 1100 }, (_, i) => `01M5${String(i).padStart(6, '0')}ABCDEFGHJKMNPQ`);
+    const few = rmCommand(ids.slice(0, RM_ALL));
+    expect(few.shown).toBe(few.full);
+    expect(few.full).toBe(`shadowlap rm ${ids.slice(0, RM_ALL).map((id) => id.slice(0, 10)).join(' ')}`);
+    const long = rmCommand(ids);
+    expect(long.shown).toBe('shadowlap rm 01M5000000 01M5000001 01M5000002 01M5000003 01M5000004 … and 1,095 more');
+    expect(long.full.split(' ')).toHaveLength(2 + 1100);
+    expect(long.full.endsWith(' 01M5001099')).toBe(true);
+    expect(rmCommand(ids.slice(0, RM_ALL + 1)).shown).toMatch(/ … and 6 more$/);
+  });
 });
 
 describe('dialogs', () => {
@@ -72,6 +85,11 @@ describe('dialogs', () => {
     expect(dialogFocus('lime')).toMatch(/textarea, input.*select, \.dlg-ok$/);
     expect(dialogFocus(undefined)).toMatch(/\.dlg-ok$/);
     expect(dialogFocus('danger')).toMatch(/textarea, input.*select, \.dlg-cancel$/);
+  });
+
+  it('start on Cancel whatever they hold when asked to', () => {
+    expect(dialogFocus('lime', 'cancel')).toBe('.dlg-cancel');
+    expect(dialogFocus('danger', 'cancel')).toBe('.dlg-cancel');
   });
 });
 

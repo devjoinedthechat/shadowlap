@@ -9,7 +9,9 @@ import { CmdLine } from './bits.js';
  * A dialog over a dimmed page: a title, a line that says what will happen, a body, and Cancel beside
  * the action. Esc or a click on the dimmed page cancels. The first field, or the action, gets focus,
  * and focus goes back where it was when it closes. A red action that can't be undone (`danger`) with
- * no field starts on Cancel, so a second Enter doesn't delete what the first one only asked about.
+ * no field starts on Cancel, so a second Enter doesn't delete what the first one only asked about,
+ * and so does a dialog given `initialFocus="cancel"` (`dialogFocus` in focus.ts). A body taller than
+ * the window scrolls, so the title and the buttons stay in view.
  */
 
 export interface DialogProps {
@@ -25,15 +27,17 @@ export interface DialogProps {
   onClose: () => void;
   cancel?: string;
   className?: string;
+  /** `cancel` focuses Cancel when the dialog opens, for a confirm that can't be undone: Enter twice never deletes anything. */
+  initialFocus?: 'cancel';
 }
 
-export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '' }: DialogProps) {
+export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayer('dialog', true, onClose);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>(dialogFocus(tone));
+    const first = ref.current?.querySelector<HTMLElement>(dialogFocus(tone, initialFocus));
     first?.focus();
     if (first instanceof HTMLInputElement || first instanceof HTMLTextAreaElement) first.select();
     return () => prev?.focus?.();

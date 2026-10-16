@@ -1,4 +1,4 @@
-import { tildePath } from './format.js';
+import { plural, tildePath } from './format.js';
 import type { Route } from './route.js';
 import { isAttempt, type RunLike } from './runs.js';
 import type { LiveRun, Meta } from './types.js';
@@ -114,4 +114,9 @@ export function storePath(meta: Pick<Meta, 'dbPath' | 'project'>): string {
   const p = meta.project;
   const rest = p?.display && dbPath.startsWith(p.path) ? dbPath.slice(p.path.length) : null;
   return rest !== null && /^[\\/]/.test(rest) ? p!.display + rest : tildePath(dbPath);
+}
+
+/** The line under an exported copy's project block: `1 run · nothing runs from here`. */
+export function exportedLine(runs: number): string {
+  return `${plural(runs, 'run')} · nothing runs from here`;
 }

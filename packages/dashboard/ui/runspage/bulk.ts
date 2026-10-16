@@ -31,6 +31,22 @@ export function datasetOff(runs: number): string | null {
   return runs > DATASET_MAX ? `At most ${num(DATASET_MAX)} runs go into one dataset: ${num(runs)} are picked` : null;
 }
 
+/** A Delete of up to this many runs spells out every id in its command; past it, the first RM_SHOWN and how many more. */
+export const RM_ALL = 10;
+export const RM_SHOWN = 5;
+
+/**
+ * The command a bulk Delete runs: `full` for Copy, and `shown`, what its dialog prints. A pick of a
+ * few runs prints every id; a long one prints the first few and how many more (`… and 1,095 more`),
+ * so the dialog keeps its title and buttons on the screen.
+ */
+export function rmCommand(ids: readonly string[]): { shown: string; full: string } {
+  const short = ids.map((id) => shortId(id));
+  const full = `shadowlap rm ${short.join(' ')}`;
+  if (short.length <= RM_ALL) return { shown: full, full };
+  return { shown: `shadowlap rm ${short.slice(0, RM_SHOWN).join(' ')} … and ${num(short.length - RM_SHOWN)} more`, full };
+}
+
 /** The most full ids the bulk routes take in one request (BULK_MAX in src/runs-list.ts): more go in batches. */
 export const BULK_BATCH = 1000;
 

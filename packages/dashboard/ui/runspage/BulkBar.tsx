@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
-import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
+import { CmdLine, CopyButton } from '../components/bits.js';
+import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { num, plural, shortId } from '../format.js';
 import { href } from '../route.js';
@@ -9,7 +10,7 @@ import { navigate } from '../router.js';
 import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, datasetOff, inBatches, joinDeleted, joinLabelled, named } from './bulk.js';
+import { bulkToast, datasetOff, inBatches, joinDeleted, joinLabelled, named, rmCommand } from './bulk.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
@@ -138,12 +139,11 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
         />
       ) : null}
       {open === 'delete' ? (
-        <ConfirmDialog
+        <Dialog
           title={`Delete ${named(ended.map((r) => r.runId))}?`}
           text={`Removes the runs and the recorded data nothing else uses. Their forks keep their own data but lose the link.${live.length ? ` ${live.map((r) => shortId(r.runId)).join(', ')} ${live.length === 1 ? 'is' : 'are'} still recording and ${live.length === 1 ? 'is' : 'are'} left alone.` : ''}`}
-          command={`shadowlap rm ${ended.map((r) => shortId(r.runId)).join(' ')}`}
           ok={`Delete ${ended.length === 1 ? 'run' : plural(ended.length, 'run')}`}
-          danger
+          tone="danger"
           onClose={() => setOpen(null)}
           onOk={() => {
             setOpen(null);
@@ -157,9 +157,28 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
               (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
             );
           }}
-        />
+        >
+          <DeleteCommand ids={ended.map((r) => r.runId)} />
+        </Dialog>
       ) : null}
       {open === 'dataset' ? <DatasetDialog ids={ended.map((r) => r.runId)} onClose={() => setOpen(null)} /> : null}
+    </>
+  );
+}
+
+/** The command a bulk Delete runs: every id for a few runs, the first few and how many more for a long pick, whole behind Copy. */
+function DeleteCommand({ ids }: { ids: readonly string[] }) {
+  const rm = rmCommand(ids);
+  return (
+    <>
+      <CmdLine>{rm.shown}</CmdLine>
+      {rm.shown !== rm.full ? (
+        <div className="cmdcopy">
+          <CopyButton text={rm.full} label="the command">
+            Copy the whole command
+          </CopyButton>
+        </div>
+      ) : null}
     </>
   );
 }

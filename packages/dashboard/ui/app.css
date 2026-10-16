@@ -578,15 +578,18 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
 .status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 24px; }
-.dialog { width: min(520px, 100%); background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
+/* A dialog never outgrows the window: its body scrolls, so its title and buttons stay in view. */
+.dialog { width: min(520px, 100%); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
+.dialog > header, .dialog > footer { flex: none; }
 .dialog header { padding: 18px 20px 6px; }
 .dialog header h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
 .dialog header p { margin: 6px 0 0; color: var(--faint); font-size: 13px; }
-.dialog .db { padding: 12px 20px; }
+.dialog .db { padding: 12px 20px; min-height: 0; overflow: auto; }
 .dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
 .dialog .cmdline { margin-top: 10px; }
+.dialog .cmdcopy { margin-top: 8px; }
 .dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 18px; }
 .pop { position: fixed; z-index: 30; width: 340px; background: var(--raise); border-radius: 14px; box-shadow: var(--shadow-pop); padding: 6px; }
 .pop .pk { padding: 8px 10px 4px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }

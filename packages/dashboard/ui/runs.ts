@@ -345,8 +345,3 @@ export function exportStartRun(runIds: readonly string[], runs: ReadonlyArray<{ 
 export function copyCompares(runIds: readonly string[] | null | undefined): boolean {
   return (runIds?.length ?? 0) >= 2;
 }
-
-/** What an exported copy's project block says under its name: how many runs it holds, and that none runs from it. */
-export function copyLine(runIds: readonly string[] | null | undefined): string {
-  return `${plural(runIds?.length ?? 0, 'run')} · nothing runs from here`;
-}
