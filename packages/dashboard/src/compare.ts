@@ -59,8 +59,9 @@ export async function readCodeChange(cwd: string | null, a: string | null | unde
   const sameCommit = x.commit.toLowerCase() === y.commit.toLowerCase();
   if (sameCommit) return { commits: 0, newer: null, subjects: [], uncommitted: true };
   if (!HEX.test(x.commit) || !HEX.test(y.commit)) return null;
-  // Commits only in a, and only in b: "0 3" means b is 3 commits after a.
-  const counts = await git(cwd, ['rev-list', '--left-right', '--count', `--max-count=${COMMITS_CAP}`, `${x.commit}...${y.commit}`]);
+  // Commits only in a, and only in b: "0 3" means b is 3 commits after a. Counted in full (a cap could take
+  // two long branches for one far ahead of the other); git gives up after the timeout, and the card says less.
+  const counts = await git(cwd, ['rev-list', '--left-right', '--count', `${x.commit}...${y.commit}`]);
   const m = counts ? /^(\d+)\s+(\d+)\s*$/.exec(counts) : null;
   if (!m) return null;
   const onlyA = Number(m[1]);
