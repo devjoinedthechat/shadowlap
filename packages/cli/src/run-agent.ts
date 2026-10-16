@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, 
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -235,8 +235,12 @@ export async function testAttempt(
   }
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
   // Every value the report lists that changes every run gets its normalizer, not only the dates and
-  // UUIDs the engine hints at: a request id too, and an id that may be a real change says so.
-  if (summary.divergence) summary.divergence.hints = [...(summary.divergence.hints ?? []), ...valueHints(summary.divergence, [...o.normalizers, ...(parent.meta?.redactions ?? [])])];
+  // UUIDs the engine hints at: a request id too, and an id that may be a real change says so. A
+  // value a rule in force masks already gets none: the report lists it, but it didn't diverge.
+  if (summary.divergence) {
+    const rules = [...o.normalizers, ...(parent.meta?.redactions ?? [])];
+    summary.divergence.hints = [...unmaskedHints(summary.divergence, rules), ...valueHints(summary.divergence, rules)];
+  }
   const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
   let failure: JunitCase['failure'];
   let kind: TestAttempt['kind'] = null;

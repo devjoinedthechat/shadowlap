@@ -55,6 +55,9 @@ describe('test history in the store', () => {
     expect(store.latestTestResults({ until: 15 }).map((r) => [r.golden, r.ok])).toEqual([['g2', false], ['g1', true]]);
     expect(store.listTestResults({ sessionIds: [a.sessionId] }).map((r) => r.golden)).toEqual(['g2', 'g1']);
     expect(store.listTestResults({ sessionIds: [] })).toEqual([]);
+    // Which goldens each session ran, read without their results: what tells a full session apart.
+    expect(store.testSessionGoldens([a.sessionId, b.sessionId, 'none'])).toEqual(new Map([[a.sessionId, new Set(['g1', 'g2'])], [b.sessionId, new Set(['g1'])]]));
+    expect(store.testSessionGoldens([])).toEqual(new Map());
 
     const replay = store.createRun({ mode: 'replay', command: { argv: ['node'], cwd: '/' }, meta: { test: { golden: 'g1', session: b.sessionId } } });
     store.createRun({ mode: 'replay', command: { argv: ['node'], cwd: '/' }, meta: { test: { golden: 'g2', session: b.sessionId } } });

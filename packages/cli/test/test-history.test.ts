@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, type DivergenceReport } from '@shadowlap/engine';
+import { divergenceCause } from '../src/golden-test.js';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 
@@ -82,10 +83,10 @@ describe('shadowlap test history', () => {
     s.close();
 
     expect(r.events[0]).toEqual({ type: 'run', runId: replayId, role: 'passing' });
-    // One golden: a link to its replay, as Add normalizer and re-run opens it, then Tests.
+    // One golden: a link to its replay, as Add normalizer and re-run opens it, then Tests beside it.
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
       { type: 'link', label: 'Open the passing run', href: `#/run/${replayId}` },
-      { type: 'link', label: 'Tests', href: '#/tests' },
+      { type: 'link', label: 'Tests', href: '#/tests', secondary: true },
     ]);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as Record<string, unknown> & { results: Array<Record<string, unknown>> };
     expect(report).toMatchObject({ session: session!.sessionId, revision: session!.revision, passed: 1, failed: 0 });
@@ -110,7 +111,7 @@ describe('shadowlap test history', () => {
     s.close();
   });
 
-  it('links a dashboard job over several goldens to the replay of each that failed, then Tests', async () => {
+  it('ends a dashboard job over several goldens on Tests, with the replay of each that failed beside it', async () => {
     cpSync(GOLDEN, join(work, 'goldens', 'no-email'), { recursive: true });
     // The same recording, with a check its agent breaks: it sends the email the check rules out.
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/no-email': { expect: { tools: { send_email: 0 } } } } }));
@@ -120,7 +121,7 @@ describe('shadowlap test history', () => {
     const failed = s.listTestResults({ golden: 'goldens/no-email' })[0]!;
     expect(failed).toMatchObject({ ok: false, failure: 'check' });
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
-      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}` },
+      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}`, secondary: true },
       { type: 'link', label: 'Tests', href: '#/tests' },
     ]);
     s.close();
@@ -222,6 +223,45 @@ console.log(JSON.stringify((await res.json()).content));
     // As printed, it fixes it.
     expect((await shadowlap(command.split(' ').slice(1).map((a) => a.replace(/^'|'$/g, '')))).code).toBe(0);
     expect((await shadowlap(['test', 'goldens/ids'], { WITH_REQUEST_ID: '1' })).code).toBe(0);
+  });
+
+  it('names a divergence by its first change the rules in force leave, as test and bisect say it', () => {
+    const d: DivergenceReport = { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' }, { path: '$.system', op: 'changed', before: 'Escalate.', after: 'Refund.' }] };
+    expect(divergenceCause(d, [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }])).toBe('$.system');
+    expect(divergenceCause(d, [])).toBe('$.metadata.user_id');
+    expect(divergenceCause({ ...d, type: 'new_call' }, [])).toBeNull();
+  });
+
+  it('gives no hint for a value a rule in the config masks, and keeps the change that made it diverge', async () => {
+    // A UUID made anew on every run, which a rule masks, and a prompt that changed: the report lists both.
+    writeFileSync(
+      join(work, 'agent.mjs'),
+      `import { randomUUID } from 'node:crypto';
+const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 32, metadata: { user_id: randomUUID() }, system: process.env.PROMPT ?? 'Escalate refunds above the limit.', messages: [{ role: 'user', content: 'triage' }] }) });
+if (!res.ok) process.exit(1);
+console.log(JSON.stringify((await res.json()).content));
+`,
+    );
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/prompt'])).code).toBe(0);
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] }));
+    const r = await shadowlap(['test', 'goldens/prompt'], { PROMPT: 'Refund whatever is asked.' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('~ $.system');
+    // The masked UUID is listed, as the request carried it, but no hint asks for the rule the config has.
+    expect(r.out).toContain('~ $.metadata.user_id');
+    expect(r.out).not.toContain('hint: this looks like a UUID');
+    const s = store();
+    const result = s.listTestResults({ golden: 'goldens/prompt' })[0]!;
+    const divergence = result.data!.divergence!;
+    // The replay's own record has none either, so its page offers no rule the config has.
+    const replay = s.getRun(result.runId!)!;
+    s.close();
+    expect(divergence.cause).toBe('$.system');
+    expect(divergence.hints ?? []).toEqual([]);
+    expect(replay.divergence?.diff?.map((e) => e.path)).toEqual(['$.metadata.user_id', '$.system']);
+    expect(replay.divergence?.hints).toBeUndefined();
   });
 
   it('says a changed customer id may be a real change, and offers the update as well as the normalizer', async () => {

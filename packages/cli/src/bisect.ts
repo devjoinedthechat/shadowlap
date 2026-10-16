@@ -2,10 +2,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
+import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
-import { importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
+import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
 import { goldenName, scratchDir } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
 import { physicalPath, realPath } from './real-path.js';
@@ -209,15 +209,19 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
   }
 }
 
-/** What a replay did, in one line. */
-function describeResult(o: Awaited<ReturnType<typeof testRecording>>): string {
+/**
+ * What a replay did, in one line. A divergence is named by its first change the rules in force
+ * (`rules`: the config's normalizers and the pack's redaction rules) don't mask: the report lists
+ * the masked ones too, but they didn't make it diverge.
+ */
+function describeResult(o: Awaited<ReturnType<typeof testRecording>>, rules: readonly Normalizer[]): string {
   const s = o.shown.ended.summary;
   if (!o.failure) {
     const checks = o.shown.checks?.length ?? 0;
     return s.divergence ? `forked at call ${s.divergence.callNo}, ${checks} check${checks === 1 ? '' : 's'} passed` : checks ? `replayed clean · ${checks} check${checks === 1 ? '' : 's'} passed` : 'replayed clean';
   }
   const d = s.divergence;
-  const path = d?.diff?.[0]?.path;
+  const path = d ? (divergenceCause(d, rules) ?? d.diff?.[0]?.path) : undefined;
   return o.kind === 'diverged' && path ? `${o.failure.message} · ${path}` : o.failure.message;
 }
 
@@ -269,6 +273,9 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     store.close();
     throw new BisectError(`${target.name} was imported from a capture and has no command to run at each commit. Replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
   }
+  // The failure this search answers: the golden's newest result now. Tests shows the answer only
+  // while that failure is the golden's latest run of failures, not over a later, unrelated one.
+  const answered = target.kind === 'golden' && target.golden ? newestResult(input, target.golden) : null;
   const fromConfig = target.golden ? specFor(loadTests(projectDir), resolve(projectDir, target.golden), projectDir) : null;
   // Checks given on the command line judge the replay as it is: offline, so a divergence fails it,
   // unless --fork lets it go live from the fork and leaves the verdict to the checks.
@@ -341,7 +348,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       }
       // A replay a signal cut short says nothing about the commit.
       if (outcome.interrupted) return done(false, true, 'interrupted');
-      return done(!outcome.failure, false, describeResult(outcome));
+      return done(!outcome.failure, false, describeResult(outcome, [...config.normalize, ...(target.run.meta?.redactions ?? [])]));
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {
         rmSync(worktree, { recursive: true, force: true });
@@ -407,26 +414,55 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     store.close();
     report.seconds = (Date.now() - started) / 1000;
     if (stopped && report.outcome === 'stopped') report.why = 'interrupted';
-    if (report.outcome === 'found') record(input, projectDir, report);
+    // An answer either way, but not a search cut short: the Tests screen shows it above the golden's buttons.
+    if (report.outcome !== 'stopped') record(input, projectDir, report, answered);
   }
 }
 
-/** Logs the find in the project's activity. */
-function record(input: BisectInput, projectDir: string, report: BisectReport): void {
+/** A golden's newest result in the project's test history, or null: the failure a search of it answers. */
+type Answered = { session: string; at: number; ok: boolean; revision: string | null };
+
+function newestResult(input: BisectInput, golden: string): Answered | null {
   let store: Store | null = null;
   try {
     store = openStore(input.opts);
-    const first = report.first!;
-    recordEvent(store, {
-      kind: 'bisect.found',
-      actor: resolveAuthor({ cwd: projectDir }),
-      ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}),
-      ref: report.target.name,
-      // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
-      data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
-    });
+    const r = store.listTestResults({ golden, limit: 1 })[0];
+    return r ? { session: r.sessionId, at: r.at, ok: r.ok, revision: r.revision } : null;
   } catch {
-    // the find is printed either way
+    return null;
+  } finally {
+    store?.close();
+  }
+}
+
+/**
+ * Logs the answer in the project's activity: the first bad commit (`bisect.found`), or why there is
+ * none between the commits given (`bisect.none`: it passes at the bad one, it already fails at the
+ * good one, or one of them can't be tested), so the next search can start from another commit. A
+ * golden's answer names the result it answered (`answered`, its newest as the search started).
+ */
+function record(input: BisectInput, projectDir: string, report: BisectReport, answered: Answered | null): void {
+  let store: Store | null = null;
+  try {
+    store = openStore(input.opts);
+    const where = { actor: resolveAuthor({ cwd: projectDir }), ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}), ref: report.target.name };
+    const about = answered ? { answered } : {};
+    const first = report.first;
+    if (report.outcome === 'found' && first) {
+      recordEvent(store, {
+        kind: 'bisect.found',
+        ...where,
+        // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
+        data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests, ...about },
+      });
+    } else {
+      // Why, without the advice for the command line: Tests offers an older commit itself.
+      const atGood = report.steps.find((s) => s.rev === report.good.rev);
+      const why = report.outcome === 'fails-at-good' && atGood ? `it already fails at ${report.good.short}: ${atGood.result}` : (report.why ?? report.outcome);
+      recordEvent(store, { kind: 'bisect.none', ...where, data: { outcome: report.outcome, why, good: report.good.short, bad: report.bad.short, replays: report.replays, tokens: report.tokens, ...about } });
+    }
+  } catch {
+    // the answer is printed either way
   } finally {
     store?.close();
   }

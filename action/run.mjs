@@ -34,6 +34,8 @@ const repairer = input('REPAIRER');
 if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`input repairer must be claude-code, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
 // The test history, and the runs a fix starts from: the project's store unless one is named.
 const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
+// The team store: the test runs and the session's report (test --push), then any fix opened.
+const push = bool('PUSH', false);
 
 /**
  * A pattern with `*` or `?` in its last path segment, matched against that directory; anything else
@@ -61,6 +63,7 @@ const junit = input('JUNIT') ? resolve(workdir, input('JUNIT')) : join(out, 'sha
 const args = [cli, ...(store ? ['--db', store] : []), 'test', ...packs, '--json', json, '--markdown', markdown, '--junit', junit, '--writes', writes, '--guard', guard];
 if (bool('ONLINE', false)) args.push('--online');
 if (bool('ANNOTATIONS', true)) args.push('--annotations');
+if (push) args.push('--push');
 const cliEnv = { ...env, SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
 
 process.stdout.write(`shadowlap test ${packs.join(' ')}\n`);
@@ -73,7 +76,7 @@ let fixes = [];
 // A session a signal stopped (the job is being cancelled) starts nothing that spends money.
 if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
 if (fixOnFailure && report.failed && !report.interrupted) {
-  fixes = runFixes({ cli, db: store, workdir, report, budget, repairer, guard, env: cliEnv, log: (line) => process.stdout.write(`${line}\n`) });
+  fixes = runFixes({ cli, db: store, workdir, report, budget, repairer, guard, push, env: cliEnv, log: (line) => process.stdout.write(`${line}\n`) });
   for (const f of fixes) {
     if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${f.pr}\n`);
     else process.stdout.write(`${f.name}: no fix pull request: ${f.why}\n`);

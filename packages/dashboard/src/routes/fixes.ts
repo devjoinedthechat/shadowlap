@@ -4,6 +4,7 @@ import type { RouteContext } from '../context.js';
 import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
+import { storePrStates } from '../pr-state.js';
 import type { Router } from '../router.js';
 
 /**
@@ -17,7 +18,8 @@ import type { Router } from '../router.js';
  * (its own --expect, or the config's tests for the recording it replays, through its ancestors),
  * the fix it fails in or its labels point to, or the agent's exit; when none of those applies, or
  * the run failed a check none of them names, it answers 422 and the page asks. Repair and apply
- * change the working tree, so the job manager runs them alone in their project (worktree.ts).
+ * change the working tree, so the job manager runs them alone in their project (worktree.ts). A
+ * fix's pull request state is read from GitHub in the background as the pages are read (pr-state.ts).
  */
 
 const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
@@ -155,10 +157,16 @@ function applyJob(req: JobRequest, store: Store): JobBuildResult {
 
 export function register(router: Router, ctx: RouteContext): void {
   const { store, jobs } = ctx;
+  // A fix's pull request moves past "open" once the forge says so: asked with gh in the background
+  // while the pages are read, and written to the store, whose change brings the pages up to date.
+  // Only pull requests on github.com and the project's own GitHub hosts are read. A read-only
+  // dashboard asks no one, as it changes nothing.
+  const prs = ctx.readOnly ? null : storePrStates(() => store, { projectDir: ctx.project?.path ?? null });
 
   router.get('/fixes', (r) => {
     const status = r.query.get('status') ?? 'all';
     if (!STATUSES.has(status)) throw new HttpError(400, `status is one of ${[...STATUSES].join(', ')}`);
+    prs?.refresh(store.listFixes());
     r.tagged(fixList(store, { status: status as FixStatus | 'all' }));
   });
 
@@ -173,6 +181,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/fixes/:id', (r) => {
     const fix = findFix(store, r.params.id);
+    prs?.refresh([fix]);
     r.tagged(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx) }));
   });
 

@@ -199,8 +199,11 @@ describe('a job hears what the command made on fd 3', () => {
     // A run named in the output counts too, but the structured event names the run to open; an attempt is listed, never opened.
     expect([...job.runs].sort()).toEqual(['01K5CQ4P2R0000000000000000', '01K5CQ4P2S0000000000000000', '01K5CQ4P2T0000000000000000']);
     expect(job.newRunId).toBe('01K5CQ4P2S0000000000000000');
-    // Only dashboard routes are links.
-    expect(job.links).toEqual([{ label: 'Open the fix', href: '#/fixes/fx-1' }]);
+    // Only dashboard routes are links; one beside the primary action says so.
+    expect(job.links).toEqual([
+      { label: 'Open the fix', href: '#/fixes/fx-1' },
+      { label: 'Open the run', href: '#/run/01K5CQ4P2S0000000000000000', secondary: true },
+    ]);
     expect(job.files.map((f) => [f.path, f.name, f.label, f.bytes, f.directory])).toEqual([
       ['.shadowlap/exports/dataset.jsonl', 'dataset.jsonl', 'Dataset', 16, false],
       ['share/pack-1', 'pack-1', 'Pack', null, true],

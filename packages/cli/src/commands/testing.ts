@@ -321,9 +321,10 @@ export function register(program: Command): void {
       // A dashboard job's links: one golden (as Add normalizer and re-run tests it) to its replay; a
       // session over several to the replay of each that failed, the first few, then Tests for them all.
       const only = results.length === 1 && packs.length === 1 ? results[0]! : null;
+      // One primary action: the replay of a single golden, else Tests, with the other links beside it.
       if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
-      else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}` });
-      emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
+      else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}`, secondary: true });
+      emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) });
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));

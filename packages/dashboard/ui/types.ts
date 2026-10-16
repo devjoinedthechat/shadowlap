@@ -279,6 +279,8 @@ export interface Meta {
 export interface JobLink {
   label: string;
   href: string;
+  /** Beside the job's primary action: the drawer shows it as a plain link, above its buttons. */
+  secondary?: boolean;
 }
 
 export interface JobFile {
@@ -390,7 +392,7 @@ export interface LabelRunsResult {
 // ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
-export type { BisectChoices, BisectRange, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestRunBanner, TestsSessionView, TestsVerdict, TestsView } from '../src/tests.js';
+export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView } from '../src/tests.js';
 /** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find the commit's choices. */
 export interface TestRunView {
   banner: import('../src/tests.js').TestRunBanner | null;

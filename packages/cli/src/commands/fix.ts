@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
-import { fixDetail, fixHref, fixList } from '@shadowlap/dashboard';
+import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, prNumber, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
@@ -491,6 +491,9 @@ export function register(program: Command): void {
   registerFixes(program);
 }
 
+/** What `fix pr` was given that it can't record, or a fix with no pull request to read. */
+class FixPrError extends Error {}
+
 /** The repairer shadowlap.config.json names, if it names one and can be read. */
 function configuredRepairer(): string | null {
   try {
@@ -564,6 +567,46 @@ function registerFixes(program: Command): void {
       try {
         const updated = setFixTitle(store, requireFix(store, arg).fixId, words.join(' '));
         process.stdout.write(`${shortFixId(updated.fixId)} · ${safe(updated.title)}\n`);
+      } finally {
+        store.close();
+      }
+    });
+
+  fix
+    .command('pr')
+    .description("A fix's pull request: record the one opened for it (CI's fix on failure does), or, with no url, read where it stands from GitHub with gh and record that: open, merged or closed")
+    .argument('<fix>', 'a fix id or a unique prefix of it')
+    .argument('[url]', 'the pull request opened for it')
+    .option('--json', "print the fix's pull request as JSON")
+    .action(async (arg: string, url: string | undefined, flags: { json?: boolean }) => {
+      const store = openStore(program.opts<GlobalOpts>());
+      try {
+        const found = requireFix(store, arg);
+        let pr = found.data.source?.pr ?? null;
+        let note: string | null = null;
+        if (url !== undefined) {
+          if (!/^https?:\/\/\S+$/.test(url) || url.length > 2048) throw new FixPrError(`${url.slice(0, 80)} is not a pull request's address: give its https:// link`);
+          pr = { url, number: prNumber(url), state: 'open', at: Date.now() };
+          store.mergeFixData(found.fixId, { source: { pr } });
+        } else {
+          if (!pr) throw new FixPrError(`${shortFixId(found.fixId)} has no pull request: record one with shadowlap fix pr ${shortFixId(found.fixId)} <url>`);
+          // Only a host this project uses is asked: a fix pulled from the team store can name any, and gh would send it a token.
+          const hosts = readableHosts(process.cwd());
+          const read = hosts.has(prHost(pr.url)) ? await new Promise<PrRead>((done) => ghReader({ readable: (u) => hosts.has(prHost(u)) })(pr!.url, done)) : null;
+          if (read?.state) {
+            if (read.state !== (pr.state ?? 'open')) store.mergeFixData(found.fixId, { source: { pr: { state: read.state } } });
+            pr = { ...pr, state: read.state };
+          } else if (!read) note = `${prHost(pr.url) || 'its host'} is neither github.com, GH_HOST nor this project's origin, so gh isn't asked and its state is as recorded`;
+          else note = read.unusable ? 'gh is not installed or not signed in, so its state is as recorded' : 'gh could not read it, so its state is as recorded';
+        }
+        if (flags.json) process.stdout.write(JSON.stringify({ fixId: found.fixId, pr, ...(note ? { note } : {}) }, null, 2) + '\n');
+        else process.stdout.write(`${shortFixId(found.fixId)} · PR ${pr.number !== null ? `#${pr.number}` : pr.url} ${pr.state ?? 'open'}${note ? p.dim(` · ${note}`) : ''}\n`);
+      } catch (err) {
+        if (err instanceof FixIdError) return fixIdFailed(err, arg, flags.json);
+        if (!(err instanceof FixPrError)) throw err;
+        if (flags.json) process.stdout.write(JSON.stringify({ fixId: arg, status: 'error', error: { message: err.message } }, null, 2) + '\n');
+        else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
+        process.exitCode = 1;
       } finally {
         store.close();
       }

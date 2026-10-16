@@ -132,6 +132,19 @@ describe('redactBytes on a Bedrock event stream', () => {
     expect(eventStreamFrames(out)).not.toBeNull();
   });
 
+  it('masks the strings of a JSON body and leaves its numbers whole, so a recorded time still replays', () => {
+    const CARD = { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' };
+    // A clock read keeps its 13-digit time; a card number in a string, or an email as a key, is masked.
+    const clock = Buffer.from('{"result":1792155242516}');
+    expect(redactBytes(clock, [CARD]).equals(clock)).toBe(true);
+    const body = Buffer.from('{\n  "card": "4111 1111 1111 1111",\n  "at": 1792155242516,\n  "alice@example.com": {"paid": 4111111111111111}\n}');
+    const out = redactBytes(body, [CARD, EMAIL]).toString();
+    expect(out).toBe('{\n  "card": "<CARD>",\n  "at": 1792155242516,\n  "<EMAIL>": {"paid": 4111111111111111}\n}');
+    expect(JSON.parse(out)).toMatchObject({ card: '<CARD>', at: 1792155242516 });
+    // Text that is no JSON document is masked as text, as before.
+    expect(redactBytes(Buffer.from('paid with 4111 1111 1111 1111'), [CARD]).toString()).toBe('paid with <CARD>');
+  });
+
   it('leaves bytes nothing matched, and binary that is no event stream, exactly as they were', () => {
     const body = Buffer.concat([frame('messageStart', { role: 'assistant' }), frame('messageStop', { stopReason: 'end_turn' })]);
     expect(redactBytes(body, SECRET_RULES).equals(body)).toBe(true);

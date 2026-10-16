@@ -24,6 +24,7 @@ switch (args[0]) {
     emit('not json at all');
     emit({ type: 'run', runId: 'not-a-run-id' });
     emit({ type: 'link', label: 'Open the fix', href: '#/fixes/fx-1' });
+    emit({ type: 'link', label: 'Open the run', href: '#/run/01K5CQ4P2S0000000000000000', secondary: true });
     emit({ type: 'link', label: 'Somewhere else', href: 'javascript:alert(1)' });
     emit({ type: 'file', path: '.shadowlap/exports/dataset.jsonl', label: 'Dataset' });
     emit({ type: 'file', path: 'share/pack-1', label: 'Pack' });

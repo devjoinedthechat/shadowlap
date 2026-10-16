@@ -64,6 +64,29 @@ function observeResponse(bytes: Buffer, rules: Normalizer[], observer: RewriteOb
   if (text !== null) rewriteText(text, rules, observer);
 }
 
+/** A string in a JSON document's text: in valid JSON, a quote opens one and the next unescaped quote closes it. */
+const JSON_STRING = /"(?:[^"\\]|\\.)*"/g;
+
+/**
+ * A JSON document's text (a response, a tool's result, a clock or random read) with the pathless
+ * rules applied to its strings alone, as they apply to a request's strings. Numbers and the
+ * document's layout stay byte for byte, so a recorded timestamp whose 13 digits a card-number
+ * pattern matches still reads as that number when the copy replays. Null when the text is not one
+ * JSON document.
+ */
+function rewriteJsonText(text: string, rules: Normalizer[]): string | null {
+  try {
+    JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return text.replace(JSON_STRING, (literal) => {
+    const value = JSON.parse(literal) as string;
+    const masked = rewriteText(value, rules);
+    return masked === value ? literal : JSON.stringify(masked);
+  });
+}
+
 /** An attempt's error as `pack` keeps it: the pathless rules applied to every string in it, as to the response it came with. */
 function redactedError(error: SerializedError, rules: Normalizer[], observer?: RewriteObserver): SerializedError {
   let out: unknown = error;
@@ -197,7 +220,8 @@ export function redactBytes(bytes: Buffer, rules: Normalizer[]): Buffer {
   const text = asText(bytes);
   if (text === null) return bytes;
   const streamed = maskSseStream(text, rules) ?? maskJsonChunks(text, rules) ?? text;
-  return Buffer.from(rewriteText(streamed, rules), 'utf8');
+  // A JSON document gets the rules on its strings; other text (an event stream, plain text) as text.
+  return Buffer.from(rewriteJsonText(streamed, rules) ?? rewriteText(streamed, rules), 'utf8');
 }
 
 /**

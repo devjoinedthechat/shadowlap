@@ -5,7 +5,8 @@ import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, fixSummary, goldenNote, planFixes, refreshGolden, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, cannotPush, fixSummary, goldenNote, planFixes, refreshGolden, repairArgs, type ReportResult } from '../../../action/fix.mjs';
+import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
  * Fix on failure in the GitHub Action, run as action.yml runs it, on the support agent in a git
@@ -66,7 +67,7 @@ function run(cmd: string[], extra: NodeJS.ProcessEnv = {}): Promise<{ code: numb
   });
 }
 
-async function action(inputs: Record<string, string>) {
+async function action(inputs: Record<string, string>, extraEnv: NodeJS.ProcessEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sl-cifix-'));
   const output = join(dir, 'output');
   const summary = join(dir, 'summary.md');
@@ -74,9 +75,15 @@ async function action(inputs: Record<string, string>) {
   writeFileSync(summary, '');
   const vars: NodeJS.ProcessEnv = { SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: dir, INPUT_RECORDINGS: 'goldens/*', INPUT_WORKING_DIRECTORY: project, INPUT_GUARD: 'off', INPUT_STORE: join(dir, 'ci.db') };
   for (const [k, v] of Object.entries(inputs)) vars[`INPUT_${k}`] = v;
-  const r = await run([RUN], vars);
+  const r = await run([RUN], { ...vars, ...extraEnv });
   const outputs = Object.fromEntries(readFileSync(output, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
-  const result = { ...r, outputs, summary: readFileSync(summary, 'utf8') };
+  // The fixes CI's store kept, as `fix ls --json` lists them: where each came from.
+  const listed = await run([CLI, '--db', join(dir, 'ci.db'), 'fix', 'ls', '--json']);
+  const fixes = listed.code === 0 ? (JSON.parse(listed.out.slice(listed.out.indexOf('{'))) as { fixes: Array<{ fixId: string; source: string | null; status: string }> }).fixes : [];
+  // Every run CI's store holds: the replays, blame's probes, repair's and verify's runs.
+  const ls = await run([CLI, '--db', join(dir, 'ci.db'), 'ls', '--json', '-n', '100000']);
+  const runs = ls.code === 0 ? (JSON.parse(ls.out.slice(ls.out.indexOf('['))) as Array<{ runId: string }>).map((x) => x.runId) : [];
+  const result = { ...r, outputs, summary: readFileSync(summary, 'utf8'), fixes, runs };
   rmSync(dir, { recursive: true, force: true });
   return result;
 }
@@ -133,6 +140,10 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
     expect(r.out).toContain('::notice title=Shadowlap::refund-over-limit: opened https://github.com/example/agent/pull/7');
+    // The fix in CI's store names the pull request it went to, as Fixes shows it.
+    expect(r.fixes).toHaveLength(1);
+    expect(r.fixes[0]).toMatchObject({ status: 'verified' });
+    expect(r.fixes[0]!.source).toMatch(/PR #7$/);
 
     // The branch has the fix and is on the remote; HEAD, the working tree and main are as they were.
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
@@ -166,6 +177,42 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(onBranch.code, onBranch.out).toBe(0);
     expect(onBranch.out).toMatch(/✓ refund-over-limit: \d+\/\d+ replayed/);
     expect(mock.requests.length).toBe(hits);
+  });
+
+  it('with push, sends the test runs and the fix with every run it made to the team store, for teammates to pull', async () => {
+    const key = 'AKIDCIFIXEXAMPLE';
+    const s3 = await startFakeS3({ keys: { [key]: 'ci/secret' }, bucket: 'northwind-agent-runs', versioning: 'Enabled' });
+    try {
+      await setUp({ expect: EXPECT });
+      // The team store, as shadowlap store set writes it, committed for CI to see.
+      const config = JSON.parse(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')) as Record<string, unknown>;
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ ...config, store: `s3://northwind-agent-runs/team?endpoint=${s3.url}` }, null, 2));
+      sh(project, 'git', ['commit', '-qam', 'Keep the runs in the team store']);
+      const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic', PUSH: 'true' }, { AWS_ACCESS_KEY_ID: key, AWS_SECRET_ACCESS_KEY: 'ci/secret', GITHUB_ACTIONS: 'true' });
+      expect(r.outputs).toMatchObject({ failed: '1', fixes: '1' });
+      expect(r.out).toContain('the fix was sent to the team store');
+      expect(r.summary).toMatch(/golden re-recorded · in the team store \|/);
+      const keys = [...s3.objects.keys()];
+      // test --push sent the session's report; push --all every run the job made, the fix's among them.
+      expect(keys.some((k) => k.startsWith('team/tests/'))).toBe(true);
+      expect(r.runs.length).toBeGreaterThan(1);
+      for (const runId of r.runs) expect(keys, runId).toContain(`team/runs/${runId}/run.json`);
+    } finally {
+      await s3.close();
+    }
+  });
+
+  it('says why a fix stays in the job when no team store is set, or the team turned pushing from CI off', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-cifix-push-'));
+    try {
+      expect(cannotPush(dir)).toBe('no team store is set in shadowlap.config.json (shadowlap store set <url>)');
+      writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-agent-runs/team', ciPush: false }));
+      expect(cannotPush(dir)).toBe('Push from CI is off ("ciPush": false in shadowlap.config.json)');
+      writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-agent-runs/team' }));
+      expect(cannotPush(dir)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('leaves a golden that may fork as it is: on the branch it passes on its checks', async () => {

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
+// Tests registers the wording of what Find the commit answers with no commit.
+import '../src/routes/tests.js';
 
 /** The activity feed: what runs tell by themselves, merged with what commands recorded, newest first. */
 
@@ -291,9 +293,62 @@ describe('how a replay parted from its recording', () => {
     expect(byId(items, `r:${changed}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #2 · 0 live' });
     expect(byId(items, `r:${older}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #4 with --inject 4 · 0 live' });
     expect(byId(items, `r:${test}:end`)).toMatchObject({ kind: 'fail', text: 'Test failed · refund-in-limit diverged at call 1, a UUID' });
+    // A golden that may fork diverges by design: its result in the session says it passed.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 900 });
+    const forked = replay(900, { test: { golden: 'goldens/refund-over-limit', session: session.sessionId } });
+    store.setDivergence(forked, { type: 'request_changed', callNo: 3, ...model });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-over-limit', ok: true, runId: forked, at: 950 });
+    // And one that failed a check reads as the result says, whatever its replay did first.
+    const checked = replay(900, { test: { golden: 'goldens/refund-flow', session: session.sessionId } });
+    store.setDivergence(checked, { type: 'request_changed', callNo: 2, ...model });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-flow', ok: false, failure: 'check', reason: 'check failed: send_email called 1 time, but called 2 times', runId: checked, at: 960 });
+    const later = activity(store).items;
+    expect(byId(later, `r:${forked}:end`)).toMatchObject({ kind: 'test', text: 'Test passed · refund-over-limit · forked at call 3' });
+    expect(byId(later, `r:${checked}:end`)).toMatchObject({ kind: 'fail', text: 'Test failed · refund-flow check failed: send_email called 1 time' });
     expect(items.find((i) => i.at === 700)).toMatchObject({ kind: 'project', text: 'Packed · share/refund · 30 calls' });
     expect(items.find((i) => i.at === 800)).toMatchObject({ kind: 'setting', text: 'Redaction rule added · <IBAN> at $.messages' });
     expect(JSON.stringify(items)).not.toContain('DE89');
+    store.close();
+  });
+});
+
+describe('a test session', () => {
+  it('tells each golden once, by its result: a golden that may fork by its attempts, opening the replay that failed', () => {
+    const store = Store.open(':memory:');
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 1 }).runId;
+    store.endRun(rec, 'completed', 2);
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 100 });
+    const attempt = (golden: string, at: number, ok: boolean) => {
+      const r = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: at, meta: { test: { golden, session: session.sessionId }, checks: [{ ok, label: 'issue_refund called 0 times', detail: ok ? null : 'called 1 time' }] } });
+      store.endRun(r.runId, 'completed', at + 5);
+      return r.runId;
+    };
+    // refund-over-limit may fork, five attempts, all of which must pass: the third fails.
+    const over = [110, 120, 130, 140, 150].map((at, i) => attempt('goldens/refund-over-limit', at, i !== 2));
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-over-limit', ok: false, failure: 'check', reason: '4 of 5 attempts passed, 5 needed. Attempt 3: check failed: issue_refund called 0 times, but called 1 time', runId: over[2]!, at: 160, data: { attempts: { total: 5, passed: 4, required: 5, runs: over } } });
+    // refund-flow passes on all three attempts, its first attempt failing nothing.
+    const flow = [200, 210, 220].map((at) => attempt('goldens/refund-flow', at, true));
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-flow', ok: true, runId: flow[2]!, at: 230, data: { attempts: { total: 3, passed: 3, required: 3, runs: flow }, checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }] } });
+    const tests = activity(store).items.filter((i) => i.kind === 'test' || i.kind === 'fail');
+    expect(tests.map((i) => [i.id, i.at, i.text, i.href])).toEqual([
+      [`r:${flow[2]}:end`, 225, 'Test passed · refund-flow · 3 of 3 attempts passed', `#/run/${flow[2]}`],
+      [`r:${over[4]}:end`, 155, 'Test failed · refund-over-limit · 4 of 5 attempts passed, 5 needed', `#/run/${over[2]}`],
+    ]);
+    store.close();
+  });
+
+  it('tells what Find the commit answered: a golden’s on Tests, a run’s on the run', () => {
+    const store = Store.open(':memory:');
+    recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', data: { commit: 'a7cfd69', subject: 'Apply the email fix', first: { rev: 'a7cfd69' } }, at: 100 });
+    recordEvent(store, { kind: 'bisect.found', runId: '01K5CQ4V5K0000000000000002', ref: '01K5CQ4V5K', data: { commit: 'a7cfd69', subject: 'Apply the email fix' }, at: 110 });
+    recordEvent(store, { kind: 'bisect.none', ref: 'goldens/refund-in-limit', data: { outcome: 'fails-at-good', why: 'it already fails at c91d0f4: diverged at call 1', good: 'c91d0f4', bad: 'dd06624' }, at: 120 });
+    recordEvent(store, { kind: 'bisect.none', runId: '01K5CQ4V5K0000000000000002', ref: '01K5CQ4V5K', data: { outcome: 'passes-at-bad', why: 'it passes at dd06624, so there is nothing to find' }, at: 130 });
+    const items = activity(store).items;
+    const at = (t: number) => items.find((i) => i.at === t);
+    expect(at(100)).toMatchObject({ kind: 'test', text: 'First bad commit · a7cfd69 Apply the email fix', href: '#/tests' });
+    expect(at(110)).toMatchObject({ text: 'First bad commit · a7cfd69 Apply the email fix', href: '#/run/01K5CQ4V5K0000000000000002' });
+    expect(at(120)).toMatchObject({ kind: 'test', text: 'No first bad commit · goldens/refund-in-limit: it already fails at c91d0f4: diverged at call 1', href: '#/tests' });
+    expect(at(130)).toMatchObject({ text: 'No first bad commit · 01K5CQ4V5K: it passes at dd06624, so there is nothing to find', href: '#/run/01K5CQ4V5K0000000000000002' });
     store.close();
   });
 });

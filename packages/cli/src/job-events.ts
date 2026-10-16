@@ -9,8 +9,12 @@ import { writeSync } from 'node:fs';
 export type JobEvent =
   /** A run this command created (a recording, a replay, a fork, an attempt, an import). */
   | { type: 'run'; runId: string; role?: 'new' | 'passing' | 'failing' | 'attempt' | 'imported' }
-  /** Something to open afterwards; `href` is a dashboard route such as `#/fixes/fx-…`. */
-  | { type: 'link'; label: string; href: string }
+  /**
+   * Something to open afterwards; `href` is a dashboard route such as `#/fixes/fx-…`. The drawer ends
+   * on one primary action: a `secondary` link shows as a plain link above it (each failing golden's
+   * run, beside Tests).
+   */
+  | { type: 'link'; label: string; href: string; secondary?: boolean }
   /** A file the command wrote, which the dashboard may offer as a download. */
   | { type: 'file'; path: string; label?: string }
   /** The command's machine-readable result (the same object `--json` prints, when it has one). */

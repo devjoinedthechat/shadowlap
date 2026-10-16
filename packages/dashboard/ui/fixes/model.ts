@@ -101,8 +101,8 @@ export interface TreeJob {
  * show before the change feed brings the list again). A job the server no longer has (`lost`) holds
  * nothing.
  */
-export function mergeTreeJobs(listed: readonly TreeJob[] | null | undefined, watched: ReadonlyArray<{ job: TreeJob; lost?: boolean | undefined }>): TreeJob[] {
-  const byId = new Map<string, TreeJob>();
+export function mergeTreeJobs<L extends TreeJob, W extends TreeJob>(listed: readonly L[] | null | undefined, watched: ReadonlyArray<{ job: W; lost?: boolean | undefined }>): Array<L | W> {
+  const byId = new Map<string, L | W>();
   for (const j of listed ?? []) byId.set(j.id, j);
   for (const w of watched) {
     if (w.lost) byId.delete(w.job.id);

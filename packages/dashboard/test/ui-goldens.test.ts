@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksUpdate, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, shortDate, sourceText, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
+import { asksUpdate, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { DivergenceView, FailureView, GoldenRow, TestsView } from '../ui/types.js';
 
@@ -43,6 +43,9 @@ const divergence = (name: string, over: Partial<DivergenceView> = {}): Divergenc
   rulesAdded: false,
   bisect: { good: 'c91d0f4', bad: 'd2e8a1f', args: [], live: false },
   found: null,
+  missed: null,
+  revisions: [],
+  unreadable: null,
   ...over,
 });
 
@@ -57,13 +60,15 @@ function view(over: Partial<TestsView> = {}): TestsView {
       untested: 0,
       title: 'refund-in-limit diverged at call 1',
       first: { golden: 'goldens/refund-in-limit', name: 'refund-in-limit', reason: 'diverged at call 1 (api POST /v1/messages)', runId: null },
-      session: { id: 's1', command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: T - 60_000, endedAt: T, passed: 3, failed: 1, upstreamRequests: 0, actor: 'ci', interrupted: false },
+      session: { id: 's1', command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: T - 60_000, endedAt: T, passed: 3, failed: 1, upstreamRequests: 0, actor: 'ci', interrupted: false, live: false },
+      since: [],
     },
     revisions: ['c91d0f4', 'd2e8a1f'],
     rows: [row('refund-over-limit'), row('refund-in-limit', { last: { result: 'fail', failure: 'diverged', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', at: T, updated: false } }), row('escalate-over-limit', { checks: [] })],
     divergences: [divergence('refund-in-limit')],
     failures: [],
     diverged: ['goldens/refund-in-limit'],
+    running: null,
     commands: { ci: 'shadowlap test goldens/* --junit report.xml', inCi: '', pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] },
     note: '',
     ...over,
@@ -73,12 +78,24 @@ function view(over: Partial<TestsView> = {}): TestsView {
 const all = () => true;
 
 describe('the verdict', () => {
-  it('names the command, revision, time, how the goldens stand and the upstream requests', () => {
-    expect(sessionLine(view())).toEqual({ command: 'shadowlap test goldens/*', rest: 'rev d2e8a1f · Oct 1, 10:02 · 3 passed, 1 failed · 0 upstream requests' });
+  it('names the command, revision, time, the session’s own counts and its upstream requests', () => {
+    expect(sessionLine(view())).toEqual({ command: 'shadowlap test goldens/*', rest: 'rev d2e8a1f · Oct 1, 10:02 · 3 passed, 1 failed · 0 upstream requests', since: null, sinceTip: null });
     const v = view();
+    // How the goldens stand is the headline's; the line counts what that session ran.
     v.verdict!.untested = 2;
+    v.verdict!.session.passed = 2;
     v.verdict!.session.upstreamRequests = 1;
-    expect(sessionLine(v)!.rest).toBe('rev d2e8a1f · Oct 1, 10:02 · 3 passed, 1 failed, 2 not run yet · 1 upstream request');
+    expect(sessionLine(v)!.rest).toBe('rev d2e8a1f · Oct 1, 10:02 · 2 passed, 1 failed · 1 upstream request');
+  });
+
+  it('says what ran again since, on its own, and how', () => {
+    const v = view();
+    v.verdict!.since = [{ golden: 'goldens/refund-in-limit', name: 'refund-in-limit', ok: true, revision: 'd2e8a1f+dirty', at: T + 60_000 }];
+    expect(sessionLine(v)).toMatchObject({ since: 'since: refund-in-limit passed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03' });
+    v.verdict!.since.push({ golden: 'goldens/refund-flow', name: 'refund-flow', ok: false, revision: null, at: T + 120_000 });
+    expect(sessionLine(v)).toMatchObject({ since: 'since: 2 goldens ran again, 1 failed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03\nrefund-flow failed, Oct 1, 10:04' });
+    v.verdict!.since[1]!.ok = true;
+    expect(sessionLine(v)!.since).toBe('since: 2 goldens ran again, all passed');
   });
 
   it('says when a session was interrupted, is still running, or never finished', () => {
@@ -87,8 +104,11 @@ describe('the verdict', () => {
     expect(sessionLine(v)!.rest).toMatch(/ · interrupted$/);
     v.verdict!.session.interrupted = false;
     v.verdict!.session.endedAt = null;
-    expect(sessionLine(v, true)!.rest).toMatch(/Oct 1, 10:01 · .* · running$/);
+    expect(sessionLine(v, true)!.rest).toMatch(/Oct 1, 10:01 · 3 passed, 1 failed so far · .* · running$/);
     expect(sessionLine(v, false)!.rest).toMatch(/ · did not finish$/);
+    // Running in a terminal or another tab: the server says its process is there.
+    v.verdict!.session.live = true;
+    expect(sessionLine(v, false)!.rest).toMatch(/ · running$/);
     expect(sessionLine(view({ verdict: null }))).toBeNull();
   });
 });
@@ -101,15 +121,20 @@ describe('the goldens table', () => {
     expect(revLabel(null)).toBe('—');
   });
 
+  it('says on hover a golden run again on its own with changes on top of that commit', () => {
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'pass', note: null, updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f+dirty', result: 'fail', note: 'diverged at call 3', updated: false, runId: null, at: T }, 'x').value).toBe('run again at d2e8a1f+dirty · diverged at call 3');
+  });
+
   it('says on hover how a golden did at each revision, and why it failed', () => {
-    expect(historyTip({ revision: 'b7e40c2', result: 'fail', note: 'input tokens 71,940, over the 60,000 budget', updated: false, runId: null, at: T }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', label: 'failed', value: 'input tokens 71,940, over the 60,000 budget', color: 'var(--err)' });
-    expect(historyTip({ revision: 'd2e8a1f', result: 'pass', note: null, updated: true, runId: null, at: T }, 'x')).toMatchObject({ label: 'passed', value: 'updated here: re-recorded, its checks passed', color: 'var(--o-rep)' });
-    expect(historyTip({ revision: null, result: null, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
+    expect(historyTip({ revision: 'b7e40c2', tested: 'b7e40c2', result: 'fail', note: 'input tokens 71,940, over the 60,000 budget', updated: false, runId: null, at: T }, 'refund-flow-budget')).toEqual({ title: 'b7e40c2 · refund-flow-budget', label: 'failed', value: 'input tokens 71,940, over the 60,000 budget', color: 'var(--err)' });
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', note: null, updated: true, runId: null, at: T }, 'x')).toMatchObject({ label: 'passed', value: 'updated here: re-recorded, its checks passed', color: 'var(--o-rep)' });
+    expect(historyTip({ revision: null, tested: null, result: null, note: null, updated: false, runId: null, at: null }, 'x')).toMatchObject({ title: 'no revision · x', label: 'not tested here' });
     // Updated, and its new recording failed the replay after it: both are said.
-    expect(historyTip({ revision: 'd2e8a1f', result: 'fail', note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'fail', note: 'diverged at call 8', updated: true, runId: null, at: T }, 'x').value).toBe('updated here, then diverged at call 8');
     // A pass whose replay had a connection blocked says so, after the update when there was one.
-    expect(historyTip({ revision: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: false, runId: null, at: T }, 'x').value).toBe('blocked connection to hooks.example.com:443');
-    expect(historyTip({ revision: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: true, runId: null, at: T }, 'x').value).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: false, runId: null, at: T }, 'x').value).toBe('blocked connection to hooks.example.com:443');
+    expect(historyTip({ revision: 'd2e8a1f', tested: 'd2e8a1f', result: 'pass', note: 'blocked connection to hooks.example.com:443', updated: true, runId: null, at: T }, 'x').value).toBe('updated here: re-recorded, its checks passed · blocked connection to hooks.example.com:443');
   });
 
   it('says where each golden came from: a run here, or a pack made elsewhere', () => {
@@ -142,6 +167,9 @@ describe('the reports', () => {
       blocked: null,
       bisect: null,
       found: null,
+      missed: null,
+      revisions: [],
+      unreadable: null,
     };
     expect(failureLines(f)).toEqual([
       { text: '✗ refund-over-limit: check failed: issue_refund called 0 times, but called 1 time', tone: 'no' },
@@ -167,6 +195,9 @@ describe('the reports', () => {
       blocked: ['hooks.example.com:443'],
       bisect: null,
       found: null,
+      missed: null,
+      revisions: [],
+      unreadable: null,
     };
     expect(failureHint(f)).toBe('The agent connected to hooks.example.com:443 directly, past Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=hooks.example.com:443.');
     expect(failureHint({ ...f, blocked: null })).toBe('The agent exited with an error while it replayed: its last lines of output are above.');
@@ -223,6 +254,79 @@ describe('the buttons under a divergence', () => {
     expect(divergenceButtons(found, all).bisect).toBeNull();
     expect(divergenceButtons(divergence('a', { bisect: null }), all).bisect).toEqual({ range: false, live: false });
     expect(divergenceButtons(divergence('a'), (k) => k === 'test')).toMatchObject({ normalize: null, update: null, bisect: null });
+  });
+
+  it('ask for an older good commit once a search over the known range named none, and offer none for a pack that can’t be read', () => {
+    const missed = divergence('a', { missed: { why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'd2e8a1f', outcome: 'fails-at-good', at: T } });
+    expect(divergenceButtons(missed, all).bisect).toEqual({ range: false, live: false });
+    expect(missedLine(missed.missed!)).toBe('No first bad commit between c91d0f4 and d2e8a1f: it already fails at c91d0f4');
+    expect(missedLine({ why: 'interrupted', good: null, bad: null, outcome: null, at: T })).toBe('No first bad commit: interrupted');
+    const failure = { found: null, missed: null, bisect: null, unreadable: "run.json can't be read" };
+    expect(findCommitButton(failure, all)).toBeNull();
+    expect(findCommitButton({ ...failure, unreadable: null }, all)).toEqual({ range: false, live: false });
+    expect(findCommitButton({ ...failure, unreadable: null }, (k) => k !== 'bisect')).toBeNull();
+  });
+
+  it('offer no other good commit once a search found it passing where it fails: the failure is in no commit', () => {
+    const passes = { why: 'it passes at dd06624, so there is nothing to find', good: 'bff4146', bad: 'dd06624', outcome: 'passes-at-bad' as const, at: T };
+    expect(divergenceButtons(divergence('a', { missed: passes }), all).bisect).toBeNull();
+    expect(missedLine(passes)).toBe('No first bad commit: it passes at dd06624 as committed, so the failure is in changes not committed there, or doesn’t happen every time');
+  });
+});
+
+describe('Find the commit’s dialog', () => {
+  const revisions = [
+    { rev: 'ddd4444', at: T, result: 'fail' as const, sameChecks: true, subject: 'Send the user id with every request' },
+    { rev: 'ccc3333', at: T - 60_000, result: 'pass' as const, sameChecks: true, subject: 'Escalate refunds above the limit' },
+    { rev: 'bbb2222', at: T - 120_000, result: 'pass' as const, sameChecks: false, subject: null },
+    { rev: 'aaa1111', at: T - 180_000, result: 'pass' as const, sameChecks: true, subject: 'Initial support agent' },
+  ];
+
+  it('offers each commit the golden was tested at by its subject, as the mock words it, starting on the newest that passed', () => {
+    const c = revisionChoices(revisions);
+    expect(c.options).toEqual([
+      { value: 'ddd4444', label: 'ddd4444 · Send the user id with every request · failed here' },
+      { value: 'ccc3333', label: 'ccc3333 · Escalate refunds above the limit' },
+      { value: 'bbb2222', label: 'bbb2222 · Oct 1 · passed under other checks' },
+      { value: 'aaa1111', label: 'aaa1111 · Initial support agent' },
+    ]);
+    expect(c.initial).toBe('ccc3333');
+  });
+
+  it('starts on an older commit than the one a search already failed at', () => {
+    expect(revisionChoices(revisions, 'ccc3333').initial).toBe('aaa1111');
+    expect(revisionChoices(revisions, 'aaa1111').initial).toBe('');
+    expect(revisionChoices([], null)).toEqual({ options: [], initial: '' });
+  });
+
+  it('writes the command as a person types it: a placeholder and HEAD~3 unquoted', () => {
+    expect(commandText(['bisect', 'goldens/x', '--good', '<commit>'])).toBe('shadowlap bisect goldens/x --good <commit>');
+    expect(commandText(['bisect', 'goldens/x', '--good', 'HEAD~3'])).toBe('shadowlap bisect goldens/x --good HEAD~3');
+    expect(commandText(['bisect', 'goldens/x', '--good', '~/x', '--good', 'HEAD^'])).toBe("shadowlap bisect goldens/x --good '~/x' --good 'HEAD^'");
+  });
+});
+
+describe('waiting for a test job', () => {
+  it('waits while a job that replays or rewrites the goldens runs in this project, and names it', () => {
+    // A search of a run touches no golden; one of a golden does.
+    const jobs = [{ kind: 'bisect', args: ['bisect', '01K5CQ4V5K0000000000000002', '--good', 'c91d0f4', '--fork'], done: false }, { kind: 'test', done: true }];
+    expect(testsBusy(jobs, 'run the tests')).toBeNull();
+    expect(testsBusy([{ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'], done: false }], 'run the tests')).toBe('Find the commit is running: run the tests once it is done.');
+    expect(testsBusy([...jobs, { kind: 'test-update', done: false }], 'run the tests')).toBe('An update of goldens is running: run the tests once it is done.');
+    expect(testsBusy([{ kind: 'normalize-and-test', done: false }], 'update it')).toBe('A normalizer and its re-run is running: update it once it is done.');
+    // Another project's job doesn't hold this one's goldens.
+    expect(testsBusy([{ kind: 'test', done: false, project: { id: 'other' } }], 'run the tests', 'this')).toBeNull();
+    expect(testsBusy([{ kind: 'test', done: false, project: { id: 'this' } }], 'run the tests', 'this')).toBe('A test session is running: run the tests once it is done.');
+    expect(runningTests([{ kind: 'test', done: true }, { kind: 'test', done: false }])).toEqual({ kind: 'test', done: false });
+  });
+
+  it('waits while a test session started in a terminal runs, naming its command', () => {
+    expect(sessionWait(null, 'run the tests')).toBeNull();
+    expect(sessionWait({ running: null }, 'run the tests')).toBeNull();
+    const running = { id: 's', command: 'shadowlap test goldens/*', revision: 'abc1234', startedAt: T, endedAt: null, passed: 1, failed: 0, upstreamRequests: 0, actor: null, interrupted: false, live: true };
+    expect(sessionWait({ running }, 'update it')).toBe('shadowlap test goldens/* is running: update it once it is done.');
+    // A long one is cut short.
+    expect(sessionWait({ running: { ...running, command: `shadowlap test ${'goldens/very-long-name '.repeat(5)}` } }, 'update it')).toBe('shadowlap test goldens/very-long-name goldens/very-long-nam… is running: update it once it is done.');
   });
 });
 

@@ -200,6 +200,20 @@ export function maskedChange(entry: DiffEntry, normalizers: readonly Normalizer[
 }
 
 /**
+ * A divergence's hints without those for a change the rules in force mask: the report lists every
+ * change in the request as sent, but a masked one didn't make it diverge, and "add a normalizer" for
+ * a rule the config has is advice already taken. A hint with no rule (the clock's) stays.
+ */
+export function unmaskedHints(d: DivergenceReport, rules: readonly Normalizer[]): NonNullable<DivergenceReport['hints']> {
+  return (d.hints ?? []).filter((h) => {
+    const path = h.normalizer?.path;
+    if (path === undefined) return true;
+    const at = (d.diff ?? []).filter((e) => e.path === path);
+    return !at.length || !at.every((e) => maskedChange(e, rules, d));
+  });
+}
+
+/**
  * The changes in a divergence that look like values made anew on every run. `normalizers`, the ones
  * in force when it diverged, leave out what they already mask: such a change is listed in the report
  * but did not make the replay diverge.

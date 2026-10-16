@@ -166,12 +166,33 @@ describe('shadowlap bisect', () => {
     const fails = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Ask for brevity']!]);
     expect(fails.code).toBe(1);
     expect(fails.stdout).toContain(`no first bad commit: it already fails at ${rev['Ask for brevity']}: diverged at call 1`);
+    // Each answer is kept, for Tests to show above the golden's buttons until it passes again.
+    const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+    const none = store.listEvents({ kinds: ['bisect.none'] });
+    store.close();
+    expect(none.map((e) => [e.ref, (e.data as { outcome: string }).outcome])).toEqual([
+      ['goldens/summary', 'fails-at-good'],
+      ['goldens/summary', 'passes-at-bad'],
+    ]);
+    expect(none[0]!.data).toMatchObject({ why: expect.stringContaining(`it already fails at ${rev['Ask for brevity']}`), good: rev['Ask for brevity'], bad: rev['Mark summaries as drafts'] });
     const backwards = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Mention the prompt']!, '--bad', rev['Describe the agent']!]);
     expect(backwards.code).toBe(1);
     expect(backwards.out).toContain(`--good ${rev['Mention the prompt']} comes after --bad ${rev['Describe the agent']}`);
     const unknown = await shadowlap(['bisect', 'goldens/nothing', '--good', 'HEAD~1']);
     expect(unknown.out).toContain('goldens/nothing is neither a golden');
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
+  });
+
+  it('names the failure each answer is about: the golden’s newest result as the search started', async () => {
+    const tested = await shadowlap(['test', 'goldens/summary']);
+    expect(tested.code, tested.out).toBe(1);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!]);
+    expect(r.code, r.out).toBe(0);
+    const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+    const result = store.listTestResults({ golden: 'goldens/summary', limit: 1 })[0]!;
+    const found = store.listEvents({ kinds: ['bisect.found'] })[0]!;
+    store.close();
+    expect(found.data).toMatchObject({ commit: rev['Ask for brevity'], answered: { session: result.sessionId, at: result.at, ok: false, revision: result.revision } });
   });
 
   it('refuses a run that is still recording, whose recording is not whole yet', async () => {
