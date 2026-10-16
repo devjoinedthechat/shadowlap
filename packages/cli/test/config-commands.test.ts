@@ -434,6 +434,30 @@ describe('shadowlap gc', () => {
     expect(r.out).toContain(`blobs are left while a run is still recording (${live.slice(0, 10)}); shadowlap gc frees them once it ends`);
   });
 
+  it('leaves a run in progress, and the run a replay in progress reads from, as the dashboard does', async () => {
+    const { done, live } = seedRuns();
+    // live is recorded by this process, which is still running: rm leaves it, and says why.
+    let r = await shadowlap(['rm', live]);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`left ${live.slice(0, 10)}: still recording; delete it once that has ended`);
+    // A replay of done, still running here: done serves its answers, so it stays too.
+    const store = Store.open(dbPath());
+    const replay = store.createRun({ mode: 'replay', parentRunId: done, command: { argv: ['node', 'agent.js'], cwd } });
+    store.close();
+    r = await shadowlap(['rm', done, '--forks']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(`left ${done.slice(0, 10)}: a replay of it is still running`);
+    expect(r.err).toContain(`left ${replay.runId.slice(0, 10)}: still running`);
+    const check = Store.open(dbPath());
+    expect(check.getRun(done)).not.toBeNull();
+    check.endRun(replay.runId, 'completed');
+    check.close();
+    // Once the replay has ended, both go.
+    r = await shadowlap(['rm', done, '--forks']);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain('deleted 2 runs');
+  });
+
   it('cleans up nothing, and creates no store, in a project that has never recorded', async () => {
     const r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
     expect(r.code, r.err).toBe(0);

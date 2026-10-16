@@ -221,6 +221,25 @@ describe('ease of use', () => {
     expect(frame).toContain(runId.slice(0, 10));
     store.close();
   });
+
+  it('leaves a run that is still recording, and says why', async () => {
+    const { store } = goldenStore();
+    // Recorded by this process, which is still running.
+    const live = store.createRun({ mode: 'record', command: { argv: ['python', 'chat.py'], cwd: '.' } });
+    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    await tick(60);
+    stdin.write('/');
+    await tick(60);
+    stdin.write('chat');
+    stdin.write('\r');
+    await tick(60);
+    stdin.write('x');
+    await tick(60);
+    stdin.write('y');
+    await frameWith(lastFrame, `${live.runId.slice(0, 10)} was not deleted: still recording; delete it once that has ended`);
+    expect(store.getRun(live.runId)).not.toBeNull();
+    store.close();
+  });
 });
 
 describe('scopes, labels and the dashboard', () => {

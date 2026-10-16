@@ -231,6 +231,25 @@ describe('the terminal UI\'s fork menu', () => {
     expect([passed.label, passed.prompt!.initial]).toEqual(['Find the commit that changed it', 'a1b2c3d']);
   });
 
+  it('waits for a run still recording to finish before it replays, forks or packs it, as the dashboard does', () => {
+    const live = run(undefined, { status: 'running', endedAt: null, codeVersion: 'a1b2c3d' });
+    const actions = terminalActions(live, call);
+    expect(actions.map((a) => [a.key, a.disabled])).toEqual([
+      ['r', 'replay once the recording finishes'],
+      ['i', 'fork once the recording finishes'],
+      ['m', 'fork once the recording finishes'],
+      ['g', 'fork once the recording finishes'],
+      ['f', 'fork once the recording finishes'],
+      ['a', 'fork once the recording finishes'],
+      ['e', 'fork once the recording finishes'],
+      ['s', 'fork once the recording finishes'],
+      ['b', 'fork once the recording finishes'],
+      ['p', 'pack once the recording finishes'],
+    ]);
+    // Once it has ended, they are on again.
+    expect(terminalActions({ ...live, status: 'completed', endedAt: 1 }, call).every((a) => !a.disabled)).toBe(true);
+  });
+
   it('turns Find the commit off outside git and for a pack\'s run, and leaves it out for a capture', () => {
     expect(terminalActions(run(), call).find((a) => a.key === 'b')!.disabled).toBe('Recorded outside a git repository: there are no commits to search');
     const packed = run({ imported: { at: 1, from: 'goldens/refund' } }, { codeVersion: 'a1b2c3d' });

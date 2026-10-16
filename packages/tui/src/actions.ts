@@ -88,11 +88,14 @@ export function buildActions(run: RunRecord, call: CallRecord | undefined, conte
 export function terminalActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext = {}): Action[] {
   const actions = buildActions(run, call, context);
   const find = bisectAction(run);
-  if (!find) return actions;
   // After the whole run's other actions, before what isn't a fork.
   let at = actions.length;
   while (at > 0 && actions[at - 1]!.group !== 'run') at--;
-  return [...actions.slice(0, at), find, ...actions.slice(at)];
+  const all = find ? [...actions.slice(0, at), find, ...actions.slice(at)] : actions;
+  // A run still recording has no end to replay to yet: as in the dashboard, its replays, forks and
+  // copies wait for it to finish (the terminal UI tails it, so they turn on when it does).
+  if (run.status !== 'running') return all;
+  return all.map((a) => (a.key === 'n' || a.disabled ? a : { ...a, disabled: a.key === 'r' ? 'replay once the recording finishes' : a.key === 'p' ? 'pack once the recording finishes' : 'fork once the recording finishes' }));
 }
 
 /**

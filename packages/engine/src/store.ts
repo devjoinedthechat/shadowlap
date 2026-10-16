@@ -1509,6 +1509,18 @@ export class Store {
   }
 
   /**
+   * Why a run can't be deleted now, or null. A run a process is still recording (or replaying) is
+   * left alone, and so is one a run in progress reads from: a replay, a fork or an attempt of it
+   * serves its answers from it as it goes. A run its process left marked running holds nothing up,
+   * as for gc. `live` is the runs in progress, when the caller has them already.
+   */
+  deletionHold(runId: string, live: readonly RunRecord[] = this.recordingRuns().live.map((r) => r.run)): string | null {
+    const run = live.find((r) => r.runId === runId);
+    if (run) return run.mode === 'record' ? 'still recording' : 'still running';
+    return live.some((r) => r.parentRunId === runId) ? 'a replay of it is still running' : null;
+  }
+
+  /**
    * The MCP servers recorded tool calls came through (`shadowlap mcp` names each in the call's
    * `meta.mcp`): per server, its calls, the latest, and the tools it offered when last listed,
    * with their effects, or null when no call carried the list. One query over all runs.

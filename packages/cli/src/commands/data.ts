@@ -166,11 +166,20 @@ export function register(program: Command): void {
         if (flags.forks) for (const child of store.childRuns(run.runId)) collect(child);
       };
       for (const arg of runArgs) collect(requireRun(store, arg));
+      // A run still recording, or one a run in progress replays from, is left alone, as the dashboard leaves it.
+      const live = store.recordingRuns().live.map((r) => r.run);
+      const held = [...targets.values()].flatMap((run) => {
+        const why = store.deletionHold(run.runId, live);
+        return why ? [{ run, why }] : [];
+      });
+      for (const { run } of held) targets.delete(run.runId);
       for (const run of targets.values()) store.deleteRun(run.runId);
-      const gc = store.gcBlobs();
+      const gc = targets.size ? store.gcBlobs() : null;
       store.close();
-      process.stdout.write(`${p.green('✓')} deleted ${targets.size} run${targets.size === 1 ? '' : 's'} (${[...targets.keys()].map((id) => shortId(id)).join(', ')}); ${gc.removed} blob${gc.removed === 1 ? '' : 's'}, ${formatBytes(gc.bytes)} freed\n`);
-      if (gc.recording.length) process.stdout.write(p.dim(`  blobs are left while ${gc.recording.length === 1 ? 'a run is' : `${gc.recording.length} runs are`} still recording (${gc.recording.map((id) => shortId(id)).join(', ')}); shadowlap gc frees them once ${gc.recording.length === 1 ? 'it ends' : 'they end'}\n`));
+      if (targets.size) process.stdout.write(`${p.green('✓')} deleted ${targets.size} run${targets.size === 1 ? '' : 's'} (${[...targets.keys()].map((id) => shortId(id)).join(', ')}); ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
+      if (gc?.recording.length) process.stdout.write(p.dim(`  blobs are left while ${gc.recording.length === 1 ? 'a run is' : `${gc.recording.length} runs are`} still recording (${gc.recording.map((id) => shortId(id)).join(', ')}); shadowlap gc frees them once ${gc.recording.length === 1 ? 'it ends' : 'they end'}\n`));
+      for (const { run, why } of held) process.stderr.write(`${p.yellow('!')} left ${shortId(run.runId)}: ${why}; delete it once that has ended\n`);
+      if (held.length) process.exitCode = 1;
     });
 
   program

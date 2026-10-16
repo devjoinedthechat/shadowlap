@@ -41,3 +41,23 @@ describe('gcBlobs', () => {
     store.close();
   });
 });
+
+describe('deletionHold', () => {
+  it('holds a run in progress, and the run a replay in progress serves from, until they end', () => {
+    const store = Store.open(':memory:');
+    const command = { argv: ['node', 'agent.js'], cwd: '/' };
+    const rec = store.createRun({ mode: 'record', command });
+    expect(store.deletionHold(rec.runId)).toBe('still recording');
+    store.endRun(rec.runId, 'completed');
+    expect(store.deletionHold(rec.runId)).toBeNull();
+    const replay = store.createRun({ mode: 'replay', parentRunId: rec.runId, command });
+    expect(store.deletionHold(replay.runId)).toBe('still running');
+    expect(store.deletionHold(rec.runId)).toBe('a replay of it is still running');
+    store.endRun(replay.runId, 'completed');
+    expect(store.deletionHold(rec.runId)).toBeNull();
+    // What counts as in progress is what recordingRuns says: the caller may pass the list it has.
+    const other = store.createRun({ mode: 'record', command });
+    expect(store.deletionHold(other.runId, [])).toBeNull();
+    store.close();
+  });
+});

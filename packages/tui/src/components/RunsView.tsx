@@ -13,7 +13,8 @@ interface Props {
   width: number;
   height: number;
   onOpen: (runId: string) => void;
-  onDelete: (runId: string) => void;
+  /** Deletes a run; what it says back (why it didn't) is shown. */
+  onDelete: (runId: string) => string | null | void;
   onQuit: () => void;
   onHelp: () => void;
   openDashboard?: OpenDashboard;
@@ -76,7 +77,8 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, onQuit, onHel
     (input, key) => {
       if (mode.kind === 'confirm-delete') {
         if (input === 'y' || input === 'Y') {
-          onDelete(mode.runId);
+          const refused = onDelete(mode.runId);
+          if (refused) setToast({ text: refused, ms: 4000 });
           setMode({ kind: 'list' });
         } else if (key.escape || input === 'n' || input === 'N' || input === 'q') setMode({ kind: 'list' });
         return;

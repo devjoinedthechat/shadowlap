@@ -111,9 +111,13 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
         height={height}
         onOpen={(id) => setView(open(id))}
         onDelete={(id) => {
+          // A run still recording, or one a run in progress replays from, is left alone, as `rm` and the dashboard leave it.
+          const why = store.deletionHold(id);
+          if (why) return `${id.slice(0, 10)} was not deleted: ${why}; delete it once that has ended`;
           store.deleteRun(id);
           store.gcBlobs();
           setTick((n) => n + 1);
+          return null;
         }}
         onQuit={() => exit()}
         onHelp={() => setHelp(true)}
