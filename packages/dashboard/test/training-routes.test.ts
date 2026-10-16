@@ -345,3 +345,18 @@ describe('the fix a pair source belongs to', () => {
     s.close();
   });
 });
+
+describe('GET /api/models on a read-only dashboard', () => {
+  it('asks no provider with this machine’s keys: it lists the recorded models and those scored before', async () => {
+    asked.length = 0;
+    const res = await api(readOnly, 'models');
+    expect(res.status).toBe(200);
+    const view = (await res.json()) as ModelsView;
+    expect(asked).toEqual([]);
+    expect(view.notes).toEqual([]);
+    expect(view.choices.map((c) => [c.group, c.id, c.lastScore])).toEqual([
+      ['Recorded with', 'claude-sonnet-5', 1],
+      ['Endpoints scored before', 'qwen2.5:7b', 0.75],
+    ]);
+  });
+});

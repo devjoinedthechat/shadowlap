@@ -49,6 +49,12 @@ export interface ListModelsInput {
   fetch?: typeof fetch;
   /** Per listing request; they run at once. Default 1500 ms. */
   timeoutMs?: number;
+  /**
+   * Whether to ask the providers for their lists (default true). Without, only the recorded models
+   * and those scored before are listed, and nothing is sent anywhere: for a listing that can't be
+   * scored from, such as a read-only dashboard's.
+   */
+  ask?: boolean;
 }
 
 export const OFFICIAL = { anthropic: 'https://api.anthropic.com', openai: 'https://api.openai.com/v1' } as const;
@@ -215,7 +221,7 @@ export async function listModelChoices(input: ListModelsInput): Promise<ModelLis
     return names.map((name) => ({ group, id: name, via: group, where: group, baseUrl: `${base}/v1`, flags: ['--model', name, '--base-url', `${base}/v1`], perAttempt: price(name, local), local }));
   };
 
-  const listed = await Promise.allSettled([anthropic(), openai(), ollama()]);
+  const listed = input.ask === false ? [] : await Promise.allSettled([anthropic(), openai(), ollama()]);
   const openaiAt = openAIBase(env);
   const ollamaAt = ollamaBase(env);
   const names = ['Anthropic API', openaiAt === OFFICIAL.openai ? 'OpenAI API' : `OpenAI-compatible, ${endpointVia(openaiAt, env)}`, isLoopback(ollamaAt) ? 'Ollama, on this machine' : `Ollama, ${new URL(ollamaAt).host}`];

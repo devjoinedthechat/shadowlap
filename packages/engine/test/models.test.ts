@@ -73,6 +73,17 @@ describe('models to score', () => {
     expect(asked.some((u) => u.includes('anthropic'))).toBe(false);
   });
 
+  it('asks no provider when told not to, and lists only the recorded models and those scored before', async () => {
+    const { fetch, asked } = fakeFetch({ 'https://api.anthropic.com/v1/models?limit=100': { body: { data: [{ id: 'claude-haiku-4-5' }] } } });
+    const listing = await listModelChoices({ recorded: [{ model: 'claude-sonnet-5', provider: 'anthropic' }], scored: [{ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1', via: 'on this machine' }], tokens: TOKENS, env: { ANTHROPIC_API_KEY: 'sk-ant' }, fetch, ask: false });
+    expect(asked).toEqual([]);
+    expect(listing.notes).toEqual([]);
+    expect(listing.choices.map((c) => [c.group, c.id])).toEqual([
+      ['Recorded with', 'claude-sonnet-5'],
+      ['Endpoints scored before', 'my-finetune'],
+    ]);
+  });
+
   it('asks the servers the environment points at, and names an OpenAI-compatible one by its host', async () => {
     const { fetch } = fakeFetch({
       'http://127.0.0.1:9001/v1/models?limit=100': { body: { data: [{ id: 'claude-haiku-4-5' }] } },

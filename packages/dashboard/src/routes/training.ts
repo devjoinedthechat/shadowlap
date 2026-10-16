@@ -16,7 +16,7 @@ import { exportPairsJob, modelsView, readTraining, scoreModelJob, sourceFixes, t
  * read. Listing models asks each configured provider with the keys already on this machine, and
  * Ollama only where a server already answers; nothing is started, every request times out fast, and a
  * provider that doesn't answer becomes a note. The listing is kept for a few seconds, so opening the
- * dialog again doesn't ask again.
+ * dialog again doesn't ask again. A read-only dashboard asks no provider.
  */
 
 const FILTERS: readonly PairFilter[] = ['all', 'high', 'medium'];
@@ -60,7 +60,7 @@ export function register(router: Router, ctx: RouteContext): void {
   };
 
   let listing: { key: string; at: number; value: Promise<ModelListing> } | null = null;
-  const listModels = (input: ReturnType<typeof listingInput>): Promise<ModelListing> => {
+  const listModels = (input: ReturnType<typeof listingInput> & { ask?: boolean }): Promise<ModelListing> => {
     const p = prices();
     const key = JSON.stringify([input, p ?? null]);
     if (listing && listing.key === key && Date.now() - listing.at < LISTING_TTL_MS) return listing.value;
@@ -83,7 +83,9 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/models', async (r) => {
     const t = tasks();
     const scores = ctx.store.listTaskScores();
-    r.json(modelsView(t.tasks, scores, await listModels(listingInput(t.tasks, scores))));
+    // Nothing can be scored from a read-only dashboard, so it asks no provider with this machine's
+    // keys: it lists the recorded models and those scored before.
+    r.json(modelsView(t.tasks, scores, await listModels({ ...listingInput(t.tasks, scores), ...(ctx.readOnly ? { ask: false } : {}) })));
   });
 
   ctx.jobs.registerJobKind('pairs', {
