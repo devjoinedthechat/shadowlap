@@ -213,9 +213,17 @@ describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
   it('stops at Ctrl-C, concludes nothing from the replay it cut short, and removes its worktrees', async () => {
     const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'sleep 2'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
-    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    setTimeout(() => child.kill('SIGINT'), 1000);
+    let interrupted = false;
+    // Ctrl-C once the first commit has been tried, as the next one builds (two seconds): bisect
+    // listens for it by then. A fixed delay from the start ran out before that on a busy machine,
+    // where the CLI was slow to start, and the signal ended it outright.
+    const interrupt = () => {
+      if (interrupted || !out.includes('replay at ')) return;
+      interrupted = true;
+      child.kill('SIGINT');
+    };
+    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), interrupt()));
+    child.stderr.on('data', (d: Buffer) => ((out += d.toString()), interrupt()));
     const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
     expect(code, out).toBe(1);
     expect(out).toContain('no first bad commit: interrupted');
