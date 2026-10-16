@@ -10,6 +10,8 @@ import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, type ShareKey } from './share.js';
+// The share job's drawer offers the link it made.
+import './share-link.js';
 
 /**
  * Share: the run as a share link (with a team store), an HTML file (with the runs it came from), a

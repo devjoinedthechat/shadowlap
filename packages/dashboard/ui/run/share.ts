@@ -36,6 +36,19 @@ export function shareItems(o: { can: (key: ShareKey) => boolean; team: RunOffers
   return keys.map((key) => ({ key, ...ITEMS[key] }));
 }
 
+/**
+ * The link a finished share job made, from its result (`shadowlap share` reports `url` and
+ * `expiresAt`), for the drawer's Copy link: a job's own links only ever open pages of the dashboard,
+ * and this one is a presigned URL in the team's bucket. Null until the job has ended well, or for
+ * anything that isn't a web address.
+ */
+export function sharedLink(job: { done: boolean; code: number | null; result?: unknown }): { url: string; expiresAt: number | null } | null {
+  if (!job.done || job.code !== 0 || !job.result || typeof job.result !== 'object') return null;
+  const { url, expiresAt } = job.result as { url?: unknown; expiresAt?: unknown };
+  if (typeof url !== 'string' || url.length > 8192 || !/^https?:\/\/[^\s]+$/.test(url)) return null;
+  return { url, expiresAt: typeof expiresAt === 'number' && Number.isFinite(expiresAt) ? expiresAt : null };
+}
+
 const rulesWord = (n: number) => `${num(n)} redaction ${n === 1 ? 'rule' : 'rules'}`;
 
 /**

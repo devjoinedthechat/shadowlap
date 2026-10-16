@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, type BlameFacts } from '../ui/run/offers.js';
-import { canPush, defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
+import { canPush, defaultPackFolder, htmlCopyVia, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, RunOffers, TestBannerOffer } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
@@ -63,6 +63,19 @@ describe('the Share menu', () => {
     expect(canPush({ ...ok, exported: true })).toBe(false);
     expect(canPush({ ...ok, team: null })).toBe(false);
     for (const state of ['queued', 'in-store', 'recording', 'pull-request'] as const) expect(canPush({ ...ok, team: { store: 'bucket/team', state } }), state).toBe(false);
+  });
+});
+
+describe('the share link a share job made', () => {
+  it('offers the link once the job ended well, and only a web address', () => {
+    const done = { done: true, code: 0, result: { runId: 'x', url: 'https://bucket.s3.amazonaws.com/shares/x.html?X-Amz-Signature=abc', expiresAt: 1_800_000_000_000 } };
+    expect(sharedLink(done)).toEqual({ url: done.result.url, expiresAt: 1_800_000_000_000 });
+    expect(sharedLink({ ...done, result: { url: 'http://127.0.0.1:9000/team/x.html' } })).toEqual({ url: 'http://127.0.0.1:9000/team/x.html', expiresAt: null });
+    // Not yet, not after a failure, and never anything that isn't a web address.
+    expect(sharedLink({ ...done, done: false })).toBeNull();
+    expect(sharedLink({ ...done, code: 1 })).toBeNull();
+    expect(sharedLink({ ...done, result: null })).toBeNull();
+    for (const url of ['javascript:alert(1)', '#/runs', 'file:///etc/passwd', 'https://a b', 42]) expect(sharedLink({ ...done, result: { url } }), String(url)).toBeNull();
   });
 });
 
