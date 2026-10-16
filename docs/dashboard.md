@@ -166,6 +166,6 @@ For contributors, the server's endpoints are registered by feature in `packages/
 | `GET /api/files/:fileId` | A file a job wrote, as an attachment |
 | `POST /api/uploads` | A file for a job (raw body, name in `x-filename`); answers its `uploadId` |
 | `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
-| `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them; a provider that couldn't be listed is a note |
+| `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them; a provider that couldn't be listed is a note, and a read-only dashboard asks none |
 
 Every request needs the session token in `x-shadowlap-token`. A command reports to its job by writing one JSON object per line to the descriptor `SHADOWLAP_EVENTS_FD` names: `{"type":"run","runId":…,"role":"new"|"attempt"}`, `{"type":"link","label":…,"href":"#/…"}`, `{"type":"file","path":…,"label":…}` and `{"type":"result","data":…}` (`emitJobEvent` in the CLI does it). Outside a dashboard job the variable is unset and nothing is written.
