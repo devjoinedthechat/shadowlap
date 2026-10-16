@@ -94,6 +94,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     exportedAt: opts.now,
     runIds,
     redacted: opts.redacted,
+    // Compare offers only the pairs the file holds.
+    compareWith: runIds.length > COMPARE_ALL_UPTO ? runIds[0]! : null,
   };
   responses['meta'] = meta;
   responses['runs'] = { runs };

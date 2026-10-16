@@ -126,6 +126,7 @@ export function runChanges(store: Store, a: RunRecord, aCalls: CallRecord[], b: 
   const same = (p: Set<string>, q: Set<string>) => p.size === q.size && [...p].every((v) => q.has(v));
   return {
     systemPrompt: !same(x.systems, y.systems),
+    systems: { a: [...x.systems].sort(), b: [...y.systems].sort() },
     tools: {
       added: [...y.tools.keys()].filter((t) => !x.tools.has(t)).sort(),
       removed: [...x.tools.keys()].filter((t) => !y.tools.has(t)).sort(),

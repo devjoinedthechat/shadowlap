@@ -1577,6 +1577,16 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .cmpnote { margin: 16px 0 0; color: var(--faint); font-size: 12.5px; }
 .panel.cmpresp { margin-top: 16px; }
 table.t td.wrapcell { white-space: normal; }
+/* the run ids in the headings read as the mock's plain ids, and open the run at that call */
+.diffpanel h4 a, .paths h4 a { color: inherit; text-decoration: none; }
+.diffpanel h4 a:hover, .paths h4 a:hover { color: var(--ink); text-decoration: underline; }
+/* the change cards' notes wrap, as a commit subject is long; the answers table fits a phone */
+.changes small { overflow-wrap: anywhere; }
+.cmpresp .tscroll table.t { min-width: 0; }
+.cmpresp table.t td.wrapcell { overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .cmpresp table.t th, .cmpresp table.t td { padding-left: 6px; padding-right: 6px; }
+}
 
 /* the job drawer names the folders a job wrote (a pack); files download from its footer */
 .drawer .jfiles { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 0; font-size: 12.5px; color: var(--dim); }

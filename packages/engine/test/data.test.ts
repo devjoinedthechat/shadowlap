@@ -133,7 +133,14 @@ describe('what changed between runs', () => {
     const a = run(store, { model: 'claude-opus-5', system: 'Be careful.', tools: [tool('search'), tool('email')], messages: [{ role: 'user', content: 'hi' }] }, 'a1');
     const b = run(store, { model: 'claude-sonnet-5', system: 'Be brief.', tools: [tool('search', 'changed'), tool('lookup')], messages: [{ role: 'user', content: 'hi' }] }, 'b2');
     const changes = runChanges(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));
-    expect(changes).toEqual({ systemPrompt: true, tools: { added: ['lookup'], removed: ['email'], redefined: true }, models: { a: ['claude-opus-5'], b: ['claude-sonnet-5'] }, code: { a: 'a1', b: 'b2' } });
+    const { systems, ...rest } = changes;
+    expect(rest).toEqual({ systemPrompt: true, tools: { added: ['lookup'], removed: ['email'], redefined: true }, models: { a: ['claude-opus-5'], b: ['claude-sonnet-5'] }, code: { a: 'a1', b: 'b2' } });
+    // Each run's prompt by its hash: one each, and not the same one; a run against itself, the same.
+    expect(systems?.a).toHaveLength(1);
+    expect(systems?.b).toHaveLength(1);
+    expect(systems?.a[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(systems?.a[0]).not.toBe(systems?.b[0]);
+    expect(runChanges(store, a, store.getCalls(a.runId), a, store.getCalls(a.runId)).systems).toEqual({ a: systems?.a, b: systems?.a });
     expect(describeChanges(changes)).toEqual(['system prompt changed', 'tools +lookup −email', 'a tool definition changed', 'model claude-opus-5 → claude-sonnet-5', 'code a1 → b2']);
     expect(describeChanges(runChanges(store, a, store.getCalls(a.runId), a, store.getCalls(a.runId)))).toEqual([]);
     // An instruction injected later in the conversation is not a change of system prompt.

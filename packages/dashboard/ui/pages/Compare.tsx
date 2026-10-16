@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from 'react';
-import type { CallRow, RunComparison, RunDetail, RunListItem } from '../api.js';
+import type { CallRow, CompareView, RunDetail, RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { changeCards, comparingLive, pickable, prefixLine, samePlaces } from '../compare/model.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
@@ -15,7 +16,7 @@ import { useApp } from '../state.js';
  * Compare: what changed between two runs (code, system prompt, tools, model), then call by call: the
  * identical prefix, the first request that differs, where the paths went from there, and calls where
  * the same request got a different answer. With no runs named it opens the newest fork or replay
- * against its parent.
+ * against its parent. A run still recording is compared again as its calls arrive.
  */
 export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   const { runs } = useApp();
@@ -41,20 +42,30 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
 }
 
 function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] }) {
-  const { client } = useApp();
-  const cmp = useLoad(() => client.compare(a, b), `${a}:${b}`);
-  const ra = useLoad(() => client.run(a), a);
-  const rb = useLoad(() => client.run(b), b);
+  const { client, live, tick, exported, meta } = useApp();
+  // While either run records, each change to the store reads the comparison again; once both have ended, once more.
+  const refresh = comparingLive(live, a, b) ? tick : 'ended';
+  const cmp = useLoad(() => client.compare(a, b), `${a}:${b}`, refresh);
+  const ra = useLoad(() => client.run(a), a, refresh);
+  const rb = useLoad(() => client.run(b), b, refresh);
   const c = cmp.data;
+  const hub = exported ? (meta?.compareWith ?? null) : null;
+  const error = cmp.error
+    ? cmp.error.message.includes('does not exist')
+      ? 'One of these runs is not in the store.'
+      : hub
+        ? `This copy compares each run with ${shortId(hub)} only: pick it on one side.`
+        : `Could not compare these runs: ${cmp.error.message}`
+    : null;
   return (
     <Page>
       <PageHeader
         eyebrow="compare"
         title="What changed between two runs"
         text="What changed first, then call by call: the identical prefix, the first request that differs, and where the paths went from there."
-        actions={<Pickers a={a} b={b} runs={runs} />}
+        actions={<Pickers a={a} b={b} runs={runs} hub={hub} />}
       />
-      {cmp.error ? <div className="empty">{cmp.error.message.includes('does not exist') ? 'One of these runs is not in the store.' : `Could not compare these runs: ${cmp.error.message}`}</div> : null}
+      {error ? <div className="empty">{error}</div> : null}
       {c ? (
         <>
           <Changes c={c} />
@@ -70,32 +81,31 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   );
 }
 
-function Pickers({ a, b, runs }: { a: string; b: string; runs: RunListItem[] }) {
-  const options = useMemo(() => [...runs].sort((x, y) => y.startedAt - x.startedAt).slice(0, 300), [runs]);
-  const option = (id: string) => {
-    const r = runs.find((x) => x.runId === id || x.runId.startsWith(id));
-    return r ? r.runId : id;
+function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[]; hub: string | null }) {
+  const pick = (value: string, other: string, onChange: (v: string) => void, label: string) => {
+    const options = pickable(runs, other, hub);
+    const full = runs.find((x) => x.runId === value || x.runId.startsWith(value))?.runId ?? value;
+    return (
+      <span className="pick">
+        <select aria-label={label} value={full} onChange={(e) => onChange(e.target.value)}>
+          {options.some((r) => r.runId === full) ? null : <option value={full}>{shortId(value)}</option>}
+          {options.map((r) => (
+            <option key={r.runId} value={r.runId}>
+              {shortId(r.runId)} · {kindWord(r)}
+            </option>
+          ))}
+        </select>
+        <Icon name="caret" className="caret" />
+      </span>
+    );
   };
-  const pick = (value: string, onChange: (v: string) => void, label: string) => (
-    <span className="pick">
-      <select aria-label={label} value={option(value)} onChange={(e) => onChange(e.target.value)}>
-        {options.some((r) => r.runId === option(value)) ? null : <option value={option(value)}>{shortId(value)}</option>}
-        {options.map((r) => (
-          <option key={r.runId} value={r.runId}>
-            {shortId(r.runId)} · {kindWord(r)}
-          </option>
-        ))}
-      </select>
-      <Icon name="caret" className="caret" />
-    </span>
-  );
   return (
     <div className="pickers">
-      {pick(a, (v) => navigate(href.compare(v, b)), 'Run A')}
+      {pick(a, b, (v) => navigate(href.compare(v, b)), 'Run A')}
       <span className="arrow" aria-hidden="true">
         →
       </span>
-      {pick(b, (v) => navigate(href.compare(a, v)), 'Run B')}
+      {pick(b, a, (v) => navigate(href.compare(a, v)), 'Run B')}
       <a className="btn" href={href.compare(b, a)} title="Compare the other way round">
         Swap
       </a>
@@ -103,37 +113,24 @@ function Pickers({ a, b, runs }: { a: string; b: string; runs: RunListItem[] }) 
   );
 }
 
-function ChangeCard({ k, changed, title, note }: { k: string; changed: boolean; title: string; note: string }) {
-  return (
-    <div className={changed ? 'diff' : undefined}>
-      <span className="k">{k}</span>
-      <b>{title}</b>
-      <small>{note}</small>
-    </div>
-  );
-}
-
-function Changes({ c }: { c: RunComparison }) {
-  const ch = c.changes;
-  const codeChanged = (ch.code.a ?? '') !== (ch.code.b ?? '');
-  const t = ch.tools;
-  const toolsChanged = t.added.length > 0 || t.removed.length > 0 || t.redefined;
-  const toolNote = [...t.added.map((x) => `+${x}`), ...t.removed.map((x) => `−${x}`)].join(' ') || (t.redefined ? 'a definition changed' : 'same declarations');
-  const modelsChanged = ch.models.a.join() !== ch.models.b.join();
+function Changes({ c }: { c: CompareView }) {
   return (
     <div className="changes">
-      <ChangeCard k="code" changed={codeChanged} title={codeChanged ? `${ch.code.a ?? '—'} → ${ch.code.b ?? '—'}` : 'unchanged'} note={codeChanged ? 'different revision' : (ch.code.a ?? 'no revision recorded')} />
-      <ChangeCard k="system prompt" changed={ch.systemPrompt} title={ch.systemPrompt ? 'changed' : 'unchanged'} note={ch.systemPrompt ? 'different prompt' : 'same prompt'} />
-      <ChangeCard k="tools" changed={toolsChanged} title={toolsChanged ? 'changed' : 'unchanged'} note={toolNote} />
-      <ChangeCard k="model" changed={modelsChanged} title={modelsChanged ? `${ch.models.a.join(', ') || 'none'} → ${ch.models.b.join(', ') || 'none'}` : 'unchanged'} note={modelsChanged ? 'different model' : ch.models.a.join(', ') || 'no model call'} />
+      {changeCards(c).map((card) => (
+        <div key={card.key} className={card.changed ? 'diff' : undefined} title={card.tip ?? undefined}>
+          <span className="k">{card.key}</span>
+          <b>{card.title}</b>
+          <small>{card.note}</small>
+        </div>
+      ))}
     </div>
   );
 }
 
-function Prefix({ c }: { c: RunComparison }) {
+function Prefix({ c }: { c: CompareView }) {
   const n = c.identicalPrefix;
-  const first = c.firstRequestDifference?.callNo ?? null;
   const cells = Math.max(1, Math.min(n, 120));
+  const line = prefixLine(c);
   return (
     <div className="prefix">
       <span className="ms" style={{ gridTemplateColumns: `repeat(${cells}, minmax(0, 1fr))` }} aria-hidden="true">
@@ -142,14 +139,13 @@ function Prefix({ c }: { c: RunComparison }) {
         ))}
       </span>
       <span>
-        <b>{n ? `#1–#${num(n)} identical.` : 'No identical prefix.'}</b>{' '}
-        {first ? `The first request that differs is #${first}.` : c.responseDifferences.length ? 'Every request matches; some answers differ.' : c.onlyInA || c.onlyInB ? 'Every request they share matches.' : 'Every call matches.'}
+        <b>{line.lead}</b> {line.rest}
       </span>
     </div>
   );
 }
 
-function FirstDifference({ c }: { c: RunComparison }) {
+function FirstDifference({ c }: { c: CompareView }) {
   const f = c.firstRequestDifference!;
   const diff = f.diff ?? [];
   return (
@@ -188,9 +184,14 @@ function FirstDifference({ c }: { c: RunComparison }) {
         </pre>
       </div>
       <div className="hint">
-        {diff.length
-          ? `${diff.length === 1 ? 'One field differs' : `${diff.length} fields differ`}${diff.length > 12 ? '; the first 12 are shown' : ''}. Paths point into this call’s request, so an index counts entries inside it (messages, tools), not calls in the run.`
-          : 'The stored requests are equal; they differ in what matching also reads: the headers that change model behaviour, or values normalizers treat differently.'}
+        {diff.length ? (
+          <span title="Paths point into this call’s request, so an index counts entries inside it (messages, tools), not calls in the run.">
+            {diff.length === 1 ? 'One field differs' : `${diff.length} fields differ`}
+            {diff.length > 12 ? '; the first 12 are shown' : ''}, each by its path in this call’s request.
+          </span>
+        ) : (
+          'The stored requests are equal; they differ in what matching also reads: the headers that change model behaviour, or values normalizers treat differently.'
+        )}
         {f.hints?.map((h, i) => (
           <span key={i} className="hline">
             {h.message}
@@ -201,51 +202,48 @@ function FirstDifference({ c }: { c: RunComparison }) {
   );
 }
 
-function PathColumn({ run, calls, other, from, answer }: { run: RunDetail; calls: CallRow[]; other: CallRow[]; from: number; answer: string | null | undefined }) {
+function PathColumn({ run, calls, same, from, answer }: { run: RunDetail; calls: CallRow[]; same: boolean[]; from: number; answer: string | null | undefined }) {
   const tag = runTag({ ...(run.run as unknown as RunLike), calls: run.calls.length, divergence: run.run.divergence, mode: run.run.mode, status: run.run.status } as RunLike);
   const shown = calls.slice(0, 200);
+  const recording = run.run.status === 'running';
   return (
     <div>
       <h4>
         <Tag cls={tag.cls}>{tag.text}</Tag>
-        <a href={href.run(run.run.runId, from + 1)}>{shortId(run.run.runId)}</a> after #{from}
+        <a href={href.run(run.run.runId, from + 1)}>{shortId(run.run.runId)}</a> {from ? `after #${from}` : 'from #1'}
       </h4>
-      {shown.map((c, i) => {
-        const o = other[i];
-        // The call where the requests first differ is never "the same", whatever its name.
-        const same = !!o && c.callNo !== from + 1 && o.kind === c.kind && o.name === c.name && o.detail === c.detail;
-        return (
-          <a key={c.callNo} className={`pcall${same ? ' same' : ''}`} href={href.run(run.run.runId, c.callNo)}>
-            <span className="pn">#{c.callNo}</span>
-            <span>
-              {callName(c.kind, c.name)}
-              {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
-            </span>
-            <Org origin={displayOrigin(c)} />
-          </a>
-        );
-      })}
+      {shown.map((c, i) => (
+        <a key={c.callNo} className={`pcall${same[i] ? ' same' : ''}`} href={href.run(run.run.runId, c.callNo)} title={same[i] ? 'The other run made the same call here' : undefined}>
+          <span className="pn">#{c.callNo}</span>
+          <span>
+            {callName(c.kind, c.name)}
+            {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+          </span>
+          <Org origin={displayOrigin(c)} />
+        </a>
+      ))}
       {calls.length > shown.length ? <div className="pcall more">… {num(calls.length - shown.length)} more calls</div> : null}
-      {calls.length === 0 ? <div className="pcall more">no calls after #{from}</div> : null}
-      {answer ? <p className="pans">{clip(answer, 400)}</p> : null}
+      {calls.length === 0 ? <div className="pcall more">{recording ? `no calls ${from ? `after #${from} ` : ''}yet` : `no calls after #${from}`}</div> : null}
+      {recording ? <div className="pcall more">recording · more calls as they arrive</div> : answer ? <p className="pans">{clip(answer, 400)}</p> : null}
     </div>
   );
 }
 
-function Paths({ c, a, b }: { c: RunComparison; a: RunDetail; b: RunDetail }) {
+function Paths({ c, a, b }: { c: CompareView; a: RunDetail; b: RunDetail }) {
   const from = c.firstRequestDifference ? c.firstRequestDifference.callNo - 1 : c.identicalPrefix;
   const ca = a.calls.filter((x) => x.callNo > from);
   const cb = b.calls.filter((x) => x.callNo > from);
-  if (!ca.length && !cb.length) return null;
+  const first = c.firstRequestDifference?.callNo ?? null;
+  if (!ca.length && !cb.length && a.run.status !== 'running' && b.run.status !== 'running') return null;
   return (
     <div className="paths">
-      <PathColumn run={a} calls={ca} other={cb} from={from} answer={c.after?.a.answer} />
-      <PathColumn run={b} calls={cb} other={ca} from={from} answer={c.after?.b.answer} />
+      <PathColumn run={a} calls={ca} same={samePlaces(ca, cb, first)} from={from} answer={c.after?.a.answer} />
+      <PathColumn run={b} calls={cb} same={samePlaces(cb, ca, first)} from={from} answer={c.after?.b.answer} />
     </div>
   );
 }
 
-function ResponseDifferences({ c }: { c: RunComparison }) {
+function ResponseDifferences({ c }: { c: CompareView }) {
   const first = c.firstRequestDifference?.callNo;
   if (!c.responseDifferences.length)
     return <p className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</p>;
@@ -267,12 +265,18 @@ function ResponseDifferences({ c }: { c: RunComparison }) {
           </thead>
           <tbody>
             {c.responseDifferences.map((r) => (
-              <tr key={r.callNo}>
+              <tr key={r.callNo} className="static">
                 <td className="num">{r.callNo}</td>
                 <td>{callName(r.kind, r.name)}</td>
                 <td className="wrapcell">{r.detail}</td>
                 <td className="num">
-                  <a href={href.run(c.a.runId, r.callNo)}>{shortId(c.a.runId).slice(-4)}</a> · <a href={href.run(c.b.runId, r.callNo)}>{shortId(c.b.runId).slice(-4)}</a>
+                  <a href={href.run(c.a.runId, r.callNo)} title={`Open ${shortId(c.a.runId)} at #${r.callNo}`}>
+                    {shortId(c.a.runId).slice(-4)}
+                  </a>{' '}
+                  ·{' '}
+                  <a href={href.run(c.b.runId, r.callNo)} title={`Open ${shortId(c.b.runId)} at #${r.callNo}`}>
+                    {shortId(c.b.runId).slice(-4)}
+                  </a>
                 </td>
               </tr>
             ))}

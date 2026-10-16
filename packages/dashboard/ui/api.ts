@@ -7,7 +7,7 @@ import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns }
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
-import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
+import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, CompareView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -118,7 +118,8 @@ export interface Client {
   offers(id: string): Promise<RunOffers | null>;
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
-  compare(a: string, b: string): Promise<RunComparison>;
+  /** Two runs compared, with the code card's commits when the server can read the project's git. */
+  compare(a: string, b: string): Promise<CompareView>;
   search(q: string): Promise<SearchHit[]>;
   labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
   note(id: string, callNo: number | null, text: string): Promise<{ notes: RunNote[] }>;
@@ -325,7 +326,7 @@ export function createClient(token: string): Client {
       }
     },
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
-    compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
+    compare: (a, b) => request<CompareView>(`compare?a=${id(a)}&b=${id(b)}`),
     search: (q) => request<{ hits: SearchHit[] }>(`search?q=${id(q)}&limit=40`).then((r) => r.hits),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
@@ -429,7 +430,7 @@ export function createExportedClient(data: StaticPayload): Client {
     provenance: (runId) => Promise.resolve((data.responses[`runs/${encodeURIComponent(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
     offers: () => Promise.resolve(null),
     showJson: (runId) => get<unknown>(`runs/${encodeURIComponent(runId)}/show`),
-    compare: (a, b) => get<RunComparison>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+    compare: (a, b) => get<CompareView>(`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
     search: () => Promise.resolve([]),
     labels: readOnly,
     note: readOnly,
