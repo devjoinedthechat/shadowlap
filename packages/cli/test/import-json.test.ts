@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadApiRequest, Store } from '@shadowlap/engine';
-import { settleImport, sourceName } from '../src/import-report.js';
+import { importedRunsLink, settleImport, sourceName } from '../src/import-report.js';
 import { importHar } from '../src/import-har.js';
 
 /**
@@ -150,6 +150,23 @@ describe('import --json', () => {
     expect(r.events.filter((e) => e.type === 'run')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'run', runId: x.runId, role: 'imported' })));
     // A dashboard job links each run it made.
     expect(r.events.filter((e) => e.type === 'link')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'link', label: `Open ${x.runId.slice(0, 10)}`, href: `#/run/${x.runId}` })));
+  });
+
+  it('links past three runs to the Runs page filtered to them, by the name the file was picked by', async () => {
+    const keys = ['incident-51', 'incident-52', 'incident-53', 'incident-54', 'incident-55'];
+    writeFileSync(join(cwd, '01K5CQ4N7G0000000000000001-gateway_2_.jsonl'), keys.map((k) => capture(k, k)).join('\n') + '\n');
+    const r = await shadowlap(['import', 'litellm', '01K5CQ4N7G0000000000000001-gateway_2_.jsonl', '--name', 'gateway (2).jsonl', '--json']);
+    expect(r.code).toBe(0);
+    const json = JSON.parse(r.out);
+    expect(json.runs).toHaveLength(5);
+    const links = r.events.filter((e) => e.type === 'link');
+    expect(links).toEqual([{ type: 'link', label: 'All 5 on Runs', href: '#/runs?q=imported%20gateway%20%282%29.jsonl' }]);
+    // As a dashboard takes a job's links: a fragment of these characters only.
+    expect(links[0]!.href).toMatch(/^#\/[\w\-./~%?=&+:@,!*$]*$/);
+    expect(new URLSearchParams(String(links[0]!.href).split('?')[1]).get('q')).toBe('imported gateway (2).jsonl');
+    // Runs from files of different names share only the label.
+    expect(importedRunsLink([{ source: 'a.jsonl' }, { source: 'b.jsonl' }])).toBe('#/runs?q=imported');
+    expect(importedRunsLink([{ source: "it's *new*!.har" }])).toBe('#/runs?q=imported%20it%27s%20%2Anew%2A%21.har');
   });
 
   it('records the name given with --name as the source: a dashboard upload is kept under another', async () => {

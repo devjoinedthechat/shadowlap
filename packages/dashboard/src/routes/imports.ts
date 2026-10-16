@@ -76,7 +76,6 @@ export function register(router: Router, ctx: RouteContext): void {
         const source = format as TraceSource;
         const traceId = typeof req.traceId === 'string' ? req.traceId.trim() : '';
         if (!TRACE_ID.test(traceId)) return { error: 'traceId: the id from the trace’s page' };
-        const fallback = TRACE_HOSTS[source].fallback;
         let host: string | null = null;
         if (req.host !== undefined && req.host !== null && req.host !== '') {
           host = traceHost(req.host);
@@ -84,18 +83,21 @@ export function register(router: Router, ctx: RouteContext): void {
         }
         const env = traceSources(process.env)[source];
         if (!env.keys) return { error: `${source === 'langfuse' ? 'Langfuse' : 'LangSmith'} needs ${env.keyNames.join(' and ')} in the environment of the shadowlap dashboard process: set ${env.keyNames.length === 1 ? 'it' : 'them'} and start the dashboard again`, status: 409 };
-        // The host the environment already names is what the CLI uses anyway.
-        const passHost = host && host !== env.host && host !== fallback ? host : null;
+        // The CLI goes where the environment says (its SDK's variable, else the public API) unless
+        // told otherwise: a host typed in the dialog that differs from that one goes on the command
+        // line, the public API included when the environment names another.
+        const passHost = host && host !== (traceHost(env.host) ?? env.host) ? host : null;
         return { args: ['import', source, traceId, ...(passHost ? ['--host', passHost] : [])], opensRun: true };
       }
       if (!(FILE_FORMATS as readonly unknown[]).includes(format)) return { error: `format: one of ${[...FILE_FORMATS, ...TRACE_SOURCES].join(', ')}` };
       const file = upload(req.uploadId);
       if (!file) return { error: 'uploadId: upload the file first (POST /api/uploads), and use it for one import' };
-      // The run's source is the name of the file you picked, not the name it was kept under. The
-      // job runs in the project folder: the upload is named from there.
+      // The run's source is the name of the file you picked ("my capture (2).har"), not the name it
+      // was kept under; a name no run's source can carry falls back to that safe one. The job runs
+      // in the project folder: the upload is named from there.
       const rel = ctx.project ? relative(ctx.project.path, file.path) : '';
       const path = rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel : file.path;
-      return { args: ['import', format as FileFormat, path, '--name', file.name], opensRun: true };
+      return { args: ['import', format as FileFormat, path, '--name', file.original ?? file.name], opensRun: true };
     },
   });
 }

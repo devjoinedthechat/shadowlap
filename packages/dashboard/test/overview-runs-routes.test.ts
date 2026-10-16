@@ -312,11 +312,18 @@ describe('imports', () => {
   });
 
   it('imports an uploaded file under the name it was picked by, as the format chosen', async () => {
-    const up = await api(dash, 'uploads', { method: 'POST', body: '{"log":{"entries":[]}}', headers: { 'x-filename': 'prod traffic.har', 'content-type': 'application/octet-stream' } });
-    expect(up.status).toBe(201);
-    const { uploadId, name } = (await up.json()) as { uploadId: string; name: string };
-    expect(name).toBe('prod_traffic.har');
-    expect(await built({ kind: 'import', format: 'har', uploadId })).toEqual(['import', 'har', `.shadowlap/uploads/${uploadId}-prod_traffic.har`, '--name', 'prod_traffic.har']);
+    const send = async (filename: string) => {
+      const up = await api(dash, 'uploads', { method: 'POST', body: '{"log":{"entries":[]}}', headers: { 'x-filename': encodeURIComponent(filename), 'content-type': 'application/octet-stream' } });
+      expect(up.status).toBe(201);
+      return (await up.json()) as { uploadId: string; name: string };
+    };
+    // Kept on disk under a safe name; the run's source is the name as picked.
+    const { uploadId, name } = await send('my capture (2).har');
+    expect(name).toBe('my_capture_2.har');
+    expect(await built({ kind: 'import', format: 'har', uploadId })).toEqual(['import', 'har', `.shadowlap/uploads/${uploadId}-my_capture_2.har`, '--name', 'my capture (2).har']);
+    // A name no source can carry (folders, a control character) goes by the safe one.
+    const odd = await send('..\\captures\u0007\\prod.har');
+    expect((await built({ kind: 'import', format: 'har', uploadId: odd.uploadId })).slice(3)).toEqual(['--name', odd.name]);
     // One upload, one import.
     const again = await post(dash, 'jobs', { kind: 'import', format: 'har', uploadId });
     expect(again.status).toBe(400);
@@ -338,6 +345,11 @@ describe('imports', () => {
     expect((await get<{ traces: ReturnType<typeof traceSources> }>(dash, 'imports')).traces.langfuse.keys).toBe(true);
     expect(await built({ kind: 'import', format: 'langfuse', traceId: '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07', host: 'https://cloud.langfuse.com' })).toEqual(['import', 'langfuse', '7f3a9c2e-41b8-4d0e-9a51-2c6e8b1d4f07']);
     expect(await built({ kind: 'import', format: 'langfuse', traceId: 'abc', host: 'https://langfuse.northwind.example/' })).toEqual(['import', 'langfuse', 'abc', '--host', 'https://langfuse.northwind.example']);
+    // With a host in the environment, the public API typed in the dialog is a host of its own: the CLI is told.
+    process.env.LANGFUSE_HOST = 'https://langfuse.northwind.example/';
+    expect(await built({ kind: 'import', format: 'langfuse', traceId: 'abc', host: 'https://cloud.langfuse.com' })).toEqual(['import', 'langfuse', 'abc', '--host', 'https://cloud.langfuse.com']);
+    expect(await built({ kind: 'import', format: 'langfuse', traceId: 'abc', host: 'https://langfuse.northwind.example' })).toEqual(['import', 'langfuse', 'abc']);
+    delete process.env.LANGFUSE_HOST;
     for (const body of [
       { kind: 'import', format: 'langfuse', traceId: '--host=evil' },
       { kind: 'import', format: 'langfuse', traceId: 'abc', host: 'http://langfuse.northwind.example' },

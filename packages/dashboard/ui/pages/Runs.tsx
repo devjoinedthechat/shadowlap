@@ -14,6 +14,7 @@ import { Calendar } from '../runspage/Calendar.js';
 import { pickedOf, pickedRange, rangeTimes, type PickedDays } from '../runspage/calendar-model.js';
 import { FindCommitDialog } from '../runspage/FindCommit.js';
 import { ImportDialog } from '../runspage/ImportDialog.js';
+import { runsLinkQuery } from '../runspage/query.js';
 import { RunsTable, type TableRun } from '../runspage/RunsTable.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
@@ -30,8 +31,8 @@ export { DatasetDialog } from '../runspage/BulkBar.js';
  * get a bulk bar. With a team store, who made each run, a `local` tag on runs not pushed yet, Pull
  * in the header and Push in the bulk bar. What the page was showing is kept while the dashboard is
  * open, so a run opened and closed lands back on the same view; the selection survives filter
- * changes, and lets go of a run deleted elsewhere. An exported copy lists the runs it holds, worked
- * out in the page.
+ * changes, and lets go of a run deleted elsewhere. A link can ask for a filter
+ * (`#/runs?q=…&type=failed`). An exported copy lists the runs it holds, worked out in the page.
  */
 
 const PAGE = 50;
@@ -49,6 +50,23 @@ const kept = {
 export function RunsPage() {
   const { exported } = useApp();
   return exported ? <ExportedRuns /> : <ServerRuns />;
+}
+
+/**
+ * The filter a link asked for (`#/runs?q=…&type=…`: an import's runs, Needs a look's failed runs)
+ * becomes the page's, the days picked let go, and the address goes back to `#/runs`, so the filter
+ * can be changed from there. False when the link asked for nothing.
+ */
+function takeLinkQuery(): boolean {
+  const asked = runsLinkQuery(location.hash);
+  if (!asked) return false;
+  kept.chip = asked.chip;
+  kept.query = asked.q;
+  kept.days = null;
+  kept.times = null;
+  kept.limit = PAGE;
+  history.replaceState(history.state, '', `${location.pathname}${location.search}#/runs`);
+  return true;
 }
 
 /** The palette's way to the import dialog: Runs opens it when it next shows. */
@@ -104,6 +122,8 @@ function pickedRun(r: TableRun): PickedRun {
 
 function ServerRuns() {
   const { client, meta, tick, actionsOff, hasKind, guard, watchJob, toast, refresh } = useApp();
+  // Arriving from a link that asks for a filter: it is the page's before the first request.
+  useState(takeLinkQuery);
   const store = useTeamStore();
   const tz = useMemo(viewerTimeZone, []);
   const [chip, setChipState] = useState(kept.chip);
@@ -125,6 +145,19 @@ function ServerRuns() {
     };
     window.addEventListener(IMPORT_ASKED, on);
     return () => window.removeEventListener(IMPORT_ASKED, on);
+  }, []);
+  // A link that asks for a filter, followed while the page is open (the import drawer's).
+  useEffect(() => {
+    const on = () => {
+      if (!takeLinkQuery()) return;
+      setChipState(kept.chip);
+      setQueryState(kept.query);
+      setDaysState(null);
+      setTimesState(null);
+      setLimitState(PAGE);
+    };
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
   }, []);
 
   const setLimit = (n: number) => {

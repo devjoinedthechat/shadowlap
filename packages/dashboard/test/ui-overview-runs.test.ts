@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runsQueryString } from '../ui/runspage/query.js';
+import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
@@ -224,6 +224,13 @@ describe('the Runs page’s requests and words', () => {
     expect(ciName('github')).toBe('GitHub Actions');
     expect(ciName('drone')).toBe('drone');
     expect(ciName(null)).toBeNull();
+  });
+
+  it('takes the filter a link to Runs asks for, and nothing else', () => {
+    expect(runsLinkQuery('#/runs?q=imported%20gateway%20%282%29.jsonl')).toEqual({ q: 'imported gateway (2).jsonl', chip: 'all' });
+    expect(runsLinkQuery('#/runs?type=failed')).toEqual({ q: '', chip: 'failed' });
+    expect(runsLinkQuery('#/runs?q=refund&type=fork')).toEqual({ q: 'refund', chip: 'fork' });
+    for (const hash of ['#/runs', '#/runs?type=nightly', '#/runs?q=%20', '#/run/01K5CQ4N7G?q=x', '#token=abc&open=/runs']) expect(runsLinkQuery(hash), hash).toBeNull();
   });
 
   it('says a run cut short is interrupted, and a run with nothing to report a dash', () => {
