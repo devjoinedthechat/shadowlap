@@ -1,4 +1,4 @@
-import { num, plural, shortId } from '../format.js';
+import { clip, jsonText, num, plural, shortId } from '../format.js';
 import { kindWord, runType, type RunLike } from '../runs.js';
 import type { CallRow, CodeChange, CompareView, LiveRun } from '../types.js';
 
@@ -101,6 +101,32 @@ export function samePlaces(calls: readonly PathCall[], other: readonly PathCall[
     if (c.kind === 'api') return askedFor(calls, i) === askedFor(other, i);
     return o.detail === c.detail;
   });
+}
+
+/** Two values that share a start longer than this open shortly before where they part. */
+const SHARED_START = 60;
+
+/**
+ * A differing field's two values as the first-difference panel shows them: JSON on one line, and
+ * `(absent)` on the side without the field. Two values that share a long start (an instruction
+ * planted at the end of a tool's result) open shortly before where they part, at a comma or a space,
+ * after an ellipsis, so the difference is in view without scrolling.
+ */
+export function diffTexts(e: { op: 'changed' | 'added' | 'removed'; before?: unknown; after?: unknown }, max = 600): { before: string; after: string } {
+  const a = e.op === 'added' ? null : jsonText(e.before, false);
+  const b = e.op === 'removed' ? null : jsonText(e.after, false);
+  let from = 0;
+  if (a !== null && b !== null) {
+    let p = 0;
+    while (p < a.length && p < b.length && a[p] === b[p]) p++;
+    if (p > SHARED_START) {
+      from = p - 24;
+      const cut = a.slice(from, p - 4).search(/[, ]/);
+      if (cut >= 0) from += cut + 1;
+    }
+  }
+  const show = (s: string | null) => (s === null ? '(absent)' : from ? `…${clip(s.slice(from), max)}` : clip(s, max));
+  return { before: show(a), after: show(b) };
 }
 
 /** Whether either run is recording now: the comparison is read again as its calls arrive. */

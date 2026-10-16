@@ -3,8 +3,8 @@ import type { CallRow, CompareView, RunDetail, RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import { changeCards, comparingLive, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
-import { callName, clip, jsonText, num, shortId } from '../format.js';
+import { changeCards, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
+import { callName, clip, num, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
 import { href } from '../route.js';
@@ -159,8 +159,7 @@ function FirstDifference({ c }: { c: CompareView }) {
   const side = (which: 'before' | 'after') =>
     shown.length
       ? shown.map((e, i) => {
-          const absent = which === 'before' ? e.op === 'added' : e.op === 'removed';
-          const value = absent ? '(absent)' : clip(jsonText(e[which], false), 600);
+          const value = diffTexts(e)[which];
           return (
             <span key={i}>
               <span title={e.what ? e.path : undefined}>{e.what ?? e.path}</span>
