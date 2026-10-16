@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { classifyRun, Store, type RunRecord } from '@shadowlap/engine';
+import { startMockAnthropic } from '@shadowlap-testing/mock-anthropic';
 
 /**
  * scripts/demo-store.mjs builds the demo project the dashboard is compared with the design on, each
@@ -122,6 +123,60 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
     const promised = JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8')) as { attempts: Record<string, number> };
     expect(promised.attempts.test).toBe(4 * sessions.length);
   });
+
+  // Last: it applies both fixes and re-records goldens. The email fix changes send_email's
+  // description, which every request of the refund agent carries, so the refund fix's goldens,
+  // recorded before it, diverge from their first call.
+  it('repairs and applies the email fix, names the goldens it leaves behind, and holds every fix once they are updated', async () => {
+    const { createModels } = (await import(pathToFileURL(join(ROOT, 'scripts', 'demo-store', 'models.mjs')).href)) as { createModels(): { anthropic: Parameters<typeof startMockAnthropic>[0]['script'] } };
+    const anthropic = await startMockAnthropic({ script: createModels().anthropic, eventDelayMs: () => 0 });
+    const project = join(folder, 'support-agent');
+    const env = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: join(folder, 'home'), SHADOWLAP_PROJECT_ROOTS: folder, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, ANTHROPIC_BASE_URL: anthropic.url, ANTHROPIC_API_KEY: 'demo-key', SHADOWLAP_AUTHOR: 'dana@example.com', GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' };
+    const sl = (args: string[]) =>
+      new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
+        const child = spawn(process.execPath, [join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js'), ...args], { cwd: project, env, stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+        child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+        child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+        child.on('close', (code) => resolve({ code, out, err }));
+      });
+    type Fix = { fixId: string; status: string; title: string; broken: string | null };
+    const fixes = async () => (JSON.parse((await sl(['fix', 'ls', '--json'])).out) as { fixes: Fix[] }).fixes;
+    try {
+      const ids = (JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8')) as { runs: { emailFix: string; refundFix: string; fixedGoldens: string[] } }).runs;
+      const shown = JSON.parse((await sl(['fix', 'show', ids.emailFix, '--json'])).out) as { actions: { repair: { argv: string[] } } };
+      const repaired = await sl([...shown.actions.repair.argv, '--repairer', 'anthropic', '--json']);
+      expect(repaired.code, repaired.err).toBe(0);
+
+      const email = await sl(['fix', 'apply', ids.emailFix, '--json']);
+      expect(email.code, email.err).toBe(0);
+      const applied = JSON.parse(email.out) as { tests: string; outdated: Array<{ golden: string; callNo: number; path: string }>; update: string };
+      expect(applied.tests).toBe('passed');
+      // The refund fix's goldens, at their first call, on the tool description the patch rewrote;
+      // not the goldens of the ticket agent, whose requests carry no send_email.
+      expect(applied.outdated.map((g) => g.golden).sort()).toEqual(ids.fixedGoldens.map((d) => `goldens/${d}`).sort());
+      for (const g of applied.outdated) expect(g).toMatchObject({ callNo: 1, path: expect.stringMatching(/^\$\.tools\[\d+\]\.description$/) });
+      expect(applied.update).toBe(`shadowlap test ${applied.outdated.map((g) => g.golden).join(' ')} --update`);
+
+      // Applied now, the refund fix's goldens fail on that change: it doesn't hold.
+      const refund = await sl(['fix', 'apply', ids.refundFix, '--json']);
+      expect(refund.code).toBe(1);
+      expect(JSON.parse(refund.out)).toMatchObject({ status: 'applied', patch: 'already', tests: 'failed' });
+      expect((await fixes()).find((f) => f.fixId.startsWith(ids.refundFix))?.broken).toBe('shadowlap test failed on its goldens');
+
+      // Updated, they pass, and with them the refund fix holds again.
+      const updated = await sl(['test', ...applied.outdated.map((g) => g.golden), '--update']);
+      expect(updated.code, updated.out).toBe(0);
+      expect(updated.out).toContain(`holds again: its goldens passed · Refunds above the limit issued without approval`);
+      expect((await fixes()).map((f) => [f.status, f.broken, f.title]).sort()).toEqual([
+        ['applied', null, 'Confirmation email sent twice'],
+        ['applied', null, 'Refunds above the limit issued without approval'],
+      ]);
+    } finally {
+      await anthropic.close();
+    }
+  }, 180_000);
 });
 
 /**
