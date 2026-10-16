@@ -94,8 +94,12 @@ describe('compareRuns', () => {
     ]);
     // Only the second is the model answering the same: the page counts it apart from answers that changed.
     expect(c.responseDifferences.map((r) => r.sameAnswer ?? false)).toEqual([false, true, false, false]);
-    // shadowlap diff prints the same line.
-    expect(formatComparison(c)).toContain('#1 api POST /v1/messages: "Issuing the refund.", issue_refund(');
+    // shadowlap diff prints the same lines, the answer that came back the same apart from the rest.
+    const printed = formatComparison(c);
+    expect(printed).toContain('#1 api POST /v1/messages: "Issuing the refund.", issue_refund(');
+    expect(printed).toContain('= 1 call with the same request got the same answer in a new response (only ids or token counts differ)');
+    expect(printed).toContain('≠ 3 calls with the same request but a different response:');
+    expect(printed).not.toContain('#2 api');
     store.close();
   });
 });

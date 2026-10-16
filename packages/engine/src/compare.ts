@@ -310,10 +310,14 @@ export function formatComparison(c: RunComparison, p: Palette = plain): string {
     return lines.join('\n');
   }
   if (c.identicalPrefix) lines.push(`  ${p.green('=')} calls 1–${c.identicalPrefix}: same requests, same responses`);
-  if (c.responseDifferences.length) {
-    lines.push(`  ${p.yellow('≠')} ${c.responseDifferences.length} call${c.responseDifferences.length === 1 ? '' : 's'} with the same request but a different response:`);
-    for (const r of c.responseDifferences.slice(0, 12)) lines.push(`    #${r.callNo} ${r.kind} ${safeLine(r.name)}: ${safeLine(r.detail ?? '')}`);
-    if (c.responseDifferences.length > 12) lines.push(p.dim(`    … ${c.responseDifferences.length - 12} more`));
+  // A model that answered the same way in a new response (its own id, its token counts) is said apart, as the dashboard says it.
+  const changedAnswers = c.responseDifferences.filter((r) => !r.sameAnswer);
+  const again = c.responseDifferences.length - changedAnswers.length;
+  if (again) lines.push(`  ${p.green('=')} ${again} call${again === 1 ? '' : 's'} with the same request got the same answer in ${again === 1 ? 'a new response' : 'new responses'} (only ids or token counts differ)`);
+  if (changedAnswers.length) {
+    lines.push(`  ${p.yellow('≠')} ${changedAnswers.length} call${changedAnswers.length === 1 ? '' : 's'} with the same request but a different response:`);
+    for (const r of changedAnswers.slice(0, 12)) lines.push(`    #${r.callNo} ${r.kind} ${safeLine(r.name)}: ${safeLine(r.detail ?? '')}`);
+    if (changedAnswers.length > 12) lines.push(p.dim(`    … ${changedAnswers.length - 12} more`));
   }
   const f = c.firstRequestDifference;
   if (f && c.after) {

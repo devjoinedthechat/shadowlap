@@ -596,7 +596,7 @@ A proxy for an MCP server: put it in the client's server configuration in place 
 shadowlap diff <a> <b> [--json]
 ```
 
-Two runs call by call, aligned by position. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response, the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently (both answers are shown, or *the same answer* when only the response's id or token counts differ), or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
+Two runs call by call, aligned by position. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response, the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently (both answers are shown; a call answered the same way in a new response, where only its id or token counts differ, is counted apart), or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
 
 ## dashboard
 
