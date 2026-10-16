@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixRecords, recordBlame, recordRepair, recordVerdict, setFixTitle, Store } from '@shadowlap/engine';
+import { fixRecords, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, Store } from '@shadowlap/engine';
 import { FIX_FORMAT, FIX_VERSION, fixDocHash, fixDocOf, fixKey, mergeFixDocs, parseFixDoc, parseStoreUrl, pull, pullRequestLocation, push, storeKey, type FixDoc, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -142,6 +142,48 @@ describe('a fix in the team store', () => {
     for (const id of ids) expect(maya.store.getFix(id)).toBeNull();
     // Tried again on the next pull, still refused.
     expect((await pull(maya)).fixes.failed).toHaveLength(5);
+  });
+
+  it('keeps one too large to read out of a pull, and never writes one that large', async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { run, fixId } = blamed(dana.store);
+    inStore(dana.store, run);
+    await push(dana, { runIds: [] });
+    // Someone's fix in the bucket over what a pull reads (a run's run.json limit, 16 MB).
+    const big = 'fx-01M3RZ0000000000000000000F';
+    remote.objects.set(fixKey(big), { body: Buffer.alloc(PACK_LIMITS.manifestBytes + 1, 0x20), version: 'big', contentType: 'application/json' });
+    const maya = machine(remote, 'maya@northwind.example');
+    const got = await pull(maya);
+    // The pull goes on: the other fix comes, this one is named with why, and it is tried again next time.
+    expect(got.fixes.pulled).toEqual([fixId]);
+    expect(got.fixes.failed).toEqual([{ fixId: big, reason: expect.stringMatching(new RegExp(`^fixes/${big}\\.json is over the ${PACK_LIMITS.manifestBytes} bytes a pull reads`)) }]);
+    expect(maya.store.getFix(big)).toBeNull();
+    expect((await pull(maya)).fixes.failed.map((f) => f.fixId)).toEqual([big]);
+
+    // A fix here that has grown past it stays here, said so, while the others still go.
+    const huge = makeRun(dana.store, { labels: ['long-answer'] });
+    const report = blameReport(huge);
+    report.contrast!.rescued = [{ type: 'text', text: 'x'.repeat(PACK_LIMITS.manifestBytes) }];
+    const grown = recordBlame(dana.store, { runId: huge, report, expect: EXPECT, scope: null, command: `shadowlap blame ${huge}`, title: 'A long answer', checkText: 'x' }).fix.fixId;
+    const small = blamed(dana.store, ['billing']);
+    expect(new Set([fixId, grown, small.fixId]).size).toBe(3);
+    inStore(dana.store, huge, small.run);
+    const sent = await push(dana, { runIds: [] });
+    expect(sent.fixes.sent).toEqual([small.fixId]);
+    expect(sent.fixes.failed).toEqual([{ fixId: grown, reason: expect.stringMatching(new RegExp(`^it would be \\d+ bytes, over the ${PACK_LIMITS.manifestBytes} a pull reads, so it stays on this machine$`)) }]);
+    expect(remote.keysUnder('fixes/')).not.toContain(fixKey(grown));
+
+    // The store's copy too large to merge with: that fix is reported, the others go.
+    setFixTitle(dana.store, fixId, 'Escalate refunds above the policy limit');
+    remote.objects.set(fixKey(fixId), { body: Buffer.alloc(PACK_LIMITS.manifestBytes + 1, 0x20), version: 'big2', contentType: 'application/json' });
+    setFixTitle(dana.store, small.fixId, 'Billing refunds');
+    const again = await push(dana, { runIds: [] });
+    expect(again.fixes.sent).toEqual([small.fixId]);
+    expect(Object.fromEntries(again.fixes.failed.map((f) => [f.fixId, f.reason.split(' (')[0]]))).toEqual({
+      [fixId]: `fixes/${fixId}.json is over the ${PACK_LIMITS.manifestBytes} bytes a pull reads`,
+      [grown]: expect.stringMatching(/so it stays on this machine$/),
+    });
   });
 
   it("is never sent from a pull request's job, nor taken from its folder", async () => {

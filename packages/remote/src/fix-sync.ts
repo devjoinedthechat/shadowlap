@@ -1,7 +1,7 @@
 import { PACK_LIMITS } from '@shadowlap/engine';
 import { applyFixDoc, fixDocBytes, fixDocHash, fixDocOf, fixKey, FIXES_PREFIX, isFixId, mergeFixDocs, parseFixDoc, type FixDoc } from './fix-doc.js';
 import { LayoutError } from './layout.js';
-import { isPrecondition, StoreError, type ObjectStore } from './object-store.js';
+import { isPrecondition, StoreError, type GetResult, type ObjectStore } from './object-store.js';
 import { storeKey } from './url.js';
 import type { Store } from '@shadowlap/engine';
 
@@ -56,12 +56,25 @@ function runsOf(doc: FixDoc): string[] {
   return doc.links.filter((l) => l.kind === 'failing' || l.kind === 'good').map((l) => l.ref);
 }
 
+/** The most a fix document may be: what a pull reads of one, as of a run's run.json. */
+const FIX_BYTES = PACK_LIMITS.manifestBytes;
+
+/** A fix's object, read with the limit a pull reads it with: one over it is that fix's problem, never the pull's. */
+async function readFix(ctx: FixSyncContext, key: string): Promise<GetResult | null> {
+  try {
+    return await ctx.remote.get(key, { maxBytes: FIX_BYTES });
+  } catch (err) {
+    if (err instanceof StoreError && err.code === 'too-large') throw new LayoutError(`${key} is over the ${FIX_BYTES} bytes a pull reads (${err.message})`);
+    throw err;
+  }
+}
+
 /** Writes one fix, merged with the store's copy when there is one; 'same' when the store had it all. */
 async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: string): Promise<'sent' | 'same'> {
   const key = fixKey(doc.fix.fixId);
   for (let attempt = 0; ; attempt++) {
-    const got = await ctx.remote.get(key, { maxBytes: PACK_LIMITS.manifestBytes });
     try {
+      const got = await readFix(ctx, key);
       let next = doc;
       if (got) {
         let there: FixDoc;
@@ -79,7 +92,10 @@ async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: stri
           return 'same';
         }
       }
-      const put = await ctx.remote.put(key, fixDocBytes(next), { contentType: 'application/json', ...(got ? (got.version ? { ifMatch: got.version } : {}) : { ifNoneMatch: true }) });
+      // One a pull couldn't read stays here: written, it would stop every teammate's pull of it.
+      const bytes = fixDocBytes(next);
+      if (bytes.length > FIX_BYTES) throw new LayoutError(`it would be ${bytes.length} bytes, over the ${FIX_BYTES} a pull reads, so it stays on this machine`);
+      const put = await ctx.remote.put(key, bytes, { contentType: 'application/json', ...(got ? (got.version ? { ifMatch: got.version } : {}) : { ifNoneMatch: true }) });
       const merged = fixDocHash(next);
       if (merged !== hash) applyFixDoc(ctx.store, next);
       ctx.store.setTeamFix(rid, { fixId: doc.fix.fixId, hash: merged, version: put.version, at: now(ctx) });
@@ -135,10 +151,11 @@ export async function pullFixes(ctx: FixSyncContext): Promise<FixPullResult> {
     changed.push({ key: o.key, fixId: m[1] });
   }
   for (const { key, fixId } of changed) {
-    const got = await ctx.remote.get(key, { maxBytes: PACK_LIMITS.manifestBytes });
-    if (!got) continue; // deleted since it was listed
+    let got: GetResult | null;
     let there: FixDoc;
     try {
+      got = await readFix(ctx, key);
+      if (!got) continue; // deleted since it was listed
       there = parseFixDoc(got.body, fixId);
     } catch (err) {
       if (!isFixProblem(err)) throw err;
