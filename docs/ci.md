@@ -152,7 +152,11 @@ Each golden that diverged is re-recorded live from its first call, with every wr
 ✓ refund-flow: 31/31 replayed, 12k input tokens not re-spent (updated)
 ```
 
-Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. When what diverged is a value the agent makes anew on every run, such as a UUID, a date or a request id, updating only moves the problem to the next run, and `--update` says so, naming the path and the [normalizer](./normalizers-and-redaction.md) that fixes it for good (for an id that may be a real change, it says that the update records the new one, and gives the normalizer for the case where it changes every run):
+Only goldens that diverged are updated. One that fails a check, or exits with an error, is left alone: the agent needs the fix, not its golden. A golden that [forks on purpose](#recordings-that-fork-on-purpose) passes wherever it forks, so it is updated only when its test forked before the call its [task](./training.md#tasks) takes over at: no model can be scored on it there, since an attempt replays the recording only up to the fork. `shadowlap test` names such a golden after its totals:
+
+```
+goldens/refund-over-limit forks at #3, before its task's takeover at #17, so no model can be scored on it. Update it: shadowlap test goldens/refund-over-limit --update
+``` When what diverged is a value the agent makes anew on every run, such as a UUID, a date or a request id, updating only moves the problem to the next run, and `--update` says so, naming the path and the [normalizer](./normalizers-and-redaction.md) that fixes it for good (for an id that may be a real change, it says that the update records the new one, and gives the normalizer for the case where it changes every run):
 
 ```
     ! $.metadata.user_id looks like a UUID, a value that changes every run: updating re-records it, and the next run diverges again. A normalizer fixes it for good:
