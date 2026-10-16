@@ -26,3 +26,18 @@ export function addPaletteSource(source: PaletteSource): void {
 export function paletteSources(): readonly PaletteSource[] {
   return sources;
 }
+
+// A source that loads what it lists (Tests, from any page) answers with what it has, and says when
+// more arrived: an open palette then reads every source again.
+const changes = new Set<() => void>();
+
+export function paletteSourcesChanged(): void {
+  for (const on of changes) on();
+}
+
+export function onPaletteSourcesChanged(on: () => void): () => void {
+  changes.add(on);
+  return () => {
+    changes.delete(on);
+  };
+}
