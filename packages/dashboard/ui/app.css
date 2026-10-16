@@ -1605,5 +1605,6 @@ td.hist i.go { cursor: pointer; }
 .verdict.tv > div { min-width: 0; }
 .verdict.tv p code.vcmd { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .dialog p.hintx.unote { display: block; margin: 12px 0 0; }
+.dialog p.hintx.unote code { font-size: 12px; color: var(--dim); }
 /* a test job's links (each failing golden's run, then Tests) wrap in a narrow drawer */
 .drawer footer { flex-wrap: wrap; }

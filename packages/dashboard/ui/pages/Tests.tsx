@@ -1,17 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { JOB_KINDS, type Client, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
+import { JOB_KINDS, type DivergenceView, type FailureView, type FoundCommit, type GoldenRow, type TestsView } from '../api.js';
 import { Badge, CmdLine, EmptyState, PageHeader } from '../components/bits.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
-import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, testsPalette, type ReportLine } from '../goldens.js';
+import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, foundLine, historyTip, reportLines, revLabel, sessionLine, sourceText, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
+import { keepTests, onTestsChanged, testsPaletteCommands } from '../tests-palette.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
 
 /**
@@ -28,45 +29,9 @@ type Open =
   | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean }
   | { kind: 'normalize-update'; name: string; golden: string; steps: string[][] };
 
-/**
- * The goldens as the server last listed them, for the palette's Tests group on any page: this page
- * keeps it current, and opening the palette loads it again (once at a time), so an open palette
- * gains the group as soon as the answer lands.
- */
-let known: TestsView | null = null;
-let loading: Promise<void> | null = null;
-
-/** What the palette shows of an answer: a new one with the same names, results and divergences changes nothing there. */
-const paletteKey = (v: TestsView | null) => (v ? JSON.stringify([v.rows.map((r) => [r.name, r.last.result, !!r.error]), v.diverged]) : '');
-
-function keepTests(view: TestsView): void {
-  const before = paletteKey(known);
-  known = view;
-  if (paletteKey(view) !== before) paletteSourcesChanged();
-}
-
-function loadTests(client: Client): void {
-  if (client.exported || loading) return;
-  loading = client
-    .tests()
-    .then(keepTests, () => undefined)
-    .finally(() => {
-      loading = null;
-    });
-}
-
-// Each golden opens Tests; Update goldens… opens Tests with its dialog (`#/tests?update`), from any page.
-addPaletteSource(({ app, go }) => {
-  if (app.exported) return [];
-  loadTests(app.client);
-  return testsPalette(known, { update: !app.actionsOff && app.hasKind(JOB_KINDS.testUpdate) }).map((e) => ({
-    group: e.group,
-    label: e.label,
-    hint: e.hint,
-    mono: e.mono,
-    run: () => (e.group === 'Actions' ? app.guard(() => go(e.to)) : go(e.to)),
-  }));
-});
+// The palette's Tests group on every page (tests-palette.ts): an open palette reads it again once the goldens land.
+addPaletteSource(({ app, go }) => testsPaletteCommands(app, go, { update: app.hasKind(JOB_KINDS.testUpdate) }));
+onTestsChanged(paletteSourcesChanged);
 
 export function TestsPage() {
   const app = useApp();

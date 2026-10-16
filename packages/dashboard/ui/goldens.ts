@@ -198,8 +198,8 @@ export interface UpdatePlan {
   advise: { title: string; text: string; path: string | null } | null;
   /** The amber box's button, named for what it runs: null for several goldens, or when the server runs none of it. */
   instead: { label: string; golden: string; run: 'normalize' | 'normalize-update' | 'rerun' } | null;
-  /** A plain line above the command: the rules are in the config already, so an update is the fix, or a re-run is. */
-  note: string | null;
+  /** A plain line above the command, a path set in code: the rules are in the config already, so an update is the fix, or a re-run is. */
+  note: Array<string | { code: string }> | null;
   command: string;
   ok: string;
 }
@@ -239,13 +239,13 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
   const updateLeft = ds.filter((d) => d.rulesAdded && updatesAfterRules(d));
   let advise: UpdatePlan['advise'] = null;
   let instead: UpdatePlan['instead'] = null;
-  let note: string | null = null;
+  let note: UpdatePlan['note'] = null;
   const d0 = one ? (ds[0] ?? null) : null;
   if (d0) {
     const v = d0.volatile;
     if (perRun.includes(d0) && v) advise = { title: 'A normalizer fixes this for good', text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`, path: v.path };
     else if (rerun.includes(d0)) advise = { title: 'Its normalizer is in the config now', text: 'is masked by a rule added since this replay, so a re-run passes without an update.', path: v?.path ?? null };
-    else if (updateLeft.includes(d0)) note = `The normalizer for ${v?.path ?? 'it'} is in shadowlap.config.json already, so the run after this update matches.`;
+    else if (updateLeft.includes(d0)) note = [v ? 'The normalizer for ' : 'The normalizer is in shadowlap.config.json already', ...(v ? [{ code: v.path }, ' is in shadowlap.config.json already'] : []), ', so the run after this update matches.'];
     const run = advise ? divergenceButtons(d0, has).normalize?.run : undefined;
     if (run) instead = { label: INSTEAD[run], golden: d0.golden, run };
   } else if (!one) {
@@ -253,7 +253,7 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
       const names = perRun.map((d) => d.name).join(', ');
       advise = { title: 'A normalizer fixes this for good', text: `${names} diverged on values that change every run. Updating re-records ${perRun.length === 1 ? 'it' : 'them'}, and the next run diverges again.`, path: null };
     }
-    if (rerun.length) note = `The normalizers for ${rerun.map((d) => d.name).join(', ')} are in shadowlap.config.json now: a re-run passes without updating ${rerun.length === 1 ? 'it' : 'them'}.`;
+    if (rerun.length) note = [`The normalizers for ${rerun.map((d) => d.name).join(', ')} are in shadowlap.config.json now: a re-run passes without updating ${rerun.length === 1 ? 'it' : 'them'}.`];
   }
   return {
     title: one ? `Update ${goldens[0]!.name}?` : `Update ${goldens.length} diverged goldens?`,

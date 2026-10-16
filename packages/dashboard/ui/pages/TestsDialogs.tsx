@@ -77,7 +77,11 @@ export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onC
           ) : null}
         </div>
       ) : null}
-      {plan.note ? <p className="hintx unote">{plan.note}</p> : null}
+      {plan.note ? (
+        <p className="hintx unote">
+          {plan.note.map((part, i) => (typeof part === 'string' ? <span key={i}>{part}</span> : <code key={i}>{part.code}</code>))}
+        </p>
+      ) : null}
       <div className="cmdline upd">
         <b>$</b>
         {plan.command}

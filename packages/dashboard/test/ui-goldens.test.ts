@@ -292,7 +292,7 @@ describe('the Update golden dialog', () => {
     expect(divergenceButtons(left, all).normalize).toBeNull();
     expect(plan.advise).toBeNull();
     expect(plan.instead).toBeNull();
-    expect(plan.note).toBe('The normalizer for $.metadata.user_id is in shadowlap.config.json already, so the run after this update matches.');
+    expect(plan.note).toEqual(['The normalizer for ', { code: '$.metadata.user_id' }, ' is in shadowlap.config.json already', ', so the run after this update matches.']);
     expect(plan.ok).toBe('Update');
   });
 
@@ -303,7 +303,7 @@ describe('the Update golden dialog', () => {
     const v = view({ divergences: [fresh, rerun, left], diverged: [fresh.golden, rerun.golden, left.golden] });
     const plan = updatePlan(v, v.diverged);
     expect(plan.advise!.text).toBe('refund-in-limit diverged on values that change every run. Updating re-records it, and the next run diverges again.');
-    expect(plan.note).toBe('The normalizers for refund-flow are in shadowlap.config.json now: a re-run passes without updating it.');
+    expect(plan.note).toEqual(['The normalizers for refund-flow are in shadowlap.config.json now: a re-run passes without updating it.']);
     expect(plan.ok).toBe('Update anyway');
     // All of them masked already: no amber note, and the update reads plainly.
     const masked = view({ divergences: [left, { ...left, golden: 'goldens/limit-three', name: 'limit-three' }], diverged: [left.golden, 'goldens/limit-three'] });
