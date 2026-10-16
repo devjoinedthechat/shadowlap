@@ -48,8 +48,10 @@ const TOOLS_SHOWN = 4;
 /** What the four cards say, as the mock draws them: a changed one is outlined. */
 export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCard[] {
   const ch = c.changes;
-  const codeChanged = (ch.code.a ?? '') !== (ch.code.b ?? '');
-  const code = codeChanged ? codeNote(c.code) : { note: ch.code.a ?? 'no revision recorded', tip: null };
+  // Two abbreviations of one commit (git gives more digits as a repository grows) are no change.
+  const sameCommit = !!c.code?.same;
+  const codeChanged = (ch.code.a ?? '') !== (ch.code.b ?? '') && !sameCommit;
+  const code = codeChanged ? codeNote(c.code) : { note: ch.code.a ?? 'no revision recorded', tip: sameCommit ? `The same commit, named ${ch.code.a} in one run and ${ch.code.b} in the other.` : null };
   const t = ch.tools;
   const toolsChanged = t.added.length > 0 || t.removed.length > 0 || t.redefined;
   const named = [...t.added.map((x) => `+${x}`), ...t.removed.map((x) => `−${x}`)];
@@ -74,9 +76,17 @@ export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstReques
   const answers = c.responseDifferences.length;
   const lead = n ? `#1–#${num(n)} identical.` : 'No identical prefix.';
   if (first) return { lead, rest: `The first request that differs is #${first}${answers ? `; before it, ${plural(answers, 'call')} got a different answer to the same request` : ''}.` };
-  if (answers) return { lead, rest: `Every request matches; ${plural(answers, 'call')} got a different answer.` };
-  if (c.onlyInA || c.onlyInB) return { lead, rest: 'Every request they share matches.' };
+  // A run that went on past the other's end (one still recording): only the requests both made match.
+  const shared = c.onlyInA || c.onlyInB ? 'Every request they share matches' : 'Every request matches';
+  if (answers) return { lead, rest: `${shared}; ${plural(answers, 'call')} got a different answer.` };
+  if (c.onlyInA || c.onlyInB) return { lead, rest: `${shared}.` };
   return { lead, rest: 'Every call matches.' };
+}
+
+/** The line beside "Same request, different answer": how many calls, and before which request when one differs. */
+export function answersSub(c: Pick<CompareView, 'firstRequestDifference' | 'responseDifferences'>): string {
+  const n = plural(c.responseDifferences.length, 'call');
+  return c.firstRequestDifference ? `${n}, before the first request that differs` : n;
 }
 
 type PathCall = Pick<CallRow, 'callNo' | 'kind' | 'name' | 'detail'>;

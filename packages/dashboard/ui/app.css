@@ -1585,6 +1585,8 @@ table.t td.wrapcell { white-space: normal; }
 .changes small { overflow-wrap: anywhere; }
 .cmpresp .tscroll table.t { min-width: 0; }
 .cmpresp table.t td.wrapcell { overflow-wrap: anywhere; }
+/* its number columns' headings read as every heading does, not as the numbers under them */
+.cmpresp table.t th.num { font: 500 10px var(--mono); }
 @media (max-width: 560px) {
   .cmpresp table.t th, .cmpresp table.t td { padding-left: 6px; padding-right: 6px; }
 }

@@ -3,7 +3,7 @@ import type { CallRow, CompareView, RunDetail, RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import { changeCards, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
+import { answersSub, changeCards, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
 import { callName, clip, num, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
@@ -19,9 +19,10 @@ import { useApp } from '../state.js';
  * against its parent. A run still recording is compared again as its calls arrive.
  */
 export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
-  const { runs } = useApp();
+  const { runs, exported, meta } = useApp();
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
-  const pair = a && b ? null : defaultComparePair(listed);
+  // An exported copy of many runs holds only the pairs with its first run: it opens on one of those.
+  const pair = a && b ? null : defaultComparePair(listed, exported ? (meta?.compareWith ?? null) : null);
   useEffect(() => {
     if (pair) navigate(href.compare(pair[0], pair[1]), true);
   }, [pair?.[0], pair?.[1]]);
@@ -252,7 +253,7 @@ function ResponseDifferences({ c }: { c: CompareView }) {
     <section className="panel cmpresp">
       <header>
         <h2>Same request, different answer</h2>
-        <span className="sub">{c.responseDifferences.length === 1 ? '1 call' : `${c.responseDifferences.length} calls`}, before the first request that differs</span>
+        <span className="sub">{answersSub(c)}</span>
       </header>
       <div className="tscroll">
         <table className="t">

@@ -2,7 +2,7 @@ import { checksOf, cleanLabel, withLabels, withNote, type RunNote, compareRuns, 
 import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/tui/actions';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
-import { captureSource } from './run-index.js';
+import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
 
@@ -92,7 +92,12 @@ export interface RunDetail extends RunPageFacts {
   summary: RunSummary;
   calls: CallRow[];
   parent: { runId: string; label: string } | null;
-  children: Array<{ runId: string; label: string; startedAt: number }>;
+  /**
+   * The runs made from it, oldest first. `attempt` marks one bundled under it as the lists bundle it
+   * (a blame probe, a verify or `--repeat` attempt, a model's scoring attempt): Compare on a recording
+   * opens its first fork or replay, never one of those.
+   */
+  children: Array<{ runId: string; label: string; startedAt: number; attempt?: true }>;
   /** Actions that need no selected call: replay, stub writes, add the suggested normalizer, pack. */
   actions: ActionItem[];
   /** The fix the run takes part in, and how (Fixes' fixForRun): the banner's fix, blame and Run blame. */
@@ -201,6 +206,12 @@ export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
   }
 }
 
+/** A run's children for its page, each attempt marked as the run lists bundle it. */
+function childRows(store: Store, runId: string): RunDetail['children'] {
+  const index = loadRunIndex(store);
+  return store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt, ...(index.byId.get(r.runId)?.bundled ? { attempt: true as const } : {}) }));
+}
+
 export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}): RunDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
@@ -216,7 +227,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     summary,
     calls: calls.map((c) => row(store, c, options, analysis.facts(c.callNo))),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
-    children: store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt })),
+    children: childRows(store, runId),
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),

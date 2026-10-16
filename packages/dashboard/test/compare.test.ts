@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, storeApiRequest } from '@shadowlap/engine';
 import { codeChangeCache, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
+import { compareTarget } from '../ui/runs.js';
 
 /**
  * Compare's code card: the commits between two runs' revisions and the newest one's subject, read
@@ -62,6 +63,15 @@ describe('the code between two revisions', () => {
   it('says only uncommitted changes differ on the same commit, and that branches went separate ways', async () => {
     expect(await readCodeChange(repo, rev.limit!, `${rev.limit}+dirty`)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
     expect(await readCodeChange(repo, rev.policy!, rev.side!)).toEqual({ commits: null, newer: null, subjects: [], uncommitted: false });
+  });
+
+  it('knows one commit named by abbreviations of two lengths, as git gives more digits as a repository grows', async () => {
+    const full = execFileSync('git', ['rev-parse', rev.limit!], { cwd: repo }).toString().trim();
+    const longer = full.slice(0, 10);
+    expect(await readCodeChange(repo, rev.limit!, longer)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: false, same: true });
+    expect(await readCodeChange(repo, longer, rev.limit!)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: false, same: true });
+    // The same commit with uncommitted changes on one side still says so.
+    expect(await readCodeChange(repo, rev.limit!, `${longer}+dirty`)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
   });
 
   it('says nothing for the same revision, a commit this checkout lacks, a name that is no commit, or no folder', async () => {
@@ -145,6 +155,23 @@ describe('GET /api/compare', () => {
     expect(c.code).toEqual({ commits: 2, newer: 'b', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
     expect((await get(ids.after!, ids.dirty!)).code).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
     expect((await get(ids.after!, ids.after!)).code).toBeNull();
+  });
+
+  it('marks the attempts among a run\'s children, so Compare on a recording opens its first fork or replay, never a probe', async () => {
+    const recording = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: repo }, startedAt: 10_000 });
+    store.endRun(recording.runId, 'completed');
+    // Blame probed it before anyone forked it.
+    const probe = store.createRun({ mode: 'replay', parentRunId: recording.runId, command: { argv: ['node', 'agent.mjs'], cwd: repo }, startedAt: 11_000, meta: { probe: { of: recording.runId, callNo: 1, passed: false }, repeat: { group: 'b1-1', attempt: 1, of: 2 } } });
+    store.endRun(probe.runId, 'completed');
+    const fork = store.createRun({ mode: 'replay', parentRunId: recording.runId, command: { argv: ['node', 'agent.mjs'], cwd: repo }, startedAt: 12_000 });
+    store.endRun(fork.runId, 'completed');
+    const res = await fetch(`${dash.url}/api/runs/${recording.runId}`, { headers: { 'x-shadowlap-token': dash.token } });
+    const detail = (await res.json()) as { children: Array<{ runId: string; startedAt: number; attempt?: true }> };
+    expect(detail.children.map((c) => [c.runId, c.attempt ?? false])).toEqual([
+      [probe.runId, true],
+      [fork.runId, false],
+    ]);
+    expect(compareTarget(recording, detail.children)).toEqual([recording.runId, fork.runId]);
   });
 
   it('names what differs in the first request that differs, as the design does, with its path kept', async () => {

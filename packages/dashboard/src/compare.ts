@@ -19,6 +19,11 @@ export interface CodeChange {
   subjects: string[];
   /** The same commit on both sides, and only uncommitted changes (`+dirty`) differ. */
   uncommitted: boolean;
+  /**
+   * The same commit on both sides, named by abbreviations of different lengths (`git rev-parse
+   * --short` gives more digits as a repository grows, and machines differ): the code didn't change.
+   */
+  same?: true;
 }
 
 export type CompareView = RunComparison & {
@@ -67,7 +72,8 @@ export async function readCodeChange(cwd: string | null, a: string | null | unde
   const onlyA = Number(m[1]);
   const onlyB = Number(m[2]);
   if (onlyA && onlyB) return { commits: null, newer: null, subjects: [], uncommitted: false };
-  if (!onlyA && !onlyB) return { commits: 0, newer: null, subjects: [], uncommitted: x.dirty !== y.dirty };
+  // Nothing on either side: one commit, abbreviated two ways (abc1234, abc12345).
+  if (!onlyA && !onlyB) return x.dirty !== y.dirty ? { commits: 0, newer: null, subjects: [], uncommitted: true } : { commits: 0, newer: null, subjects: [], uncommitted: false, same: true };
   const [from, to, newer] = onlyB ? [x.commit, y.commit, 'b' as const] : [y.commit, x.commit, 'a' as const];
   const log = await git(cwd, ['log', `-n${SUBJECTS}`, '--format=%s', `${from}..${to}`]);
   const subjects = (log ?? '')

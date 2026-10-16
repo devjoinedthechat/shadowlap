@@ -261,20 +261,33 @@ export function runTree<R extends RunLike>(runs: readonly R[]): Array<{ run: R; 
   return out;
 }
 
-/** The pair Compare opens with none named: the newest fork or replay and its parent, else the two newest runs. */
-export function defaultComparePair(runs: readonly RunLike[]): [string, string] | null {
+/**
+ * The pair Compare opens with none named: the newest fork or replay and its parent, else the two
+ * newest runs. An exported copy of many runs holds each run compared with one of them only
+ * (`compareWith`, its first run): it opens that run against the newest other, older one first.
+ */
+export function defaultComparePair(runs: readonly RunLike[], compareWith: string | null = null): [string, string] | null {
   if (runs.length < 2) return null;
   const ids = new Set(runs.map((r) => r.runId));
   const byNew = [...runs].sort((a, b) => b.startedAt - a.startedAt);
+  const hub = compareWith ? runs.find((r) => r.runId === compareWith) : undefined;
+  if (hub) {
+    const other = byNew.find((r) => r.runId !== hub.runId)!;
+    return other.startedAt < hub.startedAt ? [other.runId, hub.runId] : [hub.runId, other.runId];
+  }
   const child = byNew.find((r) => r.mode === 'replay' && r.parentRunId && ids.has(r.parentRunId));
   if (child) return [child.parentRunId!, child.runId];
   return [byNew[1]!.runId, byNew[0]!.runId];
 }
 
-/** What a run's Compare button compares it with: a fork or replay with its parent, a recording with its first fork or replay. */
-export function compareTarget(run: { runId: string; parentRunId: string | null }, children: ReadonlyArray<{ runId: string; startedAt: number }>): [string, string] | null {
+/**
+ * What a run's Compare button compares it with: a fork or replay with its parent, a recording with
+ * its first fork or replay. Attempts bundled under it (blame's probes, verify's and `--repeat`'s
+ * attempts, a model's scoring attempts: `attempt` on the run's children) are not, whenever they ran.
+ */
+export function compareTarget(run: { runId: string; parentRunId: string | null }, children: ReadonlyArray<{ runId: string; startedAt: number; attempt?: unknown }>): [string, string] | null {
   if (run.parentRunId) return [run.parentRunId, run.runId];
-  const first = [...children].sort((a, b) => a.startedAt - b.startedAt)[0];
+  const first = children.filter((c) => !c.attempt).sort((a, b) => a.startedAt - b.startedAt)[0];
   return first ? [run.runId, first.runId] : null;
 }
 

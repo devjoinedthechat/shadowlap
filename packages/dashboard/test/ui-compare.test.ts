@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { changeCards, codeNote, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
-import type { RunLike } from '../ui/runs.js';
+import { answersSub, changeCards, codeNote, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
 // Compare's logic without a browser: what the four change cards say, which rows after the fork the
@@ -51,6 +51,12 @@ describe('the change cards', () => {
     expect(card({ changes: changes({ code: { a: null, b: null } }), code: null }, 'code').note).toBe('no revision recorded');
   });
 
+  it('read one commit abbreviated two ways as no change, and say so on hover', () => {
+    const two = card({ changes: changes({ code: { a: 'abc1234', b: 'abc12345' } }), code: { commits: 0, newer: null, subjects: [], uncommitted: false, same: true } }, 'code');
+    expect([two.changed, two.title, two.note]).toEqual([false, 'unchanged', 'abc1234']);
+    expect(two.tip).toBe('The same commit, named abc1234 in one run and abc12345 in the other.');
+  });
+
   it('count the prompts of a multi-agent run, and say when there is none or the comparison is older', () => {
     expect(card({ changes: changes({ systems: { a: ['x', 'y'], b: ['x', 'y'] } }) }, 'system prompt').note).toBe('2 prompts, the same');
     expect(card({ changes: changes({ systems: { a: [], b: [] } }) }, 'system prompt').note).toBe('no system prompt');
@@ -81,6 +87,15 @@ describe('the prefix line', () => {
     expect(prefixLine({ ...base, firstRequestDifference: null }).rest).toBe('Every call matches.');
     expect(prefixLine({ ...base, firstRequestDifference: null, onlyInB: 3 }).rest).toBe('Every request they share matches.');
     expect(prefixLine({ ...base, firstRequestDifference: null, responseDifferences: [{ callNo: 4, kind: 'api', name: 'x', detail: '' }] }).rest).toBe('Every request matches; 1 call got a different answer.');
+    // A run that went on past the other's end (one still recording): only the requests both made match.
+    const answers = Array.from({ length: 6 }, (_, i) => ({ callNo: i + 1, kind: 'api' as const, name: 'x', detail: '' }));
+    expect(prefixLine({ ...base, identicalPrefix: 0, firstRequestDifference: null, responseDifferences: answers, onlyInB: 6 }).rest).toBe('Every request they share matches; 6 calls got a different answer.');
+  });
+
+  it('heads the answers table with how many calls, and before which request only when one differs', () => {
+    const answers = [{ callNo: 16, kind: 'tool' as const, name: 'lookup_policy', detail: '1 difference' }];
+    expect(answersSub({ firstRequestDifference: { callNo: 17, kind: 'api', name: 'POST /v1/messages' }, responseDifferences: answers })).toBe('1 call, before the first request that differs');
+    expect(answersSub({ firstRequestDifference: null, responseDifferences: [...answers, { ...answers[0]!, callNo: 18 }] })).toBe('2 calls');
   });
 });
 
@@ -116,6 +131,25 @@ describe('the pickers and live runs', () => {
     expect(pickable(runs, '01K5CQ4N7G', runs[0]!.runId)).toHaveLength(3);
     // Otherwise only that run.
     expect(pickable(runs, runs[1]!.runId, runs[0]!.runId).map((r) => r.runId)).toEqual([runs[0]!.runId]);
+  });
+
+  it('opens on a pair an exported copy of many runs holds: its first run with the newest other', () => {
+    const run = (runId: string, startedAt: number, parentRunId: string | null = null): RunLike => ({ runId, parentRunId, mode: parentRunId ? 'replay' : 'record', status: 'completed', divergence: null, command: 'node agent.mjs', codeVersion: null, startedAt, calls: 3, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [] });
+    // A lineage exported root first: its newest fork's parent is not the root, so that pair isn't in the file.
+    const runs = [run('ROOT', 1), run('F1', 2, 'ROOT'), run('F2', 3, 'F1'), run('F3', 4, 'F2')];
+    expect(defaultComparePair(runs)).toEqual(['F2', 'F3']);
+    expect(defaultComparePair(runs, 'ROOT')).toEqual(['ROOT', 'F3']);
+    // The run every pair includes started last: it is on the right, the older run on the left.
+    expect(defaultComparePair([run('A', 5), run('B', 2), run('C', 3)], 'A')).toEqual(['C', 'A']);
+    // A copy whose first run isn't listed (an attempt left out): as without one.
+    expect(defaultComparePair(runs, 'GONE')).toEqual(['F2', 'F3']);
+  });
+
+  it('opens a recording against its first fork or replay, not an attempt bundled under it', () => {
+    const rec = { runId: 'REC', parentRunId: null };
+    expect(compareTarget(rec, [{ runId: 'PROBE', startedAt: 1, attempt: true }, { runId: 'FORK', startedAt: 2 }, { runId: 'CLEAN', startedAt: 3 }])).toEqual(['REC', 'FORK']);
+    expect(compareTarget(rec, [{ runId: 'PROBE', startedAt: 1, attempt: true }])).toBeNull();
+    expect(compareTarget({ runId: 'FORK', parentRunId: 'REC' }, [])).toEqual(['REC', 'FORK']);
   });
 
   it('words each run as the mock does: a recording, a fork at its call, a clean replay', () => {

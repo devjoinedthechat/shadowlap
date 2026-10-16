@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
 import { exportHtml, withAncestors, type StaticPayload } from '../src/index.js';
+import { defaultComparePair, type RunLike } from '../ui/runs.js';
 
 /** `shadowlap export html`: a run as one file, with the dashboard's answers built in. */
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url));
@@ -107,6 +108,40 @@ describe('export html', () => {
       // The store keeps it: only the file leaves it out.
       expect(own.getRun(parent)!.meta?.author).toBe('dana.private@example.com');
       expect(exportHtml({ store: own, runIds: [parent], uiDir, keepAuthor: true }).html).toContain('dana.private@example.com');
+    } finally {
+      own.close();
+    }
+  });
+
+  it('compares each run of a copy of more than six with the first only, and opens on a pair it holds', () => {
+    const own = Store.open(':memory:');
+    try {
+      // A lineage of seven, root first, as the dashboard's download of a run's lineage orders it.
+      const root = unpackRun(own, GOLDEN).imported[0]!;
+      const ids = [root];
+      for (let i = 1; i < 7; i++) {
+        const r = own.createRun({ mode: 'replay', parentRunId: ids[i - 1]!, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 2_000_000_000_000 + i });
+        own.endRun(r.runId, 'completed');
+        ids.push(r.runId);
+      }
+      const data = embedded(exportHtml({ store: own, runIds: withAncestors(own, ids.at(-1)!), uiDir }).html);
+      expect(data.responses['meta']).toMatchObject({ compareWith: root });
+      const pairs = Object.keys(data.responses).filter((k) => k.startsWith('compare?')).map((k) => new URLSearchParams(k.slice('compare?'.length)));
+      // Each run with the first, both ways round, and nothing else.
+      expect(pairs).toHaveLength(12);
+      expect(pairs.every((q) => q.get('a') === root || q.get('b') === root)).toBe(true);
+      // Compare opens on the first run against the newest other: a pair the file holds.
+      const runs = (data.responses['runs'] as { runs: RunLike[] }).runs;
+      const [a, b] = defaultComparePair(runs, root)!;
+      expect([a, b]).toEqual([root, ids.at(-1)]);
+      expect(data.responses[`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`]).toBeDefined();
+      // Without it, the newest fork and its parent: a pair the file doesn't hold.
+      const [x, y] = defaultComparePair(runs)!;
+      expect(data.responses[`compare?a=${encodeURIComponent(x)}&b=${encodeURIComponent(y)}`]).toBeUndefined();
+      // Up to six runs, every pair.
+      const six = embedded(exportHtml({ store: own, runIds: ids.slice(0, 6), uiDir }).html);
+      expect(six.responses['meta']).toMatchObject({ compareWith: null });
+      expect(Object.keys(six.responses).filter((k) => k.startsWith('compare?'))).toHaveLength(30);
     } finally {
       own.close();
     }
