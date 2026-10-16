@@ -88,10 +88,11 @@ The same table drives the cost figures in `shadowlap run`, `replay` and `show`.
 | `a` | Diverge here | any call | `… --diverge-at <n>` |
 | `e` | Repeat the replay and compare (asks how many attempts) | the whole run | `… --repeat <n>`; a replay runs again from its parent with the flags that made it, its own command and its `--expect` |
 | `s` | Stub the writes | the whole run | `… --writes stub`; a replay, again from its parent |
+| `b` | Find the commit that broke it (asks for a commit where it still worked), or on a run that passed, the commit that changed it (from its own) | the whole run | `shadowlap bisect <run> --good <commit>` |
 | `r` | Replay this run | | `shadowlap replay <run>` |
 | `n` | Add the divergence's suggested normalizer | | `shadowlap normalize add …` |
 | `p` | Pack this run (asks for a directory) | | `shadowlap pack <run> <dir>` |
 
-Inject always passes `--inject-as user`, which every provider takes. What you type is passed as text: an override or a planted instruction that starts with `@` is never read as a file (from a terminal, `--inject-result <n>=@payload.txt` reads one). A recorded user input offers only a different answer and diverge: running it live or overriding it as a tool result would mean asking a person again. A run imported from a capture has no command, so its menu shows a note and one action, a replay that asks for your command, which goes after `--`; that replay records every kind of call, and every fork works on it.
+Inject always passes `--inject-as user`, which every provider takes. Find the commit is off for a run recorded outside git, and for a run from someone else's pack, whose command it would run at every commit. What you type is passed as text: an override or a planted instruction that starts with `@` is never read as a file (from a terminal, `--inject-result <n>=@payload.txt` reads one). A recorded user input offers only a different answer and diverge: running it live or overriding it as a tool result would mean asking a person again. A run imported from a capture has no command, so its menu shows a note and one action, a replay that asks for your command, which goes after `--`; that replay records every kind of call, and every fork works on it.
 
 Each action runs the CLI against the same store, streams its output into a pane, and, when it created a run, `Enter` opens it. The TUI never reimplements engine behavior; it is a front end to the same commands you'd type.

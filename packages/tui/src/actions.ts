@@ -80,6 +80,55 @@ export function buildActions(run: RunRecord, call: CallRecord | undefined, conte
   return guardImported(run, baseActions(run, call, context));
 }
 
+/**
+ * The terminal UI's fork menu: the dashboard's, which ends the whole run's part with Find the commit.
+ * The dashboard runs that as the tests' bisect job, from its own offers; the terminal UI runs
+ * `shadowlap bisect` itself.
+ */
+export function terminalActions(run: RunRecord, call: CallRecord | undefined, context: ActionContext = {}): Action[] {
+  const actions = buildActions(run, call, context);
+  const find = bisectAction(run);
+  if (!find) return actions;
+  // After the whole run's other actions, before what isn't a fork.
+  let at = actions.length;
+  while (at > 0 && actions[at - 1]!.group !== 'run') at--;
+  return [...actions.slice(0, at), find, ...actions.slice(at)];
+}
+
+/**
+ * Find the commit: a run that failed is looked for where it started failing, between a commit where
+ * it still worked and HEAD; one that passed, where it started doing something else after its own
+ * commit. Replays are offline, so it costs nothing. Not for a capture, which has no command to run
+ * at each commit; off for a run from someone else's pack, whose command it would run at every one,
+ * and for a run recorded outside git.
+ */
+export function bisectAction(run: RunRecord): Action | null {
+  if (!hasRecordedCommand(run)) return null;
+  const failed = run.status === 'failed' || (run.meta?.checks ?? []).some((c) => !c.ok);
+  const own = run.codeVersion?.replace(/\+dirty$/, '') || null;
+  const disabled = commandIsImported(run)
+    ? 'This run came from an imported pack: bisect would run its command at every commit. Replay it with your own command first, and bisect that run'
+    : !own
+      ? 'Recorded outside a git repository: there are no commits to search'
+      : null;
+  return {
+    key: 'b',
+    label: failed ? 'Find the commit that broke it' : 'Find the commit that changed it',
+    flag: 'bisect --good …',
+    group: 'run',
+    hint: failed
+      ? 'Replays it at commits between one where it still worked and HEAD, halving each time, and names the first where it fails. Replays are offline: no tokens.'
+      : 'Replays it at the commits after its own, halving each time, and names the first where it does something else. Replays are offline: no tokens.',
+    ...(disabled ? { disabled } : {}),
+    prompt: {
+      label: failed ? 'A commit where it still worked (a sha, a tag or a branch):' : 'The commit to search from (its own, by default):',
+      ...(failed ? { placeholder: 'v1.4.0' } : { initial: own ?? '' }),
+      build: (v) => (v.trim() ? ['bisect', run.runId, '--good', v.trim()] : []),
+    },
+    opensRun: false,
+  };
+}
+
 /** Why a prompt's answer ran nothing: the only answers that do are a command, or a yes. */
 export function notRun(run: RunRecord): string {
   return hasRecordedCommand(run) ? 'Not run: type yes to confirm' : 'Not run: give the command that starts your agent';
