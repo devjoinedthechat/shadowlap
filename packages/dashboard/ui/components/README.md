@@ -73,6 +73,9 @@ call's recorded duration), `cache.ts` (where the cache stopped hitting, and what
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
+`focus.ts` (what a dialog focuses first), `shell/top.ts` (the top bar's pill, a run's parent in its
+crumbs, the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
+crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Training, `training.ts` (what a pairs filter
 shows, what Score a model sends, and the palette's Training actions). Tests has `goldens.ts`: the
@@ -87,7 +90,8 @@ its sources again. Pages a later version fills in each have their own file under
 
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
 and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
-`calendar-model.ts`), the table, the bulk bar, the import dialog (`imports.ts` reads a file's first
+`calendar-model.ts`), the table, the bulk bar (`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command),
+the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`), Find the commit (`find-commit.ts`, what it asks bisect
 for) and authors; `runspage/query.ts` builds the page's requests and reads the
 filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
