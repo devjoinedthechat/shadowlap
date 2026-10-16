@@ -118,7 +118,7 @@ describe('a run', () => {
         },
       }),
     );
-    expect(failing.fix).toEqual({ id: 'fx-7', status: 'open', title: 'Confirmation email sent twice', href: '#/fixes/fx-7' });
+    expect(failing.fix).toEqual({ id: 'fx-7', status: 'open', title: 'Confirmation email sent twice', href: '#/fixes/fx-7', check: 'send_email called once' });
     expect(failing.fixRole).toBe('failing');
     expect(failing.blame).toEqual({ callNo: 9, modelCall: { k: 3, m: 7 }, confidence: 'high', rescuedRunId: '01K5CQ5X1Y', scope: null, outcome: 'blamed', short: 'asked again, it calls escalate instead' });
 

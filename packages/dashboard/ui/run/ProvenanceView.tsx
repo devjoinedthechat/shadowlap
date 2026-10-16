@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { LineageNode, ProvenanceView as ServerProvenance, RunDetail } from '../api.js';
 import { CopyButton, Org } from '../components/bits.js';
+import { Icon } from '../components/Icon.js';
+import { copyText } from '../dom.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { approx, callName, num, shortFingerprint, shortHash, shortId, stamp, utcStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -10,7 +12,8 @@ import { navigate } from '../router.js';
 import { kindWord } from '../runs.js';
 import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
-import { originOf, runLikeOf } from './model.js';
+import { flagText } from './banner.js';
+import { modelLabel, originOf, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, tallyProviders } from './provenance.js';
 
 /**
@@ -43,25 +46,39 @@ function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ 
  * what a copy made now would mask, and its labels and notes.
  */
 export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
-  const { client, meta } = useApp();
+  const { client, meta, exported, toast } = useApp();
   const r = run.run;
   const s = run.summary;
   const lineage = useLoad(() => client.lineage(r.runId), r.runId);
+  // `show --json` as the CLI prints it, read ahead so Copy writes it at once (a browser only lets a click copy).
+  const show = useLoad(() => (exported ? null : client.showJson(r.runId)), `${r.runId}:show`);
   // The server's record of the run, when it works one out: on the run, or from its own endpoint.
   const fetched = useLoad(() => (run.provenance ? null : client.provenance(r.runId)), `${r.runId}:provenance`);
   const prov = run.provenance ?? fetched.data ?? null;
   const providers = useProviders(run, prov);
-  const models = new Map<string, number>();
+  // Each model as the page names it everywhere (claude-opus-5), counted from the record when it says,
+  // else from the calls; the id the provider recorded (a dated one) shows on hover when it says more.
+  const models = new Map<string, { calls: number; recorded: string[] }>();
+  const count = (model: string, n: number, recorded: string | null) => {
+    const name = modelLabel(run.models, model) ?? model;
+    const m = models.get(name) ?? { calls: 0, recorded: [] };
+    m.calls += n;
+    if (recorded && recorded !== name && !m.recorded.includes(recorded)) m.recorded.push(recorded);
+    models.set(name, m);
+  };
   const endpoints = new Set<string>();
   for (const c of run.calls) {
     if (c.kind !== 'api') continue;
-    if (c.model) models.set(c.model, (models.get(c.model) ?? 0) + 1);
+    if (c.model && !prov?.models?.length) count(c.model, 1, null);
     endpoints.add(c.name);
   }
+  for (const m of prov?.models ?? []) count(m.model, m.calls, m.model);
+  const revOf = new Map((prov?.lineage ?? []).map((n) => [n.runId, n.codeVersion]));
   const origins = countOrigins(run.calls.map(originOf));
   const scopes = scopesOf(run.calls);
   const like = runLikeOf(run);
-  const what = r.divergence ? `fork at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}` : run.source ? `imported from ${run.source}` : 'recording';
+  const flag = flagText(run.intervention ?? null);
+  const what = r.divergence ? `fork at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}${flag ? ` · ${flag}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}${r.meta?.test?.golden ? ` · ${r.meta.test.golden}` : ''}` : run.source ? `imported from ${run.source}` : 'recording';
   // The ancestors, oldest first, and this run.
   const chain: LineageNode[] = [];
   if (lineage.data) {
@@ -87,8 +104,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     [
       'Models',
       models.size
-        ? [...models].map(([m, n], i) => (
-            <span key={m}>
+        ? [...models].map(([m, { calls: n, recorded }], i) => (
+            <span key={m} title={recorded.length ? `recorded as ${recorded.join(', ')}` : undefined}>
               {i ? <br /> : null}
               {m} <small>{n === 1 ? '1 call' : `${num(n)} calls`}</small>
             </span>
@@ -141,7 +158,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                       </a>
                       <small>
                         {n.label}
-                        {here ? ' · this run' : ''} · {stamp(n.startedAt)}
+                        {here ? ' · this run' : ''}
+                        {revOf.get(n.runId) ? ` · rev ${revOf.get(n.runId)}` : ''} · {stamp(n.startedAt)}
                       </small>
                     </li>
                   );
@@ -211,7 +229,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                       <Org origin={originOf(c)} />
                     </td>
                     <td>
-                      <code title={c.fingerprint ?? c.requestRef ?? undefined}>{c.fingerprint ? `${shortFingerprint(c.fingerprint)}…` : c.requestRef ? shortHash(c.requestRef) : '—'}</code>
+                      {/* The request blob is on the hover: the stored request, kept once like the response. */}
+                      <code title={[c.fingerprint ? `sha256:${c.fingerprint}` : null, c.requestRef ? `request blob ${c.requestRef}` : null].filter(Boolean).join('\n') || undefined}>{c.fingerprint ? `${shortFingerprint(c.fingerprint)}…` : c.requestRef ? shortHash(c.requestRef) : '—'}</code>
                     </td>
                     <td>
                       <code title={c.responseRef ?? undefined}>{c.responseRef ? shortHash(c.responseRef) : '—'}</code>
@@ -227,9 +246,16 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
         <p className="muted">Each call’s fingerprint is in its Details tab, and every hash is in the run’s JSON record.</p>
       )}
       <div className="actions">
-        <CopyButton text={`shadowlap show ${shortId(r.runId)} --json`} label="the command" className="btn">
-          Copy show --json
-        </CopyButton>
+        {show.data !== null && show.data !== undefined ? (
+          <button type="button" className="btn" title={`shadowlap show ${shortId(r.runId)} --json, as the CLI prints it`} onClick={() => void copyText(JSON.stringify(show.data, null, 2)).then((ok) => toast(ok ? 'Copied the run’s show --json' : 'Copying was refused by the browser'))}>
+            <Icon name="copy" />
+            Copy show --json
+          </button>
+        ) : (
+          <CopyButton text={`shadowlap show ${shortId(r.runId)} --json`} label="the command" className="btn">
+            Copy show --json
+          </CopyButton>
+        )}
       </div>
     </div>
   );

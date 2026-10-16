@@ -66,8 +66,13 @@ export function menuLabel(a: ActionLike, toolName?: string | null): string {
   return capitalize(a.label.replace(/^Fork:\s*/i, '').replace(/\s*\((--[^)]*|bisect[^)]*)\)\s*$/, '').trim());
 }
 
-/** The flag on the right of an action's line, short: `--inject 17=…` (the dialog shows the whole command). */
+/**
+ * The flag on the right of an action's line, as a menu shows a shortcut: at a call, the option alone
+ * (`--fail-at`), since the line is about that call already; for the whole run, the option and its
+ * value (`--repeat 5`, `--writes stub`). The full flag is on the line's hover, and in its dialog.
+ */
 export function menuFlag(a: ActionLike): string {
+  if (a.flag && a.group === 'call') return a.flag.trim().split(/\s+/)[0] ?? '';
   if (a.flag) return shortFlag(a.flag);
   const fromLabel = /\(((?:--|bisect)[^)]*)\)\s*$/.exec(a.label)?.[1];
   return fromLabel ?? KNOWN[a.key]?.flag ?? '';

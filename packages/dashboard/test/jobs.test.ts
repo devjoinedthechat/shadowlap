@@ -157,9 +157,9 @@ describe('job kinds', () => {
     expect(() => jobs.registerJobKind('blame', kind)).toThrow(/twice/);
     expect(jobs.kindNames()).toEqual(['blame', 'export']);
     const meta = (await (await api(dash, 'meta')).json()) as { jobKinds: string[]; actions: boolean; project: { name: string; path: string } };
-    // Every feature registers its own kinds; these are this test's and api-core's.
+    // Each feature's kinds besides: sorted, each once.
     expect(meta.jobKinds).toEqual(expect.arrayContaining(['action', 'fake']));
-    expect(meta.jobKinds).toEqual([...meta.jobKinds].sort());
+    expect(meta.jobKinds).toEqual([...new Set(meta.jobKinds)].sort());
     expect(meta.actions).toBe(true);
     expect(meta.project).toEqual({ name: project.split(/[\\/]/).pop(), path: project });
   });
@@ -172,7 +172,7 @@ describe('job kinds', () => {
       expect(((await res.json()) as { error: string }).error).toMatch(message);
     };
     await refused({}, 400, /kind is required/);
-    await refused({ kind: 'nope', args: ['rm', '-rf', '/'] }, 400, /no job kind "nope" \(this dashboard runs: action, .*\bfake\b.*\)/);
+    await refused({ kind: 'nope', args: ['rm', '-rf', '/'] }, 400, /no job kind "nope" \(this dashboard runs: action, (?:[a-z-]+, )*fake(?:, [a-z-]+)*\)/);
     await refused({ kind: 'fake', mode: 'refuse' }, 400, /the fake refuses/);
     await refused({ kind: 'fake', mode: 'throw' }, 400, /the builder broke/);
     await refused({ kind: 'fake', mode: 'empty' }, 500, /built no command/);

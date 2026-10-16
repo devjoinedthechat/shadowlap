@@ -1,6 +1,7 @@
 import {
   applyNormalizers,
   cacheMisses,
+  canonicalModel,
   Lru,
   compilePattern,
   conversationRequestFor,
@@ -111,6 +112,7 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
 const resultLines = new WeakMap<Store, Lru<string, string | null>>();
 
 function resultShortOf(store: Store, c: CallRecord): string | null {
+  if (c.kind === 'clock' || c.kind === 'random') return valueLineOf(store, c);
   if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked' || !c.end) return toolResultLine(c, null);
   let lines = resultLines.get(store);
@@ -129,9 +131,34 @@ function resultShortOf(store: Store, c: CallRecord): string | null {
   return line;
 }
 
-/** What a call row shows that is the call's own: its blobs, its fingerprint and a tool's result in a line. */
-export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null } {
-  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c) };
+/** A clock read's or a random value's value in a line, as JSON: what the agent got, and a replay serves again. */
+function valueLineOf(store: Store, c: CallRecord): string | null {
+  if (!c.end?.responseRef || c.end.outcome !== 'ok') return null;
+  let lines = resultLines.get(store);
+  if (!lines) resultLines.set(store, (lines = new Lru(20_000)));
+  const key = `${c.end.responseRef}\nvalue`;
+  const known = lines.get(key);
+  if (known !== undefined) return known;
+  let line: string | null = null;
+  try {
+    const payload = store.getJson<{ result?: unknown }>(c.end.responseRef);
+    const v = payload && typeof payload === 'object' && 'result' in payload ? payload.result : undefined;
+    const text = v === undefined ? null : (JSON.stringify(v) ?? null);
+    line = text === null ? null : text.length > 72 ? `${text.slice(0, 71)}…` : text;
+  } catch {
+    line = null;
+  }
+  lines.set(key, line);
+  return line;
+}
+
+/**
+ * What a call row shows that is the call's own: its blobs, its fingerprint, a tool's result in a
+ * line, and whether it is a person's answer the agent read (`userInput()`, or stdin through the
+ * preload), which Calls tags "input" and the fork menu answers differently.
+ */
+export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true } {
+  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c), ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}) };
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
@@ -185,6 +212,11 @@ export interface RunPageFacts {
   blame: RunBlame | null;
   /** The run's outcome checks, counted over the attempts they ran in. */
   checks: RunCheck[] | null;
+  /**
+   * Each model the run's model calls name, by the short name their rows carry (`opus-5`): as the run
+   * page names it everywhere, the id without a date stamp (`claude-opus-5`).
+   */
+  models: Record<string, string>;
 }
 
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
@@ -263,6 +295,25 @@ function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
   return own.hosts.length || tools.length ? { hosts: own.hosts, tools } : null;
 }
 
+/** A model id as the run page names it: the platform's prefixes and suffixes off, and no date stamp (`claude-opus-5`). */
+export function modelName(model: string): string {
+  return canonicalModel(model).replace(/-\d{8}$/, '');
+}
+
+/** The run's models by the short name a call row carries, each as the page names it. */
+function modelsOf(store: Store, calls: readonly CallRecord[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const modelOf = modelResolver(store);
+  for (const c of calls) {
+    if (c.kind !== 'api') continue;
+    const model = c.end?.meta.model ?? c.meta.model ?? modelOf(c) ?? null;
+    if (!model) continue;
+    const short = shortModel(model);
+    if (short && !(short in out)) out[short] = modelName(model);
+  }
+  return out;
+}
+
 export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunPageFacts {
   const a = analyseRun(store, run, calls);
   const interventions = run.mode === 'replay' ? runInterventions(store, run, calls) : [];
@@ -282,6 +333,7 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     rescuedBy: rescued && parent ? { runId: parent.runId, callNo: int(rescued.callNo) } : null,
     blame: blameOf(run, calls),
     checks: checksOf(store, run),
+    models: modelsOf(store, calls),
   };
 }
 

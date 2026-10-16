@@ -7,7 +7,8 @@ import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { useApp } from '../state.js';
-import { originOf, tokensText, turnCalls } from './model.js';
+import { refusedOffline } from './calls.js';
+import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 
 /**
  * The inspector for the selected call: Conversation (as the model saw it, thinking included, with
@@ -25,17 +26,23 @@ export interface InspectorProps {
   call: CallRow | null;
   /** The run's calls, to say which call each message of a conversation came from. */
   calls: readonly CallRow[];
+  /** The run's models as the page names them (`claude-opus-5`), by the short name a row carries. */
+  models?: Readonly<Record<string, string>> | undefined;
   detail: CallDetail | null;
   error: string | null;
   tab: InspectorTab;
   onTab: (t: InspectorTab) => void;
   onStep: (delta: number) => void;
-  /** The turn this fork changed, and the call the change was first sent at. */
-  change: { turn: number; firstAt: number } | null;
+  /** The turn this fork changed, the call the change was first sent at, and what changed it (a test's replay says so). */
+  change: { turn: number; firstAt: number; by?: 'fork' | 'replay' } | null;
   live: boolean;
+  /** The flag that made the fork, as the run names it (`--fail-at 19=529`), for a call Shadowlap answered. */
+  flag?: string | null;
+  /** Selects another call: a tool call's Conversation tab leads to the model call of its own conversation. */
+  onSelect?: (n: number) => void;
 }
 
-export function Inspector({ runId, call, calls, detail, error, tab, onTab, onStep, change, live }: InspectorProps) {
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect }: InspectorProps) {
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -69,7 +76,7 @@ export function Inspector({ runId, call, calls, detail, error, tab, onTab, onSte
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} models={models} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
       </div>
     </section>
   );
@@ -104,7 +111,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls: readonly CallRow[]; change: { turn: number; firstAt: number } | null }) {
+function ConversationTab({ detail, calls, models, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; models?: Readonly<Record<string, string>> | undefined; change: InspectorProps['change']; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -125,6 +132,7 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
         <div className="ibar">A {c.kind === 'tool' ? 'tool' : c.kind} call has no conversation. Its arguments, then its result:</div>
         <div className="jbox">{jsonText(args ?? {}, format)}</div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null, format) : c.outcome === null ? 'no result yet' : 'no result'}</div>
+        <ConversationLink detail={detail} calls={calls} onSelect={onSelect} />
       </>
     );
   }
@@ -135,17 +143,24 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
     <div className={`inote ${injected ? 'inj' : 'err'}`}>
       {injected ? (
         <>
-          <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (--fail-at). This is the conversation the agent would have sent.
+          <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (<code>{flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at'}</code>){c.attempts ? `, ${c.attempts + 1} attempts` : ''}. This is the conversation the agent would have sent.
+        </>
+      ) : refusedOffline(c) ? (
+        <>
+          <b>Refused.</b> The replay is offline and this request is not in the recording, so it got HTTP {c.status}. This is what the agent sent.
         </>
       ) : (
         <>
-          <b>{c.status ? `HTTP ${c.status}.` : 'It failed.'}</b> {c.error ?? 'The call ended in an error.'} This is what the agent sent.
+          <b>{c.status ? `HTTP ${c.status}.` : 'It failed.'}</b> {(c.error ?? 'The call ended in an error').replace(/\.?$/, '.')} This is what the agent sent.
         </>
       )}
     </div>
   ) : null;
   if (!conv) return <>{note}<div className="ibar">The request could not be read as a conversation; the Request tab shows it as stored.</div></>;
   const turns = conv.turns;
+  // A run of many conversations (a batch): which one this call's is.
+  const conversations = calls.reduce((n, x) => Math.max(n, x.conversation ?? 0), 0);
+  const which = conv.n && conversations > 1 ? ` · conversation ${num(conv.n)} of ${num(conversations)}` : '';
   // Which call each message came from, when the server names the tool calls' ids.
   const from = turnCalls(turns, calls);
   // Tool results name their call only by id in some providers: the tool's name comes from the call that asked for it.
@@ -159,8 +174,9 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
       {note}
       <div className="ibar">
         <span>
-          {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{c.callNo}
-          {conv.model ? ` · ${conv.model}` : ''}
+          {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{conv.fromCallNo ?? c.callNo}
+          {which}
+          {conv.model && !which ? ` · ${modelLabel(models, conv.model)}` : ''}
         </span>
         {change ? (
           <button
@@ -185,14 +201,34 @@ function ConversationTab({ detail, calls, change }: { detail: CallDetail; calls:
               Show {hidden} earlier {hidden === 1 ? 'message' : 'messages'}
             </button>
           ) : null}
-          <Message turn={t} callNo={from.get(i) ?? null} format={format} names={names} changed={change?.turn === i} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
+          <Message turn={t} callNo={from.get(i) ?? null} format={format} names={names} changed={change?.turn === i} changedBy={change?.by ?? 'fork'} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
         </Fragment>
       ))}
     </>
   );
 }
 
-function Message({ turn, callNo, format, names, changed, firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
+/**
+ * Under a tool call's arguments and result: the model call of its own conversation that asked for it
+ * (or that its result feeds), and in a batch which conversation it is, with a way to that call's
+ * conversation. Only from what the server says, so it never leads to another ticket's.
+ */
+function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; onSelect?: ((n: number) => void) | undefined }) {
+  const link = conversationLink(detail.call, detail.conversation, calls);
+  if (!link) return null;
+  return (
+    <div className="ibar convlink">
+      <span>{link.text}</span>
+      {onSelect ? (
+        <button className="linkbtn" type="button" onClick={() => onSelect(link.callNo)}>
+          Show its conversation
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function Message({ turn, callNo, format, names, changed, changedBy = 'fork', firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; changedBy?: 'fork' | 'replay'; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
   const role = turn.role;
   return (
     <div className={`msg ${role}${changed ? ' changed' : ''}`} ref={innerRef}>
@@ -205,7 +241,7 @@ function Message({ turn, callNo, format, names, changed, firstAt, innerRef }: { 
         {turn.blocks.map((b, i) => (
           <MessageBlock key={i} block={b} format={format} names={names} />
         ))}
-        {changed ? <span className="chg">changed in this fork{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
+        {changed ? <span className="chg">changed in this {changedBy}{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
       </div>
     </div>
   );
@@ -425,7 +461,7 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 
 // ---------------------------------------------------------------------------------------------- details
 
-function DetailsTab({ runId, detail }: { runId: string; detail: CallDetail }) {
+function DetailsTab({ runId, detail, models }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined }) {
   const c = detail.call;
   const rows: Array<[string, ReactNode]> = [];
   const origin = originOf(c);
@@ -434,7 +470,7 @@ function DetailsTab({ runId, detail }: { runId: string; detail: CallDetail }) {
   if (c.effect) rows.push(['Effect', c.effect]);
   if (c.scope) rows.push(['Scope', c.scope]);
   if (c.provider) rows.push(['Provider', c.provider]);
-  if (c.model) rows.push(['Model', c.model]);
+  if (c.model) rows.push(['Model', modelLabel(models, c.model)]);
   if (c.stopReason) rows.push(['Stop reason', c.stopReason]);
   if (c.usage)
     rows.push([

@@ -39,7 +39,8 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
   const big = ms.reduce((a, b) => (wholeInput(b.usage!) > wholeInput(a.usage!) ? b : a));
   const share = cacheReadShare(ms);
   const many = ms.length > 80;
-  const every = Math.ceil(ms.length / 12);
+  // A label per bar while they fit (the design's thirty-call run); past that, every few, so they never run together.
+  const every = Math.max(1, Math.ceil(ms.length / (many ? 12 : 22)));
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <>
@@ -146,7 +147,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
             <div className={`clabels${many ? ' many' : ''}`}>
               {ms.map((c, i) => (
                 <span key={c.callNo} className={c.callNo === selected ? 'sel' : undefined}>
-                  {!many || i % every === 0 ? `#${num(c.callNo)}` : ''}
+                  {i % every === 0 ? `#${num(c.callNo)}` : ''}
                 </span>
               ))}
             </div>

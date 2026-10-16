@@ -75,8 +75,13 @@ export interface CallRow extends CallFacts {
   /** The stored request (a manifest for a model call) and response blobs, by hash; shared by every run that has them. */
   requestRef: string | null;
   responseRef: string | null;
-  /** A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call; null for other calls. */
+  /**
+   * A tool's result in one line of about 72 characters (`stubbed …`, `blocked`), shown under the call;
+   * for a clock read or a random value, the value it gave, shown beside it; null for model calls.
+   */
   resultShort: string | null;
+  /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
+  input?: true;
 }
 
 export interface RunDetail extends RunPageFacts {

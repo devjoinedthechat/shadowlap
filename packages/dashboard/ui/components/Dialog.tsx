@@ -88,8 +88,8 @@ export function PromptDialog({
   placeholder?: string;
   multiline?: boolean;
   ok: string;
-  /** The command it will run, shown under the field. */
-  command?: string;
+  /** The command it will run, shown under the field: as it is, or worked out from the answer so far. */
+  command?: string | ((answer: string) => string);
   maxLength?: number;
   /** Answers to pick from; any other answer is accepted too. */
   choices?: readonly PromptChoice[];
@@ -187,7 +187,7 @@ export function PromptDialog({
       ) : (
         field
       )}
-      {command ? <CmdLine>{command}</CmdLine> : null}
+      {command ? <CmdLine>{typeof command === 'function' ? command(answer) : command}</CmdLine> : null}
     </Dialog>
   );
 }

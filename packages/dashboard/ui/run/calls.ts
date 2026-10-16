@@ -54,20 +54,45 @@ export function tokensText(c: CallLike): string {
   return `${ktok(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} → ${ktok(c.usage.output)}`;
 }
 
-/** The detail beside a call's name: a model call's stop reason or HTTP failure, a tool's arguments. */
-export function callDetail(c: CallLike): { text: string; err: boolean } {
-  if (c.kind === 'api') {
-    if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : ''}` : (c.error ?? 'error'), err: true };
-    if (c.resultShort) return { text: c.resultShort, err: false };
-    return { text: [c.model, c.stopReason].filter(Boolean).join(' · '), err: false };
+/** A model call an offline replay refused: not in the recording, so it got HTTP 503 instead of reaching the provider. */
+export function refusedOffline(c: Pick<CallLike, 'status' | 'error'>): boolean {
+  return c.status === 503 && /\boffline\b/i.test(c.error ?? '');
+}
+
+/**
+ * The tools each model call asked for, by the calls the run made for it (`requestedBy`), as the Calls
+ * view words them: `search_web, read_file`, a tool asked for more than once with its count.
+ */
+export function askedTools(calls: ReadonlyArray<{ callNo: number; kind: string; name: string; requestedBy?: number | null }>): Map<number, string> {
+  const by = new Map<number, Map<string, number>>();
+  for (const c of calls) {
+    if (c.kind !== 'tool' || c.requestedBy === null || c.requestedBy === undefined) continue;
+    const names = by.get(c.requestedBy) ?? new Map<string, number>();
+    names.set(c.name, (names.get(c.name) ?? 0) + 1);
+    by.set(c.requestedBy, names);
   }
+  return new Map([...by].map(([n, names]) => [n, [...names].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(', ')]));
+}
+
+/**
+ * The detail beside a call's name: a model call's HTTP failure, the tools it asked for (`→ search_web`)
+ * or its stop reason; a tool's arguments; the value a clock read or a random value gave.
+ */
+export function callDetail(c: CallLike, asked?: string | null): { text: string; err: boolean } {
+  if (c.kind === 'api') {
+    if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : refusedOffline(c) ? ' · refused offline' : ''}` : (c.error ?? 'error'), err: true };
+    if (asked) return { text: `→ ${asked}`, err: false };
+    if (asked === undefined && c.resultShort) return { text: c.resultShort, err: false };
+    return { text: (asked === undefined ? [c.model, c.stopReason] : [c.stopReason]).filter(Boolean).join(' · '), err: false };
+  }
+  if (c.kind === 'clock' || c.kind === 'random') return { text: c.resultShort ?? c.detail, err: false };
   if (c.error && c.origin !== 'blocked' && c.origin !== 'stubbed') return { text: c.detail || c.error, err: false };
   return { text: c.detail, err: false };
 }
 
 /** What a tool returned, on the line under it: the server's short result, or what fenced it. */
 export function resultLine(c: CallLike): { text: string; err: boolean } | null {
-  if (c.kind === 'api') return null;
+  if (c.kind !== 'tool') return null;
   if (c.origin === 'blocked') return { text: 'blocked', err: true };
   if (c.resultShort) return { text: `${c.origin === 'stubbed' ? 'stubbed ' : ''}${c.resultShort}`, err: false };
   if (c.origin === 'stubbed') return { text: 'stubbed', err: false };
@@ -182,4 +207,28 @@ export function turnCalls(
 
 export function callTitle(c: Pick<CallLike, 'callNo' | 'kind' | 'name'>): string {
   return `#${c.callNo} ${callName(c.kind, c.name)}`;
+}
+
+/**
+ * Where a call that is not a model call sits in its own conversation, for its Conversation tab: the
+ * model call that asked for it, else the one whose request the server shows for it (the latest before
+ * it in the same conversation, or the first after it for a call made before its conversation's first
+ * model call); in a batch, which conversation. Null when the server names none: never a guess from
+ * the order of calls, which in a batch can be another ticket's.
+ */
+export function conversationLink(
+  call: { callNo: number; kind: string; requestedBy?: number | null; conversation?: number | null },
+  conv: { fromCallNo: number; n?: number | null } | null,
+  calls: ReadonlyArray<{ conversation?: number | null }>,
+): { callNo: number; text: string } | null {
+  if (call.kind === 'api') return null;
+  const by = call.requestedBy ?? null;
+  const at = by ?? conv?.fromCallNo ?? null;
+  if (at === null || at === call.callNo) return null;
+  const all = calls.reduce((n, x) => Math.max(n, x.conversation ?? 0), 0);
+  const n = conv?.n ?? call.conversation ?? null;
+  const which = n && all > 1 ? ` · conversation ${n.toLocaleString('en-US')} of ${all.toLocaleString('en-US')}` : '';
+  // Made before its conversation's first model call: the server knows the order, not that the call reads it.
+  const how = by !== null ? `Asked for by #${by}` : at > call.callNo ? `Before #${at}, its conversation’s first model call` : `After #${at}`;
+  return { callNo: at, text: `${how}${which}` };
 }

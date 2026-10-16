@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CallDetail, RunDetail } from '../api.js';
+import { JOB_KINDS, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { Eyebrow, Tag } from '../components/bits.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
@@ -11,16 +11,18 @@ import { navigate } from '../router.js';
 import { compareTarget, isFailed, runTag, runType } from '../runs.js';
 import { useApp } from '../state.js';
 import { ForkMenu, type PendingAction } from './actions.js';
-import { runLikeOf } from './model.js';
+import { failureText, fixCheckShort } from './banner.js';
+import { checksOf, runLikeOf } from './model.js';
+import { canPush } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
 /**
  * The run's header: what it is and where it came from, its id, labels, command and timing, and what
  * can be done with it: compare, share, replay, fork at the selected call, delete.
  */
-export function RunHeader({ run, call, selected, rescued, forkMenu, onAction }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void }) {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit }: { run: RunDetail; call: CallDetail | null; selected: number | null; rescued: boolean; offers: RunOffers | null; forkMenu: ReturnType<typeof useMenu>; onAction: (p: PendingAction) => void; onFindCommit: () => void }) {
   const app = useApp();
-  const { exported, actionsOff, toast, client, guard, refresh } = app;
+  const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
   const r = run.run;
   const like = runLikeOf(run);
   const type = runType(like);
@@ -32,6 +34,15 @@ export function RunHeader({ run, call, selected, rescued, forkMenu, onAction }: 
   const pair = compareTarget(r, run.children);
   const parent = run.parent ? <a href={href.run(run.parent.runId)}>{shortId(run.parent.runId)}</a> : null;
   const failed = isFailed(like);
+  // Why it failed, in a few words: what the run did against the check it failed ("send_email called
+  // 1 time"; the banner says what was expected), the agent's exit, an interruption. A test that
+  // diverged failed there, as `shadowlap test` says it; else the check of the fix blame found it in.
+  const d = r.divergence;
+  const failure =
+    type === 'test' && d && failed
+      ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
+      : (failureText({ status: r.status, checks: checksOf(run), blame: null }, true) ?? (run.fix?.check && failed ? fixCheckShort(run.fix.check, run.calls) : null));
+  const checkFailed = !!failure?.startsWith('check failed');
   const eyebrow = live ? (
     <Eyebrow>recording now</Eyebrow>
   ) : type === 'fork' ? (
@@ -57,10 +68,11 @@ export function RunHeader({ run, call, selected, rescued, forkMenu, onAction }: 
   ) : type === 'capture' ? (
     <Eyebrow>imported from a capture</Eyebrow>
   ) : (
-    <Eyebrow tone={failed ? 'err' : undefined}>{failed ? 'recording · failed' : r.meta?.imported ? 'recording · from a pack' : 'recording'}</Eyebrow>
+    <Eyebrow tone={failed ? 'err' : undefined}>{failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : r.meta?.imported ? 'recording · from a pack' : 'recording'}</Eyebrow>
   );
-  const failure = r.status === 'failed' ? 'the agent exited with an error' : r.status === 'crashed' ? 'the run was interrupted' : null;
   const off = actionsOff ?? undefined;
+  // Push: a run only on this machine goes to the team store the config names.
+  const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
   return (
     <section className="rhead">
       <div className="rmain">
@@ -105,6 +117,17 @@ export function RunHeader({ run, call, selected, rescued, forkMenu, onAction }: 
               Share
               <Icon name="caret" className="caret" />
             </button>
+            {pushable ? (
+              <button
+                className="btn"
+                type="button"
+                disabled={!!actionsOff}
+                title={off ?? `Copy this run to the team store, ${offers!.team!.store}, with the runs it came from`}
+                onClick={() => guard(() => app.watchJob(client.startJob(JOB_KINDS.push, { runIds: [r.runId] })))}
+              >
+                Push
+              </button>
+            ) : null}
             <button
               className="btn lime"
               type="button"
@@ -135,8 +158,8 @@ export function RunHeader({ run, call, selected, rescued, forkMenu, onAction }: 
           </>
         )}
       </div>
-      {share.open && share.anchor ? <ShareMenu anchor={share.anchor} run={run} onClose={share.close} onAction={onAction} /> : null}
-      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} onPick={onAction} onClose={forkMenu.close} /> : null}
+      {share.open && share.anchor ? <ShareMenu anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
+      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
       {deleting ? (
         <ConfirmDialog
           title={`Delete ${shortId(r.runId)}?`}

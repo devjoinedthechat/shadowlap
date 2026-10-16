@@ -93,7 +93,7 @@ export function normalizeFix(v: unknown): { fix: FixView | null; role: string | 
   const role = typeof v.role === 'string' && FIX_ROLES.includes(v.role) ? v.role : null;
   if (!role) return none;
   const f = v.fix;
-  const fix = isObject(f) && typeof f.fixId === 'string' ? { id: f.fixId, status: str(f.status) ?? 'open', title: str(f.title) ?? f.fixId, href: str(f.href) } : null;
+  const fix = isObject(f) && typeof f.fixId === 'string' ? { id: f.fixId, status: str(f.status) ?? 'open', title: str(f.title) ?? f.fixId, href: str(f.href), check: str(f.check) } : null;
   const b = v.blame;
   let blame: BlameView | null = null;
   if (role === 'failing' && isObject(b)) {

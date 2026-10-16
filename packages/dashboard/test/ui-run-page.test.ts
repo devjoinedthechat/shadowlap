@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { choiceAnswer, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
 import { normalizeActions } from '../ui/normalize.js';
 import { placePop } from '../ui/place.js';
+import { conversationLink } from '../ui/run/calls.js';
+import { forkMarkOf, modelLabel, withModelNames } from '../ui/run/model.js';
+import type { CallRow } from '../ui/types.js';
 
 // The fork menu and the dialog each action asks in: the server's action list arranged and worded,
 // and an instruction said to go in as a user message only when the server's flag says so.
@@ -23,12 +26,13 @@ describe('the fork menu from the newer action list', () => {
 
   it('keeps the server’s order, and leaves out what has a place of its own', () => {
     const menu = forkMenu(grouped, 'lookup_order');
+    // At a call, the option alone, as a menu shows a shortcut; the whole flag is on the line's hover and in its dialog.
     expect(menu.call.map((m) => [m.label, m.flag])).toEqual([
-      ['Override this tool’s result', '--override 16=…'],
-      ['Answer with a tool error', '--fail-at 16=timeout'],
-      ['Plant a prompt injection here', '--inject-result 16=…'],
-      ['Force lookup_order live', '--live-tool lookup_order'],
-      ['Diverge here', '--diverge-at 16'],
+      ['Override this tool’s result', '--override'],
+      ['Answer with a tool error', '--fail-at'],
+      ['Plant a prompt injection here', '--inject-result'],
+      ['Force lookup_order live', '--live-tool'],
+      ['Diverge here', '--diverge-at'],
     ]);
     expect(menu.run.map((m) => [m.label, m.flag])).toEqual([
       ['Repeat the replay and compare', '--repeat 5'],
@@ -141,5 +145,62 @@ describe('a menu’s place', () => {
     // Near the right and bottom edges, and wider than the opener's left side allows.
     expect(placePop({ left: 1400, right: 1430, bottom: 800 }, { width: 330, height: 300 }, view, 'left')).toEqual({ top: 588, left: 1098 });
     expect(placePop({ left: 10, right: 60, bottom: 40 }, { width: 330, height: 300 }, view)).toEqual({ top: 46, left: 12 });
+  });
+});
+
+describe('a tool call’s own conversation', () => {
+  const batch = [{ conversation: 1 }, { conversation: 2 }, { conversation: 3 }, { conversation: 4 }];
+  it('leads to the model call that asked for it, and says which conversation in a batch', () => {
+    expect(conversationLink({ callNo: 76, kind: 'tool', requestedBy: 74, conversation: 3 }, { fromCallNo: 74, n: 3 }, batch)).toEqual({ callNo: 74, text: 'Asked for by #74 · conversation 3 of 4' });
+    expect(conversationLink({ callNo: 5, kind: 'tool', requestedBy: 4, conversation: 1 }, { fromCallNo: 4, n: 1 }, [{ conversation: 1 }])).toEqual({ callNo: 4, text: 'Asked for by #4' });
+  });
+  it('names the request it feeds or follows when no model call asked for it', () => {
+    expect(conversationLink({ callNo: 61, kind: 'clock', conversation: 3 }, { fromCallNo: 63, n: 3 }, batch)).toEqual({ callNo: 63, text: 'Before #63, its conversation’s first model call · conversation 3 of 4' });
+    expect(conversationLink({ callNo: 80, kind: 'tool', requestedBy: null, conversation: 3 }, { fromCallNo: 77, n: 3 }, batch)).toEqual({ callNo: 77, text: 'After #77 · conversation 3 of 4' });
+  });
+  it('says nothing for a model call, or when the server names no conversation', () => {
+    expect(conversationLink({ callNo: 74, kind: 'api', conversation: 3 }, { fromCallNo: 74, n: 3 }, batch)).toBeNull();
+    expect(conversationLink({ callNo: 9, kind: 'tool' }, null, [])).toBeNull();
+  });
+});
+
+describe('where the strip and Calls flag FORK', () => {
+  // `failed` is a call refused offline: the store keeps it as live, answered with an error.
+  const calls = (origins: string[]) => origins.map((origin, i) => (origin === 'failed' ? { callNo: i + 1, origin: 'live', outcome: 'error' } : { callNo: i + 1, origin, outcome: 'ok' })) as unknown as CallRow[];
+  const run = (meta: Record<string, unknown> | undefined, divergence: number | null, origins: string[], forkAt?: number | null) =>
+    ({ ...(forkAt !== undefined ? { forkAt } : {}), calls: calls(origins), run: { divergence: divergence === null ? null : { callNo: divergence }, meta } }) as unknown as Parameters<typeof forkMarkOf>[0];
+  it('flags where a replay forked', () => {
+    expect(forkMarkOf(run(undefined, 3, ['replayed', 'replayed', 'live', 'live'], 3))).toBe(3);
+    expect(forkMarkOf(run(undefined, 3, ['replayed', 'replayed', 'live']))).toBe(3);
+    expect(forkMarkOf(run(undefined, null, ['live']))).toBeNull();
+  });
+  it('flags nothing where a test replay diverged offline: it failed there, it did not fork', () => {
+    const test = { test: { golden: 'goldens/research', session: 's1' } };
+    expect(forkMarkOf(run(test, 1, ['failed']))).toBeNull();
+    expect(forkMarkOf(run(test, 3, ['replayed', 'replayed', 'failed']))).toBeNull();
+    // A golden that may fork goes on live from where it differs: that is a fork.
+    expect(forkMarkOf(run(test, 3, ['replayed', 'replayed', 'live', 'live']))).toBe(3);
+  });
+});
+
+describe('a model’s name on the run page', () => {
+  const models = { 'opus-5': 'claude-opus-5', 'gpt-5-mini': 'gpt-5-mini' };
+  it('is the id without its date stamp, for a row’s short name and a conversation’s full id alike', () => {
+    expect(modelLabel(models, 'opus-5')).toBe('claude-opus-5');
+    expect(modelLabel(models, 'claude-opus-5-20261001')).toBe('claude-opus-5');
+    expect(modelLabel(models, 'claude-opus-5')).toBe('claude-opus-5');
+    expect(modelLabel(models, 'gpt-5-mini')).toBe('gpt-5-mini');
+    // A model the run's list doesn't name, and a server that sends no list.
+    expect(modelLabel(models, 'claude-sonnet-5-20261001')).toBe('claude-sonnet-5');
+    expect(modelLabel(undefined, 'opus-5')).toBe('opus-5');
+    expect(modelLabel(models, null)).toBeNull();
+  });
+  it('renames each model call’s row once, and leaves the rest as they are', () => {
+    const rows = [{ callNo: 1, kind: 'api', model: 'opus-5' }, { callNo: 2, kind: 'tool', model: null }, { callNo: 3, kind: 'api', model: 'gpt-5-mini' }] as unknown as CallRow[];
+    const named = withModelNames(rows, models);
+    expect(named.map((c) => c.model)).toEqual(['claude-opus-5', null, 'gpt-5-mini']);
+    expect(named[1]).toBe(rows[1]);
+    expect(named[2]).toBe(rows[2]);
+    expect(withModelNames(rows, undefined)).toBe(rows);
   });
 });

@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { JOB_KINDS, type BlameView, type CheckView, type RunDetail } from '../api.js';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
@@ -9,8 +9,12 @@ import { scopeDepth, scopeLeaf, scopeCount } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
+import { refusedOffline } from './calls.js';
 import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
+import { blameOfferFor, divergedActions } from './offers.js';
+import { RunBlame } from './RunBlame.js';
+import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
 export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
@@ -25,6 +29,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     capture: runType(runLikeOf(run)) === 'capture',
     live: run.run.status === 'running',
     notWaitedMs,
+    refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   return (
     <section className="metrics" title={notWaitedUnknown ? `${notWaitedUnknown} replayed calls’ recorded durations were not found` : undefined}>
@@ -38,8 +43,11 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
   );
 }
 
-/** One line: the explanation gives way first, cut with "…" and shown in full on hover. */
-function Why({ children }: { children: ReactNode }) {
+/**
+ * One line: the explanation gives way first, cut with "…" and shown in full on hover. The flag that
+ * made a fork, when it is part of the line, is set as code.
+ */
+function Why({ children, code }: { children: string; code?: string | readonly string[] | null }) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -47,9 +55,24 @@ function Why({ children }: { children: ReactNode }) {
   });
   return (
     <span className="why" ref={ref}>
-      {children}
+      {codeParts(children, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) => (typeof p === 'string' ? p : <code key={i}>{p.code}</code>))}
     </span>
   );
+}
+
+/** A line split around the names in it that read as code (a flag, a tool, a host), each at its first place after the one before. */
+function codeParts(text: string, codes: readonly string[]): Array<string | { code: string }> {
+  const out: Array<string | { code: string }> = [];
+  let from = 0;
+  for (const c of codes) {
+    const at = c ? text.indexOf(c, from) : -1;
+    if (at < 0) continue;
+    if (at > from) out.push(text.slice(from, at));
+    out.push({ code: c });
+    from = at + c.length;
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
 }
 
 export interface BannerProps {
@@ -57,6 +80,8 @@ export interface BannerProps {
   blame: BlameView | null;
   rescued: { callNo: number | null } | null;
   checks: CheckView[];
+  /** What the page offers beyond the run's record: Run blame, the diverged test's actions. */
+  offers: RunOffers | null;
   showDiff: boolean;
   onToggleDiff: () => void;
   onSelect: (n: number) => void;
@@ -64,22 +89,31 @@ export interface BannerProps {
 }
 
 /** The run's one banner: recording now, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
-export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
+export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
   const app = useApp();
+  const [dialog, setDialog] = useState<'update' | null>(null);
   const r = run.run;
+  const iv = run.intervention ?? null;
+  const flagRow = iv?.callNo ? run.calls.find((c) => c.callNo === iv.callNo) : undefined;
+  const test = offers?.test ?? null;
   const b = bannerFor({
     status: r.status,
     type: runType(runLikeOf(run)),
     divergence: r.divergence,
-    intervention: run.intervention ?? null,
+    intervention: iv,
+    interventions: run.interventions ?? [],
+    flagCall: flagRow ? { kind: flagRow.kind, name: flagRow.name, attempts: flagRow.attempts, ...(flagRow.input ? { input: true } : {}) } : null,
     rescued,
     blame,
     notRecorded: run.notRecorded ?? null,
     checks,
     fix: run.fix ?? null,
     upstreamRequests: run.summary.upstreamRequests,
+    volatile: test?.volatile ?? null,
+    modelCalls: run.summary.byKind.api,
   });
   if (!b) return null;
+  const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
   const call = (n: number) => (
     <button className="bn" type="button" onClick={() => onSelect(n)}>
       #{n}
@@ -90,16 +124,10 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
       {showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
-  const normalizer = run.actions.find((a) => a.key === 'n');
-  const addNormalizer =
-    normalizer && !app.actionsOff ? (
-      <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
-        Add normalizer
-      </button>
-    ) : null;
+  const off = app.actionsOff;
   const fixLink = (step?: string) =>
     run.fix ? (
-      <a className="more" href={href.fixes(run.fix.id, step ?? null)}>
+      <a className="more" href={run.fix.href ?? href.fixes(run.fix.id, step ?? null)}>
         Fix →
       </a>
     ) : null;
@@ -121,21 +149,94 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
           <span className="end">{fixLink('blame')}</span>
         </section>
       );
-    case 'diverged':
-    case 'fork':
+    case 'diverged': {
+      // A test replay: Add normalizer adds the rule and runs its golden again, Update golden re-records
+      // it; each is the tests' job. A server without them falls back to the run's own normalizer action.
+      // Once the rule is in the config, the banner says so and links the replay that passed.
+      const normalizer = run.actions.find((a) => a.key === 'n');
+      const acts = divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: !!normalizer, actionsOff: off });
+      const add = acts.normalizer;
+      const canNormalize = add?.kind === 'job';
       return (
-        <section className={`banner ${b.kind === 'diverged' ? 'blame' : 'fork'}`}>
-          <span className="bk">{b.kind === 'diverged' ? 'diverged at' : 'forked at'}</span>
+        <section className="banner blame">
+          <span className="bk">diverged at</span>
+          {call(b.callNo)}
+          <code>{r.divergence?.name ?? ''}</code>
+          <Why>{b.why}</Why>
+          {b.path ? <span className="path">~ {test?.volatile?.path ?? b.path}</span> : null}
+          <span className="end">
+            {add?.kind === 'added' ? (
+              <>
+                <span className="st ok">
+                  <i />
+                  normalizer added
+                </span>
+                {add.passingRun ? (
+                  <a className="more" href={href.run(add.passingRun)}>
+                    Passing run →
+                  </a>
+                ) : null}
+              </>
+            ) : add?.kind === 'job' ? (
+              <button className={`btn sm${add.lead ? ' lime' : ''}`} type="button" disabled={!!add.off} title={add.title ?? undefined} onClick={() => job(JOB_KINDS.normalizeAndTest, { runId: r.runId })}>
+                Add normalizer
+              </button>
+            ) : add?.kind === 'action' && normalizer ? (
+              <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+                Add normalizer
+              </button>
+            ) : null}
+            {acts.update ? (
+              <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => setDialog('update')}>
+                Update golden
+              </button>
+            ) : null}
+            {b.diff ? diffToggle : null}
+          </span>
+          {dialog === 'update' && test ? (
+            <UpdateGoldenDialog
+              golden={test.golden}
+              at={`diverged at #${b.callNo}`}
+              checks={checks.length || null}
+              perRun={test.volatile?.certain ? { path: test.volatile.path, looks: test.volatile.looks } : null}
+              onAddNormalizer={
+                canNormalize
+                  ? () => {
+                      setDialog(null);
+                      job(JOB_KINDS.normalizeAndTest, { runId: r.runId });
+                    }
+                  : null
+              }
+              onClose={() => setDialog(null)}
+              onOk={() => {
+                setDialog(null);
+                job(JOB_KINDS.testUpdate, { golden: test.golden });
+              }}
+            />
+          ) : null}
+        </section>
+      );
+    }
+    case 'fork': {
+      const normalizer = run.actions.find((a) => a.key === 'n');
+      return (
+        <section className="banner fork">
+          <span className="bk">forked at</span>
           {call(b.callNo)}
           <code>{b.name}</code>
-          <Why>{b.why}</Why>
+          <Why code={b.flag}>{b.why}</Why>
           {b.path ? <span className="path">~ {b.path}</span> : null}
           <span className="end">
-            {b.normalizer ? addNormalizer : null}
+            {b.normalizer && normalizer && !off ? (
+              <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
+                Add normalizer
+              </button>
+            ) : null}
             {b.diff ? diffToggle : null}
           </span>
         </section>
       );
+    }
     case 'lost':
       return (
         <section className="banner blame">
@@ -156,7 +257,7 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
       return (
         <section className="banner blame">
           <span className="bk">not recorded</span>
-          <Why>{b.why}</Why>
+          <Why code={[...(run.notRecorded?.tools ?? []), ...(run.notRecorded?.hosts ?? []).map((h) => h.target)]}>{b.why}</Why>
         </section>
       );
     case 'checks':
@@ -172,22 +273,35 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
           {b.why ? <Why>{b.why}</Why> : null}
         </section>
       );
-    case 'failed':
+    case 'failed': {
+      // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing
+      // names it) and ends with a link to the fix. Not for a run blame has been run on already.
+      const offer = b.blamed
+        ? null
+        : blameOfferFor(offers, {
+            blamed: b.blamed,
+            capture: !!run.source,
+            argv: r.command.argv,
+            status: r.status,
+            failed: checks.filter((c) => !c.ok).map((c) => c.label),
+            fixExpect: run.blameExpect,
+            ownExpect: r.meta?.expect,
+            modelCalls: run.summary.byKind.api,
+          });
       return (
         <section className="banner blame">
           <span className="bk">failed</span>
           <Why>{b.why}</Why>
           {b.fix ? (
             <span className="end">{fixLink()}</span>
-          ) : !b.blamed && app.hasKind(JOB_KINDS.blame) && !app.actionsOff ? (
+          ) : offer && !app.exported ? (
             <span className="end">
-              <button className="linkbtn" type="button" onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.blame, { runId: r.runId, ...(run.blameExpect !== undefined ? { expect: run.blameExpect } : {}) })))}>
-                Run blame
-              </button>
+              <RunBlame runId={r.runId} offer={offer} />
             </span>
           ) : null}
         </section>
       );
+    }
   }
 }
 
