@@ -301,7 +301,7 @@ describe('the fix a pair source belongs to', () => {
   it('names the fix and the verify, and nothing for a source outside any fix', () => {
     const fixOf = sourceFixes(store);
     const { sources } = readTraining(store, { tasks: [] });
-    expect(sources.map((s) => fixOf(s))).toEqual([
+    expect(sources.map((s) => fixOf(s, s.runId))).toEqual([
       { id: fixId, label: 'refund-bug' },
       { id: fixId, label: 'refund-bug', verifyId },
     ]);
@@ -312,5 +312,36 @@ describe('the fix a pair source belongs to', () => {
     const view = trainingView(readTraining(other, { tasks: [], fixOf: sourceFixes(other) }));
     expect(view.pairs.groups[0]).toMatchObject({ fix: null, source: { href: `#/run/${run.runId}/5/forks` } });
     other.close();
+  });
+
+  it('gives each group of one verify the fix of the run its pairs are about, when the verdict counted for both', () => {
+    const s = Store.open(':memory:');
+    // Two failures blamed into two fixes, then one verify of both: shadowlap verify --fixes <a> <b>.
+    const lost = (label: string, user: string) => {
+      const run = recordRun(s, LOST, { status: 'failed', user, meta: { labels: [label] } }).run;
+      const fix = recordBlame(s, { runId: run.runId, report: blameReport(run.runId), expect: EXPECT, scope: null, command: 'shadowlap blame', title: `${label} refunded $240`, checkText: 'issue_refund never called with {"amount":240}', at: 3_000 }).fix.fixId;
+      const attempt = (steps: Step[], passed: boolean) => recordRun(s, steps, { parentRunId: run.runId, status: passed ? 'completed' : 'failed', codeVersion: 'd2e8a1f', user, meta: { verify: { role: 'target', passed }, repeat: { group: `v1-${run.runId}`, attempt: passed ? 2 : 1, of: 2 } } }).run;
+      return { run: run.runId, fix, attempts: [{ runId: attempt(LOST, false).runId, passed: false }, { runId: attempt([LOOKUP, POLICY, ESCALATE_3, DONE], true).runId, passed: true }] };
+    };
+    const a = lost('bug-a', 'Refund order A-3001.');
+    const b = lost('bug-b', 'Refund order A-3002.');
+    expect(a.fix).not.toBe(b.fix);
+    const report = verifyReport([a, b].map((x) => ({ runId: x.run, role: 'target' as const, pass: false, recorded: false })));
+    report.runs.forEach((r, i) => {
+      r.attempts = [a, b][i]!.attempts.map((x) => ({ ...r.attempts[0]!, runId: x.runId, passed: x.passed, exitCode: x.passed ? 0 : 1 }));
+      r.passes = 1;
+    });
+    const vf = recordVerdict(s, { report, expect: EXPECT, command: 'shadowlap verify --fixes a b', fixIds: [a.fix, b.fix], at: 4_000 }).verdict.verifyId;
+
+    const view = trainingView(readTraining(s, { tasks: [], fixOf: sourceFixes(s) }));
+    const verify = view.pairs.groups.filter((g) => g.from === 'from verify');
+    expect(verify.map((g) => [g.about, g.fix])).toEqual(
+      expect.arrayContaining([
+        [a.run, { label: 'bug-a', href: `#/fixes/${a.fix}/verify/${vf}` }],
+        [b.run, { label: 'bug-b', href: `#/fixes/${b.fix}/verify/${vf}` }],
+      ]),
+    );
+    expect(verify).toHaveLength(2);
+    s.close();
   });
 });

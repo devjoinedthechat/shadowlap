@@ -109,6 +109,8 @@ describe('the Training read model', () => {
       runId: lost.runId,
       callNo: 5,
       href: `#/run/${lost.runId}/5`,
+      about: lost.runId,
+      attemptOf: null,
       fix: { label: 'refund-bug', href: '#/fixes/fx-refund-limit/blame' },
       source: { kind: 'blame', label: 'blame · refund-bug', href: '#/fixes/fx-refund-limit/blame' },
       from: 'from blame',
@@ -118,7 +120,7 @@ describe('the Training read model', () => {
     });
     expect(blame!.chosen.map((c) => c.text)).toEqual(['"Above the limit.", escalate({"reason":"refund of $240 is above $100"})', '"$240 is over the $100 limit, so this needs approval.", escalate({"reason":"above the refund limit"})']);
     expect(blame!.context).toContain('read_policy returned');
-    expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
+    expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, about: target.runId, attemptOf: null, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
     expect(verify!.source.href).toBe(`#/run/${target.runId}/5/forks`);
     // The group opens the run verify replayed, at the call; the rejected answer opens its own attempt.
     expect(verify!.href).toBe(`#/run/${target.runId}/5`);
@@ -132,7 +134,8 @@ describe('the Training read model', () => {
       ['verify · c91d0f4', 1, 'medium'],
       [`replay --repeat 2 · ${rec.runId.slice(0, 10)}`, 0, null],
     ]);
-    expect(view.pairs.sources[2]).toMatchObject({ href: `#/run/${rec.runId}/1/forks`, why: 'All 2 attempts exited 0, so there is nothing to contrast.' });
+    // A source that made no pairs has no call to open its run's forks at.
+    expect(view.pairs.sources[2]).toMatchObject({ href: `#/run/${rec.runId}/forks`, why: 'All 2 attempts exited 0, so there is nothing to contrast.' });
     expect(view.pairs.confidence.map((c) => c.level)).toEqual(['high', 'medium']);
     expect(view.pairs.footnote).toBe('Identical answers count once.');
 
@@ -143,6 +146,35 @@ describe('the Training read model', () => {
       { value: 'high', label: 'High confidence only (2)' },
       { value: 'medium', label: 'High and medium (3)' },
     ]);
+    s.close();
+  });
+
+  it('heads a verify group with the run it replayed at the same point, or with the attempt when that run never got there', () => {
+    const s = Store.open(':memory:');
+    const attempt = (target: string, group: string, steps: Step[], passed: boolean, user: string) => recordRun(s, steps, { parentRunId: target, status: passed ? 'completed' : 'failed', codeVersion: group, user, meta: { verify: { role: 'target', passed }, repeat: { group: `${group}-${target}`, attempt: passed ? 2 : 1, of: 2 } } }).run;
+    // Recorded with a model list first, which the change dropped: the same decision is #6 in the recording, #5 in the attempts.
+    const listed = recordRun(s, LOST, { status: 'failed', user: 'Refund order A-2001.', before: [{ name: 'GET /v1/models', kind: 'api', result: { data: [] } }] }).run;
+    attempt(listed.runId, 'v1', LOST, false, 'Refund order A-2001.');
+    attempt(listed.runId, 'v1', [LOOKUP, POLICY, ESCALATE, DONE], true, 'Refund order A-2001.');
+    // The change reads a template before deciding: the attempts decide at #7, where the recording had refunded already.
+    const TEMPLATE: Step = { tools: [{ name: 'get_template', input: { kind: 'refund' } }] };
+    const added = recordRun(s, LOST, { status: 'failed', user: 'Refund order A-2002.' }).run;
+    const failing = attempt(added.runId, 'v2', [LOOKUP, POLICY, TEMPLATE, REFUND, DONE], false, 'Refund order A-2002.');
+    attempt(added.runId, 'v2', [LOOKUP, POLICY, TEMPLATE, ESCALATE, DONE], true, 'Refund order A-2002.');
+
+    const view = trainingView(readTraining(s, { tasks: [] }));
+    const group = (about: string) => view.pairs.groups.find((g) => g.about === about)!;
+    expect(group(listed.runId)).toMatchObject({ runId: listed.runId, callNo: 6, href: `#/run/${listed.runId}/6`, attemptOf: null, rejected: { callNo: 5 } });
+    expect(group(added.runId)).toMatchObject({
+      runId: failing.runId,
+      callNo: 7,
+      href: `#/run/${failing.runId}/7`,
+      attemptOf: { runId: added.runId, href: `#/run/${added.runId}` },
+      rejected: { runId: failing.runId, callNo: 7 },
+      context: expect.stringContaining('get_template returned'),
+    });
+    // Without a fix, a source opens its run's forks at the call its pairs are about, and with none there, the forks alone.
+    expect(Object.fromEntries(view.pairs.sources.map((x) => [x.label, x.href]))).toEqual({ 'verify · v1': `#/run/${listed.runId}/6/forks`, 'verify · v2': `#/run/${added.runId}/forks` });
     s.close();
   });
 

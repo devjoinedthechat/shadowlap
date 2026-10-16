@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, PAIR_FORMATS, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, PAIR_FORMATS, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -35,12 +35,19 @@ export interface TrainingInput {
   storedRuns?: Set<string>;
   /** The models to score (A7), or null while they are being listed. */
   models?: ModelListing | null;
-  /** Which fix a source belongs to, when Fixes knows. */
-  fixOf?: (source: PairSource) => SourceFix | null;
+  /** Which fix a source's pairs about a run belong to, when Fixes knows (sourceFixes). */
+  fixOf?: FixOf;
 }
 
+/**
+ * The fix the pairs a source made about one run belong to: a blame's is the blamed run's, a verify's
+ * the one of the fixes its verdict counted for that the run fails in. `runId` is the run the pairs
+ * are about (Pair.runId), which for a blame is the source's own run.
+ */
+export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
+
 /** What the store holds for Training; `tasks` and `models` come from the caller. */
-export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: (source: PairSource) => SourceFix | null }): TrainingInput {
+export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf }): TrainingInput {
   const { pairs, sources } = findPairs(store);
   const storedRuns = new Set(extra.tasks.flatMap((t) => (t.runId && store.getRun(t.runId) ? [t.runId] : [])));
   return {
@@ -57,24 +64,42 @@ export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: 
 }
 
 /**
- * The fix each pair source belongs to, read from the store's fixes (E1), for `readTraining`'s
- * `fixOf`: a blame's is the fix its blamed run fails in, opened at its Blame step; a verify's is the
- * fix its verdict counted for, opened at that verify. A `--repeat` belongs to none.
+ * Which fix the pairs a source made about a run belong to, read from the store's fixes (E1), for
+ * `readTraining`'s `fixOf`. A blame's is the fix its blamed run fails in, opened at its Blame step.
+ * A verify's opens at that verify: under the fix the run fails in when the verdict counted for it
+ * (one verify can check the runs of several fixes), else under the first fix it counted for. A
+ * `--repeat` belongs to none.
  */
-export function sourceFixes(store: Store): (source: PairSource) => SourceFix | null {
+export function sourceFixes(store: Store): FixOf {
   const label = (f: { label: string | null; title: string }) => f.label ?? f.title;
-  return (s) => {
-    if (s.kind === 'blame') {
-      const f = fixForRun(store, s.runId);
-      return f?.role === 'failing' && f.fix ? { id: f.fix.fixId, label: label(f.fix) } : null;
-    }
-    if (s.kind !== 'verify') return null;
+  // What a verify source is: its verdict (or repair), the first fix that counted it, and every fix it was linked to.
+  const verifies = new Map<string, { fix: SourceFix; linked: Set<string> } | null>();
+  const verifyOf = (s: PairSource) => {
+    if (verifies.has(s.key)) return verifies.get(s.key)!;
     // The verify's first attempt (the source starts when it did) names the verdict, and so the fix.
     const attempts = store.childRuns(s.runId).filter((r) => r.meta?.verify);
     const first = attempts.find((r) => r.startedAt === s.at) ?? attempts[0];
     const f = first ? fixForRun(store, first.runId) : null;
-    if (!f?.fix) return null;
-    return { id: f.fix.fixId, label: label(f.fix), ...(f.verify?.verifyId ? { verifyId: f.verify.verifyId } : {}) };
+    const report = f?.verify?.verifyId ? store.linksTo(f.verify.verifyId, 'verify') : f?.verify?.repairId ? store.linksTo(f.verify.repairId, 'repair') : [];
+    const v = f?.fix ? { fix: { id: f.fix.fixId, label: label(f.fix), ...(f.verify?.verifyId ? { verifyId: f.verify.verifyId } : {}) }, linked: new Set(report.map((l) => l.fixId)) } : null;
+    verifies.set(s.key, v);
+    return v;
+  };
+  const known = new Map<string, SourceFix | null>();
+  return (s, runId) => {
+    const key = `${s.key}\n${runId}`;
+    if (known.has(key)) return known.get(key)!;
+    let fix: SourceFix | null = null;
+    if (s.kind === 'blame') {
+      const f = fixForRun(store, s.runId);
+      fix = f?.role === 'failing' && f.fix ? { id: f.fix.fixId, label: label(f.fix) } : null;
+    } else if (s.kind === 'verify') {
+      const v = verifyOf(s);
+      const own = v ? fixOfRun(store, runId) : null;
+      fix = v && own && own.fixId !== v.fix.id && v.linked.has(own.fixId) ? { ...v.fix, id: own.fixId, label: label({ label: fixLabelInfo(store, own).label, title: own.title }) } : (v?.fix ?? null);
+    }
+    known.set(key, fix);
+    return fix;
   };
 }
 
@@ -116,14 +141,22 @@ export interface AnswerView {
 export interface PairGroupView {
   key: string;
   confidence: 'high' | 'medium';
-  /** The run the pairs are about: the blamed run, or the run verify or `--repeat` replayed. */
+  /**
+   * What the group is headed by: the run the pairs are about (`about`) at its call where the answers
+   * were given (Pair.aboutCallNo: for a verify or `--repeat`, the call at the same point of the same
+   * path, whatever the prompt said). When that run never got there (the change verified added a step
+   * before the call), the attempt that gave the rejected answer, at its own call, and `attemptOf`
+   * names the run it replayed.
+   */
   runId: string;
   callNo: number;
-  /**
-   * Opens that run at the call the answers answer. A verify or `--repeat` attempt replays its run,
-   * so the call has the same number there; the rejected answer links its own attempt as well.
-   */
+  /** Opens `runId` at `callNo`. The rejected answer links its own attempt as well. */
   href: string;
+  /** The run the pairs are about: the blamed run, or the run verify or `--repeat` replayed. */
+  about: string;
+  /** When the group is headed by an attempt: the run it replayed, which never made this call (`attempt of 01M51H39CA`). */
+  attemptOf: { runId: string; href: string } | null;
+  /** The fix these pairs belong to: the fix of the run they are about, opened at its Blame step or at the verify. */
   fix: { label: string; href: string } | null;
   source: { key: string; kind: PairSource['kind']; label: string; href: string };
   /** `from blame`, `from verify`, `from --repeat`. */
@@ -265,10 +298,15 @@ const LOOPBACK = /^https?:\/\/(localhost|127\.|\[::1\])/;
 
 const modelKey = (model: string, baseUrl: string | null) => `${model}\n${baseUrl ?? ''}`;
 
-function sourceHref(s: PairSource, fix: SourceFix | null): string {
-  if (fix && s.kind === 'blame') return `#/fixes/${fix.id}/blame`;
-  if (fix && s.kind === 'verify') return `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
-  return `#/run/${s.runId}/${s.callNo ?? 1}/forks`;
+/** A fix as its source opens it: at the Blame step, or at the verify. */
+function fixHref(kind: PairSource['kind'], fix: SourceFix): string {
+  return kind === 'blame' ? `#/fixes/${fix.id}/blame` : `#/fixes/${fix.id}/verify${fix.verifyId ? `/${fix.verifyId}` : ''}`;
+}
+
+/** A source opens its fix; without one, its run's forks, at the call its pairs are about when it made some. */
+function sourceHref(s: PairSource, fix: SourceFix | null, callNo: number | null): string {
+  if (fix && s.kind !== 'repeat') return fixHref(s.kind, fix);
+  return `#/run/${s.runId}${callNo ? `/${callNo}` : ''}/forks`;
 }
 
 /** The share of checks passed, as a pip: every check, some, or none. */
@@ -407,7 +445,11 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   // ---- pairs ----
   const listed = input.pairs.filter((x) => filter === 'all' || x.confidence === filter);
   const sourceOf = new Map(input.sources.map((s) => [s.key, s]));
-  const fixes = new Map(input.sources.map((s) => [s.key, input.fixOf?.(s) ?? null]));
+  // A source's own fix (its run's) heads its row in the list; each group's is the fix of the run its pairs are about.
+  const fixOf = (s: PairSource, runId: string) => input.fixOf?.(s, runId) ?? null;
+  // Where a source opens without a fix: its run's forks, at the call its first pair about that run is about.
+  const sourceCall = (s: PairSource) => (s.kind === 'blame' ? s.callNo : (input.pairs.find((x) => x.source === s.key && x.runId === s.runId && x.aboutCallNo !== null)?.aboutCallNo ?? null));
+  const sourceLink = (s: PairSource) => sourceHref(s, fixOf(s, s.runId), sourceCall(s));
   const groups: PairGroupView[] = [];
   const byKey = new Map<string, PairGroupView>();
   for (const x of listed) {
@@ -416,15 +458,19 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     let g = byKey.get(key);
     if (!g) {
       const s = sourceOf.get(x.source);
-      const fix = fixes.get(x.source) ?? null;
+      const fix = s ? fixOf(s, x.runId) : null;
+      // Headed by the run the pairs are about, at the same call; by the attempt when that run never got there.
+      const head = x.aboutCallNo !== null ? { runId: x.runId, callNo: x.aboutCallNo } : { runId: x.rejected.runId, callNo: x.rejected.callNo };
       g = {
         key,
         confidence: x.confidence,
-        runId: x.runId,
-        callNo: x.callNo,
-        href: `#/run/${x.runId}/${x.callNo}`,
-        fix: fix && s ? { label: fix.label, href: sourceHref(s, fix) } : null,
-        source: { key: x.source, kind: x.sourceKind, label: s?.label ?? x.sourceKind, href: s ? sourceHref(s, fix) : `#/run/${x.runId}` },
+        runId: head.runId,
+        callNo: head.callNo,
+        href: `#/run/${head.runId}/${head.callNo}`,
+        about: x.runId,
+        attemptOf: head.runId === x.runId ? null : { runId: x.runId, href: `#/run/${x.runId}` },
+        fix: fix && s && s.kind !== 'repeat' ? { label: fix.label, href: fixHref(s.kind, fix) } : null,
+        source: { key: x.source, kind: x.sourceKind, label: s?.label ?? x.sourceKind, href: s ? sourceLink(s) : `#/run/${x.runId}` },
         from: FROM[x.sourceKind],
         count: 0,
         context: x.context,
@@ -497,7 +543,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       counts,
       groups,
       madeBy,
-      sources: input.sources.map((s) => ({ key: s.key, kind: s.kind, label: s.label, href: sourceHref(s, fixes.get(s.key) ?? null), made: s.made, confidence: s.made ? s.confidence : null, why: s.why })),
+      sources: input.sources.map((s) => ({ key: s.key, kind: s.kind, label: s.label, href: sourceLink(s), made: s.made, confidence: s.made ? s.confidence : null, why: s.why })),
       confidence: [
         { level: 'high', title: 'Blame asked this call again, and the run passed.', sub: 'This answer decided the run.' },
         { level: 'medium', title: 'A passing and a failing attempt first differ here.', sub: 'Nothing checked that this answer decided the run.' },

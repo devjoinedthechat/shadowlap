@@ -1605,3 +1605,8 @@ table.tasks a.rlink:hover code { text-decoration: underline; text-underline-offs
 /* a verify or --repeat group's rejected answer names its attempt, as the chosen ones do */
 .ans small.rj { display: block; margin-top: 3px; font: 11px var(--mono); color: var(--faint); }
 .pg1 a.chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* a group headed by an attempt names the run it replayed, which never made that call */
+.pg1 .pgof { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+.pg1 .pgof a { color: inherit; text-decoration: none; }
+.pg1 .pgof a:hover code { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.pg1 .pgof code { font-size: 12px; color: inherit; }

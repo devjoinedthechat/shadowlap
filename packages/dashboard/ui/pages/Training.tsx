@@ -176,8 +176,9 @@ function PairsTab({ view }: { view: TrainingView }) {
 
 /**
  * Pairs from the same call share their conversation and rejected answer, so they show as one group,
- * headed by the run they are about. A verify or `--repeat` answer came from an attempt at that run:
- * each answer links its own attempt.
+ * headed by the run they are about at that call. A verify or `--repeat` answer came from an attempt
+ * at that run: each answer links its own attempt. When the run never made that call (the change
+ * verified added a step before it), the attempt heads the group, and says which run it replayed.
  */
 function PairGroup({ g }: { g: PairGroupView }) {
   const ownAttempt = g.rejected.runId !== g.runId;
@@ -185,9 +186,17 @@ function PairGroup({ g }: { g: PairGroupView }) {
     <div className="pgroup">
       <div className="pg1">
         <Badge tone={g.confidence === 'high' ? 'ok' : 'y'}>{g.confidence}</Badge>
-        <a className="more" href={g.href} title="Open the run at this call">
+        <a className="more" href={g.href} title={g.attemptOf ? 'Open the attempt at this call' : 'Open the run at this call'}>
           <code>{shortId(g.runId)}</code> #{g.callNo}
         </a>
+        {g.attemptOf ? (
+          <span className="pgof" title="The run it replayed never got here: the attempt took another path before this call">
+            attempt of{' '}
+            <a href={g.attemptOf.href}>
+              <code>{shortId(g.attemptOf.runId)}</code>
+            </a>
+          </span>
+        ) : null}
         {g.fix ? (
           <a className="chip" href={g.fix.href} title={`Open the fix: ${g.fix.label}`}>
             {g.fix.label}
