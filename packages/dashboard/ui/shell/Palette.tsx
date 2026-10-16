@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { callName, shortId } from '../format.js';
 import { highlight, limitRecorded, matchPalette, RECORDED_MIN_CHARS, snippetParts } from '../palette.js';
-import { paletteSources } from '../palette-sources.js';
+import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { isAttempt, kindWord, runSource } from '../runs.js';
@@ -31,6 +31,9 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => input.current?.focus(), []);
+  // A source whose answer lands while the palette is open (Tests, loaded from any page) is read again.
+  const [sourcesChanged, setSourcesChanged] = useState(0);
+  useEffect(() => onPaletteSourcesChanged(() => setSourcesChanged((n) => n + 1)), []);
 
   const go = (to: string) => navigate(to);
   const items = useMemo<PaletteCommand[]>(() => {
@@ -71,8 +74,9 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
         run: () => go(href.run(r.runId)),
       });
     return out;
-    // Built when the palette opens: the run list moving under it would move the selection.
-  }, []);
+    // Built when the palette opens, and again only when a source says more arrived: the run list
+    // moving under it would move the selection.
+  }, [sourcesChanged]);
 
   // What runs recorded, from three characters, through the server's search.
   useEffect(() => {
