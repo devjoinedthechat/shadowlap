@@ -1,7 +1,7 @@
 import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
+import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { storePrStates } from '../pr-state.js';
@@ -18,9 +18,11 @@ import type { Router } from '../router.js';
  * A blame needs the check the run failed: the one the request names, else the one it was judged by
  * (its own --expect, or the config's tests for the recording it replays, through its ancestors),
  * the fix it fails in or its labels point to, or the agent's exit; when none of those applies, or
- * the run failed a check none of them names, it answers 422 and the page asks. Repair and apply
- * change the working tree, so the job manager runs them alone in their project (worktree.ts). A
- * fix's pull request state is read from GitHub in the background as the pages are read (pr-state.ts).
+ * the run failed a check none of them names, it answers 422 and the page asks. A repair comes with
+ * the repairer its confirm dialog named, and is refused (409) when shadowlap.config.json names
+ * another by then. Repair and apply change the working tree, so the job manager runs them alone in
+ * their project (worktree.ts). A fix's pull request state is read from GitHub in the background as
+ * the pages are read (pr-state.ts).
  */
 
 const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
@@ -137,15 +139,33 @@ function blameJob(req: JobRequest, store: Store, configDir: string | null): JobB
   return { args: ['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []), ...(req.yes === true ? ['--yes'] : [])], runId: run.runId };
 }
 
+/**
+ * The repairer a repair asks for candidates, and so whose account pays: the one the config names,
+ * else the user's own Claude Code. The page names it in its confirm dialog and sends it back with the
+ * job: one shadowlap.config.json no longer names would bill an account the user never said yes to,
+ * so a job that names another than the config does now is refused, and nothing runs.
+ */
+function repairerChanged(req: JobRequest, configured: string | null): JobBuildResult | null {
+  if (req.repairer === undefined) return null;
+  if (typeof req.repairer !== 'string' || !req.repairer.trim()) return { error: 'repairer is the one the page named, such as claude-code' };
+  const now = configured ?? DEFAULT_REPAIRER;
+  if (req.repairer.trim() === now) return null;
+  const who = configured ? now : `none, so your own Claude Code (${DEFAULT_REPAIRER})`;
+  return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Repair from here again`, status: 409 };
+}
+
 function repairJob(req: JobRequest, store: Store, repairer: string | null): JobBuildResult {
   const fix = findFix(store, req.fixId);
-  const d = fixDetail(store, fix.fixId, { repairer })!;
+  const configured = repairer?.trim() || null;
+  const changed = repairerChanged(req, configured);
+  if (changed) return changed;
+  const d = fixDetail(store, fix.fixId, { repairer: configured })!;
   if (fix.status !== 'open') return { error: `${short(fix.fixId)} is ${fix.status} already: a change was verified for it`, status: 409 };
   if (!d.actions.repair) return { error: `none of the failing runs of ${short(fix.fixId)} is left in the store, so there is nothing to repair`, status: 409 };
   // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes);
   if (consent) return consent;
-  return { args: [...repairJobArgv(d.actions.repair.argv, repairer), ...(req.yes === true ? ['--yes'] : [])] };
+  return { args: [...repairJobArgv(d.actions.repair.argv, configured), ...(req.yes === true ? ['--yes'] : [])] };
 }
 
 function applyJob(req: JobRequest, store: Store): JobBuildResult {

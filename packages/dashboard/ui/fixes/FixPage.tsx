@@ -11,7 +11,7 @@ import { useApp } from '../state.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { fixAction, fixName, fixStamp, laterStamp, shortFixId, statusBadge, stepFor } from './model.js';
+import { fixAction, fixName, fixStamp, laterStamp, repairAsk, shortFixId, statusBadge, stepFor } from './model.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
@@ -201,7 +201,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
       <button className="btn lime" type="button" disabled={!!why} title={why ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? 'Repair from here' : action.label}
       </button>
-      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId }))} /> : null}
+      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
       {consent ? (
         <ConfirmDialog
@@ -220,21 +220,47 @@ export function FixActions({ fix }: { fix: FixDetail }) {
   );
 }
 
-function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: () => void }) {
-  const who = fix.repairer.configured ? `${fix.repairer.name} (from shadowlap.config.json)` : 'your own Claude Code';
+/**
+ * Asks before a repair, naming who is asked for candidates: the repairer shadowlap.config.json names,
+ * read again as the dialog opens (the config can change while the page stays open), and sent with
+ * the job, which the server refuses if the config names another by then.
+ */
+function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string) => void }) {
+  const { client } = useApp();
+  const [fresh, setFresh] = useState<{ fix: FixDetail | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    client.fix(fix.fixId).then(
+      (d) => {
+        if (live) setFresh({ fix: d });
+      },
+      () => {
+        if (live) setFresh({ fix: null });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [client, fix.fixId]);
+  const ask = repairAsk(fix, fresh);
+  const text = ask.who
+    ? `Asks ${ask.who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is tried in your working tree and put back; the one accepted is kept as a patch for you to apply.`
+    : (ask.why ?? 'Reading which repairer shadowlap.config.json names…');
   return (
     <Dialog
       title="Repair from here"
-      text={`Asks ${who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is tried in your working tree and put back; the one accepted is kept as a patch for you to apply.`}
+      text={text}
       ok="Repair"
+      okDisabled={!ask.ready}
       onClose={onClose}
       onOk={() => {
+        if (!ask.ready || !ask.repairer) return;
         onClose();
-        onRun();
+        onRun(ask.repairer);
       }}
     >
       <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>
-      {fix.actions.repair ? <CmdLine>{fix.actions.repair.command}</CmdLine> : null}
+      {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
     </Dialog>
   );
 }

@@ -88,6 +88,36 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
 }
 
+/** What the Repair from here dialog says and sends, once the fix is read again as it opens. */
+export interface RepairAsk {
+  /** Whether Repair can be confirmed: the fix was read, and it can still be repaired from here. */
+  ready: boolean;
+  /** Who is asked for candidates, in words: `anthropic (from shadowlap.config.json)`, `your own Claude Code`. */
+  who: string | null;
+  /** The repairer the job is sent with, which the server holds to the config. */
+  repairer: string | null;
+  command: string | null;
+  /** Why it can't be repaired from here any more, read again. */
+  why: string | null;
+}
+
+/**
+ * The Repair from here dialog. Who is asked for candidates (and so whose account pays) comes from
+ * shadowlap.config.json, which can change while the page stays open, so the dialog reads the fix
+ * again as it opens (`fresh`; null while that is out) and names the repairer it read. When the read
+ * fails it names the page's, as it loaded: the job is sent with the repairer named, and the server
+ * refuses one the config no longer names, so a stale name can't bill another account.
+ */
+export function repairAsk(page: FixDetail, fresh: { fix: FixDetail | null } | null): RepairAsk {
+  if (!fresh) return { ready: false, who: null, repairer: null, command: page.actions.repair?.command ?? null, why: null };
+  const f = fresh.fix ?? page;
+  if (f.status !== 'open') return { ready: false, who: null, repairer: null, command: null, why: `It was ${f.status} meanwhile, so there is nothing left to repair.` };
+  const action = fixAction(f);
+  if (action.kind !== 'repair' || !f.actions.repair) return { ready: false, who: null, repairer: null, command: null, why: action.kind === 'none' ? action.why : null };
+  const who = f.repairer.configured ? `${f.repairer.name} (from shadowlap.config.json)` : 'your own Claude Code';
+  return { ready: true, who, repairer: f.repairer.name, command: f.actions.repair.command, why: null };
+}
+
 /** A job as the working tree's lock reads it: whether it is running, and how it uses which tree. */
 export interface TreeJob {
   id: string;

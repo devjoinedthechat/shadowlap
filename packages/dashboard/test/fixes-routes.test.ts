@@ -430,6 +430,40 @@ describe('the repair job', () => {
     expect(spawned.at(-1)).not.toContain('--repairer');
     await api(`jobs/${j.id}/stop`, { method: 'POST' });
   });
+
+  it('runs only with the repairer the page named: one the config no longer names is refused, and nothing runs', async () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    // shadowlap.config.json as it reads now: edited in Settings or a terminal while the page stays open.
+    let configured: string | undefined = 'anthropic';
+    await start({ loadConfig: (): ProjectConfig => ({ normalize: [], redact: [], ...(configured ? { repair: { repairer: configured } } : {}) }), jobStopGraceMs: 200 });
+
+    // The page loaded before the config named anthropic: its dialog said the user's own Claude Code.
+    const stale = await job({ kind: 'repair', fixId: fix.fixId, repairer: 'claude-code' });
+    expect(stale.status).toBe(409);
+    expect((await json(stale)).error).toBe('the repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Repair from here again');
+    expect(spawned).toEqual([]);
+    // Read again, the dialog names anthropic, which the CLI reads from the config by itself.
+    const asked = await started({ kind: 'repair', fixId: fix.fixId, repairer: 'anthropic' });
+    expect(spawned.at(-1)).not.toContain('--repairer');
+    await api(`jobs/${asked.id}/stop`, { method: 'POST' });
+    await finished(asked);
+
+    // The config names none any more: a dialog that said anthropic is refused, the user's own Claude Code runs.
+    configured = undefined;
+    spawned.length = 0;
+    const gone = await job({ kind: 'repair', fixId: fix.fixId, repairer: 'anthropic' });
+    expect(gone.status).toBe(409);
+    expect((await json(gone)).error).toMatch(/changed since this page loaded: now none, so your own Claude Code \(claude-code\)\./);
+    expect(spawned).toEqual([]);
+    expect((await job({ kind: 'repair', fixId: fix.fixId, repairer: 42 })).status).toBe(400);
+    const own = await started({ kind: 'repair', fixId: fix.fixId, repairer: 'claude-code' });
+    expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code']);
+    await api(`jobs/${own.id}/stop`, { method: 'POST' });
+    // The dialog reads the fix again as it opens: the repairer it names is the config's, as it reads now.
+    configured = 'openai:gpt-5';
+    expect((await json(await api(`fixes/${fix.fixId}`))).repairer).toEqual({ name: 'openai:gpt-5', configured: true });
+  });
 });
 
 describe('the repair job’s imported runs', () => {

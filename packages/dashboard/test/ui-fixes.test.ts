@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, plainCell, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, plainCell, probeBadge, repairAsk, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
@@ -62,6 +62,22 @@ describe('a fix', () => {
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, kind: 'mark', gitApply: null } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: patch, applied: true }) })).toEqual({ kind: 'applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...patch, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toEqual({ kind: 'apply', label: 'Finish applying' });
+  });
+
+  it('names the repairer Repair from here asks as the fix reads again, and sends that one', () => {
+    const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
+      ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}` } }), ...o }) as FixDetail;
+    // The page loaded before the config named a repairer; the dialog reads it again as it opens.
+    const page = fix({ name: 'claude-code', configured: false });
+    const now = fix({ name: 'anthropic', configured: true });
+    expect(repairAsk(page, null)).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: null });
+    expect(repairAsk(page, { fix: now })).toEqual({ ready: true, who: 'anthropic (from shadowlap.config.json)', repairer: 'anthropic', command: 'shadowlap repair', why: null });
+    expect(repairAsk(now, { fix: page })).toMatchObject({ ready: true, who: 'your own Claude Code', repairer: 'claude-code', command: 'shadowlap repair --repairer claude-code' });
+    // A read that fails names the page's: the server still holds the job to the config.
+    expect(repairAsk(page, { fix: null })).toMatchObject({ ready: true, repairer: 'claude-code' });
+    // Repaired meanwhile, or its runs deleted: nothing to confirm.
+    expect(repairAsk(page, { fix: fix(page.repairer, { status: 'verified' }) })).toMatchObject({ ready: false, why: 'It was verified meanwhile, so there is nothing left to repair.' });
+    expect(repairAsk(page, { fix: fix(page.repairer, { actions: actions({}) }) })).toMatchObject({ ready: false, why: expect.stringMatching(/nothing to repair from here/) });
   });
 });
 
