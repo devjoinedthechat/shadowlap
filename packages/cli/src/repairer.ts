@@ -227,7 +227,12 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
     child.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
     child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
     child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`the claude-code repairer runs Claude Code, and ${bin} was not found: install it, or set SHADOWLAP_CLAUDE to its path`) : err));
-    child.on('exit', (c) => resolveCode(c ?? 1));
+    // On 'close', not 'exit': the last of stdout can arrive after the process exits, through
+    // cmd.exe most of all, and the report is read whole.
+    child.on('close', (c) => resolveCode(c ?? 1));
+    // A claude that exits before reading its prompt (a bad flag, say) closes stdin under us: its
+    // exit and stderr say why, not an EPIPE.
+    child.stdin!.on('error', () => {});
     child.stdin!.end(prompt.user);
   }).finally(() => rmSync(dir, { recursive: true, force: true }));
   let d: { is_error?: boolean; result?: string; structured_output?: unknown; modelUsage?: Record<string, unknown>; total_cost_usd?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };

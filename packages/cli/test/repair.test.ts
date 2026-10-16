@@ -248,7 +248,11 @@ process.stdin.on('end', () => {
   const at = input.indexOf('] system prompt, in ');
   const anchor = Number(input.slice(input.lastIndexOf('[', at) + 1, at));
   const candidates = [{ anchor, replace: ${JSON.stringify(FIX)}, strategy: 'Escalate refunds above the policy limit', why: 'The policy sets a limit.' }];
-  process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: '', structured_output: { diagnosis: 'd', candidates }, modelUsage: { 'claude-opus-5-5': {} }, usage: { input_tokens: 900, output_tokens: 120 }, total_cost_usd: 0.0061 }));
+  const report = JSON.stringify({ type: 'result', is_error: false, result: '', structured_output: { diagnosis: 'd', candidates }, modelUsage: { 'claude-opus-5-5': {} }, usage: { input_tokens: 900, output_tokens: 120 }, total_cost_usd: 0.0061 });
+  process.stdout.write(report.slice(0, 20));
+  // The rest arrives after this process has exited, from one that holds its stdout on, as the last
+  // of a batch file's output can after cmd.exe has exited: the report is read once stdout closes.
+  require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => process.stdout.write(process.argv[1]), 300)', report.slice(20)], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
 });
 `;
       if (process.platform === 'win32') {
