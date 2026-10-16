@@ -492,3 +492,36 @@ describe('the run index', () => {
     }
   });
 });
+
+describe('a golden replayed several times in one test session', () => {
+  it('is one test run in the table, the sidebar and the counts, with its attempts under the one its result shows', () => {
+    const local = Store.open(':memory:');
+    try {
+      const golden = addRun(local, { startedAt: NOW - DAY, calls: 'lll' });
+      const test = (attempt: number, of?: string) => ({ golden: 'goldens/refund-over-limit', session: 's1', attempt, ...(of ? { of } : {}) });
+      // Five attempts, each filed under the fifth: the last that passed, which the result shows.
+      const shown = addRun(local, { parent: golden, startedAt: NOW - 5 * 60_000, calls: 'rrr', meta: { test: test(5), checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }] } });
+      const others = [1, 2, 3, 4].map((n) => addRun(local, { parent: golden, startedAt: NOW - (10 - n) * 60_000, calls: 'rrr', meta: { test: test(n, shown), checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }] } }));
+      // A run from a pack that names a run of another golden is no attempt of it.
+      const other = addRun(local, { parent: golden, startedAt: NOW - 20 * 60_000, calls: 'rrr', meta: { test: { golden: 'goldens/refund-in-limit', session: 's1' } } });
+      const odd = addRun(local, { parent: golden, startedAt: NOW - 19 * 60_000, calls: 'rrr', meta: { test: { golden: 'goldens/x', session: 's9', attempt: 2, of: other } } });
+
+      const page = listRunsPage(local, {});
+      const tests = page.runs.filter((r) => r.kind === 'test');
+      expect(tests.map((r) => r.runId)).toEqual([shown, odd, other]);
+      expect(tests[0]).toMatchObject({ attempts: 4, outcome: { kind: 'passed', checks: 1 }, attemptOf: null });
+      expect(tests[1]).toMatchObject({ attempts: 0, attemptOf: null, attemptKind: null });
+      expect(page.chipCounts.test).toBe(3);
+      expect(countRuns(local)).toEqual({ runs: 4, attempts: 4 });
+      const listed = listRunsPage(local, { includeAttempts: true }).runs.filter((r) => r.attemptOf === shown);
+      expect(listed.map((r) => r.runId).sort()).toEqual([...others].sort());
+      expect(listed.every((r) => r.attemptKind === 'test')).toBe(true);
+      expect(recentRuns(local).map((r) => r.runId)).not.toContain(others[0]);
+      // Deleted, the run takes its attempts with it, and not the run that only named another.
+      expect(deleteRuns(local, [shown])).toMatchObject({ done: [shown], attempts: expect.arrayContaining(others) });
+      expect(local.allRuns().map((r) => r.runId).sort()).toEqual([golden, other, odd].sort());
+    } finally {
+      local.close();
+    }
+  });
+});

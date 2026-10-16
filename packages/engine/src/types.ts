@@ -177,8 +177,13 @@ export interface RunMeta {
   author?: string;
   /** With `author` `ci`: the CI provider it ran under (ciProvider): github, gitlab, buildkite… */
   ci?: string;
-  /** Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. */
-  test?: { golden: string; session: string };
+  /**
+   * Set on runs made by `shadowlap test`: the golden replayed and the test session it belongs to. A
+   * golden replayed more than once in a session (`repeat`) numbers its attempts from 1 (`attempt`),
+   * and each is filed under the attempt the golden's result shows (`of`, on every attempt but that
+   * one; under the first while the session still runs), as one test run with its attempts.
+   */
+  test?: { golden: string; session: string; attempt?: number; of?: string };
   /** What a replay changed, as the flags that change it: what made a fork, and how to make it again. */
   interventions?: RunIntervention[];
   /**

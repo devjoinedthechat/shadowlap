@@ -339,7 +339,7 @@ shadowlap test <pack...> [--junit <file>] [--json <file>] [--markdown <file>] [-
 
 [CI mode](./ci.md): replays packed recordings offline, re-running each recorded command; a divergence, a live call, a non-zero exit or a failed [outcome check](./ci.md#outcome-checks) fails the pack. Checks, and recordings allowed to fork, are configured under `tests` in `shadowlap.config.json`. A pack with Bedrock calls gets [placeholder AWS credentials](./providers.md#credentials-on-replay) when the environment has none. A `*` in the last part of a path (`goldens/*`) is expanded by the command itself.
 
-Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the revision, passed and failed, and each golden's result with why it failed (for a divergence, the first change the normalizers in force don't mask: the report lists the masked ones too, without a hint to add a rule the config has); global `--db :memory:` keeps nothing. Until it ends, the store also names the process running it, so the dashboard shows a session started in a terminal as running, and one whose process was killed as one that did not finish. Each replay prints `replaying run <id>` and is marked as made by `test` for its golden. Exit status: 0 when every pack passed, 1 when one failed, and 130 (143 for SIGTERM) when a signal stopped the session, which then keeps the results of the packs that finished.
+Each session is kept in the project's store as [test history](./ci.md#test-history): the command, the revision, passed and failed, and each golden's result with why it failed (for a divergence, the first change the normalizers in force don't mask: the report lists the masked ones too, without a hint to add a rule the config has); global `--db :memory:` keeps nothing. Until it ends, the store also names the process running it, so the dashboard shows a session started in a terminal as running, and one whose process was killed as one that did not finish. Each replay prints `replaying run <id>` and is marked as made by `test` for its golden; a golden replayed more than once (`repeat`) numbers its attempts, and files them under the one its result shows, so the dashboard lists them as one test run. Exit status: 0 when every pack passed, 1 when one failed, and 130 (143 for SIGTERM) when a signal stopped the session, which then keeps the results of the packs that finished.
 
 | Option | Effect |
 |---|---|
@@ -776,18 +776,18 @@ Copy runs between this machine and the [team store](./team.md) named by `store` 
 a run still recording goes when it ends; labels and notes merge both ways, and a run's results come
 from the machine that made it; a run deleted here isn't pulled again unless named. Both count by
 run, as the dashboard does: "45 runs and 69 attempts pushed", where attempts (`--repeat`, blame's
-probes, verify's attempts) are those filed under their runs, and a run counts as only on this
-machine while it, or an attempt filed under it, isn't in the store. Fixes go with their runs: a
-push sends each [fix](#fix) with its blames, repairs and verdicts once one of its runs is in the
-store, and a pull brings the team's, merged with this machine's (a teammate's repair, from a pull
-or from the store's copy a push merges with, has its `fix.patch` and reports written to
-`.shadowlap/repairs/<id>/`). Whether a fix is applied is this machine's own and never goes; a fix
-over 16 MB stays here, and a pull skips one in the store that is, saying which. A push names the
-pusher as the author of a run made here without one, and leaves here, saying why, a run a pull
-would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store that
-fails is skipped with its forks and tried again next time. A run named to `push` that the store has
-already is checked part by part, and what the bucket lost of it (its calls, a blob) is sent again.
-Either exits 1 when a run it was named can't go or come. `--json` prints the result.
+probes, verify's attempts, a golden's in one test session) are those filed under their runs, and a
+run counts as only on this machine while it, or an attempt filed under it, isn't in the store. Fixes
+go with their runs: a push sends each [fix](#fix) with its blames, repairs and verdicts once one of
+its runs is in the store, and a pull brings the team's, merged with this machine's (a teammate's
+repair, from a pull or from the store's copy a push merges with, has its `fix.patch` and reports
+written to `.shadowlap/repairs/<id>/`). Whether a fix is applied is this machine's own and never
+goes; a fix over 16 MB stays here, and a pull skips one in the store that is, saying which. A push
+names the pusher as the author of a run made here without one, and leaves here, saying why, a run a
+pull would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store
+that fails is skipped with its forks and tried again next time. A run named to `push` that the store
+has already is checked part by part, and what the bucket lost of it (its calls, a blob) is sent
+again. Either exits 1 when a run it was named can't go or come. `--json` prints the result.
 
 In a [pull request's CI job](./team.md#pull-requests) (GitHub Actions `pull_request` events, GitLab
 merge request pipelines, or `SHADOWLAP_PR` set), `push` writes only to the pull request's own

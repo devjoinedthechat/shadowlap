@@ -102,11 +102,21 @@ describe('classifyRun: the kind of a run', () => {
     expect(classifyRun(odd)).toEqual({ kind: 'fork', attemptOf: null, attemptKind: null });
   });
 
-  it('shows the fork blame rescued a run with as a run, and never bundles a test run', () => {
+  it('shows the fork blame rescued a run with as a run, and a test run as the result of its golden', () => {
     const probe = run({ mode: 'replay', parentRunId: 'P', divergence: { callNo: 5 }, meta: { probe: { of: 'P', callNo: 5, passed: true } } });
     expect(classifyRun(probe, { rescued: true })).toEqual({ kind: 'fork', attemptOf: null, attemptKind: null });
     const test = run({ mode: 'replay', parentRunId: 'G', meta: { test: { golden: 'g', session: 's' }, repeat: { group: 'x', attempt: 2, of: 3 } } });
     expect(classifyRun(test)).toEqual({ kind: 'test', attemptOf: null, attemptKind: null });
+  });
+
+  it('bundles the attempts of a golden replayed more than once under the attempt its result shows', () => {
+    const shown = run({ runId: 'T3', mode: 'replay', parentRunId: 'G', meta: { test: { golden: 'goldens/refund-over-limit', session: 's', attempt: 3 } } });
+    expect(classifyRun(shown)).toEqual({ kind: 'test', attemptOf: null, attemptKind: null });
+    const other = run({ runId: 'T1', mode: 'replay', parentRunId: 'G', meta: { test: { golden: 'goldens/refund-over-limit', session: 's', attempt: 1, of: 'T3' } } });
+    expect(classifyRun(other)).toEqual({ kind: 'test', attemptOf: 'T3', attemptKind: 'test' });
+    // Never under itself, its recording, nothing, or as anything but a replay.
+    for (const of of ['T1', 'G', '', 7]) expect(classifyRun(run({ ...other, meta: { test: { golden: 'g', session: 's', of } } as Record<string, unknown> })).attemptOf).toBeNull();
+    expect(classifyRun({ ...other, mode: 'record', parentRunId: null }).attemptOf).toBeNull();
   });
 
   it('ignores metadata that is not shaped like what Shadowlap writes (a run from a pack)', () => {

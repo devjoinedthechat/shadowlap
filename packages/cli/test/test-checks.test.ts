@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { classifyRun, Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 
@@ -124,6 +124,29 @@ describe('shadowlap test with outcome checks', () => {
       const lenient = await shadowlapTest({ 'goldens/reference-agent': { fork: true, repeat: 2, passes: 1, expect: { tools: { send_email: 0 } } } }, { AGENT_SYSTEM_SUFFIX: 'Never send email.' });
       expect(lenient.code, lenient.out).toBe(0);
       expect(lenient.out).toContain('1/2 attempts passed');
+    } finally {
+      flaky = false;
+    }
+  });
+
+  it('files a golden’s attempts under the one its result shows, as one test run', async () => {
+    flaky = true;
+    try {
+      const db = join(work, 'attempts.db');
+      const r = await shadowlapTest({ 'goldens/reference-agent': { fork: true, repeat: 2, expect: { tools: { send_email: 0 } } } }, { AGENT_SYSTEM_SUFFIX: 'Never send email.' }, db);
+      expect(r.code).toBe(1);
+      // The result shows the attempt that failed: the run the Tests screen opens.
+      const shown = r.report.results[0]!.runId as string;
+      const store = Store.open(db);
+      const tested = store.allRuns().filter((x) => x.meta?.test);
+      store.close();
+      expect(tested.map((x) => x.meta!.test!.attempt).sort()).toEqual([1, 2]);
+      const head = tested.find((x) => x.runId === shown)!;
+      const other = tested.find((x) => x.runId !== shown)!;
+      expect(head.meta!.test!.of).toBeUndefined();
+      expect(other.meta!.test).toMatchObject({ golden: 'goldens/reference-agent', session: head.meta!.test!.session, of: shown });
+      expect(classifyRun(head)).toMatchObject({ kind: 'test', attemptOf: null, attemptKind: null });
+      expect(classifyRun(other)).toMatchObject({ kind: 'test', attemptOf: shown, attemptKind: 'test' });
     } finally {
       flaky = false;
     }

@@ -19,8 +19,12 @@ import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
  */
 export type RunKind = 'recording' | 'fork' | 'clean' | 'replay' | 'test' | 'capture' | 'pack';
 
-/** Runs made by `--repeat`, by blame's probes and by verify: bundled under the run they came from. */
-export type AttemptKind = 'repeat' | 'probe' | 'verify';
+/**
+ * Runs made by `--repeat`, by blame's probes and by verify, bundled under the run they came from; and
+ * the attempts of a golden one test session replays more than once (`test`), bundled under the
+ * attempt its result shows.
+ */
+export type AttemptKind = 'repeat' | 'probe' | 'verify' | 'test';
 
 export interface RunClass {
   kind: RunKind;
@@ -108,13 +112,21 @@ export function kindLabel(kind: RunKind, divergence: { callNo: number } | null):
 /**
  * A run's kind and, for an attempt, the run it is bundled under: the run it replayed. Probes of
  * `shadowlap blame` carry `meta.probe`, attempts of `shadowlap verify` carry `meta.verify`, and the
- * attempts of `replay --repeat` carry `meta.repeat`. A test run is never an attempt: it is the
- * result of its golden in that session.
+ * attempts of `replay --repeat` carry `meta.repeat`. A test run is the result of its golden in that
+ * session, unless the golden was replayed more than once: then every attempt but the one its result
+ * shows names that one (`meta.test.of`), a replay of the same recording, and is bundled under it.
+ * Whether the run it names is that (a test run of the same golden, session and recording) only the
+ * whole store can tell: the dashboard's run index checks it.
  */
 export function classifyRun(run: ClassifiableRun, ctx: ClassifyContext = {}): RunClass {
   const kind = runKind(run, ctx);
   const m = run.meta;
-  if (!m || m.test || ctx.rescued) return { kind, attemptOf: null, attemptKind: null };
+  if (m?.test) {
+    const of = isObject(m.test) ? m.test.of : undefined;
+    const filed = typeof of === 'string' && of !== '' && of !== run.runId && run.mode === 'replay' && run.parentRunId !== null && of !== run.parentRunId;
+    return filed && !ctx.rescued ? { kind, attemptOf: of, attemptKind: 'test' } : { kind, attemptOf: null, attemptKind: null };
+  }
+  if (!m || ctx.rescued) return { kind, attemptOf: null, attemptKind: null };
   const attemptKind: AttemptKind | null = isObject(m.probe) ? 'probe' : isObject(m.verify) ? 'verify' : isObject(m.repeat) ? 'repeat' : null;
   if (!attemptKind) return { kind, attemptOf: null, attemptKind: null };
   // Blame always probes the run it replays. A probe naming another run did not come from blame here

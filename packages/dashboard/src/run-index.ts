@@ -57,9 +57,10 @@ export interface IndexedMeta {
   verify: { role: string; passed: boolean } | null;
   /**
    * Set by `shadowlap test`: the golden and session, and when the run says so, whether the golden may
-   * fork and how many of the session's attempts must pass.
+   * fork and how many of the session's attempts must pass. A golden replayed more than once in the
+   * session numbers its attempts (`attempt`), and each names the attempt it is filed under (`of`).
    */
-  test: { golden: string; session: string; fork: boolean | null; passes: number | null } | null;
+  test: { golden: string; session: string; fork: boolean | null; passes: number | null; attempt: number | null; of: string | null } | null;
   checks: Array<{ ok: boolean; label: string; detail: string | null }> | null;
   blame: { at: number; outcome: string; callNo: number | null; rescuedRunId: string | null } | null;
   author: string | null;
@@ -134,7 +135,7 @@ function readMeta(row: Record<string, unknown>): IndexedMeta {
     repeat: isObject(repeat) ? { group: str(repeat.group) ?? '', attempt: num(repeat.attempt) ?? 0, of: num(repeat.of) ?? 0 } : null,
     probe: isObject(probe) ? { of: str(probe.of) ?? '', callNo: num(probe.callNo) ?? 0, passed: probe.passed === true } : null,
     verify: isObject(verify) ? { role: str(verify.role) ?? '', passed: verify.passed === true } : null,
-    test: isObject(test) ? { golden: str(test.golden) ?? '', session: str(test.session) ?? '', fork: typeof test.fork === 'boolean' ? test.fork : null, passes: num(test.passes) } : null,
+    test: isObject(test) ? { golden: str(test.golden) ?? '', session: str(test.session) ?? '', fork: typeof test.fork === 'boolean' ? test.fork : null, passes: num(test.passes), attempt: num(test.attempt), of: str(test.of) } : null,
     checks: Array.isArray(checks) ? checks.filter(isObject).map((c) => ({ ok: c.ok === true, label: str(c.label) ?? '', detail: str(c.detail) })) : null,
     blame: isObject(blame) ? { at: num(blame.at) ?? 0, outcome: str(blame.outcome) ?? '', callNo: num(blame.callNo), rescuedRunId: str(blame.rescuedRunId) } : null,
     author: str(row.author),
@@ -268,6 +269,14 @@ function readRunIndex(store: Store): RunIndex {
   for (let i = runs.length - 1; i >= 0; i--) {
     const r = runs[i]!;
     if (!r.attemptKind || !r.attemptOf || !byId.has(r.attemptOf)) continue;
+    // A test's attempt is filed only under a test run of the same golden and session that replayed
+    // the same recording and is no attempt itself: one naming any other run (a pack can carry
+    // anything) must not hide under it, or be deleted with it, and is listed as a run of its own.
+    if (r.attemptKind === 'test' && !sameTest(r, byId.get(r.attemptOf)!)) {
+      r.attemptOf = null;
+      r.attemptKind = null;
+      continue;
+    }
     r.bundled = true;
     bundled++;
     const list = attempts.get(r.attemptOf);
@@ -275,6 +284,13 @@ function readRunIndex(store: Store): RunIndex {
     else attempts.set(r.attemptOf, [r]);
   }
   return { runs, byId, attempts, counts: { runs: runs.length - bundled, attempts: bundled } };
+}
+
+/** Whether `head` is the run a test attempt may be filed under: the same golden, session and recording, and no attempt itself. */
+function sameTest(attempt: IndexedRun, head: IndexedRun): boolean {
+  const a = attempt.meta.test;
+  const h = head.meta.test;
+  return !!a && !!h && head.kind === 'test' && h.of === null && h.golden === a.golden && h.session === a.session && head.parentRunId === attempt.parentRunId;
 }
 
 /** How many ancestors a run has in the store (0 for a recording, 1 for its fork, …). */

@@ -104,6 +104,24 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
     expect(results.find((r) => r.failure === 'check')?.golden).toBe('goldens/refund-flow-budget');
     expect(results.find((r) => r.failure === 'diverged')?.golden).toBe('goldens/refund-in-limit');
   });
+
+  it('keeps refund-over-limit, replayed five times a session, as one test run with its attempts', () => {
+    const tested = runs.filter((r) => r.meta?.test?.golden === 'goldens/refund-over-limit');
+    const sessions = [...new Set(tested.map((r) => r.meta!.test!.session))];
+    expect(sessions.length).toBeGreaterThan(0);
+    for (const session of sessions) {
+      const five = tested.filter((r) => r.meta!.test!.session === session);
+      expect(five.map((r) => r.meta!.test!.attempt).sort()).toEqual([1, 2, 3, 4, 5]);
+      // One run stands for the golden: the one its result shows, with the other four filed under it.
+      const heads = five.filter((r) => classifyRun(r).attemptOf === null);
+      expect(heads).toHaveLength(1);
+      const head = heads[0]!;
+      expect(store.listTestResults({ sessionId: session, golden: 'goldens/refund-over-limit', limit: 1 })[0]?.runId).toBe(head.runId);
+      for (const r of five.filter((x) => x !== head)) expect(classifyRun(r)).toMatchObject({ kind: 'test', attemptOf: head.runId, attemptKind: 'test' });
+    }
+    const promised = JSON.parse(readFileSync(join(folder, 'runs.json'), 'utf8')) as { attempts: Record<string, number> };
+    expect(promised.attempts.test).toBe(4 * sessions.length);
+  });
 });
 
 /**

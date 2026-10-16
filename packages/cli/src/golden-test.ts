@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -72,8 +72,14 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const extraEnv = live ? {} : placeholderAwsCredentials(process.env, ctx.store.getCalls(parent.runId));
   const attempts: TestAttempt[] = [];
   const repeat = spec?.repeat ?? 1;
+  // A golden replayed more than once in a session is one test run with its attempts (`meta.test`
+  // `attempt` and `of`): while they run, each attempt after the first is filed under the first, and
+  // once they have all ended, under the attempt the result shows, so the Runs page, the sidebar and
+  // the Tests screen all open the run that says how the golden came out.
+  const testMeta = (i: number, of: string | null): Partial<RunMeta> | null => (ctx.test ? { test: { ...ctx.test, ...(repeat > 1 ? { attempt: i + 1 } : {}), ...(of ? { of } : {}) } } : null);
   for (let i = 0; i < repeat; i++) {
     if (ctx.stopped?.()) break;
+    const meta = testMeta(i, i > 0 ? (attempts[0]?.ended.summary.runId ?? null) : null);
     const attempt = await testAttempt(ctx.store, parent, {
       cwd: ctx.cwd,
       upstreams,
@@ -86,7 +92,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       http: ctx.config.http,
       spec,
       ...(ctx.argv ? { argv: ctx.argv } : {}),
-      ...(ctx.test ? { meta: { test: ctx.test } } : {}),
+      ...(meta ? { meta } : {}),
       ...(ctx.onRun ? { onRun: (runId: string) => ctx.onRun!(runId, i + 1, repeat) } : {}),
       ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
       ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
@@ -99,6 +105,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const passed = attempts.filter((a) => !a.failure).length;
   const required = spec?.passes ?? 1;
   const shown = passed >= required ? attempts.filter((a) => !a.failure).at(-1)! : attempts.find((a) => a.failure)!;
+  if (attempts.length > 1 && !interrupted) fileUnder(ctx.store, attempts, shown, testMeta);
   let failure: JunitCase['failure'];
   if (passed < required) {
     const f = shown.failure!;
@@ -111,6 +118,24 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
           };
   }
   return { spec, attempts, shown, passed, required, failure, kind: failure ? (shown.kind ?? 'error') : null, interrupted };
+}
+
+/**
+ * Files a golden's attempts under the one its result shows. Never fails the test: the store may be
+ * busy with another process, or a run gone, and the attempts then stay filed under the first.
+ */
+function fileUnder(store: Store, attempts: readonly TestAttempt[], shown: TestAttempt, meta: (i: number, of: string | null) => Partial<RunMeta> | null): void {
+  const head = shown.ended.summary.runId;
+  attempts.forEach((a, i) => {
+    const runId = a.ended.summary.runId;
+    const patch = meta(i, runId === head ? null : head);
+    if (!patch) return;
+    try {
+      store.updateRunMeta(runId, patch);
+    } catch {
+      // Left under the first attempt.
+    }
+  });
 }
 
 /** A golden as `shadowlap test` ran it: its pack, its recording, and how it came out. */
