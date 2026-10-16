@@ -81,7 +81,7 @@ The same table drives the cost figures in `shadowlap run`, `replay` and `show`.
 | `g` | Fork with your changed prompt | model call | `… --prompt-from <n>` |
 | `f` | Answer with an HTTP failure (asks for a status) | model call | `… --fail-at <n>=<status>` |
 | `o` | Override this tool's result (opens with the recorded result to edit) | tool call | `… --override <n>=<json>` |
-| `t` | Answer with a tool error (timeout, error or error:<message>, or a status) | tool call | `… --fail-at <n>=<failure>` |
+| `t` | Answer with a tool error (`timeout`, `error` or `error:<message>`, or a status) | tool call | `… --fail-at <n>=<failure>` |
 | `x` | Plant a prompt injection here (asks for the text) | read tool call | `… --inject-result <n>=<text> --repeat 3` |
 | `l` | Force this tool live | tool call | `… --live-tool <name>` |
 | `u` | Answer differently as the user (starts from the recorded reply) | recorded user input | `… --override <n>=<reply>` |
