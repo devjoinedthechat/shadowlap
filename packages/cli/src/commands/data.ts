@@ -7,7 +7,7 @@ import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent } from '../job-events.js';
 import { otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
-import { fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordEvents, requireEnded, requireRun, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Runs as data for other tools, and removing what is no longer needed. */
@@ -47,7 +47,8 @@ export function register(program: Command): void {
           }
         }
         const runs = [...picked.values()].sort((a, b) => a.startedAt - b.startedAt);
-        const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
+        const configured = loadConfig(process.cwd()).redact;
+        const rules = flags.redact ? configured : [];
         const rows = datasetRows(store, runs, { calls: flags.calls, format: flags.format, redact: rules });
         const body = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
         if (flags.out) {
@@ -55,7 +56,7 @@ export function register(program: Command): void {
           emitJobEvent({ type: 'file', path: resolve(flags.out), label: 'Dataset' });
           process.stderr.write(`${p.green('✓')} ${rows.length} example${rows.length === 1 ? '' : 's'} from ${runs.length} run${runs.length === 1 ? '' : 's'} → ${flags.out}${rules.length ? `, ${rulesApplied(rules.length)}` : ''}\n`);
         } else process.stdout.write(body);
-        if (!rules.length) process.stderr.write(p.dim(`${flags.out ? '  ' : ''}no redaction rules in shadowlap.config.json: the dataset holds the conversations as recorded\n`));
+        if (!rules.length) process.stderr.write(p.dim(`${flags.out ? '  ' : ''}${unredacted(configured.length, 'the dataset holds the conversations as recorded')}\n`));
         if (waiting) process.stderr.write(p.dim(`${flags.out ? '  ' : ''}${waiting} run${waiting === 1 ? ' is' : 's are'} still recording, left for a later export\n`));
         emitJobEvent({ type: 'result', data: { examples: rows.length, runs: runs.length, format: flags.format, calls: flags.calls } });
       } finally {
@@ -75,12 +76,13 @@ export function register(program: Command): void {
         const run = requireRun(store, runArg);
         requireEnded(store, run, 'export');
         // A HAR leaves the machine with full bodies: every redaction rule applies, as to a pack.
-        const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
+        const configured = loadConfig(process.cwd()).redact;
+        const rules = flags.redact ? configured : [];
         const result = runToHar(store, run, store.getCalls(run.runId), { redact: rules });
         const body = JSON.stringify(result.har, null, 1) + '\n';
         if (!file) {
           process.stdout.write(body);
-          if (!rules.length) process.stderr.write(p.dim('no redaction rules in shadowlap.config.json: the HAR holds the prompts and responses as recorded\n'));
+          if (!rules.length) process.stderr.write(p.dim(`${unredacted(configured.length, 'the HAR holds the prompts and responses as recorded')}\n`));
           return;
         }
         const out = resolve(file);
@@ -88,7 +90,7 @@ export function register(program: Command): void {
         emitJobEvent({ type: 'file', path: out, label: 'HAR' });
         emitJobEvent({ type: 'result', data: { entries: result.entries, skipped: result.skipped.length } });
         console.log(`${p.green('\u2713')} ${out}  ${result.entries} ${result.entries === 1 ? 'call' : 'calls'}, ${formatBytes(fileSize(out))}${rules.length ? `, ${rulesApplied(rules.length)}` : ''}`);
-        if (!rules.length) console.log(p.dim('  no redaction rules in shadowlap.config.json: the HAR holds the prompts and responses as recorded'));
+        if (!rules.length) console.log(p.dim(`  ${unredacted(configured.length, 'the HAR holds the prompts and responses as recorded')}`));
         for (const s of result.skipped) console.log(p.dim(`  call ${s.callNo} left out: ${s.reason}`));
         if (result.entries === 0) console.log(p.dim('  this run made no model API calls'));
       } finally {
@@ -107,7 +109,7 @@ export function register(program: Command): void {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
-        requireEnded(store, run, 'export');
+        requireEnded(store, run, 'export', flags.lineage ? ancestorsOf(store, run) : []);
         const config = loadConfig(process.cwd());
         const { exportHtml, withAncestors } = await import('@shadowlap/dashboard');
         const runIds = flags.lineage ? withAncestors(store, run.runId) : [run.runId];
@@ -124,7 +126,7 @@ export function register(program: Command): void {
         emitJobEvent({ type: 'result', data: { runIds: result.runIds, calls: result.calls, redacted: result.redacted } });
         const size = formatBytes(Buffer.byteLength(result.html));
         process.stdout.write(`${p.green('✓')} ${out}  ${p.dim(`${result.runIds.length} run${result.runIds.length === 1 ? '' : 's'}, ${result.calls} calls, ${size}${result.redacted ? `, ${rulesApplied(config.redact.length)}` : ''}`)}\n`);
-        if (!result.redacted) process.stdout.write(p.dim('  no redaction rules in shadowlap.config.json: the file holds the prompts and tool data as recorded\n'));
+        if (!result.redacted) process.stdout.write(p.dim(`  ${unredacted(config.redact.length, 'the file holds the prompts and tool data as recorded')}\n`));
       } finally {
         store.close();
       }

@@ -22,9 +22,9 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function shadowlap(args: string[]): Promise<{ code: number | null; out: string }> {
+function shadowlap(args: string[], dir = cwd): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, ...args], { cwd: dir, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));
@@ -88,5 +88,21 @@ describe('shadowlap calibrate', () => {
     const found = await shadowlap(['search', 'triaged', '--run', runId]);
     expect(found.out).toMatch(new RegExp(`#(\\d+) api POST /v1/messages .*shadowlap ui ${runId} --call \\1\\n`));
     expect((await shadowlap(['ui', '--call', '2'])).out).toContain('--call needs a run');
+  });
+
+  it('exits 1 when it stops before the recording replays clean, and says why', async () => {
+    // A project of its own, without the rules the test above wrote.
+    const dir = mkdtempSync(join(cwd, 'stops-'));
+    const recorded = await shadowlap(['run', '--', process.execPath, AGENT], dir);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const json = await shadowlap(['calibrate', runId, '--max-rounds', '1', '--json'], dir);
+    expect(json.code, json.out).toBe(1);
+    const report = JSON.parse(json.out.slice(json.out.indexOf('{'))) as { clean: boolean; stopped: { why: string } | null; normalizers: unknown[] };
+    expect(report).toMatchObject({ clean: false, stopped: { why: 'still diverging after 1 rounds' } });
+    expect(report.normalizers.length).toBeGreaterThan(0);
+    const told = await shadowlap(['calibrate', runId, '--max-rounds', '1'], dir);
+    expect(told.code).toBe(1);
+    expect(told.out).toMatch(/normalizers? found before calibration stopped/);
   });
 });

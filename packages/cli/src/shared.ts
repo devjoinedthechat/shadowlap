@@ -118,12 +118,45 @@ export function requireRun(store: Store, idOrPrefix: string): RunRecord {
 }
 
 /**
- * Refuses to copy a run a process is still recording, as the dashboard's Share does: the copy would
- * never end (an HTML copy shows it recording for good, a pack makes a golden of half a run). A run
- * its process left marked running is copied as it is: nothing will add to it.
+ * Why a run can't be copied or replayed yet, or null: a process is still recording it, or, for a
+ * copy with its lineage, one of the runs it was forked from. The copy would never end (an HTML copy
+ * shows it recording for good, a pack makes a golden of half a run), and a replay would run out of
+ * recording part way. A run its process left marked running counts as ended: nothing will add to it.
+ * `lineage` is the runs the copy holds besides `run` (ancestorsOf).
  */
-export function requireEnded(store: Store, run: RunRecord, verb: string): void {
-  if (run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId)) throw new Error(`${run.runId.slice(0, 10)} is still recording: ${verb} it once it has ended`);
+export function stillRecording(store: Store, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): string | null {
+  const short = (r: RunRecord) => r.runId.slice(0, 10);
+  const all = [run, ...lineage];
+  if (!all.some((r) => r.status === 'running')) return null;
+  const live = new Set(store.recordingRuns().live.map((r) => r.run.runId));
+  if (run.status === 'running' && live.has(run.runId)) return `${short(run)} is still recording: ${verb} it once it has ended`;
+  const parent = lineage.find((r) => r.runId !== run.runId && r.status === 'running' && live.has(r.runId));
+  return parent ? `${short(parent)}, which ${short(run)} was forked from, is still recording: ${verb} ${short(run)} with --lineage once it has ended, or without --lineage now` : null;
+}
+
+/** Refuses to copy or replay a run still recording, as the dashboard's Share, Replay and Fork do (stillRecording). */
+export function requireEnded(store: Store, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): void {
+  const why = stillRecording(store, run, verb, lineage);
+  if (why) throw new Error(why);
+}
+
+/**
+ * How a copy says no redaction rule was applied to it, and what it holds therefore: there were none
+ * in the config, or `--no-redact` skipped the `configured` ones.
+ */
+export function unredacted(configured: number, holds: string): string {
+  return configured ? `--no-redact: the ${configured === 1 ? 'redaction rule' : `${configured} redaction rules`} in shadowlap.config.json ${configured === 1 ? 'was' : 'were'} not applied; ${holds}` : `no redaction rules in shadowlap.config.json: ${holds}`;
+}
+
+/** The runs a run was forked from, its recording first: what `--lineage` adds to a copy of it. */
+export function ancestorsOf(store: Store, run: RunRecord): RunRecord[] {
+  const out: RunRecord[] = [];
+  let parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  while (parent && out.length < 64 && !out.some((r) => r.runId === parent!.runId)) {
+    out.unshift(parent);
+    parent = parent.parentRunId ? store.getRun(parent.parentRunId) : null;
+  }
+  return out;
 }
 
 export function parseIntArg(value: string): number {

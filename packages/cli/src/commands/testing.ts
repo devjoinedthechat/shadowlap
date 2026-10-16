@@ -16,7 +16,7 @@ import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
-import { openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
@@ -385,11 +385,12 @@ export function register(program: Command): void {
     .action(async (runArg: string, dir: string, flags: { lineage?: boolean; redact: boolean }) => {
       const store = openStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
-      requireEnded(store, run, 'pack');
-      const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
+      requireEnded(store, run, 'pack', flags.lineage ? ancestorsOf(store, run) : []);
+      const configured = loadConfig(process.cwd()).redact;
+      const rules = flags.redact ? configured : [];
       const result = packRun(store, run.runId, dir, { lineage: flags.lineage === true, redact: rules });
       process.stdout.write(`packed ${result.runs.length} run${result.runs.length === 1 ? '' : 's'} (${result.calls} calls, ${result.blobs} blobs) to ${result.dir}${result.redacted ? ` with ${rules.length} redaction rule${rules.length === 1 ? '' : 's'}` : ''}\n`);
-      if (!result.redacted) process.stderr.write(p.yellow('  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
+      if (!result.redacted) process.stderr.write(p.yellow(configured.length ? `  ${unredacted(configured.length, 'the pack holds everything the agent saw')}\n` : '  recordings contain everything the agent saw; add rules with `shadowlap redact add` before sharing\n'));
       const where = relative(process.cwd(), resolve(result.dir)).split('\\').join('/') || '.';
       // The activity log names a pack outside the project by its folder alone: a path climbing out
       // of it would put this machine's folders in a feed the whole team reads.

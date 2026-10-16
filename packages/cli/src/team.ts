@@ -39,6 +39,7 @@ import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, type ShadowlapConfi
 import { emitJobEvent } from './job-events.js';
 import type { TestReport } from './test-report.js';
 import { palette as p, safe, shortId } from './ui.js';
+import { ancestorsOf, stillRecording } from './shared.js';
 
 /**
  * The team store: the project's runs in a bucket the team owns, free like the rest of Shadowlap.
@@ -575,6 +576,9 @@ export async function teamShare(t: TeamEnv, runArg: string, flags: { lineage?: b
   const found = withStore(t, (store) => store.findRun(runArg));
   if (!found) throw new TeamError(`no run matches "${safe(runArg)}" (see: shadowlap ls)`);
   const run: RunRecord = found;
+  // A report of a run still recording would show it recording for good: shared once it has ended, as pack and the exports copy it.
+  const recording = withStore(t, (store) => stillRecording(store, run, 'share', flags.lineage ? ancestorsOf(store, run) : []));
+  if (recording) throw new TeamError(recording);
   const target = writeTarget(t, loc);
   const remote = openRemote(t, target.loc);
   const cfg = config(t);

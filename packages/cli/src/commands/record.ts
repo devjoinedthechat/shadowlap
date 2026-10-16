@@ -9,7 +9,7 @@ import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
-import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireEnded, requireRun, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -95,6 +95,8 @@ export function register(program: Command): void {
       let interventions: ReturnType<typeof parseInterventions>;
       let checks: { spec: TestSpec; source: string } | null;
       try {
+        // A recording still being made has no end to replay to yet, as the dashboard's Replay and Fork wait for it.
+        requireEnded(store, parent, 'replay');
         overrides = parseOverrides(flags.override, parentCalls);
         failures = parseFailures(flags.failAt, parentCalls);
         plants = parsePlants(flags.injectResult, parentCalls, storedResult(store));
@@ -258,6 +260,7 @@ export function register(program: Command): void {
         const target = runArg ? { run: requireRun(store, runArg), source: 'given' as const } : calibrationTarget(store, { setupRunId: setupRunOf(process.cwd()) });
         if (!target) throw new Error(recordFirst);
         const parent = target.run;
+        requireEnded(store, parent, 'calibrate');
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent.runId, parent.command.argv))) {
           process.exitCode = 1;
           return;
