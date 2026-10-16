@@ -1,18 +1,19 @@
 import { Fragment, useEffect, useState } from 'react';
 import { ApiError } from '../../api.js';
-import { tipText } from '../../components/HoverCard.js';
+import { tipCard, tipText } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { num } from '../../format.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
-import { maskedLine, partialLine, previewChip } from './logic.js';
+import { maskedLine, partialLine, previewChip, unmaskedLine } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
 /**
  * Redaction: the rules applied to every copy of a run that leaves this machine, where each kind of
  * copy applies them, and a preview of what they would mask in a run you pick (path rules too),
- * counted per rule with up to two samples before and after.
+ * counted per rule with up to two samples before and after, and under a rule what it matches that a
+ * copy leaves as it is (a number), with the path rule that masks it.
  */
 
 /** The run the preview shows, kept while the dashboard is open. */
@@ -161,7 +162,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           </select>
           <Icon name="caret" className="caret" />
         </label>
-        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total) : ''}</span>
+        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked) : ''}</span>
       </div>
       {data.config.error ? null : broken ? (
         <p className="fieldnote err">
@@ -173,24 +174,44 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
         <p className="fieldnote err">{p.error.message}</p>
       ) : view ? (
         <>
-          {view.preview.rules.map((r) => (
-            <div className="pvrule" key={r.n}>
-              <span className="chip" title={`#${r.n}`}>
-                {previewChip(r.rule)}
-              </span>
-              <span className="pvn">{num(r.count)}</span>
-              {r.samples.length ? (
-                r.samples.map((s, i) => (
-                  <div className="pvs" key={i}>
-                    <span className="del">{s.before}</span>
-                    <span className="add">{s.after}</span>
-                  </div>
-                ))
-              ) : (
-                <span className="muted">{r.note ?? 'no matches in this run'}</span>
-              )}
-            </div>
-          ))}
+          {view.preview.rules.map((r) => {
+            // What it matches that a copy leaves as it is: the line says why its count is 0, when it is.
+            const left = unmaskedLine(r.unmasked, r.count);
+            return (
+              <div className="pvrule" key={r.n}>
+                <span className="chip" title={`#${r.n}`}>
+                  {previewChip(r.rule)}
+                </span>
+                <span className="pvn">{num(r.count)}</span>
+                {r.samples.length ? (
+                  r.samples.map((s, i) => (
+                    <div className="pvs" key={i}>
+                      <span className="del">{s.before}</span>
+                      <span className="add">{s.after}</span>
+                    </div>
+                  ))
+                ) : left ? null : (
+                  <span className="muted">{r.note ?? 'no matches in this run'}</span>
+                )}
+                {left ? (
+                  <span className="muted pvd pvleft">
+                    <span className="tipped" tabIndex={0} data-tip={tipCard(r.unmasked.count === 1 ? 'Left as it is' : 'Left as they are', left.rows)}>
+                      {left.text}
+                    </span>
+                    {left.command ? (
+                      <>
+                        {' '}
+                        <code>{left.command}</code>
+                        {left.more ? ` and ${left.more} more ${left.more === 1 ? 'place' : 'places'}: ` : null}
+                        {left.more ? <code>{view.command}</code> : null}
+                        {left.more ? ` lists ${left.more === 1 ? 'it' : 'them'}.` : null}
+                      </>
+                    ) : null}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
           {view.preview.details.count ? (
             <div className="pvrule">
               <span className="chip">command line, labels, notes</span>

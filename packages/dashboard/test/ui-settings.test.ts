@@ -42,6 +42,7 @@ import {
   suggestedReplace,
   syncText,
   typedSecret,
+  unmaskedLine,
   type RuleFormState,
 } from '../ui/pages/settings/logic.js';
 
@@ -166,6 +167,29 @@ describe('the preview', () => {
     expect(previewChip({ pattern: 'email', replace: '<EMAIL>' })).toBe('email');
     expect(maskedLine(1)).toBe('1 value would be masked');
     expect(maskedLine(1200)).toBe('1,200 values would be masked');
+    expect(maskedLine(7, 1)).toBe('7 values would be masked, 1 left as it is');
+    expect(maskedLine(0, 40)).toBe('0 values would be masked, 40 left as they are');
+  });
+
+  it("says under a rule what it matches that a copy leaves as it is, and the path rule that masks it", () => {
+    const sample = (value: string, kind: string, name: string, path: string, key = false) => ({ value, key, callNo: 6, kind, name, in: 'response', path });
+    const remedy = (path: string) => ({ command: `shadowlap redact add --kind tool --name lookup_order --path '${path}' --replace '<AMOUNT>'` });
+    expect(unmaskedLine({ count: 0, samples: [], remedies: [] }, 3)).toBeNull();
+    // After the values it masks, "more"; the first place's rule, and how many places after it.
+    expect(unmaskedLine({ count: 1, samples: [sample('240', 'tool', 'lookup_order', '$.result.amount')], remedies: [remedy('$.result.amount'), remedy('$.args.amount')] }, 6)).toEqual({
+      text: '1 more left as it is. A path rule masks the whole value, numbers included:',
+      command: "shadowlap redact add --kind tool --name lookup_order --path '$.result.amount' --replace '<AMOUNT>'",
+      more: 1,
+      rows: [{ label: '240', value: 'call 6 tool lookup_order, response $.result.amount' }],
+    });
+    // A clock read's time has no rule to add: a replay needs it.
+    expect(unmaskedLine({ count: 40, samples: [sample('1792177709735', 'clock', 'now', '$.result'), sample('1792177709821', 'clock', 'now', '$.result')], remedies: [] }, 0)).toMatchObject({
+      text: '40 left as they are, in clock or random reads: a replay needs them as recorded.',
+      command: null,
+      rows: [{ label: '1792177709735', value: 'call 6 clock now, response $.result' }, { label: '1792177709821', value: 'call 6 clock now, response $.result' }],
+    });
+    // A key, and a model call named by its kind alone.
+    expect(unmaskedLine({ count: 1, samples: [{ ...sample('bob@example.com', 'api', 'POST /v1/messages', '$.metadata["bob@example.com"]', true), in: 'request' }], remedies: [] }, 0)!.rows).toEqual([{ label: 'bob@example.com', value: 'call 6 api, request key $.metadata["bob@example.com"]' }]);
   });
 
   it('says how far a long run was read, and which limit stopped it', () => {

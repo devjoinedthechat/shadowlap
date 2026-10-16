@@ -241,6 +241,30 @@ describe('the redaction preview', () => {
     expect(v.preview.total).toBe(6);
   });
 
+  it('says apart what a rule matches that a copy leaves as it is, with the path rule that masks it', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' }] }));
+    const run = recording();
+    const call = (callNo: number, kind: 'clock' | 'tool', name: string, request: unknown, result: string) => {
+      const id = { kind, name, fingerprint: `c${callNo}`.padEnd(64, '0'), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo, ...id, origin: 'live', effect: kind === 'tool' ? 'read' : null, requestRef: store.putJson(request), meta: {}, at: callNo });
+      store.appendCallEnd(id, { runId: run.runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(result)), outcome: 'ok', meta: {}, at: callNo });
+    };
+    // The time the agent read, and a card on file as a number and as text.
+    call(1, 'clock', 'now', { label: 'now' }, '{"result":1792155242516}');
+    call(2, 'tool', 'lookup_card', { args: { customer: 'C-311' } }, '{"result":{"card":4111111111111111,"on_file":"4111 1111 1111 1111"}}');
+    type View = { preview: { total: number; unmasked: number; rules: Array<{ count: number; note: string | null; unmasked: { count: number; samples: Array<{ value: string; kind: string; in: string; path: string }>; remedies: Array<{ command: string }> } }> } };
+    // Read on a thread of its own, as every preview from this store is.
+    const v = await get<View>(`settings/redaction/preview?run=${run.runId}`);
+    expect(v.preview).toMatchObject({ total: 1, unmasked: 2 });
+    const [card] = v.preview.rules;
+    expect(card).toMatchObject({ count: 1, note: null });
+    expect(card!.unmasked.samples.map((s) => [s.value, s.kind, s.in, s.path])).toEqual([
+      ['1792155242516', 'clock', 'response', '$.result'],
+      ['4111111111111111', 'tool', 'response', '$.result.card'],
+    ]);
+    expect(card!.unmasked.remedies.map((r) => r.command)).toEqual(["shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'"]);
+  });
+
   it('refuses a run still recording, a run that is not there, and rules that cannot be read', async () => {
     const live = recording({ ended: false });
     const res = await api(`settings/redaction/preview?run=${live.runId}`);

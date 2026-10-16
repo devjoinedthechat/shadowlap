@@ -158,9 +158,33 @@ export function previewChip(rule: { path?: string; pattern?: string; replace: st
   return rule.pattern;
 }
 
-/** `3 values would be masked`. */
-export function maskedLine(total: number): string {
-  return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked`;
+/** `3 values would be masked`, and `, 2 left as they are` when the rules match values a copy keeps as recorded (numbers). */
+export function maskedLine(total: number, unmasked = 0): string {
+  const left = unmasked ? `, ${unmasked.toLocaleString('en-US')} left as ${unmasked === 1 ? 'it is' : 'they are'}` : '';
+  return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked${left}`;
+}
+
+/** What a rule matches that a copy leaves as it is, as the preview gives it (`redact preview --json`, a rule's `unmasked`). */
+export interface UnmaskedLike {
+  count: number;
+  samples: ReadonlyArray<{ value: string; key: boolean; callNo: number; kind: string; name: string; in: string; path: string }>;
+  remedies: ReadonlyArray<{ command: string }>;
+}
+
+/**
+ * The quiet line under a rule for what it matches that a copy leaves as it is (a number, which a
+ * pattern never rewrites): how many, "more" after values it masks, and the path rule that masks
+ * them, the first place's (`more` places after it); in a clock or random read there is none to add,
+ * since a replay needs what it read. On hover (`rows`), each value with where it is. Null when the
+ * rule leaves nothing.
+ */
+export function unmaskedLine(u: UnmaskedLike, masked: number): { text: string; command: string | null; more: number; rows: Array<{ label: string; value: string }> } | null {
+  if (!u.count) return null;
+  const left = `${u.count.toLocaleString('en-US')}${masked ? ' more' : ''} left as ${u.count === 1 ? 'it is' : 'they are'}`;
+  const rows = u.samples.map((s) => ({ label: s.value, value: `call ${s.callNo} ${s.kind}${s.kind === 'api' ? '' : ` ${s.name}`}, ${s.in}${s.key ? ' key' : ''} ${s.path}` }));
+  if (u.remedies.length) return { text: `${left}. A path rule masks the whole value, numbers included:`, command: u.remedies[0]!.command, more: u.remedies.length - 1, rows };
+  const reads = u.samples.length > 0 && u.samples.every((s) => s.kind === 'clock' || s.kind === 'random');
+  return { text: reads ? `${left}, in clock or random reads: a replay needs ${u.count === 1 ? 'it' : 'them'} as recorded.` : `${left}.`, command: null, more: 0, rows };
 }
 
 /** How far a preview a limit stopped got, and which limit: the words before the command that reads the whole run. */

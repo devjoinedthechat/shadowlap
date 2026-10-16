@@ -1782,6 +1782,8 @@ code.tipped { cursor: help; }
 .preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
 .preview .fieldnote { margin-top: 10px; }
 .pvrule .pvd { grid-column: 3; font-size: 12px; }
+.pvrule .pvleft code { overflow-wrap: anywhere; }
+.pvrule .pvleft .tipped { cursor: help; }
 .pvrule .pvs span { overflow-wrap: anywhere; }
 .set .pvrule { grid-template-columns: auto minmax(34px, max-content) minmax(0, 1fr); }
 @media (max-width: 640px) { .set .pvrule { grid-template-columns: auto minmax(28px, max-content) minmax(0, 1fr); } }

@@ -189,7 +189,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           <h3>Leaving this machine</h3>
           <p className="muted">
             A copy made now (pack, export html, export dataset or export pairs) applies{' '}
-            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting)}</span>
+            <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting, prov?.mask?.unmasked ?? 0)}</span>
             .{' '}
             <a className="more" href={href.settings('redaction')}>
               {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}

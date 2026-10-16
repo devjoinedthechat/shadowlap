@@ -21,6 +21,8 @@ export interface MaskCount {
   rules: number;
   /** The values they would mask in the run; null when not counted. */
   values: number | null;
+  /** When counted, what else they match that a copy leaves as it is (numbers a pattern never rewrites: the preview's `unmasked`), when there is any. */
+  unmasked?: number;
   /** Why they were not counted: a rule took too long, or the run was read only in part. */
   why?: string;
   /** Not counted yet: the preview threads, or the store, were busy. Asked again in a moment, it is. */
@@ -73,7 +75,7 @@ async function apart(dbPath: string, runId: string, rules: Normalizer[], limits:
 
 function fromPreview(rules: Normalizer[], preview: RedactionPreview): MaskCount {
   if (preview.partial) return { rules: rules.length, values: null, why: `the run is long: ${preview.partial.read.toLocaleString('en-US')} of its ${preview.partial.of.toLocaleString('en-US')} calls were read before the preview's limit` };
-  return { rules: rules.length, values: preview.total };
+  return { rules: rules.length, values: preview.total, ...(preview.unmasked ? { unmasked: preview.unmasked } : {}) };
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));

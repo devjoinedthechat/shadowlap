@@ -91,6 +91,18 @@ describe('what a copy of a run would mask, on its Provenance', () => {
     expect(p.mask).toEqual({ rules: 1, values: preview });
   });
 
+  it('says how many more the rules match that a copy leaves as they are, as the preview does', async () => {
+    const run = recording();
+    const id = { kind: 'tool' as const, name: 'lookup_card', fingerprint: 'c'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { customer: 'jane@example.com' } }), meta: {}, at: 1 });
+    store.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from('{"result":{"card":4111111111111111,"at":1792155242516}}')), outcome: 'ok', meta: {}, at: 2 });
+    const CARD: Normalizer = { pattern: '/\\b(?:\\d[ -]?){13,16}\\b/', replace: '<CARD>' };
+    expect(await maskCount({ store, dbPath, run, rules: [EMAIL, CARD] })).toEqual({ rules: 2, values: 1, unmasked: 2 });
+    const d = await serve([EMAIL, CARD]);
+    const p = (await (await api(d, `runs/${run.runId}/provenance`)).json()) as { mask: { rules: number; values: number | null; unmasked?: number } };
+    expect(p.mask).toEqual({ rules: 2, values: 1, unmasked: 2 });
+  });
+
   it('leaves it uncounted, saying why, when a rule takes too long, and answers everything else meanwhile', async () => {
     const run = recording();
     modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
