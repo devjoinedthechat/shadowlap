@@ -1,0 +1,14 @@
+{
+  "name": "invoice-bot",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Handles billing disputes: checks the invoice, issues a credit note, tells the customer.",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@shadowlap/sdk": "^0.1.0"
+  }
+}

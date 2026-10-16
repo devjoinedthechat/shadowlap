@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "helpdesk-kb": {
+      "command": "node_modules/.bin/shadowlap",
+      "args": ["mcp", "--", "node", "kb_server.mjs"]
+    },
+    "status-page": {
+      "url": "https://status.northwind.example/mcp"
+    }
+  }
+}

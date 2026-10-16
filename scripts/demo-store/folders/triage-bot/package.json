@@ -1,0 +1,11 @@
+{
+  "name": "triage-bot",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Labels the unread support threads.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@shadowlap/sdk": "^0.1.0"
+  }
+}

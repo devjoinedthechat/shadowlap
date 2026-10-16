@@ -1,0 +1,13 @@
+[project]
+name = "research-agent"
+version = "0.2.0"
+description = "Reads company filings and writes short research reports."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.69",
+    "pydantic-ai>=1.0",
+    "shadowlap>=0.1",
+]
+
+[project.scripts]
+research-agent = "research_agent.main:main"

@@ -1,0 +1,40 @@
+{"ticket":"T-9100","customer":"C-400","order":"A-2000","amount":240,"reason":"damaged on arrival","tier":"gold","locale":"de-DE"}
+{"ticket":"T-9101","customer":"C-401","order":"A-2001","amount":80,"reason":"never arrived","tier":"silver","locale":"fr-FR"}
+{"ticket":"T-9102","customer":"C-402","order":"A-2002","amount":150,"reason":"wrong size","tier":"standard","locale":"en-GB"}
+{"ticket":"T-9103","customer":"C-403","order":"A-2003","amount":45,"reason":"arrived late","tier":"gold","locale":"nl-NL"}
+{"ticket":"T-9104","customer":"C-404","order":"A-2004","amount":310,"reason":"changed my mind","tier":"silver","locale":"de-DE"}
+{"ticket":"T-9105","customer":"C-405","order":"A-2005","amount":60,"reason":"damaged on arrival","tier":"standard","locale":"fr-FR"}
+{"ticket":"T-9106","customer":"C-406","order":"A-2006","amount":120,"reason":"never arrived","tier":"gold","locale":"en-GB"}
+{"ticket":"T-9107","customer":"C-407","order":"A-2007","amount":95,"reason":"wrong size","tier":"silver","locale":"nl-NL"}
+{"ticket":"T-9108","customer":"C-408","order":"A-2008","amount":240,"reason":"arrived late","tier":"standard","locale":"de-DE"}
+{"ticket":"T-9109","customer":"C-409","order":"A-2009","amount":80,"reason":"changed my mind","tier":"gold","locale":"fr-FR"}
+{"ticket":"T-9110","customer":"C-410","order":"A-2010","amount":150,"reason":"damaged on arrival","tier":"silver","locale":"en-GB"}
+{"ticket":"T-9111","customer":"C-411","order":"A-2011","amount":45,"reason":"never arrived","tier":"standard","locale":"nl-NL"}
+{"ticket":"T-9112","customer":"C-412","order":"A-2012","amount":310,"reason":"wrong size","tier":"gold","locale":"de-DE"}
+{"ticket":"T-9113","customer":"C-413","order":"A-2013","amount":60,"reason":"arrived late","tier":"silver","locale":"fr-FR"}
+{"ticket":"T-9114","customer":"C-414","order":"A-2014","amount":120,"reason":"changed my mind","tier":"standard","locale":"en-GB"}
+{"ticket":"T-9115","customer":"C-415","order":"A-2015","amount":95,"reason":"damaged on arrival","tier":"gold","locale":"nl-NL"}
+{"ticket":"T-9116","customer":"C-416","order":"A-2016","amount":240,"reason":"never arrived","tier":"silver","locale":"de-DE"}
+{"ticket":"T-9117","customer":"C-417","order":"A-2017","amount":80,"reason":"wrong size","tier":"standard","locale":"fr-FR"}
+{"ticket":"T-9118","customer":"C-418","order":"A-2018","amount":150,"reason":"arrived late","tier":"gold","locale":"en-GB"}
+{"ticket":"T-9119","customer":"C-419","order":"A-2019","amount":45,"reason":"changed my mind","tier":"silver","locale":"nl-NL"}
+{"ticket":"T-9120","customer":"C-420","order":"A-2020","amount":310,"reason":"damaged on arrival","tier":"standard","locale":"de-DE"}
+{"ticket":"T-9121","customer":"C-421","order":"A-2021","amount":60,"reason":"never arrived","tier":"gold","locale":"fr-FR"}
+{"ticket":"T-9122","customer":"C-422","order":"A-2022","amount":120,"reason":"wrong size","tier":"silver","locale":"en-GB"}
+{"ticket":"T-9123","customer":"C-423","order":"A-2023","amount":95,"reason":"arrived late","tier":"standard","locale":"nl-NL"}
+{"ticket":"T-9124","customer":"C-424","order":"A-2024","amount":240,"reason":"changed my mind","tier":"gold","locale":"de-DE"}
+{"ticket":"T-9125","customer":"C-425","order":"A-2025","amount":80,"reason":"damaged on arrival","tier":"silver","locale":"fr-FR"}
+{"ticket":"T-9126","customer":"C-426","order":"A-2026","amount":150,"reason":"never arrived","tier":"standard","locale":"en-GB"}
+{"ticket":"T-9127","customer":"C-427","order":"A-2027","amount":45,"reason":"wrong size","tier":"gold","locale":"nl-NL"}
+{"ticket":"T-9128","customer":"C-428","order":"A-2028","amount":310,"reason":"arrived late","tier":"silver","locale":"de-DE"}
+{"ticket":"T-9129","customer":"C-429","order":"A-2029","amount":60,"reason":"changed my mind","tier":"standard","locale":"fr-FR"}
+{"ticket":"T-9130","customer":"C-430","order":"A-2030","amount":240,"reason":"damaged on arrival","tier":"gold","locale":"en-GB"}
+{"ticket":"T-9131","customer":"C-431","order":"A-2031","amount":95,"reason":"never arrived","tier":"silver","locale":"nl-NL"}
+{"ticket":"T-9132","customer":"C-432","order":"A-2032","amount":240,"reason":"wrong size","tier":"standard","locale":"de-DE"}
+{"ticket":"T-9133","customer":"C-433","order":"A-2033","amount":80,"reason":"arrived late","tier":"gold","locale":"fr-FR"}
+{"ticket":"T-9134","customer":"C-434","order":"A-2034","amount":150,"reason":"changed my mind","tier":"silver","locale":"en-GB"}
+{"ticket":"T-9135","customer":"C-435","order":"A-2035","amount":45,"reason":"damaged on arrival","tier":"standard","locale":"nl-NL"}
+{"ticket":"T-9136","customer":"C-436","order":"A-2036","amount":310,"reason":"never arrived","tier":"gold","locale":"de-DE"}
+{"ticket":"T-9137","customer":"C-437","order":"A-2037","amount":60,"reason":"wrong size","tier":"silver","locale":"fr-FR"}
+{"ticket":"T-9138","customer":"C-438","order":"A-2038","amount":120,"reason":"arrived late","tier":"standard","locale":"en-GB"}
+{"ticket":"T-9139","customer":"C-439","order":"A-2039","amount":95,"reason":"changed my mind","tier":"gold","locale":"nl-NL"}

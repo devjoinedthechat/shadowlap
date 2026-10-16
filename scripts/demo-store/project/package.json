@@ -1,0 +1,16 @@
+{
+  "name": "support-agent",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Northwind's support agents: refunds, chat, triage and the weekly digest.",
+  "scripts": {
+    "start": "node refund_agent.mjs T-8812"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0",
+    "@google/genai": "^2.23.0",
+    "@shadowlap/sdk": "^0.1.0",
+    "openai": "^7.17.0"
+  }
+}

@@ -17,7 +17,13 @@ export interface ToolUseBlock {
   name: string;
   input: Record<string, unknown>;
 }
-export type ContentBlock = TextBlock | ToolUseBlock;
+/** Extended thinking: the model's reasoning before it answers, with the signature that vouches for it. */
+export interface ThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+  signature: string;
+}
+export type ContentBlock = TextBlock | ToolUseBlock | ThinkingBlock;
 
 export interface MockMessage {
   id: string;
@@ -86,6 +92,8 @@ export function message(content: ContentBlock[], opts: { stop_reason?: MockMessa
 
 export const text = (t: string): TextBlock => ({ type: 'text', text: t });
 export const toolUse = (name: string, input: Record<string, unknown>, id?: string): ToolUseBlock => ({ type: 'tool_use', id: id ?? `toolu_${name}_${++ids}`, name, input });
+/** A thinking block. The signature is opaque, as the API's is; the mock never checks one it is sent back. */
+export const thinking = (t: string, signature?: string): ThinkingBlock => ({ type: 'thinking', thinking: t, signature: signature ?? Buffer.from(`mock-signature-${++ids}`).toString('base64') });
 
 const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
@@ -106,6 +114,11 @@ export function sseEvents(m: MockMessage): Array<[string, unknown]> {
     if (block.type === 'text') {
       events.push(['content_block_start', { type: 'content_block_start', index, content_block: { type: 'text', text: '' } }]);
       for (const piece of splitInto(block.text, 3)) events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'text_delta', text: piece } }]);
+    } else if (block.type === 'thinking') {
+      // As the API streams it: the reasoning in pieces, then its signature in one delta of its own.
+      events.push(['content_block_start', { type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '', signature: '' } }]);
+      for (const piece of splitInto(block.thinking, 3)) events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: piece } }]);
+      events.push(['content_block_delta', { type: 'content_block_delta', index, delta: { type: 'signature_delta', signature: block.signature } }]);
     } else {
       events.push(['content_block_start', { type: 'content_block_start', index, content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} } }]);
       for (const piece of splitInto(JSON.stringify(block.input), 3)) {
