@@ -27,11 +27,23 @@ const FILE = /^[0-9A-Z]{26}-[\w.-]+$/;
 interface Upload {
   id: string;
   name: string;
+  /** The name as the browser gave it, when it is a file name a run's source can carry (`pickedName`). */
+  original: string | null;
   path: string;
   bytes: number;
   lastUsed: number;
   /** The job that claimed it, or null while nobody has. */
   jobId: string | null;
+}
+
+/**
+ * The name a file was picked by, kept as it was ("my capture (2).har") when it can be a run's
+ * source: no folders, no control characters, at most 200 characters, as `shadowlap import --name`
+ * checks it. Null otherwise; the file on disk always goes by its safe name.
+ */
+export function pickedName(given: string): string | null {
+  const name = given.trim();
+  return name && name.length <= 200 && !/[\\/]/.test(name) && !/[\u0000-\u001f\u007f]/.test(name) ? name : null;
 }
 
 function removeFile(path: string): void {
@@ -120,7 +132,7 @@ export class UploadStore implements UploadSource {
       if (!this.arriving) this.removeDir();
       throw new HttpError(503, 'the dashboard is stopping');
     }
-    this.uploads.set(id, { id, name, path, bytes, lastUsed: this.now(), jobId: null });
+    this.uploads.set(id, { id, name, original: pickedName(given), path, bytes, lastUsed: this.now(), jobId: null });
     this.schedule();
     return { uploadId: id, name, bytes };
   }
@@ -157,13 +169,13 @@ export class UploadStore implements UploadSource {
   }
 
   /** The upload for a job that asked for it by id, or null for an unknown id or one another job holds. */
-  claim(uploadId: unknown, jobId: string): { path: string; name: string; bytes: number } | null {
+  claim(uploadId: unknown, jobId: string): { path: string; name: string; original: string | null; bytes: number } | null {
     if (typeof uploadId !== 'string' || !/^[0-9A-Z]{26}$/.test(uploadId)) return null;
     const u = this.uploads.get(uploadId);
     if (!u || (u.jobId !== null && u.jobId !== jobId)) return null;
     u.jobId = jobId;
     u.lastUsed = this.now();
-    return { path: u.path, name: u.name, bytes: u.bytes };
+    return { path: u.path, name: u.name, original: u.original, bytes: u.bytes };
   }
 
   /** A job that claimed uploads did not start: they wait for another. */

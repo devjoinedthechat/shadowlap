@@ -171,6 +171,8 @@ export async function testAttempt(
     replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}) },
   });
   if (o.meta) store.updateRunMeta(run.runId, o.meta);
+  // Who replayed it: `shadowlap test`'s runs show by whom on Runs, as every other run does.
+  stampAuthor(store, run.runId);
   recordsInput(store, run.runId);
   o.onRun?.(run.runId);
   // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,

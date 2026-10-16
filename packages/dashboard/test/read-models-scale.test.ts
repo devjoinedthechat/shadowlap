@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
-import { runsRead, warmRunStats } from '../src/run-stats.js';
+import { cachesRead, runsRead, warmRunStats } from '../src/run-stats.js';
 import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
 
 /**
@@ -86,8 +86,9 @@ interface Timed<T> {
   /** CPU time the read took, in ms: what the code costs, whatever else the machine is doing. */
   cpu: number;
   wall: number;
-  /** Runs whose calls the read had to read. */
+  /** Runs whose calls the read had to read, for their totals and for their prompt cache. */
   read: number;
+  caches: number;
 }
 
 /** One read on a store opened afresh, as a new dashboard process would; the best of `times`. */
@@ -101,7 +102,7 @@ function timed<T>(read: (store: Store) => T, times = 3): Timed<T> {
       const out = read(store);
       const wall = performance.now() - t0;
       const c = process.cpuUsage(c0);
-      const t = { out, cpu: (c.user + c.system) / 1000, wall, read: runsRead(store) };
+      const t = { out, cpu: (c.user + c.system) / 1000, wall, read: runsRead(store), caches: cachesRead(store) };
       if (!best || t.cpu < best.cpu) best = t;
     } finally {
       store.close();
@@ -117,8 +118,11 @@ describe('read models at scale', () => {
     expect(calls).toBeGreaterThan(RUNS * 55);
     const first = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
     expect(first.read).toBe(RUNS);
-    // Once in the store's life; bounded only against a pass that grew worse than linear.
-    expect(first.cpu, `the first look took ${ms(first)}`).toBeLessThan(10_000);
+    // The prompt cache only for this week's runs: the week before never needs it.
+    expect(first.caches).toBeGreaterThan(1000);
+    expect(first.caches).toBeLessThan(RUNS * 0.75);
+    // Once in the store's life: about 2 s of CPU time alone; the bound leaves room for a slower machine.
+    expect(first.cpu, `the first look took ${ms(first)}`).toBeLessThan(6_000);
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));
@@ -143,10 +147,11 @@ describe('read models at scale', () => {
     expect(sidebar.out).toHaveLength(500);
 
     const reads = { summary, page, bySpent, byCalls, failures, calendar, sidebar };
-    process.stdout.write(`read models on ${RUNS} runs, ${calls} calls: first look ${ms(first)}; then ${Object.entries(reads).map(([name, t]) => `${name} ${ms(t)}`).join(', ')}\n`);
+    process.stdout.write(`read models on ${RUNS} runs, ${calls} calls: first look ${ms(first)} (${first.caches} runs' prompt cache); then ${Object.entries(reads).map(([name, t]) => `${name} ${ms(t)}`).join(', ')}\n`);
     for (const [name, t] of Object.entries(reads)) {
       // No read model reads a finished run's calls again.
       expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
+      expect(t.caches, `${name} worked out the prompt cache of ${t.caches} runs`).toBe(0);
       // Alone, each takes 60 to 130 ms of CPU time; the bound leaves room for a slower machine.
       expect(t.cpu, `${name} took ${ms(t)}`).toBeLessThan(1000);
     }
@@ -160,23 +165,29 @@ describe('read models at scale', () => {
     const store = Store.open(path);
     try {
       let slices = 0;
-      let longest = 0;
+      const took: number[] = [];
       for (let done = false; !done; slices++) {
         const c0 = process.cpuUsage();
-        done = warmRunStats(store, { budgetMs: 50 });
+        done = warmRunStats(store, { budgetMs: 50, now: NOW });
         const c = process.cpuUsage(c0);
-        longest = Math.max(longest, (c.user + c.system) / 1000);
+        took.push((c.user + c.system) / 1000);
       }
       expect(runsRead(store)).toBe(RUNS);
-      process.stdout.write(`warmed ${RUNS} runs in ${slices} slices, the longest ${Math.round(longest)} ms CPU\n`);
-      // A slice stops soon after its 50 ms, so requests between slices never wait for the whole
-      // second of work: about 20 slices of 50 to 130 ms alone; the bound leaves room for a slower machine.
-      expect(slices).toBeGreaterThanOrEqual(5);
-      expect(longest, `a slice took ${Math.round(longest)} ms of CPU time`).toBeLessThan(1000);
+      // The last eight days' prompt cache too: the Overview's week, wherever the viewer is.
+      expect(cachesRead(store)).toBeGreaterThan(1000);
+      const longest = Math.max(...took);
+      const sorted = [...took].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)]!;
+      process.stdout.write(`warmed ${RUNS} runs (${cachesRead(store)} with their prompt cache) in ${slices} slices, median ${Math.round(median)} ms CPU, the longest ${Math.round(longest)} ms\n`);
+      // A slice stops at the first batch that ends past its 50 ms, and batches are cut by the calls
+      // they read: alone, slices take 50 to 70 ms. The bounds leave room for a slower machine.
+      expect(slices).toBeGreaterThanOrEqual(10);
+      expect(median, `half the slices took more than ${Math.round(median)} ms of CPU time`).toBeLessThan(120);
+      expect(longest, `a slice took ${Math.round(longest)} ms of CPU time`).toBeLessThan(250);
     } finally {
       store.close();
     }
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }), 1);
-    expect(summary.read).toBe(0);
+    expect([summary.read, summary.caches]).toEqual([0, 0]);
   });
 });

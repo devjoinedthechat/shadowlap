@@ -10,6 +10,7 @@ import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type SpawnCli } from './jobs.js';
 import { Router, routeRequest } from './router.js';
 import { registerRoutes, type RouteModule } from './routes/index.js';
+import type { GoldenSource } from './tests.js';
 import { UploadStore } from './uploads.js';
 
 export type { SpawnCli, SpawnCliOptions } from './jobs.js';
@@ -63,6 +64,11 @@ export interface DashboardOptions {
   jobStopGraceMs?: number;
   /** Route modules registered after the built-in ones in routes/index.ts: for tests, and for embedding the server elsewhere. */
   routes?: RouteModule[];
+  /**
+   * The goldens on disk, read fresh on each call (the CLI's `projectGoldens`): the Overview's Tests
+   * passing and failing tests, and Find the commit on the Runs calendar.
+   */
+  goldens?: () => GoldenSource[];
 }
 
 export interface Dashboard {

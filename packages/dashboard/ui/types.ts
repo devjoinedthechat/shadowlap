@@ -289,3 +289,43 @@ export interface StaticPayload {
   redacted: boolean;
   responses: Record<string, unknown>;
 }
+
+// ---- overview-runs: the Overview, the Runs page, imports and the team store -------------------
+// The server's own shapes, as its read models answer: nothing other parts of the API reshape.
+
+export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, RunGrid, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
+export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
+export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
+export type { TraceSourceView } from '../src/routes/imports.js';
+export type { BisectChoices } from '../src/tests.js';
+export type { TeamStoreStatus } from '../src/team-store.js';
+export type { ActivityIcon, ActivityItem, ActivityPage, UploadView } from '../src/views.js';
+
+/** What the Runs table asks the server for: a page under the chips, the filter field, the days picked and the sort. */
+export interface RunsQuery {
+  limit?: number;
+  cursor?: string | null;
+  /** The days picked: the first one's start and the day after the last one's start. */
+  from?: number | null;
+  to?: number | null;
+  /** The chip picked: a kind, or failed; none for All. */
+  types?: readonly string[];
+  q?: string;
+  sort?: 'when' | 'calls' | 'spent';
+}
+
+/** The team store as the screens show it: what this machine knows of it, and who it records as (the By column's "you"). */
+export type TeamStoreView = import('../src/team-store.js').TeamStoreStatus & { you: string | null };
+
+/** Where the trace stores are reached from this machine, and whether their keys are set here. */
+export interface ImportSources {
+  formats: readonly string[];
+  traces: { langfuse: import('../src/routes/imports.js').TraceSourceView; langsmith: import('../src/routes/imports.js').TraceSourceView };
+  uploadLimit: number | null;
+}
+
+/** A bulk label's answer: each run labelled, with its labels after, and the runs left alone with why. */
+export interface LabelRunsResult {
+  done: Array<{ runId: string; labels: string[] }>;
+  skipped: Array<{ runId: string; reason: string }>;
+}

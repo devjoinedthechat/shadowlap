@@ -167,7 +167,8 @@ describe('the Runs table', () => {
       const finished = seen.filter((r) => r.status !== 'running');
       if (sort !== 'when') expect(seen[0]!.runId).toBe(id.live);
       if (sort === 'calls') expect(finished.map((r) => r.calls)).toEqual([...finished.map((r) => r.calls)].sort((a, b) => b - a));
-      if (sort === 'spent') expect(finished.map((r) => r.spent)).toEqual([...finished.map((r) => r.spent)].sort((a, b) => b - a));
+      // By what the table shows: a run recorded elsewhere (the capture) by what its calls cost there.
+      if (sort === 'spent') expect(finished.map((r) => r.spent + r.captured)).toEqual([...finished.map((r) => r.spent + r.captured)].sort((a, b) => b - a));
     }
     expect(() => listRunsPage(store, { cursor: 'not-a-cursor' })).toThrow(RangeError);
     expect(listRunsPage(store, { limit: Number.NaN }).runs).toHaveLength(14);

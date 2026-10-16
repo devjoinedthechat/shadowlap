@@ -132,7 +132,7 @@ export interface JobBuildContext {
    * A file the browser sent with `POST /api/uploads`, claimed for this job: its path, or null for
    * an unknown id. It is deleted when the job ends.
    */
-  upload(uploadId: unknown): { path: string; name: string; bytes: number } | null;
+  upload(uploadId: unknown): { path: string; name: string; original?: string | null; bytes: number } | null;
 }
 
 export interface JobKind {
@@ -144,7 +144,7 @@ export interface JobKind {
 
 /** Where uploads come from (`uploads.ts`): claimed by a job's builder, released when it fails, discarded when the job ends. */
 export interface UploadSource {
-  claim(uploadId: unknown, jobId: string): { path: string; name: string; bytes: number } | null;
+  claim(uploadId: unknown, jobId: string): { path: string; name: string; original?: string | null; bytes: number } | null;
   release(jobId: string): void;
   discard(jobId: string): void;
 }

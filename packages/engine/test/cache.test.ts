@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cacheUse, CACHE_MISS_MIN_TOKENS, runCache, Store } from '../src/index.js';
+import { cacheUse, CACHE_MISS_MIN_TOKENS, importedRecording, runCache, runCacheUse, Store, sumCacheUse } from '../src/index.js';
 import { assistant, batchRun, cachedUsage, RunBuilder, text, toolResult, toolUse, usage, user } from './run-fixtures.js';
 
 describe('the cache-miss rule', () => {
@@ -132,6 +132,15 @@ describe('cache use across runs', () => {
     const last = cacheUse(store, now - 14 * day, { until: now - 7 * day });
     expect(last.runs).toBe(1);
     expect(last.largest.map((m) => [m.runId, m.callNo])).toEqual([[old, 3]]);
+
+    // It is each run's part summed: what a reader that keeps a part per run (the dashboard's
+    // run_stats) hands to sumCacheUse comes out the same.
+    const week = store.allRuns().filter((r) => r.startedAt >= now - 7 * day && !importedRecording(r));
+    const parts = week.map((r) => ({ runId: r.runId, startedAt: r.startedAt, use: runCacheUse(store, store.getCalls(r.runId)) }));
+    expect(parts.find((p) => p.runId === c)!.use!.misses.map((m) => m.callNo)).toEqual([4]);
+    expect(sumCacheUse(parts)).toEqual(use);
+    expect(sumCacheUse(parts, 1).largest).toEqual(use.largest.slice(0, 1));
+    expect(sumCacheUse([])).toEqual({ readShare: null, liveInput: 0, liveRead: 0, misses: 0, sentAgain: 0, largest: [], runs: 0 });
     store.close();
   });
 });

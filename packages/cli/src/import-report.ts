@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { recordEvent, type Store } from '@shadowlap/engine';
-import { append, type ImportedCall, type ImportResult, type Skip } from './import-capture.js';
+import { append, IMPORTED_LABEL, type ImportedCall, type ImportResult, type Skip } from './import-capture.js';
 import { emitJobEvent } from './job-events.js';
 
 /**
@@ -74,6 +74,20 @@ export function fileSource(paths: readonly string[]): string {
   return names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
 }
 
+/** Runs an import links one by one in a dashboard job's drawer; past that, the Runs page. */
+const IMPORT_LINKS = 3;
+
+/**
+ * The Runs page filtered to an import's runs: the label every imported run carries, and the source
+ * they share (a dashboard import names it with --name). Every character a link's fragment can't
+ * hold as it is, escaped.
+ */
+export function importedRunsLink(runs: ReadonlyArray<Pick<ImportJsonRun, 'source'>>): string {
+  const sources = new Set(runs.map((r) => sourceName(r.source)));
+  const q = sources.size === 1 ? `${IMPORTED_LABEL} ${[...sources][0]!}` : IMPORTED_LABEL;
+  return `#/runs?q=${encodeURIComponent(q).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
+}
+
 /**
  * Settles an import: deletes the runs that hold no call, records `capture.imported` for each run
  * kept, reports each to a dashboard job (`{ type: 'run', role: 'imported' }`) followed by the
@@ -106,6 +120,10 @@ export function settleImport(
   const json: ImportJson = { format: o.format, entries: o.entries, runs, skipped, ...(o.kept ? { kept: o.kept } : {}) };
   const env = o.env ?? process.env;
   for (const r of runs) emitJobEvent({ type: 'run', runId: r.runId, role: 'imported' }, env);
+  // A dashboard job opens the run it made. One that made a few links each (a LiteLLM file holds a run
+  // per correlation id); past that, the Runs page, filtered to them, lists them all.
+  if (runs.length > IMPORT_LINKS) emitJobEvent({ type: 'link', label: `All ${runs.length} on Runs`, href: importedRunsLink(runs) }, env);
+  else if (runs.length > 1) for (const r of runs) emitJobEvent({ type: 'link', label: `Open ${r.runId.slice(0, 10)}`, href: `#/run/${r.runId}` }, env);
   emitJobEvent({ type: 'result', data: json }, env);
   return json;
 }

@@ -1,5 +1,5 @@
 import { Lru, runConversations, type RunConversations } from './conversations.js';
-import { storedModelResolver } from './report.js';
+import { storedModelResolver, type ModelResolver } from './report.js';
 import { shortModel } from './prices.js';
 import type { Store } from './store.js';
 import type { CallRecord, RunRecord, Usage } from './types.js';
@@ -134,27 +134,65 @@ export interface CacheUseOptions {
   limit?: number;
 }
 
-/** One run's part of `cacheUse`: its live input and reads, and its misses among live calls; null without live usage. */
-type RunUse = { liveInput: number; liveRead: number; misses: CacheUseMiss[] } | null;
+/**
+ * One run's part of `cacheUse`: its live model calls' whole input and the part read from the
+ * cache, and the misses among them, each with its model (shortened). What a reader that keeps each
+ * run's totals (the dashboard's run_stats) keeps, and hands back to `sumCacheUse`.
+ */
+export interface RunCacheUse {
+  liveInput: number;
+  liveRead: number;
+  misses: Array<{ callNo: number; sentAgain: number; scope: string | null; model: string | null }>;
+}
 
-/** Each finished run's part, per store: a finished run's calls never change, so the Overview reads them once. */
-const finishedUse = new WeakMap<Store, Lru<string, RunUse>>();
-
-function runUse(store: Store, run: RunRecord, modelOf: ReturnType<typeof storedModelResolver>): RunUse {
-  const calls = store.getCalls(run.runId);
+/**
+ * The rule over one run, for the Overview: its live model calls only (a call Shadowlap answered
+ * with an injected failure is not live), or null when none of them reported usage.
+ */
+export function runCacheUse(store: Store, calls: readonly CallRecord[], modelOf: ModelResolver = storedModelResolver(store)): RunCacheUse | null {
   if (!calls.some((c) => c.kind === 'api' && live(c) && c.end?.meta.usage)) return null;
   const r = runCache(store, calls);
   if (!r.liveInput) return null;
   const byNo = new Map(calls.map((c) => [c.callNo, c]));
-  const misses: CacheUseMiss[] = [];
+  const misses: RunCacheUse['misses'] = [];
   for (const m of r.misses) {
     const c = byNo.get(m.callNo)!;
     if (!live(c)) continue;
     const model = c.end?.meta.model ?? c.meta.model ?? modelOf(c) ?? null;
-    misses.push({ runId: run.runId, callNo: m.callNo, sentAgain: m.sentAgain, model: model ? shortModel(model) : null, scope: m.scope, startedAt: run.startedAt });
+    misses.push({ callNo: m.callNo, sentAgain: m.sentAgain, scope: m.scope, model: model ? shortModel(model) : null });
   }
   return { liveInput: r.liveInput, liveRead: r.liveRead, misses };
 }
+
+/**
+ * Several runs' parts summed, as the Overview shows them: the share of live input read from the
+ * cache, the misses and the tokens they sent again, and the `limit` largest misses (largest first,
+ * then the newest run, then the earliest call). A run whose part is null had no live usage.
+ */
+export function sumCacheUse(runs: Iterable<{ runId: string; startedAt: number; use: RunCacheUse | null }>, limit = 4): CacheUse {
+  let liveInput = 0;
+  let liveRead = 0;
+  let counted = 0;
+  let misses = 0;
+  let sentAgain = 0;
+  const all: CacheUseMiss[] = [];
+  for (const { runId, startedAt, use } of runs) {
+    if (!use) continue;
+    counted++;
+    liveInput += use.liveInput;
+    liveRead += use.liveRead;
+    for (const m of use.misses) {
+      misses++;
+      sentAgain += m.sentAgain;
+      all.push({ runId, callNo: m.callNo, sentAgain: m.sentAgain, model: m.model, scope: m.scope, startedAt });
+    }
+  }
+  all.sort((a, b) => b.sentAgain - a.sentAgain || b.startedAt - a.startedAt || a.callNo - b.callNo);
+  return { readShare: liveInput ? liveRead / liveInput : null, liveInput, liveRead, misses, sentAgain, largest: all.slice(0, limit), runs: counted };
+}
+
+/** Each finished run's part, per store: a finished run's calls never change, so the Overview reads them once. */
+const finishedUse = new WeakMap<Store, Lru<string, RunCacheUse | null>>();
 
 /**
  * Live model calls' cache use across the runs started since `since` (ms since the epoch): the
@@ -163,38 +201,24 @@ function runUse(store: Store, run: RunRecord, modelOf: ReturnType<typeof storedM
  * per store; a run still recording is read again each time.
  */
 export function cacheUse(store: Store, since: number, options: CacheUseOptions = {}): CacheUse {
-  const limit = options.limit ?? 4;
   const runs = store.allRuns().filter((r) => r.startedAt >= since && (options.until === undefined || r.startedAt < options.until) && !importedRecording(r));
   const modelOf = storedModelResolver(store);
   let known = finishedUse.get(store);
   if (!known) finishedUse.set(store, (known = new Lru(8192)));
-  let liveInput = 0;
-  let liveRead = 0;
-  let counted = 0;
-  let misses = 0;
-  let sentAgain = 0;
-  const all: CacheUseMiss[] = [];
+  const parts: Array<{ runId: string; startedAt: number; use: RunCacheUse | null }> = [];
   for (const run of runs) {
     const finished = run.status !== 'running' ? `${run.runId}\n${run.status}\n${run.endedAt ?? ''}` : null;
     let use = finished === null ? undefined : known.get(finished);
     if (use === undefined) {
-      use = runUse(store, run, modelOf);
+      use = runCacheUse(store, store.getCalls(run.runId), modelOf);
       if (finished !== null) known.set(finished, use);
     }
-    if (!use) continue;
-    counted++;
-    liveInput += use.liveInput;
-    liveRead += use.liveRead;
-    for (const m of use.misses) {
-      misses++;
-      sentAgain += m.sentAgain;
-      all.push({ ...m });
-    }
+    parts.push({ runId: run.runId, startedAt: run.startedAt, use });
   }
-  all.sort((a, b) => b.sentAgain - a.sentAgain || b.startedAt - a.startedAt || a.callNo - b.callNo);
-  return { readShare: liveInput ? liveRead / liveInput : null, liveInput, liveRead, misses, sentAgain, largest: all.slice(0, limit), runs: counted };
+  return sumCacheUse(parts, options.limit ?? 4);
 }
 
-function importedRecording(run: RunRecord): boolean {
+/** A run imported from a pack or a capture: its calls were live somewhere else, so they say nothing about this machine's cache. */
+export function importedRecording(run: { meta?: { imported?: unknown } | null; mode: RunRecord['mode'] }): boolean {
   return !!run.meta?.imported && run.mode === 'record';
 }

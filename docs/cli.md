@@ -426,6 +426,8 @@ it into a golden for `shadowlap test`.
 
 Every imported run is labelled `imported`, names who imported it as its author (`SHADOWLAP_AUTHOR`
 when set, `ci` in CI, otherwise git's `user.email`), and appears in the dashboard's activity feed.
+Its source is the file's name; `--name <name>` records another (the dashboard's Import a capture
+passes the name of the file you picked, which it keeps under a name of its own while it imports).
 
 ### Traces
 

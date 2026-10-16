@@ -76,3 +76,12 @@ recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.t
 
 A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
 `palette-sources.ts`. Pages a later version fills in each have their own file under `pages/`.
+
+The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
+and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
+`calendar-model.ts`), the table, the bulk bar, the import dialog (`imports.ts` reads a file's first
+bytes for the engine's `guessImportFormat`), Find the commit (`find-commit.ts`, what it asks bisect
+for) and authors; `runspage/query.ts` builds the page's requests and reads the
+filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
+list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+screen that changes with one.

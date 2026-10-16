@@ -4,6 +4,8 @@ import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
 import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import { runsQueryString } from './runspage/query.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -32,6 +34,11 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
+  // overview-runs: the team store, and Find the commit from the Runs calendar (the tests slice's kind)
+  push: 'push',
+  pull: 'pull',
+  share: 'share',
+  bisect: 'bisect',
 } as const;
 
 export class ApiError extends Error {
@@ -105,6 +112,30 @@ export interface Client {
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
   changes(since: string | null): Promise<Changes | null>;
+
+  // ---- overview-runs: the Overview, the Runs page, imports and the team store
+  /** The Overview, worked out on the server in the viewer's time zone (IANA). */
+  summary(tz: string): Promise<OverviewSummary>;
+  /** A page of the Runs table: chips, filter, days and sort applied on the server, attempts bundled. */
+  runsPage(q: RunsQuery): Promise<RunsPage & { runs: RunsPageRow[] }>;
+  /** Runs per day for the calendar, in the viewer's days. */
+  runsByDay(q: { tz: string; weeks?: number; types?: readonly string[]; q?: string }): Promise<RunsByDay>;
+  /** Find the commit for the failures on the days picked: the first failure there, and what bisect can start from. */
+  daysBisect(q: RunsQuery & { from: number; to: number }): Promise<DaysBisect>;
+  /** Labels several runs at once, by their full ids. */
+  labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
+  /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. */
+  deleteRuns(ids: readonly string[]): Promise<DeleteResult>;
+  /** Which of these runs are still in the store, for a selection to let go of runs deleted elsewhere. */
+  knownRuns(ids: readonly string[]): Promise<string[]>;
+  /** The team store the project's config names and who this machine records as, or null without one (or on a server without the route). */
+  teamStore(): Promise<TeamStoreView | null>;
+  /** Whether the trace stores' keys are set on this machine, and where each is reached; null on a server without the route. */
+  importSources(): Promise<ImportSources | null>;
+  /** Sends a file for a job to use (`POST /api/uploads`). */
+  upload(file: Blob, name: string): Promise<UploadView>;
+  /** The newest entries of the activity feed. */
+  activity(limit: number): Promise<ActivityPage>;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
@@ -133,6 +164,25 @@ function saveBlob(blob: Blob, filename: string): void {
 export function createClient(token: string): Client {
   let hasChanges: boolean | null = null;
   let hasProvenance: boolean | null = null;
+  let hasStore: boolean | null = null;
+  // The store's answer as the screens take it, kept while the server's answer is the same one (a 304).
+  let storeView: { from: unknown; view: TeamStoreView | null } | null = null;
+  let storeLoading: Promise<TeamStoreView | null> | null = null;
+  async function loadStore(): Promise<TeamStoreView | null> {
+    if (hasStore === false) return null;
+    try {
+      const out = await request<{ store: TeamStoreStatus | null; you?: string | null }>('store');
+      hasStore = true;
+      if (storeView?.from !== out) storeView = { from: out, view: out.store ? { ...out.store, you: out.you ?? null } : null };
+      return storeView.view;
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 404 || err.status === 405) && hasStore === null) {
+        hasStore = false;
+        return null;
+      }
+      throw err;
+    }
+  }
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const method = init.method ?? 'GET';
     const cached = method === 'GET' ? etags.get(path) : undefined;
@@ -210,6 +260,29 @@ export function createClient(token: string): Client {
       const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
       saveBlob(await res.blob(), filename);
     },
+    summary: (tz) => request<OverviewSummary>(`summary?tz=${id(tz)}`),
+    runsPage: (q) => request<RunsPage & { runs: RunsPageRow[] }>(`runs/page${runsQueryString(q)}`),
+    runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
+    daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
+    labelRuns: (ids, add, remove = []) => request<LabelRunsResult>('runs/labels', { method: 'POST', body: JSON.stringify({ ids, add, remove }) }),
+    deleteRuns: (ids) => request<DeleteResult>('runs/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    knownRuns: (ids) => request<{ known: string[] }>('runs/known', { method: 'POST', body: JSON.stringify({ ids }) }).then((r) => r.known),
+    // The status bar, Runs and the Overview ask at once when runs change: one request answers them all.
+    teamStore: () => (storeLoading ??= loadStore().finally(() => (storeLoading = null))),
+    importSources: () => request<ImportSources>('imports').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    upload: async (file, name) => {
+      const res = await fetch('/api/uploads', { method: 'POST', body: file, headers: { 'x-shadowlap-token': token, 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
+      const text = await res.text();
+      let body: unknown = null;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = { error: text };
+      }
+      if (!res.ok) throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
+      return body as UploadView;
+    },
+    activity: (limit) => request<ActivityPage>(`activity?limit=${limit}`),
     changes: async (since) => {
       if (hasChanges === false) return null;
       try {
@@ -268,5 +341,17 @@ export function createExportedClient(data: StaticPayload): Client {
     exportHtml: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
+    // An exported copy lists its runs from the file: the Runs page works them out itself.
+    summary: () => Promise.reject(new ApiError(404, 'this is an exported copy: it holds runs, not the Overview')),
+    runsPage: () => Promise.reject(new ApiError(404, 'this is an exported copy: its runs are listed from the file')),
+    runsByDay: () => Promise.reject(new ApiError(404, 'this is an exported copy: its runs are listed from the file')),
+    daysBisect: readOnly,
+    labelRuns: readOnly,
+    deleteRuns: readOnly,
+    knownRuns: (ids) => Promise.resolve([...ids]),
+    teamStore: () => Promise.resolve(null),
+    importSources: () => Promise.resolve(null),
+    upload: readOnly,
+    activity: () => Promise.resolve({ items: [], next: null }),
   };
 }

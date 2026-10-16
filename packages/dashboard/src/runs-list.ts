@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, lostAt, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
+import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
 import { classifiable, depthOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -70,6 +70,8 @@ export interface RunRow extends RunListItem {
   checks: { passed: number; total: number } | null;
   /** Who made it (`meta.author`): an email, a user name, or `ci`. */
   author: string | null;
+  /** For a run made in CI: the provider (`meta.ci`), such as `github`. */
+  ci: string | null;
 }
 
 export interface ChipCounts {
@@ -116,6 +118,33 @@ function matcher(filter: RunFilter): Matcher {
   return { scope, base, matches: (r) => base(r) && (!failedOnly || r.failed) };
 }
 
+/** Every run the filter matches, newest first, as the table lists them. */
+export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
+  const index = loadRunIndex(store);
+  return withLiveness(store, index).filter(matcher(filter).matches);
+}
+
+/**
+ * The index's runs as the lists show them now: a run the store still marks running though nothing
+ * records it (its recorder was killed, or ran out of memory, before ending it) is interrupted, as
+ * the Overview's grid and the top bar's chip have it. Nothing adds to such a run or ends it until
+ * gc marks it interrupted; meanwhile it can be deleted, packed and pushed like a run that ended.
+ * Asked on every read: a recorder can stop without anything in the store changing.
+ */
+export function withLiveness(store: Store, index: RunIndex): IndexedRun[] {
+  if (!index.runs.some((r) => r.status === 'running')) return index.runs;
+  const left = new Set(store.recordingRuns().abandoned.map((x) => x.run.runId));
+  if (!left.size) return index.runs;
+  return index.runs.map((r) => (left.has(r.runId) ? interrupted(index, r) : r));
+}
+
+/** A run its recorder left, as an interrupted run: its outcome worked out again for that status (the kind stays). */
+function interrupted(index: RunIndex, r: IndexedRun): IndexedRun {
+  const p = r.parentRunId ? index.byId.get(r.parentRunId) : undefined;
+  const outcome = runOutcome(classifiable({ ...r, status: 'crashed' }), { kind: r.kind, calls: r.calls, parent: p ? { calls: p.calls, status: p.status } : null, injected: r.injected, offline: r.offline });
+  return { ...r, status: 'crashed', outcome, failed: isFailedOutcome(outcome) };
+}
+
 export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean): ChipCounts {
   const c: ChipCounts = { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0 };
   for (const r of runs) {
@@ -160,10 +189,11 @@ function decodeCursor(cursor: string, sort: RunSort): SortKey {
 /** One page of the Runs table. Throws a RangeError for a cursor it did not hand out. */
 export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsPage {
   const index = loadRunIndex(store);
+  const all = withLiveness(store, index);
   const sort = options.sort ?? 'when';
   const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50) || 50));
   const m = matcher(options);
-  const matching = index.runs.filter(m.matches);
+  const matching = all.filter(m.matches);
   const spent = sort === 'spent' ? spentOf(store, index, matching.filter((r) => r.status !== 'running'), options) : null;
   const keyOf = (r: IndexedRun): SortKey => {
     // A run in progress is still adding calls and cost: it sorts by when it started, on top.
@@ -185,7 +215,7 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
     runs: rows(store, index, page.map((x) => x.r), options),
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
-    chipCounts: chipCounts(index.runs, m.scope),
+    chipCounts: chipCounts(all, m.scope),
   };
 }
 
@@ -227,6 +257,7 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
       lostAt: lostAt(c),
       checks: checksOf(c),
       author: r.meta.author,
+      ci: r.meta.ci,
     };
   });
 }
@@ -250,9 +281,10 @@ export interface RecentRunsOptions extends StatsOptions {
  */
 export function recentRuns(store: Store, options: RecentRunsOptions = {}): RunRow[] {
   const index = loadRunIndex(store);
+  const all = withLiveness(store, index);
   const limit = Math.max(1, Math.min(5000, Math.floor(options.limit ?? 500) || 500));
   const only = options.ids ? new Set(options.ids) : null;
-  const listed = only ? index.runs.filter((r) => only.has(r.runId)) : index.runs.filter((r) => options.includeAttempts || !r.bundled).slice(0, limit);
+  const listed = only ? all.filter((r) => only.has(r.runId)) : all.filter((r) => options.includeAttempts || !r.bundled).slice(0, limit);
   const ids = new Set(listed.map((r) => r.runId));
   // The listed run a run hangs under: its parent, or past an attempt left out, the run that attempt came from.
   const anchorOf = (r: IndexedRun): string | null => {
@@ -341,7 +373,7 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
   const days = daysFrom(addDays(today, -(today.weekday + (weeks - 1) * 7), tz), today, tz);
   const out: DayCount[] = days.map((d) => ({ day: d.key, start: d.start, end: d.end, weekday: d.weekday, runs: 0, failed: 0, all: 0, level: 0, byKind: {}, byAuthor: {} }));
   const m = matcher(options);
-  for (const r of loadRunIndex(store).runs) {
+  for (const r of withLiveness(store, loadRunIndex(store))) {
     const i = dayIndex(days, r.startedAt);
     if (i < 0 || !m.base(r)) continue;
     const d = out[i]!;
@@ -388,6 +420,14 @@ function idList(ids: unknown): string[] | { error: string } {
   if (ids.length > BULK_MAX) return { error: `ids: at most ${BULK_MAX} runs at once` };
   if (!ids.every((id): id is string => typeof id === 'string')) return { error: 'ids: run ids are strings' };
   return [...new Set(ids)];
+}
+
+/** Which of these runs are still in the store: the Runs page lets go of a run picked once it is deleted elsewhere. */
+export function knownRuns(store: Store, ids: unknown): { known: string[] } | { error: string } {
+  const list = idList(ids);
+  if ('error' in list) return list;
+  const index = loadRunIndex(store);
+  return { known: list.filter((id) => index.byId.has(id)) };
 }
 
 /** Adds and removes labels on several runs at once. A bad label refuses the whole request. */

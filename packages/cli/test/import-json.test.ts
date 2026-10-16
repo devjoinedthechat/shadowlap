@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadApiRequest, Store } from '@shadowlap/engine';
-import { settleImport, sourceName } from '../src/import-report.js';
+import { importedRunsLink, settleImport, sourceName } from '../src/import-report.js';
 import { importHar } from '../src/import-har.js';
 
 /**
@@ -148,6 +148,65 @@ describe('import --json', () => {
     expect(new Set(json.runs.map((x: { runId: string }) => x.runId)).size).toBe(2);
     expect(json.skipped).toEqual([{ url: 'line 4', reason: 'not JSON (a partly written line?)' }]);
     expect(r.events.filter((e) => e.type === 'run')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'run', runId: x.runId, role: 'imported' })));
+    // A dashboard job links each run it made.
+    expect(r.events.filter((e) => e.type === 'link')).toEqual(json.runs.map((x: { runId: string }) => ({ type: 'link', label: `Open ${x.runId.slice(0, 10)}`, href: `#/run/${x.runId}` })));
+  });
+
+  it('links past three runs to the Runs page filtered to them, by the name the file was picked by', async () => {
+    const keys = ['incident-51', 'incident-52', 'incident-53', 'incident-54', 'incident-55'];
+    writeFileSync(join(cwd, '01K5CQ4N7G0000000000000001-gateway_2_.jsonl'), keys.map((k) => capture(k, k)).join('\n') + '\n');
+    const r = await shadowlap(['import', 'litellm', '01K5CQ4N7G0000000000000001-gateway_2_.jsonl', '--name', 'gateway (2).jsonl', '--json']);
+    expect(r.code).toBe(0);
+    const json = JSON.parse(r.out);
+    expect(json.runs).toHaveLength(5);
+    const links = r.events.filter((e) => e.type === 'link');
+    expect(links).toEqual([{ type: 'link', label: 'All 5 on Runs', href: '#/runs?q=imported%20gateway%20%282%29.jsonl' }]);
+    // As a dashboard takes a job's links: a fragment of these characters only.
+    expect(links[0]!.href).toMatch(/^#\/[\w\-./~%?=&+:@,!*$]*$/);
+    expect(new URLSearchParams(String(links[0]!.href).split('?')[1]).get('q')).toBe('imported gateway (2).jsonl');
+    // Runs from files of different names share only the label.
+    expect(importedRunsLink([{ source: 'a.jsonl' }, { source: 'b.jsonl' }])).toBe('#/runs?q=imported');
+    expect(importedRunsLink([{ source: "it's *new*!.har" }])).toBe('#/runs?q=imported%20it%27s%20%2Anew%2A%21.har');
+  });
+
+  it('records the name given with --name as the source: a dashboard upload is kept under another', async () => {
+    writeFileSync(join(cwd, '01K5CQ4N7G0000000000000000-traffic.har'), JSON.stringify({ log: { version: '1.2', entries: [harEntry('https://api.anthropic.com/v1/messages', 'hi')] } }));
+    const r = await shadowlap(['import', 'har', '01K5CQ4N7G0000000000000000-traffic.har', '--name', 'traffic.har', '--json']);
+    expect(r.code).toBe(0);
+    const [run] = JSON.parse(r.out).runs;
+    expect(run.source).toBe('traffic.har');
+    const store = Store.open(db);
+    try {
+      expect(store.getRun(run.runId)!.meta?.imported?.from).toBe('traffic.har');
+      expect(store.listEvents({ kinds: ['capture.imported'] }).find((e) => e.runId === run.runId)).toMatchObject({ ref: 'traffic.har' });
+    } finally {
+      store.close();
+    }
+    const refused = await shadowlap(['import', 'har', 'traffic.har', '--name', '../elsewhere/traffic.har']);
+    expect(refused.code).not.toBe(0);
+    expect(refused.err).toMatch(/--name: a file name, without folders/);
+  });
+
+  it('keeps a name that reads like a flag as the name: --json stays the source, and the output stays words', async () => {
+    writeFileSync(join(cwd, '01K5CQ4N7G0000000000000002-json.har'), JSON.stringify({ log: { version: '1.2', entries: [harEntry('https://api.anthropic.com/v1/messages', 'hi')] } }));
+    // As a dashboard job passes it: one argument.
+    const joined = await shadowlap(['import', 'har', '01K5CQ4N7G0000000000000002-json.har', '--name=--json']);
+    expect(joined.code).toBe(0);
+    // Not --json's output: the CLI's own words.
+    expect(() => JSON.parse(joined.out)).toThrow();
+    const [first] = joined.events.filter((e) => e.type === 'run');
+    // As typed by hand, the name after the flag: still the name.
+    const split = await shadowlap(['import', 'har', '01K5CQ4N7G0000000000000002-json.har', '--name', '-x.har', '--json']);
+    expect(split.code).toBe(0);
+    const [second] = JSON.parse(split.out).runs;
+    const store = Store.open(db);
+    try {
+      expect(store.getRun(String(first!.runId))!.meta?.imported?.from).toBe('--json');
+      expect(store.getRun(second.runId)!.meta?.imported?.from).toBe('-x.har');
+      expect(second.source).toBe('-x.har');
+    } finally {
+      store.close();
+    }
   });
 
   it('puts an agent run back together from the files of several workers, in the order its calls started', async () => {

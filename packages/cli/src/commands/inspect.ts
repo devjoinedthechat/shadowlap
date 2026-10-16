@@ -6,6 +6,7 @@ import { kindFacts } from '@shadowlap/tui/data';
 import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
+import { projectGoldens } from '../goldens.js';
 import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
@@ -43,6 +44,7 @@ export function register(program: Command): void {
         readOnly: !!flags.readOnly,
         project: { path: cwd },
         loadConfig: () => loadConfig(cwd),
+        goldens: () => projectGoldens(cwd),
         version: VERSION,
         ...(config.prices ? { prices: config.prices } : {}),
         ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[dashboard] ${line}\n`)) } : {}),
@@ -92,7 +94,7 @@ export function register(program: Command): void {
       const dashboard = embeddedDashboard(async () => {
         const { cliSpawner, startDashboard } = await import('@shadowlap/dashboard');
         // The dashboard's jobs get the events pipe; the terminal UI reads its actions' output as it always did.
-        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
+        return startDashboard({ store, dbPath, port: 4777, spawnCli: cliSpawner({ command: [process.execPath, process.argv[1]!], dbPath, cwd }), project: { path: cwd }, loadConfig: () => loadConfig(cwd), goldens: () => projectGoldens(cwd), version: VERSION, ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
       });
       const openDashboard = async (id: string, callNo?: number) => {
         const { openInBrowser } = await import('@shadowlap/dashboard');
