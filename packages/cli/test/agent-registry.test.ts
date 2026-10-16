@@ -132,6 +132,21 @@ describe('the agent registry', () => {
     expect(chain[1]?.pid).toBe(process.ppid);
   });
 
+  // Linux reads /proc, with no command to fail; elsewhere ps, or PowerShell on Windows, lists them.
+  it.skipIf(process.platform === 'linux')("says why when the system won't list its processes", () => {
+    const path = process.env.PATH;
+    const notes: string[] = [];
+    process.env.PATH = '';
+    try {
+      expect(processAncestors((why) => notes.push(why))).toBeNull();
+    } finally {
+      if (path === undefined) delete process.env.PATH;
+      else process.env.PATH = path;
+    }
+    // The command that lists them can't be found: a proxy's log names it.
+    expect(notes).toEqual([expect.stringMatching(/^the process tree could not be read \((ps|powershell\.exe) didn't start \(.*ENOENT.*\)\), so only this process's parent is looked up for its run$/)]);
+  });
+
   it("reads a process's parent from Linux's /proc, whatever its name holds", () => {
     expect(parentFromProcStat('4242 (python3) S 4100 4242 4100 34816 4242 4194304 1032 0 0 0')).toBe(4100);
     expect(parentFromProcStat('4242 (my (odd) agent) S) R 977 4242 977 0 -1 4194560')).toBe(977);

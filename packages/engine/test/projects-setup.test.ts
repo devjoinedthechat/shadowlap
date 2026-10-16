@@ -162,6 +162,8 @@ describe('initialSetup', () => {
     // The folder a dashboard starts in: any runs there mean it is in use already.
     expect(initialSetup(facts({ runs: 2 }), 0, { inUse: true })).toEqual({ stage: 'done', runId: null, golden: null });
     expect(initialSetup(facts(), 0, { inUse: true })).toEqual({ stage: 'added', runId: null, golden: null });
+    // Closed, or Windows can't delete its folder afterwards: an open database file can't be removed there.
+    store.close();
   });
 
   it('takes only a project.setup event that finished the setup as finished', () => {

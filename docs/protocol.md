@@ -22,7 +22,7 @@ Two environment variables, set by `shadowlap run` and `shadowlap replay` for the
 | `SHADOWLAP_URL` | Base URL of the sidecar, including a session token path. Absent means Shadowlap is not running. |
 | `SHADOWLAP_RUN_ID` | The run these calls belong to. |
 | `SHADOWLAP_SCOPE` | Optional. The [scope](#scopes) this process starts in, for an agent whose branches are separate processes. A client reads it as the initial scope, and scopes entered in code nest underneath. |
-| `SHADOWLAP_STDIN` | Optional. The input `shadowlap` was given, as `dev:ino` (unsigned). A client that records what a person types reads it from that input only, a terminal, or the null device (see [User input](#user-input)). |
+| `SHADOWLAP_STDIN` | Optional. The input `shadowlap` was given, as `dev:ino` (unsigned). A client that records what a person types reads it from that input only, a terminal, or the null device (see [User input](#user-input)). On Windows only a file has one: `dev` is its volume's 32-bit serial number and `ino` its 64-bit file id. |
 
 A client MUST treat `SHADOWLAP_URL` as opaque: it already contains the session token as a path
 segment (`http://127.0.0.1:PORT/t/<token>`), and the sidecar rejects any request that does not carry

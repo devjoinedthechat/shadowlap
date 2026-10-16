@@ -31,6 +31,9 @@ function stdinOrigin() {
     const own = fstatSync(0, { bigint: true });
     // A character device that is not a terminal is the null device (stdin ignored), on Windows too.
     if (own.isCharacterDevice()) return 'nobody';
+    // On Windows only a file is named by SHADOWLAP_STDIN: Node numbers a pipe by its handle, this
+    // process's own number for it, which the pipe `shadowlap` was given may have had too.
+    if (process.platform === 'win32' && !own.isFile()) return null;
     if (own.ino && process.env.SHADOWLAP_STDIN === `${unsigned(own.dev)}:${unsigned(own.ino)}`) return 'person';
   } catch {
     // no fd 0 at all

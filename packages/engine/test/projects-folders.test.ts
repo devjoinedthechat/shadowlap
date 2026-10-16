@@ -5,8 +5,9 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { SUGGEST_LIMITS, checkFolder, countGoldens, describeFolder, displayPath, listPacks, projectRoots, readPack, suggestFolders } from '../src/projects/index.js';
 
 const dirs: string[] = [];
+/** A temporary folder by its real path as the system names it, the way the project list keeps folders (on Windows, RUNNER~1 written out in full). */
 function tempDir(prefix: string): string {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   dirs.push(d);
   return d;
 }
@@ -262,7 +263,10 @@ describe('suggestFolders', () => {
 
 describe('projectRoots', () => {
   it('keeps the home folder and vetted roots, and says why the others were left out', () => {
-    const home = tempDir('sl-roots-home-');
+    // The home folder one level into a temporary folder, so the folder holding it is an ordinary
+    // one on every system: Linux's temporary folder (/tmp) is a system folder itself.
+    const home = join(tempDir('sl-roots-'), 'home');
+    mkdirSync(home);
     const work = tempDir('sl-roots-work-');
     const r = projectRoots({ home, configured: [work, '/', '/etc', 'relative/path', join(work, 'missing'), dirname(home), `${home}/sub`, work] });
     expect(r.roots).toEqual([home, work]);

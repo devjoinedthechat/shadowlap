@@ -33,7 +33,9 @@ export default defineConfig({
     reporters: process.env.CI ? ['default', 'junit'] : ['default'],
     outputFile: { junit: 'vitest-junit.xml' },
     esbuild: { jsx: 'automatic' },
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    // Windows starts a process several times slower than macOS or Linux, and the end-to-end tests
+    // start dozens (the CLI, agents, git): on a Windows runner the longest took 26 of the 30 seconds.
+    testTimeout: process.platform === 'win32' ? 90_000 : 30_000,
+    hookTimeout: process.platform === 'win32' ? 90_000 : 30_000,
   },
 });

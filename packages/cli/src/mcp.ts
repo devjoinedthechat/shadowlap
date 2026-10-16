@@ -8,6 +8,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
 import { isLoopbackUrl, lookupRegistration, processAncestors, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
 import { isLoopbackHost } from './loopback.js';
+import { startCommand } from './start-command.js';
 
 export { isLoopbackUrl, type SidecarTarget } from './agent-registry.js';
 
@@ -81,7 +82,7 @@ export async function findSidecar(env: NodeJS.ProcessEnv = process.env, cwd = pr
     if (isLoopbackUrl(env.SHADOWLAP_URL)) return { kind: 'sidecar', target: { url: env.SHADOWLAP_URL.replace(/\/$/, ''), runId: env.SHADOWLAP_RUN_ID ?? '' }, from: 'SHADOWLAP_URL' };
     skip(`SHADOWLAP_URL ${env.SHADOWLAP_URL} is not a loopback address; ignoring it`);
   }
-  const chain = processAncestors();
+  const chain = processAncestors(skip);
   const registered = await lookupRegistration({ cwd, chain, skip, ...(o.home !== undefined ? { home: o.home } : {}), ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}) });
   if (registered.kind !== 'none' || chain) return registered;
   const active = discoverSidecar({}, cwd, skip);
@@ -355,7 +356,9 @@ export interface McpProxyOptions {
 }
 
 export function startMcpProxy(o: McpProxyOptions): { child: ChildProcess; done: Promise<number> } {
-  const child = spawn(o.server.command, o.server.args, { stdio: ['pipe', 'pipe', 'inherit'], env: o.server.env ?? process.env });
+  // `npx -y some-server` runs through cmd.exe on Windows, where npx is a batch file.
+  const start = startCommand(o.server.command, o.server.args, { env: o.server.env ?? process.env });
+  const child = spawn(start.command, start.args, { ...start.options, stdio: ['pipe', 'pipe', 'inherit'] });
   const pending = new Map<string, { method: string; live?: LiveCall }>();
   const calls = new ToolCalls(o.sidecar, o.effects, o.log, { transport: 'stdio', server: stdioServerName(o.server.command, o.server.args) });
   const toServer = (raw: string) => {

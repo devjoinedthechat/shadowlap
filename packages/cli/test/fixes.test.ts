@@ -314,7 +314,8 @@ describe('shadowlap fix', () => {
     expect(applied.code, applied.out).toBe(0);
     const result = json(applied);
     expect(result).toMatchObject({ fixId, status: 'applied', patch: 'applied', repairId: report.repairId, tests: 'passed' });
-    expect(result.goldens).toEqual(report.output.goldens.map((g: string) => ({ from: g, to: join('goldens', basename(g)), copied: true })));
+    // Paths as apply reports them, with forward slashes on every system.
+    expect(result.goldens).toEqual(report.output.goldens.map((g: string) => ({ from: g, to: `goldens/${basename(g)}`, copied: true })));
     expect(agentText()).toContain(FIX);
     for (const g of result.goldens) expect(existsSync(join(project, g.to, 'run.json'))).toBe(true);
     expect(applied.out).toContain('2 passed, 0 failed');
@@ -527,7 +528,7 @@ describe('shadowlap fix', () => {
     // fix apply tests them where they are, and copies nothing again.
     const applied = await shadowlap(['fix', 'apply', fixId, '--json']);
     expect(applied.code, applied.out).toBe(0);
-    expect(json(applied)).toMatchObject({ again: true, patch: 'already', tests: 'passed', goldens: names.map((n) => ({ to: join('tests', 'goldens', n), copied: false })) });
+    expect(json(applied)).toMatchObject({ again: true, patch: 'already', tests: 'passed', goldens: names.map((n) => ({ to: `tests/goldens/${n}`, copied: false })) });
     expect(existsSync(join(project, 'goldens'))).toBe(false);
   });
 

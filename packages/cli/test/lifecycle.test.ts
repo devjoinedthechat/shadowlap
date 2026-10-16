@@ -86,6 +86,31 @@ describe('shadowlap run when the agent does not end well', () => {
     store2.close();
   });
 
+  // On Windows a process is ended outright, never signalled: there is no stop signal to tell apart.
+  it.skipIf(process.platform === 'win32')('marks the run interrupted when the agent is stopped by a signal, wherever it came from', async () => {
+    const child = spawn(process.execPath, [CLI, '--db', db, 'run', '--', process.execPath, '-e', "console.log('agent ' + process.pid); setInterval(() => {}, 1000)"], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stderr.on('data', (c: Buffer) => (out += c.toString()));
+    const agent = await new Promise<number>((resolve) =>
+      child.stdout.on('data', (c: Buffer) => {
+        out += c.toString();
+        const m = /agent (\d+)/.exec(out);
+        if (m) resolve(Number(m[1]));
+      }),
+    );
+    const exited = new Promise<void>((r) => child.on('exit', () => r()));
+    // As a dashboard stopping a job signals its whole process group: the agent can end on it before
+    // the CLI has heard its own, and the run was interrupted all the same.
+    process.kill(agent, 'SIGTERM');
+    await exited;
+    const store = Store.open(db);
+    try {
+      expect(store.allRuns()[0]!.status, out).toBe('crashed');
+    } finally {
+      store.close();
+    }
+  });
+
   it('repeats a fork, concurrently, with every attempt in its own run', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
     const parentId = /recording run (\w{26})/.exec(recorded.out)![1]!;

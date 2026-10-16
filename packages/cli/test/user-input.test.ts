@@ -1,11 +1,12 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer, type Script } from '@shadowlap-testing/mock-anthropic';
+import { inputIdentity } from '../src/run-agent.js';
 
 /**
  * What a person types is recorded as `user_input` calls, so an interactive agent replays, tests and
@@ -19,6 +20,7 @@ const CHAT = fileURLToPath(new URL('../../../examples/support-chat/support_chat.
 const PY_SDK = fileURLToPath(new URL('../../../sdks/python', import.meta.url));
 // The example's scripted model, so the chat here is the one its README walks through.
 const MOCK_MODEL = fileURLToPath(new URL('../../../examples/support-chat/mock_model.mjs', import.meta.url));
+const GUARD = fileURLToPath(new URL('../guard/', import.meta.url));
 
 function pythonAvailable(): string | null {
   for (const cmd of ['python3', 'python']) {
@@ -33,6 +35,20 @@ function pythonAvailable(): string | null {
 }
 const PYTHON = pythonAvailable();
 
+/**
+ * A person typing is played here through a pipe, each answer written once its prompt shows: CI has
+ * no terminal. That can't be recorded on Windows. Node and Python can't tell one pipe from another
+ * there, so input through a pipe isn't recorded (a terminal's or a file's is), and a file can't wait
+ * for a prompt: readline hands the lines that come before a question to no one.
+ */
+const TYPED_THROUGH_A_PIPE = process.platform !== 'win32';
+
+/**
+ * How input given all at once reaches the agent: through a pipe, as `printf … | shadowlap run` gives
+ * it, or on Windows, where a pipe's input isn't recorded, from a file, as `< answers.txt` gives it.
+ */
+const ALL_AT_ONCE: 'pipe' | 'file' = process.platform === 'win32' ? 'file' : 'pipe';
+
 let cwd: string;
 let db: string;
 let mock: MockServer;
@@ -43,6 +59,9 @@ interface Outcome {
   out: string;
 }
 
+/** What the CLI and its agent printed, its lines ended by \n: Python on Windows ends them with \r\n. */
+const outcome = (code: number | null, out: string): Outcome => ({ code, out: out.replace(/\r\n/g, '\n') });
+
 /** Runs the CLI with stdin ignored, as a test, a blame or a verify starts an agent. */
 function shadowlap(args: string[]): Promise<Outcome> {
   return new Promise((resolve) => {
@@ -50,7 +69,7 @@ function shadowlap(args: string[]): Promise<Outcome> {
     let out = '';
     child.stdout.on('data', (c: Buffer) => (out += c.toString()));
     child.stderr.on('data', (c: Buffer) => (out += c.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
+    child.on('exit', (code) => resolve(outcome(code, out)));
   });
 }
 
@@ -70,19 +89,29 @@ function converse(args: string[], prompt: string, answers: string[]): Promise<Ou
       setTimeout(() => (next === undefined ? child.stdin.end() : child.stdin.write(`${next}\n`)), 20);
     });
     child.stderr.on('data', (c: Buffer) => (out += c.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
+    child.on('exit', (code) => resolve(outcome(code, out)));
   });
 }
 
-/** Runs the CLI with all the input given at once, as a pipe or a file gives it. */
-function piped(args: string[], input: string): Promise<Outcome> {
+let inputFiles = 0;
+
+/** Runs the CLI with all the input given at once, through a pipe or from a file (ALL_AT_ONCE). */
+function piped(args: string[], input: string, via: 'pipe' | 'file' = ALL_AT_ONCE): Promise<Outcome> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd, env: env(), stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdin: 'pipe' | number = 'pipe';
+    if (via === 'file') {
+      const file = join(cwd, `input-${++inputFiles}.txt`);
+      writeFileSync(file, input);
+      stdin = openSync(file, 'r');
+    }
+    const child = spawn(process.execPath, [CLI, '--db', db, ...args], { cwd, env: env(), stdio: [stdin, 'pipe', 'pipe'] });
+    // The CLI has a copy of its own: this one would only keep Windows from deleting the file.
+    if (typeof stdin === 'number') closeSync(stdin);
     let out = '';
-    child.stdout.on('data', (c: Buffer) => (out += c.toString()));
-    child.stderr.on('data', (c: Buffer) => (out += c.toString()));
-    child.on('exit', (code) => resolve({ code, out }));
-    child.stdin.end(input);
+    child.stdout!.on('data', (c: Buffer) => (out += c.toString()));
+    child.stderr!.on('data', (c: Buffer) => (out += c.toString()));
+    child.on('exit', (code) => resolve(outcome(code, out)));
+    child.stdin?.end(input);
   });
 }
 
@@ -142,7 +171,7 @@ describe('recorded user input: Node readline', () => {
     ['callback', '? '],
     ['promisify', '# '],
   ] as const) {
-    it(`records rl.question (${style}) as a person answers it, and replays it with no one there`, async () => {
+    it.skipIf(!TYPED_THROUGH_A_PIPE)(`records rl.question (${style}) as a person answers it, and replays it with no one there`, async () => {
       const rec = await converse(['run', '--', process.execPath, READLINE_AGENT, style], prompt, ['first', 'second one', '']);
       expect(rec.code).toBe(0);
       expect(rec.out).toContain('heard second one (10)');
@@ -175,7 +204,21 @@ describe('recorded user input: Node readline', () => {
     expect(replay.out).toMatch(/heard first \(5\)\nheard second one \(10\)\n[\s\S]*\[done\]/);
   });
 
-  it('asks again after the fork with --live-input, where no one answers', async () => {
+  it('records the answers in a file given as the input, as `< answers.txt` gives them', async () => {
+    const rec = await piped(['run', '--', process.execPath, READLINE_AGENT, 'lines'], 'from a file\n', 'file');
+    expect(rec.code, rec.out).toBe(0);
+    expect(inputsOf(latestRecording()).map((i) => i.result)).toEqual([{ result: { text: 'from a file' } }, { error: { name: 'EOFError', message: 'end of input' } }]);
+  });
+
+  it.runIf(process.platform === 'win32')('leaves input through a pipe unrecorded on Windows, where it could be any pipe', async () => {
+    const rec = await piped(['run', '--', process.execPath, READLINE_AGENT, 'lines'], 'first\n', 'pipe');
+    expect(rec.code, rec.out).toBe(0);
+    // The agent read it as it would have without Shadowlap.
+    expect(rec.out).toContain('heard first (5)');
+    expect(inputsOf(latestRecording())).toEqual([]);
+  });
+
+  it.skipIf(!TYPED_THROUGH_A_PIPE)('asks again after the fork with --live-input, where no one answers', async () => {
     await converse(['run', '--', process.execPath, READLINE_AGENT, 'promises'], '> ', ['first', 'second one', '']);
     const runId = latestRecording();
     writeFileSync(join(cwd, 'other.json'), JSON.stringify({ text: 'other' }));
@@ -295,5 +338,35 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     const replay = await shadowlap(['replay', runId]);
     expect(replay.out).toContain("'one\\n'\n'two'");
     expect(replay.out).toContain('Replay clean: 3/3 calls replayed');
+  });
+});
+
+describe('the input shadowlap was given', () => {
+  it('is named by dev:ino, and on Windows only when it is a file', () => {
+    // A pipe on macOS: an inode beyond a double's precision, which Node's big integers give signed.
+    expect(inputIdentity({ dev: 0n, ino: -6917529027641081856n, isFile: () => false }, 'darwin')).toBe('0:11529215046068469760');
+    // A pipe on Windows, as Node sees it: no device, and this process's handle for it as the inode.
+    expect(inputIdentity({ dev: 0n, ino: 476n, isFile: () => false }, 'win32')).toBeNull();
+    // A file on Windows: its volume's 32-bit serial number, and its 64-bit file id.
+    expect(inputIdentity({ dev: 1787198591n, ino: 562949953421400n, isFile: () => true }, 'win32')).toBe('1787198591:562949953421400');
+  });
+
+  it.skipIf(!PYTHON)('is found by Python on Windows, which from 3.12 on gives all 64 bits of the volume\'s serial number', () => {
+    // The guard's own check, with what os.fstat gives on Windows for a file and for a pipe.
+    const script = [
+      'import stat, sys, types',
+      'sys.path.insert(0, sys.argv[1])',
+      'import _shadowlap_input as m',
+      'serial, file_id = 0x0A6A8E956A8E7C7F, 562949953421400',
+      'file = types.SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_dev=serial, st_ino=file_id)',
+      'pipe = types.SimpleNamespace(st_mode=stat.S_IFIFO, st_dev=0, st_ino=0)',
+      'def origin(st, named):',
+      '    m.os = types.SimpleNamespace(name="nt", isatty=lambda fd: False, fstat=lambda fd: st, environ={"SHADOWLAP_STDIN": named})',
+      '    return m._stdin_origin()',
+      'print(origin(file, "%d:%d" % (serial & 0xFFFFFFFF, file_id)), origin(file, "1:%d" % file_id), origin(pipe, "0:0"))',
+    ].join('\n');
+    // Without SHADOWLAP_URL the module only defines its functions: nothing is installed.
+    const out = execFileSync(PYTHON!, ['-c', script, GUARD], { env: { ...process.env, SHADOWLAP_URL: '' } }).toString();
+    expect(out.trim()).toBe('person None None');
   });
 });

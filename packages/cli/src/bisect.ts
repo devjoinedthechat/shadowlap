@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
@@ -8,6 +8,7 @@ import { defaultDbPath, loadConfig, loadTests } from './config.js';
 import { importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
 import { goldenName, scratchDir } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
+import { physicalPath, realPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { shortId } from './ui.js';
 
@@ -123,26 +124,6 @@ function resolveRev(root: string, rev: string, flag: string): string {
 }
 
 /**
- * A path with its symbolic links resolved, as git reports the repository's own: the longest part of
- * it that exists is resolved, and the rest kept as it is. A project reached through a link (`/tmp`
- * on macOS, a linked home folder) then still maps into each worktree.
- */
-export function physicalPath(path: string): string {
-  const rest: string[] = [];
-  let head = resolve(path);
-  for (;;) {
-    try {
-      return join(realpathSync(head), ...rest.reverse());
-    } catch {
-      const up = dirname(head);
-      if (up === head) return resolve(path);
-      rest.push(basename(head));
-      head = up;
-    }
-  }
-}
-
-/**
  * The recorded command, pointed into a worktree. An absolute path inside the repository becomes the
  * worktree's copy, except an executable the worktree doesn't have (a virtualenv's python, which is
  * installed rather than committed); a path that reaches the repository through a symbolic link
@@ -181,7 +162,7 @@ export function linkDependencies(root: string, from: string, to: string, worktre
     let target = entry;
     try {
       if (lstatSync(entry).isSymbolicLink()) {
-        const real = realpathSync(entry);
+        const real = realPath(entry);
         const rel = relative(root, real);
         // In this repository and not an installed package: the commit's own copy.
         if (rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[\\/]/).includes('node_modules')) target = join(worktree, rel);

@@ -7,8 +7,9 @@ import { Store } from '../src/index.js';
 import { ProjectError, ProjectRegistry, nameConfirms, projectDbPath, setupRunOf, type ProjectEntry, type SetupFindings } from '../src/projects/index.js';
 
 const dirs: string[] = [];
+/** A temporary folder by its real path as the system names it, the way the project list keeps folders (on Windows, RUNNER~1 written out in full). */
 function tempDir(prefix: string): string {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   dirs.push(d);
   return d;
 }

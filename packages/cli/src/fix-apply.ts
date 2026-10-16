@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyLeft, fixRecords, markFixApplied, recordEvent, repairToApply, resolveAuthor, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 
@@ -70,6 +70,9 @@ function patchedFiles(patch: string): string[] {
 
 const slashes = (p: string) => p.split(/[\\/]+/).join('/');
 
+/** A path as apply reports it: relative to the folder it runs in, with forward slashes on every system. */
+const shown = (cwd: string, path: string) => relative(cwd, path).split(sep).join('/');
+
 /**
  * The repair's directory and goldens, checked: a store can come from elsewhere (a copied file, a
  * shared bucket), and a path in it must not make apply read a patch, or copy a folder, from outside
@@ -112,7 +115,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
 
     if (git(root, ['apply', '--reverse', '--check', patch]).status === 0) {
       result.patch = 'already';
-      o.log(`  the patch is already in the working tree (${relative(o.cwd, patch)})`);
+      o.log(`  the patch is already in the working tree (${shown(o.cwd, patch)})`);
     } else {
       const check = git(root, ['apply', '--check', patch]);
       if (check.status !== 0) {
@@ -122,13 +125,13 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
         throw new ApplyError(
           dirty
             ? `${files.join(', ')} ${files.length === 1 ? 'has' : 'have'} uncommitted changes the patch conflicts with (${why}). Nothing was changed: commit or stash them, then run shadowlap fix apply ${fix.fixId} again`
-            : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${relative(o.cwd, patch)}, or repair again`,
+            : `the patch no longer applies: ${files.join(', ') || 'the file it changes'} changed since the repair (${why}). Nothing was changed: apply it by hand with git apply --3way ${shown(o.cwd, patch)}, or repair again`,
         );
       }
       const applied = git(root, ['apply', patch]);
       if (applied.status !== 0) throw new ApplyError(`git apply failed: ${(applied.stderr || applied.stdout).trim()}`);
       result.patch = 'applied';
-      o.log(`  applied ${relative(o.cwd, patch)}`);
+      o.log(`  applied ${shown(o.cwd, patch)}`);
     }
 
     // The recordings the repair made with the fixed code: replayed by `shadowlap test`, they fail the
@@ -145,8 +148,8 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
       }
       const copied = !existsSync(to);
       if (copied) cpSync(from, to, { recursive: true });
-      result.goldens.push({ from: relative(o.cwd, from), to: relative(o.cwd, to), copied });
-      o.log(`  ${copied ? 'copied' : 'already there:'} ${relative(o.cwd, to)}`);
+      result.goldens.push({ from: shown(o.cwd, from), to: shown(o.cwd, to), copied });
+      o.log(`  ${copied ? 'copied' : 'already there:'} ${shown(o.cwd, to)}`);
     }
 
     if (o.build) {

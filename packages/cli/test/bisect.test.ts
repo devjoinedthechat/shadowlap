@@ -1,12 +1,13 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { mapArgv, physicalPath } from '../src/bisect.js';
+import { mapArgv } from '../src/bisect.js';
+import { physicalPath } from '../src/real-path.js';
 
 /**
  * `shadowlap bisect` through the CLI, on a scratch git repository with a tiny agent: one model call,
@@ -16,6 +17,9 @@ import { mapArgv, physicalPath } from '../src/bisect.js';
  * replay after that is offline.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+
+/** Whether the temporary folder's volume ignores letter case, as macOS's and Windows' do by default. */
+const CASE_INSENSITIVE = tmpdir() !== tmpdir().toUpperCase() && existsSync(tmpdir().toUpperCase());
 
 const AGENT = `import { readFileSync } from 'node:fs';
 const system = readFileSync(new URL('./prompt.txt', import.meta.url), 'utf8').trim();
@@ -181,15 +185,18 @@ describe('shadowlap bisect', () => {
 });
 
 describe('commits bisect cannot test', () => {
+  // A build step that fails where BROKEN is, in a command line both sh and Windows' cmd.exe read alike.
+  const build = `"${process.execPath}" -e "process.exit(require('fs').existsSync('BROKEN') ? 1 : 0)"`;
+
   it('skips a commit that won\'t build and names it when the first bad commit could be it', async () => {
-    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'test ! -f BROKEN', '--json']);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', build, '--json']);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain(`replay at ${rev['Add usage']}  – skipped: could not be built`);
     const report = JSON.parse(r.stdout) as { first: { short: string }; untested: Array<{ short: string; subject: string }>; steps: Array<{ short: string; skipped: boolean }> };
     expect(report.first.short).toBe(rev['Ask for brevity']);
     expect(report.untested).toEqual([expect.objectContaining({ short: rev['Add usage'], subject: 'Add usage' })]);
     expect(report.steps.find((x) => x.short === rev['Add usage'])!.skipped).toBe(true);
-    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'test ! -f BROKEN']);
+    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', build]);
     expect(text.stdout).toContain(`or one just before it, which could not be tested: ${rev['Add usage']} (Add usage)`);
   });
 
@@ -206,9 +213,17 @@ describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
   it('stops at Ctrl-C, concludes nothing from the replay it cut short, and removes its worktrees', async () => {
     const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'sleep 2'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
-    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    setTimeout(() => child.kill('SIGINT'), 1000);
+    let interrupted = false;
+    // Ctrl-C once the first commit has been tried, as the next one builds (two seconds): bisect
+    // listens for it by then. A fixed delay from the start ran out before that on a busy machine,
+    // where the CLI was slow to start, and the signal ended it outright.
+    const interrupt = () => {
+      if (interrupted || !out.includes('replay at ')) return;
+      interrupted = true;
+      child.kill('SIGINT');
+    };
+    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), interrupt()));
+    child.stderr.on('data', (d: Buffer) => ((out += d.toString()), interrupt()));
     const code = await new Promise<number | null>((resolve) => child.on('exit', resolve));
     expect(code, out).toBe(1);
     expect(out).toContain('no first bad commit: interrupted');
@@ -294,7 +309,8 @@ describe('the command at each commit', () => {
       const m = { root: project, worktree, cwd: project, worktreeCwd: worktree };
       expect(mapArgv(['node', join(link, 'agent.mjs')], m)).toEqual(['node', join(worktree, 'agent.mjs')]);
       expect(mapArgv(['node', join(project, 'agent.mjs')], { ...m, root: link })).toEqual(['node', join(worktree, 'agent.mjs')]);
-      expect(physicalPath(join(link, 'not-yet', 'there.js'))).toBe(join(realpathSync(project), 'not-yet', 'there.js'));
+      // The system's real path: on Windows it writes out a short name such as RUNNER~1, as git does.
+      expect(physicalPath(join(link, 'not-yet', 'there.js'))).toBe(join(realpathSync.native(project), 'not-yet', 'there.js'));
     } finally {
       rmSync(link, { force: true });
     }
@@ -318,6 +334,15 @@ describe('a repository reached through a symbolic link', () => {
     } finally {
       rmSync(link, { force: true });
     }
+  });
+
+  // Where a volume ignores case, a folder given in another case is the same folder, and git names the
+  // repository in the case on disk. Where case matters (Linux), another case is another folder.
+  it.skipIf(!CASE_INSENSITIVE)('takes --cwd given in another letter case, where the volume ignores case', async () => {
+    const other = join(dirname(project), basename(project).toUpperCase());
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Mention the prompt']!, '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', other]);
+    expect(r.code, r.out).toBe(0);
+    expect(r.stdout).toContain(`first bad commit ${rev['Mark summaries as drafts']} · Mark summaries as drafts`);
   });
 
   it('refuses a revision that would reach git as an option', async () => {

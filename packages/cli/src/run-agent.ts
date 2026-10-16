@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, type BigIntStats } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -54,14 +54,22 @@ export function captureConfig(upstreams: Record<string, string>, http: readonly 
  */
 function stdinIdentity(): string | null {
   try {
-    // Exact and unsigned, as Python reads them: a pipe's inode on macOS is beyond a double's
-    // precision, and Node's big integers for it are signed.
-    const st = fstatSync(0, { bigint: true });
-    const unsigned = (n: bigint) => (n < 0n ? n + (1n << 64n) : n);
-    return st.ino ? `${unsigned(st.dev)}:${unsigned(st.ino)}` : null;
+    return inputIdentity(fstatSync(0, { bigint: true }));
   } catch {
     return null;
   }
+}
+
+/**
+ * An input's `dev:ino`, exact and unsigned, as Python reads them: a pipe's inode on macOS is beyond
+ * a double's precision, and Node's big integers for it are signed. On Windows only a file has one:
+ * Node numbers a pipe or a console by its handle, a number of the process's own that another
+ * process's pipe can have too, and Python sees none at all.
+ */
+export function inputIdentity(st: Pick<BigIntStats, 'dev' | 'ino' | 'isFile'>, platform: NodeJS.Platform = process.platform): string | null {
+  if (platform === 'win32' && !st.isFile()) return null;
+  const unsigned = (n: bigint) => (n < 0n ? n + (1n << 64n) : n);
+  return st.ino ? `${unsigned(st.dev)}:${unsigned(st.ino)}` : null;
 }
 
 /**
@@ -362,6 +370,13 @@ export function parseInterventions(flags: { inject?: string; injectAs: 'system' 
 }
 
 /**
+ * Signals that ask a process to stop. An agent that ends on one was interrupted, whoever sent it: a
+ * dashboard stopping a job signals the job's whole process group, so the agent can end on it before
+ * this process has heard its own, and a terminal's Ctrl-C reaches both alike.
+ */
+const STOP_SIGNALS: ReadonlySet<string> = new Set(['SIGINT', 'SIGTERM', 'SIGHUP']);
+
+/**
  * Resolves once a child with piped output has exited and its output has been read to the end: `exit`
  * can come before the last of stdout and stderr, and a check on what the agent printed must see all
  * of it. A grandchild that holds the pipes open keeps the run waiting no more than a moment.
@@ -420,6 +435,10 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
   const output = extra.capture ? teeOutput(child) : () => '';
   let interrupted = false;
+  // Heard before the run's status is settled: the listener that settles it comes after this one.
+  child.once('exit', (_c, signal) => {
+    if (signal && STOP_SIGNALS.has(signal)) interrupted = true;
+  });
   const onSignal = (sig: NodeJS.Signals) => {
     interrupted = true;
     child.kill(sig);
@@ -501,6 +520,10 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const tee = streaming && extra.capture;
       const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)) }, { url: sidecar.url, runId: run.runId });
       running.add(child);
+      let stoppedBySignal = false;
+      child.once('exit', (_c, signal) => {
+        if (signal && STOP_SIGNALS.has(signal)) stoppedBySignal = true;
+      });
       let output = '';
       const shown = tee ? teeOutput(child) : null;
       if (!tee) {
@@ -518,7 +541,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       });
       running.delete(child);
       if (shown) output = shown();
-      const status: Exclude<RunStatus, 'running'> = stopped ? 'crashed' : code === 0 ? 'completed' : 'failed';
+      const status: Exclude<RunStatus, 'running'> = stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed';
       const ended = sidecar.endRun(run.runId, status);
       results[i] = { run, code, summary: ended.summary, output };
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });

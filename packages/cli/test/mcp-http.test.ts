@@ -419,7 +419,9 @@ describe('shadowlap mcp started with a minimal environment', () => {
 
   function shadowlap(args: string[], o: { home?: string } = {}): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, HOME: o.home ?? home, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      // The home folder is HOME, and on Windows USERPROFILE, which is where Node looks for it there.
+      const homeEnv = { HOME: o.home ?? home, USERPROFILE: o.home ?? home };
+      const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, ...homeEnv, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
       child.stdout.on('data', (d: Buffer) => (out += d.toString()));
       child.stderr.on('data', (d: Buffer) => (out += d.toString()));
@@ -469,7 +471,8 @@ describe('shadowlap mcp started with a minimal environment', () => {
     // Each agent's registration went when the agent did.
     expect(readdirSync(join(home, '.shadowlap', 'agents'))).toEqual([]);
     expect(existsSync(join(cwd, '.shadowlap', 'agents'))).toBe(false);
-  });
+    // Five proxies, each reading the process tree: on Windows that takes PowerShell, a second or two each.
+  }, 120_000);
 
   it('refuses the write when it was started under Shadowlap but can\'t find its run', async () => {
     // The client hands the proxy another home folder, where no agent is registered.
@@ -481,5 +484,5 @@ describe('shadowlap mcp started with a minimal environment', () => {
     expect(rec.out).toMatch(/send_note -> refused: shadowlap: send_note was not sent/);
     expect(rec.out).toContain('no run is registered for it');
     expect(server.calls.slice(before).map((x) => x.name)).toEqual(['read_note']);
-  }, 20_000);
+  }, 60_000);
 });
