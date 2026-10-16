@@ -228,8 +228,9 @@ writes sets `push: true` and says the job needs the bucket's credentials, and wh
 step doesn't push. A fix that can't go (no credentials, the store out of reach) is a warning in the
 job summary and the log, with why: it never keeps the fix's pull request from opening, and the
 job's result is the tests'. A pull request's own job keeps to its folder and sends no fixes, and
-one from a fork, which GitHub gives no secrets, pushes nothing. See
-[Fixes in the team store](./ci.md#fixes-in-the-team-store).
+one from a fork, which GitHub gives no secrets and no OIDC token, pushes nothing: its credentials
+step can't sign in either, and [Fixes in the team store](./ci.md#fixes-in-the-team-store) says how
+to keep that step from failing the job.
 
 ## Pull requests
 
