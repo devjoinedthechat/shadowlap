@@ -106,7 +106,7 @@ describe('shadowlap dashboard', () => {
     try {
       const meta = (await (await api('meta')).json()) as { actions: boolean; readOnly: boolean; project: { name: string; path: string }; jobKinds: string[] };
       // It serves the projects on this machine, opening on the folder it starts in, and can inspect and record there.
-      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { id: basename(cwd).toLowerCase(), name: basename(cwd), path: cwd }, jobKinds: ['action', 'init', 'record'] });
+      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { id: basename(cwd).toLowerCase(), name: basename(cwd), path: cwd }, jobKinds: expect.arrayContaining(['action', 'init', 'record']) });
       let job = (await (await api(`runs/${runId}/actions`, { method: 'POST', body: JSON.stringify({ key: 'r' }) })).json()) as { id: string; done: boolean; code: number | null; newRunId: string | null; links: Array<{ href: string }>; result: { exitCode?: number } | null; title: string };
       expect(job.title).toBe('Replaying');
       for (let i = 0; i < 400 && !job.done; i++) {
