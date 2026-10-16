@@ -293,12 +293,18 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
   return out;
 }
 
-/** An OpenAI-compatible server the project already uses: from the environment, a .env file or a base URL fallback in code. */
-function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>): InitReport['modelServer'] {
+/**
+ * An OpenAI-compatible server the project already uses: from the environment, a .env file or a base
+ * URL fallback in code. OPENAI_BASE_URL reaches only an OpenAI client, so it is this project's
+ * server only when the project uses one, or uses SDKs that can't be told: one whose model SDKs are
+ * all another provider's (Anthropic's, Gemini's) never sends to it, wherever it is set.
+ */
+function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>, providers: readonly Provider[]): InitReport['modelServer'] {
   const toUpstream = (url: string) => url.replace(/\/+$/, '').replace(/\/v1$/, '');
   const local = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?/.test(url) && !url.includes('/openai');
-  if (env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
-  for (const f of ['.env', '.env.local']) {
+  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai');
+  if (openaiClient && env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
+  for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);
     if (!existsSync(p)) continue;
     const m = /^\s*OPENAI_BASE_URL\s*=\s*["']?([^"'\s#]+)/m.exec(readFileSync(p, 'utf8'));
@@ -351,7 +357,45 @@ function nodeEntry(cwd: string, pkg: Record<string, unknown> | null): { file: st
   return null;
 }
 
-function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[]): InitReport['command'] {
+/**
+ * The model client a file imports, by the name it is imported as (`@anthropic-ai/sdk`, `openai`): a
+ * provider's SDK, or an agent framework's model or runner. Not a framework's tools alone (`ai`'s
+ * `tool`, `langchain_core`), which a module of tools imports too. Null for none.
+ */
+function modelImport(file: string, text: string): string | null {
+  if (file.endsWith('.py')) {
+    const m = /^[ \t]*(?:from[ \t]+(anthropic|openai|pydantic_ai|crewai|langgraph|langchain_(?:openai|anthropic|google_genai|google_vertexai|aws))(?:\.[\w.]+)?[ \t]+import\b|import[ \t]+(anthropic|openai)\b|from[ \t]+google[ \t]+import[ \t]+(genai)\b)/m.exec(text);
+    return m ? (m[3] ? 'google-genai' : (m[1] ?? m[2])!) : null;
+  }
+  const m = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)['"](@anthropic-ai\/[\w.-]+|openai|@google\/genai|@ai-sdk\/[\w.-]+|@openai\/agents|@mastra\/core|@langchain\/(?:openai|anthropic|google-genai|google-vertexai|aws|langgraph))['"]/.exec(text);
+  return m ? m[1]! : null;
+}
+
+/** Where a command found by its file came from, as the setup words it: `the entry file agent.py`. */
+const entryFile = (file: string) => `the entry file ${file}`;
+
+/** Files that aren't how an agent starts, whatever they import: tests, fixtures and tool configs. */
+const NOT_AN_ENTRY = /^(test_.*|.*_test\.py|.*\.(test|spec)\.[cm]?[jt]sx?|conftest\.py|setup\.py|.*\.config\.[cm]?[jt]s|.*\.d\.[cm]?ts)$/;
+
+/**
+ * The agent's file when nothing names how it starts: the one file at the top of the folder that
+ * imports a model SDK or an agent framework (`triage.mjs`), and that no other file there imports.
+ * Null when there are none or several, since a guess between them would only be a guess.
+ */
+function modelEntry(cwd: string, texts: ReadonlyArray<readonly [string, string]>, uv: boolean): InitReport['command'] {
+  const top = texts.filter(([f]) => relative(cwd, f) === basename(f) && /\.(py|[cm]?js|[cm]?ts|tsx)$/.test(f) && !NOT_AN_ENTRY.test(basename(f)));
+  const calling = top.filter(([f, t]) => modelImport(f, t) !== null).map(([f]) => basename(f));
+  if (calling.length !== 1) return null;
+  const file = calling[0]!;
+  const stem = file.replace(/\.[^.]+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // A module another file imports is part of the agent, not where it starts.
+  const imported = file.endsWith('.py') ? new RegExp(`^[ \\t]*(?:from[ \\t]+\\.?${stem}[ \\t]+import|import[ \\t]+${stem}\\b)`, 'm') : new RegExp(`['"]\\.\\/${stem}(?:\\.[cm]?[jt]sx?)?['"]`);
+  if (top.some(([f, t]) => basename(f) !== file && imported.test(t))) return null;
+  const argv = file.endsWith('.py') ? (uv ? ['uv', 'run', file] : ['python', file]) : /\.([cm]?ts|tsx)$/.test(file) ? ['npx', 'tsx', file] : ['node', file];
+  return { argv, from: entryFile(file) };
+}
+
+function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[], texts: ReadonlyArray<readonly [string, string]> = []): InitReport['command'] {
   const scripts = (pkg?.scripts ?? {}) as Record<string, string>;
   const runner = manager === 'pnpm' ? ['pnpm'] : manager === 'yarn' ? ['yarn'] : manager === 'bun' ? ['bun', 'run'] : ['npm', 'run'];
   for (const name of ['agent', 'start', 'dev', 'run']) {
@@ -368,16 +412,17 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
     const script = pythonScript(cwd);
     if (script) return { argv: uv ? ['uv', 'run', script.name] : manager === 'poetry' ? ['poetry', 'run', script.name] : [script.name], from: `${script.table} in pyproject.toml` };
     for (const f of ['agent.py', 'main.py', 'app.py', 'run.py', 'src/agent.py', 'src/main.py']) {
-      if (existsSync(join(cwd, f))) return { argv: uv ? ['uv', 'run', f] : ['python', f], from: f };
+      if (existsSync(join(cwd, f))) return { argv: uv ? ['uv', 'run', f] : ['python', f], from: entryFile(f) };
     }
   }
   for (const f of ['agent.ts', 'src/agent.ts', 'index.ts', 'src/index.ts', 'main.ts', 'src/main.ts']) {
-    if (existsSync(join(cwd, f))) return { argv: ['npx', 'tsx', f], from: f };
+    if (existsSync(join(cwd, f))) return { argv: ['npx', 'tsx', f], from: entryFile(f) };
   }
   for (const f of ['agent.mjs', 'agent.js', 'index.mjs', 'index.js', 'main.js', 'src/index.js']) {
-    if (existsSync(join(cwd, f))) return { argv: ['node', f], from: f };
+    if (existsSync(join(cwd, f))) return { argv: ['node', f], from: entryFile(f) };
   }
-  return null;
+  // Named after what it does (`triage.mjs`): the one file at the top that calls a model.
+  return modelEntry(cwd, texts, existsSync(join(cwd, 'uv.lock')));
 }
 
 export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env): InitReport {
@@ -461,10 +506,10 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     packageManager,
     providers,
     frameworks,
-    command: detectCommand(cwd, pkg, packageManager, languages),
+    command: detectCommand(cwd, pkg, packageManager, languages, texts),
     tools,
     hardcodedBaseUrls,
-    modelServer: findModelServer(cwd, env, texts),
+    modelServer: findModelServer(cwd, env, texts, providers),
     scannedFiles: files.length,
     config: { path: configPath, existed: existsSync(configPath) },
   };

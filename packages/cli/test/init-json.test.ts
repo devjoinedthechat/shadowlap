@@ -70,7 +70,7 @@ describe('shadowlap init --json', () => {
       sdk: 'anthropic 0.69.0',
       framework: 'Pydantic AI',
       command: 'uv run agent.py',
-      commandFrom: 'agent.py',
+      commandFrom: 'the entry file agent.py',
       config: 'wrote an empty shadowlap.config.json',
     });
     expect(j.folder).toMatchObject({ kind: 'Python · uv', label: 'Python · uv · pyproject.toml · uv.lock', files: ['pyproject.toml', 'uv.lock'] });
@@ -180,7 +180,7 @@ export const tools = {
       language: 'Python 3.12 · uv',
       files: ['pyproject.toml', 'uv.lock'],
       command: ['uv', 'run', 'agent.py'],
-      commandFrom: 'agent.py',
+      commandFrom: 'the entry file agent.py',
       config: { file: 'shadowlap.config.json', created: true, existed: false },
     });
     expect(f.tools.map((t) => [t.name, t.effect, t.wrapped, t.file])).toEqual([
@@ -199,13 +199,17 @@ describe('initFindings', () => {
   });
 
   it('keeps the model server the project points at, never the credentials in its address', () => {
-    const local = json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }));
+    // The research agent with an OpenAI client too, which OPENAI_BASE_URL points somewhere else.
+    const both = { ...RESEARCH, 'pyproject.toml': RESEARCH['pyproject.toml'].replace('"anthropic>=0.69"', '"anthropic>=0.69", "openai>=1"') };
+    const local = json(project({ ...both, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }));
     expect(local.modelServer).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' });
     expect(initFindings(local).modelServer).toEqual({ url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in .env' });
-    const secret = json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=https://dana:s3cret@llm.internal/v1\n' }));
+    const secret = json(project({ ...both, '.env': 'OPENAI_BASE_URL=https://dana:s3cret@llm.internal/v1\n' }));
     expect(secret.modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
     expect(initFindings(secret).modelServer).toEqual({ url: 'https://llm.internal/v1', upstream: null, from: 'OPENAI_BASE_URL in .env' });
-    expect(initFindings(json(project(RESEARCH))).modelServer).toBeNull();
+    expect(initFindings(json(project(both))).modelServer).toBeNull();
+    // Anthropic's SDK alone never sends to it: no model server, so the setup records as usual.
+    expect(json(project({ ...RESEARCH, '.env': 'OPENAI_BASE_URL=https://dana:s3cret@llm.internal/v1\n' })).modelServer).toBeNull();
   });
 });
 
