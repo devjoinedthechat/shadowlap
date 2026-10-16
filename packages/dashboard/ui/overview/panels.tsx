@@ -7,7 +7,7 @@ import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../f
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TodayPanel as Today } from '../types.js';
-import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, verifiedNote } from './model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -238,7 +238,7 @@ export function TodayCard({ today, live }: { today: Today; live: readonly LiveRu
               <span className="t">Blame</span>
               <span className="d">
                 {blamed.title ? `${blamed.title.charAt(0).toLowerCase()}${blamed.title.slice(1)} · ` : `${shortId(blamed.runId)} · `}
-                {blamed.lostAt ? `lost at #${blamed.lostAt}` : 'not placed yet'}
+                {blameWords(blamed)}
               </span>
             </span>
             <span className="go">{plural(today.blame.probes, 'probe')}</span>

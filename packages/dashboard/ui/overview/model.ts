@@ -40,6 +40,18 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
   return `replayed exactly · ${o.open ? `${num(o.open)} still open` : 'none open'}`;
 }
 
+/**
+ * How a blame on Today's line came out, in the words Needs a look and the fix use: where the run
+ * was lost, that no model call rescued it, or that it stopped early; while it still probes, that
+ * nothing is placed yet.
+ */
+export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'>): string {
+  if (b.outcome === 'blamed' && b.lostAt) return `lost at #${b.lostAt}`;
+  if (b.outcome === 'unrescuable') return 'not rescued from any model call';
+  if (b.outcome === 'stopped') return 'blame stopped early';
+  return 'not placed yet';
+}
+
 /** The line under Fixes verified. */
 export function verifiedNote(o: OverviewSummary['outcomes']['fixesVerified']): string {
   return o.rejected ? `${num(o.rejected)} rejected before ${o.rejected === 1 ? 'it' : 'they'} shipped` : 'none rejected';

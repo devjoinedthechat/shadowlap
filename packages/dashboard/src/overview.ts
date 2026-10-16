@@ -69,10 +69,14 @@ export interface TodayPanel {
   tests: { count: number; failed: number; latestFailure: { runId: string; outcome: RunOutcome } | null };
   /**
    * Blame today: the model calls it probed, its attempts (bundled under the run they probed), and
-   * the runs it probed, each with where it was lost and the fix it belongs to.
+   * the runs it probed, each with how its blame came out (null while it is still probing), where
+   * it was lost, and the fix it belongs to.
    */
-  blame: { probes: number; attempts: number; runs: Array<{ runId: string; lostAt: number | null; title: string | null; fixId: string | null }> };
+  blame: { probes: number; attempts: number; runs: Array<{ runId: string; outcome: BlameOutcome | null; lostAt: number | null; title: string | null; fixId: string | null }> };
 }
+
+/** How a blame came out (`meta.blame.outcome`): it found the model call that lost the run, no model call rescued it, or it stopped before the search finished. */
+export type BlameOutcome = 'blamed' | 'unrescuable' | 'stopped';
 
 export interface GridRow {
   runId: string;
@@ -348,7 +352,8 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
       runs: [...new Set(probes.map(probedRun))].map((runId) => {
         const run = index.byId.get(runId);
         const fix = fixOfRun(store, runId);
-        return { runId, lostAt: run ? lostAt(classifiable(run)) : null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
+        const outcome = run?.meta.blame?.outcome;
+        return { runId, outcome: outcome === 'blamed' || outcome === 'unrescuable' || outcome === 'stopped' ? outcome : null, lostAt: run ? lostAt(classifiable(run)) : null, title: fix?.title ?? null, fixId: fix?.fixId ?? null };
       }),
     },
   };

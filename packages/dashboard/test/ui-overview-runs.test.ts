@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
-import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
@@ -26,6 +26,11 @@ describe('the Overview’s words', () => {
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 1 })).toBe('1 rejected before it shipped');
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 3 })).toBe('3 rejected before they shipped');
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 0 })).toBe('none rejected');
+    // Today's blame line, in the words Needs a look uses for the same fix.
+    expect(blameWords({ outcome: 'blamed', lostAt: 7 })).toBe('lost at #7');
+    expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
+    expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped early');
+    expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
     expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', failing: false });
     const now = new Date(2026, 9, 1, 12, 0).getTime();
     expect(testsKpi({ goldens: 4, passing: 3, lastWeek: 4, regressions: 1, lastRunAt: new Date(2026, 9, 1, 10, 2).getTime() }, now)).toEqual({ value: '3 / 4', note: '1 regression caught · last run 10:02', failing: true });
