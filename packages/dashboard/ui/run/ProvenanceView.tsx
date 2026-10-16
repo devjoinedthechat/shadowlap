@@ -13,7 +13,7 @@ import { kindWord } from '../runs.js';
 import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
-import { modelLabel, originOf, runLikeOf } from './model.js';
+import { lineageRunLike, modelLabel, originOf, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, tallyProviders } from './provenance.js';
 
 /**
@@ -46,7 +46,7 @@ function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ 
  * what a copy made now would mask, and its labels and notes.
  */
 export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
-  const { client, meta, exported, toast } = useApp();
+  const { client, meta, exported, toast, runs } = useApp();
   const r = run.run;
   const s = run.summary;
   const lineage = useLoad(() => client.lineage(r.runId), r.runId);
@@ -152,7 +152,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                   const here = n.runId === r.runId;
                   return (
                     <li key={n.runId} className={here ? 'here' : undefined}>
-                      <RunIcon run={{ ...like, runId: n.runId, parentRunId: n.parentRunId, mode: n.mode, status: n.status, divergence: n.divergence, calls: n.calls, test: here ? like.test ?? null : null, source: here ? like.source : null, covers: here ? like.covers : null }} className="" />
+                      <RunIcon run={here ? like : lineageRunLike(n, runs?.find((x) => x.runId === n.runId))} className="" />
                       <a href={href.run(n.runId)}>
                         <code>{shortId(n.runId)}</code>
                       </a>

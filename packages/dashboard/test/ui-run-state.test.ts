@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { familyLine, familyLineParts, isFailed, isInterrupted, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
-import { runLikeOf } from '../ui/run/model.js';
+import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
 import { blameScope, scopeChips } from '../ui/scopes.js';
-import type { RunDetail } from '../ui/types.js';
+import type { LineageNode, RunDetail, RunListItem } from '../ui/types.js';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 
 // How a run stands, in the words every list and the run's page use: an interrupted run is neutral
@@ -49,6 +49,19 @@ describe('a failed recording in the Forks tree', () => {
     expect(familyLineParts(failed)).toEqual({ err: 'check failed', text: ' · 8 calls · ≈$0.004' });
     expect(familyLineParts({ ...base, kind: 'recording', outcome: { kind: 'check-failed', check: null }, failed: true, status: 'failed' })).toEqual({ err: 'failed', text: ' · 8 calls · ≈$0.004' });
     expect(familyLineParts(base)).toEqual({ err: null, text: 'recording · 8 calls · ≈$0.004' });
+  });
+});
+
+describe('a run of the family, in Forks and in Provenance’s lineage', () => {
+  const node = (over: Partial<LineageNode> = {}): LineageNode => ({ runId: '01K5CQ4N7G0000000000000000', parentRunId: null, depth: 0, mode: 'record', status: 'completed', label: 'recording', divergence: null, calls: 8, spent: 0.004, saved: 0, startedAt: 0, repeat: null, checks: null, ...over });
+  it('reads its own state from the run list, never the run on the page', () => {
+    const listed = { runId: '01K5CQ4N7G0000000000000000', status: 'crashed', kind: 'recording', outcome: { kind: 'none' }, failed: false, command: 'node agent.mjs', labels: [] } as unknown as RunListItem;
+    const like = lineageRunLike(node(), listed);
+    expect(like).toMatchObject({ status: 'crashed', kind: 'recording', failed: false, command: 'node agent.mjs' });
+    expect(runGlyph(like)).toEqual({ kind: 'rec', label: 'Recording, interrupted' });
+    // A recording the list doesn't hold is drawn from the lineage alone: a recording, whatever the page shows.
+    expect(runGlyph(lineageRunLike(node(), undefined))).toEqual({ kind: 'rec', label: 'Recording' });
+    expect(runGlyph(lineageRunLike(node({ mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', divergence: { callNo: 5, type: 'forced' } }), undefined))).toEqual({ kind: 'fork', label: 'Fork at #5' });
   });
 });
 

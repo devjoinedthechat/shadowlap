@@ -1,48 +1,19 @@
 import { Fragment, useMemo, type ReactNode } from 'react';
-import type { LineageNode, RunListItem } from '../api.js';
+import type { LineageNode } from '../api.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { familyLineParts, repeatBundle, type RunLike } from '../runs.js';
+import { familyLineParts, repeatBundle } from '../runs.js';
 import { useApp } from '../state.js';
 import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
+import { lineageRunLike } from './model.js';
 
 /**
  * Forks: the run's family, its recording and every replay and fork of it, each with a line that says
  * what happened ("fork @17 · 13 live · 1 blocked"). Attempts of one `--repeat` are bundled with how
  * many passed, and so are blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
  */
-
-/**
- * A run of the family as the lists see it: with the run list's state when the run is listed (its
- * kind, outcome and whether it failed, an interrupted run's status), so its icon and line say what
- * Runs and the sidebar say.
- */
-function asRun(n: LineageNode, listed: RunListItem | undefined): RunLike {
-  return {
-    runId: n.runId,
-    parentRunId: n.parentRunId,
-    mode: n.mode,
-    status: listed?.status ?? n.status,
-    divergence: n.divergence,
-    command: listed?.command ?? '',
-    codeVersion: listed?.codeVersion ?? null,
-    startedAt: n.startedAt,
-    calls: n.calls,
-    spent: n.spent,
-    saved: n.saved,
-    captured: listed?.captured ?? 0,
-    imported: listed?.imported ?? false,
-    covers: listed?.covers ?? null,
-    source: listed?.source ?? null,
-    labels: listed?.labels ?? [],
-    origins: n.origins ?? listed?.origins ?? null,
-    test: listed?.test ?? null,
-    checks: n.checks,
-    ...(listed ? { kind: listed.kind ?? null, outcome: listed.outcome ?? null, ...(typeof listed.failed === 'boolean' ? { failed: listed.failed } : {}) } : {}),
-  };
-}
 
 export function ForksView({ runId }: { runId: string }) {
   const { client, runs, tick } = useApp();
@@ -60,7 +31,7 @@ export function ForksView({ runId }: { runId: string }) {
     kids.set(p, [...(kids.get(p) ?? []), n]);
   }
   const node = (n: LineageNode) => {
-    const r = asRun(n, byId.get(n.runId));
+    const r = lineageRunLike(n, byId.get(n.runId));
     const line = familyLineParts(r);
     const here = n.runId === runId || n.runId.startsWith(runId);
     return (

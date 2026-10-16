@@ -1819,3 +1819,11 @@ table.tasks a.rlink:hover code { text-decoration: underline; text-underline-offs
 .eyebrow.n i { background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent); }
 .banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
 .banner.n .bk { color: var(--dim); }
+
+/* ============ run page at a phone's width ============
+   Nothing on a run's page is wider than the screen: the origin filters wrap under each other, and why
+   a run failed wraps like the sentence it is. */
+.rhead .meta > span.bad { white-space: normal; }
+@media (max-width: 640px) {
+  .toolbar .ofilter { flex-wrap: wrap; row-gap: 4px; }
+}
