@@ -8,6 +8,7 @@ import { ProjectError, Store, tildePath, type Normalizer, type Price, type Proje
 import type { ProjectConfig, RouteContext } from './context.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli } from './jobs.js';
+import { previewsEnded } from './redaction-preview.js';
 import { Router, routeRequest } from './router.js';
 import { ROUTE_MODULES, type RouteModule } from './routes/index.js';
 import type { GoldenSource } from './tests.js';
@@ -480,8 +481,9 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
 
   await new Promise<void>((resolve, reject) => {
     const onError = (err: NodeJS.ErrnoException) => {
-      // A taken default port is not fatal: take any free one.
-      if (err.code === 'EADDRINUSE' && opts.port !== 0 && opts.port !== undefined) {
+      // A taken default port is not fatal: take any free one. So is one the system keeps for itself
+      // (EACCES: on Windows a port in a range Hyper-V or WinNAT reserves; elsewhere one below 1024).
+      if ((err.code === 'EADDRINUSE' || err.code === 'EACCES') && opts.port !== 0 && opts.port !== undefined) {
         server.off('error', onError);
         server.once('error', reject);
         server.listen(0, host, () => resolve());
@@ -516,6 +518,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         uploads.close();
         standIn?.close();
         await closed;
+        // A redaction preview's thread holds the store's file until it has ended.
+        await previewsEnded();
       })());
     },
   };

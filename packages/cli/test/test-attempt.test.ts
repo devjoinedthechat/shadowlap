@@ -70,3 +70,37 @@ describe.skipIf(process.platform === 'win32')('a replay with a time limit', () =
     store.close();
   });
 });
+
+// node starts the work as a child of its own, on every system: on Windows the tree is ended with taskkill.
+describe('a replay with a time limit, whose agent starts a process of its own', () => {
+  it('stops that process too', async () => {
+    const store = Store.open(':memory:');
+    const parent = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    store.endRun(parent.runId, 'completed');
+    const beat = join(dir, 'beat-child');
+    const heartbeat = `setInterval(() => require('fs').writeFileSync(${JSON.stringify(beat)}, String(Date.now())), 20)`;
+    const agent = `require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(heartbeat)}], { stdio: 'ignore' }); setInterval(() => {}, 1000)`;
+    const attempt = await testAttempt(store, parent, {
+      cwd: dir,
+      upstreams: {},
+      extraEnv: {},
+      writes: 'block',
+      guard: 'off',
+      normalizers: [],
+      prices: undefined,
+      clock: undefined,
+      spec: null,
+      argv: [process.execPath, '-e', agent],
+      // Long enough for both to start on a machine busy with other test runs (Windows starts processes slowly).
+      timeoutMs: process.platform === 'win32' ? 8000 : 3000,
+    });
+    expect(attempt.failure!.message).toMatch(/^the agent was stopped after /);
+    expect(existsSync(beat), 'the child started and beat before the limit').toBe(true);
+    // The child the agent started is gone too: its heartbeat stops.
+    await sleep(300);
+    const last = readFileSync(beat, 'utf8');
+    await sleep(300);
+    expect(readFileSync(beat, 'utf8')).toBe(last);
+    store.close();
+  });
+});

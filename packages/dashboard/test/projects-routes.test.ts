@@ -305,7 +305,9 @@ describe('the switcher', () => {
     expect((await w.api<{ counts: { runs: number }; project: { id: string } }>('meta')).body).toMatchObject({ counts: { runs: 2 }, project: { id: 'support-agent' } });
   });
 
-  it('sees a folder moved away while it is served, refuses its jobs and uploads with the reason, and serves it again once it is back', async () => {
+  // Windows refuses to move a folder while a file in it is open, and the store is open while it is
+  // served: there, a served project's folder can't move away.
+  it.skipIf(process.platform === 'win32')('sees a folder moved away while it is served, refuses its jobs and uploads with the reason, and serves it again once it is back', async () => {
     const heard: string[] = [];
     const listening: RouteModule = { register: (_router, ctx) => void ctx.jobs.onJob((n) => (n.type === 'end' ? heard.push(n.job.kind) : undefined)) };
     const w = await world({ routes: [listening] });

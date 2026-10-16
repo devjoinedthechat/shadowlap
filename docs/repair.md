@@ -101,7 +101,7 @@ Any model from any vendor, configured rather than built in:
 
 `--repairer` overrides the config, and `repair.baseUrl` points it at a gateway. Claude is asked with high effort and structured output. On models that support it, the API's server-side fallback answers a policy decline from another model in the same call, and the report names the model that answered. It is called once per repair, so even the most capable model costs little next to the replays.
 
-Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt. It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one. The cost reported is Claude Code's own estimate.
+Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt. It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one. Its system prompt is a file (`--system-prompt-file`) and the request goes on stdin, so the command line carries no line break, and on Windows a `claude` npm installed, a batch file, runs through cmd.exe. The cost reported is Claude Code's own estimate.
 
 Without a repairer, repair still tries the fixes that need none (`--stronger`), and says it skipped the rest.
 

@@ -10,6 +10,7 @@ import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { emitJobEvent } from './job-events.js';
+import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
@@ -177,19 +178,13 @@ export async function testAttempt(
   o.onRun?.(run.runId);
   // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
   // `sh -c`): at the time limit, on a signal, and once it exits. It no longer hears the terminal's
-  // Ctrl-C itself, so a signal that reaches this process is passed on to the group.
+  // Ctrl-C itself, so a signal that reaches this process is passed on to the group. Windows has no
+  // groups: there the agent's whole process tree is ended while it runs.
   const group = process.platform !== 'win32';
   const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
   child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
   child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
-  const kill = (sig: NodeJS.Signals) => {
-    try {
-      if (group && child.pid) process.kill(-child.pid, sig);
-      else child.kill(sig);
-    } catch {
-      // already gone
-    }
-  };
+  const kill = (sig: NodeJS.Signals) => killTree(child, sig, { group });
   let interrupted = null as NodeJS.Signals | null;
   const forward = (sig: NodeJS.Signals) => {
     // A second signal doesn't wait for the agent to wind down.

@@ -3,6 +3,7 @@ import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, 
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
+import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { agentEnv, recordsInput, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
@@ -180,8 +181,9 @@ export class AttemptRunner {
         ? null
         : setTimeout(() => {
             timedOut = true;
-            child.kill('SIGTERM');
-            setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
+            // On Windows its whole process tree, which a signal there can't reach.
+            killTree(child, 'SIGTERM');
+            setTimeout(() => killTree(child, 'SIGKILL'), 5_000).unref();
           }, s.timeoutMs);
     const code = await new Promise<number>((resolveCode) => {
       child.on('error', (err) => {

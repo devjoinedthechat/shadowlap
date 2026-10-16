@@ -99,9 +99,10 @@ export function register(router: Router, ctx: RouteContext): void {
       // was kept under; a name no run's source can carry falls back to that safe one. It goes as one
       // argument, `--name=<name>`, so a file named like a flag ("--json", "-x.har") stays a name
       // whatever the parser. The job runs in the project folder: the upload is named from there
-      // (`.shadowlap/uploads/…`, which reads as no option either).
+      // (`.shadowlap/uploads/…`, which reads as no option either), with forward slashes on every
+      // system, as other relative paths Shadowlap shows are.
       const rel = ctx.project ? relative(ctx.project.path, file.path) : '';
-      const path = rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel : file.path;
+      const path = rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel.split(sep).join('/') : file.path;
       return { args: ['import', format as FileFormat, path, `--name=${file.original ?? file.name}`], opensRun: true };
     },
   });

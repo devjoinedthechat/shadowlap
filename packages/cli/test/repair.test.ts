@@ -229,8 +229,8 @@ describe('shadowlap repair', () => {
     }
   });
 
-  // The stand-in for claude is a script with a shebang, which Windows won't run by name.
-  it.skipIf(process.platform === 'win32')('asks the user\'s own Claude Code, in print mode, outside the project and outside this session', async () => {
+  // On Windows the stand-in is a batch file, as an npm-installed claude is there, so it runs through cmd.exe.
+  it('asks the user\'s own Claude Code, in print mode, outside the project and outside this session', async () => {
     const { failed } = await runs();
     mode = 'alternate';
     const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
@@ -238,33 +238,41 @@ describe('shadowlap repair', () => {
       // A stand-in for claude -p: records how it was run, and answers as Claude Code does, the
       // candidates in structured_output, with the same three the mock repairer proposes.
       const log = join(bin, 'call.json');
-      writeFileSync(
-        join(bin, 'claude'),
-        `#!${process.execPath}
-const { writeFileSync } = require('node:fs');
+      const script = `const { readFileSync, writeFileSync } = require('node:fs');
 let input = '';
 process.stdin.on('data', (d) => (input += d));
 process.stdin.on('end', () => {
-  writeFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), claudecode: process.env.CLAUDECODE ?? null, input }));
+  const args = process.argv.slice(2);
+  const system = readFileSync(args[args.indexOf('--system-prompt-file') + 1], 'utf8');
+  writeFileSync(${JSON.stringify(log)}, JSON.stringify({ args, system, cwd: process.cwd(), claudecode: process.env.CLAUDECODE ?? null, input }));
   const at = input.indexOf('] system prompt, in ');
   const anchor = Number(input.slice(input.lastIndexOf('[', at) + 1, at));
   const candidates = [{ anchor, replace: ${JSON.stringify(FIX)}, strategy: 'Escalate refunds above the policy limit', why: 'The policy sets a limit.' }];
   process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: '', structured_output: { diagnosis: 'd', candidates }, modelUsage: { 'claude-opus-5-5': {} }, usage: { input_tokens: 900, output_tokens: 120 }, total_cost_usd: 0.0061 }));
 });
-`,
-      );
-      chmodSync(join(bin, 'claude'), 0o755);
+`;
+      if (process.platform === 'win32') {
+        // As npm's own shims are: the batch file hands its arguments to node with %*.
+        writeFileSync(join(bin, 'claude.js'), script);
+        writeFileSync(join(bin, 'claude.cmd'), `@"${process.execPath}" "%~dp0claude.js" %*\r\n`);
+      } else {
+        writeFileSync(join(bin, 'claude'), `#!${process.execPath}\n${script}`);
+        chmodSync(join(bin, 'claude'), 0o755);
+      }
       const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'claude-code:claude-opus-5-5', '--json'], { SHADOWLAP_CLAUDE: join(bin, 'claude'), CLAUDECODE: '1' });
       expect(r.code, r.out).toBe(0);
       const report = JSON.parse(r.stdout) as Report & { repairer: { served: string; cost: number } };
       expect(report.outcome).toBe('fixed');
       expect(report.repairer).toMatchObject({ served: 'claude-opus-5-5', cost: 0.0061 });
 
-      const call = JSON.parse(readFileSync(log, 'utf8')) as { args: string[]; cwd: string; claudecode: string | null; input: string };
+      const call = JSON.parse(readFileSync(log, 'utf8')) as { args: string[]; system: string; cwd: string; claudecode: string | null; input: string };
       expect(call.args.slice(0, 7)).toEqual(['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2']);
-      expect(call.args).toContain('--json-schema');
+      // The schema reaches it whole, quotes and all, through cmd.exe on Windows too.
+      expect(JSON.parse(call.args[call.args.indexOf('--json-schema') + 1]!)).toMatchObject({ type: 'object', required: ['diagnosis', 'candidates'] });
       expect(call.args.slice(-2)).toEqual(['--model', 'claude-opus-5-5']);
-      expect(call.args[call.args.indexOf('--system-prompt') + 1]).toContain('You improve AI agents');
+      // The system prompt is read from a file: its line breaks never go on a command line.
+      expect(call.system).toContain('You improve AI agents');
+      expect(call.args.some((a) => /[\r\n]/.test(a))).toBe(false);
       expect(call.input).toContain('Failed run 1 of 1');
       // Not inside the project, whose instructions would join the prompt; not as part of this session.
       expect(call.cwd.startsWith(project)).toBe(false);
