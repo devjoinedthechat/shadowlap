@@ -23,6 +23,9 @@ describe('the run page: conversations', () => {
     expect(row(m1!).conversationStart).toBe(true);
     expect(row(m2!).conversationStart).toBe(false);
     expect(row(lookup!)).toMatchObject({ requestedBy: m1, toolUseId: 'toolu_31_1', resultShort: '{"order_id":"A-2031","amount":71}' });
+    // Each model call says which tools its answer asked for, read from the response; other calls say nothing.
+    expect(row(m1!).asks).toEqual(['lookup_order']);
+    expect(row(lookup!).asks).toBeNull();
     // The tool call's conversation is its own ticket's, as it stood when the tool was called.
     const tool = callDetail(store, runId, refund!)!;
     expect(tool.conversation).toMatchObject({ fromCallNo: m2, n: 31 });

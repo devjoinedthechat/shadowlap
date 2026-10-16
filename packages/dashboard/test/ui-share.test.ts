@@ -184,6 +184,17 @@ describe('the Calls view’s detail', () => {
     expect(callDetail(calls[4]!)).toEqual({ text: 'sonnet-5 · end_turn', err: false });
   });
 
+  it('names the tools a model call’s answer asked for when no tool call of the run says so, as in a capture', () => {
+    const asking = call(1, 'api', { stopReason: 'tool_use', asks: ['get_ticket'] });
+    expect(callDetail(asking)).toEqual({ text: '→ get_ticket', err: false });
+    expect(callDetail({ ...asking, asks: ['lookup', 'lookup', 'notify'] }, null)).toEqual({ text: '→ lookup ×2, notify', err: false });
+    // The calls that ran win: they count what was made.
+    expect(callDetail(asking, 'get_ticket ×2')).toEqual({ text: '→ get_ticket ×2', err: false });
+    expect(callDetail({ ...asking, asks: [] }, null)).toEqual({ text: 'tool_use', err: false });
+    // An answer known to ask for nothing says how it stopped, as when the run's tool calls say so.
+    expect(callDetail({ ...asking, stopReason: 'end_turn', asks: [] })).toEqual({ text: 'end_turn', err: false });
+  });
+
   it('shows the value a clock read or a random value gave beside it, with no result line', () => {
     const now = call(1, 'clock', { resultShort: '1792094173884' });
     expect(callDetail(now)).toEqual({ text: '1792094173884', err: false });

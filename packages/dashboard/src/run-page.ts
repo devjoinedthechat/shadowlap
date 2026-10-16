@@ -9,6 +9,7 @@ import {
   loadApiRequest,
   normalizerApplies,
   recordedDurations,
+  responseInfo,
   runConversations,
   runInterventions,
   runStamp,
@@ -56,9 +57,14 @@ export interface CallFacts {
   cacheMiss: { sentAgain: number; previousCallNo: number } | null;
   /** A replayed call: how long the recording it came from waited for it (this run waited for none of it). */
   recordedMs: number | null;
+  /**
+   * A model call: the tools its answer asked for, in order, as the response names them, whether or
+   * not they ran here (a capture records none of them); null for other calls.
+   */
+  asks: string[] | null;
 }
 
-export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null });
+export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null });
 
 export interface RunAnalysis {
   conversations: RunConversations;
@@ -81,6 +87,9 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
   const cache = cacheMisses(calls, conversations);
   const recorded = run.mode === 'replay' ? recordedDurations(store, run, calls) : new Map<number, number>();
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
+  // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
+  const asks = new Map<number, string[]>();
+  for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, responseInfo(store, c).tools.map((t) => t.name));
   const analysis: RunAnalysis = {
     conversations,
     cache,
@@ -95,6 +104,7 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
         toolUseId: c?.toolUseId ?? null,
         cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
         recordedMs: recorded.get(callNo) ?? null,
+        asks: asks.get(callNo) ?? null,
       };
     },
   };

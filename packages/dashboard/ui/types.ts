@@ -55,6 +55,8 @@ export interface CallRowExtras {
   recordedMs?: number | null;
   /** What a tool returned, short enough for a table cell. */
   resultShort?: string | null;
+  /** A model call: the tools its answer asked for, in order (a capture records none of their calls). */
+  asks?: string[] | null;
   /** Which conversation of the run the call belongs to (a batch run holds many). */
   conversation?: number | null;
   /** A model call whose request starts its conversation. */

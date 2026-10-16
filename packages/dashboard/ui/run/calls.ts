@@ -30,6 +30,8 @@ export interface CallLike {
   scope: string | null;
   recordedMs?: number | null;
   resultShort?: string | null;
+  /** A model call: the tools its answer asked for, as the server reads them from the response. */
+  asks?: readonly string[] | null;
 }
 
 export function originOf(c: Pick<CallLike, 'origin' | 'outcome'>): Origin7 {
@@ -64,14 +66,19 @@ export function refusedOffline(c: Pick<CallLike, 'status' | 'error'>): boolean {
  * view words them: `search_web, read_file`, a tool asked for more than once with its count.
  */
 export function askedTools(calls: ReadonlyArray<{ callNo: number; kind: string; name: string; requestedBy?: number | null }>): Map<number, string> {
-  const by = new Map<number, Map<string, number>>();
+  const by = new Map<number, string[]>();
   for (const c of calls) {
     if (c.kind !== 'tool' || c.requestedBy === null || c.requestedBy === undefined) continue;
-    const names = by.get(c.requestedBy) ?? new Map<string, number>();
-    names.set(c.name, (names.get(c.name) ?? 0) + 1);
-    by.set(c.requestedBy, names);
+    by.set(c.requestedBy, [...(by.get(c.requestedBy) ?? []), c.name]);
   }
-  return new Map([...by].map(([n, names]) => [n, [...names].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(', ')]));
+  return new Map([...by].map(([n, names]) => [n, toolNames(names)]));
+}
+
+/** Tool names as a call's line lists them: each once, in order, with how many times past one (`lookup ×2`). */
+export function toolNames(names: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts].map(([name, k]) => (k > 1 ? `${name} ×${k}` : name)).join(', ');
 }
 
 /**
@@ -82,8 +89,12 @@ export function callDetail(c: CallLike, asked?: string | null): { text: string; 
   if (c.kind === 'api') {
     if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : refusedOffline(c) ? ' · refused offline' : ''}` : (c.error ?? 'error'), err: true };
     if (asked) return { text: `→ ${asked}`, err: false };
+    // No tool call of the run says this model call asked for it (a capture records none, a tool that
+    // isn't wrapped leaves none): the answer does.
+    if (c.asks?.length) return { text: `→ ${toolNames(c.asks)}`, err: false };
     if (asked === undefined && c.resultShort) return { text: c.resultShort, err: false };
-    return { text: (asked === undefined ? [c.model, c.stopReason] : [c.stopReason]).filter(Boolean).join(' · '), err: false };
+    // Known to have asked for nothing: how it stopped. Not known (an older server): the model too.
+    return { text: (asked === undefined && !c.asks ? [c.model, c.stopReason] : [c.stopReason]).filter(Boolean).join(' · '), err: false };
   }
   if (c.kind === 'clock' || c.kind === 'random') return { text: c.resultShort ?? c.detail, err: false };
   if (c.error && c.origin !== 'blocked' && c.origin !== 'stubbed') return { text: c.detail || c.error, err: false };
