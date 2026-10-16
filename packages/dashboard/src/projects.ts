@@ -218,10 +218,10 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
   };
 }
 
-/** The toast after adding: a folder added again says its runs came back. */
+/** The toast after adding: a folder added again says its runs came back, one recorded in a terminal how many it has. */
 export function addedMessage(added: { project: ProjectEntry; again: boolean; runs: number }, home: string): string {
   const path = tildePath(added.project.path, home);
-  return added.again ? `Added ${path} back · ${plural(added.runs, 'run')}` : `Added ${path}`;
+  return added.again ? `Added ${path} back · ${plural(added.runs, 'run')}` : added.runs ? `Added ${path} · ${plural(added.runs, 'run')}` : `Added ${path}`;
 }
 
 // ---------------------------------------------------------------------------------------------

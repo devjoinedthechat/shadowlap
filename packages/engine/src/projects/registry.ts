@@ -402,12 +402,13 @@ export class ProjectRegistry {
    * Adds a folder picked in the dashboard: it must be an existing folder with project files, under
    * the home folder or a configured root, not hidden or a system folder ({@link checkFolder}). A
    * folder that was a project before comes back with its runs, and with its setup finished if it
-   * was; one that already has recordings and goldens counts as set up.
+   * was. One whose store already holds runs (made in a terminal) counts as set up, as it does when
+   * `shadowlap dashboard` starts there: Shadowlap is in use there, so its Overview shows its runs.
    */
   add(folder: string): AddedProject {
     const check = checkFolder(folder, { home: this.home, roots: this.configuredRoots(), requireProjectFiles: true });
     if (!check.ok) throw new ProjectError('folder', check.why);
-    return this.addFolder(check.path);
+    return this.addFolder(check.path, { inUse: true });
   }
 
   /**

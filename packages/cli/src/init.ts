@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
 import { ProjectRegistry, describeFolder, modelServerFinding, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
@@ -332,6 +332,25 @@ function pythonScript(cwd: string): { name: string; table: string } | null {
   return null;
 }
 
+/**
+ * The file package.json says the project runs from: its `bin` (the only one, or the first), then
+ * its `main`. A path inside the folder that is there, as Node would find it (`lib/cli` is
+ * `lib/cli.js`); null otherwise.
+ */
+function nodeEntry(cwd: string, pkg: Record<string, unknown> | null): { file: string; from: string } | null {
+  const bin = pkg?.bin;
+  const named: Array<[string, unknown]> = typeof bin === 'string' ? [['bin', bin]] : bin && typeof bin === 'object' ? Object.entries(bin as Record<string, unknown>).slice(0, 1).map(([name, file]) => [`bin.${name}`, file]) : [];
+  named.push(['main', pkg?.main]);
+  for (const [key, value] of named) {
+    if (typeof value !== 'string' || !value.trim() || isAbsolute(value)) continue;
+    const given = value.trim().replace(/^\.\//, '');
+    if (given.split(/[\\/]/).includes('..')) continue;
+    const file = [given, `${given}.js`, `${given}.mjs`, `${given}.cjs`].find((f) => existsSync(join(cwd, f)) && statSync(join(cwd, f)).isFile());
+    if (file) return { file, from: `package.json ${key}: ${value.trim()}` };
+  }
+  return null;
+}
+
 function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[]): InitReport['command'] {
   const scripts = (pkg?.scripts ?? {}) as Record<string, string>;
   const runner = manager === 'pnpm' ? ['pnpm'] : manager === 'yarn' ? ['yarn'] : manager === 'bun' ? ['bun', 'run'] : ['npm', 'run'];
@@ -340,6 +359,9 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
     // A script that starts a web dev server or a watcher is not the agent itself.
     if (typeof script === 'string' && !/\b(next|vite|nodemon|webpack|--watch|tsc -w)\b/.test(script)) return { argv: name === 'start' && runner[0] === 'npm' ? ['npm', 'start'] : [...runner, name], from: `package.json scripts.${name}: ${script}` };
   }
+  // The file the package says it runs from, before guessing one by its name: a bin, then main.
+  const entry = nodeEntry(cwd, pkg);
+  if (entry) return { argv: /\.(ts|mts|cts|tsx)$/.test(entry.file) ? ['npx', 'tsx', entry.file] : ['node', entry.file], from: entry.from };
   if (languages.includes('python')) {
     const uv = existsSync(join(cwd, 'uv.lock'));
     // A script the project declares is how it is meant to start: `uv run research-agent`.

@@ -71,7 +71,7 @@ The dashboard keeps the list in `~/.shadowlap/projects.json` (`SHADOWLAP_HOME` m
 
 ### Adding a project
 
-**Add project…** asks for the folder your agent's code is in. As you type, it suggests folders and says what each holds (`Python · uv · pyproject.toml · uv.lock`, `Node · pnpm · package.json · pnpm-lock.yaml`). A folder without a `pyproject.toml`, `package.json`, requirements file or other project file can't be added, and says so. Adding a folder that was a project before brings it back as it was: its runs, its setup where it left off, and the commands you confirmed there.
+**Add project…** asks for the folder your agent's code is in. As you type, it suggests folders and says what each holds (`Python · uv · pyproject.toml · uv.lock`, `Node · pnpm · package.json · pnpm-lock.yaml`). A folder without a `pyproject.toml`, `package.json`, requirements file or other project file can't be added, and says so. Adding a folder that was a project before brings it back as it was: its runs, its setup where it left off, and the commands you confirmed there. A folder that already has runs, recorded in a terminal, opens on its Overview, as when `shadowlap dashboard` starts there.
 
 Suggesting folders means the dashboard lists directories, so it does that within limits a web page can't stretch:
 

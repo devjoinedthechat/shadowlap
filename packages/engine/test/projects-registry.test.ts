@@ -147,15 +147,18 @@ describe('ProjectRegistry: adding', () => {
     expect(() => registry.ensure(join(anywhere, 'missing'))).toThrow(ProjectError);
   });
 
-  it('counts a folder the dashboard starts in as set up when Shadowlap is already in use there', () => {
+  it('counts a folder as set up when Shadowlap is already in use there, whether the dashboard starts in it or it is picked', () => {
     const { registry, agent } = setup();
     const used = agent('used-agent');
     record(used);
     expect(registry.ensure(used).setup.stage).toBe('done');
-    // Picked in the dashboard instead, the same folder would start its setup.
+    // Picked in the dashboard, a folder with recordings made in a terminal opens on its runs too.
     const picked = agent('picked-agent');
     record(picked);
-    expect(registry.add('~/picked-agent').project.setup.stage).toBe('added');
+    expect(registry.add('~/picked-agent')).toMatchObject({ project: { setup: { stage: 'done' } }, again: false, runs: 1 });
+    // One with no runs starts its setup.
+    agent('new-agent');
+    expect(registry.add('~/new-agent').project.setup.stage).toBe('added');
   });
 
   it('reads the store --db names, and logs the add there', () => {

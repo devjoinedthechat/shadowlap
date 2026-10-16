@@ -135,6 +135,8 @@ describe('addProjectPage', () => {
   it('says when a folder comes back with its runs', () => {
     expect(addedMessage({ project: entry('support-agent'), again: true, runs: 12 }, HOME)).toBe('Added ~/support-agent back · 12 runs');
     expect(addedMessage({ project: entry('triage-bot'), again: false, runs: 0 }, HOME)).toBe('Added ~/triage-bot');
+    // New to the dashboard, with runs recorded in a terminal.
+    expect(addedMessage({ project: entry('big-agent'), again: false, runs: 20000 }, HOME)).toBe('Added ~/big-agent · 20,000 runs');
   });
 });
 
