@@ -232,8 +232,38 @@ function openPullRequest(root, branch, bodyFile, env) {
   return { pr: gh.stdout.trim().split('\n').at(-1) ?? '', why: null };
 }
 
+/**
+ * Why the fixes CI opens can't go to the team store, or null when they can: none is set in
+ * shadowlap.config.json, or the team turned pushing from CI off (`"ciPush": false`).
+ */
+export function cannotPush(workdir) {
+  let config = {};
+  try {
+    config = JSON.parse(readFileSync(join(workdir, 'shadowlap.config.json'), 'utf8'));
+  } catch {
+    // no config, or one shadowlap itself refuses: no store either way
+  }
+  if (typeof config.store !== 'string' || !config.store) return 'no team store is set in shadowlap.config.json (shadowlap store set <url>)';
+  if (config.ciPush === false) return 'Push from CI is off ("ciPush": false in shadowlap.config.json)';
+  return null;
+}
+
+/**
+ * Sends the fix CI opened to the team store, with the runs it is about and the ones blame, repair and
+ * verify made (`shadowlap push --all`: this job's runs), so a teammate's pull brings it to their Fixes
+ * page as "from CI · PR #138". A pull request's job writes only to its own folder and sends no fixes.
+ * Returns null when it went, or why not; it never fails the job.
+ */
+function pushFix({ cli, db, workdir, env }) {
+  const why = cannotPush(workdir);
+  if (why) return why;
+  const r = run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'push', '--all'], workdir, env);
+  if (r.status === 0) return null;
+  return `shadowlap push failed: ${`${r.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${r.status}`}`;
+}
+
 /** Runs repair for each failed check, one golden at a time, and says how each went. */
-export function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', env, log = () => {} }) {
+export function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, log = () => {} }) {
   const plans = planFixes(report);
   const blocked = plans.some((x) => !x.skip) ? cannotFix(workdir, env) : null;
   const scratch = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-fix-'));
@@ -276,7 +306,14 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         const opened = openPullRequest(realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim()), branch, bodyFile, fixEnv);
         // The fix records where it went, so the dashboard shows "from CI · PR #138" and follows its state.
         if (opened.pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, opened.pr], workdir, fixEnv);
-        if (opened.pr) out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, goldenState: g });
+        // With push, the fix goes to the team store, so it reaches teammates rather than ending with the job.
+        let pushed = null;
+        if (opened.pr && push) {
+          const notPushed = pushFix({ cli, db, workdir, env: fixEnv });
+          pushed = notPushed === null;
+          log(notPushed ? `the fix was not sent to the team store: ${notPushed}` : 'the fix was sent to the team store');
+        }
+        if (opened.pr) out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, goldenState: g, pushed });
         else out.push({ golden: r.golden ?? r.name, name: r.name, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, goldenState: g });
       } else {
         // Once the budget is spent, that is why there is no fix, whatever was learned by then.
@@ -317,7 +354,7 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f.goldenState)}`
+        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f.goldenState)}${f.pushed ? ' · in the team store' : ''}`
         : f.outcome === 'skipped'
           ? cell(f.why)
           : `no fix: ${cell(f.why)}${goldenCell(f.goldenState)}`;

@@ -40,6 +40,8 @@ export interface FixOutcome {
   spent: number;
   verify?: string | null;
   goldenState?: GoldenState | null;
+  /** With push: whether the fix went to the team store (null when it wasn't asked to). */
+  pushed?: boolean | null;
 }
 
 export function planFixes(report: { results: ReportResult[] }): FixPlan[];
@@ -49,5 +51,6 @@ export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | nul
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function refreshGolden(options: { cli: string; workdir: string; result: ReportResult; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): GoldenState;
 export function goldenNote(golden: GoldenState): string;
-export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; env: NodeJS.ProcessEnv; log?: (line: string) => void }): FixOutcome[];
+export function cannotPush(workdir: string): string | null;
+export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; push?: boolean; env: NodeJS.ProcessEnv; log?: (line: string) => void }): FixOutcome[];
 export function fixSummary(fixes: FixOutcome[], budget: number | string): string;
