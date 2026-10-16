@@ -126,6 +126,23 @@ describe('ProjectHost', () => {
     host.close();
   });
 
+  it('never opens a removed project’s store again, so its deleted recordings stay deleted', () => {
+    const { registry, loadConfig, support } = world();
+    const host = ProjectHost.open(support, { registry, loadConfig });
+    registry.add('~/triage-bot');
+    const ctx = host.current();
+    ctx.store();
+    // A removal refused (the wrong name typed) leaves the project as it was.
+    expect(() => host.remove('support-agent', { deleteRecordings: true, typedName: 'support' })).toThrow(ProjectError);
+    expect(ctx.store()).toBeTruthy();
+    host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
+    expect(existsSync(projectDbPath(support))).toBe(false);
+    // Whatever still holds its context, a timer or a request under way, can't bring the store back.
+    expect(() => ctx.store()).toThrow(expect.objectContaining({ code: 'not-found' }));
+    expect(existsSync(projectDbPath(support))).toBe(false);
+    host.close();
+  });
+
   it('follows the list when another process changes it', () => {
     const { registry, loadConfig, support, home } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });

@@ -55,6 +55,12 @@ export interface ProjectContext<C = unknown> {
 class Context<C> implements ProjectContext<C> {
   private opened: Store | null = null;
   private cached: { key: string; value: C } | null = null;
+  /**
+   * The host let go of it (the project was removed, or its id now names another folder): its store
+   * is never opened again, so nothing still holding the context, a dashboard's timer or a request
+   * already under way, can bring back a store whose recordings were just deleted.
+   */
+  private retired = false;
 
   constructor(
     private readonly entry: ProjectEntry,
@@ -104,6 +110,7 @@ class Context<C> implements ProjectContext<C> {
   }
 
   store(): Store {
+    if (this.retired) throw new ProjectError('not-found', `${this.name} is no longer in the dashboard.`);
     const open = this.stillOpen();
     if (open) return open;
     // Opening a store creates its folder; a project whose folder was deleted must not get it back.
@@ -142,6 +149,12 @@ class Context<C> implements ProjectContext<C> {
   close(): void {
     this.opened?.close();
     this.opened = null;
+  }
+
+  /** Closes the store for good: the host no longer serves this context. */
+  retire(): void {
+    this.close();
+    this.retired = true;
   }
 }
 
@@ -307,12 +320,12 @@ export class ProjectHost<C = unknown> {
     const entry = this.entry(id);
     const known = this.contexts.get(id);
     if (!entry) {
-      known?.close();
+      known?.retire();
       this.contexts.delete(id);
       throw new ProjectError('not-found', `No project ${id}.`);
     }
     if (known && known.path === entry.path) return known;
-    known?.close();
+    known?.retire();
     const custom = this.customDb.get(id);
     const dbPath = custom && custom.path === entry.path ? custom.dbPath : projectDbPath(entry.path);
     const ctx = new Context<C>(entry, dbPath, this.options.loadConfig, this.options.openStore ?? ((p) => Store.open(p)), this.options.configFile ?? 'shadowlap.config.json');
@@ -427,14 +440,15 @@ export class ProjectHost<C = unknown> {
     if (options.deleteRecordings && entry && custom && custom.path === entry.path) throw new ProjectError('store', `This project’s store is ${custom.dbPath}, outside its folder. Delete it yourself if you mean to.`);
     this.contexts.get(id)?.close();
     const removed = this.options.registry.remove(id, options);
+    this.contexts.get(id)?.retire();
     this.contexts.delete(id);
     this.customDb.delete(id);
     return { ...removed, current: this.currentProject() };
   }
 
-  /** Closes every store. */
+  /** Closes every store, for good. */
   close(): void {
-    for (const ctx of this.contexts.values()) ctx.close();
+    for (const ctx of this.contexts.values()) ctx.retire();
     this.contexts.clear();
   }
 }
