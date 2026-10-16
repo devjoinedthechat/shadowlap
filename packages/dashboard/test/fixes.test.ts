@@ -376,4 +376,13 @@ describe('fixes for the other views', () => {
     blame(c);
     expect(repairArgv(store, fixRecords(store, store.getFix(refunds.fixId)!))).toEqual(['repair', '--fixes', 'label:refund-bug', '--expect', JSON.stringify(EXPECT)]);
   });
+
+  it('offers no repair once none of the failing runs is left, though its label still names the fix', () => {
+    const run = makeRun(store, { labels: ['escalation'] });
+    const { fix } = blame(run);
+    expect(repairArgv(store, fixRecords(store, fix))).toEqual(['repair', '--fixes', 'label:escalation', '--expect', JSON.stringify(EXPECT)]);
+    store.deleteRun(run);
+    expect(repairArgv(store, fixRecords(store, store.getFix(fix.fixId)!))).toEqual([]);
+    expect(fixDetail(store, fix.fixId)!.actions.repair).toBeNull();
+  });
 });

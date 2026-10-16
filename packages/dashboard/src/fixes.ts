@@ -735,9 +735,11 @@ function labelSelectsFix(store: Store, label: string, rec: FixRecords): boolean 
  * good runs, its check. Empty when none of its failing runs is left in the store.
  */
 export function repairArgv(store: Store, rec: FixRecords): string[] {
+  // Without a failing run left, a label would select nothing, and repair would refuse it.
+  const left = rec.failing.filter((id) => store.getRun(id) !== null);
+  if (!left.length) return [];
   const { label } = fixLabelInfo(store, rec.fix);
-  const fixes = label && labelSelectsFix(store, label, rec) ? [`label:${label}`] : rec.failing.filter((id) => store.getRun(id) !== null);
-  if (!fixes.length) return [];
+  const fixes = label && labelSelectsFix(store, label, rec) ? [`label:${label}`] : left;
   const anyGood = store.allRuns().some((r) => r.meta?.labels?.includes(GOOD_LABEL));
   const keeps = anyGood ? [`label:${GOOD_LABEL}`] : rec.good.filter((id) => store.getRun(id) !== null);
   const expect = rec.fix.check.expect;
