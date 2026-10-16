@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
@@ -63,26 +64,18 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   };
 
   // A run still recording goes too: the CLI queues it, and pushes it when it ends. Once the push has
-  // worked the selection is let go, as the runs it picked are in the store.
+  // worked the selection is let go, as the runs it picked are in the store (push.ts).
   const push = async () => {
-    const up = runs.filter((r) => isLive(r) || r.local !== false);
+    const up = pushable(runs);
     if (!up.length) return toast('Already in the store.');
     let job: JobView;
     try {
-      job = await client.startJob(JOB_KINDS.push, { runIds: up.map((r) => r.runId) });
+      job = await client.startJob(JOB_KINDS.push, { runIds: up });
     } catch (err) {
       return toast(err instanceof Error ? err.message : String(err));
     }
     watchJob(Promise.resolve(job));
-    for (let v = job; ; ) {
-      if (v.done) return v.code === 0 ? clear() : undefined;
-      await new Promise((ok) => setTimeout(ok, 400));
-      try {
-        v = await client.job(job.id, v.total);
-      } catch {
-        return;
-      }
-    }
+    if (letGoAfterPush(await untilDone(job, (id, since) => client.job(id, since)))) clear();
   };
 
   return (
