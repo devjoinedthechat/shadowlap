@@ -2,9 +2,10 @@ import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
+import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload } from './types.js';
+import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -41,11 +42,11 @@ export const JOB_KINDS = {
   push: 'push',
   pull: 'pull',
   share: 'share',
-  // The tests slice's: Find the commit (the Runs calendar and a run's page), and a diverged test's
-  // Add normalizer and Update golden (the run page).
+  // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
+  // normalizer and re-run (and `tests` above runs them).
+  testUpdate: 'test-update',
   bisect: 'bisect',
   normalizeAndTest: 'normalize-and-test',
-  testUpdate: 'test-update',
 } as const;
 
 export class ApiError extends Error {
@@ -158,7 +159,19 @@ export interface Client {
   renameFix(id: string, title: string): Promise<FixDetail>;
   /** The attempts blame and verify made in a run's family, for the Forks view; null when the server does not bundle them. */
   fixBundles(runId: string): Promise<FixBundle[] | null>;
+
+  // ---- Tests
+  /** The goldens on disk and how each did (`/api/tests`). */
+  tests(): Promise<TestsView>;
+  /**
+   * A run's test banner (a replay `shadowlap test` made that diverged) and Find the commit's choices
+   * (`/api/tests/runs/:id`); `before` limits the good commits to runs before it, as the calendar's days do.
+   */
+  testRun(id: string, before?: number): Promise<TestRunView>;
+  /** Settings → CI's two panels for the options given; those left out take the server's defaults (`/api/ci/workflows`). */
+  ciWorkflows(options?: Partial<CiWorkflowOptions>): Promise<CiWorkflowsView>;
 }
+
 
 const etags = new Map<string, { etag: string; body: unknown }>();
 
@@ -343,6 +356,9 @@ export function createClient(token: string): Client {
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
     // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
     fixBundles: bundleSource((runId) => request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`).then((out) => out.bundles)),
+    tests: () => request<TestsView>('tests'),
+    testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
+    ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
   };
 }
 
@@ -406,5 +422,8 @@ export function createExportedClient(data: StaticPayload): Client {
     fix: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
     renameFix: readOnly,
     fixBundles: () => Promise.resolve(null),
+    tests: () => get<TestsView>('tests'),
+    testRun: () => Promise.resolve({ banner: null, bisect: null }),
+    ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
   };
 }

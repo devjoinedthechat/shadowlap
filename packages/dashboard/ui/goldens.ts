@@ -1,0 +1,314 @@
+import { href } from './route.js';
+import type { CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenRow, HistoryCell, TestsView } from './types.js';
+
+/**
+ * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
+ * line, a history cell's hover, the reports as the CLI prints them, which buttons a failure gets, and
+ * what the Update golden dialog says. No DOM here: the tests import it.
+ */
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Oct 1, 10:02, local time. */
+export function dayClock(ms: number): string {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Sep 30, from a date git or the store gives (ISO, or milliseconds); as given when it isn't one. */
+export function shortDate(date: string | number): string {
+  const ms = typeof date === 'number' ? date : Date.parse(date);
+  if (!Number.isFinite(ms)) return String(date);
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+const n = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
+
+/**
+ * The line under the verdict: the newest session's command, revision and time, how the goldens on
+ * disk stand, and its upstream requests. `running` is whether a test job of this dashboard is still
+ * going, which tells a session in progress from one whose process was killed.
+ */
+export function sessionLine(view: TestsView, running = false): { command: string; rest: string } | null {
+  const v = view.verdict;
+  if (!v) return null;
+  const s = v.session;
+  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${v.passing} passed, ${v.failing} failed${v.untested ? `, ${v.untested} not run yet` : ''}`, n(s.upstreamRequests, 'upstream request')];
+  if (s.interrupted) parts.push('interrupted');
+  else if (s.endedAt === null) parts.push(running ? 'running' : 'did not finish');
+  return { command: s.command, rest: parts.join(' · ') };
+}
+
+/** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top. */
+export function revLabel(rev: string | null): string {
+  if (!rev) return '—';
+  const dirty = rev.endsWith('+dirty');
+  const base = rev.replace(/\+dirty$/, '');
+  return `${/^[0-9a-f]{8,}$/.test(base) ? base.slice(0, 7) : base.slice(0, 8)}${dirty ? '+' : ''}`;
+}
+
+/**
+ * How a golden did at one revision, for its history cell's hover: the title and one coloured row. A
+ * pass says when it was updated there, and a connection the network guard blocked in its replay.
+ */
+export function historyTip(cell: HistoryCell, name: string): { title: string; label: string; value: string; color: string } {
+  const title = `${cell.revision ?? 'no revision'} · ${name}`;
+  if (cell.result === 'pass') return { title, label: 'passed', value: [cell.updated ? 'updated here: re-recorded, its checks passed' : null, cell.note].filter(Boolean).join(' · '), color: 'var(--o-rep)' };
+  if (cell.result === 'fail') return { title, label: 'failed', value: cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : (cell.note ?? ''), color: 'var(--err)' };
+  return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
+}
+
+/**
+ * A check as the table names it, in the screen's words: `issue_refund never called`, `send_email
+ * called once`, `input tokens ≤ 6,000`, `cost ≤ $0.02`. Any other label stays as the CLI wrote it,
+ * as the reports under the table print them.
+ */
+export function checkWords(label: string): string {
+  let m = /^(.+) called 0 times$/.exec(label);
+  if (m) return `${m[1]} never called`;
+  m = /^(.+) called 1 time$/.exec(label);
+  if (m) return `${m[1]} called once`;
+  m = /^at (most|least) (\d+) (input|output) tokens?$/.exec(label);
+  if (m) return `${m[3]} tokens ${m[1] === 'most' ? '≤' : '≥'} ${Number(m[2]).toLocaleString('en-US')}`;
+  m = /^cost at (most|least) (\$[\d.]+)$/.exec(label);
+  if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]}`;
+  return label;
+}
+
+/** Where a golden came from: a run in this store, or a pack made elsewhere. */
+export function sourceText(row: GoldenRow): { runId: string } | { text: string } {
+  if (row.source.kind === 'run') return { runId: row.source.runId };
+  return { text: row.source.packedAt ? `packed ${shortDate(row.source.packedAt)}` : 'a pack made elsewhere' };
+}
+
+export type ReportTone = '' | 'no' | 'del' | 'add' | 'dim';
+
+export interface ReportLine {
+  text: string;
+  tone: ReportTone;
+}
+
+/**
+ * A divergence as `shadowlap test` prints it, line by line: the golden's line in red, a value that
+ * was there before in red, the one sent now in lime.
+ */
+export function reportLines(text: string): ReportLine[] {
+  return text.split('\n').map((line, i) => {
+    const t = line.trimStart();
+    if (i === 0 && t.startsWith('✗')) return { text: line, tone: 'no' };
+    if (/^- /.test(t)) return { text: line, tone: 'del' };
+    if (/^\+ /.test(t)) return { text: line, tone: 'add' };
+    return { text: line, tone: '' };
+  });
+}
+
+/**
+ * Any other failure (a check, a non-zero exit, no calls, a golden that couldn't run) as the CLI
+ * prints it under the golden's line, and `test --markdown` reports it: the checks, the details, and
+ * the agent's last lines of output.
+ */
+export function failureLines(f: FailureView): ReportLine[] {
+  const lines: ReportLine[] = [{ text: `✗ ${f.name}: ${f.reason}`, tone: 'no' }];
+  for (const c of f.checks ?? []) lines.push({ text: `    ${c.ok ? `✓ ${c.label}` : `✗ ${c.label}: ${c.detail ?? 'failed'}`}`, tone: c.ok ? '' : 'no' });
+  if (f.details) for (const l of f.details.replace(/\s+$/, '').split('\n')) lines.push({ text: `    ${l}`, tone: '' });
+  if (f.output) for (const l of f.output.split('\n')) lines.push({ text: `    │ ${l}`, tone: 'dim' });
+  return lines;
+}
+
+/** What a failure other than a divergence means, in one line under its report. */
+export function failureHint(f: FailureView): string {
+  // A connection the guard blocked is what the agent tripped on, whatever failed after it.
+  const blocked = f.blocked ?? [];
+  if (blocked.length) {
+    const where = blocked.join(', ');
+    return `The agent connected to ${where} directly, past Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=${blocked.join(',')}.`;
+  }
+  switch (f.failure) {
+    case 'check':
+      return 'A failed check means the agent did something its checks in shadowlap.config.json rule out. Fix the agent; the golden is right.';
+    case 'exit':
+      return 'The agent exited with an error while it replayed: its last lines of output are above.';
+    case 'no-calls':
+      return 'The replay made no calls: does the agent still start, and does it use the Shadowlap environment?';
+    default:
+      return 'The golden could not be replayed.';
+  }
+}
+
+/** The command to run, as a person would type it: `shadowlap test goldens/x --update`. */
+export function commandText(args: readonly string[]): string {
+  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./*-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
+}
+
+export interface DivergenceButtons {
+  /**
+   * Add normalizer and re-run: its label, whether it leads, and what it runs. `normalize` adds the
+   * rules and tests the golden; `normalize-update` adds them and updates the golden, so it asks
+   * first; `rerun` only tests it, the rules being in the config already.
+   */
+  normalize: { label: string; lead: boolean; run: 'normalize' | 'normalize-update' | 'rerun' } | null;
+  update: { lead: boolean } | null;
+  /** Find the commit, unless it already ran since this failure: with a range to start from, or asking for a good commit. */
+  bisect: { range: boolean; live: boolean } | null;
+  /** A changed id that may be a real change: the screen says so, and leads with neither fix. */
+  maybeReal: boolean;
+  /** A line above the buttons: why there is nothing to add, or that a changed id may be a real change. */
+  note: 'maybe-real' | 'rules-added' | 'rules-added-update' | null;
+}
+
+/**
+ * The buttons under a divergence. A value that surely changes every run is fixed by a normalizer,
+ * so that button leads; a changed id that may be a real change gets both fixes side by side; any
+ * other change is the golden's to update, if it was meant. Once the rules are in the config (added
+ * for another golden), a re-run is what is left. Each shows only when the server runs it.
+ */
+export function divergenceButtons(d: DivergenceView, has: (kind: string) => boolean): DivergenceButtons {
+  const steps = d.normalizeAndTest;
+  const updates = !!steps && (steps.at(-1) ?? []).includes('--update');
+  const lead = d.normalizerFixes && !d.maybeReal;
+  let normalize: DivergenceButtons['normalize'] = null;
+  if (steps && d.rulesAdded) normalize = updates || !has('test') ? null : { label: 'Re-run', lead, run: 'rerun' };
+  else if (steps && has('normalize-and-test')) normalize = updates ? { label: 'Add normalizer and update…', lead, run: 'normalize-update' } : { label: 'Add normalizer and re-run', lead, run: 'normalize' };
+  return {
+    normalize,
+    update: has('test-update') ? { lead: false } : null,
+    bisect: d.found || !has('bisect') ? null : { range: !!d.bisect, live: !!d.bisect?.live },
+    maybeReal: d.maybeReal,
+    note: steps && d.rulesAdded ? (updates ? 'rules-added-update' : 'rules-added') : d.maybeReal && d.volatile ? 'maybe-real' : null,
+  };
+}
+
+/** What Find the commit found, for the card above the buttons. */
+export function foundLine(f: FoundCommit): { rev: string; subject: string; meta: string } {
+  return { rev: f.rev, subject: f.subject, meta: [f.author, f.date ? shortDate(f.date) : null, n(f.tokens, 'token')].filter(Boolean).join(' · ') };
+}
+
+export interface UpdatePlan {
+  title: string;
+  text: string;
+  goldens: Array<{ path: string; name: string; where: string }>;
+  steps: Array<[string, string]>;
+  /**
+   * The amber box: a value that changes every run diverged and no rule masks it yet, so a normalizer
+   * is the lasting fix; or, for one golden, the rule for it is in the config now and alone makes the
+   * replay match, so a re-run passes without an update.
+   */
+  advise: { title: string; text: string; path: string | null } | null;
+  /** The amber box's button, named for what it runs: null for several goldens, or when the server runs none of it. */
+  instead: { label: string; golden: string; run: 'normalize' | 'normalize-update' | 'rerun' } | null;
+  /** A plain line above the command, a path set in code: the rules are in the config already, so an update is the fix, or a re-run is. */
+  note: Array<string | { code: string }> | null;
+  command: string;
+  ok: string;
+}
+
+/** The amber box's button, by what it runs in place of the update. */
+const INSTEAD: Record<'normalize' | 'normalize-update' | 'rerun', string> = {
+  normalize: 'Add the normalizer instead',
+  // The rule alone can't make the replay match: it is added, and the golden updated after it.
+  'normalize-update': 'Add the normalizer and update',
+  rerun: 'Re-run instead',
+};
+
+/** Whether the rules alone can't make the replay match, so the golden is updated after them. */
+const updatesAfterRules = (d: DivergenceView) => !!d.normalizeAndTest && (d.normalizeAndTest.at(-1) ?? []).includes('--update');
+
+/**
+ * The Update golden dialog, in the style of Remove project: the golden as a card (or the diverged
+ * goldens as a list), What happens as numbered rows, the amber note when what diverged is a value
+ * that changes every run, and the command. `paths` are the goldens to update; `has` says which jobs
+ * the server runs, for the amber box's button. A divergence whose rules are in the config already
+ * (added since, for this golden or another) gets no amber note that a normalizer would fix it: an
+ * update is the fix then, or, when the rules alone make it match, a re-run.
+ */
+export function updatePlan(view: TestsView, paths: readonly string[], has: (kind: string) => boolean = () => true): UpdatePlan {
+  const ds = paths.map((p) => view.divergences.find((d) => d.golden === p)).filter((d): d is DivergenceView => !!d);
+  const rows = paths.map((p) => view.rows.find((r) => r.path === p));
+  const goldens = paths.map((p, i) => {
+    const d = ds.find((x) => x.golden === p);
+    return { path: p, name: rows[i]?.name ?? p, where: d ? `diverged at call ${d.callNo}` : (rows[i]?.last.line ?? '') };
+  });
+  const one = goldens.length === 1;
+  const checks = one ? (rows[0]?.checks.length ?? 0) : 0;
+  // A value that changes every run, with no rule for it yet: updating alone diverges again next run.
+  const perRun = ds.filter((d) => d.volatile?.certain && !d.rulesAdded);
+  // Its rules are in the config now: alone they make the replay match, or an update is what is left.
+  const rerun = ds.filter((d) => d.rulesAdded && !!d.normalizeAndTest && !updatesAfterRules(d));
+  const updateLeft = ds.filter((d) => d.rulesAdded && updatesAfterRules(d));
+  let advise: UpdatePlan['advise'] = null;
+  let instead: UpdatePlan['instead'] = null;
+  let note: UpdatePlan['note'] = null;
+  const d0 = one ? (ds[0] ?? null) : null;
+  if (d0) {
+    const v = d0.volatile;
+    if (perRun.includes(d0) && v) advise = { title: 'A normalizer fixes this for good', text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`, path: v.path };
+    else if (rerun.includes(d0)) advise = { title: 'Its normalizer is in the config now', text: 'is masked by a rule added since this replay, so a re-run passes without an update.', path: v?.path ?? null };
+    else if (updateLeft.includes(d0)) note = [v ? 'The normalizer for ' : 'The normalizer is in shadowlap.config.json already', ...(v ? [{ code: v.path }, ' is in shadowlap.config.json already'] : []), ', so the run after this update matches.'];
+    const run = advise ? divergenceButtons(d0, has).normalize?.run : undefined;
+    if (run) instead = { label: INSTEAD[run], golden: d0.golden, run };
+  } else if (!one) {
+    if (perRun.length) {
+      const names = perRun.map((d) => d.name).join(', ');
+      advise = { title: 'A normalizer fixes this for good', text: `${names} diverged on values that change every run. Updating re-records ${perRun.length === 1 ? 'it' : 'them'}, and the next run diverges again.`, path: null };
+    }
+    if (rerun.length) note = [`The normalizers for ${rerun.map((d) => d.name).join(', ')} are in shadowlap.config.json now: a re-run passes without updating ${rerun.length === 1 ? 'it' : 'them'}.`];
+  }
+  return {
+    title: one ? `Update ${goldens[0]!.name}?` : `Update ${goldens.length} diverged goldens?`,
+    text: 'Use this when the change was intended. The new recording replaces the old one, and you review it in your pull request.',
+    goldens,
+    steps: [
+      ['Re-recorded live', 'writes stubbed'],
+      [one ? 'Its checks run' : 'Each one’s checks run', one ? (checks ? n(checks, 'check') : 'exit status') : 'per golden'],
+      ['Replaced only if they pass', 'in your working tree'],
+      ['You review the change', 'in your pull request'],
+    ],
+    advise,
+    instead,
+    note,
+    command: commandText(['test', ...paths, '--update']),
+    ok: advise ? 'Update anyway' : 'Update',
+  };
+}
+
+/** Update goldens…, asked for from the palette or by a link: Tests opens its dialog, then drops `?update` from the address. */
+export const TESTS_UPDATE_HASH = '#/tests?update';
+
+export function asksUpdate(hash: string): boolean {
+  return /^#\/tests\?(?:[^#]*&)?update(?:=[^&]*)?(?:&|$)/.test(hash);
+}
+
+export interface TestsPaletteEntry {
+  group: 'Tests' | 'Actions';
+  label: string;
+  hint: string;
+  mono: boolean;
+  /** Where it goes: Tests, or Tests with its Update goldens… dialog open. */
+  to: string;
+}
+
+/**
+ * The palette's entries from the Tests screen's answer, from any page: each golden with how it did
+ * last, opening Tests, and, when any diverged and `update` (the server updates goldens and actions
+ * can run here), Update goldens…, which opens its dialog on Tests.
+ */
+export function testsPalette(view: TestsView | null, o: { update: boolean }): TestsPaletteEntry[] {
+  if (!view || view.empty) return [];
+  const out: TestsPaletteEntry[] = view.rows.map((r) => ({ group: 'Tests', label: r.name, mono: true, hint: r.last.result === 'fail' ? 'failing' : r.last.result === 'pass' ? 'passing' : r.error ? 'can’t be read' : 'not run yet', to: href.tests() }));
+  if (view.diverged.length && o.update) out.unshift({ group: 'Actions', label: 'Update goldens…', hint: 'shadowlap test --update', mono: false, to: TESTS_UPDATE_HASH });
+  return out;
+}
+
+/** Settings → CI's options as `/api/ci/workflows` takes them in its query string; those left out take the server's defaults. */
+export function ciQuery(o: Partial<CiWorkflowOptions> = {}): string {
+  const q = new URLSearchParams();
+  if (o.fix !== undefined) q.set('fix', o.fix ? 'on' : 'off');
+  if (o.budget !== undefined) q.set('budget', o.budget);
+  if (o.repairer !== undefined) q.set('repairer', o.repairer);
+  if (o.onlyMain !== undefined) q.set('onlyMain', o.onlyMain ? 'on' : 'off');
+  if (o.secret !== undefined) q.set('secret', o.secret);
+  const text = q.toString();
+  return text ? `?${text}` : '';
+}

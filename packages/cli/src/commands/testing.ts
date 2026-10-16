@@ -23,6 +23,9 @@ import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recordings as tests: `shadowlap test` for packed goldens in CI, `bisect`, packs, and the host that the pytest and Vitest plugins start. */
 
+/** How many failing goldens a dashboard job links to by their replay; Tests has every one. */
+const FAILED_LINKS = 3;
+
 /**
  * `shadowlap serve --recordings`: the host a test-runner plugin starts once per worker process.
  * It prints how to reach it (base URLs per slot, with `__SLOT__` for the plugin to fill in, and the
@@ -315,6 +318,11 @@ export function register(program: Command): void {
       if (flags.annotations && report.failed) process.stdout.write(githubAnnotations(report) + '\n');
       if (pusher) await pusher.finish(report);
       emitJobEvent({ type: 'result', data: report });
+      // A dashboard job's links: one golden (as Add normalizer and re-run tests it) to its replay; a
+      // session over several to the replay of each that failed, the first few, then Tests for them all.
+      const only = results.length === 1 && packs.length === 1 ? results[0]! : null;
+      if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
+      else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}` });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).

@@ -56,6 +56,13 @@ export interface DashboardOptions {
   project?: { name?: string; path: string };
   /** Reads the project's shadowlap.config.json, fresh on every call, as the CLI does. */
   loadConfig?: () => ProjectConfig;
+  /**
+   * The project's goldens, read fresh on every call: the packs in its goldens folder and those its
+   * config's `tests` name, as `projectGoldens` in the CLI lists them. Tests shows them, and its jobs
+   * take only these; the Overview counts their passing and failing tests, and Find the commit (on the
+   * Runs calendar and a run's page) starts from them. Without it the project has no goldens.
+   */
+  goldens?: () => GoldenSource[];
   /** The most one upload may hold, in bytes (64 MB). */
   uploadLimit?: number;
   /** How long an upload no job used is kept, in milliseconds (an hour). */
@@ -64,11 +71,6 @@ export interface DashboardOptions {
   jobStopGraceMs?: number;
   /** Route modules registered after the built-in ones in routes/index.ts: for tests, and for embedding the server elsewhere. */
   routes?: RouteModule[];
-  /**
-   * The goldens on disk, read fresh on each call (the CLI's `projectGoldens`): the Overview's Tests
-   * passing and failing tests, and Find the commit on the Runs calendar.
-   */
-  goldens?: () => GoldenSource[];
 }
 
 export interface Dashboard {

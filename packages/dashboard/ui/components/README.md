@@ -73,10 +73,15 @@ says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
-`run/metrics.ts`, `run/model.ts` and `run/calls.ts`.
+`run/metrics.ts`, `run/model.ts` and `run/calls.ts`. Tests has `goldens.ts`: the verdict's line,
+a check's name in the table, the reports as the CLI prints them, which buttons a failure gets and
+what the Update golden dialog says; `tests-palette.ts` lists the goldens in the palette from any
+page.
 
 A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
-`palette-sources.ts`. Pages a later version fills in each have their own file under `pages/`.
+`palette-sources.ts`. A source runs when the palette opens; one that loads what it lists answers
+with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
+its sources again. Pages a later version fills in each have their own file under `pages/`.
 
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
 and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
@@ -86,6 +91,7 @@ for) and authors; `runspage/query.ts` builds the page's requests and reads the
 filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
 list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
 screen that changes with one.
+
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
 when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),

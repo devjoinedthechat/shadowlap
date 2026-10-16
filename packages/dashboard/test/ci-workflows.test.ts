@@ -1,0 +1,86 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from '../src/ci-workflows.js';
+
+/**
+ * Settings → CI's read model: the panels' options from a query string, the pull request a fix in
+ * this store would be, and what the project's git files say about its repository and branch.
+ */
+let store: Store;
+let dirs: string[] = [];
+beforeEach(() => {
+  store = Store.open(':memory:');
+  dirs = [];
+});
+afterEach(() => {
+  store.close();
+  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+});
+
+const tmp = () => {
+  const d = mkdtempSync(join(tmpdir(), 'sl-ci-'));
+  dirs.push(d);
+  return d;
+};
+
+describe('the panels\' options', () => {
+  it('take their defaults, and what the query string gives', () => {
+    expect(parseCiOptions(new URLSearchParams())).toEqual(CI_DEFAULTS);
+    expect(parseCiOptions(new URLSearchParams('fix=true&budget=$1&repairer=anthropic:claude-opus-5-5&onlyMain=0&secret=HOOK'))).toEqual({ fix: true, budget: '1.00', repairer: 'anthropic:claude-opus-5-5', onlyMain: false, secret: 'HOOK' });
+    // An empty secret is the default one; a name with other characters keeps what GitHub allows.
+    expect(parseCiOptions(new URLSearchParams('secret=')).valueOf()).toMatchObject({ secret: 'SLACK_WEBHOOK_URL' });
+    expect(parseCiOptions(new URLSearchParams('secret=my-hook!'))).toMatchObject({ secret: 'myhook' });
+    expect(parseCiOptions(new URLSearchParams('budget=0'))).toEqual({ error: 'budget is an amount in dollars, such as 2.00' });
+    expect(parseCiOptions(new URLSearchParams('repairer=gemini'))).toMatchObject({ error: expect.stringMatching(/^repairer is/) });
+    expect(parseCiOptions(new URLSearchParams('onlyMain=sometimes'))).toEqual({ error: 'onlyMain is on or off' });
+  });
+});
+
+describe('the pull request a fix opens', () => {
+  it('is the newest verified fix in the store: its title, branch, verify\'s counts, blame, change and cost', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
+    const held = makeRun(store, { labels: ['refund-bug'] });
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    expect(fixPreview(store, '2.00')).toBeNull();
+    recordBlame(store, { runId: failing, report: blameReport(failing), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: 1_000 });
+    recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: held, role: 'holdout', pass: true }, { runId: good, role: 'good', pass: true }]), expect: EXPECT, command: 'shadowlap verify', at: 2_000 });
+    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [failing], holdout: [held], good: [good] }), expect: EXPECT, command: 'shadowlap repair', at: 3_000 });
+    const pr = fixPreview(store, '2.00')!;
+    expect(pr).toMatchObject({ example: false, author: 'github-actions', base: 'main', verify: 'target 1 of 1 · held-out 1 of 1 · good 1 of 1' });
+    expect(pr.fixId).toMatch(/^fx-/);
+    expect(pr.title.length).toBeGreaterThan(0);
+    expect(pr.blame).toMatch(/^lost at model call #\d+ · confidence (high|medium|low)$/);
+    expect(pr.spent).toMatch(/^≈\$\d+\.\d\d of \$2\.00$/);
+    // The panel's budget is the one it shows, whatever the preview was made with.
+    const view = ciWorkflows({ ...CI_DEFAULTS, budget: '5.00' }, { preview: pr, failing: 0, at: null, repository: null, branch: null });
+    expect(view.fixOnFailure.preview.spent).toMatch(/ of \$5\.00$/);
+    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on main.');
+    expect(view.alerts.message.link).toBe('github.com/owner/repo/actions/runs/…');
+  });
+});
+
+describe('the project\'s git facts', () => {
+  it('reads the GitHub repository from origin and the branch checked out, in a worktree too', () => {
+    const repo = tmp();
+    mkdirSync(join(repo, '.git', 'worktrees', 'wt'), { recursive: true });
+    writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    writeFileSync(join(repo, '.git', 'config'), '[remote "upstream"]\n\turl = https://example.com/x.git\n[remote "origin"]\n\turl = https://github.com/acme/support-agent\n');
+    expect(gitFacts(repo)).toEqual({ repository: 'acme/support-agent', branch: 'main' });
+    // A worktree: its .git is a file naming its folder, whose commondir leads to the shared config.
+    const wt = tmp();
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`);
+    writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'HEAD'), 'ref: refs/heads/fix-refund-limit\n');
+    writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
+    expect(gitFacts(wt)).toEqual({ repository: 'acme/support-agent', branch: 'fix-refund-limit' });
+    // No git, a detached HEAD, a remote elsewhere: nothing made up.
+    expect(gitFacts(tmp())).toEqual({ repository: null, branch: null });
+    expect(gitFacts(null)).toEqual({ repository: null, branch: null });
+    writeFileSync(join(repo, '.git', 'HEAD'), '3f1c9a2e5b7d4e219c0a8d6f2b1e7a43aa001122\n');
+    writeFileSync(join(repo, '.git', 'config'), '[remote "origin"]\n\turl = git@gitlab.com:acme/support-agent.git\n');
+    expect(gitFacts(repo)).toEqual({ repository: null, branch: null });
+  });
+});

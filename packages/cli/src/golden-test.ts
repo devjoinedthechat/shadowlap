@@ -239,6 +239,9 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
     };
   }
   if (o.failure) data.details = o.failure.details;
+  // What the agent printed last, as the Markdown report shows it: the Tests screen shows it for a failure.
+  const tail = o.failure ? outputTail(r.shown.output) : null;
+  if (tail) data.output = tail.split('\n').map((l) => (l.length > 400 ? `${l.slice(0, 399)}…` : l)).join('\n').slice(-6000);
   return data;
 }
 

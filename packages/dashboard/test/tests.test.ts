@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
-import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
+import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
  * The Tests screen's read model over a store with three sessions at three revisions: one golden that
@@ -131,7 +131,7 @@ describe('the Tests screen', () => {
     const view = testsView(store, goldens);
     expect(view.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f']);
     const [flow, limit, over] = view.rows;
-    expect(flow).toMatchObject({ name: 'refund-flow', source: { kind: 'run', runId: 'GOLDEN_FLOW' }, modeLabel: 'replay', modeHint: 'must send exactly the requests it recorded', last: { result: 'pass', line: 'updated · 8/8 replayed · check passed', updated: true }, runId: 'R_C_FLOW' });
+    expect(flow).toMatchObject({ name: 'refund-flow', source: { kind: 'run', runId: 'GOLDEN_FLOW' }, modeLabel: 'replay', modeHint: 'must send exactly the requests it recorded', last: { result: 'pass', line: '8/8 replayed · check passed', updated: true }, runId: 'R_C_FLOW' });
     expect(flow!.history.map((h) => h.result)).toEqual(['pass', 'pass', 'pass']);
     expect(flow!.history.map((h) => h.updated)).toEqual([false, false, true]);
     // A pack made elsewhere, never tested at the first revision; its failing run is the one to open.
@@ -139,6 +139,8 @@ describe('the Tests screen', () => {
     expect(limit!.history.map((h) => h.result)).toEqual([null, 'pass', 'fail']);
     expect(limit!.history[2]!.note).toBe('diverged at call 1 · $.metadata.user_id looks like a UUID');
     expect(over).toMatchObject({ modeLabel: 'fork ×5', modeHint: 'allowed to fork; passes on its checks, 5 of 5 attempts', checks: ['issue_refund called 0 times', 'escalate called 1 time'], last: { line: '5 of 5 attempts passed both checks' } });
+    const attempts = (n: number) => resultLine({ sessionId: 's', golden: 'g', at: T0, revision: null, ok: true, failure: null, reason: null, runId: null, goldenRunId: null, data: { attempts: { total: 3, passed: 3, required: 3, runs: [] }, checks: Array.from({ length: n }, (_, i) => ({ ok: true, label: `check ${i}`, detail: null })) } }, []);
+    expect([attempts(0), attempts(1), attempts(3)]).toEqual(['3 of 3 attempts passed', '3 of 3 attempts passed the check', '3 of 3 attempts passed all 3 checks']);
     expect(over!.history[1]).toMatchObject({ result: 'fail', note: '4 of 5 attempts passed, 5 needed. Attempt 2: check failed: issue_refund called 0 times, but called 1 time', runId: null });
     store.close();
   });
@@ -158,6 +160,11 @@ describe('the Tests screen', () => {
     expect(d!.bisect).toEqual({ good: 'c91d0f4', bad: 'd2e8a1f', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4', '--bad', 'd2e8a1f'], live: false });
     expect(d!.found).toBeNull();
     expect(view.failures).toEqual([]);
+    // Once the config has its rule (added for this golden or another), a re-run is what is left.
+    expect(d!.rulesAdded).toBe(false);
+    const rule = { replace: '<UUID>', pattern: 'uuid', path: '$.metadata.user_id', kind: 'api' as const };
+    expect(testsView(store, goldens, { normalizers: [rule] }).divergences[0]!.rulesAdded).toBe(true);
+    expect(testsView(store, goldens, { normalizers: [{ ...rule, replace: '<ID>' }] }).divergences[0]!.rulesAdded).toBe(false);
     // Once Find the commit has run, its answer shows above the buttons.
     recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', at: T0 + 60_000, data: { good: 'c91d0f4', bad: 'd2e8a1f', first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00' }, why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, upstreamRequests: 0 } });
     expect(testsView(store, goldens).divergences[0]!.found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', untested: [], replays: 4, tokens: 0, at: T0 + 60_000 });
@@ -232,8 +239,111 @@ describe('the Tests screen', () => {
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
     expect(view.verdict!.title).toBe('x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
-    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', bisect: null, found: null }]);
+    expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, blocked: null, bisect: null, found: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
+    store.close();
+  });
+
+  it('shows what the agent printed last when it exited with an error, as test --markdown does', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    const output = 'Traceback (most recent call last):\n  File "agent.py", line 12\nKeyError: \'refund\'';
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', revision: 'abc1234', data: { details: '30/30 calls replayed', output } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]);
+    expect(view.verdict!.title).toBe('x exited with code 1');
+    expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, details: '30/30 calls replayed', output, blocked: null }]);
+    store.close();
+  });
+
+  it('names a connection the network guard blocked in the replay, in the failure and its lines', () => {
+    const store = Store.open(':memory:');
+    run(store, 'R_LIVE');
+    // The sidecar keeps on the run what the guard saw bypass Shadowlap: a test blocks it, a recording only warns.
+    store.updateRunMeta('R_LIVE', { notRecorded: { hosts: [{ target: 'hooks.example.com:443', count: 2, action: 'blocked' }, { target: 'metrics.example.com:443', count: 1, action: 'warned' }], tools: [] } });
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: 'R_LIVE', revision: 'abc1234', data: { details: '1/1 calls replayed' } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    const view = testsView(store, [x]);
+    expect(view.failures).toMatchObject([{ failure: 'exit', runId: 'R_LIVE', blocked: ['hooks.example.com:443'] }]);
+    expect(view.rows[0]!.last.line).toBe('blocked connection to hooks.example.com:443 · the agent exited with code 1');
+    expect(view.rows[0]!.history[0]!.note).toBe('blocked connection to hooks.example.com:443 · the agent exited with code 1');
+    expect(failingTests(store, { goldens: [x] })[0]!.line).toBe('blocked connection to hooks.example.com:443 · the agent exited with code 1');
+    store.close();
+  });
+
+  it('names a blocked connection on a golden that passed because its agent caught the refusal', () => {
+    const store = Store.open(':memory:');
+    run(store, 'R_CAUGHT');
+    store.updateRunMeta('R_CAUGHT', { notRecorded: { hosts: [{ target: '203.0.113.9:8080', count: 1, action: 'blocked' }], tools: [] } });
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: true, runId: 'R_CAUGHT', revision: 'abc1234', data: { mode: 'replay', calls: { total: 5, replayed: 5, live: 0, blocked: 0, stubbed: 0 } } });
+    store.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0 });
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    const view = testsView(store, [x]);
+    expect(view.rows[0]!.last).toMatchObject({ result: 'pass', line: 'blocked connection to 203.0.113.9:8080 · 5/5 replayed' });
+    expect(view.rows[0]!.history[0]).toMatchObject({ result: 'pass', note: 'blocked connection to 203.0.113.9:8080' });
+    // It passed: no failure panel, and nothing in Needs a look.
+    expect(view.failures).toEqual([]);
+    expect(failingTests(store, { goldens: [x] })).toEqual([]);
+    store.close();
+  });
+
+  it('reads a live call from what the agent printed when it died before the guard could report it', () => {
+    const store = Store.open(':memory:');
+    run(store, 'R_DIED');
+    const output = [
+      '[shadowlap] blocked an outbound connection to 127.0.0.1:62331: it bypasses Shadowlap (SHADOWLAP_GUARD=block). Wrap the call as a tool, or allow it with SHADOWLAP_GUARD_ALLOW=127.0.0.1:62331.',
+      'TypeError: fetch failed',
+      '  [cause]: Error: shadowlap: blocked outbound connection to 127.0.0.1:62331 (SHADOWLAP_GUARD=block)',
+      'OSError: [Errno 1] shadowlap: blocked outbound connection to ::1:8443 (SHADOWLAP_GUARD=block)',
+    ].join('\n');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: 'R_DIED', revision: 'abc1234', data: { details: 'the agent process exited with an error', output } });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]);
+    expect(view.failures[0]!.blocked).toEqual(['127.0.0.1:62331', '::1:8443']);
+    // A warning (a recording lets the connection through) is no live call a test refused.
+    const warned = Store.open(':memory:');
+    const w = warned.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    warned.addTestResult({ sessionId: w.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', revision: 'abc1234', data: { output: '[shadowlap] warning: outbound connection to 127.0.0.1:62331 bypasses Shadowlap and is not recorded' } });
+    warned.finishTestSession(w.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    expect(testsView(warned, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).failures[0]!.blocked).toBeNull();
+    warned.close();
+    store.close();
+  });
+
+  it('keeps the ring where a golden was updated when a later session ran at the same revision', () => {
+    const store = Store.open(':memory:');
+    for (const id of ['R_UPD', 'R_AFTER']) run(store, id);
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    session(store, 'abc1234+dirty', T0, [{ golden: 'goldens/x', ok: true, runId: 'R_UPD', data: { mode: 'replay', calls: { total: 5, replayed: 5, live: 0, blocked: 0, stubbed: 0 }, updated: { from: 'OLD', to: 'NEW', calls: 5 } } }]);
+    session(store, 'abc1234+dirty', T0 + 1000, [{ golden: 'goldens/x', ok: true, runId: 'R_AFTER' }]);
+    const [row] = testsView(store, [x]).rows;
+    // The newest result there opens, and the update made there keeps its ring.
+    expect(row!.history).toMatchObject([{ revision: 'abc1234+dirty', result: 'pass', updated: true, runId: 'R_AFTER' }]);
+    expect(row!.last).toMatchObject({ result: 'pass', updated: false, line: '8/8 replayed' });
+    store.close();
+  });
+
+  it('never puts a golden whose path reads as an option on a command line', () => {
+    const store = Store.open(':memory:');
+    const pack = (path: string, error: string | null = null): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], error });
+    // Keys under the config's `tests` are listed as goldens even when they are no pack.
+    const list = [pack('goldens/a'), pack('--online', 'no run.json: not a pack'), pack('--writes'), pack('-x/y'), pack('evals/b')];
+    expect(testPatterns(list)).toEqual(['goldens/*', 'evals/b']);
+    const view = testsView(store, list);
+    expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/b']);
+    expect(view.commands.ci).toBe('shadowlap test goldens/* evals/b --junit report.xml');
+    expect(view.rows.find((r) => r.path === '--writes')).toMatchObject({ error: 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json', last: { line: 'can\'t be read: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json' } });
+    expect(runTestsJob(list, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/b'] });
+    for (const golden of ['--online', '--writes', '-x/y']) {
+      expect(runTestsJob(list, { golden }), golden).toHaveProperty('error');
+      expect(updateGoldensJob(list, { goldens: ['goldens/a', golden] }), golden).toEqual({ error: `no such golden: ${golden}` });
+      expect(bisectJob(store, list, { golden, good: 'c91d0f4' }), golden).toHaveProperty('error');
+      expect(normalizeAndTestJob(store, list, { golden }), golden).toHaveProperty('error');
+    }
     store.close();
   });
 

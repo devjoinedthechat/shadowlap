@@ -82,7 +82,11 @@ describe('shadowlap test history', () => {
     s.close();
 
     expect(r.events[0]).toEqual({ type: 'run', runId: replayId, role: 'passing' });
-    expect(r.events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Tests', href: '#/tests' });
+    // One golden: a link to its replay, as Add normalizer and re-run opens it, then Tests.
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([
+      { type: 'link', label: 'Open the passing run', href: `#/run/${replayId}` },
+      { type: 'link', label: 'Tests', href: '#/tests' },
+    ]);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as Record<string, unknown> & { results: Array<Record<string, unknown>> };
     expect(report).toMatchObject({ session: session!.sessionId, revision: session!.revision, passed: 1, failed: 0 });
     expect(report.results[0]).toMatchObject({ golden: 'goldens/reference-agent', ok: true, failure: null, runId: replayId, runs: [{ runId: replayId, ok: true }], goldenRunId: goldenRunId(), expect: null, updated: null });
@@ -102,6 +106,34 @@ describe('shadowlap test history', () => {
     expect(failed!.data!.divergence).toMatchObject({ entries: 1, volatile: { values: [], explainsAll: false } });
     expect(failed!.data!.divergence!.text).toContain('Be brief.');
     expect(r.events.filter((e) => e.type === 'run')).toEqual([{ type: 'run', runId: failed!.runId, role: 'failing' }]);
+    expect(r.events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Open the run', href: `#/run/${failed!.runId}` });
+    s.close();
+  });
+
+  it('links a dashboard job over several goldens to the replay of each that failed, then Tests', async () => {
+    cpSync(GOLDEN, join(work, 'goldens', 'no-email'), { recursive: true });
+    // The same recording, with a check its agent breaks: it sends the email the check rules out.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/no-email': { expect: { tools: { send_email: 0 } } } } }));
+    const r = await shadowlap(['test', 'goldens/*', '--cwd', ROOT]);
+    expect(r.code, r.out).toBe(1);
+    const s = store();
+    const failed = s.listTestResults({ golden: 'goldens/no-email' })[0]!;
+    expect(failed).toMatchObject({ ok: false, failure: 'check' });
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([
+      { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}` },
+      { type: 'link', label: 'Tests', href: '#/tests' },
+    ]);
+    s.close();
+  });
+
+  it('keeps what the agent printed last when it exits with an error, for the Tests screen', async () => {
+    const r = await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT], { AGENT_FAIL_AFTER_CALL: '5' });
+    expect(r.code).toBe(1);
+    const s = store();
+    const [failed] = s.listTestResults({ golden: 'goldens/reference-agent' });
+    expect(failed).toMatchObject({ ok: false, failure: 'exit', reason: 'the agent exited with code 1' });
+    expect(failed!.data!.output).toContain('agent crashed after model call 5');
+    expect(failed!.data!.output!.split('\n').length).toBeLessThanOrEqual(20);
     s.close();
   });
 

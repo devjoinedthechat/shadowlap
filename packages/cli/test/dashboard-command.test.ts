@@ -103,7 +103,7 @@ describe('shadowlap dashboard', () => {
     const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
     try {
       const meta = (await (await api('meta')).json()) as { actions: boolean; readOnly: boolean; project: { name: string; path: string }; jobKinds: string[] };
-      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: expect.arrayContaining(['action', 'apply', 'blame', 'export-dataset', 'export-har', 'export-html', 'export-otel', 'import', 'pack', 'pull', 'push', 'repair', 'share']) });
+      expect(meta).toMatchObject({ actions: true, readOnly: false, project: { name: basename(cwd), path: cwd }, jobKinds: expect.arrayContaining(['action', 'apply', 'bisect', 'blame', 'export-dataset', 'export-har', 'export-html', 'export-otel', 'import', 'normalize-and-test', 'pack', 'pull', 'push', 'repair', 'share', 'test', 'test-update']) });
       let job = (await (await api(`runs/${runId}/actions`, { method: 'POST', body: JSON.stringify({ key: 'r' }) })).json()) as { id: string; done: boolean; code: number | null; newRunId: string | null; links: Array<{ href: string }>; result: { exitCode?: number } | null; title: string };
       expect(job.title).toBe('Replaying');
       for (let i = 0; i < 400 && !job.done; i++) {
@@ -144,6 +144,32 @@ describe('shadowlap dashboard', () => {
       expect(existsSync(join(empty, '.shadowlap'))).toBe(false);
     } finally {
       rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('lists the project\'s goldens on Tests, and runs them from there', async () => {
+    const packed = spawnSync(process.execPath, [CLI, 'pack', runId, 'goldens/agent-ran'], { cwd, env, encoding: 'utf8' });
+    expect(packed.status, packed.stderr).toBe(0);
+    const d = await dashboard([]);
+    const api = (path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' } });
+    try {
+      const before = (await (await api('tests')).json()) as { goldens: number; verdict: unknown; rows: Array<{ path: string; source: { kind: string }; last: { result: string | null } }> };
+      expect(before.goldens).toBe(1);
+      expect(before.rows[0]).toMatchObject({ path: 'goldens/agent-ran', last: { result: null } });
+      let job = (await (await api('jobs', { method: 'POST', body: JSON.stringify({ kind: 'test' }) })).json()) as { id: string; done: boolean; args: string[]; code: number | null };
+      expect(job.args).toEqual(['test', 'goldens/*']);
+      for (let i = 0; i < 400 && !job.done; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        job = (await (await api(`jobs/${job.id}`)).json()) as typeof job;
+      }
+      // The agent makes no model or tool calls, so its golden has nothing to replay: it fails, and Tests says why.
+      expect(job.code).toBe(1);
+      const after = (await (await api('tests')).json()) as { verdict: { state: string; session: { command: string } }; failures: Array<{ golden: string; failure: string }> };
+      expect(after.verdict).toMatchObject({ state: 'failing', session: { command: 'shadowlap test goldens/*' } });
+      expect(after.failures).toMatchObject([{ golden: 'goldens/agent-ran', failure: 'no-calls' }]);
+    } finally {
+      await stop(d);
+      rmSync(join(cwd, 'goldens'), { recursive: true, force: true });
     }
   });
 });

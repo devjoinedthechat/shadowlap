@@ -102,6 +102,17 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   const code = job.code;
   if (code === null) return { text: 'stopped', tone: 'err' };
   const exit = `exit ${code}`;
+  // Find the commit: whether bisect named the first bad commit.
+  if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
+  if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
+  // `shadowlap test` (Run tests, Update golden, Add normalizer and re-run): the last totals it printed.
+  const totals = [...all.matchAll(/^(\d+) passed, (\d+) failed(, \d+ not run: interrupted)?/gm)].at(-1);
+  if (totals) {
+    // Stopped: the goldens after the one it was replaying didn't run, so the counts are no verdict.
+    if (totals[3] || code === 130 || code === 143) return { text: `interrupted · ${exit}`, tone: 'warn' };
+    const failed = Number(totals[2]);
+    return failed ? { text: `${failed} failed · ${exit}`, tone: 'err' } : { text: `${totals[1]} passed · ${exit}`, tone: code === 0 ? 'ok' : 'err' };
+  }
   if (code === 0) {
     if (/check(s)? passed/i.test(all)) return { text: `check passed · ${exit}`, tone: 'ok' };
     if (/Replay clean|Reproduced exactly/.test(all)) return { text: `reproduced · ${exit}`, tone: 'ok' };

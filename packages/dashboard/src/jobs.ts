@@ -116,6 +116,12 @@ export type JobRequest = Record<string, unknown>;
 export interface JobBuild {
   /** CLI arguments. Never taken from the request as they are: built from checked fields. */
   args: string[];
+  /**
+   * Commands to run after `args`, in order, each only when the one before it exited 0: Add
+   * normalizer and re-run is `normalize add …`, then `test <golden>`. The output shows each one as
+   * `$ shadowlap …` before its lines; the job ends with the exit code of the last command that ran.
+   */
+  then?: string[][];
   /** The run the job is about (its full id), if any. */
   runId?: string | null;
   /** The working directory, relative to the project folder or absolute inside it. Defaults to the project folder. */
@@ -182,6 +188,8 @@ interface Job {
   /** How it uses its working tree (worktree.ts), while it runs, and that tree's folder through links. */
   worktree: JobTree | null;
   treeAt: string | null;
+  /** Commands still to run after the one running now (`JobBuild.then`). */
+  rest: string[][];
   runId: string | null;
   opensRun: boolean;
   cwd: string | null;
@@ -247,6 +255,14 @@ export function lines(stream: Readable | null | undefined, max: number, onLine: 
 }
 
 const clean = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+
+/** A command a builder returned: CLI arguments, at least one, each a string without a NUL. */
+const isCommand = (args: unknown): args is string[] => Array.isArray(args) && args.length > 0 && args.every((a) => typeof a === 'string' && !a.includes('\0'));
+
+/** A command as typed, for the line that starts it in a job's output: `shadowlap test goldens/x`. */
+function commandLine(args: readonly string[]): string {
+  return `shadowlap ${args.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ')}`;
+}
 
 export class JobManager {
   private readonly kinds = new Map<string, JobKind>();
@@ -343,7 +359,8 @@ export class JobManager {
     try {
       // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
       if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
-      if (!Array.isArray(built.args) || !built.args.length || built.args.some((a) => typeof a !== 'string' || a.includes('\0'))) throw new HttpError(500, `job kind "${kind}" built no command`);
+      if (!isCommand(built.args)) throw new HttpError(500, `job kind "${kind}" built no command`);
+      if (built.then !== undefined && (!Array.isArray(built.then) || !built.then.every(isCommand))) throw new HttpError(500, `job kind "${kind}" built a command to run next that is not one`);
       cwd = this.jobCwd(built.cwd);
       title = clean(built.title ?? def.title(req), 120) || kind;
       if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
@@ -369,6 +386,7 @@ export class JobManager {
       args: [...built.args],
       worktree: tree,
       treeAt,
+      rest: (built.then ?? []).map((a) => [...a]),
       runId: built.runId ?? null,
       opensRun: built.opensRun ?? false,
       cwd,
@@ -395,27 +413,53 @@ export class JobManager {
     this.jobs.set(id, job);
     this.evict();
     this.version++;
+    this.runCommand(job, spawnCli, job.args);
+    return this.view(job);
+  }
 
+  /**
+   * Runs one command of a job. When it exits 0 and the job has commands left (`JobBuild.then`), the
+   * next one starts, unless the job was asked to stop or the dashboard is stopping; otherwise the job
+   * ends with this command's exit code.
+   */
+  private runCommand(job: Job, spawnCli: SpawnCli, args: string[]): void {
     let child: ChildProcess;
     try {
-      child = spawnCli(job.args, { events: true, ...(cwd ? { cwd } : {}) });
+      child = spawnCli(args, { events: true, ...(job.cwd ? { cwd: job.cwd } : {}) });
     } catch (err) {
       this.push(job, `failed to start: ${err instanceof Error ? err.message : String(err)}`);
       this.finish(job, 127);
-      return this.view(job);
+      return;
     }
     job.child = child;
+    job.exited = false;
     const flushOut = lines(child.stdout, MAX_LINE, (line, cut) => this.output(job, line, cut));
     const flushErr = lines(child.stderr, MAX_LINE, (line, cut) => this.output(job, line, cut));
     const events = child.stdio[3] as Readable | null | undefined;
     const flushEvents = lines(events, MAX_EVENT, (line, cut) => (cut ? this.push(job, '(a job event over 1 MB was left out)') : this.event(job, line)));
     let drain: NodeJS.Timeout | null = null;
+    // `exit` (after the drain) and `close` both end this command; only the first counts.
+    let over = false;
     const end = (code: number | null) => {
       if (drain) clearTimeout(drain);
-      if (job.done) return;
+      if (over || job.done) return;
+      over = true;
       flushOut();
       flushErr();
       flushEvents();
+      const next = job.rest.shift();
+      if (next && code === 0 && !job.stopping && !this.closed) {
+        this.push(job, `$ ${commandLine(next)}`);
+        this.version++;
+        this.runCommand(job, spawnCli, next);
+        return;
+      }
+      // Stopped between two commands: the ones after it never ran, so it did not finish.
+      if (next && code === 0) {
+        this.push(job, `(stopped before ${commandLine(next)})`);
+        this.finish(job, null);
+        return;
+      }
       this.finish(job, code);
     };
     child.on('error', (err) => {
@@ -436,7 +480,6 @@ export class JobManager {
       drain.unref();
     });
     child.on('close', (code) => end(code));
-    return this.view(job);
   }
 
   private jobCwd(asked: string | undefined): string | null {
