@@ -107,9 +107,18 @@ export function shareItemOff(key: ShareKey, o: Pick<ShareContext, 'actionsOff' |
 
 /**
  * Push, in the header: a run that is only on this machine goes to the team store the config names,
- * with the runs it came from. Never on an exported copy or a run still recording, and only where
- * the server has the team store's `push` job.
+ * with the runs it came from, and so do attempts filed under it that are only here (a run in the
+ * store whose attempts aren't has Push too, as the Runs page tags it local). Never on an exported
+ * copy or a run still recording, and only where the server has the team store's `push` job.
  */
 export function canPush(o: { exported: boolean; live: boolean; team: RunOffers['team'] | null | undefined; hasPush: boolean }): boolean {
   return !o.exported && !o.live && o.team?.state === 'only-here' && o.hasPush;
+}
+
+/** What Push sends, for its hover: the run, its attempts only here, or both. */
+export function pushTitle(team: NonNullable<RunOffers['team']>): string {
+  const a = team.localAttempts;
+  const attempts = a ? (a.attempts === 1 ? 'attempt' : `${num(a.attempts)} attempts`) : '';
+  if (a && !a.run) return `Copy this run’s ${attempts} to the team store, ${team.store}: the run is there already`;
+  return `Copy this run${a ? ` and its ${attempts}` : ''} to the team store, ${team.store}, with the runs it came from`;
 }

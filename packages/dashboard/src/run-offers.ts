@@ -1,6 +1,7 @@
-import { hasRecordedCommand, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { abandonedRuns, hasRecordedCommand, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
+import { loadRunIndex } from './run-index.js';
 import { fixForRun } from './fixes.js';
 import { copyRules, type CopyRules } from './run-exports.js';
 import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
@@ -45,8 +46,13 @@ export interface RunOffers {
   runId: string;
   /** Share: how many of the project's redaction rules each copy applies. */
   copies: CopyRules;
-  /** The team store the config names (its short name), and where this run stands with it; null without one. */
-  team: { store: string; state: TeamState } | null;
+  /**
+   * The team store the config names (its short name), and where this run stands with it; null
+   * without one. A run is only here (`only-here`, which Push sends) when it is, or when attempts
+   * filed under it are (`localAttempts`: whether the run itself is, and how many attempts), as the
+   * Runs page tags it `local`.
+   */
+  team: { store: string; state: TeamState; localAttempts?: { run: boolean; attempts: number } } | null;
   /** Run blame, for a failed run never blamed; null otherwise. */
   blame: BlameOffer | null;
   /** Find the commit: the revisions to start from, or why it can't start from this run. */
@@ -79,8 +85,32 @@ function teamOf(store: Store, run: RunRecord, raw: unknown): RunOffers['team'] {
   const name = shortStoreName(loc);
   if (run.status === 'running') return { store: name, state: 'recording' };
   if (run.meta?.imported?.pr) return { store: name, state: 'pull-request' };
-  const row = store.teamRun(storeKey(loc), run.runId);
-  return { store: name, state: row && teamRunInStore(row) ? 'in-store' : row?.state === 'queued' ? 'queued' : 'only-here' };
+  const key = storeKey(loc);
+  const row = store.teamRun(key, run.runId);
+  const state: TeamState = row && teamRunInStore(row) ? 'in-store' : row?.state === 'queued' ? 'queued' : 'only-here';
+  // Attempts filed under it (--repeat, blame's probes, verify's) that are only here: a push of the run sends them.
+  const attempts = localAttemptsOf(store, key, run.runId);
+  if (!attempts) return { store: name, state };
+  return { store: name, state: state === 'in-store' ? 'only-here' : state, localAttempts: { run: state !== 'in-store', attempts } };
+}
+
+/**
+ * How many attempts filed under a run are only on this machine, as the store's counts have them:
+ * ended (or left by a recorder that is gone, which a push ends), not from a pull request's folder,
+ * not in the store's index.
+ */
+function localAttemptsOf(store: Store, key: string, runId: string): number {
+  const attempts = loadRunIndex(store).attempts.get(runId) ?? [];
+  const ended = attempts.some((a) => a.status === 'running') ? abandonedRuns(store) : new Set<string>();
+  let n = 0;
+  for (const a of attempts) {
+    if (a.status === 'running' && !ended.has(a.runId)) continue;
+    const row = store.teamRun(key, a.runId);
+    if (row && teamRunInStore(row)) continue;
+    if (store.getRun(a.runId)?.meta?.imported?.pr) continue;
+    n++;
+  }
+  return n;
 }
 
 /** A golden's checks in the config's `tests`: its own entry, else one whose last part's `*` matches it. */
