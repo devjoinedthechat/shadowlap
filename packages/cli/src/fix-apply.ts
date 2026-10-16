@@ -13,7 +13,9 @@ import { applyLeft, fixRecords, markFixApplied, recordEvent, repairToApply, reso
  * the patch is left alone, with what to do about it. A fix verified on the working tree itself,
  * with no repair behind it, has no patch: its change is already where it belongs, so it is only
  * marked applied. On a fix applied already, it finishes what was left: goldens not copied yet, and
- * a test that hasn't passed.
+ * a test that hasn't passed. A repair that came with a pull from the team store ran on a teammate's
+ * machine: its patch goes in here, and its recordings, which stayed there, are neither copied nor
+ * tested here (they are committed from that machine).
  *
  * What it reads from the store decides what it touches, so it trusts no path there: the repair's
  * directory must be `.shadowlap/repairs/<its id>`, its goldens inside that directory's `goldens/`,
@@ -63,6 +65,9 @@ export function acceptedRepair(store: Store, fix: StoredFix): StoredRepair | nul
   return repairToApply(fixRecords(store, fix));
 }
 
+/** A repair a teammate ran, which came with a fix from the team store: its recordings stayed on their machine. */
+const cameWithPull = (store: Store, repair: StoredRepair | null) => !!repair && store.repairPulled(repair.repairId) !== null;
+
 /** Files a unified diff touches, by their path in the repository. */
 function patchedFiles(patch: string): string[] {
   return [...new Set([...patch.matchAll(/^diff --git a\/(.+?) b\//gm)].map((m) => m[1]!))];
@@ -96,9 +101,10 @@ function repairPaths(repair: StoredRepair): { dir: string; goldens: Array<{ path
 
 export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): Promise<ApplyResult> {
   const repair = acceptedRepair(store, fix);
+  const pulled = cameWithPull(store, repair);
   const before = fix.data.applied ?? null;
   const again = fix.status === 'applied';
-  const left = applyLeft(fix, repair);
+  const left = applyLeft(fix, repair, { pulled });
   if (again && !(left && (left.goldens || (left.test && o.test)))) {
     return { fixId: fix.fixId, status: 'already-applied', again: false, patch: before?.patch ?? 'none', repairId: before?.repairId ?? null, goldens: [], tests: before?.tests ?? 'skipped' };
   }
@@ -138,12 +144,15 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
     // build if the fix is ever undone. One copied before (by `repair --apply --goldens <dir>`, or an
     // earlier run of this) is tested where it is.
     const copiedBefore = (before?.goldens ?? []).map(slashes).filter((p) => !isAbsolute(p) && !/^[a-z]:/i.test(p) && !p.split('/').includes('..'));
+    // A teammate's repair, from the team store: its recordings are on the machine that ran it.
+    let elsewhere = 0;
     for (const g of paths.goldens) {
       const from = resolve(o.cwd, g.path);
       const known = copiedBefore.find((p) => basename(p) === g.name);
       const to = known ? resolve(o.cwd, known) : resolve(o.cwd, o.goldens, g.name);
       if (!existsSync(from)) {
-        o.log(`  ! ${g.path} is gone, so it was not copied`);
+        if (pulled) elsewhere++;
+        else o.log(`  ! ${g.path} is gone, so it was not copied`);
         continue;
       }
       const copied = !existsSync(to);
@@ -151,6 +160,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
       result.goldens.push({ from: shown(o.cwd, from), to: shown(o.cwd, to), copied });
       o.log(`  ${copied ? 'copied' : 'already there:'} ${shown(o.cwd, to)}`);
     }
+    if (elsewhere) o.log(`  ${elsewhere === 1 ? 'the recording' : `the ${elsewhere} recordings`} the fixed code made ${elsewhere === 1 ? 'stays' : 'stay'} on the machine that ran ${repair.repairId}, which came with a pull: commit ${elsewhere === 1 ? 'it' : 'them'} from there`);
 
     if (o.build) {
       const b = spawnSync(o.build, { cwd: o.cwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });

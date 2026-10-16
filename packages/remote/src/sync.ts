@@ -414,7 +414,7 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
     if (row.state !== 'queued') continue;
     for (const r of withAncestors(store, row.runId)) targets.set(r.runId, r);
   }
-  const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null, fixes: { sent: [], failed: [] } };
+  const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null, fixes: { sent: [], failed: [], repairs: [] } };
   const known = new Set<string>();
   const entries: IndexEntry[] = [];
   const refused = new Set<string>();

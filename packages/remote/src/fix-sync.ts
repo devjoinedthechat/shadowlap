@@ -27,6 +27,8 @@ export interface FixPushResult {
   sent: string[];
   /** Fixes that couldn't go, and why; the next push tries them again. */
   failed: FixProblem[];
+  /** Repairs a teammate made that the store's copies brought, whose files the CLI writes beside the project. */
+  repairs: string[];
 }
 
 export interface FixPullResult {
@@ -69,9 +71,13 @@ async function readFix(ctx: FixSyncContext, key: string): Promise<GetResult | nu
   }
 }
 
-/** Writes one fix, merged with the store's copy when there is one; 'same' when the store had it all. */
-async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: string): Promise<'sent' | 'same'> {
+/**
+ * Writes one fix, merged with the store's copy when there is one; 'same' when the store had it all.
+ * What the store's copy adds is taken here too: the repairs it brought go into `repairs`.
+ */
+async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: string, repairs: string[]): Promise<'sent' | 'same'> {
   const key = fixKey(doc.fix.fixId);
+  const take = (next: FixDoc) => repairs.push(...applyFixDoc(ctx.store, next, { from: rid, at: now(ctx) }).repairs);
   for (let attempt = 0; ; attempt++) {
     try {
       const got = await readFix(ctx, key);
@@ -87,7 +93,7 @@ async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: stri
         const merged = fixDocHash(next);
         if (merged === fixDocHash(there)) {
           // The store has everything this machine has, and maybe more: take what it adds.
-          if (merged !== hash) applyFixDoc(ctx.store, next);
+          if (merged !== hash) take(next);
           ctx.store.setTeamFix(rid, { fixId: doc.fix.fixId, hash: merged, version: got.version, at: now(ctx) });
           return 'same';
         }
@@ -97,7 +103,7 @@ async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: stri
       if (bytes.length > FIX_BYTES) throw new LayoutError(`it would be ${bytes.length} bytes, over the ${FIX_BYTES} a pull reads, so it stays on this machine`);
       const put = await ctx.remote.put(key, bytes, { contentType: 'application/json', ...(got ? (got.version ? { ifMatch: got.version } : {}) : { ifNoneMatch: true }) });
       const merged = fixDocHash(next);
-      if (merged !== hash) applyFixDoc(ctx.store, next);
+      if (merged !== hash) take(next);
       ctx.store.setTeamFix(rid, { fixId: doc.fix.fixId, hash: merged, version: put.version, at: now(ctx) });
       return 'sent';
     } catch (err) {
@@ -114,7 +120,7 @@ async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: stri
  */
 export async function pushFixes(ctx: FixSyncContext): Promise<FixPushResult> {
   const rid = storeKey(ctx.remote.location);
-  const result: FixPushResult = { sent: [], failed: [] };
+  const result: FixPushResult = { sent: [], failed: [], repairs: [] };
   const synced = ctx.store.teamFixes(rid);
   const inStore = new Set(ctx.store.teamRuns(rid).filter((r) => r.state !== 'queued' && r.remoteHash !== null).map((r) => r.runId));
   for (const fix of ctx.store.listFixes()) {
@@ -125,7 +131,7 @@ export async function pushFixes(ctx: FixSyncContext): Promise<FixPushResult> {
     const hash = fixDocHash(doc);
     if (row?.hash === hash) continue;
     try {
-      if ((await sendFix(ctx, rid, doc, hash)) === 'sent') result.sent.push(fix.fixId);
+      if ((await sendFix(ctx, rid, doc, hash, result.repairs)) === 'sent') result.sent.push(fix.fixId);
     } catch (err) {
       result.failed.push({ fixId: fix.fixId, reason: (err as Error).message });
       if (!isFixProblem(err)) break;
@@ -165,7 +171,7 @@ export async function pullFixes(ctx: FixSyncContext): Promise<FixPullResult> {
     const here = fixDocOf(ctx.store, fixId);
     const merged = here ? mergeFixDocs(here, there) : there;
     if (!here || fixDocHash(here) !== fixDocHash(merged)) {
-      const applied = applyFixDoc(ctx.store, merged);
+      const applied = applyFixDoc(ctx.store, merged, { from: rid, at: now(ctx) });
       result.repairs.push(...applied.repairs);
       (applied.created ? result.pulled : result.merged).push(fixId);
     }

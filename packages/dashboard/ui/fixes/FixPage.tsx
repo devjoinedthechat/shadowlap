@@ -179,7 +179,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
     return (
       <>
         {copy}
-        <button className="btn" type="button" disabled title="The patch is in the working tree and its goldens pass">
+        <button className="btn" type="button" disabled title={fix.actions.apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass'}>
           Patch applied
         </button>
       </>
@@ -260,8 +260,12 @@ function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: st
     );
   if (fix.actions.applied)
     return <ConfirmDialog title="Finish applying the fix?" text={`The patch is in your working tree. What is left: ${apply.pending ?? 'nothing'}.`} ok={label} command={command} onOk={run} onClose={onClose} />;
+  // A teammate's repair, from the team store: its recordings are on the machine that ran it.
+  const text = apply.pulled
+    ? `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply. The recordings the fixed code made stay on the machine that ran the repair, so nothing is copied or replayed here. Review the change before you commit it.`
+    : `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Review the change before you commit it.`;
   return (
-    <Dialog title="Apply the patch?" text={`This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Review the change before you commit it.`} ok={label} onOk={run} onClose={onClose}>
+    <Dialog title="Apply the patch?" text={text} ok={label} onOk={run} onClose={onClose}>
       <CmdLine>{command}</CmdLine>
     </Dialog>
   );

@@ -595,8 +595,10 @@ function registerFixes(program: Command): void {
         const result = await applyFix(store, found, { cwd: process.cwd(), goldens: flags.goldens, test: flags.test, build: flags.build ?? null, db: opts.db, log });
         if (flags.json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
         else if (result.status === 'already-applied') {
-          // Only --no-test leaves a test undone here: say so rather than that nothing is left.
-          const untested = applyLeft(found, acceptedRepair(store, found))?.test;
+          // Only --no-test leaves a test undone here: say so rather than that nothing is left. A
+          // teammate's repair, from the team store, left its recordings on their machine: none to test here.
+          const repair = acceptedRepair(store, found);
+          const untested = applyLeft(found, repair, { pulled: !!repair && store.repairPulled(repair.repairId) !== null })?.test;
           const left = untested ? `, but its goldens ${result.tests === 'failed' ? 'failed their last test' : 'are not tested yet'}: run it without --no-test to test them` : '; nothing is left to do';
           process.stdout.write(`${untested ? p.yellow('!') : p.green('✓')} ${shortFixId(found.fixId)} is already applied${found.appliedAt ? ` (${ago(found.appliedAt)})` : ''}${left}\n`);
         } else {

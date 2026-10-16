@@ -188,6 +188,11 @@ export interface RepairStep {
   cost: { blame: number; repairer: number | null; verify: number };
   output: { patch: string | null; applied: boolean; branch: string | null; pr: string | null; goldens: string[] };
   warnings: string[];
+  /**
+   * It came with a fix from the team store: it ran on a teammate's machine, where the recordings the
+   * fixed code made (its goldens) stayed. Its patch and reports were written here by the pull.
+   */
+  pulled: boolean;
 }
 
 export interface VerifyRow {
@@ -247,9 +252,11 @@ export interface FixActions {
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
    * working tree applied (`mark`). Once `applied`, the button is "Patch applied" and disabled,
-   * unless `pending` says what applying left undone, which running it again finishes.
+   * unless `pending` says what applying left undone, which running it again finishes. `pulled`: the
+   * repair came from the team store, so its recordings are on the machine that ran it, and applying
+   * here puts in the patch alone.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean } | null;
   applied: boolean;
 }
 
@@ -587,7 +594,7 @@ function patchNote(patch: string | null): string {
   return `${files} file${s(files)} · +${plus} −${minus}`;
 }
 
-function repairStep(rec: FixRecords, r: StoredRepair, fixId: string): RepairStep {
+function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = false): RepairStep {
   const rep = r.report;
   const c = acceptedCandidate(r);
   const v = c?.verify ?? null;
@@ -627,13 +634,15 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string): RepairStep
       ...(rep.patch ? [{ name: 'fix.patch', note: patchNote(rep.patch) }] : []),
       { name: 'report.md', note: 'the pull request body' },
       { name: 'report.json', note: 'for agents and CI' },
-      ...(goldens ? [{ name: 'goldens/', note: `${goldens} recording${s(goldens)} made by the fixed code` }] : []),
+      // A teammate's repair: its recordings stayed on the machine that ran it, and are committed from there.
+      ...(goldens ? [{ name: 'goldens/', note: pulled ? `${goldens} recording${s(goldens)} made by the fixed code, kept on the machine that ran the repair: commit them from there` : `${goldens} recording${s(goldens)} made by the fixed code` }] : []),
     ],
     prBody: repairMarkdown(rep),
     command: r.command,
     cost: rep.cost,
     output: { patch: rep.output.patch, applied: rep.output.applied, branch: rep.output.branch, pr: rep.output.pr, goldens: rep.output.goldens },
     warnings: rep.warnings,
+    pulled,
   };
 }
 
@@ -790,6 +799,8 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
+  // A repair a teammate ran, which came with a pull: its recordings are on their machine.
+  const pulled = (r: StoredRepair | null) => !!r && store.repairPulled(r.repairId) !== null;
   const shortIds = (argv: string[]) => argv.map((a) => (/^[0-9A-Z]{26}$/.test(a) ? short(a) : a));
   const configured = options.repairer?.trim() || null;
   return {
@@ -806,12 +817,18 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
       apply:
         fix.status === 'open'
           ? null
-          : { kind: toApply ? 'patch' : 'mark', argv: ['fix', 'apply', fix.fixId], gitApply: toApply?.report.patch ? `git apply ${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null, pending: pendingText(applyLeft(fix, toApply)) },
+          : {
+              kind: toApply ? 'patch' : 'mark',
+              argv: ['fix', 'apply', fix.fixId],
+              gitApply: toApply?.report.patch ? `git apply ${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
+              pending: pendingText(applyLeft(fix, toApply, { pulled: pulled(toApply) })),
+              pulled: pulled(toApply),
+            },
       applied: fix.status === 'applied',
     },
     blame: b ? blameStep(store, b) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
-    repair: p ? repairStep(rec, p, fix.fixId) : null,
+    repair: p ? repairStep(rec, p, fix.fixId, pulled(p)) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
       return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No fix yet' };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixRecords, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, Store } from '@shadowlap/engine';
+import { fixRecords, markFixApplied, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, Store } from '@shadowlap/engine';
 import { FIX_FORMAT, FIX_VERSION, fixDocHash, fixDocOf, fixKey, mergeFixDocs, parseFixDoc, parseStoreUrl, pull, pullRequestLocation, push, storeKey, type FixDoc, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -37,10 +37,10 @@ describe('a fix in the team store', () => {
     const dana = machine(remote, 'dana@northwind.example');
     const { run, fixId } = blamed(dana.store);
     // Its run is only here: the fix stays here too.
-    expect((await push(dana, { runIds: [] })).fixes).toEqual({ sent: [], failed: [] });
+    expect((await push(dana, { runIds: [] })).fixes).toEqual({ sent: [], failed: [], repairs: [] });
     expect(remote.keysUnder('fixes/')).toEqual([]);
     inStore(dana.store, run);
-    expect((await push(dana, { runIds: [] })).fixes).toEqual({ sent: [fixId], failed: [] });
+    expect((await push(dana, { runIds: [] })).fixes).toEqual({ sent: [fixId], failed: [], repairs: [] });
     expect(remote.keysUnder('fixes/')).toEqual([fixKey(fixId)]);
 
     const maya = machine(remote, 'maya@northwind.example');
@@ -105,6 +105,52 @@ describe('a fix in the team store', () => {
     await pull(maya);
     expect(maya.store.getFix(fixId)!.status).toBe('verified');
     expect(fixRecords(maya.store, maya.store.getFix(fixId)!).verdicts.map((v) => v.verdict)).toEqual(['accepted', 'rejected']);
+    // The repair is marked as made elsewhere where it came from the store, never where it was made.
+    expect(dana.store.repairPulled('repair-munzln2i')).toMatchObject({ remote: KEY });
+    expect(maya.store.repairPulled('repair-munzln2i')).toBeNull();
+  });
+
+  it('keeps applied on the machine whose working tree has the patch: the others have it verified, ready to apply', async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { run, fixId } = blamed(dana.store);
+    inStore(dana.store, run);
+    await push(dana, { runIds: [] });
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    recordRepair(maya.store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: `shadowlap repair --fixes ${run}` });
+    await push(maya, { runIds: [] });
+    await pull(dana);
+    expect(dana.store.getFix(fixId)!.status).toBe('verified');
+
+    // Maya applies it in her working tree: nothing about that goes to the store.
+    const applied = { patch: 'applied' as const, repairId: 'repair-munzln2i', goldens: ['goldens/refund-fixed'], tests: 'passed' as const, by: 'maya@northwind.example', via: 'fix apply' as const };
+    markFixApplied(maya.store, fixId, applied, 9_000);
+    expect((await push(maya, { runIds: [] })).fixes.sent).toEqual([]);
+    const there = parseFixDoc(remote.objects.get(fixKey(fixId))!.body, fixId);
+    expect(there.fix).toMatchObject({ status: 'verified', appliedAt: null });
+    expect(there.fix.data.applied).toBeUndefined();
+    expect(fixDocOf(maya.store, fixId)!.fix).toMatchObject({ status: 'verified', appliedAt: null });
+
+    // Dana's tree doesn't have the patch: the fix stays verified there, its patch still to apply.
+    await pull(dana);
+    expect(dana.store.getFix(fixId)).toMatchObject({ status: 'verified', appliedAt: null });
+    expect(dana.store.getFix(fixId)!.data.applied).toBeUndefined();
+
+    // What Dana adds reaches Maya, whose fix stays applied as she applied it.
+    setFixTitle(dana.store, fixId, 'Escalate refunds above the policy limit');
+    expect((await push(dana, { runIds: [] })).fixes.sent).toEqual([fixId]);
+    expect((await pull(maya)).fixes.merged).toEqual([fixId]);
+    expect(maya.store.getFix(fixId)).toMatchObject({ title: 'Escalate refunds above the policy limit', status: 'applied', appliedAt: 9_000, data: { applied, titleEdited: true } });
+
+    // A copy that says applied, as an older Shadowlap sent it, is verified on the machine that pulls it.
+    const old = JSON.parse(remote.objects.get(fixKey(fixId))!.body.toString('utf8')) as FixDoc;
+    old.fix = { ...old.fix, status: 'applied', appliedAt: 8_000, data: { ...old.fix.data, applied } };
+    remote.objects.set(fixKey(fixId), { body: Buffer.from(JSON.stringify(old)), version: 'old', contentType: 'application/json' });
+    const ravi = machine(remote, 'ravi@northwind.example');
+    expect((await pull(ravi)).fixes.pulled).toEqual([fixId]);
+    expect(ravi.store.getFix(fixId)).toMatchObject({ status: 'verified', appliedAt: null });
+    expect(ravi.store.getFix(fixId)!.data.applied).toBeUndefined();
   });
 
   it("keeps out a fix it can't read, saying why, and brings the others", async () => {

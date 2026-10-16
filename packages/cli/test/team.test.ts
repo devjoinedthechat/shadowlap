@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -184,9 +184,77 @@ describe('push and pull through the bucket', () => {
       expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'fix.patch'), 'utf8')).toBe(rec.repairs[0]!.report.patch);
       expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'report.md'), 'utf8')).toContain('Escalate refunds above the policy limit');
       expect(existsSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'goldens'))).toBe(false);
+      // Made on Dana's machine: marked so here, where its recordings aren't.
+      expect(mstore.repairPulled('repair-munzln2i')).toMatchObject({ remote: storeUrl('fixes') });
     } finally {
       mstore.close();
     }
+    const dstore = Store.open(dana.dbPath);
+    expect(dstore.repairPulled('repair-munzln2i')).toBeNull();
+    dstore.close();
+  });
+
+  it("takes a teammate's repair on a push too, when the store's copy of the fix has it, and writes its patch here", async () => {
+    const dana = machine('fixpush-dana', 'dana@northwind.example');
+    storeSet(dana, storeUrl('fixpush'));
+    const runId = goldenInto(dana);
+    let fixId: string;
+    const dstore = Store.open(dana.dbPath);
+    try {
+      dstore.updateRunMeta(runId, { labels: ['refund-bug'] });
+      fixId = recordBlame(dstore, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId}`, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times' }).fix.fixId;
+    } finally {
+      dstore.close();
+    }
+    expect(await teamPush(dana, [], { all: true })).toBe(0);
+    const maya = teammate(dana, 'fixpush-maya', 'maya@northwind.example');
+    expect(await teamPull(maya, [])).toBe(0);
+    const mstore = Store.open(maya.dbPath);
+    recordRepair(mstore, { repairId: 'repair-mpush01', dir: '.shadowlap/repairs/repair-mpush01', report: repairReport({ targets: [runId], dir: '.shadowlap/repairs/repair-mpush01' }), expect: EXPECT, command: `shadowlap repair --fixes ${runId}` });
+    mstore.close();
+    expect(await teamPush(maya, [], { all: true })).toBe(0);
+    // Dana names the fix and pushes, without pulling first: the push merges Maya's repair in.
+    const again = Store.open(dana.dbPath);
+    again.updateFix(fixId, { title: 'Escalate refunds above the policy limit' });
+    again.mergeFixData(fixId, { titleEdited: true });
+    again.close();
+    dana.take();
+    expect(await teamPush(dana, [], { all: true })).toBe(0);
+    expect(dana.take().out).toContain("teammates' repairs that came with them, their patches and reports: .shadowlap/repairs/repair-mpush01");
+    expect(existsSync(join(dana.cwd, '.shadowlap', 'repairs', 'repair-mpush01', 'fix.patch'))).toBe(true);
+    const after = Store.open(dana.dbPath);
+    try {
+      expect(after.getFix(fixId)).toMatchObject({ status: 'verified', title: 'Escalate refunds above the policy limit' });
+      expect(after.repairPulled('repair-mpush01')).not.toBeNull();
+    } finally {
+      after.close();
+    }
+  });
+
+  it('ends a recording whose recorder was killed, as interrupted, and pushes it with --all', async () => {
+    const m = machine('left', 'dana@northwind.example');
+    storeSet(m, storeUrl('left'));
+    const left = '01K4ZZ00000000000000000KXD';
+    const store = Store.open(m.dbPath);
+    // Killed two days ago, before it ended: still marked running, with nothing recording it.
+    store.importRun({ runId: left, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['node', 'agent.js'], cwd: m.cwd }, codeVersion: null, startedAt: Date.now() - 2 * DAY, endedAt: null });
+    store.close();
+    m.take();
+    expect(storeShow(m, { json: true })).toBe(0);
+    expect(JSON.parse(m.take().out)).toMatchObject({ onlyLocal: 1, queued: 0 });
+    expect(await teamPush(m, [], { all: true })).toBe(0);
+    expect(m.take().out).toMatch(/✓ 1 run pushed/);
+    expect(s3.objects.has(`left/runs/${left}/run.json`)).toBe(true);
+    const after = Store.open(m.dbPath);
+    try {
+      // Ended where it stopped: at its last call, or its start when it made none.
+      expect(after.getRun(left)).toMatchObject({ status: 'crashed' });
+      expect(after.getRun(left)!.endedAt).toBeLessThan(Date.now() - DAY);
+    } finally {
+      after.close();
+    }
+    expect(storeShow(m, { json: true })).toBe(0);
+    expect(JSON.parse(m.take().out)).toMatchObject({ inStore: 1, onlyLocal: 0 });
   });
 
   it("says when this machine has no credentials for the store", async () => {
@@ -548,7 +616,43 @@ describe('store setup', () => {
       storeSet(m, `s3://northwind-agent-runs/x?endpoint=${locked.url}`);
       m.take();
       expect(await storeCheck(m)).toBe(1);
-      expect(m.take().err).toContain("✗ These credentials can't use s3://northwind-agent-runs/x yet. The access to ask your cloud admin for: shadowlap store policy");
+      expect(m.take().err).toContain("✗ These credentials can't use s3://northwind-agent-runs/x yet. Ask your cloud admin for the access shadowlap store policy prints, then run shadowlap store check again.");
+    } finally {
+      await locked.close();
+    }
+  });
+
+  it('says what to do after a --check that failed, where nothing was set: in a terminal, and in the setup', async () => {
+    const m = machine('setup-set-advice', 'dana@northwind.example');
+    // No bucket by that name: the command to run again, quoted for a shell.
+    const missing = `s3://no-such-bucket/x?endpoint=${s3.url}`;
+    expect(await storeSetChecked(m, missing)).toBe(1);
+    expect(m.take().err).toContain(`✗ s3://no-such-bucket/x names a bucket these credentials can't find. Check the name, then run shadowlap store set '${missing}' --check again. Nothing was written to shadowlap.config.json.`);
+    // Credentials the store refuses.
+    const wrong = machine('setup-set-advice', 'dana@northwind.example', { env: { AWS_SECRET_ACCESS_KEY: 'not/the/secret' } });
+    expect(await storeSetChecked(wrong, storeUrl('advice'))).toBe(1);
+    expect(wrong.take().err).toContain(`the way the cloud's own tools find them; then run shadowlap store set '${storeUrl('advice')}' --check again. Nothing was written to shadowlap.config.json.`);
+    const locked = await startFakeS3({ keys: { [KEY]: SECRET }, bucket: 'northwind-agent-runs', versioning: 'Enabled', deny: ['put'] });
+    try {
+      // No access yet: the policy for the provider asked for, since no store is set to name it.
+      const url = `s3://northwind-agent-runs/x?endpoint=${locked.url}`;
+      expect(await storeSetChecked(m, url)).toBe(1);
+      expect(m.take().err).toContain(`✗ These credentials can't use s3://northwind-agent-runs/x yet. Ask your cloud admin for the access shadowlap store policy --provider s3 prints, then run shadowlap store set '${url}' --check again. Nothing was written to shadowlap.config.json.`);
+      // Run by the setup's Check access and connect, whose drawer shows this: its own button. Not
+      // spawnSync: the bucket answers from this process.
+      const r = await new Promise<{ code: number | null; stderr: string }>((done) => {
+        const child = spawn(process.execPath, [CLI, 'store', 'set', url, '--check'], {
+          cwd: m.cwd,
+          env: { PATH: process.env.PATH ?? '', ...m.env, HOME: join(work, 'no-home'), AWS_EC2_METADATA_DISABLED: 'true', SHADOWLAP_EVENTS_FD: '3' },
+          stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+        });
+        let stderr = '';
+        child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
+        child.on('close', (code) => done({ code, stderr }));
+      });
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain("Ask your cloud admin for the access this step shows, then Check access and connect again. Nothing was written to shadowlap.config.json.");
+      expect(existsSync(join(m.cwd, 'shadowlap.config.json'))).toBe(false);
     } finally {
       await locked.close();
     }
@@ -590,6 +694,34 @@ describe('a run pushed while it records, and test runs from CI', () => {
     await pushIfQueued(m);
     expect(s3.requests.length).toBe(before);
     expect(m.take()).toEqual({ out: '', err: '' });
+  });
+
+  it('records the push when they end by run, their attempts apart, with the fixes that went too', async () => {
+    const m = machine('queued-attempts', 'dana@northwind.example');
+    storeSet(m, storeUrl('queued-attempts'));
+    const golden = goldenInto(m);
+    const store = Store.open(m.dbPath);
+    // Five attempts of the golden, still running when the push is asked for (replay --repeat 5).
+    const attempts = [1, 2, 3, 4, 5].map((n) => store.createRun({ mode: 'replay', parentRunId: golden, command: { argv: ['node', 'agent.js'], cwd: m.cwd }, meta: { repeat: { group: 'g', attempt: n, of: 5 } } }).runId);
+    store.updateRunMeta(golden, { labels: ['refund-bug'] });
+    const fixId = recordBlame(store, { runId: golden, report: blameReport(golden), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'Refunds above the limit issued without approval', checkText: 'x' }).fix.fixId;
+    store.close();
+    expect(await teamPush(m, attempts)).toBe(0);
+    const ended = Store.open(m.dbPath);
+    for (const id of attempts) ended.endRun(id, 'completed');
+    ended.close();
+    m.take();
+    await pushIfQueued(m);
+    expect(s3.objects.has(`queued-attempts/fixes/${fixId}.json`)).toBe(true);
+    const events = Store.open(m.dbPath);
+    try {
+      const pushed = events.listEvents({ kinds: ['store.pushed'] })[0]!;
+      expect(pushed.data).toMatchObject({ pushed: 0, attempts: 5, fixes: 0, queued: true });
+      // The first push sent the golden and the fix: one run, by run, with its fix.
+      expect(events.listEvents({ kinds: ['store.pushed'] })[1]!.data).toMatchObject({ pushed: 1, attempts: 0, fixes: 1 });
+    } finally {
+      events.close();
+    }
   });
 
   it('pushes each test run and the report from a fresh checkout', async () => {

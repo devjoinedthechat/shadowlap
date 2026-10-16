@@ -36,6 +36,15 @@ const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : []);
 /** Words joined by the feed's separator, the empty ones left out. */
 const parts = (...words: Array<string | null | false | undefined>) => words.filter(Boolean).join(' · ');
+/**
+ * What a push or a pull moved, by run as the screens count: "2 runs", "1 run and 5 attempts", "5
+ * attempts", then the fixes that went with them; with no run, the fixes alone ("3 fixes").
+ */
+function moved(runs: number, attempts: number, fixes: number | null): { what: string; fixes: string | null } {
+  const many = fixes ? plural(fixes, 'fix', 'fixes') : null;
+  if (!runs && !attempts && many) return { what: many, fixes: null };
+  return { what: !runs && attempts ? plural(attempts, 'attempt') : `${plural(runs, 'run')}${attempts ? ` and ${plural(attempts, 'attempt')}` : ''}`, fixes: many };
+}
 
 /** What a capture import is called in the feed: the source's name (`trace.json`, `langfuse:7f3a9c2e`), never its folder. */
 function importName(e: StoredEvent, d: Record<string, unknown>): string {
@@ -119,11 +128,17 @@ const EVENT_TEXT = new Map<string, Describe>([
       // `queued` is a count of runs left for later, or `true` for a push that was queued while they recorded.
       const queued = num(d.queued);
       const refused = num(d.refused);
-      const fixes = num(d.fixes);
-      return { kind: 'project', text: parts(`Pushed ${plural((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), 'run')} to the store`, fixes ? plural(fixes, 'fix', 'fixes') : null, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null) };
+      const m = moved((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), num(d.attempts) ?? 0, num(d.fixes));
+      return { kind: 'project', text: parts(`Pushed ${m.what} to the store`, m.fixes, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null) };
     },
   ],
-  ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.fixes) ? plural(num(d.fixes)!, 'fix', 'fixes') : null, num(d.failed) ? `${num(d.failed)} failed` : null) })],
+  [
+    'store.pulled',
+    (_e, d) => {
+      const m = moved(num(d.pulled) ?? num(d.runs) ?? 0, num(d.attempts) ?? 0, num(d.fixes));
+      return { kind: 'project', text: parts(`Pulled ${m.what} from the store`, m.fixes, num(d.failed) ? `${num(d.failed)} failed` : null) };
+    },
+  ],
   ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
 ]);
 

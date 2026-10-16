@@ -39,7 +39,7 @@ import {
   type StoreLocation,
 } from '@shadowlap/remote';
 import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, type ShadowlapConfig } from './config.js';
-import { emitJobEvent } from './job-events.js';
+import { emitJobEvent, inDashboardJob } from './job-events.js';
 import type { TestReport } from './test-report.js';
 import { palette as p, safe, shortId } from './ui.js';
 
@@ -239,7 +239,7 @@ export async function storeSetChecked(t: TeamEnv, url: string, flags: { provider
   const result = { store: formatStoreUrl(loc), url: loc.url, provider: loc.provider, set: false, check: { ...check, pullRequest: target.pr } };
   emitJobEvent({ type: 'result', data: result }, t.env);
   if (flags.json) line(t, JSON.stringify(result, null, 2));
-  else note(t, p.red(`✗ ${checkFailure(target.loc, check.failure)} Nothing was written to ${CONFIG_FILE}.`));
+  else note(t, p.red(`✗ ${checkFailure(target.loc, check.failure, { unset: loc, dashboard: inDashboardJob(t.env) })} Nothing was written to ${CONFIG_FILE}.`));
   return 1;
 }
 
@@ -319,19 +319,30 @@ export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Pr
   return 0;
 }
 
-/** What a failed store check means, and what to do next, by the kind of its first failure. */
-function checkFailure(loc: StoreLocation, failure: StoreCheck['failure']): string {
+/** A word as a shell takes it: quoted when it holds anything but letters, digits and `@%+=:,./-`. */
+const shellWord = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+
+/**
+ * What a failed store check means, and what to do next, by the kind of its first failure. After
+ * `store check`, the store is the config's; after `store set --check` (`unset`, the store asked
+ * for), nothing was set, so the next step is that command again, or in a dashboard job, the
+ * setup's Check access and connect.
+ */
+function checkFailure(loc: StoreLocation, failure: StoreCheck['failure'], o: { unset?: StoreLocation; dashboard?: boolean } = {}): string {
+  const asked = o.unset ?? null;
+  const again = !asked ? 'run shadowlap store check again' : o.dashboard ? 'Check access and connect again' : `run shadowlap store set ${shellWord(formatStoreUrl(asked))} --check again`;
+  const policy = asked ? `shadowlap store policy --provider ${asked.provider}` : 'shadowlap store policy';
   switch (failure) {
     case 'network':
-      return `Couldn't reach ${loc.url}: check the address${loc.endpoint ? ` (${loc.endpoint})` : ''} and this machine's network, then run shadowlap store check again.`;
+      return `Couldn't reach ${loc.url}: check the address${loc.endpoint ? ` (${loc.endpoint})` : ''} and this machine's network, then ${again}.`;
     case 'credentials':
-      return `The credentials on this machine don't work for ${loc.url} (see the first step above). Sign in, or set the right keys, the way the cloud's own tools find them; then run shadowlap store check again.`;
+      return `The credentials on this machine don't work for ${loc.url} (see the first step above). Sign in, or set the right keys, the way the cloud's own tools find them; then ${again}.`;
     case 'no-bucket':
-      return `${loc.url} names a bucket these credentials can't find. Check the name, then set it again with shadowlap store set <url>.`;
+      return asked ? `${loc.url} names a bucket these credentials can't find. Check the name, then ${again}.` : `${loc.url} names a bucket these credentials can't find. Check the name, then set it again with shadowlap store set <url>.`;
     case 'denied':
-      return `These credentials can't use ${loc.url} yet. The access to ask your cloud admin for: shadowlap store policy`;
+      return `These credentials can't use ${loc.url} yet. Ask your cloud admin for the access ${asked && o.dashboard ? 'this step shows' : `${policy} prints`}, then ${again}.`;
     default:
-      return `${loc.url} didn't work with these credentials: see the steps above. If it is access, ask your cloud admin for what shadowlap store policy prints.`;
+      return `${loc.url} didn't work with these credentials: see the steps above. If it is access, ask your cloud admin for what ${policy} prints${asked ? `; then ${again}` : ''}.`;
   }
 }
 
@@ -515,8 +526,9 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   const store = Store.open(t.dbPath);
   let result: PushResult;
   let left: number;
-  let moved: Record<'pushed' | 'updated' | 'unchanged' | 'queued', { runs: number; attempts: number }>;
+  let moved: Moved;
   let fixTitles = new Map<string, string>();
+  let repairFiles: string[] = [];
   try {
     const runIds = runList(store, runArgs);
     const who = actor(t);
@@ -534,15 +546,11 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
       throw asTeamError(err, 'The runs that went up before it are in the store, listed for the team; push again to send the rest.');
     }
     left = runCounts(store, target.loc).onlyLocal;
-    moved = { pushed: byRun(store, result.pushed), updated: byRun(store, result.updated), unchanged: byRun(store, result.unchanged), queued: byRun(store, result.queued) };
+    moved = movedByRun(store, result);
     fixTitles = new Map(result.fixes.sent.map((id) => [id, store.getFix(id)?.title ?? id]));
-    recordEvent(store, {
-      kind: 'store.pushed',
-      actor: who,
-      ref: target.loc.url,
-      // By run, as Activity says it: the attempts filed under them are counted apart.
-      data: { pushed: moved.pushed.runs, updated: moved.updated.runs, attempts: moved.pushed.attempts + moved.updated.attempts, repaired: result.repaired.length, queued: moved.queued.runs, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, fixes: result.fixes.sent.length, ...(target.pr ? { pullRequest: target.pr } : {}) },
-    });
+    recordEvent(store, { kind: 'store.pushed', actor: who, ref: target.loc.url, data: pushedEvent(result, moved, target.pr ? { pullRequest: target.pr } : {}) });
+    // A teammate's repair the store's copy of a fix brought, beside the project as a pull writes it.
+    repairFiles = writeRepairFiles(t, store, result.fixes.repairs);
   } finally {
     store.close();
   }
@@ -563,7 +571,20 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   if (result.queued.length) line(t, p.dim(`  ${runsAnd(moved.queued)} still recording: ${result.queued.length === 1 ? 'it goes' : 'they go'} when ${result.queued.length === 1 ? 'it ends' : 'they end'} (${result.queued.map((id) => shortId(id)).join(', ')})`));
   if (result.refused.length) problemLines(t, `${plural(result.refused.length, 'run')} stayed on this machine:`, result.refused);
   fixLines(t, 'sent', result.fixes.sent, fixTitles, result.fixes.failed, "couldn't go to the store; the next push tries again");
+  if (repairFiles.length) line(t, p.dim(`  teammates' repairs that came with them, their patches and reports: ${repairFiles.join(', ')}`));
   return code;
+}
+
+type Moved = Record<'pushed' | 'updated' | 'unchanged' | 'queued', { runs: number; attempts: number }>;
+
+/** What a push moved, by run: the attempts filed under runs are counted apart, as every screen counts them. */
+function movedByRun(store: Store, result: PushResult): Moved {
+  return { pushed: byRun(store, result.pushed), updated: byRun(store, result.updated), unchanged: byRun(store, result.unchanged), queued: byRun(store, result.queued) };
+}
+
+/** A push as Activity keeps it: runs, their attempts apart, and the fixes that went with them. */
+function pushedEvent(result: PushResult, moved: Moved, extra: Record<string, unknown>): Record<string, unknown> {
+  return { pushed: moved.pushed.runs, updated: moved.updated.runs, attempts: moved.pushed.attempts + moved.updated.attempts, repaired: result.repaired.length, queued: moved.queued.runs, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, fixes: result.fixes.sent.length, ...extra };
 }
 
 /** What a push or a pull did with fixes: each by its title, and the ones that couldn't go or come. */
@@ -801,7 +822,9 @@ export async function pushIfQueued(t: TeamEnv): Promise<void> {
       const result = await push({ store, remote, actor: actor(t), ci: ciProvider(t.env), pullRequest: target.pr, now: t.now }, { runIds: [] });
       for (const id of [...result.pushed, ...result.updated]) if (ready.includes(id)) note(t, p.dim(`[shadowlap] pushed ${shortId(id)} to ${url}, as asked while it was recording`));
       for (const r of result.refused) note(t, p.yellow(`! ${shortId(r.runId)} was queued for the store, but it stays here: ${safe(r.reason)}`));
-      recordEvent(store, { kind: 'store.pushed', actor: actor(t), ref: url, data: { pushed: result.pushed.length, updated: result.updated.length, refused: result.refused.length, queued: true } });
+      // By run, as a push from the command line records it; `queued: true` says it waited for the run to end.
+      recordEvent(store, { kind: 'store.pushed', actor: actor(t), ref: url, data: pushedEvent(result, movedByRun(store, result), { queued: true, ...(target.pr ? { pullRequest: target.pr } : {}) }) });
+      writeRepairFiles(t, store, result.fixes.repairs);
     } finally {
       store.close();
     }

@@ -329,6 +329,19 @@ CREATE TABLE IF NOT EXISTS team_fixes (
   at       INTEGER NOT NULL,
   PRIMARY KEY (remote, fix_id)
 ) WITHOUT ROWID;
+-- The repairs that came with a fix from a store: made on a teammate's machine, where the recordings
+-- the fixed code made (its goldens) stayed. Their patch and reports are written beside the project.
+CREATE TABLE IF NOT EXISTS team_repairs (
+  repair_id  TEXT    PRIMARY KEY,
+  remote     TEXT    NOT NULL,
+  at         INTEGER NOT NULL
+) WITHOUT ROWID;
+-- Every write to team_runs moves the 'team' counter: what is only on this machine is counted again
+-- when runs or the store's rows change, never for a call a recording appends.
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('team', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_team_insert AFTER INSERT ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_update AFTER UPDATE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_delete AFTER DELETE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 `;
 
 // ---- tests (v4): the shapes of the test tables ----
@@ -1708,6 +1721,17 @@ export class Store {
     this.db
       .prepare(`INSERT INTO team_fixes (remote, fix_id, hash, version, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (remote, fix_id) DO UPDATE SET hash = excluded.hash, version = excluded.version, at = excluded.at`)
       .run(remote, row.fixId, row.hash, row.version, row.at);
+  }
+
+  /** Marks a repair as one that came with a fix from a store (`remote`): made on another machine. */
+  markRepairPulled(remote: string, repairId: string, at: number = Date.now()): void {
+    this.db.prepare(`INSERT OR IGNORE INTO team_repairs (repair_id, remote, at) VALUES (?, ?, ?)`).run(repairId, remote, at);
+  }
+
+  /** The store a repair came from, and when; null for a repair made on this machine. */
+  repairPulled(repairId: string): { remote: string; at: number } | null {
+    const row = this.db.prepare(`SELECT remote, at FROM team_repairs WHERE repair_id = ?`).get(repairId);
+    return row ? { remote: String(row.remote), at: Number(row.at) } : null;
   }
 
   /**

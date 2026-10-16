@@ -6,7 +6,11 @@ import { LayoutError } from './layout.js';
  * title, labels, check and status), its links to runs and reports, and every blame, verdict and
  * repair report those links name, so a teammate's Fixes page shows its three steps without
  * running anything. Fixes only grow: a link or a report once made is never taken back, and a status
- * only moves on (open, verified, applied), so two machines' copies merge by joining them.
+ * only moves on (open, then verified), so two machines' copies merge by joining them.
+ *
+ * Applied is not in it. A fix is applied in a working tree, and each machine has its own: a fix
+ * applied on one is verified on the others, with its patch ready to apply there, until `fix apply`
+ * there puts the patch in (or finds it in already, once the change came through git).
  *
  * Whatever comes from the bucket is someone else's data, checked as strictly as a run: every id in
  * its own form, every report in the shape the Fixes page reads, and no string that could rewrite a
@@ -315,7 +319,8 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
   return {
     format: FIX_FORMAT,
     version: FIX_VERSION,
-    fix: { fixId: fix.fixId, title: fix.title, labels: [...fix.labels], check: fix.check, status: fix.status, openedAt: fix.openedAt, verifiedAt: fix.verifiedAt, appliedAt: fix.appliedAt, data: fix.data },
+    // A copy that says applied (an older Shadowlap sent it) is verified here.
+    fix: sharedFix({ fixId: fix.fixId, title: fix.title, labels: [...fix.labels], check: fix.check, status: fix.status, openedAt: fix.openedAt, verifiedAt: fix.verifiedAt, appliedAt: fix.appliedAt, data: fix.data }),
     links,
     blames: (raw.blames as StoredBlame[]).filter((b) => named('blame').has(b.blameId)),
     verdicts: (raw.verdicts as StoredVerdict[]).filter((v) => named('verify').has(v.verifyId)),
@@ -334,9 +339,19 @@ function clean<T>(v: T, depth = 0): T {
 }
 
 /**
+ * A fix as it syncs: all of it but how it was applied, which belongs to a working tree. A fix
+ * applied here goes as verified (when it was verified, it was by then), without `data.applied`.
+ */
+export function sharedFix(fix: StoredFix): StoredFix {
+  const { applied: _here, ...data } = fix.data;
+  if (fix.status !== 'applied') return { ...fix, appliedAt: null, data };
+  return { ...fix, status: 'verified', verifiedAt: fix.verifiedAt ?? fix.appliedAt ?? fix.openedAt, appliedAt: null, data };
+}
+
+/**
  * A fix here as the store keeps it, or null when there is no such fix. Its reports go as they are,
  * but for control characters a model wrote (U+FFFD in their place), which a teammate's pull would
- * refuse.
+ * refuse; whether it is applied here stays here (`sharedFix`).
  */
 export function fixDocOf(store: Store, fixId: string): FixDoc | null {
   const fix = store.getFix(fixId);
@@ -347,7 +362,7 @@ export function fixDocOf(store: Store, fixId: string): FixDoc | null {
   return clean({
     format: FIX_FORMAT,
     version: FIX_VERSION,
-    fix,
+    fix: sharedFix(fix),
     links,
     blames: found(refs('blame').map((id) => store.getBlame(id))),
     verdicts: found(refs('verify').map((id) => store.getVerdict(id))),
@@ -384,33 +399,24 @@ function mergeSource(here: FixData['source'], there: FixData['source']): FixData
   return { ...here, ...there, ...(pr ? { pr } : {}) };
 }
 
-/** How a fix was applied: the application whose test passed, else the one that copied more of its goldens, else the store's. */
-function mergeApplied(here: FixData['applied'], there: FixData['applied']): FixData['applied'] {
-  if (!here) return there;
-  if (!there) return here;
-  if ((here.tests === 'passed') !== (there.tests === 'passed')) return here.tests === 'passed' ? here : there;
-  return here.goldens.length > there.goldens.length ? here : there;
-}
-
 /**
  * Two copies of a fix as one. A fix only grows, so they join: every link (the first made of each)
  * and every report, the labels of both, the status furthest along with the earliest time it got
  * there, and where it came from as far as either knows. A title someone gave it wins over the one
- * it was opened with; given on both, the store's (`there`) stays.
+ * it was opened with; given on both, the store's (`there`) stays. How either was applied is left
+ * out (`sharedFix`): the copy merged is the one that syncs.
  */
 export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
-  const a = here.fix;
-  const b = there.fix;
+  const a = sharedFix(here.fix);
+  const b = sharedFix(there.fix);
   const title = a.data.titleEdited && !b.data.titleEdited ? a.title : b.title;
   const labels = [...new Set([...b.labels, ...a.labels])];
   const status = STATUS_RANK[a.status] > STATUS_RANK[b.status] ? a.status : b.status;
   const source = mergeSource(a.data.source, b.data.source);
-  const applied = mergeApplied(a.data.applied, b.data.applied);
   const data: FixData = {
     ...a.data,
     ...b.data,
     ...(source ? { source } : {}),
-    ...(applied ? { applied } : {}),
     ...(a.data.openedBy || b.data.openedBy ? { openedBy: b.data.openedBy ?? a.data.openedBy ?? null } : {}),
     ...(a.data.titleEdited || b.data.titleEdited ? { titleEdited: true } : {}),
   };
@@ -436,7 +442,7 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
       status,
       openedAt: Math.min(a.openedAt, b.openedAt),
       verifiedAt: status === 'open' ? null : minOf(a.verifiedAt, b.verifiedAt),
-      appliedAt: status === 'applied' ? minOf(a.appliedAt, b.appliedAt) : null,
+      appliedAt: null,
       data,
     },
     links: [...links.values()].sort((x, y) => x.at - y.at || (x.ref < y.ref ? -1 : 1)),
@@ -448,18 +454,22 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
 
 /**
  * Gives this machine the fix as merged: the fix made or brought up to it, every link added, every
- * report kept that isn't here yet. Nothing here is taken away. Returns the repairs it added, whose
- * files the CLI writes beside the project (`.shadowlap/repairs/<id>/`).
+ * report kept that isn't here yet. Nothing here is taken away, and a fix applied here stays applied:
+ * that is this working tree's. Returns the repairs it added, whose files the CLI writes beside the
+ * project (`.shadowlap/repairs/<id>/`); with `from` (the store it came from), each is marked as made
+ * on another machine, where its recordings stayed.
  */
-export function applyFixDoc(store: Store, doc: FixDoc): { created: boolean; repairs: string[] } {
+export function applyFixDoc(store: Store, doc: FixDoc, o: { from?: string; at?: number } = {}): { created: boolean; repairs: string[] } {
+  const fix = sharedFix(doc.fix);
   return store.transaction(() => {
-    const here = store.getFix(doc.fix.fixId);
-    if (!here) store.insertFix(doc.fix);
+    const here = store.getFix(fix.fixId);
+    if (!here) store.insertFix(fix);
     else {
-      store.updateFix(doc.fix.fixId, { title: doc.fix.title, labels: doc.fix.labels, status: doc.fix.status, verifiedAt: doc.fix.verifiedAt, appliedAt: doc.fix.appliedAt });
-      // The merged data whole: what this machine had is in it already.
-      store.mergeFixData(doc.fix.fixId, Object.fromEntries(Object.keys(here.data).map((k) => [k, null])));
-      store.mergeFixData(doc.fix.fixId, doc.fix.data as Record<string, unknown>);
+      const applied = here.status === 'applied';
+      store.updateFix(fix.fixId, { title: fix.title, labels: fix.labels, status: applied ? 'applied' : fix.status, verifiedAt: fix.verifiedAt ?? here.verifiedAt, appliedAt: applied ? here.appliedAt : null });
+      // The merged data whole: what this machine had is in it already, but how it was applied here.
+      store.mergeFixData(fix.fixId, Object.fromEntries(Object.keys(here.data).map((k) => [k, null])));
+      store.mergeFixData(fix.fixId, { ...fix.data, ...(here.data.applied ? { applied: here.data.applied } : {}) } as Record<string, unknown>);
     }
     for (const b of doc.blames) if (!store.getBlame(b.blameId)) store.putBlame(b);
     for (const v of doc.verdicts) if (!store.getVerdict(v.verifyId)) store.putVerdict(v);
@@ -467,9 +477,10 @@ export function applyFixDoc(store: Store, doc: FixDoc): { created: boolean; repa
     for (const r of doc.repairs) {
       if (store.getRepair(r.repairId)) continue;
       store.putRepair(r);
+      if (o.from) store.markRepairPulled(o.from, r.repairId, o.at);
       repairs.push(r.repairId);
     }
-    for (const l of doc.links) store.addFixLink(doc.fix.fixId, l.kind, l.ref, l.at, (l.data as VerdictStanding | null) ?? null);
+    for (const l of doc.links) store.addFixLink(fix.fixId, l.kind, l.ref, l.at, (l.data as VerdictStanding | null) ?? null);
     return { created: !here, repairs };
   }, 'immediate');
 }

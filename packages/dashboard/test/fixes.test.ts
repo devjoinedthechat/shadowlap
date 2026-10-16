@@ -113,7 +113,7 @@ describe('a fix', () => {
     expect(d.goodRuns.map((r) => r.runId)).toEqual([good]);
     expect(d.steps[1]).toMatchObject({ title: 'Escalate refunds above the policy limit', meta: 'candidate 3 of 3 · proposed by claude-code' });
     expect(d.steps[2]).toMatchObject({ title: '3 of 3 runs held', meta: '1 earlier change rejected' });
-    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null }, applied: false });
+    expect(d.actions).toEqual({ repair: null, apply: { kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: 'git apply .shadowlap/repairs/repair-munzln2i/fix.patch', pending: null, pulled: false }, applied: false });
     expect(d.commands.blame).toBe(`shadowlap blame ${failing.slice(0, 10)} --expect '${JSON.stringify(EXPECT)}'`);
     expect(d.commands.repair).toBe(`shadowlap repair --fixes label:refund-bug --keeps label:good --expect '${JSON.stringify(EXPECT)}' --repairer claude-code`);
     expect(fixDetail(store, 'fx-NOPE')).toBeNull();
@@ -227,6 +227,20 @@ describe('a fix', () => {
     expect(d.commands.verify).toBe(`shadowlap verify --fixes ${run.slice(0, 10)}`);
   });
 
+  it("says a teammate's repair from the team store left its recordings on their machine, and applying here leaves nothing undone", () => {
+    const { fixId } = story();
+    store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-munzln2i', NOW);
+    let d = fixDetail(store, fixId)!;
+    expect(d.repair).toMatchObject({ pulled: true });
+    expect(d.repair!.files.find((f) => f.name === 'goldens/')!.note).toBe('1 recording made by the fixed code, kept on the machine that ran the repair: commit them from there');
+    expect(d.actions.apply).toMatchObject({ kind: 'patch', pulled: true, pending: null });
+    // fix apply here put in the patch and copied nothing: applied, with nothing left to finish.
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', via: 'fix apply' });
+    d = fixDetail(store, fixId)!;
+    expect(d.actions).toMatchObject({ applied: true, apply: { pulled: true, pending: null } });
+    expect(d.broken).toBeNull();
+  });
+
   it('keeps Copy git apply on an applied fix, and says what applying left undone', () => {
     const run = makeRun(store, { labels: ['refund-bug'] });
     const { fix } = blame(run);
@@ -236,7 +250,7 @@ describe('a fix', () => {
     expect(d).toMatchObject({ status: 'applied', broken: null, applied: { via: 'repair --apply', goldens: [], tests: 'skipped' } });
     expect(d.actions).toEqual({
       repair: null,
-      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: 'git apply .shadowlap/repairs/repair-applied/fix.patch', pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them' },
+      apply: { kind: 'patch', argv: ['fix', 'apply', fix.fixId], gitApply: 'git apply .shadowlap/repairs/repair-applied/fix.patch', pending: 'copy the recordings the fixed code made into the goldens folder, and run shadowlap test on them', pulled: false },
       applied: true,
     });
     // fix apply copied them and the test failed: the fix doesn't hold, and Needs a look says so first.

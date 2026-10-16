@@ -203,12 +203,14 @@ function HandedOver({ r }: { r: RepairStep }) {
       </div>
       <div className="pbody fxfoot">
         <span>
-          {out.applied ? 'repair --apply left the change in the working tree. ' : ''}
+          {/* A teammate's repair, from the team store: what it did, it did on their machine. */}
+          {r.pulled ? 'It ran on a teammate’s machine and came with a pull: its patch and reports are here. ' : ''}
+          {out.applied ? `repair --apply left the change in ${r.pulled ? 'their' : 'the'} working tree. ` : ''}
           {out.branch ? `Committed to the branch ${out.branch}. ` : ''}
           {out.pr ? `Pull request: ${out.pr}. ` : ''}
           {goldens ? (
             <>
-              The goldens were recorded by the fixed code, so <code>shadowlap test</code> fails the build if the fix is ever undone.{' '}
+              The goldens were recorded by the fixed code, so <code>shadowlap test</code> fails the build if the fix is ever undone{r.pulled ? ', once they are committed' : ''}.{' '}
             </>
           ) : null}
           {!out.branch && !out.pr ? (
