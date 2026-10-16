@@ -1,6 +1,7 @@
 import { Box, useApp, useInput, useStdout } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
 import type { CallRecord, Price, RunRecord, Store } from '@shadowlap/engine';
+import { recordingNow } from './actions.js';
 import { Help } from './components/Help.js';
 import { RunsView } from './components/RunsView.js';
 import { TimelineView, type OpenDashboard, type SpawnCli } from './components/TimelineView.js';
@@ -54,13 +55,14 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
   };
   const [view, setView] = useState<View>(() => (runId ? open(runId, callNo) : { kind: 'runs' }));
 
-  // Runs may still be recording: refresh the list while it is shown, and tail an open run that is still running.
+  // Runs may still be recording: refresh the list while it is shown, and tail an open run a process
+  // is still recording (one whose recording process was killed gets no more calls).
   useEffect(() => {
     if (view.kind === 'runs') {
       const t = setInterval(() => setTick((n) => n + 1), 2000);
       return () => clearInterval(t);
     }
-    if (view.run.status === 'running') {
+    if (view.run.status === 'running' && recordingNow(store, view.run)) {
       const id = view.run.runId;
       const t = setInterval(() => {
         const fresh = open(id);

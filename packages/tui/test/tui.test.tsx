@@ -248,7 +248,7 @@ describe('a recording whose process was killed', () => {
     // Marked running, with no process to ask and nothing heard for two days.
     const left = { ...store.getRun(runId)!, runId: '01M4Y6TKYXLEFT000000000000', status: 'running' as const, endedAt: null, startedAt: Date.now() - 2 * 86_400_000, meta: {} };
     store.importRun(left);
-    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    const { lastFrame, stdin, unmount } = render(<App store={store} columns={100} rows={30} />);
     const list = await frameWith(lastFrame, left.runId.slice(0, 10));
     expect(list.split('\n').find((l) => l.includes(left.runId.slice(0, 10)))).toContain('interrupted');
     stdin.write('/');
@@ -264,7 +264,11 @@ describe('a recording whose process was killed', () => {
     stdin.write(':');
     const menu = await frameWith(lastFrame, 'The whole run');
     expect(menu).not.toContain('once the recording finishes');
+    // Nothing tails it: no call will come, so nothing reads the store while it stays open (a read
+    // of the closed store would throw from a timer).
     store.close();
+    await tick(1200);
+    unmount();
   });
 });
 
