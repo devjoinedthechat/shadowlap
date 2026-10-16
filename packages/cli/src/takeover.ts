@@ -309,7 +309,9 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
   /** The recording's own API, another model: the request names it, and the provider answers as it would have. */
   const same = async (req: AnyRequest, res: AnyResponse, rest: string, search: string) => {
     const at = switchTakeoverModel(provider, req.method ?? 'GET', rest, target.model);
-    if (!at) return relay(req, res, `${rest}${search}`);
+    // A model call no switch reaches (a cloud's signed URL, regional address or deployment) is scored
+    // only for the model it recorded (cannotScore): it goes on as the agent made it, and is the answer.
+    if (!at) return relay(req, res, `${rest}${search}`, isTakeoverCall(provider, recorded, req.method ?? 'GET', rest) ? { answer: true } : {});
     const raw = await readBody(req);
     if (!at.field) return relay(req, res, `${at.path}${search}`, { body: raw, answer: true });
     const request = parse(raw);

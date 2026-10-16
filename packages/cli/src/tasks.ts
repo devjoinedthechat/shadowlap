@@ -239,6 +239,10 @@ export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: nu
   if (task.scope !== null && takeover !== undefined && (typeof call.meta.scope === 'string' ? call.meta.scope : null) !== task.scope) return `#${k} is not made in the agent's scope (${task.scope})`;
   const provider = (call.end?.meta.provider ?? call.meta.provider) as string | undefined;
   if (!provider) return `${task.golden} can't be scored: its recording doesn't say which provider #${k} went to`;
+  // The model the recording asked, asked again on its own provider: nothing is switched, so a cloud's
+  // signed URL, regional address or deployment goes on as the agent made it, and answers as recorded.
+  const recordedModel = call.end?.meta.model ?? call.meta.model;
+  if (target.route === 'same' && typeof recordedModel === 'string' && target.model === recordedModel) return null;
   // Found before anything runs: an attempt that can't reach the model would ask the recorded one, and be paid for.
   const why = takeoverRefusal(provider, call.name, target);
   if (!why) return null;

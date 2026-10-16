@@ -164,6 +164,24 @@ describe('which ready tasks a listed model can answer', () => {
     expect(modelReach(choice('gpt-other', ['--model', 'gpt-other'], null, 'azure'), tasks).refused[0]!.why).toContain('the deployment in the URL picks the model');
   });
 
+  it('scores the model a cloud recording used on that recording, nothing switched, and still no other model of that cloud', () => {
+    const own = (golden: string, provider: string, callName: string, model: string): Task => ({ ...task(golden, provider, callName), model });
+    const tasks = [
+      own('goldens/azure', 'azure', 'POST /openai/deployments/gpt-prod/chat/completions', 'gpt-prod'),
+      own('goldens/converse', 'bedrock', 'POST /model/amazon.nova-pro-v1%3A0/converse', 'amazon.nova-pro-v1:0'),
+      own('goldens/vertex', 'vertex', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5:rawPredict', 'claude-sonnet-5'),
+    ];
+    // Each answers its own recording: the deployment, the signed URL and the regional address stay as the agent made them.
+    expect(modelReach(choice('gpt-prod', ['--model', 'gpt-prod'], null, 'azure'), tasks).tasks).toEqual(['goldens/azure']);
+    expect(modelReach(choice('amazon.nova-pro-v1:0', ['--model', 'amazon.nova-pro-v1:0'], null, 'bedrock'), tasks).tasks).toEqual(['goldens/converse']);
+    expect(modelReach(choice('claude-sonnet-5', ['--model', 'claude-sonnet-5'], null, 'vertex'), tasks).tasks).toEqual(['goldens/vertex']);
+    // Another model of the cloud still can't be asked there, and the recorded one not on another provider's recording.
+    const lite = modelReach(choice('amazon.nova-lite-v1:0', ['--model', 'amazon.nova-lite-v1:0'], null, 'bedrock'), tasks);
+    expect(lite.tasks).toEqual([]);
+    expect(lite.refused.find((r) => r.golden === 'goldens/converse')!.why).toContain('request signature covers the model in its URL');
+    expect(modelReach(choice('gpt-prod', ['--model', 'gpt-prod'], null, 'azure'), tasks).refused.map((r) => [r.golden, r.elsewhere])).toEqual([['goldens/converse', true], ['goldens/vertex', true]]);
+  });
+
   it('says first why its own provider\'s task refuses a model, and groups the tasks it leaves out by why', () => {
     const tasks = [
       task('goldens/azure', 'azure', 'POST /openai/deployments/gpt-prod/chat/completions'),

@@ -298,19 +298,19 @@ describe('the Training read model', () => {
     const dialog = trainingView({ pairs: [], sources: [], tasks, scores: [], exports: [], models: listing }).scoreDialog!;
     expect(dialog.options.map((o) => [o.id, o.request.goldens])).toEqual([
       ['claude-sonnet-5', ['goldens/refund']],
+      // The model Bedrock's Converse task recorded answers that task, its request sent as the agent made it.
+      ['amazon.nova-pro-v1:0', ['goldens/converse']],
       ['claude-haiku-4-5', ['goldens/refund', 'goldens/converse']],
       ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
     ]);
-    expect(dialog.options[1]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
+    expect(dialog.options[1]!.note).toBe("Amazon Bedrock · no price for this model, so the cost isn't estimated · scores 1 of 3 tasks, not refund: recorded on Anthropic's API, not Amazon Bedrock; llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(dialog.options[2]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
     // Two tasks recorded on another provider are one reason, said once.
     expect(dialog.options[0]!.note).toBe("Anthropic API · about $0.017 an attempt · scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
     // The first model not scored yet that answers every ready task is preselected: none here answers all three, so the first not scored.
     expect(dialog.selected).toBe('claude-sonnet-5\n');
-    // OpenAI's recorded model answers none of them; Bedrock's own answers its own tasks only by switching models there, which a signed URL doesn't allow: that, not the others' providers, is why.
-    expect(dialog.leftOut).toEqual([
-      { group: 'Recorded with', models: ['gpt-5'], why: "refund: it was recorded on Anthropic's API, and gpt-5 is asked of OpenAI's API" },
-      { group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: 'llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL' },
-    ]);
+    // OpenAI's recorded model answers none of them: each was recorded on another provider.
+    expect(dialog.leftOut).toEqual([{ group: 'Recorded with', models: ['gpt-5'], why: "refund: it was recorded on Anthropic's API, and gpt-5 is asked of OpenAI's API" }]);
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
   });
 

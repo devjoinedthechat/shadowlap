@@ -235,19 +235,58 @@ describe('a cloud recording scored with Anthropic\'s API', () => {
   }, 30_000);
 });
 
+describe('the model a cloud recording used', () => {
+  it('is scored on that recording as the agent asked it, its deployment or signed URL unchanged', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'sl-cloud-recorded-'));
+    try {
+      for (const [api, model, path] of [
+        ['bedrock-converse', 'amazon.nova-pro-v1:0', 'bedrock /model/amazon.nova-pro-v1%3A0/converse'],
+        ['azure', 'gpt-prod', 'azure /openai/deployments/gpt-prod/chat/completions'],
+      ] as const) {
+        await golden(work, api, false);
+        const asked = cloudAsked.length;
+        const r = await shadowlap(work, ['tasks', 'score', `goldens/${api}`, '--model', model, '--attempts', '1']);
+        expect(r.code, r.out).toBe(0);
+        // The recorded model refunds the $240 order: the agent exits 0, but issue_refund was called.
+        expect(r.stdout, r.out).toContain(`✓ ${model} · mean 0.50 · 1 attempt on 1 task`);
+        // Its decision went to the cloud as the agent made it, the model in its path as recorded.
+        expect(cloudAsked.slice(asked)).toContain(path);
+        withStore(join(work, '.shadowlap', 'shadowlap.db'), (s) => {
+          const row = s.listTaskScores().find((x) => x.model === model)!;
+          const decision = s.getCalls(row.runId!).find((x) => x.callNo === 5)!;
+          expect(decision.origin).toBe('live');
+          // The answer is the model under test's, and says so.
+          expect(decision.end!.meta.headers?.['x-shadowlap-model']).toBe(model);
+        });
+      }
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 describe('the models to score a project recorded on two clouds', () => {
-  it('say why a cloud\'s own model can\'t answer from its own task, not that the other was recorded elsewhere', async () => {
+  it('score each recorded model on its own recording, and say from its own provider why it can\'t answer the others', async () => {
     const work = mkdtempSync(join(tmpdir(), 'sl-cloud-models-'));
     try {
-      await golden(work, 'azure', false);
-      await golden(work, 'bedrock-claude', false);
-      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: Object.fromEntries(['azure', 'bedrock-claude'].map((api) => [`goldens/${api}`, { expect: { tools: { issue_refund: 0 } }, task: { takeover: 5 } }])) }));
+      const apis = ['azure', 'bedrock-claude', 'bedrock-converse'];
+      for (const api of apis) await golden(work, api, false);
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: Object.fromEntries(apis.map((api) => [`goldens/${api}`, { expect: { tools: { issue_refund: 0 } }, task: { takeover: 5 } }])) }));
       // The model lists come from the mock and a port nothing answers: no provider of this machine's is asked.
-      const r = await shadowlap(work, ['tasks', 'models', '--timeout', '200'], { ANTHROPIC_BASE_URL: anthropic.url, OLLAMA_HOST: '127.0.0.1:1', OPENAI_API_KEY: '', GEMINI_API_KEY: '', GOOGLE_API_KEY: '' });
+      const env = { ANTHROPIC_BASE_URL: anthropic.url, OLLAMA_HOST: '127.0.0.1:1', OPENAI_API_KEY: '', GEMINI_API_KEY: '', GOOGLE_API_KEY: '' };
+      const r = await shadowlap(work, ['tasks', 'models', '--timeout', '200'], env);
       expect(r.code, r.out).toBe(0);
-      const line = r.stdout.split('\n').find((l) => l.includes('anthropic.claude'))!;
-      expect(line, r.stdout).toContain("can't answer the tasks (bedrock-claude: its takeover call goes through Amazon Bedrock");
-      expect(line).not.toContain('(azure:');
+      const line = (model: string) => r.stdout.split('\n').find((l) => l.includes(model)) ?? '';
+      // Each cloud's recorded model answers its own recording: nothing there is switched.
+      for (const model of ['gpt-prod', 'anthropic.claude-sonnet-5-v1:0', 'amazon.nova-pro-v1:0']) expect(line(model), r.stdout).toContain('on 1 of 3 tasks');
+      const json = JSON.parse((await shadowlap(work, ['tasks', 'models', '--json', '--timeout', '200'], env)).stdout) as { choices: Array<{ id: string; reach: { tasks: string[]; refused: Array<{ golden: string; why: string; elsewhere: boolean }> } }> };
+      const claude = json.choices.find((c) => c.id === 'anthropic.claude-sonnet-5-v1:0')!;
+      expect(claude.reach.tasks).toEqual(['goldens/bedrock-claude']);
+      // The other Bedrock task can't switch to it (Bedrock signs the model into the URL); Azure's was recorded elsewhere.
+      expect(claude.reach.refused).toEqual([
+        expect.objectContaining({ golden: 'goldens/azure', elsewhere: true }),
+        expect.objectContaining({ golden: 'goldens/bedrock-converse', elsewhere: false, why: expect.stringContaining('request signature covers the model in its URL') }),
+      ]);
     } finally {
       rmSync(work, { recursive: true, force: true });
     }

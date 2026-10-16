@@ -292,11 +292,16 @@ export interface ModelReach {
  */
 export function modelReach(c: Pick<ModelChoice, 'id' | 'flags' | 'baseUrl' | 'provider'>, tasks: readonly Task[]): ModelReach {
   const target = choiceTarget(c);
+  const at = c.flags.indexOf('--model');
+  const asked = at >= 0 ? (c.flags[at + 1] ?? c.id) : c.id;
   const out: ModelReach = { tasks: [], refused: [] };
   for (const t of tasks) {
     if (t.status !== 'ready') continue;
     const elsewhere = target.route === 'same' && !!c.provider && !!t.provider && t.provider !== c.provider;
-    const why = elsewhere ? `it was recorded on ${onApi(t.provider!)}, and ${c.id} is asked of ${onApi(c.provider!)}` : t.callName ? takeoverRefusal(t.provider, t.callName, target) : 'its recording has no call to take over';
+    // The model the recording asked, asked again on its own provider: nothing is switched, so a
+    // cloud's signed URL, regional address or deployment stays as the agent made it.
+    const own = target.route === 'same' && !elsewhere && !!t.model && asked === t.model;
+    const why = elsewhere ? `it was recorded on ${onApi(t.provider!)}, and ${c.id} is asked of ${onApi(c.provider!)}` : !t.callName ? 'its recording has no call to take over' : own ? null : takeoverRefusal(t.provider, t.callName, target);
     if (why) out.refused.push({ golden: t.golden, name: t.name, why, elsewhere, provider: t.provider });
     else out.tasks.push(t.golden);
   }
