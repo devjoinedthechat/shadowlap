@@ -62,6 +62,22 @@ describe('pairs from blame', () => {
     ]);
     store.close();
   });
+
+  it('tells apart blames of runs labelled alike by their ids', () => {
+    const store = Store.open(':memory:');
+    const first = blamed(store).run;
+    const second = blamed(store).run;
+    const labels = findPairs(store)
+      .sources.filter((s) => s.kind === 'blame')
+      .map((s) => [s.runId, s.label]);
+    expect(new Map(labels as Array<[string, string]>)).toEqual(
+      new Map([
+        [first.runId, `blame · refund-bug · ${first.runId.slice(0, 10)}`],
+        [second.runId, `blame · refund-bug · ${second.runId.slice(0, 10)}`],
+      ]),
+    );
+    store.close();
+  });
 });
 
 describe('pairs from verify and --repeat', () => {

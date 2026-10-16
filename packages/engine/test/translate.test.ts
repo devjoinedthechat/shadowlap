@@ -163,10 +163,25 @@ describe('what can be translated', () => {
     expect(chatShapeOf('anthropic', 'POST /v1/messages')).toBe('anthropic');
     expect(chatShapeOf('openai', 'POST /v1/chat/completions')).toBe('openai-chat');
     expect(chatShapeOf('openai', 'POST /v1/responses')).toBeNull();
-    expect(chatShapeOf('gemini', 'POST /v1beta/models/gemini-2.5-flash:generateContent')).toBeNull();
+    // The clouds: Claude on Vertex AI and Bedrock speaks Anthropic's messages; Azure and the OpenAI-compatible endpoints speak chat.
+    expect(chatShapeOf('vertex', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5@20260101:rawPredict')).toBe('anthropic');
+    expect(chatShapeOf('vertex', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5:streamRawPredict')).toBe('anthropic');
+    expect(chatShapeOf('bedrock', 'POST /model/anthropic.claude-sonnet-5-v1%3A0/invoke')).toBe('anthropic');
+    expect(chatShapeOf('bedrock', 'POST /model/us.anthropic.claude-sonnet-5-v1%3A0/invoke-with-response-stream')).toBe('anthropic');
+    expect(chatShapeOf('bedrock', 'POST /model/arn%3Aaws%3Abedrock%3Aus-east-1%3A1%3Ainference-profile%2Fus.anthropic.claude-sonnet-5-v1%3A0/invoke')).toBe('anthropic');
+    expect(chatShapeOf('bedrock', 'POST /model/meta.llama4-maverick-17b-instruct-v1%3A0/invoke')).toBeNull();
+    expect(chatShapeOf('azure', 'POST /openai/deployments/gpt-prod/chat/completions?api-version=2025-01-01')).toBe('openai-chat');
+    expect(chatShapeOf('vertex', 'POST /v1/projects/p/locations/l/endpoints/openapi/chat/completions')).toBe('openai-chat');
+    // Their own APIs: Bedrock's Converse and Gemini's generateContent, on the Gemini API or Vertex AI.
+    expect(chatShapeOf('bedrock', 'POST /model/amazon.nova-pro-v1%3A0/converse')).toBe('converse');
+    expect(chatShapeOf('bedrock', 'POST /model/x/converse-stream')).toBe('converse');
+    expect(chatShapeOf('gemini', 'POST /v1beta/models/gemini-2.5-flash:generateContent')).toBe('gemini');
+    expect(chatShapeOf('vertex', 'POST /v1/projects/p/locations/l/publishers/google/models/gemini-2.5-pro:streamGenerateContent')).toBe('gemini');
+    expect(chatShapeOf('bedrock', 'POST /model/x/count-tokens')).toBeNull();
     expect(untranslatable('openai', 'POST /v1/responses')).toBe('it uses the OpenAI Responses API');
-    expect(untranslatable('gemini', 'POST /v1beta/models/x:streamGenerateContent')).toBe('it uses the Gemini API');
-    expect(untranslatable('bedrock', 'POST /model/x/converse')).toBe('it goes through Amazon Bedrock');
+    expect(untranslatable('bedrock', 'POST /model/meta.llama4-maverick-17b-instruct-v1%3A0/invoke')).toBe("it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models)");
+    expect(untranslatable('vertex', 'POST /v1/projects/p/locations/l/publishers/mistralai/models/mistral-large:rawPredict')).toBe("it asks a partner model on Vertex AI whose body isn't Anthropic's");
+    expect(untranslatable('azure', 'POST /openai/responses')).toBe('it uses the OpenAI Responses API');
     expect(untranslatable('openai', 'POST /v1/completions')).toBe('it is an openai request (/v1/completions)');
     expect(untranslatable('mistral', 'POST /v1/fim/completions')).toBe('it is a mistral request (/v1/fim/completions)');
   });

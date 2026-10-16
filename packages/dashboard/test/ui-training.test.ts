@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineTone } from '../ui/jobs.js';
-import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
+import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
 // Training's logic without a browser: what a filter shows, the words for times and files, what Score
@@ -18,7 +18,7 @@ const option = (id: string, o: Partial<ModelOptionView> = {}): ModelOptionView =
   perAttempt: 0.004,
   local: false,
   key: `${id}\n${o.baseUrl ?? ''}`,
-  request: { model: id, baseUrl: o.baseUrl ?? null },
+  request: { model: id, baseUrl: o.baseUrl ?? null, goldens: null },
   label: id,
   lastScore: null,
   note: 'Anthropic API · about $0.004 an attempt',
@@ -30,13 +30,14 @@ const DIALOG: ScoreDialogView = {
   options: [
     option('claude-sonnet-5', { group: 'Recorded with', lastScore: 1, label: 'claude-sonnet-5 · scored 1.00' }),
     option('claude-haiku-4-5'),
-    option('my-finetune', { group: 'Endpoints scored before', baseUrl: 'http://127.0.0.1:8000/v1', local: true, request: { model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1' }, lastScore: 0.8, note: 'Runs at http://127.0.0.1:8000/v1 · not a paid API · replaces its score of 0.80' }),
+    option('my-finetune', { group: 'Endpoints scored before', baseUrl: 'http://127.0.0.1:8000/v1', local: true, request: { model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1', goldens: null }, lastScore: 0.8, note: 'Runs at http://127.0.0.1:8000/v1 · not a paid API · replaces its score of 0.80' }),
   ],
   groups: ['Recorded with', 'Anthropic API', 'Endpoints scored before'],
   selected: 'claude-haiku-4-5\n',
   attempts: [5, 10],
   endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: 'Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API.' },
   notes: [],
+  leftOut: [],
 };
 
 describe('the pairs a filter shows', () => {
@@ -83,9 +84,12 @@ describe('Score a model', () => {
   });
 
   it('sends the model as tasks score takes it, with its endpoint, or the endpoint typed in', () => {
-    expect(scoreFields(DIALOG, '1', DIALOG.endpoint, 5)).toEqual({ model: 'claude-haiku-4-5', baseUrl: null, attempts: 5 });
-    expect(scoreFields(DIALOG, '2', DIALOG.endpoint, 10)).toEqual({ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1', attempts: 10 });
-    expect(scoreFields(DIALOG, ENDPOINT, { baseUrl: ' http://127.0.0.1:9000/v1 ', model: ' step-200 ' }, 5)).toEqual({ model: 'step-200', baseUrl: 'http://127.0.0.1:9000/v1', attempts: 5 });
+    expect(scoreFields(DIALOG, '1', DIALOG.endpoint, 5)).toEqual({ model: 'claude-haiku-4-5', baseUrl: null, attempts: 5, goldens: null });
+    expect(scoreFields(DIALOG, '2', DIALOG.endpoint, 10)).toEqual({ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1', attempts: 10, goldens: null });
+    expect(scoreFields(DIALOG, ENDPOINT, { baseUrl: ' http://127.0.0.1:9000/v1 ', model: ' step-200 ' }, 5)).toEqual({ model: 'step-200', baseUrl: 'http://127.0.0.1:9000/v1', attempts: 5, goldens: null });
+    // A model that answers only some of the ready tasks is scored on those.
+    const some: ScoreDialogView = { ...DIALOG, options: [option('claude-haiku-4-5', { request: { model: 'anthropic:claude-haiku-4-5', baseUrl: null, goldens: ['goldens/refund'] } })] };
+    expect(scoreFields(some, '0', DIALOG.endpoint, 5)).toEqual({ model: 'anthropic:claude-haiku-4-5', baseUrl: null, attempts: 5, goldens: ['goldens/refund'] });
     // Not filled in, or not a URL: nothing to send yet.
     expect(scoreFields(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:9000/v1', model: '  ' }, 5)).toBeNull();
     expect(scoreFields(DIALOG, ENDPOINT, { baseUrl: '127.0.0.1:9000', model: 'm' }, 5)).toBeNull();
@@ -97,6 +101,11 @@ describe('Score a model', () => {
     expect(pickNote(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:8000/v1/', model: 'my-finetune' })).toBe('Any OpenAI-compatible server, such as vLLM serving the model you’re training. Not a paid API. · replaces its score of 0.80');
     expect(pickNote(DIALOG, ENDPOINT, { baseUrl: 'http://127.0.0.1:8000/v1', model: 'step-200' })).toBe(DIALOG.endpoint.note);
     expect(pickNote(null, '1', DIALOG.endpoint)).toBe('');
+    expect(leftOutLine([])).toBeNull();
+    expect(leftOutLine(undefined)).toBeNull();
+    expect(leftOutLine([{ group: 'Anthropic API', models: ['claude-haiku-4-5', 'claude-opus-5-5'], why: "refund-flow: it uses the OpenAI Responses API, which only another model of its own provider can answer" }, { group: 'Recorded with', models: ['gpt-prod'], why: 'refund-flow: its takeover call goes through Azure OpenAI' }])).toBe(
+      "Not offered: Anthropic API, 2 models (refund-flow: it uses the OpenAI Responses API, which only another model of its own provider can answer) · Recorded with, gpt-prod (refund-flow: its takeover call goes through Azure OpenAI)",
+    );
     expect(notesLine([])).toBeNull();
     expect(notesLine([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }, { group: 'Ollama, on this machine', note: "isn't running" }])).toBe("Not listed: OpenAI API (OPENAI_API_KEY is not set) · Ollama, on this machine (isn't running)");
   });

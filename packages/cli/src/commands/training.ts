@@ -10,6 +10,7 @@ import {
   listingInput,
   listModelChoices,
   matchTask,
+  modelReach,
   PAIR_FORMATS,
   PAIR_SHAPES,
   pairRows,
@@ -378,7 +379,7 @@ export function register(program: Command): void {
 
   tasks
     .command('models')
-    .description('Models to score: the one the recordings used, each configured provider\'s models (Anthropic and OpenAI with the keys in the environment, Ollama on this machine) and endpoints scored before, each with what an attempt costs')
+    .description('Models to score: the one the recordings used, each configured provider\'s models (Anthropic and OpenAI with the keys in the environment, Ollama on this machine) and endpoints scored before, each with what an attempt costs and the ready tasks it can answer')
     .option('--json', 'print them as JSON')
     .option('--timeout <ms>', 'how long to wait for each provider\'s list', parseIntArg, 1500)
     .action(async (flags: { json?: boolean; timeout: number }) => {
@@ -392,7 +393,8 @@ export function register(program: Command): void {
         const rows = scores.filter((s) => s.model === model && s.baseUrl === base && readyGoldens.has(s.golden));
         return rows.length ? rows.reduce((x, r) => x + r.score, 0) / rows.length : null;
       };
-      const choices = listing.choices.map((c) => ({ ...c, lastScore: meanOf(c.id, c.baseUrl) }));
+      // Which ready tasks each can answer: what `tasks score` would refuse, said before anything runs.
+      const choices = listing.choices.map((c) => ({ ...c, lastScore: meanOf(c.id, c.baseUrl), reach: modelReach(c, list) }));
       if (flags.json) {
         process.stdout.write(JSON.stringify({ choices, notes: listing.notes, tokens: listing.tokens, tasks: ready.length }, null, 2) + '\n');
         return;
@@ -406,7 +408,9 @@ export function register(program: Command): void {
         const width = Math.max(...rows.map((c) => safeLine(c.id).length));
         for (const c of rows) {
           const cost = c.local ? '$0, not a paid API' : c.perAttempt === null ? 'no price' : `≈${formatUsd(c.perAttempt)} an attempt`;
-          process.stdout.write(`  ${safeLine(c.id).padEnd(width)}  ${p.dim(cost)}${c.lastScore !== null ? ` · scored ${c.lastScore.toFixed(2)}` : ''}\n`);
+          const first = c.reach.refused[0];
+          const reach = !first ? '' : c.reach.tasks.length ? p.dim(` · on ${c.reach.tasks.length} of ${plural(ready.length, 'task')}`) : p.yellow(` · can't answer the tasks (${safeLine(first.name)}: ${safeLine(first.why)})`);
+          process.stdout.write(`  ${safeLine(c.id).padEnd(width)}  ${p.dim(cost)}${c.lastScore !== null ? ` · scored ${c.lastScore.toFixed(2)}` : ''}${reach}\n`);
         }
       }
       for (const n of listing.notes) process.stdout.write(p.dim(`${safeLine(n.group)}: ${safeLine(n.note)}\n`));

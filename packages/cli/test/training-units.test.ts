@@ -382,7 +382,7 @@ describe('what a score refuses before anything runs', () => {
 
   it('a model scoring can\'t switch: Bedrock, Vertex AI and Azure deployments', () => {
     const same = (m: string) => resolveTarget({ model: m }, {});
-    expect(cannotScore(task('POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'bedrock'), same('anthropic.claude-haiku-4-5-v1:0'))).toBe("goldens/g can't be scored with anthropic.claude-haiku-4-5-v1:0: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(cannotScore(task('POST /model/anthropic.claude-sonnet-5-v1%3A0/converse', 'bedrock'), same('anthropic.claude-haiku-4-5-v1:0'))).toBe("goldens/g can't be scored with anthropic.claude-haiku-4-5-v1:0: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL: score Anthropic's or OpenAI's API, or a model at your own endpoint, instead");
     expect(cannotScore(task('POST /openai/deployments/gpt-prod/chat/completions', 'azure'), same('gpt-test'))).toContain('Azure OpenAI');
     // Within their own provider, Anthropic, OpenAI (the Responses API too) and Gemini switch.
     expect(cannotScore(task('POST /v1beta/models/gemini-2.5-flash:generateContent', 'gemini'), same('gemini-2.5-pro'))).toBeNull();
@@ -390,7 +390,7 @@ describe('what a score refuses before anything runs', () => {
     expect(cannotScore(task('POST /v1/messages', 'anthropic'), same('claude-haiku-4-5'))).toBeNull();
     expect(cannotScore(task('POST /v1/chat/completions', 'openai'), same('gpt-5'))).toBeNull();
     // Another provider's model is refused for these: they don't translate.
-    expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toContain('only Anthropic Messages and OpenAI Chat Completions are translated');
+    expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toBe("goldens/g can't be answered by m at http://127.0.0.1:8000/v1: it uses the OpenAI Responses API, which only another model of its own provider can answer");
   });
 
   it('a takeover asked at a call that asks a model nothing', () => {

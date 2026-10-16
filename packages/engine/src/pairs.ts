@@ -645,6 +645,18 @@ function localTime(ms: number, seconds = false): string {
 }
 
 /**
+ * Blame sources are named by their run's first label (`blame · refund-bug`). Runs labelled alike
+ * (every run of one failure, blamed one by one) are told apart by their short ids.
+ */
+function nameBlames(sources: PairSource[]): void {
+  const blames = sources.filter((s) => s.kind === 'blame');
+  const count = (label: string) => blames.filter((s) => s.label === label).length;
+  for (const s of blames.filter((x) => count(x.label) > 1)) {
+    if (!s.label.endsWith(short(s.runId))) s.label = `${s.label} · ${short(s.runId)}`;
+  }
+}
+
+/**
  * Verify sources are named by the code they verified (`verify · 370712a+dirty`), else by when they
  * ran. Two verifies of the same code, or in the same minute, are told apart by the second they
  * started, and past that by their order.
@@ -830,6 +842,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     source.why = whyContrast(mixed, n, 'several' in scope ? scope.several : [], source.made, 'No run both passed and failed: each passed every attempt or none.');
   }
   nameVerifies(sources, verifyVersions);
+  nameBlames(sources);
 
   // ---- --repeat: medium, by exit status ----
   const groups = new Map<string, RunRecord[]>();

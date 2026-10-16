@@ -70,6 +70,8 @@ export interface ScoreFields {
   model: string;
   baseUrl: string | null;
   attempts: number;
+  /** The tasks to score when the model answers only some of the ready ones; null scores every ready task. */
+  goldens: string[] | null;
 }
 
 /**
@@ -82,10 +84,10 @@ export function scoreFields(dialog: ScoreDialogView | null, pick: string, endpoi
     const model = endpoint.model.trim();
     const baseUrl = endpoint.baseUrl.trim();
     if (!model || !/^https?:\/\/\S+$/.test(baseUrl)) return null;
-    return { model, baseUrl, attempts };
+    return { model, baseUrl, attempts, goldens: null };
   }
   const o = pickedOption(dialog, pick);
-  return o ? { model: o.request.model, baseUrl: o.request.baseUrl, attempts } : null;
+  return o ? { model: o.request.model, baseUrl: o.request.baseUrl, attempts, goldens: o.request.goldens ?? null } : null;
 }
 
 const trimUrl = (u: string) => u.trim().replace(/\/+$/, '');
@@ -104,6 +106,15 @@ export function pickNote(dialog: ScoreDialogView | null, pick: string, endpoint:
 /** The providers that couldn't be listed, in one line: `Not listed: OpenAI API (OPENAI_API_KEY is not set) · Ollama, on this machine (isn't running)`. */
 export function notesLine(notes: ModelsView['notes']): string | null {
   return notes.length ? `Not listed: ${notes.map((n) => `${n.group} (${n.note})`).join(' · ')}` : null;
+}
+
+/**
+ * The listed models left out because they can't answer any ready task, in one line: `Not offered:
+ * Anthropic API, 2 models (refund-flow: it uses the OpenAI Responses API, …)`. A group of one names its model.
+ */
+export function leftOutLine(leftOut: ScoreDialogView['leftOut'] | undefined): string | null {
+  if (!leftOut?.length) return null;
+  return `Not offered: ${leftOut.map((l) => `${l.group}, ${l.models.length === 1 ? l.models[0] : `${l.models.length} models`} (${l.why})`).join(' · ')}`;
 }
 
 // ---- the palette opens a Training dialog from any page ----

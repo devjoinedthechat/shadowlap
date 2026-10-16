@@ -15,8 +15,8 @@ import {
   parseTaskFields,
   projectPath,
   readGolden,
+  takeoverRefusal,
   unpackRun,
-  untranslatable,
   type CallRecord,
   type Golden,
   type OneSided,
@@ -35,7 +35,7 @@ import { evaluateChecks, parseTests, type CheckResult, type TestSpec } from './c
 import { configPath, upstreamOverrides } from './config.js';
 import { type GuardMode } from './run-agent.js';
 import { type GlobalOpts } from './shared.js';
-import { ANSWERED_BY, modelUnswitchable, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';
+import { ANSWERED_BY, startTakeover, takeoverMode, targetVia, type ModelTarget, type Takeover } from './takeover.js';
 
 /**
  * `shadowlap tasks`: the project's goldens as tasks a model can be scored on, and the attempts that
@@ -207,15 +207,10 @@ export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: nu
   if (task.scope !== null && takeover !== undefined && (typeof call.meta.scope === 'string' ? call.meta.scope : null) !== task.scope) return `#${k} is not made in the agent's scope (${task.scope})`;
   const provider = (call.end?.meta.provider ?? call.meta.provider) as string | undefined;
   if (!provider) return `${task.golden} can't be scored: its recording doesn't say which provider #${k} went to`;
-  const shape = chatShapeOf(provider, call.name);
-  const mode = takeoverMode(provider, shape, target);
-  if (!mode) return `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${untranslatable(provider, call.name)}, and only Anthropic Messages and OpenAI Chat Completions are translated`;
-  if (mode === 'same') {
-    // Found before anything runs: an attempt would ask the recorded model, and be paid for.
-    const why = modelUnswitchable(provider, call.name);
-    if (why) return `${task.golden} can't be scored with ${target.model}: ${why}`;
-  }
-  return null;
+  // Found before anything runs: an attempt that can't reach the model would ask the recorded one, and be paid for.
+  const why = takeoverRefusal(provider, call.name, target);
+  if (!why) return null;
+  return target.route === 'same' ? `${task.golden} can't be scored with ${target.model}: ${why}` : `${task.golden} can't be answered by ${target.model}${target.baseUrl ? ` at ${target.baseUrl}` : ''}: ${why}`;
 }
 
 /** Where a provider's calls go without a takeover: the environment's upstream for it, else its own API. */

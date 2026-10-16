@@ -241,11 +241,12 @@ describe('the Training read model', () => {
     expect(dialog.title).toBe('Score a model on 2 tasks');
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'OpenAI API', 'Ollama, on this machine']);
     expect(dialog.options.map((o) => [o.label, o.lastScore, o.request])).toEqual([
-      ['claude-sonnet-5 · scored 1.00', 1, { model: 'claude-sonnet-5', baseUrl: null }],
-      ['claude-haiku-4-5', null, { model: 'claude-haiku-4-5', baseUrl: null }],
-      ['gpt-5-mini', null, { model: 'openai:gpt-5-mini', baseUrl: null }],
-      ['qwen2.5:7b · scored 0.80', 0.8, { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1' }],
+      ['claude-sonnet-5 · scored 1.00', 1, { model: 'claude-sonnet-5', baseUrl: null, goldens: null }],
+      ['claude-haiku-4-5', null, { model: 'claude-haiku-4-5', baseUrl: null, goldens: null }],
+      ['gpt-5-mini', null, { model: 'openai:gpt-5-mini', baseUrl: null, goldens: null }],
+      ['qwen2.5:7b · scored 0.80', 0.8, { model: 'qwen2.5:7b', baseUrl: 'http://127.0.0.1:11434/v1', goldens: null }],
     ]);
+    expect(dialog.leftOut).toEqual([]);
     // The first model not scored yet is preselected.
     expect(dialog.selected).toBe('claude-haiku-4-5\n');
     expect(dialog.options.map((o) => o.note)).toEqual([
@@ -258,6 +259,38 @@ describe('the Training read model', () => {
     expect(dialog.notes).toEqual([{ group: 'Ollama, on this machine', note: "isn't running" }]);
     expect(dialog.attempts).toEqual([5, 10]);
     s.close();
+  });
+
+  it('offers only the models that can answer a ready task, scores one that answers some on those, and says why the rest are left out', () => {
+    // One task recorded on Anthropic's API, one on OpenAI's Responses API (which only another OpenAI model answers), one through Bedrock's Converse API.
+    const tasks = [
+      task('goldens/refund', 'ready', 'escalate'),
+      task('goldens/responses', 'ready', 'escalate', { provider: 'openai', callName: 'POST /v1/responses', model: 'gpt-5' }),
+      task('goldens/converse', 'ready', 'escalate', { provider: 'bedrock', callName: 'POST /model/amazon.nova-pro-v1%3A0/converse', model: 'amazon.nova-pro-v1:0' }),
+    ];
+    const listing: ModelListing = {
+      choices: [
+        { group: 'Recorded with', id: 'claude-sonnet-5', via: 'the recorded model', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'claude-sonnet-5'], perAttempt: 0.0165, local: false, provider: 'anthropic' },
+        { group: 'Recorded with', id: 'gpt-5', via: 'the recorded model', where: 'OpenAI API', baseUrl: null, flags: ['--model', 'gpt-5'], perAttempt: 0.01, local: false, provider: 'openai' },
+        { group: 'Recorded with', id: 'amazon.nova-pro-v1:0', via: 'the recorded model', where: 'Amazon Bedrock', baseUrl: null, flags: ['--model', 'amazon.nova-pro-v1:0'], perAttempt: null, local: false, provider: 'bedrock' },
+        { group: 'Anthropic API', id: 'claude-haiku-4-5', via: 'Anthropic API', where: 'Anthropic API', baseUrl: null, flags: ['--model', 'anthropic:claude-haiku-4-5'], perAttempt: 0.0041, local: false },
+        { group: 'Ollama, on this machine', id: 'qwen2.5:7b', via: 'Ollama, on this machine', where: 'Ollama, on this machine', baseUrl: 'http://127.0.0.1:11434/v1', flags: ['--model', 'qwen2.5:7b', '--base-url', 'http://127.0.0.1:11434/v1'], perAttempt: 0, local: true },
+      ],
+      notes: [],
+      tokens: null,
+    };
+    const dialog = trainingView({ pairs: [], sources: [], tasks, scores: [], exports: [], models: listing }).scoreDialog!;
+    expect(dialog.options.map((o) => [o.id, o.request.goldens])).toEqual([
+      ['claude-sonnet-5', ['goldens/refund']],
+      ['gpt-5', ['goldens/responses']],
+      ['claude-haiku-4-5', ['goldens/refund', 'goldens/converse']],
+      ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
+    ]);
+    expect(dialog.options[2]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not responses: it uses the OpenAI Responses API, which only another model of its own provider can answer");
+    expect(dialog.options[0]!.note).toContain("not responses: it was recorded on OpenAI's API, and claude-sonnet-5 is asked of Anthropic's API; converse: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API");
+    // Bedrock's own model answers its own task only by switching models there, which a signed URL doesn't allow.
+    expect(dialog.leftOut).toEqual([{ group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: "refund: it was recorded on Anthropic's API, and amazon.nova-pro-v1:0 is asked of Amazon Bedrock" }]);
+    expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
   });
 
   it('builds the jobs the dialogs start from what they name, never from a command line', () => {

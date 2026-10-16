@@ -93,9 +93,12 @@ export { contextLine, countPairs, findPairs, pairRows, PAIR_FORMATS, PAIR_SHAPES
 export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, PairSource, PairSourceKind, PairsResult } from './pairs.js';
 export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
-export { anthropicBase, endpointVia, isLoopback, listingInput, listModelChoices, ollamaBase, openAIBase, OFFICIAL } from './models.js';
-export type { ListModelsInput, ModelChoice, ModelListing } from './models.js';
-export { anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, chatCompletionChunks, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
+export { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, modelReach, ollamaBase, openAIBase, OFFICIAL } from './models.js';
+export type { ListModelsInput, ModelChoice, ModelListing, ModelReach } from './models.js';
+export { anthropicEventList, anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, awsErrorType, chatCompletionChunks, chatCompletionOf, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
 export type { AnthropicMessage, ChatCompletion, ChatShape, OpenAITool, ToOpenAIOptions, TranslatedRequest } from './translate.js';
+export { awsEvent, chatCompletionToConverse, converseStreamBody, converseToOpenAIChat, eventStreamHeaders, type ConverseResponse, type ConverseStopReason } from './translate-converse.js';
+export { chatCompletionToGemini, geminiStreamBody, geminiToOpenAIChat, geminiUsesIds, type GeminiResponse } from './translate-gemini.js';
+export { anthropicAnswer, answerAs, errorAs, isTakeoverCall, modelUnswitchable, requestFor, switchTakeoverModel, takeoverMode, takeoverRefusal, wantsStream, type AnswerOptions, type EncodedAnswer, type TakeoverMode, type TakeoverTarget, type TargetRoute } from './takeover.js';
 export { messagesOf, type DatasetMessage } from './dataset.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';

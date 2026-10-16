@@ -5,13 +5,14 @@ import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
+import { useTreeBusy } from '../fixes/tree.js';
 import { plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -50,7 +51,9 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
     if (tab === 'tasks' && canScore && !actionsOff) void client.models().catch(() => undefined);
   }, [tab, canScore, actionsOff, client]);
 
-  const action = tab === 'pairs' ? (canExport ? { label: 'Export pairs', kind: 'export' as const } : null) : canScore ? { label: 'Score a model', kind: 'score' as const } : null;
+  // Scoring runs the agent from the project's working tree: not while a repair or an apply changes it.
+  const busy = useTreeBusy('reads', 'score');
+  const action = tab === 'pairs' ? (canExport ? { label: 'Export pairs', kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: 'Score a model', kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
     <Page>
       <PageHeader
@@ -59,7 +62,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         text="Answers to prefer and tasks to score, from failures you fixed."
         actions={
           action ? (
-            <button className="btn lime" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
+            <button className="btn lime" type="button" disabled={!!action.off} title={action.off ?? undefined} onClick={() => guard(() => setDialog(action.kind))}>
               {action.label}
             </button>
           ) : null
@@ -84,7 +87,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         <EmptyState title="Not in an exported copy" text="An exported copy holds runs and Compare between them. Training reads the store: open it from shadowlap dashboard." />
       ) : null}
       {dialog === 'export' && view ? <ExportPairsDialog view={view} onClose={() => setDialog(null)} /> : null}
-      {dialog === 'score' && view ? <ScoreDialog view={view} onClose={() => setDialog(null)} /> : null}
+      {dialog === 'score' && view ? <ScoreDialog view={view} busy={busy} onClose={() => setDialog(null)} /> : null}
     </Page>
   );
 }
@@ -535,7 +538,7 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
 }
 
 /** Score a model: a model the server listed, or your own endpoint, and the attempts; then `shadowlap tasks score` as a job. */
-function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => void }) {
+function ScoreDialog({ view, busy, onClose }: { view: TrainingView; /** Why scoring can't start now (a repair holds the working tree), or null. */ busy: string | null; onClose: () => void }) {
   const { client, watchJob, guard } = useApp();
   const models = useLoad<ModelsView>(() => client.models(), 'models');
   const d = models.data?.dialog ?? null;
@@ -560,17 +563,18 @@ function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => voi
   const current = pick ?? '';
   const fields = pick === null ? null : scoreFields(d, current, endpoint, attempts);
   const notes = models.data ? notesLine(models.data.notes) : null;
+  const leftOut = d ? leftOutLine(d.leftOut) : null;
   const note = models.error ? `The models couldn’t be listed (${models.error.message}). Your own endpoint still works.` : !listed ? 'Asking each provider for its models…' : pickNote(d, current, endpoint);
   return (
     <Dialog
       title={d?.title ?? `Score a model on ${plural(view.tabs.tasks, 'task')}`}
       text="Each attempt replays the calls before the takeover from the recording, then runs the rest against this model with writes stubbed. The checks score it."
       ok="Score"
-      okDisabled={!fields}
+      okDisabled={!fields || !!busy}
       onOk={() => {
-        if (!fields) return;
+        if (!fields || busy) return;
         guard(() => {
-          watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts }));
+          watchJob(client.startJob(JOB_KINDS.score, { model: fields.model, baseUrl: fields.baseUrl, attempts: fields.attempts, ...(fields.goldens ? { goldens: fields.goldens } : {}) }));
           onClose();
         });
       }}
@@ -623,8 +627,11 @@ function ScoreDialog({ view, onClose }: { view: TrainingView; onClose: () => voi
         </div>
       ) : null}
       {note ? <p className="muted trnote">{note}</p> : null}
+      {busy ? <p className="trbusy">{busy}</p> : null}
       {/* Why a provider's models aren't in the list: beside the list, not beside your own endpoint. */}
       {notes && pick !== ENDPOINT ? <p className="trnotes">{notes}</p> : null}
+      {/* Models that can't answer any ready task, and why: what `tasks score` would refuse. */}
+      {leftOut && pick !== ENDPOINT ? <p className="trnotes">{leftOut}</p> : null}
     </Dialog>
   );
 }

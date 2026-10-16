@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, PAIR_FORMATS, type ModelChoice, type ModelListing, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, modelReach, PAIR_FORMATS, type ModelChoice, type ModelListing, type ModelReach, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -234,8 +234,11 @@ export interface ScoreRowView {
 export interface ModelOptionView extends ModelChoice {
   /** Unique among the options: the model and its endpoint. */
   key: string;
-  /** What the dialog sends to start the job (scoreModelJob): the model as `--model` takes it, and the endpoint. */
-  request: { model: string; baseUrl: string | null };
+  /**
+   * What the dialog sends to start the job (scoreModelJob): the model as `--model` takes it, the
+   * endpoint, and the tasks when it can answer only some of the ready ones (null: every ready task).
+   */
+  request: { model: string; baseUrl: string | null; goldens: string[] | null };
   /** `qwen2.5:7b · scored 0.80`, as the picker lists it. */
   label: string;
   lastScore: number | null;
@@ -254,6 +257,11 @@ export interface ScoreDialogView {
   endpoint: { key: string; group: string; label: string; baseUrl: string; model: string; note: string };
   /** Providers that couldn't be listed, and why. */
   notes: Array<{ group: string; note: string }>;
+  /**
+   * Listed models left out because they can't answer any ready task, grouped by where they run and
+   * why: `{ group: 'Anthropic API', models: ['claude-haiku-4-5'], why: 'refund-flow: it uses the OpenAI Responses API, …' }`.
+   */
+  leftOut: Array<{ group: string; models: string[]; why: string }>;
 }
 
 export interface TrainingView {
@@ -350,16 +358,36 @@ export function scoreNote(c: Pick<ModelChoice, 'where' | 'baseUrl' | 'perAttempt
   return lastScore === null ? where : `${where} · replaces its score of ${lastScore.toFixed(2)}`;
 }
 
-/** Score a model's picker: the listed models with their last scores, the one to preselect, and "Your own endpoint…". */
+/** A refused task and why, as a note says it: `refund-flow: it uses the OpenAI Responses API, …`. */
+const refusal = (r: ModelReach['refused'][number]) => `${r.name}: ${r.why}`;
+
+/**
+ * Score a model's picker: the listed models with their last scores, the one to preselect, and "Your
+ * own endpoint…". A model is offered only when it can answer a ready task (`modelReach`, what `tasks
+ * score` would refuse): one that answers only some is scored on those, and its note says which it
+ * leaves out; one that answers none is left out, and `leftOut` says why.
+ */
 export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskScoreRow[], listing: ModelListing): ScoreDialogView | null {
   const ready = tasks.filter((t) => t.status === 'ready');
   if (!ready.length) return null;
   const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
-  const options: ModelOptionView[] = listing.choices.map((c) => {
+  const options: ModelOptionView[] = [];
+  const leftOut: ScoreDialogView['leftOut'] = [];
+  for (const c of listing.choices) {
+    const reach = modelReach(c, tasks);
+    if (!reach.tasks.length) {
+      const why = reach.refused[0] ? refusal(reach.refused[0]) : 'no task is ready';
+      const same = leftOut.find((l) => l.group === c.group && l.why === why);
+      if (same) same.models.push(c.id);
+      else leftOut.push({ group: c.group, models: [c.id], why });
+      continue;
+    }
     const last = means.get(modelKey(c.id, c.baseUrl)) ?? null;
     const flag = (name: string) => (c.flags.includes(name) ? (c.flags[c.flags.indexOf(name) + 1] ?? null) : null);
-    return { ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url') }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note: scoreNote(c, last) };
-  });
+    const some = reach.refused.length > 0;
+    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${reach.refused.map(refusal).join('; ')}` : scoreNote(c, last);
+    options.push({ ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url'), goldens: some ? reach.tasks : null }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note });
+  }
   const first = options.find((o) => o.lastScore === null) ?? options[0] ?? null;
   return {
     title: `Score a model on ${plural(ready.length, 'task')}`,
@@ -369,6 +397,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     attempts: [...SCORE_ATTEMPTS],
     endpoint: { key: '__endpoint', group: 'Other', label: 'Your own endpoint…', baseUrl: 'http://127.0.0.1:8000/v1', model: 'my-finetune', note: scoreNote(null, null) },
     notes: listing.notes,
+    leftOut,
   };
 }
 
@@ -376,7 +405,8 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
 export interface ModelsView {
   /** Ready tasks: the ones a model is scored on, whose tokens price an attempt. */
   ready: number;
-  choices: Array<ModelChoice & { lastScore: number | null }>;
+  /** Every listed model, with its last score and which ready tasks it can answer (the picker offers only those that answer one). */
+  choices: Array<ModelChoice & { lastScore: number | null; reach: ModelReach }>;
   /** Providers that couldn't be listed, and why. */
   notes: ModelListing['notes'];
   /** The tokens an attempt is expected to use after its takeover, which the prices are estimated from. */
@@ -390,7 +420,7 @@ export function modelsView(tasks: readonly Task[], scores: readonly TaskScoreRow
   const means = modelMeans(scores, new Set(ready.map((t) => t.golden)));
   return {
     ready: ready.length,
-    choices: listing.choices.map((c) => ({ ...c, lastScore: means.get(modelKey(c.id, c.baseUrl)) ?? null })),
+    choices: listing.choices.map((c) => ({ ...c, lastScore: means.get(modelKey(c.id, c.baseUrl)) ?? null, reach: modelReach(c, tasks) })),
     notes: listing.notes,
     tokens: listing.tokens,
     dialog: scoreDialogView(tasks, scores, listing),
