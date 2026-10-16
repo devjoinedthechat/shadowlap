@@ -6,6 +6,7 @@ import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
 import { redactRuleCount } from './provenance.js';
@@ -52,7 +53,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         return guard(() =>
           client.exportHtml(id).then(
             (r) => toast(`Saved ${r.filename}${run.parent ? ' with the runs it came from' : ''} · ${r.redacted ? 'redaction rules applied' : 'no redaction rules to apply'}`),
-            (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+            (err: unknown) => toast(errorText(err), 'error'),
           ),
         );
       case 'pack':

@@ -10,6 +10,7 @@ import { href } from '../../route.js';
 import { projectOf } from '../../shell/ProjectBlock.js';
 import { useApp } from '../../state.js';
 import type { CiName, SetupProvider, SetupUrlCheck, StoreSetupView } from '../../store-api.js';
+import { errorText } from '../../toast.js';
 import type { JobView } from '../../types.js';
 import { LoadProblem, Loading } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
@@ -93,7 +94,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
           setChecked(r);
           if (r.ok) onChange(client.startJob(JOB_KINDS.storeSet, { url: typed, provider }));
         },
-        (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+        (err: unknown) => toast(errorText(err), 'error'),
       );
     });
   };
@@ -107,7 +108,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
             toast(ok);
             onChange();
           },
-          (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+          (err: unknown) => toast(errorText(err), 'error'),
         )
         .finally(() => setSaving(false));
     });
@@ -291,7 +292,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                               toast('The store is set up');
                               onChange();
                             },
-                            (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+                            (err: unknown) => toast(errorText(err), 'error'),
                           )
                           .finally(() => setSaving(false));
                       })

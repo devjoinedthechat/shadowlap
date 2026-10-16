@@ -3,9 +3,10 @@ import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta
 import { isUnreachable } from './backoff.js';
 import { connStart, connStep, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
-import { afterPollError, endToast, jobTitle } from './jobs.js';
+import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
+import { errorText, type ToastKind } from './toast.js';
 
 /**
  * The state every screen shares: the client, the server's meta and run list, the connection, the
@@ -69,8 +70,9 @@ export interface AppState {
   hasKind: (kind: string) => boolean;
   /** Runs `fn`, or says why it cannot while the server is unreachable. */
   guard: (fn: () => void) => void;
-  toast: (text: string) => void;
-  toastText: { id: number; text: string } | null;
+  /** A notice at the bottom of the window; `error` for a refusal or a failure, which stays until dismissed (`toast.ts`). */
+  toast: (text: string, kind?: ToastKind) => void;
+  toastText: { id: number; text: string; kind: ToastKind } | null;
   /** Shows a started job in the drawer and follows it to the end. */
   watchJob: (p: Promise<JobView>) => void;
   jobs: WatchedJob[];
@@ -128,7 +130,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [tick, setTick] = useState(0);
   const [feeds, setFeeds] = useState<Readonly<Record<string, number>>>({});
   const [live, setLive] = useState<LiveRun[]>([]);
-  const [toastText, setToastText] = useState<{ id: number; text: string } | null>(null);
+  const [toastText, setToastText] = useState<{ id: number; text: string; kind: ToastKind } | null>(null);
   const [jobs, setJobs] = useState<WatchedJob[]>([]);
   const [sideOpen, setSideOpen] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -138,7 +140,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const connRef = useLatest(conn);
   const previewOffline = useRef(preview === 'offline');
 
-  const toast = useCallback((text: string) => setToastText({ id: Date.now() + Math.random(), text }), []);
+  const toast = useCallback((text: string, kind: ToastKind = 'notice') => setToastText({ id: Date.now() + Math.random(), text, kind }), []);
 
   const goOffline = useCallback(() => dispatch({ type: 'unreachable', now: Date.now() }), []);
 
@@ -319,7 +321,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         following.current.delete(first.id);
         setJobs((list) => list.map((w) => (w.job.id === first.id ? { ...w, lost: true } : w)));
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(`${jobTitle(first)}: the dashboard server no longer has this job`);
+        if (!shown?.open) toast(`${jobTitle(first)}: the dashboard server no longer has this job`, 'error');
       };
       const step = async () => {
         if (!following.current.has(first.id)) return;
@@ -352,7 +354,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         if (next.code === 0 && (next.kind === JOB_KINDS.har || next.kind === JOB_KINDS.exportHtml)) for (const f of next.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(endToast(next, all));
+        if (!shown?.open) toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
       };
       setTimeout(step, 200);
     },
@@ -366,9 +368,11 @@ export function AppProvider({ client, children }: { client: Client; children: Re
           setJobs((list) => [...list.filter((w) => w.job.id !== job.id && !((w.job.done || w.lost) && !w.open)).map((w) => ({ ...w, open: false })), { job, lines: job.lines, open: true }].slice(-8));
           follow(job);
         },
+        // The server refused to start it (the repairer changed, a fix moved on, a bad request): its
+        // reason stays on screen, as an error.
         (err: unknown) => {
           fail(err);
-          toast(err instanceof Error ? err.message : String(err));
+          toast(errorText(err), 'error');
         },
       );
     },

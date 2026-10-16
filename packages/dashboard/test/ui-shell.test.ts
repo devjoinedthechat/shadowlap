@@ -10,6 +10,7 @@ import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabell
 import { TRACE_COPY } from '../ui/runspage/imports.js';
 import { copyCompares } from '../ui/runs.js';
 import { crumbParent, liveChip, topPill } from '../ui/shell/top.js';
+import { errorText, sentence, TOAST_MS } from '../ui/toast.js';
 
 describe('a tab strip on a narrow screen', () => {
   // A strip 358px wide, scrolled to its start; tabs from the start of its content.
@@ -170,5 +171,22 @@ describe('importing a trace', () => {
     expect(TRACE_COPY.langfuse.id).toBe('a UUID or 32 hex characters, from the trace’s page');
     expect(TRACE_COPY.langsmith.id).toBe('a UUID, from the trace’s page in LangSmith');
     for (const t of Object.values(TRACE_COPY)) expect(t.id).not.toMatch(/[0-9a-f]{8}/);
+  });
+});
+
+describe('a toast that reports an error', () => {
+  it('starts the server’s reason with a capital, and leaves a first word that is a name alone', () => {
+    expect(errorText(new Error('the repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Repair from here again'))).toBe(
+      'The repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Repair from here again',
+    );
+    expect(sentence('no run 01K5CQ9C4H')).toBe('No run 01K5CQ9C4H');
+    expect(sentence('a run is recording: gc gives space back once it ends')).toBe('A run is recording: gc gives space back once it ends');
+    for (const named of ['fx-01K5CQ4Z3F is applied already', 'runIds: pick the runs to push', 'baseUrl must be a URL', 'shadowlap.config.json changed', 'shadowlap store set needs a URL', '01K5CQ9C4H is still recording', 'Already a sentence.']) expect(sentence(named)).toBe(named);
+    expect(errorText('plain text thrown')).toBe('Plain text thrown');
+  });
+
+  it('stays on screen longer than a notice', () => {
+    expect(TOAST_MS.notice).toBe(2600);
+    expect(TOAST_MS.error).toBeGreaterThanOrEqual(8000);
   });
 });

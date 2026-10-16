@@ -5,6 +5,7 @@ import { nameMatches } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 
 /**
  * Remove a project, from the switcher's × or Settings → Project (`<RemoveProjectDialog id=… />`).
@@ -67,7 +68,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
         },
         (err: unknown) => {
           setBusy(false);
-          toast(err instanceof Error ? err.message : String(err));
+          toast(errorText(err), 'error');
         },
       );
     });

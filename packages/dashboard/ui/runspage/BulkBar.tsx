@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { errorText } from '../toast.js';
 import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
@@ -52,7 +53,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
       try {
         job = await client.startJob(JOB_KINDS.pack, { runId: r.runId, dir: `share/${shortId(r.runId).toLowerCase()}` });
       } catch (err) {
-        return toast(err instanceof Error ? err.message : String(err));
+        return toast(errorText(err), 'error');
       }
       watchJob(Promise.resolve(job));
       for (let v = job; !v.done; ) {
@@ -75,7 +76,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
     try {
       job = await client.startJob(JOB_KINDS.push, { runIds: up });
     } catch (err) {
-      return toast(err instanceof Error ? err.message : String(err));
+      return toast(errorText(err), 'error');
     }
     watchJob(Promise.resolve(job));
     if (letGoAfterPush(await untilDone(job, (id, since) => client.job(id, since)))) clear();
@@ -142,7 +143,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
                 toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
                 onDone();
               },
-              (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+              (err: unknown) => toast(errorText(err), 'error'),
             );
           }}
         />
@@ -163,7 +164,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
                 clear();
                 onDone();
               },
-              (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+              (err: unknown) => toast(errorText(err), 'error'),
             );
           }}
         >

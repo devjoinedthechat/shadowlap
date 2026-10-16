@@ -10,6 +10,7 @@ import { exportedLine, keepsPageOnSwitch, switchedText } from '../projects.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
+import { errorText } from '../toast.js';
 import { RemoveProjectDialog } from './RemoveProject.js';
 
 /**
@@ -43,7 +44,7 @@ export async function switchProject(app: AppState, id: string, to: string = href
     try {
       await app.client.projects.select(id);
     } catch (err) {
-      app.toast(err instanceof Error ? err.message : String(err));
+      app.toast(errorText(err), 'error');
       return;
     }
     expectProject(id, to);

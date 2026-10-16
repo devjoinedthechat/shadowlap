@@ -5,6 +5,7 @@ import { jobCommand, jobStatus, jobTitle, lineTone } from '../jobs.js';
 import { href } from '../route.js';
 import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, useLayer, type WatchedJob } from '../state.js';
+import { errorText } from '../toast.js';
 import { Spin } from './bits.js';
 import { Icon } from './Icon.js';
 
@@ -107,7 +108,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
             onClick={() =>
               client.downloadFile(f).then(
                 () => toast(`Saved ${f.name}`),
-                (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+                (err: unknown) => toast(errorText(err), 'error'),
               )
             }
           >

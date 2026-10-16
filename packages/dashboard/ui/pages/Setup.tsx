@@ -12,6 +12,7 @@ import { projectOf } from '../shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { NotFoundPage } from './NotFound.js';
 
 /**
@@ -238,7 +239,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
           await app.reload();
           navigate(href.overview());
         },
-        (err: unknown) => toast(message(err)),
+        (err: unknown) => toast(errorText(err), 'error'),
       );
     });
 

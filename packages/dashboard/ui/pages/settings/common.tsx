@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { useApp, type AppState } from '../../state.js';
+import { sentence } from '../../toast.js';
 import { onSettingsChanged } from './events.js';
 import { runListKey, shellWords } from './logic.js';
 
@@ -60,7 +61,7 @@ export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok:
     return result;
   } catch (err) {
     o.reload();
-    app.toast(editErrorText(err));
+    app.toast(sentence(editErrorText(err)), 'error');
     return null;
   }
 }

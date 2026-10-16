@@ -10,6 +10,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { compareTarget, failedWord, isFailed, isInterrupted, runTag, runType } from '../runs.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
 import { checksOf, runLikeOf } from './model.js';
@@ -187,7 +188,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
                 refresh();
                 navigate(href.runs());
               },
-              (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+              (err: unknown) => toast(errorText(err), 'error'),
             );
           }}
         />
@@ -211,7 +212,7 @@ function Labels({ run }: { run: RunDetail }) {
           setLabels(r.labels);
           refresh();
         },
-        (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+        (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
   if (!shown.length && !enabled) return null;

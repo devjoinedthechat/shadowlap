@@ -7,6 +7,7 @@ import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { refusedOffline } from './calls.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 
@@ -564,7 +565,7 @@ function Notes({ runId, callNo, notes }: { runId: string; callNo: number; notes:
                     setText('');
                     toast(`Note saved on #${callNo}`);
                   },
-                  (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+                  (err: unknown) => toast(errorText(err), 'error'),
                 )
                 .finally(() => setSaving(false));
             });

@@ -8,6 +8,7 @@ import { copyText } from '../dom.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
@@ -131,7 +132,7 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
                 app.toast(`Renamed: ${d.title}`);
                 reload();
               },
-              (err: unknown) => app.toast(err instanceof Error ? err.message : String(err)),
+              (err: unknown) => app.toast(errorText(err), 'error'),
             );
           }}
         />

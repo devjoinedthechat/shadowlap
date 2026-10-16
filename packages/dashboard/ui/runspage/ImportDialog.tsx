@@ -5,6 +5,7 @@ import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import { FILE_FORMATS, fileHead, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, pickedFormat, TRACE_COPY, TRACE_ID, type ImportFileFormat, type TraceSource } from './imports.js';
 
 /**
@@ -67,7 +68,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       }
       onClose();
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err));
+      toast(errorText(err), 'error');
       setBusy(false);
     }
   };

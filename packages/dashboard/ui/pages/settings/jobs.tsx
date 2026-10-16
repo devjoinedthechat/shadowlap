@@ -5,6 +5,7 @@ import { Dialog } from '../../components/Dialog.js';
 import { mergeTreeJobs, treeBusy, type TreeJob } from '../../fixes/model.js';
 import { addJobFooter } from '../../job-actions.js';
 import { addPaletteSource, paletteSourcesChanged } from '../../palette-sources.js';
+import { sentence } from '../../toast.js';
 import type { JobView } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
@@ -32,7 +33,7 @@ function CalibrateFooter({ job }: { job: JobView }) {
       app.toast(r.added.length ? `Added to ${CONFIG_FILE} · normalizer${r.added.length === 1 ? '' : 's'} ${r.added.map((x) => `#${x}`).join(', ')}` : `Already in ${CONFIG_FILE} · ${r.already.map((x) => `#${x}`).join(', ')}`);
     } catch (err) {
       setState('idle');
-      app.toast(editErrorText(err));
+      app.toast(sentence(editErrorText(err)), 'error');
     }
   };
   return (

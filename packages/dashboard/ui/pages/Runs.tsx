@@ -20,6 +20,7 @@ import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRu
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
+import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
 import { viewerTimeZone } from './Overview.js';
 
@@ -267,7 +268,7 @@ function ServerRuns() {
     guard(() =>
       client.daysBisect({ ...t, types, q }).then(
         (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices })),
-        (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
+        (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
   };

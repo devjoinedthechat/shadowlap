@@ -615,6 +615,10 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .drawer footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--bg); font-size: 13px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); }
 .toast i { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); }
+.toast.err { width: max-content; max-width: min(560px, calc(100vw - 32px)); align-items: flex-start; line-height: 1.45; }
+.toast.err i { flex: none; margin-top: 5px; background: var(--err); }
+.toast .tx { flex: none; width: 24px; height: 24px; margin: -3px -6px -3px 2px; border: 0; border-radius: 7px; background: none; color: inherit; opacity: .55; font-size: 16px; line-height: 1; cursor: pointer; }
+.toast .tx:hover, .toast .tx:focus-visible { opacity: 1; background: color-mix(in srgb, var(--bg) 12%, transparent); outline: none; }
 .help { width: min(760px, 100%); max-height: calc(100vh - 48px); overflow: auto; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); padding: 16px 20px 20px; }
 .help:focus { outline: none; }
 .help header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
