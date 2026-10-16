@@ -291,6 +291,18 @@ describe('how a replay parted from its recording', () => {
     expect(byId(items, `r:${changed}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #2 · 0 live' });
     expect(byId(items, `r:${older}:end`)).toMatchObject({ kind: 'fork', text: 'Forked at #4 with --inject 4 · 0 live' });
     expect(byId(items, `r:${test}:end`)).toMatchObject({ kind: 'fail', text: 'Test failed · refund-in-limit diverged at call 1, a UUID' });
+    // A golden that may fork diverges by design: its result in the session says it passed.
+    const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: 900 });
+    const forked = replay(900, { test: { golden: 'goldens/refund-over-limit', session: session.sessionId } });
+    store.setDivergence(forked, { type: 'request_changed', callNo: 3, ...model });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-over-limit', ok: true, runId: forked, at: 950 });
+    // And one that failed a check reads as the result says, whatever its replay did first.
+    const checked = replay(900, { test: { golden: 'goldens/refund-flow', session: session.sessionId } });
+    store.setDivergence(checked, { type: 'request_changed', callNo: 2, ...model });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-flow', ok: false, failure: 'check', reason: 'check failed: send_email called 1 time, but called 2 times', runId: checked, at: 960 });
+    const later = activity(store).items;
+    expect(byId(later, `r:${forked}:end`)).toMatchObject({ kind: 'test', text: 'Test passed · refund-over-limit · forked at call 3' });
+    expect(byId(later, `r:${checked}:end`)).toMatchObject({ kind: 'fail', text: 'Test failed · refund-flow check failed: send_email called 1 time' });
     expect(items.find((i) => i.at === 700)).toMatchObject({ kind: 'project', text: 'Packed · share/refund · 30 calls' });
     expect(items.find((i) => i.at === 800)).toMatchObject({ kind: 'setting', text: 'Redaction rule added · <IBAN> at $.messages' });
     expect(JSON.stringify(items)).not.toContain('DE89');

@@ -2,6 +2,7 @@ import { basename } from 'node:path';
 import { hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
+import { shortReason } from './tests.js';
 import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 
 /**
@@ -274,7 +275,13 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   const d = run.divergence;
   const item = { ...base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt) };
   const drifted = d ? drift(d) : null;
-  const reason = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null;
+  // Tests: the golden's result in its session says how it did, once it has one. A golden that may
+  // fork diverges by design, and passes on its checks; without the result, the run says it.
+  const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
+  if (result?.ok) return { ...item, kind: 'test', text: `Test passed · ${golden} · ${checks ? `${checks.passed} of ${checks.total} checks passed` : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`}` };
+  const diverged = d && d.type !== 'forced' ? `diverged at call ${d.callNo}${drifted ? `, ${drifted}` : ''}` : null;
+  if (result) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${result.failure === 'diverged' && diverged ? diverged : shortReason(result)}` };
+  const reason = diverged ?? (checks?.failed ? `check failed: ${checks.failed}` : run.status !== 'completed' ? 'the agent failed' : null);
   if (reason) return { ...item, kind: 'fail', text: `Test failed · ${golden} ${reason}` };
   const detail = checks ? `${checks.passed} of ${checks.total} checks passed` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
