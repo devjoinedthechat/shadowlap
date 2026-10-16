@@ -69,23 +69,52 @@ export interface TeamStoreStatus {
 /** Runs whose ids the `local` tag needs at most: the newest only-local runs. */
 const LOCAL_IDS = 500;
 
-/** Changes with every commit to the store, by this connection (total_changes) or by any other (data_version). */
+/**
+ * The store's write counters for runs and for what it knows of the team store (change_counts, kept
+ * by triggers for every writer): neither moves for a call a recording appends.
+ */
+const COUNTERS_SQL = `SELECT name, n FROM change_counts WHERE name IN ('runs', 'team')`;
+/** Changes with every commit to the store, by this connection (total_changes) or by any other (data_version): for a store without the counters. */
 const VERSION_SQL = `SELECT (SELECT data_version FROM pragma_data_version()) AS dv, total_changes() AS tc`;
-const kept = new WeakMap<Store, { key: string; version: string; counts: TeamRunCounts }>();
+
+interface TeamFacts {
+  counts: TeamRunCounts;
+  /** The CI providers whose runs the store's index lists, for "ci (GitHub Actions)". */
+  ciProviders: string[];
+}
+const kept = new WeakMap<Store, { key: string; version: string; facts: TeamFacts }>();
 
 /**
- * The by-run counts, read again only when the store changed, or a recording's recorder went away
- * meanwhile: the status bar and the Overview ask on every reload.
+ * What changes the counts: a run added, ended, changed or deleted, a row of what this machine knows
+ * of the store, and the recordings whose recorder is gone (which a push ends and sends).
  */
-export function countsOf(store: Store, key: string): TeamRunCounts {
-  const v = store.query(VERSION_SQL)[0];
+function versionOf(store: Store, ended: ReadonlySet<string>): string {
+  const counters = new Map(store.query(COUNTERS_SQL).map((r) => [String(r.name), Number(r.n)]));
+  const v = counters.has('runs') && counters.has('team') ? `${counters.get('runs')}|${counters.get('team')}` : (() => {
+    const row = store.query(VERSION_SQL)[0];
+    return `${String(row?.dv)}|${String(row?.tc)}`;
+  })();
+  return `${v}|${[...ended].sort().join(',')}`;
+}
+
+/**
+ * The by-run counts and the CI providers in the store, read again only when runs or what this
+ * machine knows of the store changed, or a recording's recorder went away: the status bar, the
+ * Overview and the Runs page ask on every reload, and a recording appends calls all the while.
+ */
+function teamFacts(store: Store, key: string): TeamFacts {
   const ended = abandonedRuns(store);
-  const version = `${String(v?.dv)}|${String(v?.tc)}|${[...ended].sort().join(',')}`;
+  const version = versionOf(store, ended);
   const hit = kept.get(store);
-  if (hit && hit.key === key && hit.version === version) return hit.counts;
-  const counts = teamRunCounts(store, key, LOCAL_IDS, ended);
-  kept.set(store, { key, version, counts });
-  return counts;
+  if (hit && hit.key === key && hit.version === version) return hit.facts;
+  const facts = { counts: teamRunCounts(store, key, LOCAL_IDS, ended), ciProviders: store.teamSummary(key).ciProviders };
+  kept.set(store, { key, version, facts });
+  return facts;
+}
+
+/** The by-run counts against one store (its identity, `storeKey`), kept until runs or the store's rows change. */
+export function countsOf(store: Store, key: string): TeamRunCounts {
+  return teamFacts(store, key).counts;
 }
 
 /** The team store for `/api/meta`, or null when the config names none (or names one that isn't a store URL). Pure. */
@@ -101,9 +130,8 @@ export function teamStoreStatus(store: Store, input: TeamStoreInput): TeamStoreS
   const sync = store.teamSync(key);
   // In the store means listed in its index, where teammates find it: a run whose upload was cut
   // short before its index segment is still only here. Counted by run, as the Runs page and the
-  // status bar count runs; read again only once the store has changed.
-  const summary = store.teamSummary(key);
-  const counts = countsOf(store, key);
+  // status bar count runs; read again only once runs or the store's rows have changed.
+  const { counts, ciProviders } = teamFacts(store, key);
   const pushedAt = sync?.pushedAt ?? null;
   const pulledAt = sync?.pulledAt ?? null;
   const check = lastCheck(store, key);
@@ -131,7 +159,7 @@ export function teamStoreStatus(store: Store, input: TeamStoreInput): TeamStoreS
     check,
     access: check?.credentials ?? (here ? `${here.uses}, ${here.from}` : `${hint.uses}: ${hint.from}`),
     ciPush: input.ciPush !== false,
-    ciProviders: summary.ciProviders,
+    ciProviders,
   };
 }
 

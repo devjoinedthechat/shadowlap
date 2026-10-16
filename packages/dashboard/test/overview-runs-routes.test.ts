@@ -314,7 +314,7 @@ describe('a run its recorder left', () => {
     expect(out.done).toEqual([left]);
   });
 
-  it('is ended as interrupted when it is pushed, as gc would, so the push sends it now', async () => {
+  it('is counted as only here, and a push names it: the CLI ends it as interrupted, as gc would, and sends it', async () => {
     leave();
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
     // Still marked running, but nothing records it: the store's count (and the CLI's) has it
@@ -322,7 +322,10 @@ describe('a run its recorder left', () => {
     const before = await get<OverviewSummary>(dash, 'summary');
     expect(before.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
     expect(await built({ kind: 'push', runIds: [left] })).toEqual(['push', left]);
-    expect(store.getRun(left)).toMatchObject({ status: 'crashed' });
+    expect(await built({ kind: 'push', all: true })).toEqual(['push', '--all']);
+    // Building the job changes nothing: a job refused after it is built (too many running, the
+    // working tree in use) must leave the run as it was.
+    expect(store.getRun(left)).toMatchObject({ status: 'running' });
     const after = await get<OverviewSummary>(dash, 'summary');
     expect(after.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
   });

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { parseStoreUrl, pull, pullRequestLocation, push, recordCheck, StoreError } from '@shadowlap/remote';
-import { readTeamStoreInput, teamStoreStatus, type TeamStoreInput } from '../src/team-store.js';
+import { countsOf, readTeamStoreInput, teamStoreStatus, type TeamStoreInput } from '../src/team-store.js';
 import { MemoryStore } from '../../remote/test/fakes/memory.js';
 
 /**
@@ -154,6 +154,31 @@ describe('a large store', () => {
     const newest = store.allRuns().filter((r) => r.status !== 'running' && !ids.slice(0, 10).includes(r.runId)).sort((a, b) => b.startedAt - a.startedAt || (a.runId < b.runId ? 1 : -1));
     expect(status.localRuns).toEqual(newest.map((r) => r.runId));
     expect(store.teamLocalOnly(ID, 5).ids).toEqual(status.localRuns.slice(0, 5));
+    store.close();
+  });
+
+  it('counts again when runs or the store rows change, never for a call a recording appends', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-team-counts-'));
+    dirs.push(dir);
+    const path = join(dir, 'shadowlap.db');
+    const store = Store.open(path);
+    const ids = Array.from({ length: 4 }, () => run(store));
+    const live = run(store, {}, false);
+    const counts = countsOf(store, ID);
+    expect(counts).toMatchObject({ onlyLocal: 4, inStore: 0 });
+    // The recorder, a process of its own, appends calls: the same counts, not counted again.
+    const recorder = Store.open(path);
+    for (let n = 1; n <= 3; n++) recorder.appendCallStart({ runId: live, callNo: n, kind: 'api', name: 'messages', fingerprint: `f${n}`, occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: {}, at: NOW + n });
+    expect(countsOf(store, ID)).toBe(counts);
+    // A run that ends, one added, a push: each counts again.
+    recorder.endRun(live, 'completed');
+    expect(countsOf(store, ID)).toMatchObject({ onlyLocal: 5 });
+    run(recorder);
+    expect(countsOf(store, ID)).toMatchObject({ onlyLocal: 6 });
+    const remote = new MemoryStore(parseStoreUrl(URL_));
+    await push({ store: recorder, remote, actor: 'dana@northwind.example', now: () => NOW }, { runIds: ids.slice(0, 2) });
+    expect(countsOf(store, ID)).toMatchObject({ onlyLocal: 4, inStore: 2 });
+    recorder.close();
     store.close();
   });
 });

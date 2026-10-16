@@ -119,7 +119,7 @@ function pickedRun(r: TableRun): PickedRun {
 }
 
 function ServerRuns() {
-  const { client, meta, tick, actionsOff, hasKind, guard, watchJob, toast, refresh } = useApp();
+  const { client, meta, tick, feeds, actionsOff, hasKind, guard, watchJob, toast, refresh } = useApp();
   // Arriving from a link that asks for a filter: it is the page's before the first request.
   useState(takeLinkQuery);
   const store = useTeamStore();
@@ -199,7 +199,8 @@ function ServerRuns() {
     [calDays],
   );
 
-  const page = useLoad(() => loadRows(client, { types, q, sort, from: times?.from ?? null, to: times?.to ?? null }, limit), 'runs-page', `${tick}|${chip}|${q}|${sort}|${times?.from ?? ''}|${times?.to ?? ''}|${limit}`);
+  // Read again when runs change, and when a push or a pull changes what is only here (the local tags).
+  const page = useLoad(() => loadRows(client, { types, q, sort, from: times?.from ?? null, to: times?.to ?? null }, limit), 'runs-page', `${tick}:${feeds.team ?? 0}|${chip}|${q}|${sort}|${times?.from ?? ''}|${times?.to ?? ''}|${limit}`);
   const rows: TableRun[] = page.data?.runs ?? [];
   const counts: ChipCounts | null = page.data?.chipCounts ?? null;
 

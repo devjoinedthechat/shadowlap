@@ -55,15 +55,6 @@ export function localAttempts(store: Store, remote: string, runIds: readonly str
   return attempts.filter((id) => local.has(id)).slice(0, room);
 }
 
-/**
- * Ends the runs the store still marks running though nothing records them, as gc does: interrupted,
- * at their last call. The CLI queues a run that is running until it ends, and these never would.
- * `only` limits it to the runs a push names.
- */
-function endAbandoned(store: Store, only: ReadonlySet<string> | null): void {
-  for (const { run, lastAt } of store.recordingRuns().abandoned) if (!only || only.has(run.runId)) store.endRun(run.runId, 'crashed', lastAt);
-}
-
 /** At most this many runs in one push from the dashboard (the bulk bar's selection). */
 const PUSH_MAX = 1000;
 const RUN_ID = /^[0-9A-Z]{26}$/;
@@ -154,18 +145,15 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // Push: the runs picked with the attempts bundled under them (their ancestors go too, as the CLI
   // does), or with `all` every run only on this machine. A run still recording is queued by the CLI
-  // and goes when it ends; one its recorder left is ended as interrupted first, as gc would, so it
-  // goes now.
+  // and goes when it ends; one its recorder left is ended as interrupted by the CLI's push, as gc
+  // would, so it goes now. Building the job only names them: nothing changes before it runs.
   ctx.jobs.registerJobKind('push', {
     title: (req) => (req.all === true ? 'Pushing local runs' : 'Pushing'),
     build: (req, { store }) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       const team = teamStoreFor(ctx);
       if (!team) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
-      if (req.all === true) {
-        endAbandoned(store, null);
-        return { args: ['push', '--all'] };
-      }
+      if (req.all === true) return { args: ['push', '--all'] };
       if (!Array.isArray(req.runIds) || !req.runIds.length) return { error: 'runIds: pick the runs to push, or push them all' };
       if (req.runIds.length > PUSH_MAX) return { error: `runIds: at most ${PUSH_MAX} runs at once` };
       const ids: string[] = [];
@@ -177,7 +165,6 @@ export function register(router: Router, ctx: RouteContext): void {
       }
       // At most PUSH_MAX ids on the command line, the runs picked first.
       const attempts = localAttempts(store, team.key, ids, PUSH_MAX - ids.length);
-      endAbandoned(store, new Set([...ids, ...attempts]));
       return { args: ['push', ...ids, ...attempts], ...(ids.length === 1 ? { runId: ids[0]! } : {}) };
     },
   });
