@@ -38,7 +38,7 @@ describe('pairs from blame', () => {
     });
     expect(pairs[1]!.chosen.text).toContain('above the refund limit');
     expect(pairs[0]!.id).toMatch(/^pr-[0-9a-f]{12}$/);
-    expect(pairs[0]!.context).toBe('The customer asks for a refund on order A-1042. · read_policy returned {"text":"Refunds above $100 need a manager: escalate them."}');
+    expect(pairs[0]!.context).toBe('The customer asks for a refund on order A-1042. · read_policy returned text: Refunds above $100 need a manager: escalate them.');
     expect(sources).toEqual([
       expect.objectContaining({ key: `blame:${run.runId}`, kind: 'blame', label: 'blame · refund-bug', made: 2, attempts: 5, callNo: 5, confidence: 'high' }),
     ]);
@@ -270,6 +270,17 @@ describe('context lines', () => {
     const chat = normalizeConversation({ system: 's', messages: [{ role: 'user', content: 'Hi' }, { role: 'assistant', content: 'Hello' }, { role: 'user', content: 'Refund my order, please' }] })!.turns;
     expect(contextLine(chat)).toBe('Hi · then: Refund my order, please');
     expect(contextLine(normalizeConversation({ system: 's', messages: [{ role: 'user', content: 'x'.repeat(300) }] })!.turns)).toHaveLength(140);
+  });
+
+  it('read a JSON object a tool returned field by field, as a person would say it', () => {
+    const result = (content: string) => normalizeConversation({ system: 's', messages: [{ role: 'user', content: 'Refund A-1150.' }, { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'send_email', input: {} }] }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content }] }] })!.turns;
+    expect(contextLine(result('{"sent":true,"to":"customer@example.com"}'))).toBe('Refund A-1150. · send_email returned sent: true, to: customer@example.com');
+    // Nested values stay JSON; a string loses its quotes and extra spaces.
+    expect(contextLine(result('{"policy":"refunds-v3","limit":100,"tiers":[1,2],"rule":{"above":100},"note":"  needs   approval "}'))).toBe('Refund A-1150. · send_email returned policy: refunds-v3, limit: 100, tiers: [1,2], rule: {"above":100}, note: needs approval');
+    // Anything that isn't a JSON object reads as it came.
+    expect(contextLine(result('[1,2,3]'))).toBe('Refund A-1150. · send_email returned [1,2,3]');
+    expect(contextLine(result('{not json'))).toBe('Refund A-1150. · send_email returned {not json');
+    expect(contextLine(result('{}'))).toBe('Refund A-1150. · send_email returned {}');
   });
 });
 

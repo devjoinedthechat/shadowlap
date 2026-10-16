@@ -162,8 +162,25 @@ function openAIOnly(m: unknown): boolean {
 const cut = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 1)}…` : s);
 
 /**
+ * A tool's result as a person would read it out: a JSON object's fields as `key: value` (`sent: true,
+ * to: customer@example.com`), a string field without its quotes; anything else as it came.
+ */
+function readableResult(content: string): string {
+  const s = squash(content);
+  if (!s.startsWith('{')) return s;
+  try {
+    const v: unknown = JSON.parse(content);
+    if (!isObject(v)) return s;
+    const fields = Object.entries(v).map(([k, x]) => `${k}: ${typeof x === 'string' ? squash(x) : JSON.stringify(x)}`);
+    return fields.length ? fields.join(', ') : s;
+  } catch {
+    return s;
+  }
+}
+
+/**
  * A conversation in one line: what it was about (the first thing the user said) and the last thing
- * the model saw before answering (a tool's result, or what the user said last).
+ * the model saw before answering (a tool's result, read out field by field, or what the user said last).
  */
 export function contextLine(turns: readonly Turn[], width = 140): string {
   const texts = (t: Turn) => t.blocks.flatMap((b) => (b.type === 'text' && squash(b.text) ? [squash(b.text)] : []));
@@ -179,7 +196,7 @@ export function contextLine(turns: readonly Turn[], width = 140): string {
     const r = results.at(-1);
     if (r) {
       const name = r.name ?? (r.id ? names.get(r.id) : undefined) ?? 'a tool';
-      last = `${name} returned ${squash(r.content) || '(nothing)'}`;
+      last = `${name} returned ${readableResult(r.content) || '(nothing)'}`;
     } else if (t !== users[0] && texts(t).length) last = `then: ${texts(t).join(' ')}`;
   }
   if (!first && !last) return '(an empty conversation)';
