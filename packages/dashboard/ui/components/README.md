@@ -80,10 +80,11 @@ A page adds palette entries (its Fixes, its goldens, its actions) with `addPalet
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
 when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),
-the jobs using the working tree that Run blame, Repair from here and Apply the patch wait for
-(`tree.ts`), and the logic they share, DOM-free and tested (`model.ts`: chips, steps, the Blame
-step's row of calls, the change cut to what changed, report.md read as blocks, the drawer's outcome
-words, why an action waits for the working tree).
+why an action can't start while a repair or an apply holds the project's working tree
+(`tree.ts`: `useTreeBusy(use, verb)` gives the reason, or null; any button that runs the agent can
+read it as Run blame, Repair from here and Apply the patch do), and the logic they share, DOM-free
+and tested (`model.ts`: chips, steps, the Blame step's row of calls, the change cut to what changed,
+report.md read as blocks, the drawer's outcome words, which jobs hold which tree).
 
 A page that shows what a feature keeps in its own tables reloads on that table's count in
 `feeds` (`useApp().feeds.fixes`), which moves when `/api/changes` lists the table under `other`, as
