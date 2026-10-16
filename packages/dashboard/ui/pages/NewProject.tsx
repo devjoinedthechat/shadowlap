@@ -130,8 +130,18 @@ export function NewProjectPage() {
             <div className="folders" role="listbox" aria-label="Folders">
               {view === null ? null : view.folders.length ? (
                 view.folders.map((f) => (
-                  <button key={f.path} type="button" className="fold" role="option" aria-selected={f.selected} disabled={f.disabled} onClick={() => {
+                  <button
+                    key={f.path}
+                    type="button"
+                    className="fold"
+                    role="option"
+                    aria-selected={f.selected}
+                    disabled={f.disabled}
+                    onClick={() => {
                       wait.current = 0;
+                      // A folder without project files opens: its subfolders are listed, where the
+                      // agent's code may be (~/code/invoice-bot), and why it can't be added shows.
+                      if (!f.kind) setQuery(`${f.display}/`);
                       setPick(f.path);
                     }}
                     title={f.path}

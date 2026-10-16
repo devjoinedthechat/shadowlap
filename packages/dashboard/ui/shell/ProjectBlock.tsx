@@ -27,8 +27,17 @@ export function projectOf(meta: Meta | null): { name: string; path: string } | n
 /** The last list the switcher loaded: what the palette's Projects group offers. */
 let lastList: ProjectsView | null = null;
 
-/** Switches to a project and opens its Overview, where the setup shows while it has no runs. */
-export async function switchProject(app: AppState, id: string): Promise<void> {
+/** Where a switch made from this page lands once the project's meta has arrived: its Overview, or the page a link named. */
+let landing: { id: string; to: string } | null = null;
+
+/** The same page, however its hash is written: `#/`, `#` and none are the Overview. */
+const samePage = (a: string, b: string) => a.replace(/^#\/?/, '') === b.replace(/^#\/?/, '');
+
+/**
+ * Switches to a project and opens its Overview, where the setup shows while it has no runs, or the
+ * page `to` names in it (a link of a job that ran there).
+ */
+export async function switchProject(app: AppState, id: string, to: string = href.overview()): Promise<void> {
   const current = app.meta?.project?.id;
   if (id !== current) {
     try {
@@ -37,9 +46,10 @@ export async function switchProject(app: AppState, id: string): Promise<void> {
       app.toast(err instanceof Error ? err.message : String(err));
       return;
     }
+    landing = { id, to };
     await app.reload();
   }
-  navigate(href.overview());
+  if (!samePage(location.hash, to)) navigate(to);
 }
 
 // The palette's Projects group: switch to each of the others.
@@ -105,11 +115,14 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
   const several = list ? list.items.length > 1 : true;
   useEffect(() => provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProjectDialog }), [id, several]);
 
-  // A switch made elsewhere (another tab, a removed project) lands on the Overview, as one made here does.
+  // A switch made elsewhere (another tab, a removed project) lands on the Overview; one made here
+  // where it was asked to (the Overview, or a job's link in the project it ran in).
   useEffect(() => {
     if (seen.current === id) return;
     seen.current = id;
-    if (location.hash.replace(/^#\/?/, '') !== '') navigate(href.overview());
+    const to = landing?.id === id ? landing.to : href.overview();
+    landing = null;
+    if (!samePage(location.hash, to)) navigate(to);
   }, [id]);
   // A change asked for here was refused because the dashboard switched elsewhere: turn to that project at once.
   const { reload } = app;

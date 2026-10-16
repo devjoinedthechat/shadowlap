@@ -1591,3 +1591,4 @@ ol.setup .again { margin-top: 14px; }
 ol.setup .again .cmdin { margin: 0 0 12px; }
 ol.setup .fieldnote a.more { margin-left: 2px; }
 ol.setup .warnbox .actions { margin-top: 2px; }
+.drawer .st2.jin { color: var(--dim); }

@@ -182,7 +182,11 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     if (client.exported || conn !== 'ok') return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A poll on its way: a tab shown again waits for it rather than sending a second.
+    let busy = false;
     const poll = async () => {
+      timer = undefined;
+      busy = true;
       try {
         const ch = await client.changes(cursor.current);
         if (!alive) return;
@@ -199,13 +203,24 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       } catch (err) {
         if (alive) fail(err);
         return;
+      } finally {
+        busy = false;
       }
       if (alive && connRef.current === 'ok') timer = setTimeout(poll, document.hidden ? POLL_MS * 5 : POLL_MS);
     };
     timer = setTimeout(poll, POLL_MS);
+    // A hidden tab asks every 10 s; shown again, it asks at once, so a project switched to in another
+    // tab (or a run that ended meanwhile) shows before anything is clicked here.
+    const shown = () => {
+      if (document.hidden || !alive || busy || connRef.current !== 'ok') return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(poll, 0);
+    };
+    document.addEventListener('visibilitychange', shown);
     return () => {
       alive = false;
       if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', shown);
     };
   }, [client, conn, fail, loadRuns, connRef]);
 

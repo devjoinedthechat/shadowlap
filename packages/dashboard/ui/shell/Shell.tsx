@@ -80,7 +80,7 @@ function SetupOr({ route }: { route: Route }) {
   const { exported, meta, runs } = useApp();
   const setup = setupShowsOn(route, { exported, meta, runs });
   if (setup === null) return <Page>{null}</Page>;
-  return setup ? <SetupPage /> : <PageFor route={route} />;
+  return setup ? <SetupPage asked={route.page === 'setup'} /> : <PageFor route={route} />;
 }
 
 function PageFor({ route }: { route: Route }) {
@@ -104,7 +104,7 @@ function PageFor({ route }: { route: Route }) {
     case 'new':
       return <NewProjectPage />;
     case 'setup':
-      return <SetupPage />;
+      return <SetupPage asked />;
     default:
       return <NotFoundPage />;
   }

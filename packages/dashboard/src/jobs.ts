@@ -199,7 +199,8 @@ export interface JobKind {
 
 /** Where uploads come from (`uploads.ts`): claimed by a job's builder, released when it fails, discarded when the job ends. */
 export interface UploadSource {
-  claim(uploadId: unknown, jobId: string): { path: string; name: string; bytes: number } | null;
+  /** `project`: the one the job runs in; an upload that arrived in another is refused (an HttpError). */
+  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null): { path: string; name: string; bytes: number } | null;
   release(jobId: string): void;
   discard(jobId: string): void;
 }
@@ -462,7 +463,7 @@ export class JobManager {
         store: place.store,
         project: place.project,
         projectId: place.projectId,
-        upload: (uploadId) => uploads?.claim(uploadId, id) ?? null,
+        upload: (uploadId) => uploads?.claim(uploadId, id, place.project) ?? null,
       });
     } catch (err) {
       uploads?.release(id);
@@ -834,6 +835,7 @@ export class JobManager {
       links: job.links.map((l) => ({ ...l })),
       files: job.files.map((f) => ({ ...f })),
       total: job.dropped + job.lines.length,
+      ...(job.place.projectId ? { project: { id: job.place.projectId, name: job.place.project?.name ?? job.place.projectId } } : {}),
     };
   }
 

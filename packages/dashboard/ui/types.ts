@@ -272,6 +272,8 @@ export interface JobView {
   links?: JobLink[];
   files?: JobFile[];
   result?: unknown;
+  /** With several projects: the one the job runs in (its runs and links are that project's). */
+  project?: { id: string; name: string };
 }
 
 /** `/api/changes`: whether anything shown changed since the cursor. */

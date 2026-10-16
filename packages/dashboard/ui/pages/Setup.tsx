@@ -12,6 +12,7 @@ import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useApp } from '../state.js';
+import { NotFoundPage } from './NotFound.js';
 
 /**
  * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
@@ -88,7 +89,8 @@ function SetupStep({ n, state, title, cli, children }: { n: number; state: Inspe
   );
 }
 
-export function SetupPage() {
+/** `asked`: opened at #/setup, rather than shown in place of a page; a project with nothing to set up says so there. */
+export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const app = useApp();
   const { client, meta, runs, tick, live, jobs, hasKind, actionsOff, guard, toast } = app;
   const [view, setView] = useState<SetupView | null | undefined>(undefined);
@@ -179,6 +181,9 @@ export function SetupPage() {
       </Page>
     );
 
+  // #/setup on a project that is set up: nothing to do here, as the mock says.
+  if (asked && view.shows === 'none') return <NotFoundPage what="Nothing to set up here." />;
+
   const id = view.project.id;
   const off = actionsOff;
   const inspect = (again: boolean) => guard(() => start(client.startJob(JOB_KINDS.inspect, { project: id, ...(again ? { again: true } : {}) })));
@@ -221,14 +226,17 @@ export function SetupPage() {
       );
     });
 
+  // A step's job still running here: its button waits for it, rather than starting a second.
+  const running = (kind: string) => jobs.some((w) => !w.job.done && !w.lost && w.job.kind === kind);
+
   return (
     <Page>
       <SetupHeader view={view} onSkip={off ? null : finish} />
       <ol className="setup">
         <InspectBody step={view.inspect} off={off} canInspect={hasKind(JOB_KINDS.inspect)} onInspect={inspect} />
         <RecordBody step={view.record} off={off} canRecord={hasKind(JOB_KINDS.record)} live={live} command={command} setCommand={setCommand} error={recordError} onRecord={record} />
-        <CalibrateBody step={view.calibrate} off={off} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={calibrate} />
-        <TestBody step={view.test} off={off} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
+        <CalibrateBody step={view.calibrate} off={off} busy={running(JOB_KINDS.calibrate)} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={calibrate} />
+        <TestBody step={view.test} off={off} busy={running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
       </ol>
       {view.done ? (
         <div className="setupdone">
@@ -521,8 +529,8 @@ function RecordBody({
   );
 }
 
-function CalibrateBody({ step, off, canCalibrate, runId, onCalibrate }: { step: CalibrateStep; off: string | null; canCalibrate: boolean; runId: string | null; onCalibrate: (runId: string, write: boolean) => void }) {
-  const why = notHere(off, canCalibrate, step.cli);
+function CalibrateBody({ step, off, busy, canCalibrate, runId, onCalibrate }: { step: CalibrateStep; off: string | null; busy: boolean; canCalibrate: boolean; runId: string | null; onCalibrate: (runId: string, write: boolean) => void }) {
+  const why = notHere(off, canCalibrate, step.cli) ?? (busy ? 'Calibrating: the step moves on when it is done.' : null);
   const names = [...step.proposed.map((p) => p.path), ...pathsIn(step.text)];
   const button = step.button;
   return (
@@ -544,6 +552,7 @@ function CalibrateBody({ step, off, canCalibrate, runId, onCalibrate }: { step: 
 function TestBody({
   step,
   off,
+  busy,
   canKeep,
   golden,
   setGolden,
@@ -553,6 +562,7 @@ function TestBody({
 }: {
   step: TestStep;
   off: string | null;
+  busy: boolean;
   canKeep: boolean;
   golden: string | null;
   setGolden: (v: string) => void;
@@ -562,7 +572,7 @@ function TestBody({
 }) {
   const value = golden ?? step.golden?.value ?? '';
   const enabled = !!step.golden?.enabled;
-  const why = notHere(off, canKeep, step.cli);
+  const why = notHere(off, canKeep, step.cli) ?? (busy ? 'Packing and testing: the step moves on when it is done.' : null);
   const testing = step.button?.action === 'testgolden';
   const go = () => {
     if (why) return;

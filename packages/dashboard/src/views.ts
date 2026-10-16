@@ -64,6 +64,11 @@ export interface JobView {
   lines: string[];
   /** Output lines so far, counted from the first (the job keeps the last 2,000): pass it as `after`. */
   total: number;
+  /**
+   * On a dashboard that serves several projects, the project the job runs in: its runs and links are
+   * that project's, so a page showing another one switches before it opens them.
+   */
+  project?: { id: string; name: string };
 }
 
 /** A job in `GET /api/jobs` (`{ jobs }`, newest first): everything but its output and its result, which `GET /api/jobs/:id` has. */

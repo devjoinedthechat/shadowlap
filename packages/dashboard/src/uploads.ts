@@ -34,6 +34,8 @@ interface Upload {
   lastUsed: number;
   /** The job that claimed it, or null while nobody has. */
   jobId: string | null;
+  /** The project it arrived in, the one current then: only a job of that project may claim it. */
+  project: { path: string; name: string };
 }
 
 function removeFile(path: string): void {
@@ -143,7 +145,7 @@ export class UploadStore implements UploadSource {
       if (!this.arriving) this.removeDirs();
       throw new HttpError(503, 'the dashboard is stopping');
     }
-    this.uploads.set(id, { id, name, path, bytes, lastUsed: this.now(), jobId: null });
+    this.uploads.set(id, { id, name, path, bytes, lastUsed: this.now(), jobId: null, project: { path: project.path, name: project.name } });
     this.schedule();
     return { uploadId: id, name, bytes };
   }
@@ -179,11 +181,16 @@ export class UploadStore implements UploadSource {
     });
   }
 
-  /** The upload for a job that asked for it by id, or null for an unknown id or one another job holds. */
-  claim(uploadId: unknown, jobId: string): { path: string; name: string; bytes: number } | null {
+  /**
+   * The upload for a job that asked for it by id, or null for an unknown id or one another job holds.
+   * A job of another project than the one the file arrived in is refused: the dashboard switched
+   * between the upload and the job, and the file would be read in a project it wasn't sent to.
+   */
+  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null): { path: string; name: string; bytes: number } | null {
     if (typeof uploadId !== 'string' || !/^[0-9A-Z]{26}$/.test(uploadId)) return null;
     const u = this.uploads.get(uploadId);
     if (!u || (u.jobId !== null && u.jobId !== jobId)) return null;
+    if (project && project.path !== u.project.path) throw new HttpError(409, `${u.name} was sent to ${u.project.name}, and the dashboard has switched to ${project.name} since. Send it again.`);
     u.jobId = jobId;
     u.lastUsed = this.now();
     return { path: u.path, name: u.name, bytes: u.bytes };

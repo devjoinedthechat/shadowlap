@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { shortId } from '../format.js';
 import { jobCommand, jobStatus, jobTitle, lineTone } from '../jobs.js';
 import { href } from '../route.js';
+import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, useLayer, type WatchedJob } from '../state.js';
 import { Spin } from './bits.js';
 import { Icon } from './Icon.js';
@@ -18,9 +19,20 @@ export function JobDrawer() {
 }
 
 function Drawer({ watched }: { watched: WatchedJob }) {
-  const { closeJob, client, toast } = useApp();
+  const app = useApp();
+  const { closeJob, client, toast, meta, guard } = app;
   const { job, lines, lost = false } = watched;
   const close = () => closeJob(job.id);
+  // A job of another project than the page shows (the dashboard switched since it started): said,
+  // and its links switch to that project before they open what it made there.
+  const elsewhere = job.project && meta?.project?.id && job.project.id !== meta.project.id ? job.project : null;
+  const follow = (to: string) => (e: { preventDefault(): void }) => {
+    close();
+    if (!elsewhere) return;
+    e.preventDefault();
+    guard(() => void switchProject(app, elsewhere.id, to));
+  };
+  const there = elsewhere ? `Switches to ${elsewhere.name}, where this job ran` : undefined;
   useLayer('panel', true, close);
   const out = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -38,6 +50,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
       <header>
         {job.done || lost ? null : <Spin />}
         <b>{title}</b>
+        {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}
         <span className={`st2${status.tone ? ` ${status.tone}` : ''}`}>{status.text}</span>
         <span className="sp" />
         <button className="ibtn" type="button" aria-label="Close" onClick={close}>
@@ -90,12 +103,12 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           Close
         </button>
         {links.map((l) => (
-          <a key={l.href + l.label} className="btn lime" href={l.href} onClick={close}>
+          <a key={l.href + l.label} className="btn lime" href={l.href} title={there} onClick={follow(l.href)}>
             {l.label}
           </a>
         ))}
         {opens ? (
-          <a className="btn lime" href={href.run(job.newRunId!)} onClick={close}>
+          <a className="btn lime" href={href.run(job.newRunId!)} title={there} onClick={follow(href.run(job.newRunId!))}>
             Open run {shortId(job.newRunId!)}
           </a>
         ) : null}

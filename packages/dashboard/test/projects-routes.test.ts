@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
@@ -29,8 +30,9 @@ function files(root: string, tree: Record<string, string>): string {
 
 /**
  * The stand-in CLI: prints its arguments, folder and the upstream it was given, and reports on fd 3
- * as `run` and `calibrate` do. `pack <run> <dir>` writes the pack's run.json, and `test <golden>`
- * keeps the golden's result in the store, as the real commands do (FAKE_TEST=fail fails it).
+ * as `run` and `calibrate` do. `pack <run> <dir>` writes the pack's run.json (FAKE_PACK=fail fails
+ * it), and `test <golden>` keeps the golden's result in the store, as the real commands do
+ * (FAKE_TEST=fail fails it).
  */
 const FAKE = `
 import { mkdirSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
@@ -48,6 +50,10 @@ const fakeRun = process.env.FAKE_RUN?.startsWith('@') ? readFileSync(process.env
 if (rest[0] === 'run' && fakeRun) emit({ type: 'run', runId: fakeRun, role: 'new' });
 if (rest[0] === 'calibrate') emit({ type: 'result', data: { runId: rest[1], source: 'given', clean: true, rounds: [], normalizers: [], written: false, added: [], stopped: null } });
 if (rest[0] === 'init') emit({ type: 'result', data: { project: { id: null, noted: false, why: 'stand-in' } } });
+if (rest[0] === 'pack' && process.env.FAKE_PACK === 'fail') {
+  console.log('error: the store has no run ' + rest[1]);
+  process.exit(1);
+}
 if (rest[0] === 'pack') {
   mkdirSync(rest[2], { recursive: true });
   writeFileSync(join(rest[2], 'run.json'), JSON.stringify({ runs: [{ runId: rest[1] }] }));
@@ -149,6 +155,19 @@ async function world(options: { routes?: RouteModule[]; env?: Record<string, str
   return { home, slHome, support, triage, downloads, research, registry, host, dash, api, waitJob, supportRuns };
 }
 
+/** A request with a Host header of its own (fetch won't send one), for the DNS-rebinding check: its status. */
+function raw(origin: string, path: string, o: { method: string; host: string; token: string }): Promise<number> {
+  const url = new URL(`/api/${path}`, origin);
+  return new Promise((resolve, reject) => {
+    const req = request({ host: url.hostname, port: url.port, path: `${url.pathname}${url.search}`, method: o.method, headers: { host: o.host, 'x-shadowlap-token': o.token, 'content-type': 'application/json' } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode ?? 0));
+    });
+    req.on('error', reject);
+    req.end(o.method === 'POST' ? '{}' : undefined);
+  });
+}
+
 describe('the switcher', () => {
   it('lists the projects with their paths and runs, and switching swaps the store, the config and the folder jobs run in', async () => {
     const w = await world();
@@ -181,8 +200,10 @@ describe('the switcher', () => {
     expect(changed.body).toMatchObject({ changed: true, runs: true, events: true });
 
     // A job runs in the current project's folder, against its store.
-    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'init' } });
+    const job = await w.api<{ id: string; project: { id: string; name: string } }>('jobs', { method: 'POST', body: { kind: 'init' } });
     expect(job.status).toBe(202);
+    // The job names its project: a page that shows another one switches before it opens what it made.
+    expect(job.body.project).toEqual({ id: 'triage-bot', name: 'triage-bot' });
     const done = await w.waitJob(job.body.id);
     expect(done.lines).toContain(`cwd ${w.triage}`);
     expect(done.lines).toContain(`db ${projectDbPath(w.triage)}`);
@@ -374,11 +395,46 @@ describe('the switcher', () => {
     for (const [method, path] of routes) {
       const noToken = await fetch(`${w.dash.url}/api/${path}`, { method, headers: { 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) });
       expect(noToken.status, `${method} ${path}`).toBe(401);
+      // Addressed to another name that leads here (DNS rebinding): refused, token or not.
+      expect(await raw(w.dash.url, path, { method, host: 'evil.example', token: w.dash.token }), `${method} ${path}`).toBe(403);
       if (method !== 'POST') continue;
       const foreign = await fetch(`${w.dash.url}/api/${path}`, { method, headers: { 'x-shadowlap-token': w.dash.token, 'content-type': 'application/json', origin: 'https://evil.example' }, body: '{}' });
       expect(foreign.status, `${method} ${path}`).toBe(403);
+      const crossSite = await fetch(`${w.dash.url}/api/${path}`, { method, headers: { 'x-shadowlap-token': w.dash.token, 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: '{}' });
+      expect(crossSite.status, `${method} ${path}`).toBe(403);
     }
     expect(w.registry.list().map((p) => p.id)).toEqual(['support-agent']);
+  });
+
+  it('keeps an upload to the project it arrived in: a job of another project can’t take it', async () => {
+    const taking: RouteModule = {
+      register: (_router, ctx) =>
+        ctx.jobs.registerJobKind('take-upload', {
+          title: () => 'Taking a file',
+          build: (req, b) => {
+            const file = b.upload(req.uploadId);
+            return file ? { args: ['import', file.path] } : { error: 'no such upload' };
+          },
+        }),
+    };
+    const w = await world({ routes: [taking] });
+    w.registry.add(w.triage);
+    const res = await fetch(`${w.dash.url}/api/uploads`, { method: 'POST', headers: { 'x-shadowlap-token': w.dash.token, 'x-filename': 'capture.har' }, body: '{"log":{}}' });
+    expect(res.status).toBe(201);
+    const { uploadId } = (await res.json()) as { uploadId: string };
+    expect(existsSync(join(w.support, '.shadowlap', 'uploads', `${uploadId}-capture.har`))).toBe(true);
+    // Switched since (from a page that names no project): the file is support-agent's, not triage-bot's.
+    await w.api('projects/triage-bot/select', { method: 'POST' });
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'take-upload', uploadId } })).toMatchObject({
+      status: 409,
+      body: { error: 'capture.har was sent to support-agent, and the dashboard has switched to triage-bot since. Send it again.' },
+    });
+    // In its own project the job takes it.
+    await w.api('projects/support-agent/select', { method: 'POST' });
+    const job = await w.api<{ id: string; project: { id: string; name: string } }>('jobs', { method: 'POST', body: { kind: 'take-upload', uploadId } });
+    expect(job).toMatchObject({ status: 202, body: { project: { id: 'support-agent', name: 'support-agent' } } });
+    const done = await w.waitJob(job.body.id);
+    expect(done.lines).toContain(`cwd ${w.support}`);
   });
 });
 
@@ -590,20 +646,67 @@ describe('the setup', () => {
     expect((await w.api<{ shows: string }>('setup')).body.shows).toBe('none');
   });
 
-  it('keeps the step open while the golden’s test fails, and a failed pack runs no test', async () => {
+  it('keeps the step open while the golden’s test fails, and counts finishing then as skipping it', async () => {
     const w = await world({ env: { FAKE_TEST: 'fail' } });
     await w.api('projects', { method: 'POST', body: { path: w.research } });
     w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
     const store = w.host.context('research-agent').store();
     const runId = recordInto(store, w.research, 3);
-    expect(await w.api('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x' } })).toMatchObject({ status: 202 });
-    for (let i = 0; i < 200 && !(await w.api<{ jobs: Array<{ done: boolean }> }>('jobs')).body.jobs.every((j) => j.done); i++) await new Promise((r) => setTimeout(r, 25));
-    const setup = await w.api<{ test: { state: string; button: { label: string; action: string }; packed: { failed: boolean; text: string } }; done: unknown }>('setup');
-    expect(setup.body.test).toMatchObject({ state: 'current', button: { label: 'Run the test again', action: 'testgolden' }, packed: { failed: true, text: 'goldens/x failed its test: diverged at call 2. Fix what changed, or record again, then run it again.' } });
+    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x' } });
+    expect(job.status).toBe(202);
+    expect((await w.waitJob(job.body.id)).code).toBe(1);
+    const setup = await w.api<{ test: { state: string; button: { label: string; action: string }; packed: { failed: boolean; text: string; link: { href: string } } }; done: unknown; skip: unknown }>('setup');
+    expect(setup.body.test).toMatchObject({
+      state: 'current',
+      button: { label: 'Run the test again', action: 'testgolden' },
+      packed: { failed: true, text: 'goldens/x failed its test: diverged at call 2. Fix what changed, or record again, then run it again.', link: { href: '#/tests' } },
+    });
     expect(setup.body.done).toBeNull();
+    expect(setup.body.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
     expect(w.registry.get('research-agent')!.setup.stage).not.toBe('tested');
     expect(setup.body.test).not.toHaveProperty('result.text');
     expect(w.host.setup('research-agent')).toMatchObject({ golden: 'goldens/x', goldenTest: { ok: false }, run: { runId } });
+    // Skip the rest now: set up, its last step skipped, the golden kept.
+    expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ stage: 'done', skipped: true, golden: 'goldens/x' });
+  });
+
+  it('runs no test after a pack that failed', async () => {
+    const w = await world({ env: { FAKE_PACK: 'fail' } });
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
+    recordInto(w.host.context('research-agent').store(), w.research, 3);
+    const job = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x' } });
+    const done = await w.waitJob(job.body.id);
+    expect(done.code).toBe(1);
+    expect(done.lines.some((l) => l.includes('shadowlap test'))).toBe(false);
+    // Nothing was packed: the step still offers its path and Pack as a golden.
+    const setup = await w.api<{ test: { button: { action: string }; golden: { value: string }; packed: unknown } }>('setup');
+    expect(setup.body.test).toMatchObject({ button: { action: 'packgolden' }, golden: { value: 'goldens/research-agent' }, packed: null });
+  });
+
+  it('keeps a golden packed in a terminal open until its test passed, and runs only the test', async () => {
+    const w = await world();
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
+    const runId = recordInto(w.host.context('research-agent').store(), w.research, 3);
+    // `shadowlap pack` in a terminal; no test ran.
+    files(w.research, { 'goldens/research-agent/run.json': JSON.stringify({ runs: [{ runId }] }) });
+    const packed = await w.api<{ test: { state: string; cli: string[]; button: { label: string; action: string }; golden: unknown; packed: { failed: boolean; text: string } }; done: unknown }>('setup');
+    expect(packed.body.test).toMatchObject({
+      state: 'current',
+      cli: ['shadowlap test goldens/research-agent'],
+      button: { label: 'Run the test', action: 'testgolden' },
+      golden: null,
+      packed: { failed: false, text: 'Packed as goldens/research-agent. Its test replays it offline: run it to finish.' },
+    });
+    expect(packed.body.done).toBeNull();
+    // Run the test: the test alone, and it passes.
+    const job = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', project: 'research-agent' } });
+    expect(job.body).toMatchObject({ title: 'Testing the golden', args: ['test', 'goldens/research-agent'] });
+    expect((await w.waitJob(job.body.id)).code).toBe(0);
+    const tested = await w.api<{ test: { state: string }; done: { title: string } }>('setup');
+    expect(tested.body).toMatchObject({ test: { state: 'done' }, done: { title: 'research-agent is set up.' } });
+    expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ stage: 'done', skipped: false, golden: 'goldens/research-agent' });
   });
 
   it('remembers a confirmed command only once its recording started', async () => {
