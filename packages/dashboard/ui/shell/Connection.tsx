@@ -34,6 +34,7 @@ export function OfflineBar() {
   );
 }
 
+/** The mock's plain Copy command; it says Copied on itself, since a toast would sit under the card. */
 function CopyCommand({ text }: { text: string }) {
   const [done, setDone] = useState<boolean | null>(null);
   useEffect(() => {
@@ -43,7 +44,6 @@ function CopyCommand({ text }: { text: string }) {
   }, [done]);
   return (
     <button className="btn" type="button" onClick={() => void copyText(text).then(setDone)}>
-      <Icon name="copy" />
       {done === null ? 'Copy command' : done ? 'Copied' : 'Copy failed'}
     </button>
   );

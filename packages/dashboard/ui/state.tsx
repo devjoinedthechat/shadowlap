@@ -158,9 +158,9 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     setTick((n) => n + 1);
   }, [client]);
 
-  // The first load: meta, then the runs. An exported copy loads once and never polls.
+  // The first load: meta, then the runs. An exported copy loads once and never polls. The
+  // ?state=expired preview loads too, so its card covers a page, as an expiry does.
   useEffect(() => {
-    if (preview === 'expired') return;
     let alive = true;
     client.meta().then(
       (m) => {

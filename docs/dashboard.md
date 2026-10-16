@@ -74,7 +74,7 @@ Some jobs take a file from your browser, such as a capture to import. The dashbo
 
 ## Read-only
 
-`shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. Downloading a run as HTML (**Share → HTML file**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one, and it leaves the uploads folder alone (even files another dashboard left there); it opens that store the way every command does, which brings an older store's layout up to date and lets search build its index. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way.
+`shadowlap dashboard --read-only` shows every page and changes nothing in your runs: replay, fork and the other actions, labels, notes, uploads and deletes are refused, and each says why where you would have used it. The top bar says *read-only*, and Search or jump to leaves the actions out. Downloading a run as HTML (**Share → HTML file**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project. Use it to show a colleague your runs, or to look around without the risk of a click changing something. It needs an existing store and never creates one, and it leaves the uploads folder alone (even files another dashboard left there); it opens that store the way every command does, which brings an older store's layout up to date and lets search build its index. A dashboard started without the CLI behind it (embedded elsewhere) is read-only in the same way.
 
 ## Projects
 
@@ -137,7 +137,7 @@ When `init` finds that the project talks to a model server of its own (`OPENAI_B
 | `f` | Fork at the selected call |
 | `g` then `o` `r` `c` `f` `t` `a` `s` | Overview, Runs, Compare, Fixes, Tests, Training, Settings |
 | `?` | All shortcuts |
-| Esc | Close a menu, then a dialog, then a panel |
+| Esc | Close a menu, then a dialog, then a panel, then the sidebar on a phone |
 
 When the server stops answering (the dashboard was stopped), a bar says what the page last loaded, actions pause, and it tries again after 5, 10, 20 and then every 30 seconds. A link from before a restart has expired: its session token is gone, and the page says to open the new link.
 
@@ -147,7 +147,7 @@ When the server stops answering (the dashboard was stopped), a bar says what the
 shadowlap export html <run> --lineage run.html
 ```
 
-The same views as one HTML file, with the run's data built in and nothing to install or run: attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did. It holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html). **Share → HTML file** in a run's header writes the same file for that run and the runs it came from into `.shadowlap/exports/` and downloads it; its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it. **Share → HAR** does the same for the model calls and names how many rules it applied.
+The same views as one HTML file, with the run's data built in and nothing to install or run: attach it to a pull request, keep it as a CI artifact, or send it to whoever asks what the agent did. It opens on the run that was shared, and holds Runs (the runs in the file) and Compare between them; there is nothing to run from it and no search across runs, so `/` filters a run's calls. It holds recorded prompts and tool data, so the project's redaction rules apply by default; see [`export html`](./cli.md#export-html). **Share → HTML file** in a run's header writes the same file for that run and the runs it came from into `.shadowlap/exports/` and downloads it; its output says whether redaction rules applied. On a read-only dashboard it downloads the file without writing it. **Share → HAR** does the same for the model calls and names how many rules it applied.
 
 ## Security
 

@@ -42,9 +42,10 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
     [
       'Anywhere',
       true,
+      // An exported copy has no palette: there `/` only filters a run's calls, so it sits under On a run.
       [
         ...(exported ? [] : ([[k(isMac() ? '⌘' : 'Ctrl', 'K'), 'Search or jump to anything']] as Array<[ReactNode, string]>)),
-        [k('/'), onRun ? 'Filter this run’s calls' : 'Search or jump to anything'],
+        ...(exported ? [] : ([[k('/'), onRun ? 'Filter this run’s calls' : 'Search or jump to anything']] as Array<[ReactNode, string]>)),
         [k('?'), 'Show these shortcuts'],
         [k('Esc'), 'Close a menu, dialog or panel'],
       ],
@@ -81,7 +82,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
         [k('v'), 'Next view'],
         [k('n'), 'Jump to the fork or lost call'],
         [k('p'), 'Open the parent run'],
-        ...(exported ? [] : ([[k('f'), 'Fork at the selected call']] as Array<[ReactNode, string]>)),
+        ...(exported ? ([[k('/'), 'Filter this run’s calls']] as Array<[ReactNode, string]>) : ([[k('f'), 'Fork at the selected call']] as Array<[ReactNode, string]>)),
       ],
     ],
   ];

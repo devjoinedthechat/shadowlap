@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { stripScroll } from '../ui/place.js';
+import { copyLine } from '../ui/runs.js';
 
 describe('a tab strip on a narrow screen', () => {
   // A strip 358px wide, scrolled to its start; tabs from the start of its content.
@@ -18,5 +19,13 @@ describe('a tab strip on a narrow screen', () => {
   it('leaves a strip alone when its tab shows already', () => {
     expect(stripScroll(strip, { left: 0, width: 84 })).toBeNull();
     expect(stripScroll({ scrollLeft: 200, width: 358 }, { left: 300, width: 80 })).toBeNull();
+  });
+});
+
+describe('an exported copy’s project block', () => {
+  it('counts the runs it holds in words', () => {
+    expect(copyLine(['01M51X7D66'])).toBe('1 run · nothing runs from here');
+    expect(copyLine(['01M51X7D66', '01M51X7H8Q'])).toBe('2 runs · nothing runs from here');
+    expect(copyLine(undefined)).toBe('0 runs · nothing runs from here');
   });
 });

@@ -340,3 +340,8 @@ export function exportStartRun(runIds: readonly string[], runs: ReadonlyArray<{ 
   const parents = new Set(runs.filter((r) => included.has(r.runId) && r.parentRunId && included.has(r.parentRunId)).map((r) => r.parentRunId!));
   return runIds.find((id) => !parents.has(id)) ?? runIds[0] ?? null;
 }
+
+/** What an exported copy's project block says under its name: how many runs it holds, and that none runs from it. */
+export function copyLine(runIds: readonly string[] | null | undefined): string {
+  return `${plural(runIds?.length ?? 0, 'run')} · nothing runs from here`;
+}

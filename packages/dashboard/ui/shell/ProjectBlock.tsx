@@ -8,6 +8,7 @@ import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { onProjectSwitched, type ProjectsView } from '../projects-api.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { copyLine } from '../runs.js';
 import { useApp, type AppState } from '../state.js';
 import { RemoveProjectDialog } from './RemoveProject.js';
 
@@ -67,7 +68,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
         <span className="pa">S</span>
         <span className="pn">
           <b>Exported copy</b>
-          <small>{meta.runIds?.length ?? 0} runs · nothing runs from here</small>
+          <small>{copyLine(meta.runIds)}</small>
         </span>
       </div>
     );
