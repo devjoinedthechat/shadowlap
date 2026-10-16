@@ -678,9 +678,12 @@ describe('an OpenAI recording taken over by an Anthropic model', () => {
 });
 
 describe('Training in the dashboard', () => {
-  /** `shadowlap dashboard` in the project, asking the mocks, as a person starts it there. */
+  /**
+   * `shadowlap dashboard` in the project, asking the mocks, as a person starts it there. It keeps its
+   * list of projects in the test's own SHADOWLAP_HOME, never in the real ~/.shadowlap.
+   */
   function startDashboardCommand(work: string): Promise<{ child: ChildProcess; url: string; token: string }> {
-    const env = { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, SHADOWLAP_UPSTREAM_OPENAI: openai.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AGENT_OUTBOX: join(work, 'outbox.jsonl') };
+    const env = { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, SHADOWLAP_UPSTREAM_OPENAI: openai.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, '.sl-home'), AGENT_OUTBOX: join(work, 'outbox.jsonl') };
     const child = spawn(process.execPath, [CLI, 'dashboard', '--no-open', '--port', String(40_000 + Math.floor(Math.random() * 20_000))], { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'] });
     return new Promise((resolve, reject) => {
       let text = '';
