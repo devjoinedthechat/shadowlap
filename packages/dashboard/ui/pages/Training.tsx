@@ -85,7 +85,9 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
         <EmptyState title="Training can’t be read" text={loaded.error.message} />
       ) : exported ? (
         <EmptyState title="Not in an exported copy" text="An exported copy holds runs and Compare between them. Training reads the store: open it from shadowlap dashboard." />
-      ) : null}
+      ) : (
+        <div className="empty">Reading pairs and tasks…</div>
+      )}
       {dialog === 'export' && view ? <ExportPairsDialog view={view} onClose={() => setDialog(null)} /> : null}
       {dialog === 'score' && view ? <ScoreDialog view={view} busy={busy} onClose={() => setDialog(null)} /> : null}
     </Page>
