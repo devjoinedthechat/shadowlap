@@ -44,14 +44,19 @@ export function Calendar({
   const todayIndex = days.length - 1;
   const focusDay = focus ?? (range ? range[0] : todayIndex);
 
-  // A drag ends wherever the pointer is let go, on the calendar or not.
+  // A drag ends wherever the pointer is let go, on the calendar or not. The day it ended on takes the
+  // focus (without a ring, as after any click), so Escape undoes the pick and the arrow keys go on from
+  // there.
   useEffect(() => {
     if (!drag) return;
     const up = () => {
       const d = dragRef.current;
       dragRef.current = null;
       setDrag(null);
-      if (d) onPick(dragEnd(d));
+      if (!d) return;
+      onPick(dragEnd(d));
+      setFocus(d.b);
+      grid.current?.querySelector<HTMLElement>(`[data-day="${d.b}"]`)?.focus({ preventScroll: true });
     };
     const cancel = () => {
       dragRef.current = null;
