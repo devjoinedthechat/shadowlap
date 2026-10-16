@@ -822,12 +822,23 @@ export interface FixesSummary {
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
-/** What fixes came to, for the Overview: this week is the 7 days up to `now`, last week the 7 before. */
-export function fixesSummary(store: Store, now: number = Date.now()): FixesSummary {
+/** A week as the Overview counts it: from its first instant, up to (not including) `to`. */
+export interface WeekWindows {
+  week: { from: number; to: number };
+  lastWeek: { from: number; to: number };
+}
+
+/**
+ * What fixes came to, for the Overview: this week is the 7 days up to `now`, last week the 7
+ * before, unless `windows` names them. The Overview passes its own, the viewer's days, so a blame
+ * counts in the same week as the runs beside it.
+ */
+export function fixesSummary(store: Store, now: number = Date.now(), windows?: WeekWindows): FixesSummary {
   const fixes = store.listFixes();
   const records = fixes.map((f) => fixRecords(store, f));
   const cost = fixCost(records);
-  const week = (at: number) => (at <= now && at > now - WEEK ? 'this' : at <= now - WEEK && at > now - 2 * WEEK ? 'last' : null);
+  const w = windows ?? { week: { from: now - WEEK + 1, to: now + 1 }, lastWeek: { from: now - 2 * WEEK + 1, to: now - WEEK + 1 } };
+  const week = (at: number) => (at >= w.week.from && at < w.week.to ? 'this' : at >= w.lastWeek.from && at < w.lastWeek.to ? 'last' : null);
   const tally = (ats: number[]) => ({ thisWeek: ats.filter((a) => week(a) === 'this').length, lastWeek: ats.filter((a) => week(a) === 'last').length, total: ats.length });
 
   const firstBlame = new Map<string, number>();

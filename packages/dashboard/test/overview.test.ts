@@ -101,9 +101,10 @@ describe('the Overview: today', () => {
     expect(t.day).toBe('2026-10-01');
     // The clean replay, the fork's replayed prefix and the passing test: the --repeat attempt is left out.
     expect(t.served).toBe(10 + 5 + 3);
-    expect(t.notRespent).toBeCloseTo(sumOf(['clean1', 'fork1', 'test1'], (s) => s.cost.saved), 10);
-    // The day's money counts the attempt as well: what it replayed was not re-spent either.
-    expect(o.daily[6]!.notRespent - t.notRespent).toBeCloseTo(sumOf(['rep1'], (s) => s.cost.saved), 10);
+    // Money counts the attempt, as the day's bar in the chart does: what it replayed was not re-spent either.
+    expect(t.notRespent).toBeCloseTo(sumOf(['clean1', 'fork1', 'test1', 'rep1'], (s) => s.cost.saved), 10);
+    expect(t.notRespent).toBeCloseTo(o.daily[6]!.notRespent, 10);
+    expect(sumOf(['rep1'], (s) => s.cost.saved)).toBeGreaterThan(0);
     expect(t.recording).toEqual([{ runId: id.live1, command: 'python refund_agent.py', calls: 3, startedAt: at(10, 1, 10, 10) }]);
     expect(t.replays).toBe(1);
     expect(t.forks).toEqual({ count: 1, live: 4, blocked: 1 });
@@ -255,6 +256,64 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(s.needsLook.total).toBe(3);
     } finally {
       local.close();
+    }
+  });
+
+  it('counts blames and verdicts in the viewer’s weeks, the weeks its runs are counted in', () => {
+    const local = Store.open(':memory:');
+    try {
+      // Thursday Oct 8 2026, 00:30 in Los Angeles: this week began there on Friday Oct 2, so a
+      // failure blamed and fixed on Thursday Oct 1 is last week's, though it is within 7 × 24 hours.
+      const now = Date.UTC(2026, 9, 8, 7, 30);
+      const la = (day: number, hour: number) => Date.UTC(2026, 9, day, hour + 7);
+      const failing = makeRun(local, { labels: ['refund-bug'], startedAt: la(1, 9), calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
+      const held = makeRun(local, { labels: ['refund-bug'], startedAt: la(1, 9) });
+      recordBlame(local, { runId: failing, report: blameReport(failing), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: la(1, 12) });
+      recordRepair(local, { repairId: 'repair-la', dir: '.shadowlap/repairs/repair-la', report: repairReport({ targets: [failing], holdout: [held] }), expect: EXPECT, command: 'r', at: la(1, 15) });
+      const s = overviewSummary(local, { tz: 'America/Los_Angeles', now });
+      expect(s.windows.week.from).toBe(la(2, 0));
+      expect([s.sums.week.runs, s.sums.lastWeek.runs]).toEqual([0, 2]);
+      expect(s.outcomes.reproduced).toEqual({ value: 0, lastWeek: 1, open: 0 });
+      expect(s.outcomes.fixesVerified).toMatchObject({ value: 0, lastWeek: 1 });
+      // Fixes on its own counts the 7 × 24 hours up to now: there, the same blame and verdict are this week's.
+      expect(fixesSummary(local, now)).toMatchObject({ reproduced: { thisWeek: 1, lastWeek: 0 }, verified: { thisWeek: 1, lastWeek: 0 } });
+      // An hour later in Berlin it is already Thursday morning: the same instants, the same weeks there.
+      const berlin = overviewSummary(local, { tz: 'Europe/Berlin', now });
+      expect(berlin.outcomes.reproduced).toMatchObject({ value: 0, lastWeek: 1 });
+    } finally {
+      local.close();
+    }
+  });
+
+  it('lists ten of a kind, then one line for the rest of that kind, so every kind stays in sight', () => {
+    const local = Store.open(':memory:');
+    try {
+      const { fixId } = story(local);
+      // Twelve more failed runs never blamed: thirteen with the story's own.
+      for (let i = 0; i < 12; i++) makeRun(local, { status: 'failed', startedAt: NOW - 2 * HOUR - i * 60_000 });
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW });
+      const kinds = s.needsLook.items.map((i) => i.kind);
+      expect(kinds).toEqual(['open', ...Array(11).fill('unblamed'), 'ready']);
+      // The panel's count is what needs a look: the line for the rest counts as the three it stands for.
+      expect(s.needsLook.total).toBe(1 + 13 + 1);
+      expect(s.needsLook.items[11]).toEqual({ kind: 'unblamed', icon: 'fail', title: '3 more failed runs not blamed yet', detail: 'the failed runs on Runs', action: 'Open', href: '#/runs?type=failed', runId: null, fixId: null, at: expect.any(Number), more: 3 });
+      // The fix ready to apply is still there, after them.
+      expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'ready', fixId });
+      makeRun(local, { status: 'failed', startedAt: NOW - 3 * HOUR });
+      const fourteen = overviewSummary(local, { tz: 'UTC', now: NOW });
+      expect(fourteen.needsLook.items.filter((i) => i.kind === 'unblamed').at(-1)).toMatchObject({ title: '4 more failed runs not blamed yet', more: 4 });
+    } finally {
+      local.close();
+    }
+    // One past ten is listed as itself: a line for one more would say less.
+    const eleven = Store.open(':memory:');
+    try {
+      for (let i = 0; i < 11; i++) makeRun(eleven, { status: 'failed', startedAt: NOW - HOUR - i * 60_000 });
+      const items = overviewSummary(eleven, { tz: 'UTC', now: NOW }).needsLook.items;
+      expect(items).toHaveLength(11);
+      expect(items.every((i) => i.kind === 'unblamed' && i.action === 'Run blame' && i.more === undefined)).toBe(true);
+    } finally {
+      eleven.close();
     }
   });
 

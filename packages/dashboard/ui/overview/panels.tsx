@@ -7,7 +7,7 @@ import { cents, clock, ktok, money, num, plural, shortId, whenShort } from '../f
 import { ORIGIN_CODE, ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { href } from '../route.js';
 import type { ActivityItem, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, LiveRun, NeedsLookRow, OverviewSummary, RunGrid, TodayPanel as Today } from '../types.js';
-import { activityGlyph, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, verifiedNote } from './model.js';
+import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, SHOW_ORIGINS, spentNote, testsKpi, tickText, verifiedNote } from './model.js';
 
 /**
  * The Overview's panels, as the mock draws them: the outcome strip, this week's runs as rows of
@@ -129,7 +129,7 @@ export function WeekGrid({ grid, now }: { grid: RunGrid; now: number }) {
 /** Most urgent first; three, then "Show N more". A recording in progress shows under Today instead. */
 export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; total: number }) {
   const [open, setOpen] = useState(false);
-  const shown = needsLookShown(items, total, open);
+  const shown = needsLookShown(items, open);
   return (
     <section className="panel needs">
       <header>
@@ -512,26 +512,24 @@ export function ActivityCard({ items, now, byPerson }: { items: readonly Activit
       </header>
       <div className="feed">
         {items && !items.length ? <div className="empty">Nothing yet. Recordings, replays, forks, tests and fixes show here.</div> : null}
-        {(items ?? []).map((a) => (
-          <a key={a.id} href={a.href ?? (a.runId ? href.run(a.runId) : href.overview())}>
-            <span className="at">{whenShortOrClock(a.at, now)}</span>
-            <EventIcon kind={activityGlyph(a.kind)} live={!!a.live} />
-            <span className="w">
-              {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
-              {byPerson && a.actor ? ' ' : null}
-              {a.text}
-              {a.runId || a.ref ? <code>{a.runId ? shortId(a.runId) : refText(a.ref!)}</code> : null}
-            </span>
-          </a>
-        ))}
+        {(items ?? []).map((a) => {
+          const line = activityLine(a.text, a.runId ?? a.ref);
+          return (
+            <a key={a.id} href={a.href ?? (a.runId ? href.run(a.runId) : href.overview())}>
+              <span className="at">{whenShortOrClock(a.at, now)}</span>
+              <EventIcon kind={activityGlyph(a.kind)} live={!!a.live} />
+              <span className="w">
+                {byPerson && a.actor ? <b className="actor">{personName(a.actor)}</b> : null}
+                {byPerson && a.actor ? ' ' : null}
+                {line.text}
+                {line.code ? <code>{line.code}</code> : null}
+              </span>
+            </a>
+          );
+        })}
       </div>
     </section>
   );
-}
-
-/** The code at the end of an entry: an id as the CLI prints it, a file or a rule as it is. */
-function refText(ref: string): string {
-  return /^[0-9A-Z]{26}$/.test(ref) ? shortId(ref) : ref;
 }
 
 /** 10:14 today, Sep 30 before. */

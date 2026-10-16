@@ -55,8 +55,9 @@ export interface DaySums {
 
 export interface TodayPanel {
   day: string;
-  /** Calls today's runs were served from recordings, and what those calls did not re-spend. Attempts are left out, as in every count of calls. */
+  /** Calls today's runs were served from recordings: attempts are left out, as in every count of calls. */
   served: number;
+  /** What replaying did not spend again today: attempts included, as the day's bar in the chart and the week's sums count money. */
   notRespent: number;
   /** Recordings in progress, with their calls so far. */
   recording: Array<{ runId: string; command: string; calls: number; startedAt: number }>;
@@ -180,7 +181,8 @@ export interface FixesFunnel {
 /**
  * One line of Needs a look, most urgent first: an applied fix that doesn't hold, a failing test, a
  * failure with no fix yet (an open fix, then a failed run never blamed), a verified fix waiting to be
- * applied, and runs only on this machine when a team store is set.
+ * applied, and runs only on this machine when a team store is set. Past ten of a kind, one line says
+ * how many more there are and opens the page that lists them (`more` is that count).
  */
 export interface NeedsLookRow {
   kind: 'broken' | 'test' | 'open' | 'unblamed' | 'ready' | 'local';
@@ -194,16 +196,18 @@ export interface NeedsLookRow {
   runId: string | null;
   fixId: string | null;
   at: number;
+  /** For the line that stands for the rest of its kind: how many it stands for. */
+  more?: number;
 }
 
 export interface NeedsLook {
-  /** At most 50, most urgent first. */
+  /** Every line, most urgent first: each kind's first ten, then a line for the rest of that kind. */
   items: NeedsLookRow[];
-  /** Every line there is, listed or not. */
+  /** Everything that needs a look, the panel's count: a line each, a line for the rest of its kind as many as it stands for. */
   total: number;
 }
 
-/** The team store as Needs a look reads it: how many finished runs are only on this machine. */
+/** The team store as Needs a look reads it: how many runs are only on this machine (attempts and recordings in progress aside). */
 export interface StoreNote {
   name: string;
   onlyLocal: number;
@@ -240,7 +244,8 @@ export interface OverviewSummary {
 
 const GRID_CELLS = 60;
 const GRID_MIN_CALLS = 30;
-const NEEDS_LOOK_LISTED = 50;
+/** Lines of one kind Needs a look lists one by one; past them (and one more), a line stands for the rest. */
+const NEEDS_LOOK_EACH = 10;
 
 function emptyWeek(): WeekSums {
   return { runs: 0, calls: 0, origins: emptyOriginCounts(), spent: 0, notRespent: 0, notWaitedMs: 0, attempts: 0, attemptsSpent: 0 };
@@ -290,7 +295,8 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   // Recordings in progress, as the top bar's chip counts them: a run whose recorder stopped without
   // ending it (killed, out of memory) is still marked running, but nothing is recording it.
   const recording = new Set(store.recordingRuns(now).live.map((x) => x.run.runId));
-  const fixes = fixesSummary(store, now);
+  // Blames and verdicts in the same weeks as the runs: the viewer's days, not 7 × 24 hours up to now.
+  const fixes = fixesSummary(store, now, { week, lastWeek });
   const goldens = options.goldens ?? [];
   const tests = goldens.length ? overviewTests(store, { now, weekStart: week.from }, { goldens }) : null;
 
@@ -329,7 +335,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
   return {
     day: today.key,
     served: sum(shown, (s) => s.origins.r),
-    notRespent: sum(shown, (s) => s.saved),
+    notRespent: sum(runs, (s) => s.saved),
     recording: index.runs.filter((r) => recordingNow.has(r.runId) && r.mode === 'record' && !r.bundled).map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt })),
     replays: of('clean').length,
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
@@ -506,8 +512,22 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
           },
         ]
       : [];
-  const all = [...of('broken').map(fixRow), ...tests, ...of('open').map(fixRow), ...of('unblamed').map(fixRow), ...of('ready').map(fixRow), ...local];
-  return { items: all.slice(0, NEEDS_LOOK_LISTED), total: all.length };
+  // Each kind's first lines, then one that says how many more there are and where they are listed:
+  // a long-lived project's failures never blamed must not push its fixes ready to apply out of sight.
+  const capped = (rows: NeedsLookRow[], rest: (n: number) => Pick<NeedsLookRow, 'icon' | 'title' | 'detail' | 'href'>): NeedsLookRow[] => {
+    if (rows.length <= NEEDS_LOOK_EACH + 1) return rows;
+    const n = rows.length - NEEDS_LOOK_EACH;
+    return [...rows.slice(0, NEEDS_LOOK_EACH), { kind: rows[0]!.kind, action: 'Open', runId: null, fixId: null, at: rows[NEEDS_LOOK_EACH]!.at, more: n, ...rest(n) }];
+  };
+  const all = [
+    ...capped(of('broken').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more applied fix', 'more applied fixes')} ${n === 1 ? "doesn't" : "don't"} hold`, detail: 'each on Fixes', href: '#/fixes' })),
+    ...capped(tests, (n) => ({ icon: 'fail', title: `${plural(n, 'more test')} failed`, detail: 'each on Tests', href: '#/tests' })),
+    ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: '#/fixes' })),
+    ...capped(of('unblamed').map(fixRow), (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: '#/runs?type=failed' })),
+    ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: '#/fixes' })),
+    ...local,
+  ];
+  return { items: all, total: all.reduce((t, x) => t + (x.more ?? 1), 0) };
 }
 
 /** Options for `overviewSummary` from a request's query string: tz. */

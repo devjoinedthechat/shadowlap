@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runsQueryString } from '../ui/runspage/query.js';
-import { activityGlyph, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast } from '../ui/runspage/bulk.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
@@ -74,11 +74,23 @@ describe('the Overview’s words', () => {
   it('shows three lines of Needs a look, then the rest on asking', () => {
     const row = (i: number): NeedsLookRow => ({ kind: 'unblamed', icon: 'fail', title: `t${i}`, detail: '', action: 'Run blame', href: '#/', runId: String(i), fixId: null, at: i });
     const items = [1, 2, 3, 4, 5].map(row);
-    expect(needsLookShown(items, 5, false)).toEqual({ rows: items.slice(0, 3), more: 'Show 2 more' });
-    expect(needsLookShown(items, 5, true)).toEqual({ rows: items, more: 'Show fewer' });
-    expect(needsLookShown(items.slice(0, 3), 3, false)).toEqual({ rows: items.slice(0, 3), more: null });
-    // More lines than were sent: the count says how many there are.
-    expect(needsLookShown(items, 60, false).more).toBe('Show 57 more');
+    expect(needsLookShown(items, false)).toEqual({ rows: items.slice(0, 3), more: 'Show 2 more' });
+    expect(needsLookShown(items, true)).toEqual({ rows: items, more: 'Show fewer' });
+    expect(needsLookShown(items.slice(0, 3), false)).toEqual({ rows: items.slice(0, 3), more: null });
+    // A line that stands for the rest of its kind is one line to show: the button counts lines it opens.
+    expect(needsLookShown([...items, { ...row(6), title: '40 more failed runs not blamed yet', more: 40 }], false).more).toBe('Show 3 more');
+  });
+
+  it('says an activity entry’s id once, shortened as the CLI prints it', () => {
+    const fix = 'fx-01M50ZZESZ9YQB6RBZ4HWREQ8J';
+    // A verdict on a fix with no title: its words ended on the id, which the code says shorter.
+    expect(activityLine(`Verify accepted · ${fix}`, fix)).toEqual({ text: 'Verify accepted', code: 'fx-01M50ZZESZ' });
+    expect(activityLine('Verify accepted · Escalate refunds above the limit', fix)).toEqual({ text: 'Verify accepted · Escalate refunds above the limit', code: 'fx-01M50ZZESZ' });
+    expect(activityLine('Replay clean · 30/30', '01K5CQ4N9A0000000000000000')).toEqual({ text: 'Replay clean · 30/30', code: '01K5CQ4N9A' });
+    // Words that name it already need no code; a file or a rule shows as it is.
+    expect(activityLine('Golden packed · goldens/refund-flow', 'goldens/refund-flow')).toEqual({ text: 'Golden packed', code: 'goldens/refund-flow' });
+    expect(activityLine('Applied fx-01M50ZZESZ to the tree', fix)).toEqual({ text: 'Applied fx-01M50ZZESZ to the tree', code: null });
+    expect(activityLine('Tests ran · 2 passed, 0 failed', null)).toEqual({ text: 'Tests ran · 2 passed, 0 failed', code: null });
   });
 });
 

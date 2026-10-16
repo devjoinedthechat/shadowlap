@@ -122,13 +122,29 @@ export function activityGlyph(kind: ActivityIcon | string): GlyphKind {
   return known.includes(kind) ? (kind as GlyphKind) : 'rec';
 }
 
+/**
+ * An activity entry's words and the code after them: an id as the CLI prints it (a run's first 10
+ * characters, a fix's or a verdict's prefix and 10 more, `fx-01K5CQ2E8M`), a file or a rule as it
+ * is. Said once: words that end on the id (a verdict on a fix with no title) leave it to the code,
+ * and words that name it already need no code.
+ */
+export function activityLine(text: string, ref: string | null | undefined): { text: string; code: string | null } {
+  if (!ref) return { text, code: null };
+  const code = /^[0-9A-Z]{26}$/.test(ref) ? ref.slice(0, 10) : /^(fx|vf)-[0-9A-Z]{26}$/.test(ref) ? ref.slice(0, 13) : ref;
+  for (const id of new Set([ref, code])) {
+    if (text.endsWith(` · ${id}`)) return { text: text.slice(0, -(id.length + 3)), code };
+    if (text.includes(id)) return { text, code: null };
+  }
+  return { text, code };
+}
+
 /** Needs a look shows three, then "Show N more" opens the rest. */
 export const NEEDS_LOOK_SHOWN = 3;
 
-/** The lines Needs a look shows, and what its button says. */
-export function needsLookShown(items: readonly NeedsLookRow[], total: number, open: boolean): { rows: readonly NeedsLookRow[]; more: string | null } {
-  if (total <= NEEDS_LOOK_SHOWN) return { rows: items, more: null };
-  return open ? { rows: items, more: 'Show fewer' } : { rows: items.slice(0, NEEDS_LOOK_SHOWN), more: `Show ${num(total - NEEDS_LOOK_SHOWN)} more` };
+/** The lines Needs a look shows, and what its button says: the lines it would open, every one of them sent. */
+export function needsLookShown(items: readonly NeedsLookRow[], open: boolean): { rows: readonly NeedsLookRow[]; more: string | null } {
+  if (items.length <= NEEDS_LOOK_SHOWN) return { rows: items, more: null };
+  return open ? { rows: items, more: 'Show fewer' } : { rows: items.slice(0, NEEDS_LOOK_SHOWN), more: `Show ${num(items.length - NEEDS_LOOK_SHOWN)} more` };
 }
 
 /** Who did something, in the activity feed and the By column: an email by its name part, CI as `ci`. */
