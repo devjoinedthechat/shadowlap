@@ -82,7 +82,7 @@ export function recordingLine(runId: string, calls: number): { id: string; rest:
 }
 
 /** What the record step's terminal line says until a command is found or typed (`setupCommands`). */
-const RECORD_PLACEHOLDER = '<the command that starts your agent>';
+export const RECORD_PLACEHOLDER = '<the command that starts your agent>';
 
 /**
  * The record step's "or in a terminal" line with the command as typed in the field, in place of

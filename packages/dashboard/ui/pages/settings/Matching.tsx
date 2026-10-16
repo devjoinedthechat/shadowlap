@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
+import { useTreeBusy } from '../../fixes/tree.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
@@ -15,13 +16,15 @@ export function MatchingTab() {
   const { data, error, reload } = useSettingsData(() => client.settings.matching(), 'settings:matching');
   const [adding, setAdding] = useState(false);
   const editor = useEditor(data?.config.version ?? null, reload);
+  // Calibrate replays the agent from the project's working tree: not while a repair or an apply changes it.
+  const tree = useTreeBusy('reads', 'calibrate');
   if (error && !data) return <LoadProblem error={error} />;
   if (!data) return <Loading title="Matching" />;
   const off = app.actionsOff ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
   const cal = data.calibrate;
-  const canCalibrate = !!cal.argv && !app.actionsOff && app.hasKind(JOB_KINDS.calibrate);
-  const calibrateTitle = !cal.argv ? 'Calibrate replays a finished recording made here' : app.actionsOff ?? (!app.hasKind(JOB_KINDS.calibrate) ? 'This dashboard doesn’t run calibrate: shadowlap calibrate in a terminal' : `${cal.command}${cal.source === 'setup' ? ' · the run this project’s setup recorded' : ''}`);
+  const canCalibrate = !!cal.argv && !app.actionsOff && app.hasKind(JOB_KINDS.calibrate) && !tree;
+  const calibrateTitle = !cal.argv ? 'Calibrate replays a finished recording made here' : (app.actionsOff ?? (!app.hasKind(JOB_KINDS.calibrate) ? 'This dashboard doesn’t run calibrate: shadowlap calibrate in a terminal' : (tree ?? `${cal.command}${cal.source === 'setup' ? ' · the run this project’s setup recorded' : ''}`)));
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}

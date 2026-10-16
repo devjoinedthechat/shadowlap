@@ -43,7 +43,7 @@ export function OverviewPage() {
       return (
         <Page>
           <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every replay after that is free." />
-          <StepList steps={setupSteps(false)} />
+          <StepList steps={setupSteps()} />
         </Page>
       );
     return (
@@ -57,7 +57,7 @@ export function OverviewPage() {
     return (
       <Page>
         <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every replay after that is free." />
-        <StepList steps={setupSteps(false)} />
+        <StepList steps={setupSteps()} />
       </Page>
     );
 

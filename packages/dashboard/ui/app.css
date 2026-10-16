@@ -1785,6 +1785,12 @@ ol.setup .warnbox .actions { margin-top: 2px; }
 /* a step's warning and error keep their colour against the step's own text colour */
 ol.setup .sb > p.fieldnote.err { color: var(--err); }
 ol.setup .sb > p.fieldnote.warn { color: var(--warn); }
+/* a finished step's summary: the marker, then the words, which wrap beside it and never leave it alone on a line */
+details.foundsum > summary { flex-wrap: nowrap; }
+details.foundsum > summary > .sumtext { min-width: 0; }
+/* a step's result: the dot stays with its words; when they need the room, the button goes below */
+.recline > .ic, .recline > .dotlive { flex: none; }
+.recline > .rtext { flex: 1 1 16em; min-width: 0; }
 
 /* training: what the mock drew inline, and what the real page links that it didn't (an attempt's run from its pip) */
 .trgap { margin-top: 16px; }

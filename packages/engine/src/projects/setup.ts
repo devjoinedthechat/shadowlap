@@ -390,9 +390,10 @@ export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?
 
   if (finished && hasRuns) {
     const recorded = !!run && !run.live;
-    const clean = recorded && ((own && state.calibration != null) || run.replayedClean);
     // Finished by skipping the rest: tested only once a test of its golden passed since.
     const tested = recorded && passed(own && !state.skipped ? 'tested' : 'recorded');
+    // A golden whose test passed replayed the recording clean.
+    const clean = recorded && ((own && state.calibration != null) || run.replayedClean || tested);
     return { ...base, stage: 'done', live: !!run?.live, shows: 'none', steps: { recorded, clean, tested }, golden: recorded ? golden : null, goldenTest: recorded ? goldenTest : null };
   }
   if (!run || run.live) {
@@ -404,7 +405,8 @@ export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?
   }
   const listed = own ? state.stage : 'recorded';
   const tested = passed(listed);
-  const clean = stageAtLeast(listed, 'clean') || run.replayedClean;
+  // A golden whose test passed replayed the recording clean: step 3 is done too, however it was packed.
+  const clean = stageAtLeast(listed, 'clean') || run.replayedClean || tested;
   const stage: SetupStage = tested ? 'tested' : clean ? 'clean' : 'recorded';
   return { ...base, stage, live: false, shows: shows(stage), steps: { recorded: true, clean, tested }, golden, goldenTest };
 }

@@ -5,12 +5,13 @@ import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js'
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
-import { aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
+import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
+import { useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
 import { NotFoundPage } from './NotFound.js';
 
@@ -25,31 +26,35 @@ import { NotFoundPage } from './NotFound.js';
  * job kind this dashboard doesn't run says so and keeps its command.
  */
 
-/** The four steps with their commands, for a dashboard that serves one store and has no setup to follow. */
-export function setupSteps(recorded: boolean): Step[] {
+/**
+ * The four steps with their commands, for a page that can't follow this project's setup (a
+ * dashboard that serves one store, the Overview before its summary): from the first, with nothing
+ * marked done, since nothing here can tell how far the project got.
+ */
+export function setupSteps(): Step[] {
   return [
     {
       title: 'Inspect the folder',
       text: 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing.',
       command: 'shadowlap init',
-      state: recorded ? 'done' : 'cur',
+      state: 'cur',
     },
     {
       title: 'Record a first run',
       text: 'Runs your command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.',
-      command: 'shadowlap run -- python agent.py',
-      state: recorded ? 'done' : 'todo',
+      command: `shadowlap run -- ${RECORD_PLACEHOLDER}`,
+      state: 'todo',
     },
     {
       title: 'Make the replay clean',
       text: 'Replays the run offline until it is clean, and proposes a normalizer for every value the agent makes anew.',
       command: 'shadowlap calibrate <run> --write',
-      state: recorded ? 'cur' : 'todo',
+      state: 'todo',
     },
     {
       title: 'Keep it as a test',
       text: 'Packs the run into the repository, and CI replays it offline on every commit.',
-      command: 'shadowlap pack <run> goldens/first-run',
+      command: 'shadowlap pack <run> goldens/first-run && shadowlap test goldens/first-run',
       state: 'todo',
     },
   ];
@@ -103,6 +108,10 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   // The jobs this page started: the setup is read again as each ends.
   const mine = useRef(new Set<string>());
   const projectId = meta?.project?.id ?? null;
+  // A dashboard that serves one store (`--read-only`, the terminal UI's) has no setup to follow: it isn't asked for one.
+  const oneStore = !!meta && !meta.static && !meta.project?.id;
+  // Recording, calibrating and testing run the agent from the project's working tree: not while a repair or an apply changes it.
+  const treeBusy = useTreeBusy('reads', 'run this step');
 
   const load = useCallback(() => {
     client.projects.setup().then(
@@ -115,8 +124,11 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   }, [client]);
 
   // Read again as runs move (a recording streaming in), when the project changes, and every few
-  // seconds while the page shows: what a terminal does (init, a pack) moves the setup on too.
-  useEffect(() => load(), [load, tick, projectId]);
+  // seconds while the page shows: what a terminal does (init, a pack) moves the setup on too. Not
+  // before the meta says whether there is a setup to read.
+  useEffect(() => {
+    if (meta && !oneStore) load();
+  }, [load, tick, projectId, meta, oneStore]);
   const polling = !!view && view.shows !== 'none';
   useEffect(() => {
     if (!polling) return;
@@ -156,14 +168,14 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const problem = meta?.project?.id && meta.project.problem ? meta.project : null;
   if (problem) return <ProjectProblem id={problem.id!} name={problem.name} problem={problem.problem!} />;
 
-  if (view === null) {
-    // A dashboard that serves one store: the steps and their commands.
+  if (oneStore || view === null) {
+    // A dashboard that serves one store: with runs, nothing to set up here; without, the steps and their commands.
+    if ((runs ?? []).some((r) => !isAttempt(r))) return <NotFoundPage what="Nothing to set up here." />;
     const name = projectOf(meta)?.name ?? 'this project';
-    const recorded = (runs ?? []).some((r) => !isAttempt(r));
     return (
       <Page>
-        <PageHeader eyebrow={name} title={`Set up ${name}`} text="Record the agent once. Every lap after that replays for free." />
-        <StepList steps={setupSteps(recorded)} />
+        <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every lap after that replays for free." />
+        <StepList steps={setupSteps()} />
       </Page>
     );
   }
@@ -234,9 +246,9 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
       <SetupHeader view={view} onSkip={off ? null : finish} />
       <ol className="setup">
         <InspectBody step={view.inspect} off={off} canInspect={hasKind(JOB_KINDS.inspect)} onInspect={inspect} />
-        <RecordBody step={view.record} off={off} canRecord={hasKind(JOB_KINDS.record)} live={live} command={command} setCommand={setCommand} error={recordError} onRecord={record} />
-        <CalibrateBody step={view.calibrate} off={off} busy={running(JOB_KINDS.calibrate)} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={calibrate} />
-        <TestBody step={view.test} off={off} busy={running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
+        <RecordBody step={view.record} off={off} tree={treeBusy} canRecord={hasKind(JOB_KINDS.record)} live={live} command={command} setCommand={setCommand} error={recordError} onRecord={record} />
+        <CalibrateBody step={view.calibrate} off={off} tree={treeBusy} busy={running(JOB_KINDS.calibrate)} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={calibrate} />
+        <TestBody step={view.test} off={off} tree={treeBusy} busy={running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
       </ol>
       {view.done ? (
         <div className="setupdone">
@@ -359,7 +371,9 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       {found && step.folded ? (
         <details className="foundsum">
           <summary>
-            <Coded text={step.summary ?? ''} names={step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []} />
+            <span className="sumtext">
+              <Coded text={step.summary ?? ''} names={step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []} />
+            </span>
           </summary>
           {found}
         </details>
@@ -431,6 +445,7 @@ function CommandField({ value, enabled, onChange, onEnter }: { value: string; en
 function RecordBody({
   step,
   off,
+  tree,
   canRecord,
   live,
   command,
@@ -440,6 +455,8 @@ function RecordBody({
 }: {
   step: RecordStep;
   off: string | null;
+  /** Why the working tree can't run the agent now (a repair holds it), or null. */
+  tree: string | null;
   canRecord: boolean;
   live: ReturnType<typeof useApp>['live'];
   command: string | null;
@@ -449,7 +466,7 @@ function RecordBody({
 }) {
   const field = step.command ?? step.again?.command ?? null;
   const value = command ?? field?.value ?? '';
-  const why = notHere(off, canRecord, step.cli.length ? step.cli : (step.again?.cli ?? []));
+  const why = notHere(off, canRecord, step.cli.length ? step.cli : (step.again?.cli ?? [])) ?? tree;
   const enabled = !!field?.enabled;
   const go = () => {
     if (enabled && !why && value.trim()) onRecord(value);
@@ -460,7 +477,7 @@ function RecordBody({
     body = (
       <div className="recline">
         <span className="dotlive" />
-        <span>
+        <span className="rtext">
           Recording <code>{line.id}</code>
           {line.rest}
         </span>
@@ -475,7 +492,7 @@ function RecordBody({
       <>
         <div className="recline ok">
           <span className="ic" />
-          <span>
+          <span className="rtext">
             {at.before}
             {at.id ? (
               <a className="more" href={step.recorded.href}>
@@ -529,8 +546,8 @@ function RecordBody({
   );
 }
 
-function CalibrateBody({ step, off, busy, canCalibrate, runId, onCalibrate }: { step: CalibrateStep; off: string | null; busy: boolean; canCalibrate: boolean; runId: string | null; onCalibrate: (runId: string, write: boolean) => void }) {
-  const why = notHere(off, canCalibrate, step.cli) ?? (busy ? 'Calibrating: the step moves on when it is done.' : null);
+function CalibrateBody({ step, off, tree, busy, canCalibrate, runId, onCalibrate }: { step: CalibrateStep; off: string | null; tree: string | null; busy: boolean; canCalibrate: boolean; runId: string | null; onCalibrate: (runId: string, write: boolean) => void }) {
+  const why = notHere(off, canCalibrate, step.cli) ?? (busy ? 'Calibrating: the step moves on when it is done.' : tree);
   const names = [...step.proposed.map((p) => p.path), ...pathsIn(step.text)];
   const button = step.button;
   return (
@@ -552,6 +569,7 @@ function CalibrateBody({ step, off, busy, canCalibrate, runId, onCalibrate }: { 
 function TestBody({
   step,
   off,
+  tree,
   busy,
   canKeep,
   golden,
@@ -562,6 +580,7 @@ function TestBody({
 }: {
   step: TestStep;
   off: string | null;
+  tree: string | null;
   busy: boolean;
   canKeep: boolean;
   golden: string | null;
@@ -572,7 +591,7 @@ function TestBody({
 }) {
   const value = golden ?? step.golden?.value ?? '';
   const enabled = !!step.golden?.enabled;
-  const why = notHere(off, canKeep, step.cli) ?? (busy ? 'Packing and testing: the step moves on when it is done.' : null);
+  const why = notHere(off, canKeep, step.cli) ?? (busy ? 'Packing and testing: the step moves on when it is done.' : tree);
   const testing = step.button?.action === 'testgolden';
   const go = () => {
     if (why) return;
@@ -644,7 +663,7 @@ function TestBody({
       {step.result ? (
         <div className="recline ok">
           <span className="ic" />
-          <span>
+          <span className="rtext">
             <Coded text={step.result.text} names={goldenNames} />
           </span>
           <a className="btn" href={step.result.link.href}>

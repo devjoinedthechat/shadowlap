@@ -47,7 +47,8 @@ export interface ProjectStats {
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const runsLabel = (n: number) => (n ? plural(n, 'run') : 'no runs yet');
 /** `≈$0.041`, as the mock writes a cost. */
-const approx = (usd: number) => (usd ? `≈$${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}` : '$0');
+/** A recording's cost as the CLI prints it: `≈$0.041`, and `≈<$0.001` for less than a tenth of a cent. */
+const approx = (usd: number) => (!usd ? '$0' : usd < 0.0005 ? '≈<$0.001' : `≈$${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}`);
 /** `38.2 s`, `1m 5s`, as the mock writes a duration. */
 const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 /** `a`, `a and b`, `a, b and c`. */
@@ -483,6 +484,10 @@ export function setupView(input: SetupInput): SetupView {
       : null,
   };
 
+  // 4's golden, packed (here or in a terminal) and its test not passed yet: the setup has moved on to
+  // it, so step 3 shows as passed by, one step current at a time; it can still be run.
+  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
+
   // 3 · Make the replay clean
   const added = setup.own ? (s.calibration?.added ?? null) : null;
   const last = !clean && recorded ? (input.calibration ?? null) : null;
@@ -492,7 +497,7 @@ export function setupView(input: SetupInput): SetupView {
     key: 'calibrate',
     n: 3,
     title: 'Make the replay clean',
-    state: state(clean, recorded, tested),
+    state: state(clean, recorded, tested || packedOnly !== null),
     cli: clean ? [] : commands.calibrate,
     text: clean
       ? added === null
@@ -513,7 +518,6 @@ export function setupView(input: SetupInput): SetupView {
   // 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
   // in a terminal) whose test hasn't passed keeps the step open, with the test to run.
   const calls = totals?.calls ?? 0;
-  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
   const failed = packedOnly !== null && setup.goldenTest?.ok === false;
   const test: TestStep = {
     key: 'test',
