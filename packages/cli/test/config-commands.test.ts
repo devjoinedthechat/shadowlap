@@ -458,6 +458,22 @@ describe('shadowlap gc', () => {
     expect(r.out).toContain('deleted 2 runs');
   });
 
+  it('copies a run once it has ended, as the dashboard\'s Share does', async () => {
+    const { done, live } = seedRuns();
+    for (const args of [['pack', live, 'goldens/half'], ['export', 'html', live, 'half.html'], ['export', 'har', live, 'half.har'], ['export', 'otel', live, '--out', 'half.json'], ['export', 'dataset', live]]) {
+      const r = await shadowlap(args);
+      expect(r.code, args.join(' ')).toBe(1);
+      expect(r.err).toContain(`${live.slice(0, 10)} is still recording: ${args[0] === 'pack' ? 'pack' : 'export'} it once it has ended`);
+    }
+    expect(existsSync(join(cwd, 'goldens', 'half'))).toBe(false);
+    // Picked by --all, it waits for a later export; the run that ended goes.
+    const all = await shadowlap(['export', 'dataset', '--all', '--out', 'all.jsonl']);
+    expect(all.code, all.err).toBe(0);
+    expect(all.err).toContain('1 run is still recording, left for a later export');
+    expect(readFileSync(join(cwd, 'all.jsonl'), 'utf8')).toContain(done);
+    expect(readFileSync(join(cwd, 'all.jsonl'), 'utf8')).not.toContain(live);
+  });
+
   it('cleans up nothing, and creates no store, in a project that has never recorded', async () => {
     const r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
     expect(r.code, r.err).toBe(0);

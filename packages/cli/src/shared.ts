@@ -117,6 +117,15 @@ export function requireRun(store: Store, idOrPrefix: string): RunRecord {
   return run;
 }
 
+/**
+ * Refuses to copy a run a process is still recording, as the dashboard's Share does: the copy would
+ * never end (an HTML copy shows it recording for good, a pack makes a golden of half a run). A run
+ * its process left marked running is copied as it is: nothing will add to it.
+ */
+export function requireEnded(store: Store, run: RunRecord, verb: string): void {
+  if (run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId)) throw new Error(`${run.runId.slice(0, 10)} is still recording: ${verb} it once it has ended`);
+}
+
 export function parseIntArg(value: string): number {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n) || n < 1) throw new InvalidArgumentError('must be a positive integer');

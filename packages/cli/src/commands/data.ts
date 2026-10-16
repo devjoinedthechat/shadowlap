@@ -7,7 +7,7 @@ import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent } from '../job-events.js';
 import { otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
-import { fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordEvents, requireRun, VERSION, type GlobalOpts } from '../shared.js';
+import { fileSize, formatBytes, openStore, openStoreIfExists, parseChoice, parseIntArg, recordEvents, requireEnded, requireRun, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Runs as data for other tools, and removing what is no longer needed. */
@@ -33,9 +33,19 @@ export function register(program: Command): void {
         const picked = new Map<string, RunRecord>();
         for (const arg of runArgs) {
           const r = requireRun(store, arg);
+          requireEnded(store, r, 'export');
           picked.set(r.runId, r);
         }
-        if (flags.label.length || flags.all) for (const r of store.allRuns()) if (flags.label.every((l) => r.meta?.labels?.includes(l))) picked.set(r.runId, r);
+        // Runs picked by label or --all that are still recording wait for a later export.
+        const live = new Set(store.recordingRuns().live.map((x) => x.run.runId));
+        let waiting = 0;
+        if (flags.label.length || flags.all) {
+          for (const r of store.allRuns()) {
+            if (!flags.label.every((l) => r.meta?.labels?.includes(l)) || picked.has(r.runId)) continue;
+            if (live.has(r.runId)) waiting++;
+            else picked.set(r.runId, r);
+          }
+        }
         const runs = [...picked.values()].sort((a, b) => a.startedAt - b.startedAt);
         const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
         const rows = datasetRows(store, runs, { calls: flags.calls, format: flags.format, redact: rules });
@@ -46,6 +56,7 @@ export function register(program: Command): void {
           process.stderr.write(`${p.green('✓')} ${rows.length} example${rows.length === 1 ? '' : 's'} from ${runs.length} run${runs.length === 1 ? '' : 's'} → ${flags.out}${rules.length ? `, ${rulesApplied(rules.length)}` : ''}\n`);
         } else process.stdout.write(body);
         if (!rules.length) process.stderr.write(p.dim(`${flags.out ? '  ' : ''}no redaction rules in shadowlap.config.json: the dataset holds the conversations as recorded\n`));
+        if (waiting) process.stderr.write(p.dim(`${flags.out ? '  ' : ''}${waiting} run${waiting === 1 ? ' is' : 's are'} still recording, left for a later export\n`));
         emitJobEvent({ type: 'result', data: { examples: rows.length, runs: runs.length, format: flags.format, calls: flags.calls } });
       } finally {
         store.close();
@@ -62,6 +73,7 @@ export function register(program: Command): void {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
+        requireEnded(store, run, 'export');
         // A HAR leaves the machine with full bodies: every redaction rule applies, as to a pack.
         const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
         const result = runToHar(store, run, store.getCalls(run.runId), { redact: rules });
@@ -95,6 +107,7 @@ export function register(program: Command): void {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
+        requireEnded(store, run, 'export');
         const config = loadConfig(process.cwd());
         const { exportHtml, withAncestors } = await import('@shadowlap/dashboard');
         const runIds = flags.lineage ? withAncestors(store, run.runId) : [run.runId];
@@ -130,6 +143,12 @@ export function register(program: Command): void {
       const redact = flags.redact ? config.redact : [];
       const store = openStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
+      try {
+        requireEnded(store, run, 'export');
+      } catch (err) {
+        store.close();
+        throw err;
+      }
       const calls = store.getCalls(run.runId);
       store.close();
       const payload = runToOtlp(run, calls, { serviceName: flags.service, version: VERSION, ...(config.prices ? { prices: config.prices } : {}), redact });
