@@ -57,6 +57,11 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     };
     process.env = new Proxy(env, {
       get: (target, key) => (key === 'OPENAI_BASE_URL' && insideAzureClient() ? was : Reflect.get(target, key)),
+      // Set on process.env itself. Without this, setting a variable that is already there goes
+      // through the proxy as a bare define, which process.env refuses (ERR_INVALID_OBJECT_DEFINE_PROPERTY):
+      // npm and npx set their own variables as they start and exit 1 without a word, and so would
+      // an agent that sets one.
+      set: (target, key, value) => Reflect.set(target, key, value),
     });
   }
 
