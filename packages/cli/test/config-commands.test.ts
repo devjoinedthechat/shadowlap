@@ -374,7 +374,10 @@ describe('shadowlap gc', () => {
     expect(JSON.parse(r.out)).toMatchObject({ count: 0, runs: [], blobs: 2, deferred: false, recording: [], abandonedCount: 0 });
     r = await shadowlap(['gc', '--dry-run']);
     expect(r.out).toContain('▸ no runs to delete (--older-than <days> or --keep <n> picks them)');
-    expect(r.out).toContain('✓ dry run: would free 0 B.');
+    // Nothing to delete: no command that deletes, and what a vacuum alone would give back.
+    expect(r.out).toMatch(/✓ dry run: nothing to delete\.( The store has .+ free inside its file, which shadowlap gc gives back\.)?\n/);
+    expect(r.out).not.toContain('--expect');
+    expect(JSON.parse((await shadowlap(['gc', '--dry-run', '--json'])).out).store).toEqual({ path: dbPath(), before: expect.any(Number), after: null, free: expect.any(Number) });
   });
 
   it('keeps its report small however many runs a clean-up deletes', async () => {

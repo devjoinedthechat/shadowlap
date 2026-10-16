@@ -1,0 +1,228 @@
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+
+/**
+ * The JSON the CLI prints is a contract: scripts, CI and coding agents read it, and docs/cli.md lists
+ * its fields. Each shape here is held to the fields the reference names, exactly, so a field added,
+ * renamed or dropped fails until the reference says so too; and each list is checked against the
+ * reference's own words. Exit statuses are held to what the reference says as well.
+ */
+const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
+const REFERENCE = readFileSync(fileURLToPath(new URL('../../../docs/cli.md', import.meta.url)), 'utf8');
+
+/** The fields each shape has, as docs/cli.md lists them, by the section that lists them. */
+const SHAPES = {
+  summaryJson: { section: 'run', fields: ['exitCode', 'summary'] },
+  summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
+  cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
+  replayChecks: { section: 'replay', fields: ['exitCode', 'summary', 'checks'] },
+  repeat: { section: 'replay', fields: ['attempts', 'report'] },
+  repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
+  show: { section: 'show', fields: ['run', 'summary', 'calls'] },
+  showRun: { section: 'show', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
+  showCall: { section: 'show', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
+  ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
+  label: { section: 'label', fields: ['runId', 'labels'] },
+  search: { section: 'search', fields: ['runId', 'callNo', 'kind', 'name', 'field', 'snippet', 'runStartedAt'] },
+  diff: { section: 'diff', fields: ['a', 'b', 'identicalPrefix', 'prefix', 'firstRequestDifference', 'responseDifferences', 'after', 'onlyInA', 'onlyInB', 'changes'] },
+  diffChanges: { section: 'diff', fields: ['systemPrompt', 'tools', 'models', 'code'] },
+  importJson: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped'] },
+  importRun: { section: 'import', fields: ['runId', 'source', 'key', 'calls', 'labels', 'imported'] },
+  calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
+  rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
+  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'rules', 'details'] },
+  previewRule: { section: 'normalize', fields: ['n', 'rule', 'count', 'samples', 'reached', 'note'] },
+  gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'deferred', 'store'] },
+  gcStore: { section: 'rm', fields: ['path', 'before', 'after', 'free'] },
+  doctor: { section: 'doctor', fields: ['name', 'verdict', 'detail'] },
+  init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'hardcodedBaseUrls', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
+} as const;
+
+const keys = (o: unknown) => Object.keys(o as object).sort();
+const fields = (shape: keyof typeof SHAPES) => [...SHAPES[shape].fields].sort();
+
+/** docs/cli.md split at its `## ` headings, by the names each heading gives ("normalize, redact"). */
+function sectionText(name: string): string {
+  const section = REFERENCE.split(/^(?=## )/m).find((s) => s.startsWith('## ') && s.slice(3, s.indexOf('\n')).split(',').map((n) => n.trim()).includes(name));
+  if (!section) throw new Error(`docs/cli.md has no section for ${name}`);
+  return section;
+}
+
+/** Whether a section names a field as code: `field`, or a word of an object or JSON sample (`{ runId, labels }`, "format": …). */
+function names(section: string, field: string): boolean {
+  const code = [...section.matchAll(/```[\s\S]*?```|`[^`\n]+`/g)].map((m) => m[0]);
+  return code.some((c) => new RegExp(`(?<![\\w$])${field}(?![\\w$])`).test(c));
+}
+
+/** The model: looks the order up, reads the policy, escalates, and says so. */
+function script(ctx: ScriptContext) {
+  switch (ctx.assistantTurns) {
+    case 0:
+      return { message: message([text('Looking the order up.'), toolUse('lookup_order', { order_id: 'A-1042' }, `toolu_lookup_${ctx.requestNo}`)]) };
+    case 1:
+      return { message: message([text('Reading the policy.'), toolUse('read_policy', {}, `toolu_policy_${ctx.requestNo}`)]) };
+    case 2:
+      return { message: message([text('Escalating: above the limit.'), toolUse('escalate', { reason: 'refund above $100' }, `toolu_escalate_${ctx.requestNo}`)]) };
+    default:
+      return { message: message([text('A manager will review the refund, write to ops@example.com with questions.')], { stop_reason: 'end_turn' }) };
+  }
+}
+
+let mock: MockServer;
+let work: string;
+let recording: string;
+
+beforeAll(async () => {
+  mock = await startMockAnthropic({ script, eventDelayMs: () => 0 });
+  work = mkdtempSync(join(tmpdir(), 'sl-json-contract-'));
+});
+afterAll(async () => {
+  await mock.close();
+  rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [CLI, '--db', join(work, 'store.db'), ...args], {
+      cwd: work,
+      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    let stdout = '';
+    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    child.on('exit', (code) => resolve({ code, out, stdout }));
+  });
+}
+const json = <T = Record<string, unknown>>(r: { stdout: string; out: string }): T => {
+  try {
+    return JSON.parse(r.stdout) as T;
+  } catch {
+    throw new Error(`not JSON:\n${r.out}`);
+  }
+};
+const file = <T = Record<string, unknown>>(name: string): T => JSON.parse(readFileSync(join(work, name), 'utf8')) as T;
+
+describe('the JSON the CLI prints', () => {
+  it('run and replay: --summary-json, and their exit status', async () => {
+    const rec = await shadowlap(['run', '--summary-json', 'run.json', '--', process.execPath, AGENT]);
+    expect(rec.code, rec.out).toBe(0);
+    const run = file<{ exitCode: number; summary: { runId: string; cost: object } }>('run.json');
+    expect(keys(run)).toEqual(fields('summaryJson'));
+    expect(keys(run.summary)).toEqual(fields('summary'));
+    expect(keys(run.summary.cost)).toEqual(fields('cost'));
+    recording = run.summary.runId;
+
+    // A clean replay exits as the agent did; one whose check fails exits 1, and its summary says why.
+    const clean = await shadowlap(['replay', recording, '--strict', '--summary-json', 'clean.json']);
+    expect(clean.code, clean.out).toBe(0);
+    expect(keys(file('clean.json'))).toEqual(fields('summaryJson'));
+    const checked = await shadowlap(['replay', recording, '--expect', '{"tools":{"escalate":0}}', '--summary-json', 'checked.json']);
+    expect(checked.code, checked.out).toBe(1);
+    expect(keys(file('checked.json'))).toEqual(fields('replayChecks'));
+
+    const repeat = await shadowlap(['replay', recording, '--repeat', '2', '--summary-json', 'repeat.json']);
+    expect(repeat.code, repeat.out).toBe(0);
+    const r = file<{ attempts: object[]; report: object }>('repeat.json');
+    expect(keys(r)).toEqual(fields('repeat'));
+    expect(keys(r.attempts[0])).toEqual(fields('summaryJson'));
+    expect(keys(r.report)).toEqual(fields('repeatReport'));
+
+    // A fork with --strict exits 1, whatever the agent did.
+    const fork = await shadowlap(['replay', recording, '--strict', '--inject', '3=Answer in one line.']);
+    expect(fork.code, fork.out).toBe(1);
+  }, 120_000);
+
+  it('show, ls, label, search and diff', async () => {
+    const show = json<{ run: object; summary: object; calls: object[] }>(await shadowlap(['show', recording, '--json']));
+    expect(keys(show)).toEqual(fields('show'));
+    expect(keys(show.run)).toEqual(fields('showRun'));
+    expect(keys(show.summary)).toEqual(fields('summary'));
+    expect(keys(show.calls[0])).toEqual(fields('showCall'));
+
+    const ls = json<object[]>(await shadowlap(['ls', '--json']));
+    for (const run of ls) expect(keys(run)).toEqual(fields('ls'));
+
+    expect(json(await shadowlap(['label', recording, 'good', '--json']))).toEqual({ runId: recording, labels: ['good'] });
+
+    const found = await shadowlap(['search', 'escalating', '--json']);
+    expect(found.code, found.out).toBe(0);
+    const hits = json<object[]>(found);
+    expect(hits.length).toBeGreaterThan(0);
+    for (const h of hits) expect(keys(h)).toEqual(fields('search'));
+    // Nothing found: exit status 1, as grep, with --json too.
+    const none = await shadowlap(['search', 'zebracrossing', '--json']);
+    expect(none.code).toBe(1);
+    expect(json(none)).toEqual([]);
+    expect((await shadowlap(['search', 'zebracrossing'])).code).toBe(1);
+
+    // The recording and its clean replay don't differ (exit 0); the fork does (exit 1).
+    const runs = ls as Array<{ runId: string; parentRunId: string | null; forkedAt: object | null; repeat: object | null }>;
+    const replay = runs.find((x) => x.parentRunId === recording && !x.forkedAt && !x.repeat)!;
+    const fork = runs.find((x) => x.parentRunId === recording && x.forkedAt && !x.repeat)!;
+    const same = await shadowlap(['diff', recording, replay.runId, '--json']);
+    expect(same.code, same.out).toBe(0);
+    expect(keys(json(same))).toEqual(fields('diff'));
+    const differ = await shadowlap(['diff', recording, fork.runId, '--json']);
+    expect(differ.code).toBe(1);
+    const d = json<{ changes: object }>(differ);
+    expect(keys(d)).toEqual(fields('diff'));
+    expect(keys(d.changes)).toEqual(fields('diffChanges'));
+  }, 60_000);
+
+  it('normalize and redact, gc, calibrate, import and doctor', async () => {
+    expect((await shadowlap(['redact', 'add', '--pattern', 'email', '--replace', '<EMAIL>'])).code).toBe(0);
+    for (const list of ['normalize', 'redact']) expect(keys(json(await shadowlap([list, 'ls', '--json'])))).toEqual(fields('rules'));
+    const preview = json<{ rules: object[] }>(await shadowlap(['redact', 'preview', recording, '--json']));
+    expect(keys(preview)).toEqual(fields('preview'));
+    expect(keys(preview.rules[0])).toEqual(fields('previewRule'));
+
+    const gc = json<{ store: object; count: number }>(await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']));
+    expect(keys(gc)).toEqual(fields('gc'));
+    expect(keys(gc.store)).toEqual(fields('gcStore'));
+    // A dry run with nothing to delete prints no command that deletes.
+    const told = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
+    expect(told.out).toContain('dry run: nothing to delete');
+    expect(told.out).not.toContain('--expect');
+    // A deletion the dry run didn't list is refused, deleting nothing: exit 1.
+    expect((await shadowlap(['gc', '--before', String(Date.now()), '--expect', '0-e3b0c44298fc1c14'])).code).toBe(1);
+
+    const calibrated = await shadowlap(['calibrate', recording, '--json']);
+    expect(calibrated.code, calibrated.out).toBe(0);
+    expect(keys(json(calibrated))).toEqual(fields('calibrate'));
+
+    expect((await shadowlap(['export', 'har', recording, 'run.har', '--no-redact'])).code).toBe(0);
+    const imported = await shadowlap(['import', 'har', 'run.har', '--json']);
+    expect(imported.code, imported.out).toBe(0);
+    const im = json<{ runs: object[] }>(imported);
+    expect(keys(im)).toEqual(fields('importJson'));
+    expect(keys(im.runs[0])).toEqual(fields('importRun'));
+    // Nothing that could be imported: exit 1, and the runs list is empty.
+    writeFileSync(join(work, 'empty.har'), JSON.stringify({ log: { version: '1.2', entries: [] } }));
+    const nothing = await shadowlap(['import', 'har', 'empty.har', '--json']);
+    expect(nothing.code).toBe(1);
+    expect(json(nothing)).toMatchObject({ runs: [] });
+
+    expect(keys(json(await shadowlap(['init', '--json'])))).toEqual(fields('init'));
+
+    const doctor = await shadowlap(['doctor', '--json']);
+    const checks = json<Array<{ verdict: string }>>(doctor);
+    for (const c of checks) expect(keys(c).filter((k) => k !== 'fix')).toEqual(fields('doctor'));
+    expect(checks.every((c) => ['ok', 'warn', 'fail'].includes(c.verdict))).toBe(true);
+    expect(doctor.code).toBe(checks.some((c) => c.verdict === 'fail') ? 1 : 0);
+  }, 120_000);
+});
+
+describe('docs/cli.md', () => {
+  it('names every field of every shape, in the section of its command', () => {
+    const missing = Object.entries(SHAPES).flatMap(([shape, { section, fields }]) => fields.filter((f) => !names(sectionText(section), f)).map((f) => `${shape}.${f} (## ${section})`));
+    expect(missing).toEqual([]);
+  });
+});

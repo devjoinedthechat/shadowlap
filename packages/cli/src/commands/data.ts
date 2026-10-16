@@ -37,13 +37,15 @@ export function register(program: Command): void {
         }
         if (flags.label.length || flags.all) for (const r of store.allRuns()) if (flags.label.every((l) => r.meta?.labels?.includes(l))) picked.set(r.runId, r);
         const runs = [...picked.values()].sort((a, b) => a.startedAt - b.startedAt);
-        const rows = datasetRows(store, runs, { calls: flags.calls, format: flags.format, redact: flags.redact ? loadConfig(process.cwd()).redact : [] });
+        const rules = flags.redact ? loadConfig(process.cwd()).redact : [];
+        const rows = datasetRows(store, runs, { calls: flags.calls, format: flags.format, redact: rules });
         const body = rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '');
         if (flags.out) {
           writeFileSync(flags.out, body);
           emitJobEvent({ type: 'file', path: resolve(flags.out), label: 'Dataset' });
-          process.stderr.write(`${p.green('✓')} ${rows.length} example${rows.length === 1 ? '' : 's'} from ${runs.length} run${runs.length === 1 ? '' : 's'} → ${flags.out}\n`);
+          process.stderr.write(`${p.green('✓')} ${rows.length} example${rows.length === 1 ? '' : 's'} from ${runs.length} run${runs.length === 1 ? '' : 's'} → ${flags.out}${rules.length ? `, ${rulesApplied(rules.length)}` : ''}\n`);
         } else process.stdout.write(body);
+        if (!rules.length) process.stderr.write(p.dim(`${flags.out ? '  ' : ''}no redaction rules in shadowlap.config.json: the dataset holds the conversations as recorded\n`));
         emitJobEvent({ type: 'result', data: { examples: rows.length, runs: runs.length, format: flags.format, calls: flags.calls } });
       } finally {
         store.close();
@@ -73,7 +75,7 @@ export function register(program: Command): void {
         writeFileSync(out, body);
         emitJobEvent({ type: 'file', path: out, label: 'HAR' });
         emitJobEvent({ type: 'result', data: { entries: result.entries, skipped: result.skipped.length } });
-        console.log(`${p.green('\u2713')} ${out}  ${result.entries} ${result.entries === 1 ? 'call' : 'calls'}, ${formatBytes(fileSize(out))}${rules.length ? `, ${rules.length} redaction rule${rules.length === 1 ? '' : 's'} applied` : ''}`);
+        console.log(`${p.green('\u2713')} ${out}  ${result.entries} ${result.entries === 1 ? 'call' : 'calls'}, ${formatBytes(fileSize(out))}${rules.length ? `, ${rulesApplied(rules.length)}` : ''}`);
         if (!rules.length) console.log(p.dim('  no redaction rules in shadowlap.config.json: the HAR holds the prompts and responses as recorded'));
         for (const s of result.skipped) console.log(p.dim(`  call ${s.callNo} left out: ${s.reason}`));
         if (result.entries === 0) console.log(p.dim('  this run made no model API calls'));
@@ -108,7 +110,7 @@ export function register(program: Command): void {
         emitJobEvent({ type: 'file', path: out, label: 'HTML' });
         emitJobEvent({ type: 'result', data: { runIds: result.runIds, calls: result.calls, redacted: result.redacted } });
         const size = formatBytes(Buffer.byteLength(result.html));
-        process.stdout.write(`${p.green('✓')} ${out}  ${p.dim(`${result.runIds.length} run${result.runIds.length === 1 ? '' : 's'}, ${result.calls} calls, ${size}${result.redacted ? ', redacted' : ''}`)}\n`);
+        process.stdout.write(`${p.green('✓')} ${out}  ${p.dim(`${result.runIds.length} run${result.runIds.length === 1 ? '' : 's'}, ${result.calls} calls, ${size}${result.redacted ? `, ${rulesApplied(config.redact.length)}` : ''}`)}\n`);
         if (!result.redacted) process.stdout.write(p.dim('  no redaction rules in shadowlap.config.json: the file holds the prompts and tool data as recorded\n'));
       } finally {
         store.close();
@@ -134,14 +136,17 @@ export function register(program: Command): void {
       // A file asked for is where the trace goes: it leaves the machine only for an endpoint named with it.
       const endpoint = flags.endpoint ?? (flags.out ? undefined : process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
       const spans = calls.length + 1;
+      // A trace carries no prompt text: the rules without a path apply to the names, command line and errors it keeps.
+      const applied = redact.filter((r) => r.path === undefined).length;
+      const masked = applied ? `, ${rulesApplied(applied)}` : '';
       if (flags.out) {
         writeFileSync(flags.out, JSON.stringify(payload) + '\n');
         emitJobEvent({ type: 'file', path: resolve(flags.out), label: 'OTel trace' });
-        process.stderr.write(`${p.green('✓')} wrote ${spans} spans for ${shortId(run.runId)} to ${flags.out}\n`);
+        process.stderr.write(`${p.green('✓')} wrote ${spans} spans for ${shortId(run.runId)} to ${flags.out}${masked}\n`);
       }
       if (endpoint) {
         await sendOtlp(endpoint, payload, otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS));
-        process.stderr.write(`${p.green('✓')} sent ${spans} spans for ${shortId(run.runId)} to ${endpoint}\n`);
+        process.stderr.write(`${p.green('✓')} sent ${spans} spans for ${shortId(run.runId)} to ${endpoint}${masked}\n`);
       } else if (!flags.out) {
         process.stdout.write(JSON.stringify(payload) + '\n');
       }
@@ -195,6 +200,11 @@ export function register(program: Command): void {
       emitJobEvent({ type: 'result', data: report });
       process.stdout.write(flags.json ? JSON.stringify(report, null, 2) + '\n' : formatGc(report));
     });
+}
+
+/** How a copy says the redaction rules were applied to it. */
+function rulesApplied(n: number): string {
+  return `${n} redaction rule${n === 1 ? '' : 's'} applied`;
 }
 
 interface GcFlags {
@@ -275,10 +285,10 @@ export interface GcReport {
   deferred: boolean;
   /**
    * The store's size: every page of the database before, and after a real run (vacuumed), whatever
-   * its write-ahead log holds. A dashboard holding the store open can keep the files on disk larger
-   * until it lets go.
+   * its write-ahead log holds, and `free`, the pages inside it that nothing uses, which a vacuum
+   * gives back. A dashboard holding the store open can keep the files on disk larger until it lets go.
    */
-  store: { path: string; before: number; after: number | null };
+  store: { path: string; before: number; after: number | null; free: number };
 }
 
 /** How many runs a report lists by name. */
@@ -292,7 +302,7 @@ const listed = (r: RunRecord): GcRun => {
 function emptyReport(dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const expect = expectToken([]);
   if (flags.expect !== undefined && flags.expect !== expect) throw new Error(`gc would delete 0 runs, not the ${flags.expect.split('-')[0]} the dry run listed: there is no store at ${dbPath}`);
-  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, deferred: false, store: { path: dbPath, before: 0, after: flags.dryRun ? null : 0 } };
+  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, deferred: false, store: { path: dbPath, before: 0, after: flags.dryRun ? null : 0, free: 0 } };
 }
 
 function cutoffOf(flags: GcFlags, now: number): number | null {
@@ -333,7 +343,7 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
     abandoned: abandoned.slice(0, LISTED).map((r) => listed(r.run)),
     abandonedCount: abandoned.length,
     deferred: live.length > 0 && freed.hashes.length > 0,
-    store: { path: dbPath, before: store.size().bytes, after: null },
+    store: { path: dbPath, before: store.size().bytes, after: null, free: store.size().free },
   };
   if (report.dryRun) return report;
   store.transaction(() => {
@@ -353,7 +363,9 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
   report.deferred = gc.recording.length > 0;
   // Vacuuming holds the store for as long as it takes, which a recording's next write would wait on.
   if (!report.deferred) store.vacuum();
-  report.store.after = store.size().bytes;
+  const after = store.size();
+  report.store.after = after.bytes;
+  report.store.free = after.free;
   return report;
 }
 
@@ -380,8 +392,15 @@ function formatGc(r: GcReport): string {
   const waiting = `${plural(r.recordingCount, 'run')} ${r.recordingCount === 1 ? 'is' : 'are'} still recording (${ids(r.recording, r.recordingCount)})`;
   if (r.dryRun) {
     lines.push(`  blobs nothing would reference: ${r.blobs} · ${formatBytes(r.bytes)}${r.deferred ? p.dim(` · collected once no run is recording: ${waiting}`) : ''}`);
-    const what = [r.count ? `delete ${plural(r.count, 'run')}` : null, `free ${formatBytes(r.bytes)}`].filter(Boolean).join(' and ');
-    lines.push(`${p.green('✓')} dry run: would ${what}. To delete exactly these runs: shadowlap gc${r.cutoff !== null ? ` --before ${r.cutoff}` : ''}${r.keep !== null ? ` --keep ${r.keep}` : ''} --expect ${r.expect}`);
+    // What a vacuum alone gives back, which a gc with no runs to delete still does.
+    const vacuum = r.store.free ? ` The store has ${formatBytes(r.store.free)} free inside its file, which shadowlap gc gives back.` : '';
+    if (r.count) {
+      lines.push(`${p.green('✓')} dry run: would delete ${plural(r.count, 'run')} and free ${formatBytes(r.bytes)}. To delete exactly these runs: shadowlap gc${r.cutoff !== null ? ` --before ${r.cutoff}` : ''}${r.keep !== null ? ` --keep ${r.keep}` : ''} --expect ${r.expect}`);
+    } else if (r.blobs) {
+      lines.push(`${p.green('✓')} dry run: no run to delete; shadowlap gc would free ${formatBytes(r.bytes)} of blobs nothing references.${vacuum}`);
+    } else {
+      lines.push(`${p.green('✓')} dry run: nothing to delete.${vacuum}`);
+    }
   } else if (r.deferred) {
     lines.push(`  ${p.yellow('!')} no blobs collected: ${waiting}. A recording stores a blob just before the call that uses it, so gc leaves blobs alone until it ends; run gc again then.`);
     lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
