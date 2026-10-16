@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { Command } from 'commander';
-import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, hasRecordedCommand, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RuleList, type RunRecord } from '@shadowlap/engine';
+import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, hasRecordedCommand, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RedactionUnmasked, type RuleList, type RunRecord } from '@shadowlap/engine';
 import { recordActivity } from '../activity.js';
 import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
@@ -63,7 +63,7 @@ const HOW: Record<RuleList, { what: string; add: string; listed: string }> = {
   },
   redact: {
     what: 'Manage redaction rules in shadowlap.config.json: what is masked in the copy of a run that leaves this machine (pack and every export)',
-    add: 'Add a redaction rule. A pattern masks what it matches in every stored request and response (only at --path in requests, with one); --path alone replaces the whole value there',
+    add: 'Add a redaction rule. A pattern masks what it matches in every string of every stored request and response (only at --path, with one); --path alone replaces the whole value there, numbers included',
     listed: 'no redaction rules',
   },
 };
@@ -76,7 +76,7 @@ function registerRules(program: Command, list: RuleList): void {
   cmd
     .command('add')
     .description(HOW[list].add)
-    .option('--path <jsonpath>', `where in the request, e.g. '${list === 'normalize' ? '$.metadata.user_id' : '$.args.api_key'}' (tool arguments are under $.args)`)
+    .option('--path <jsonpath>', list === 'normalize' ? "where in the request, e.g. '$.metadata.user_id' (tool arguments are under $.args)" : "where in a request, or in a response or result that is JSON, e.g. '$.args.api_key' (a tool's arguments are under $.args, its result under $.result)")
     .option('--pattern <pattern>', 'uuid | ulid | iso-date | iso-datetime | number | email | /regex/flags')
     .option('--replace <text>', list === 'redact' ? 'replacement text; the pattern must leave it as it is' : 'replacement text', list === 'redact' ? '<REDACTED>' : '<MASKED>')
     .option('--kind <kind>', `only calls of this kind: ${RULE_KINDS[list].join(' | ')}`, parseChoice(RULE_KINDS[list]))
@@ -147,7 +147,7 @@ function registerRules(program: Command, list: RuleList): void {
 function registerPreview(program: Command, cmd: Command): void {
   cmd
     .command('preview')
-    .description('Show what the redaction rules would mask in a run (default: the newest that has ended), counted and with samples, exactly as pack applies them. Nothing is written')
+    .description('Show what the redaction rules would mask in a run (default: the newest that has ended), counted and with samples, exactly as pack applies them, and what they match that a copy leaves as it is (a number), with the path rule that masks it. Nothing is written')
     .argument('[run]', 'run id or unique prefix')
     .option('--json', 'machine-readable output')
     .action((runArg: string | undefined, flags: { json?: boolean }) => {
@@ -180,11 +180,12 @@ function describedRun(run: RunRecord): string {
 }
 
 function formatPreview(preview: RedactionPreview, what: string): string {
-  const total = `${preview.total} value${preview.total === 1 ? '' : 's'} would be masked`;
+  const total = `${preview.total} value${preview.total === 1 ? '' : 's'} would be masked${preview.unmasked ? `, ${preview.unmasked} left as ${preview.unmasked === 1 ? 'it is' : 'they are'}` : ''}`;
   const lines = [`${shortId(preview.runId)} (${safe(what)}): ${preview.rules.length ? total : 'no redaction rules in shadowlap.config.json, so nothing would be masked'}`];
   for (const r of preview.rules) {
     lines.push(`  #${r.n}  ${safe(describeRule(r.rule))}  ${r.count ? p.bold(String(r.count)) : p.dim('0')}${r.note ? p.dim(`  ${safe(r.note)}`) : ''}`);
     for (const s of r.samples) lines.push(`        ${p.red('-')} ${safe(s.before)}`, `        ${p.green('+')} ${safe(s.after)}`);
+    lines.push(...unmaskedLines(r.unmasked));
   }
   const d = preview.details;
   if (d.count) {
@@ -194,4 +195,20 @@ function formatPreview(preview: RedactionPreview, what: string): string {
   }
   if (preview.unreadable) lines.push(p.yellow(`  ${preview.unreadable} call${preview.unreadable === 1 ? '' : 's'} could not be read and ${preview.unreadable === 1 ? 'is' : 'are'} not counted`));
   return lines.join('\n') + '\n';
+}
+
+/**
+ * What a rule matches that a copy leaves as it is, under its samples: how many, up to two of them
+ * with where each is, and the path rules that would mask them, ready to run.
+ */
+function unmaskedLines(u: RedactionUnmasked): string[] {
+  if (!u.count) return [];
+  const lines = [`        ${p.yellow(`${u.count} left as ${u.count === 1 ? 'it is' : 'they are'}`)}:`];
+  // `call 2 tool lookup_card, response $.result.card`; a model call by its kind alone.
+  for (const s of u.samples) lines.push(`        ${p.yellow('=')} ${safe(s.value)}  ${p.dim(`call ${s.callNo} ${s.kind}${s.kind === 'api' ? '' : ` ${safe(s.name)}`}, ${s.in}${s.key ? ' key' : ''} ${safe(s.path)}`)}`);
+  if (u.remedies.length) {
+    lines.push(p.dim('        a path rule masks the whole value at its path, numbers included:'));
+    for (const r of u.remedies) lines.push(`          ${safe(r.command)}`);
+  } else if (u.samples.every((s) => s.kind === 'clock' || s.kind === 'random')) lines.push(p.dim('        what a clock or random read returned stays as recorded: a replay needs it'));
+  return lines;
 }

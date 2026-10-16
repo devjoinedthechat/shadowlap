@@ -138,10 +138,17 @@ describe('the JSON the CLI prints', () => {
 
   it('normalize and redact, gc, calibrate, import and doctor', async () => {
     expect((await shadowlap(['redact', 'add', '--pattern', 'email', '--replace', '<EMAIL>'])).code).toBe(0);
+    // Every number matches: the amount the order lookup returns and max_tokens stay as they are, with a rule for each.
+    expect((await shadowlap(['redact', 'add', '--pattern', 'number', '--replace', '<N>'])).code).toBe(0);
     for (const list of ['normalize', 'redact']) expect(keys(json(await shadowlap([list, 'ls', '--json'])))).toEqual(fields('rules'));
-    const preview = json<{ rules: object[] }>(await shadowlap(['redact', 'preview', recording, '--json']));
+    type Unmasked = { samples: object[]; remedies: object[] };
+    const preview = json<{ rules: Array<{ unmasked: Unmasked }> }>(await shadowlap(['redact', 'preview', recording, '--json']));
     expect(keys(preview)).toEqual(fields('preview'));
     expect(keys(preview.rules[0])).toEqual(fields('previewRule'));
+    const unmasked = preview.rules[1]!.unmasked;
+    expect(keys(unmasked)).toEqual(fields('previewUnmasked'));
+    expect(keys(unmasked.samples[0])).toEqual(fields('previewUnmaskedSample'));
+    expect(keys(unmasked.remedies[0])).toEqual(fields('previewRemedy'));
 
     const gc = json<{ store: object; count: number }>(await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']));
     expect(keys(gc)).toEqual(fields('gc'));

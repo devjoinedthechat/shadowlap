@@ -1,4 +1,4 @@
-import { rewriteText } from './normalize.js';
+import { rewriteText, type RewriteObserver } from './normalize.js';
 import type { Normalizer } from './types.js';
 
 /**
@@ -83,16 +83,17 @@ export function streamPieces(event: unknown): StreamPiece[] {
 
 /**
  * `texts` (the pieces of one run, in order) with the pathless rules applied to the text they add up
- * to, spread back over the pieces; null when no rule matched.
+ * to, spread back over the pieces; null when no rule matched. The observer hears each rule's change
+ * to the whole text, as rewriteText reports one.
  */
-export function maskAcross(texts: string[], rules: Normalizer[]): string[] | null {
+export function maskAcross(texts: string[], rules: Normalizer[], observer?: RewriteObserver): string[] | null {
   let current = texts;
-  for (const rule of rules) {
-    if (rule.path !== undefined || rule.pattern === undefined) continue;
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined) return;
     const before = current.join('');
-    const after = rewriteText(before, [rule]);
+    const after = rewriteText(before, [rule], observer?.changed ? { changed: (_, b, a, n) => observer.changed!(i, b, a, n) } : undefined);
     if (after !== before) current = spread(current, before, after);
-  }
+  });
   return current === texts ? null : current;
 }
 
@@ -137,7 +138,7 @@ function spread(texts: string[], before: string, after: string): string[] {
  * Masks the streamed text of `events` (parsed events of one response, in order) across events, in
  * place. Returns the indexes of the events it changed.
  */
-export function maskStreamed(events: unknown[], rules: Normalizer[]): Set<number> {
+export function maskStreamed(events: unknown[], rules: Normalizer[], observer?: RewriteObserver): Set<number> {
   const runs = new Map<string, Array<{ event: number; piece: StreamPiece }>>();
   events.forEach((e, event) => {
     for (const piece of streamPieces(e)) {
@@ -150,7 +151,7 @@ export function maskStreamed(events: unknown[], rules: Normalizer[]): Set<number
   for (const pieces of runs.values()) {
     if (pieces.length < 2) continue; // one piece is masked as text with the rest of the stream
     const texts = pieces.map(({ piece }) => piece.holder[piece.key] as string);
-    const masked = maskAcross(texts, rules);
+    const masked = maskAcross(texts, rules, observer);
     if (!masked) continue;
     masked.forEach((text, k) => {
       if (text === texts[k]) return;
@@ -171,7 +172,7 @@ const FIELD = /^(?:data|event|id|retry):|^:/;
  * for a stream. Only the events whose pieces changed are written again (one `data:` line of JSON);
  * every other byte stays as it was, line endings included.
  */
-export function maskSseStream(text: string, rules: Normalizer[]): string | null {
+export function maskSseStream(text: string, rules: Normalizer[], observer?: RewriteObserver): string | null {
   const blocks: Array<{ body: string; sep: string; data: unknown }> = [];
   const boundary = /\r\n\r\n|\n\n|\r\r/g;
   let from = 0;
@@ -200,6 +201,7 @@ export function maskSseStream(text: string, rules: Normalizer[]): string | null 
   const changed = maskStreamed(
     blocks.map((b) => b.data),
     rules,
+    observer,
   );
   if (!changed.size) return null;
   return blocks
@@ -225,7 +227,7 @@ export function maskSseStream(text: string, rules: Normalizer[]): string | null 
  * A streamed response sent as one JSON array of chunks (Gemini's and Vertex's streamGenerateContent
  * without `alt=sse`), masked across its chunks; null when it is not one or nothing changed.
  */
-export function maskJsonChunks(text: string, rules: Normalizer[]): string | null {
+export function maskJsonChunks(text: string, rules: Normalizer[], observer?: RewriteObserver): string | null {
   if (!text.trimStart().startsWith('[')) return null;
   let chunks: unknown;
   try {
@@ -234,5 +236,5 @@ export function maskJsonChunks(text: string, rules: Normalizer[]): string | null
     return null;
   }
   if (!Array.isArray(chunks) || !chunks.every(isObject)) return null;
-  return maskStreamed(chunks, rules).size ? JSON.stringify(chunks) : null;
+  return maskStreamed(chunks, rules, observer).size ? JSON.stringify(chunks) : null;
 }

@@ -57,7 +57,7 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[], opti
     const body = rules.length ? (typeof stored === 'string' ? text(stored) : applyNormalizers(stored, rules, 'api', c.name)) : stored;
     const postText = typeof body === 'string' ? body : JSON.stringify(body);
     const recorded = c.end.responseRef ? (store.getBlob(c.end.responseRef) ?? Buffer.alloc(0)) : Buffer.alloc(0);
-    const bytes = rules.length ? redactBytes(recorded, rules) : recorded;
+    const bytes = rules.length ? redactBytes(recorded, rules, c) : recorded;
     const responseHeaders = masked((c.end.meta.headers ?? {}) as Record<string, string>);
     const mimeType = responseHeaders['content-type'] ?? 'application/json';
     const time = Math.max(0, (c.end.at ?? c.at) - c.at);

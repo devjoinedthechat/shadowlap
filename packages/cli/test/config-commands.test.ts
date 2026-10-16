@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -281,6 +281,58 @@ describe('shadowlap redact', () => {
     log.close();
     r = await shadowlap(['redact', 'preview', imported.runId]);
     expect(r.out).toContain(`${imported.runId.slice(0, 10)} (imported from captures/session.har): 0 values would be masked`);
+  });
+
+  it('says what a copy leaves as it is, with the path rule that masks it, and that rule does', async () => {
+    const store = Store.open(dbPath());
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd } });
+    const call = (callNo: number, kind: 'clock' | 'tool', name: string, request: unknown, result: string) => {
+      const id = { kind, name, fingerprint: String(callNo).padStart(64, 'c'), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo, ...id, origin: 'live', effect: kind === 'tool' ? 'read' : null, requestRef: store.putJson(request), meta: {}, at: callNo });
+      store.appendCallEnd(id, { runId: run.runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(result)), outcome: 'ok', meta: {}, at: callNo });
+    };
+    // The time the agent read, and a card on file: a number, and the same card as text.
+    call(1, 'clock', 'now', { label: 'now' }, '{"result":1792155242516}');
+    call(2, 'tool', 'lookup_card', { args: { customer: 'C-311' } }, '{"result": {"card": 4111111111111111, "on_file": "4111 1111 1111 1111"}}');
+    store.endRun(run.runId, 'completed');
+    store.close();
+    expect((await shadowlap(['redact', 'add', '--pattern', '/\\b(?:\\d[ -]?){13,16}\\b/', '--replace', '<CARD>'])).code).toBe(0);
+
+    let r = await shadowlap(['redact', 'preview', run.runId]);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toBe(
+      [
+        `${run.runId.slice(0, 10)} (node agent.js): 1 value would be masked, 2 left as they are`,
+        '  #1  every call  any string  /\\b(?:\\d[ -]?){13,16}\\b/ → <CARD>  1',
+        '        - 4111 1111 1111 1111',
+        '        + <CARD>',
+        '        2 left as they are:',
+        '        = 1792155242516  call 1 clock now, response $.result',
+        '        = 4111111111111111  call 2 tool lookup_card, response $.result.card',
+        '        a path rule masks the whole value at its path, numbers included:',
+        "          shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'",
+        '',
+      ].join('\n'),
+    );
+    r = await shadowlap(['redact', 'preview', run.runId, '--json']);
+    const preview = JSON.parse(r.out) as { total: number; unmasked: number; rules: Array<{ unmasked: { count: number; samples: Array<{ value: string; key: boolean; in: string; path: string }>; remedies: Array<{ rule: unknown; command: string }> } }> };
+    expect(preview).toMatchObject({ total: 1, unmasked: 2 });
+    expect(preview.rules[0]!.unmasked.samples.map((s) => [s.value, s.key, s.in, s.path])).toEqual([
+      ['1792155242516', false, 'response', '$.result'],
+      ['4111111111111111', false, 'response', '$.result.card'],
+    ]);
+    expect(preview.rules[0]!.unmasked.remedies).toEqual([{ rule: { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'" }]);
+
+    // The command it gives, run: the card is masked in a pack, and only the time is left as it was.
+    expect((await shadowlap(['redact', 'add', '--kind', 'tool', '--name', 'lookup_card', '--path', '$.result.card', '--replace', '<CARD>'])).code).toBe(0);
+    r = await shadowlap(['redact', 'preview', run.runId]);
+    expect(r.out).toContain(': 2 values would be masked, 1 left as it is\n');
+    expect(r.out).toContain('        = 1792155242516  call 1 clock now, response $.result\n        what a clock or random read returned stays as recorded: a replay needs it\n');
+    expect(r.out).toMatch(/#2 +tool · lookup_card +\$\.result\.card +whole value → <CARD> +1\n {8}- 4111111111111111\n {8}\+ <CARD>/);
+    expect((await shadowlap(['pack', run.runId, join(cwd, 'packed')])).code).toBe(0);
+    const blobs = readdirSync(join(cwd, 'packed', 'blobs')).map((f) => readFileSync(join(cwd, 'packed', 'blobs', f), 'utf8'));
+    expect(blobs).toContain('{"result":1792155242516}');
+    expect(blobs.join('\n')).not.toContain('4111');
   });
 
   it("previews the run's command line, labels and notes apart, which export html masks and pack keeps", async () => {

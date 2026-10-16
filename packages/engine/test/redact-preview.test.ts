@@ -58,7 +58,8 @@ describe('previewRedaction', () => {
     // Two requests, two different user ids.
     expect(user).toMatchObject({ count: 2, reached: 2 });
     expect(missing).toMatchObject({ count: 0, note: 'no tool call named charge_card in this run' });
-    expect(nowhere).toMatchObject({ count: 0, reached: 0, note: 'no request in this run has $.metadata.session' });
+    // A path that starts with a key reaches what a call got back too: neither has it.
+    expect(nowhere).toMatchObject({ count: 0, reached: 0, note: 'no request or response in this run has $.metadata.session' });
     expect(nomatch).toMatchObject({ count: 0, reached: 1, note: '$.args.to is in a request, but nothing there matches uuid' });
     expect(p).toMatchObject({ runId: run.runId, calls: 3, unreadable: 0, total: 9 });
     store.close();
@@ -144,8 +145,10 @@ describe('previewRedaction', () => {
     const whole = previewRedaction(store, run.runId, [...rules, { kind: 'tool', name: 'nothing', path: '$.messages[0]', replace: 'x' }]);
     expect(fast.rules).toEqual(whole.rules.slice(0, rules.length));
     expect(fast.total).toBe(whole.total);
-    // The policy, each user turn, each answer sent back, and each response; then the cards, ids, orders and the company.
-    expect(fast.rules.map((r) => r.count)).toEqual([1 + 150 + 149 + 150, 150, 150, 150, 1]);
+    // The policy, each user turn and each answer: a response is a JSON document whose strings are
+    // read as values, so an answer counts once, in its response and as the conversation sends it
+    // back. Then the cards, ids, orders and the company.
+    expect(fast.rules.map((r) => r.count)).toEqual([1 + 150 + 150, 150, 150, 150, 1]);
     store.close();
   });
 
@@ -243,6 +246,165 @@ describe('previewRedaction', () => {
     store.endRun(broken.runId, 'failed');
     expect(previewRedaction(store, broken.runId, [EMAIL])).toMatchObject({ calls: 0, unreadable: 1, total: 0 });
     expect(previewRedaction(store, run.runId, [EMAIL]).unreadable).toBe(0);
+    store.close();
+  });
+});
+
+/** One call of a run: its request, and what each attempt got back (the bytes stored, or an error in its record). */
+function addCall(store: Store, runId: string, callNo: number, kind: 'api' | 'tool' | 'clock' | 'random', name: string, request: unknown, ends: Array<{ body?: string; error?: { name: string; message: string; code?: string; data?: unknown } }>) {
+  const id = { kind, name, fingerprint: String(callNo).padStart(64, 'f'), occurrence: 1 };
+  const requestRef = request === undefined ? null : kind === 'api' ? storeApiRequest(store, request) : store.putJson(request);
+  store.appendCallStart({ runId, callNo, ...id, origin: 'live', effect: kind === 'tool' ? 'read' : null, requestRef, meta: {}, at: callNo });
+  ends.forEach((e, attempt) => {
+    const responseRef = e.body === undefined ? null : store.putBlob(Buffer.from(e.body));
+    store.appendCallEnd(id, { runId, callNo, attempt, responseRef, outcome: e.error ? 'error' : 'ok', meta: e.error ? { error: e.error } : {}, at: callNo });
+  });
+}
+
+/** What a copy of the run holds for each call: its request, and each attempt's response and error, as text. */
+function copied(store: Store, runId: string, rules: Normalizer[]) {
+  const dst = Store.open(':memory:');
+  redactRun(store, runId, rules, dst);
+  const out = dst.getCalls(runId).map((c) => ({
+    request: c.requestRef ? JSON.stringify(c.kind === 'api' ? loadApiRequest(dst, c.requestRef) : dst.getJson(c.requestRef)) : null,
+    ends: [...c.attempts, ...(c.end ? [c.end] : [])].map((e) => ({ body: e.responseRef ? dst.getBlob(e.responseRef)!.toString('utf8') : null, error: e.meta.error ?? null })),
+  }));
+  dst.close();
+  return out;
+}
+
+describe('what a copy leaves as it is', () => {
+  it('counts the strings of a JSON document, and the numbers a pattern matches apart, with where each is and the path rule that masks it', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    // A clock read, a card on file as a number and as text, and the result sent back to the model as a string.
+    const result = '{\n  "result": {"card": 4111111111111111, "on_file": "4111 1111 1111 1111", "owner": "ann@example.com"}\n}';
+    addCall(store, run.runId, 1, 'clock', 'now', { label: 'now' }, [{ body: '{"result":1792155242516}' }]);
+    addCall(store, run.runId, 2, 'tool', 'lookup_card', { args: { customer: 'ann@example.com' } }, [{ body: result }]);
+    const sentBack = JSON.stringify(JSON.parse(result).result);
+    addCall(store, run.runId, 3, 'api', 'POST /v1/messages', { model: 'm', messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: sentBack }] }] }, [{ body: '{"content":[{"type":"text","text":"Card on file."}],"usage":{"input_tokens":4111}}' }]);
+    store.endRun(run.runId, 'completed');
+
+    const p = previewRedaction(store, run.runId, [EMAIL, CARD]);
+    const [email, card] = p.rules;
+    // The address, one value as the request and the result hold it, and the result sent back.
+    expect(email).toMatchObject({ count: 2, unmasked: { count: 0, samples: [], remedies: [] } });
+    // The card as text in the result, and both cards in the string sent back; not the number the result holds.
+    expect(card!.count).toBe(3);
+    expect(card!.samples[0]).toEqual({ before: '4111 1111 1111 1111', after: '<CARD>' });
+    expect(card!.unmasked).toEqual({
+      count: 2,
+      samples: [
+        { value: '1792155242516', key: false, callNo: 1, kind: 'clock', name: 'now', in: 'response', path: '$.result' },
+        { value: '4111111111111111', key: false, callNo: 2, kind: 'tool', name: 'lookup_card', in: 'response', path: '$.result.card' },
+      ],
+      // None for the clock read: a replay needs the time as recorded.
+      remedies: [{ rule: { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'" }],
+    });
+    expect(p).toMatchObject({ total: 5, unmasked: 2 });
+
+    // The copy holds exactly that: the strings masked, both numbers as recorded, the layout kept.
+    const [clock, lookup] = copied(store, run.runId, [EMAIL, CARD]);
+    expect(clock!.ends[0]!.body).toBe('{"result":1792155242516}');
+    expect(lookup!.ends[0]!.body).toBe('{\n  "result": {"card": 4111111111111111, "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
+
+    // The rule the preview proposes masks the number, as it says: the card is gone from the copy.
+    const fix = card!.unmasked.remedies[0]!.rule;
+    const after = previewRedaction(store, run.runId, [EMAIL, CARD, fix]);
+    expect(after.rules[1]!.unmasked).toMatchObject({ count: 1, remedies: [] });
+    expect(after.rules[2]).toMatchObject({ count: 1, reached: 1, samples: [{ before: '4111111111111111', after: '<CARD>' }] });
+    expect(copied(store, run.runId, [EMAIL, CARD, fix])[1]!.ends[0]!.body).toBe('{\n  "result": {"card": "<CARD>", "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
+    store.close();
+  });
+
+  it('says a rule matches only numbers here, and proposes one rule for each place, positions read as [*]', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const use = (id: string, amount: number) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'refund', input: { amount } }] });
+    const messages = [{ role: 'user', content: 'Refund both orders.' }, use('t1', 4111111111111111), { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] }, use('t2', 5500000000000004)];
+    addCall(store, run.runId, 1, 'api', 'POST /v1/messages', { model: 'm', messages: messages.slice(0, 1) }, [{ body: JSON.stringify({ content: messages[1]!.content }) }]);
+    addCall(store, run.runId, 2, 'api', 'POST /v1/messages', { model: 'm', messages: messages.slice(0, 3) }, [{ body: JSON.stringify({ content: messages[3]!.content }) }]);
+    addCall(store, run.runId, 3, 'api', 'POST /v1/messages', { model: 'm', messages }, [{ body: '{"content":[{"type":"text","text":"Done."}]}' }]);
+    store.endRun(run.runId, 'completed');
+    const card = previewRedaction(store, run.runId, [CARD]).rules[0]!;
+    expect(card.count).toBe(0);
+    expect(card.note).toBe('it matches only numbers here, which a copy leaves as they are');
+    // Each amount once, wherever it is sent again; a rule for the responses' place and one for the requests'.
+    expect(card.unmasked.count).toBe(2);
+    expect(card.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([
+      ['4111111111111111', 'response', '$.content[0].input.amount'],
+      ['5500000000000004', 'response', '$.content[0].input.amount'],
+    ]);
+    expect(card.unmasked.remedies.map((r) => r.command)).toEqual([
+      "shadowlap redact add --kind api --path '$.content[*].input.amount' --replace '<CARD>'",
+      "shadowlap redact add --kind api --path '$.messages[*].content[*].input.amount' --replace '<CARD>'",
+    ]);
+    // With both, nothing of either is left in the copy, and the preview says so.
+    const fixed = [CARD, ...card.unmasked.remedies.map((r) => r.rule)];
+    expect(previewRedaction(store, run.runId, fixed)).toMatchObject({ unmasked: 0, total: 4 });
+    expect(JSON.stringify(copied(store, run.runId, fixed))).not.toMatch(/4111111111111111|5500000000000004/);
+    store.close();
+  });
+
+  it("reads keys as the copy does: a response's are strings it masks, a request's and an error's stay", () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const error = { name: 'Error', message: 'over the limit', data: { 'dan@example.com': 'blocked', account: 4111111111111111 } };
+    addCall(store, run.runId, 1, 'tool', 'notify', { args: { 'bob@example.com': 'cc' } }, [{ body: JSON.stringify({ error }), error }, { body: '{"result":{"carol@example.com":true}}' }]);
+    store.endRun(run.runId, 'completed');
+    const [email, card] = previewRedaction(store, run.runId, [EMAIL, CARD]).rules;
+    // The result's key, and the key of the error's response, which a tool stores as JSON.
+    expect(email!.count).toBe(2);
+    expect(email!.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([
+      ['bob@example.com', 'request', '$.args["bob@example.com"]'],
+      ['dan@example.com', 'error', '$.error.data["dan@example.com"]'],
+    ]);
+    expect(email!.unmasked.samples.every((s) => s.key)).toBe(true);
+    // A key can't be masked alone: a path rule masks the object that holds it.
+    expect(email!.unmasked.remedies.map((r) => r.command)).toEqual([
+      "shadowlap redact add --kind tool --name notify --path '$.args' --replace '<EMAIL>'",
+      "shadowlap redact add --kind tool --name notify --path '$.error.data' --replace '<EMAIL>'",
+    ]);
+    // The account, as the error's response holds it and as the error in the call's record does.
+    expect(card!.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([['4111111111111111', 'response', '$.error.data.account']]);
+    expect(card!.unmasked.remedies.map((r) => r.command)).toEqual(["shadowlap redact add --kind tool --name notify --path '$.error.data.account' --replace '<CARD>'"]);
+    // A path rule reaches the error in the record too, read as the tool stores it.
+    const fix = card!.unmasked.remedies[0]!.rule;
+    const [notify] = copied(store, run.runId, [EMAIL, CARD, fix]);
+    expect(notify!.ends[0]!.error).toEqual({ name: 'Error', message: 'over the limit', data: { 'dan@example.com': 'blocked', account: '<CARD>' } });
+    expect(JSON.parse(notify!.ends[0]!.body!)).toEqual({ error: { name: 'Error', message: 'over the limit', data: { '<EMAIL>': 'blocked', account: '<CARD>' } } });
+    expect(previewRedaction(store, run.runId, [EMAIL, CARD, fix]).rules[1]!.unmasked.count).toBe(0);
+    store.close();
+  });
+
+  it("says what a path rule's pattern leaves at its path, and that the rule without it masks the whole value", () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    addCall(store, run.runId, 1, 'tool', 'charge', { args: { card: 4111111111111111 } }, [{ body: '{"result":{"ok":true}}' }]);
+    store.endRun(run.runId, 'completed');
+    const rule: Normalizer = { kind: 'tool', path: '$.args.card', pattern: '/\\d{16}/', replace: '<CARD>' };
+    const [r] = previewRedaction(store, run.runId, [rule]).rules;
+    expect(r).toMatchObject({ count: 0, reached: 1, note: "what /\\d{16}/ matches at $.args.card here isn't a string, so it stays as it is: without the pattern, the rule masks the whole value" });
+    expect(r!.unmasked).toEqual({
+      count: 1,
+      samples: [{ value: '4111111111111111', key: false, callNo: 1, kind: 'tool', name: 'charge', in: 'request', path: '$.args.card' }],
+      remedies: [{ rule: { kind: 'tool', path: '$.args.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --path '$.args.card' --replace '<CARD>'" }],
+    });
+    store.close();
+  });
+
+  it('counts a value a streamed response splits across events once, as the copy masks it', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const delta = (text: string) => `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })}\n\n`;
+    const stream = ['Sent to ma', 'ya@exam', 'ple.com today.'].map(delta).join('');
+    addCall(store, run.runId, 1, 'api', 'POST /v1/messages', { model: 'm', messages: [{ role: 'user', content: 'Send it.' }] }, [{ body: stream }]);
+    // The answer goes back with the next request: the same value, counted once.
+    addCall(store, run.runId, 2, 'api', 'POST /v1/messages', { model: 'm', messages: [{ role: 'user', content: 'Send it.' }, { role: 'assistant', content: [{ type: 'text', text: 'Sent to maya@example.com today.' }] }, { role: 'user', content: 'Thanks.' }] }, [{ body: '{"content":[{"type":"text","text":"Bye."}]}' }]);
+    store.endRun(run.runId, 'completed');
+    const [email] = previewRedaction(store, run.runId, [EMAIL]).rules;
+    expect(email).toMatchObject({ count: 1, samples: [{ before: 'Sent to maya@example.com today.', after: 'Sent to <EMAIL> today.' }] });
+    expect(JSON.stringify(copied(store, run.runId, [EMAIL]))).not.toContain('maya@');
     store.close();
   });
 });

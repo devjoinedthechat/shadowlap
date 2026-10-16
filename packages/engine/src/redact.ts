@@ -1,16 +1,23 @@
 import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
+import { pathReachesResults, rewriteJsonDocument, type CallScope } from './json-doc.js';
 import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
-import { applyNormalizers, compilePattern, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, type RewriteObserver } from './normalize.js';
+import { applyNormalizers, compilePattern, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type UnmaskedAt } from './normalize.js';
 import { maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { redactRunFacts } from './run-facts.js';
 import type { Store } from './store.js';
+import { quoteArgv } from './text.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunRecord, SerializedError } from './types.js';
 
 /**
- * Redaction: a copy of a run whose stored requests and responses have the rules applied.
- * Path-scoped rules apply to requests (they are JSON); pathless pattern rules apply to every
- * string of a request, to the raw text of a response, and to an attempt's error. The copy records
+ * Redaction: a copy of a run whose stored requests and responses have the rules applied. Rules
+ * without a path apply to every string of a request, to every string of a response or tool result
+ * that is one JSON document (keys included; its numbers and layout stay byte for byte), to the raw
+ * text of any other response (a stream, plain text), and to an attempt's error. Rules with a path
+ * apply to requests (they are JSON), and, when the path starts with a key or a position
+ * (`$.result.card`), to a response that is one JSON document and to an attempt's error, read as a
+ * tool stores it (`{ "error": … }`): that is how a number is masked, which no pattern rewrites
+ * (json-doc.ts). The copy records
  * the rules in its run metadata so a replay applies them as normalizers and still matches (a rule
  * must therefore be idempotent: its replacement must not match its own pattern).
  *
@@ -51,50 +58,41 @@ export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[
 }
 
 /**
- * What `pack` writes for a response: every pathless rule applied as redactBytes applies it, across a
- * streamed response's events too. `export dataset` reads responses through this too.
+ * What `pack` writes for a response: the rules applied as redactBytes applies them, across a
+ * streamed response's events too, and the path rules for the call's kind and name on a response
+ * that is one JSON document. `export dataset` reads responses through this too.
  */
-export function redactedResponse(bytes: Buffer, rules: Normalizer[]): Buffer {
-  return redactBytes(bytes, rules);
+export function redactedResponse(bytes: Buffer, rules: Normalizer[], call?: CallScope): Buffer {
+  return redactBytes(bytes, rules, call);
 }
-
-/** What the pathless rules match in a response's text as it was recorded, for the preview; binary is skipped. */
-function observeResponse(bytes: Buffer, rules: Normalizer[], observer: RewriteObserver): void {
-  const text = asText(bytes);
-  if (text !== null) rewriteText(text, rules, observer);
-}
-
-/** A string in a JSON document's text: in valid JSON, a quote opens one and the next unescaped quote closes it. */
-const JSON_STRING = /"(?:[^"\\]|\\.)*"/g;
 
 /**
- * A JSON document's text (a response, a tool's result, a clock or random read) with the pathless
- * rules applied to its strings alone, as they apply to a request's strings. Numbers and the
- * document's layout stay byte for byte, so a recorded timestamp whose 13 digits a card-number
- * pattern matches still reads as that number when the copy replays. Null when the text is not one
- * JSON document.
+ * An attempt's error as `pack` keeps it: the rules without a path applied to every string in it, as
+ * to the response it came with, and the path rules for the call that reach it, the error read as a
+ * tool stores it: `{ "error": { "name", "message", "code", "data" } }`, so `$.error.data.card`.
  */
-function rewriteJsonText(text: string, rules: Normalizer[]): string | null {
-  try {
-    JSON.parse(text);
-  } catch {
-    return null;
-  }
-  return text.replace(JSON_STRING, (literal) => {
-    const value = JSON.parse(literal) as string;
-    const masked = rewriteText(value, rules);
-    return masked === value ? literal : JSON.stringify(masked);
-  });
-}
-
-/** An attempt's error as `pack` keeps it: the pathless rules applied to every string in it, as to the response it came with. */
-function redactedError(error: SerializedError, rules: Normalizer[], observer?: RewriteObserver): SerializedError {
+function redactedError(error: SerializedError, rules: Normalizer[], observer?: RewriteObserver, call?: CallScope): SerializedError {
   let out: unknown = error;
   rules.forEach((n, i) => {
-    if (n.path !== undefined || n.pattern === undefined) return;
-    const changed = observer?.changed ? (before: string, after: string, count: number) => observer.changed!(i, before, after, count) : undefined;
-    out = rewriteStringsDeep(out, compilePattern(n.pattern), n.replace, changed);
+    if (n.path === undefined) {
+      if (n.pattern === undefined) return;
+      const changed = observer?.changed ? (before: string, after: string, count: number) => observer.changed!(i, before, after, count) : undefined;
+      out = rewriteStringsDeep(out, compilePattern(n.pattern), n.replace, changed);
+      return;
+    }
+    if (!call || !pathReachesResults(n) || !normalizerApplies(n, call.kind, call.name)) return;
+    const one: RewriteObserver | undefined = observer && {
+      ...(observer.reached ? { reached: (_: number, value: unknown) => observer.reached!(i, value) } : {}),
+      ...(observer.changed ? { changed: (_: number, before: unknown, after: unknown, count: number) => observer.changed!(i, before, after, count) } : {}),
+    };
+    const wrapped = applyNormalizers({ error: out }, [n], call.kind, call.name, one) as { error: unknown };
+    // A rule that replaced the whole of it leaves an error whose message is the replacement.
+    out = isObject(wrapped.error) ? wrapped.error : { name: 'Error', message: typeof wrapped.error === 'string' ? wrapped.error : JSON.stringify(wrapped.error) };
   });
+  if (observer?.unmasked) {
+    reportUnmasked(out, rules, (n) => n.path === undefined, observer.unmasked, ['error']);
+    if (call) reportUnmasked({ error: out }, rules, (n) => pathReachesResults(n) && normalizerApplies(n, call.kind, call.name), observer.unmasked);
+  }
   return out as SerializedError;
 }
 
@@ -104,11 +102,11 @@ function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: S
   return call.kind === 'api' ? storeApiRequest(dst, body) : dst.putJson(body);
 }
 
-function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store): string | null {
+function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope): string | null {
   if (!ref) return null;
   const bytes = src.getBlob(ref);
   if (!bytes) return null;
-  return dst.putBlob(redactBytes(bytes, rules));
+  return dst.putBlob(redactBytes(bytes, rules, call));
 }
 
 /** The bytes as a string when they are text (UTF-8 that round-trips), else null. */
@@ -118,10 +116,10 @@ function asText(bytes: Buffer): string | null {
 }
 
 /** Every string inside a JSON value with the pathless rules applied. */
-function rewriteDeep(value: unknown, rules: Normalizer[]): unknown {
-  if (typeof value === 'string') return rewriteText(value, rules);
-  if (Array.isArray(value)) return value.map((v) => rewriteDeep(v, rules));
-  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewriteDeep(v, rules)]));
+function rewriteDeep(value: unknown, rules: Normalizer[], observer?: RewriteObserver): unknown {
+  if (typeof value === 'string') return rewriteText(value, rules, observer);
+  if (Array.isArray(value)) return value.map((v) => rewriteDeep(v, rules, observer));
+  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rewriteDeep(v, rules, observer)]));
   return value;
 }
 
@@ -130,7 +128,7 @@ function rewriteDeep(value: unknown, rules: Normalizer[]): unknown {
  * is not text). InvokeModelWithResponseStream wraps the provider's own event in base64 `bytes`, which
  * is decoded, masked and encoded again; ConverseStream's events are JSON as they are.
  */
-function redactEventPayload(payload: Buffer, rules: Normalizer[]): Buffer | null {
+function redactEventPayload(payload: Buffer, rules: Normalizer[], observer?: RewriteObserver): Buffer | null {
   const text = asText(payload);
   if (text === null) return null;
   let parsed: unknown;
@@ -145,20 +143,20 @@ function redactEventPayload(payload: Buffer, rules: Normalizer[]): Buffer | null
     for (const [key, value] of Object.entries(parsed)) {
       if (key === 'bytes') {
         const inner = asText(Buffer.from(value as string, 'base64'));
-        const masked = inner === null ? null : rewriteText(inner, rules);
+        const masked = inner === null ? null : rewriteText(inner, rules, observer);
         if (masked !== null && masked !== inner) {
           changed = true;
           out[key] = Buffer.from(masked, 'utf8').toString('base64');
         } else out[key] = value;
       } else {
-        const masked = rewriteDeep(value, rules);
+        const masked = rewriteDeep(value, rules, observer);
         if (JSON.stringify(masked) !== JSON.stringify(value)) changed = true;
         out[key] = masked;
       }
     }
     return changed ? Buffer.from(JSON.stringify(out), 'utf8') : null;
   }
-  const masked = rewriteText(text, rules);
+  const masked = rewriteText(text, rules, observer);
   return masked === text ? null : Buffer.from(masked, 'utf8');
 }
 
@@ -191,37 +189,48 @@ function frameEvent(payload: Buffer): { event: unknown; encode: () => Buffer } |
  * A Bedrock event stream with every frame's payload masked: first the text the model streamed in
  * pieces, across frames, then each payload as text. A frame nothing matched stays byte for byte.
  */
-function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[]): Buffer {
+function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[], observer?: RewriteObserver): Buffer {
   const events = frames.map((f) => frameEvent(f.payload));
   const across = maskStreamed(
     events.map((e) => e?.event),
     rules,
+    observer,
   );
   return Buffer.concat(
     frames.map((f, i) => {
       const payload = across.has(i) ? events[i]!.encode() : f.payload;
-      const masked = redactEventPayload(payload, rules) ?? payload;
+      const masked = redactEventPayload(payload, rules, observer) ?? payload;
       return masked.equals(f.payload) ? f.raw : encodeEventStreamFrame(f.headers, masked);
     }),
   );
 }
 
 /**
- * A stored response, or any bytes, with every pathless rule applied to its text. A streamed response
- * (server-sent events, Gemini's array of chunks, or Bedrock's AWS event stream) is first masked
- * across its events, since the model's text arrives in pieces a rule never sees whole (see
- * redact-stream.ts). An event stream's frames are rebuilt with new checksums. Other bytes that are
- * not text stay as they are.
+ * A stored response, or any bytes, with the rules applied as every copy applies them. A streamed
+ * response (server-sent events, Gemini's array of chunks, or Bedrock's AWS event stream) is first
+ * masked across its events, since the model's text arrives in pieces a rule never sees whole (see
+ * redact-stream.ts). Then a response that is one JSON document gets the rules on its values, as
+ * rewriteJsonDocument applies them (each string; a path rule for `call` at its path), its numbers
+ * and layout byte for byte; any other text (a stream, plain text) gets the rules without a path on
+ * its text, numbers and all. An event stream's frames are rebuilt with new checksums. Other bytes
+ * that are not text stay as they are.
+ *
+ * The preview passes an observer and reads this to count exactly what a copy changes, and what the
+ * rules match that it leaves as it is (previewRedaction); a copy passes none.
  */
-export function redactBytes(bytes: Buffer, rules: Normalizer[]): Buffer {
-  if (!rules.some((n) => n.path === undefined && n.pattern !== undefined)) return bytes;
+export function redactBytes(bytes: Buffer, rules: Normalizer[], call?: CallScope, observer?: RewriteObserver): Buffer {
+  const pathless = rules.some((n) => n.path === undefined && n.pattern !== undefined);
+  const scoped = !!call && rules.some((n) => pathReachesResults(n) && normalizerApplies(n, call.kind, call.name));
+  if (!pathless && !scoped) return bytes;
   const frames = eventStreamFrames(bytes);
-  if (frames) return redactEventStream(frames, rules);
+  if (frames) return pathless ? redactEventStream(frames, rules, observer) : bytes;
   const text = asText(bytes);
   if (text === null) return bytes;
-  const streamed = maskSseStream(text, rules) ?? maskJsonChunks(text, rules) ?? text;
-  // A JSON document gets the rules on its strings; other text (an event stream, plain text) as text.
-  return Buffer.from(rewriteJsonText(streamed, rules) ?? rewriteText(streamed, rules), 'utf8');
+  const streamed = pathless ? (maskSseStream(text, rules, observer) ?? maskJsonChunks(text, rules, observer) ?? text) : text;
+  // A JSON document gets the rules on its values; other text (an event stream, plain text) as text.
+  const doc = rewriteJsonDocument(streamed, rules, call ?? null, observer);
+  if (doc !== null) return Buffer.from(doc, 'utf8');
+  return pathless ? Buffer.from(rewriteText(streamed, rules, observer), 'utf8') : bytes;
 }
 
 /**
@@ -288,9 +297,9 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[]): RunMeta {
 }
 
 /** A call's metadata with what it repeats of the content masked: its error, an injected failure's message, the response headers. */
-function redactCallMeta(meta: CallMeta, rules: Normalizer[]): CallMeta {
+function redactCallMeta(meta: CallMeta, rules: Normalizer[], call: CallScope): CallMeta {
   const out: CallMeta = { ...meta };
-  if (meta.error) out.error = redactedError(meta.error, rules);
+  if (meta.error) out.error = redactedError(meta.error, rules, undefined, call);
   if (isObject(meta.failure) && typeof meta.failure.message === 'string') out.failure = { ...meta.failure, message: rewriteText(meta.failure.message, rules) };
   if (meta.headers) out.headers = Object.fromEntries(Object.entries(meta.headers).map(([k, v]) => [k, rewriteText(v, rules)]));
   return out;
@@ -313,7 +322,7 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
       const { end, attempts, ...start } = call;
       dst.appendCallStart({ ...start, requestRef: redactRequest(src, call, rules, dst) });
       const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
-      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules), responseRef: redactResponse(src, e.responseRef, rules, dst) });
+      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, call), responseRef: redactResponse(src, e.responseRef, rules, dst, call) });
       for (const a of attempts) dst.appendCallEnd(identity, redactEnd(a));
       if (end) dst.appendCallEnd(identity, redactEnd(end));
     }
@@ -395,6 +404,44 @@ export interface RedactionRulePreview {
   reached: number | null;
   /** Why the count is 0, in words; null when it isn't. */
   note: string | null;
+  /** What the rule's pattern matches that a copy leaves as it is, apart from `count`. */
+  unmasked: RedactionUnmasked;
+}
+
+/**
+ * What a rule's pattern matches that a copy carries as recorded: a number (a copy rewrites
+ * strings, so a timestamp a card-number pattern matches still replays as that number), a key of a
+ * request or an error (which keeps its keys; a response's keys are strings like any other there), or
+ * for a rule with a path, a number or object at its path, since a pattern applies to a string.
+ */
+export interface RedactionUnmasked {
+  /** Its matches there, each value once however many requests send it again, as `count` counts. */
+  count: number;
+  /** Up to two of those values, each where it was first found. */
+  samples: UnmaskedSample[];
+  /**
+   * What would mask them: for each place they were found (up to five), a path rule, which masks the
+   * whole value at its path, numbers included, as the rule and the command that adds it. A position
+   * in a list reads as [*], so the rule masks that value in every message or item alike. None for a
+   * value in a clock or random read: the run's time and randomness, which a replay needs as
+   * recorded.
+   */
+  remedies: Array<{ rule: Normalizer; command: string }>;
+}
+
+/** A value a copy carries as recorded, and where: the call, which part of it, and the path there. */
+export interface UnmaskedSample {
+  /** As the copy carries it: a number as recorded, a key, or the value at a path rule's path. */
+  value: string;
+  /** It is a key of an object (a request's or an error's), not a value. */
+  key: boolean;
+  callNo: number;
+  kind: CallKind;
+  name: string;
+  /** The call's request, what it got back (a response, a tool's result, a clock or random read), or an attempt's error. */
+  in: 'request' | 'response' | 'error';
+  /** Its JSONPath there, as a path rule takes it: `$.result.card`, `$.messages[3].content[1].input.amount`. A key's path ends in the key. */
+  path: string;
 }
 
 export interface RedactionPreview {
@@ -410,6 +457,8 @@ export interface RedactionPreview {
   partial: { read: number; of: number; stopped: 'calls' | 'bytes' | 'time' } | null;
   /** Everything the rules would mask in what `pack` copies, summed over the rules. */
   total: number;
+  /** What the rules match that a copy leaves as it is (each rule's `unmasked.count`), summed over the rules. Not part of `total`. */
+  unmasked: number;
   rules: RedactionRulePreview[];
   /**
    * The run's details: matches of the rules without a path in its command line, labels and notes,
@@ -437,6 +486,8 @@ export interface PreviewLimits {
 const SAMPLES = 2;
 const CONTEXT = 32;
 const SAMPLE_MAX = 160;
+/** Path rules a preview proposes for one rule's unmasked values, at most. */
+const REMEDIES = 5;
 
 /** The two versions of a value cut to where they differ, with a little context around the change. */
 export function clipChange(before: string, after: string, context = CONTEXT, max = SAMPLE_MAX): { before: string; after: string } {
@@ -466,6 +517,39 @@ export function clipChange(before: string, after: string, context = CONTEXT, max
 
 const shownText = (v: unknown): string => (typeof v === 'string' ? v : v instanceof Uint8Array ? `<${v.length} bytes>` : (JSON.stringify(v) ?? String(v)));
 const digest = (v: unknown): string => createHash('sha1').update(shownText(v)).digest('base64');
+
+/** A key as a path writes it: `.name` when it reads plainly, else `["any key"]`, or [*] for a key no path can name (one with a `]`). */
+function keySegment(key: string): string {
+  if (/^[A-Za-z_$][\w$-]*$/.test(key)) return `.${key}`;
+  return key.includes(']') ? '[*]' : `["${key}"]`;
+}
+
+/** A path as a rule takes it: `$.messages[3].content`. With `general`, every position after the first reads [*]. */
+export function jsonPath(path: ReadonlyArray<string | number>, general = false): string {
+  return `$${path.map((s, i) => (typeof s === 'number' ? (general && i > 0 ? '[*]' : `[${s}]`) : keySegment(s))).join('')}`;
+}
+
+/**
+ * The path rule that masks a value a rule leaves as it is, found in `call` at `at`: for a rule with
+ * a path, that rule without its pattern; for one without, a rule at the value's path (or a key's
+ * object's), scoped to the call's kind and, for a tool, its name, with the same replacement. None
+ * in a clock or random read, whose value a replay needs as recorded, and none for the whole of a
+ * request or response.
+ */
+function remedyFor(rule: Normalizer, call: Pick<CallRecord, 'kind' | 'name'>, at: UnmaskedAt): { rule: Normalizer; command: string } | null {
+  if (call.kind === 'clock' || call.kind === 'random') return null;
+  let fix: Normalizer;
+  if (rule.path !== undefined) {
+    if (parsePath(rule.path).length === 0) return null;
+    fix = { ...(rule.kind ? { kind: rule.kind } : {}), ...(rule.name ? { name: rule.name } : {}), path: rule.path, replace: rule.replace };
+  } else {
+    const path = at.key ? at.path.slice(0, -1) : at.path;
+    if (!path.length) return null;
+    fix = { kind: call.kind, ...(call.kind === 'tool' ? { name: call.name } : {}), path: jsonPath(path, true), replace: rule.replace };
+  }
+  const argv = ['shadowlap', 'redact', 'add', ...(fix.kind ? ['--kind', fix.kind] : []), ...(fix.name ? ['--name', fix.name] : []), '--path', fix.path!, '--replace', fix.replace];
+  return { rule: fix, command: quoteArgv(argv) };
+}
 
 /**
  * Whether a rule sees a request's system prompt, its tools, its list of messages or one whole
@@ -502,12 +586,17 @@ function unseenParts(store: Store, call: CallRecord, seen: Set<string>): unknown
 }
 
 /**
- * What `shadowlap pack` would mask in one run, without writing anything: each rule applied to the
- * run's stored requests and responses exactly as pack applies it (path rules on requests, pathless
- * rules on every string of a request, on the text of every response and on an attempt's error,
- * retries included), with a count per rule and two samples. The local store is never modified. A
- * run still recording is refused: its calls are still arriving, so the count would be out of date
- * before it was read (a run its process abandoned is not recording).
+ * What `shadowlap pack` would mask in one run, without writing anything: the run's stored requests,
+ * responses and errors, retries included, read through the very functions a copy applies the rules
+ * with (redactedRequest's applyNormalizers, redactBytes, redactedError), which report each change
+ * they make; so the count per rule, and its two samples, are what the copy changes. A response that
+ * is one JSON document has its strings masked and its numbers kept, and is counted so. The local
+ * store is never modified. A run still recording is refused: its calls are still arriving, so the
+ * count would be out of date before it was read (a run its process abandoned is not recording).
+ *
+ * Apart from the count, each rule's `unmasked`: what its pattern matches that the copy leaves as
+ * it is (a number; a key of a request or an error; for a rule with a path, a number or object at
+ * its path), each value once, with where it was found and the path rule that would mask it.
  *
  * Every request of a conversation sends the earlier messages again, and a value repeated that way
  * counts once; so a message already read at the same place in an earlier request is not read
@@ -529,14 +618,25 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
-  const per = rules.map(() => ({ count: 0, reached: 0, scoped: 0, seen: new Set<string>(), reachedSeen: new Set<string>(), samples: [] as Array<{ before: string; after: string }> }));
+  const per = rules.map(() => ({
+    count: 0,
+    scoped: 0,
+    seen: new Set<string>(),
+    samples: [] as Array<{ before: string; after: string }>,
+    // Distinct values found at a path rule's path, in requests and in what calls got back.
+    reached: { seen: new Set<string>(), requests: 0, results: 0 },
+    unmasked: { count: 0, numbers: 0, keys: 0, seen: new Set<string>(), samples: [] as UnmaskedSample[], remedies: new Map<string, { rule: Normalizer; command: string }>() },
+  }));
+  // The call the rules are reading, and which part of it: where a value they leave is found.
+  let here: { call: CallRecord; in: UnmaskedSample['in'] } | null = null;
   const observer: RewriteObserver = {
     reached(i, value) {
-      const r = per[i]!;
+      const r = per[i]!.reached;
       const key = digest(value);
-      if (r.reachedSeen.has(key)) return;
-      r.reachedSeen.add(key);
-      r.reached++;
+      if (r.seen.has(key)) return;
+      r.seen.add(key);
+      if (here?.in === 'request') r.requests++;
+      else r.results++;
     },
     changed(i, before, after, count) {
       const r = per[i]!;
@@ -546,6 +646,21 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       r.seen.add(key);
       r.count += count;
       if (r.samples.length < SAMPLES) r.samples.push(clipChange(shownText(before), shownText(after)));
+    },
+    unmasked(i, text, at, count) {
+      if (!here) return;
+      const u = per[i]!.unmasked;
+      // A remedy for each place, though the value was found before at another.
+      const remedy = u.remedies.size < REMEDIES ? remedyFor(rules[i]!, here.call, at) : null;
+      if (remedy && !u.remedies.has(remedy.command)) u.remedies.set(remedy.command, remedy);
+      // Each value once, as `count` counts them; a key and a number apart.
+      const key = `${at.key ? 'k' : 'v'}${digest(text)}`;
+      if (u.seen.has(key)) return;
+      u.seen.add(key);
+      u.count += count;
+      if (at.key) u.keys++;
+      else u.numbers++;
+      if (u.samples.length < SAMPLES) u.samples.push({ value: text.length > SAMPLE_MAX ? `${text.slice(0, SAMPLE_MAX - 1)}…` : text, key: at.key, callNo: here.call.callNo, kind: here.call.kind, name: here.call.name, in: here.in, path: jsonPath(at.path) });
     },
   };
   const all = store.getCalls(runId);
@@ -576,22 +691,30 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (normalizerApplies(rule, call.kind, call.name)) per[i]!.scoped++;
     });
     try {
+      // What redactRun copies, read through the functions it copies with: the request, then each
+      // attempt's response and error.
       if (call.requestRef) {
+        here = { call, in: 'request' };
         const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
         applyNormalizers(request, rules, call.kind, call.name, observer);
       }
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
-        if (response) observeResponse(response, rules, observer);
-        if (end.meta.error) redactedError(end.meta.error, rules, observer);
+        here = { call, in: 'response' };
+        if (response) redactBytes(response, rules, call, observer);
+        here = { call, in: 'error' };
+        if (end.meta.error) redactedError(end.meta.error, rules, observer, call);
       }
     } catch {
       unreadable++;
+    } finally {
+      here = null;
     }
   }
   const previews = rules.map((rule, i): RedactionRulePreview => {
     const r = per[i]!;
-    return { n: i + 1, rule, count: r.count, samples: r.samples, reached: rule.path === undefined ? null : r.reached, note: r.count ? null : zeroNote(rule, r.scoped, r.reached) };
+    const unmasked: RedactionUnmasked = { count: r.unmasked.count, samples: r.unmasked.samples, remedies: [...r.unmasked.remedies.values()] };
+    return { n: i + 1, rule, count: r.count, samples: r.samples, reached: rule.path === undefined ? null : r.reached.requests + r.reached.results, note: r.count ? null : zeroNote(rule, r.scoped, r.reached, r.unmasked), unmasked };
   });
   // The run's details, as the exports that carry them mask them (redactRunDetails): the command line as one text, each label and each note.
   const details: RedactionPreview['details'] = { count: 0, samples: [], rules: [] };
@@ -604,17 +727,50 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
   };
   for (const text of [run.command.argv.join(' '), ...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
   details.rules.sort((a, b) => a - b);
-  return { runId, calls: read - unreadable, unreadable, partial: stopped ? { read, of: all.length, stopped } : null, total: previews.reduce((s, p) => s + p.count, 0), rules: previews, details };
+  return {
+    runId,
+    calls: read - unreadable,
+    unreadable,
+    partial: stopped ? { read, of: all.length, stopped } : null,
+    total: previews.reduce((s, p) => s + p.count, 0),
+    unmasked: previews.reduce((s, p) => s + p.unmasked.count, 0),
+    rules: previews,
+    details,
+  };
 }
 
-function zeroNote(rule: Normalizer, scoped: number, reached: number): string {
+/** What a rule matched that a copy leaves, in words: `a number here, which a copy leaves as it is`, `numbers and keys here, which …`. */
+function leftWords(u: { numbers: number; keys: number }): string {
+  const numbers = u.numbers === 1 ? 'a number' : 'numbers';
+  const keys = u.keys === 1 ? 'a key' : 'keys';
+  const what = u.numbers && u.keys ? `${numbers} and ${keys}` : u.keys ? keys : numbers;
+  return `${what} here, which a copy leaves as ${u.numbers + u.keys === 1 ? 'it is' : 'they are'}`;
+}
+
+/**
+ * Where a path rule looks, in words: a tool's arguments are its request (`$.args…`) and its result
+ * or error what it got back (`$.result…`, `$.error…`); any other path that starts with a key reaches
+ * both a request and a response, and `$` or a wildcard first only a request.
+ */
+function lookedIn(rule: Normalizer): string {
+  if (!pathReachesResults(rule)) return 'request';
+  const first = parsePath(rule.path!)[0];
+  if (first?.type === 'key' && first.key === 'args') return 'request';
+  if (first?.type === 'key' && (first.key === 'result' || first.key === 'error')) return 'result';
+  return 'request or response';
+}
+
+function zeroNote(rule: Normalizer, scoped: number, reached: { requests: number; results: number }, unmasked: { count: number; numbers: number; keys: number }): string {
   if (rule.path === undefined && rule.pattern === undefined) return 'it has neither a path nor a pattern, so it changes nothing';
   // A response is matched by every rule without a path, whatever its scope, so a scope only rules out requests.
-  if (rule.path === undefined) return 'no matches in this run';
+  if (rule.path === undefined) return unmasked.count ? `it matches only ${leftWords(unmasked)}` : 'no matches in this run';
   if (scoped === 0) return `no ${rule.kind ? `${rule.kind} call` : 'call'}${rule.name ? ` named ${rule.name}` : ''} in this run`;
-  if (reached === 0) return `no request in this run has ${rule.path}`;
+  const found = reached.requests + reached.results;
+  if (found === 0) return `no ${lookedIn(rule)} in this run has ${rule.path}`;
   if (rule.pattern === undefined) return `${rule.path} already reads ${rule.replace}`;
-  return `${rule.path} is in ${reached === 1 ? 'a request' : `${reached} requests`}, but nothing there matches ${rule.pattern}`;
+  if (unmasked.count) return `what ${rule.pattern} matches at ${rule.path} here isn't a string, so it stays as it is: without the pattern, the rule masks the whole value`;
+  const where = reached.results === 0 ? (found === 1 ? 'a request' : `${found} requests`) : reached.requests === 0 ? (found === 1 ? 'a response' : `${found} responses`) : `${found} requests and responses`;
+  return `${rule.path} is in ${where}, but nothing there matches ${rule.pattern}`;
 }
 
 // ---- where the rules apply ----
@@ -650,7 +806,7 @@ export interface RedactionExport {
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
   { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule, on every request and response it copies and the errors with them; the command line, labels and notes are copied as recorded, since a replay runs the command' },
   { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, and the rules without a path on the command line, labels and notes too' },
-  { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds: the whole request, and the rules without a path on URLs, headers and responses; it holds no tool calls and no command line' },
+  { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds, as pack applies them to their requests and responses, and the rules without a path on URLs and headers; it holds no tool calls and no command line' },
   { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as pack applies them, and the rules without a path on the rest of each row: command line, labels and notes' },
   { id: 'pairs', command: 'shadowlap export pairs', applies: 'messages', details: 'absent', note: 'the rules on the conversations and answers it keeps: path rules on the request and on tool arguments and results, and the rules without a path on every string' },
   { id: 'otel', command: 'shadowlap export otel', applies: 'attributes', details: 'masked', note: 'no prompt text leaves; the rules without a path on the names, command line and errors it keeps' },
