@@ -1791,8 +1791,10 @@ details.foundsum > summary > .sumtext { min-width: 0; }
 /* a step's result: the dot stays with its words; when they need the room, the button goes below */
 .recline > .ic, .recline > .dotlive { flex: none; }
 .recline > .rtext { flex: 1 1 16em; min-width: 0; }
-/* every field you type exact characters into shows them as typed: a regex's (?<= is not ≤, != is not ≠ */
-input, textarea, select { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+/* every field you type exact characters into, and every code you read them in, shows them as typed:
+   a regex's (?<= is not ≤, != is not ≠. Important, because a rule's own `font:` shorthand resets both
+   properties to normal, as `.form input` and `.cilist code` do. */
+input, textarea, select, code, pre, kbd, .cmdline, .codebox { font-variant-ligatures: none !important; font-feature-settings: "liga" 0, "calt" 0 !important; }
 /* a note under an MCP server's name wraps rather than widening the Server column past the mock's */
 .egrp.mcp td small.mnote { max-width: 240px; }
 .egrp.mcp .mcptable th:first-child { width: 22%; }
