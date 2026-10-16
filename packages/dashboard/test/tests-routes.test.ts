@@ -251,6 +251,30 @@ describe('the Tests jobs', () => {
     }
   });
 
+  it('never puts a key of the config that reads as an option on a command line', async () => {
+    // Keys under `tests` are listed as goldens even when they are no pack; these would reach the CLI as options.
+    const odd: GoldenSource[] = [goldens[0]!, ...['--online', '--writes', 'allow', '--update'].map((path) => ({ path, runId: null, packedAt: null, mode: 'replay' as const, repeat: 1, passes: 1, checks: [], error: 'no run.json: not a pack' }))];
+    const d = await startDashboard({ store: Store.open(':memory:'), spawnCli, readOnly: false, goldens: () => odd });
+    try {
+      const view = await getJson<TestsView>(d, 'tests');
+      expect(view.commands.run).toEqual(['test', 'goldens/*', 'allow']);
+      expect(view.commands.ci).toBe('shadowlap test goldens/* allow --junit report.xml');
+      expect(view.rows.find((r) => r.path === '--online')!.error).toMatch(/^its path starts with "-"/);
+      expect((await getJson<CiWorkflowsView>(d, 'ci/workflows')).recordings).toBe('goldens/* allow');
+      const start = (body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });
+      spawned.length = 0;
+      const res = await start({ kind: 'test' });
+      expect(res.status, await res.clone().text()).toBe(202);
+      expect(((await res.json()) as JobView).args).toEqual(['test', 'goldens/*', 'allow']);
+      for (const body of [{ kind: 'test', golden: '--online' }, { kind: 'test-update', goldens: ['--writes'] }, { kind: 'bisect', golden: '--update', good: 'c91d0f4' }, { kind: 'normalize-and-test', golden: '--online' }]) {
+        expect((await start(body)).status, JSON.stringify(body)).toBe(400);
+      }
+      expect(spawned.flat().some((a) => a.startsWith('--online') || a === '--writes' || a === '--update')).toBe(false);
+    } finally {
+      await d.close();
+    }
+  });
+
   it('adds the normalizer, then tests the golden, and links to the replay that passes', async () => {
     spawned.length = 0;
     const view = await job({ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' });

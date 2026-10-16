@@ -228,14 +228,25 @@ export interface TestsView {
 const RECORDINGS_NOTE = 'Recordings that pytest and Vitest keep in __recordings__/ run under their own test runner, not here.';
 
 /**
+ * A golden whose path starts with `-` (a key under the config's `tests`) would reach the CLI as an
+ * option, so no command is ever built with it: it is listed as one that can't be read.
+ */
+export const optionLike = (path: string): boolean => path.startsWith('-');
+const OPTION_LIKE = 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json';
+
+/**
  * What `shadowlap test` is given to run every golden: the goldens folder's pattern, which the CLI
- * expands itself, and each golden kept elsewhere (a pack the config's `tests` names) by its path.
+ * expands itself without a shell, and each golden kept elsewhere (a pack the config's `tests` names)
+ * by its path. A path that would read as an option is left out.
  */
 export function testPatterns(goldens: readonly GoldenSource[], folder = 'goldens'): string[] {
   const inFolder = (path: string) => path.startsWith(`${folder}/`) && !path.slice(folder.length + 1).includes('/');
-  const elsewhere = goldens.filter((g) => !inFolder(g.path)).map((g) => g.path);
+  const elsewhere = goldens.filter((g) => !inFolder(g.path) && !optionLike(g.path)).map((g) => g.path);
   return [...(goldens.some((g) => inFolder(g.path)) || !elsewhere.length ? [`${folder}/*`] : []), ...elsewhere];
 }
+
+/** Why a golden can't be read: a path that would read as an option (whatever is there), or its pack. */
+const unreadable = (g: GoldenSource): string | null => (optionLike(g.path) ? OPTION_LIKE : (g.error ?? null));
 
 /** A word as a shell reads it: `goldens/*` stays as it is, a path with a space is quoted. */
 const shellWord = (s: string) => (/^[A-Za-z0-9_./*:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
@@ -324,8 +335,8 @@ export function resultLine(r: TestResult, checks: readonly string[]): string {
     }
     return r.reason ?? 'failed';
   }
+  // An update is said by the result's status ("updated"), so the line is what the replay did.
   const parts: string[] = [];
-  if (data.updated) parts.push('updated');
   const n = data.checks?.length ?? 0;
   if (data.attempts) {
     parts.push(`${data.attempts.passed} of ${data.attempts.total} attempts passed ${n === 1 ? 'the check' : n === 2 ? 'both checks' : n ? `all ${n} checks` : ''}`.trim());
@@ -352,9 +363,10 @@ const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun
 const GUARD_BLOCKED = /blocked (?:an )?outbound connection to (\S+?)(?=:\s|\s\(SHADOWLAP_GUARD)/g;
 
 /**
- * The connections the network guard blocked during a failed replay (`host:port`): calls that bypass
- * Shadowlap, which a test, replaying offline, refuses. The run keeps what the guard reported; an
- * agent that dies at once can exit before its report lands, so what it printed counts too.
+ * The connections the network guard blocked during a replay (`host:port`): the agent went to a host
+ * directly, past Shadowlap, and a test, replaying offline, refuses that. The run keeps what the guard
+ * reported; an agent that dies at once can exit before its report lands, so what it printed counts
+ * too. An agent that catches the refusal can still pass, and the screen says so all the same.
  */
 function blockedTargets(store: Store, r: TestResult): string[] {
   const out = new Set<string>();
@@ -364,11 +376,20 @@ function blockedTargets(store: Store, r: TestResult): string[] {
   return [...out].slice(0, 5);
 }
 
-/** A failed result's line, saying first when the replay made a live call the guard blocked. */
-function failedLine(store: Store, r: TestResult, checks: readonly string[]): string {
-  const blocked = r.ok ? [] : blockedTargets(store, r);
+const blockedWords = (blocked: readonly string[]) => `blocked connection to ${blocked.join(', ')}`;
+
+/** A result's line, saying first when the guard blocked a connection the replay made past Shadowlap. */
+function lineOf(store: Store, r: TestResult, checks: readonly string[]): string {
+  const blocked = blockedTargets(store, r);
   const line = resultLine(r, checks);
-  return blocked.length ? `live call to ${blocked.join(', ')} blocked · ${line}` : line;
+  return blocked.length ? `${blockedWords(blocked)} · ${line}` : line;
+}
+
+/** A history cell's hover note: why it failed, or a connection the guard blocked in a replay that passed. */
+function cellNote(store: Store, r: TestResult, checks: readonly string[]): string | null {
+  if (!r.ok) return lineOf(store, r, checks);
+  const blocked = blockedTargets(store, r);
+  return blocked.length ? blockedWords(blocked) : null;
 }
 
 /** A committed revision to bisect from: `abc1234+dirty` was tested with changes on top of abc1234. */
@@ -454,6 +475,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     const sourceRun = runIfKept(store, g.runId);
     const recorded = sourceRun ? store.getRun(sourceRun) : null;
     const mode = modeOf(g);
+    const error = unreadable(g);
     return {
       path: g.path,
       name: nameOf(g.path, folder),
@@ -463,14 +485,16 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       modeHint: mode.hint,
       checks: g.checks,
       history: revisions.map((rev) => {
-        const r = list.find((x) => x.revision === rev) ?? null;
-        return { revision: rev, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r && !r.ok ? failedLine(store, r, g.checks) : null, updated: !!r?.data?.updated, runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
+        const here = list.filter((x) => x.revision === rev);
+        // The newest result there, ringed when any session there updated it: a run after the update keeps the ring.
+        const r = here[0] ?? null;
+        return { revision: rev, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
       }),
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: failedLine(store, latest, g.checks), at: latest.at, updated: !!latest.data?.updated }
-        : { result: null, failure: null, line: g.error ? `can't be read: ${g.error}` : 'not run yet', at: null, updated: false },
+        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: lineOf(store, latest, g.checks), at: latest.at, updated: !!latest.data?.updated }
+        : { result: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
-      error: g.error ?? null,
+      error,
     };
   });
 
@@ -644,7 +668,7 @@ export function failingTests(store: Store, options: { goldens: GoldenList; folde
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
-      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: failedLine(store, r, checksOf.get(r.golden) ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: lineOf(store, r, checksOf.get(r.golden) ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
     });
 }
 
@@ -747,8 +771,8 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const golden = run.meta?.test?.golden ?? null;
   // As listed: a pack in the goldens folder, or one the config names under `tests` (its checks too).
   const source = golden !== null ? (options.goldens.find((g) => g.path === golden) ?? null) : null;
-  // Only a golden whose pack can be read is bisected as one.
-  const ofGolden = !!source && !source.error;
+  // Only a golden whose pack can be read, by a path that reads as no option, is bisected as one.
+  const ofGolden = !!source && !unreadable(source);
   const before = options.before ?? run.startedAt;
   const own = committed(run.codeVersion);
   // A test replay failed when its golden did in that session (a golden that may fork diverges by design).
@@ -813,9 +837,10 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
  */
 export type TestsJob = { title: string; args: string[]; runId?: string } | { title: string; steps: string[][]; runId?: string } | { error: string };
 
-/** The golden a request names, as listed on disk, or null. */
+/** The golden a request names, as listed on disk, or null; never a path the CLI would read as an option. */
 function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
-  return typeof raw === 'string' ? (goldens.find((g) => g.path === raw)?.path ?? null) : null;
+  const path = typeof raw === 'string' ? (goldens.find((g) => g.path === raw)?.path ?? null) : null;
+  return path !== null && !optionLike(path) ? path : null;
 }
 
 /** A sha, a tag or a branch, possibly with `~n` or `^`; never an option or a range. A tested `+dirty` revision is its commit. */
@@ -904,7 +929,8 @@ export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: R
   if (req.runId === undefined) {
     const golden = knownGolden(goldens, req.golden);
     if (!golden) return { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
-    const error = goldens.find((g) => g.path === golden)?.error;
+    const source = goldens.find((g) => g.path === golden);
+    const error = source ? unreadable(source) : null;
     if (error) return { error: `${golden} can't be read: ${error}` };
     return { title: 'Finding the commit', args: ['bisect', golden, '--good', good, ...(bad ? ['--bad', bad] : [])] };
   }

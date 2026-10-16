@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NO_COMMAND, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
-import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
+import { bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
 /**
  * The Tests screen's read model over a store with three sessions at three revisions: one golden that
@@ -131,7 +131,7 @@ describe('the Tests screen', () => {
     const view = testsView(store, goldens);
     expect(view.revisions).toEqual(['5e1a9d3', 'c91d0f4', 'd2e8a1f']);
     const [flow, limit, over] = view.rows;
-    expect(flow).toMatchObject({ name: 'refund-flow', source: { kind: 'run', runId: 'GOLDEN_FLOW' }, modeLabel: 'replay', modeHint: 'must send exactly the requests it recorded', last: { result: 'pass', line: 'updated · 8/8 replayed · check passed', updated: true }, runId: 'R_C_FLOW' });
+    expect(flow).toMatchObject({ name: 'refund-flow', source: { kind: 'run', runId: 'GOLDEN_FLOW' }, modeLabel: 'replay', modeHint: 'must send exactly the requests it recorded', last: { result: 'pass', line: '8/8 replayed · check passed', updated: true }, runId: 'R_C_FLOW' });
     expect(flow!.history.map((h) => h.result)).toEqual(['pass', 'pass', 'pass']);
     expect(flow!.history.map((h) => h.updated)).toEqual([false, false, true]);
     // A pack made elsewhere, never tested at the first revision; its failing run is the one to open.
@@ -256,7 +256,7 @@ describe('the Tests screen', () => {
     store.close();
   });
 
-  it('names a live call the network guard blocked in the replay, in the failure and its lines', () => {
+  it('names a connection the network guard blocked in the replay, in the failure and its lines', () => {
     const store = Store.open(':memory:');
     run(store, 'R_LIVE');
     // The sidecar keeps on the run what the guard saw bypass Shadowlap: a test blocks it, a recording only warns.
@@ -267,9 +267,26 @@ describe('the Tests screen', () => {
     const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
     const view = testsView(store, [x]);
     expect(view.failures).toMatchObject([{ failure: 'exit', runId: 'R_LIVE', blocked: ['hooks.example.com:443'] }]);
-    expect(view.rows[0]!.last.line).toBe('live call to hooks.example.com:443 blocked · the agent exited with code 1');
-    expect(view.rows[0]!.history[0]!.note).toBe('live call to hooks.example.com:443 blocked · the agent exited with code 1');
-    expect(failingTests(store, { goldens: [x] })[0]!.line).toBe('live call to hooks.example.com:443 blocked · the agent exited with code 1');
+    expect(view.rows[0]!.last.line).toBe('blocked connection to hooks.example.com:443 · the agent exited with code 1');
+    expect(view.rows[0]!.history[0]!.note).toBe('blocked connection to hooks.example.com:443 · the agent exited with code 1');
+    expect(failingTests(store, { goldens: [x] })[0]!.line).toBe('blocked connection to hooks.example.com:443 · the agent exited with code 1');
+    store.close();
+  });
+
+  it('names a blocked connection on a golden that passed because its agent caught the refusal', () => {
+    const store = Store.open(':memory:');
+    run(store, 'R_CAUGHT');
+    store.updateRunMeta('R_CAUGHT', { notRecorded: { hosts: [{ target: '203.0.113.9:8080', count: 1, action: 'blocked' }], tools: [] } });
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'abc1234' });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: true, runId: 'R_CAUGHT', revision: 'abc1234', data: { mode: 'replay', calls: { total: 5, replayed: 5, live: 0, blocked: 0, stubbed: 0 } } });
+    store.finishTestSession(s.sessionId, { passed: 1, failed: 0, upstreamRequests: 0 });
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    const view = testsView(store, [x]);
+    expect(view.rows[0]!.last).toMatchObject({ result: 'pass', line: 'blocked connection to 203.0.113.9:8080 · 5/5 replayed' });
+    expect(view.rows[0]!.history[0]).toMatchObject({ result: 'pass', note: 'blocked connection to 203.0.113.9:8080' });
+    // It passed: no failure panel, and nothing in Needs a look.
+    expect(view.failures).toEqual([]);
+    expect(failingTests(store, { goldens: [x] })).toEqual([]);
     store.close();
   });
 
@@ -294,6 +311,39 @@ describe('the Tests screen', () => {
     warned.finishTestSession(w.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     expect(testsView(warned, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]).failures[0]!.blocked).toBeNull();
     warned.close();
+    store.close();
+  });
+
+  it('keeps the ring where a golden was updated when a later session ran at the same revision', () => {
+    const store = Store.open(':memory:');
+    for (const id of ['R_UPD', 'R_AFTER']) run(store, id);
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    session(store, 'abc1234+dirty', T0, [{ golden: 'goldens/x', ok: true, runId: 'R_UPD', data: { mode: 'replay', calls: { total: 5, replayed: 5, live: 0, blocked: 0, stubbed: 0 }, updated: { from: 'OLD', to: 'NEW', calls: 5 } } }]);
+    session(store, 'abc1234+dirty', T0 + 1000, [{ golden: 'goldens/x', ok: true, runId: 'R_AFTER' }]);
+    const [row] = testsView(store, [x]).rows;
+    // The newest result there opens, and the update made there keeps its ring.
+    expect(row!.history).toMatchObject([{ revision: 'abc1234+dirty', result: 'pass', updated: true, runId: 'R_AFTER' }]);
+    expect(row!.last).toMatchObject({ result: 'pass', updated: false, line: '8/8 replayed' });
+    store.close();
+  });
+
+  it('never puts a golden whose path reads as an option on a command line', () => {
+    const store = Store.open(':memory:');
+    const pack = (path: string, error: string | null = null): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [], error });
+    // Keys under the config's `tests` are listed as goldens even when they are no pack.
+    const list = [pack('goldens/a'), pack('--online', 'no run.json: not a pack'), pack('--writes'), pack('-x/y'), pack('evals/b')];
+    expect(testPatterns(list)).toEqual(['goldens/*', 'evals/b']);
+    const view = testsView(store, list);
+    expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/b']);
+    expect(view.commands.ci).toBe('shadowlap test goldens/* evals/b --junit report.xml');
+    expect(view.rows.find((r) => r.path === '--writes')).toMatchObject({ error: 'its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json', last: { line: 'can\'t be read: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json' } });
+    expect(runTestsJob(list, {})).toEqual({ title: 'Running the tests', args: ['test', 'goldens/*', 'evals/b'] });
+    for (const golden of ['--online', '--writes', '-x/y']) {
+      expect(runTestsJob(list, { golden }), golden).toHaveProperty('error');
+      expect(updateGoldensJob(list, { goldens: ['goldens/a', golden] }), golden).toEqual({ error: `no such golden: ${golden}` });
+      expect(bisectJob(store, list, { golden, good: 'c91d0f4' }), golden).toHaveProperty('error');
+      expect(normalizeAndTestJob(store, list, { golden }), golden).toHaveProperty('error');
+    }
     store.close();
   });
 
