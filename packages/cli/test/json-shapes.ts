@@ -35,7 +35,7 @@ export const SHAPES = {
   label: { section: 'label', fields: ['runId', 'labels'] },
   search: { section: 'search', fields: ['runId', 'callNo', 'kind', 'name', 'field', 'snippet', 'runStartedAt'] },
   diff: { section: 'diff', fields: ['a', 'b', 'identicalPrefix', 'prefix', 'firstRequestDifference', 'responseDifferences', 'after', 'onlyInA', 'onlyInB', 'changes'] },
-  diffChanges: { section: 'diff', fields: ['systemPrompt', 'tools', 'models', 'code'] },
+  diffChanges: { section: 'diff', fields: ['systemPrompt', 'systems', 'tools', 'models', 'code'] },
   importJson: { section: 'import', fields: ['format', 'entries', 'runs', 'skipped'] },
   importRun: { section: 'import', fields: ['runId', 'source', 'key', 'calls', 'labels', 'imported'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
