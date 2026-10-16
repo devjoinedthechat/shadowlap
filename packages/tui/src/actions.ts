@@ -46,6 +46,18 @@ export interface Action {
 /** What an action needs beyond the run and the call: the call's recorded result, for an override that starts from it. */
 export interface ActionContext {
   result?: unknown;
+  /**
+   * Whether a process is recording the run right now (the store's `recordingRuns().live`, as
+   * `recordingNow` reads it). A run whose recorder stopped without ending it stays `running` for
+   * good, and is not: nothing will add to it, so it is replayed, forked and packed as the CLI does
+   * one that ended. Left out, a run marked `running` counts as recording.
+   */
+  recording?: boolean;
+}
+
+/** Whether a process is recording the run now: marked `running`, and its recorder still there. */
+export function recordingNow(store: Store, run: RunRecord): boolean {
+  return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
 }
 
 /** A recorded user input: what the agent read from a person, recorded like a read tool (`user_input`, `meta.input`). */
@@ -93,10 +105,14 @@ export function terminalActions(run: RunRecord, call: CallRecord | undefined, co
   while (at > 0 && actions[at - 1]!.group !== 'run') at--;
   const all = find ? [...actions.slice(0, at), find, ...actions.slice(at)] : actions;
   // A run still recording has no end to replay to yet: as in the dashboard, its replays, forks and
-  // copies wait for it to finish (the terminal UI tails it, so they turn on when it does).
-  if (run.status !== 'running') return all;
-  return all.map((a) => (a.key === 'n' || a.disabled ? a : { ...a, disabled: a.key === 'r' ? 'replay once the recording finishes' : a.key === 'p' ? 'pack once the recording finishes' : 'fork once the recording finishes' }));
+  // copies wait for it to finish (the terminal UI tails it, so they turn on when it does). One its
+  // recorder left marked running has ended, as far as anything will add to it.
+  if (!(context.recording ?? run.status === 'running')) return all;
+  return all.map((a) => (a.key === 'n' || a.disabled ? a : { ...a, disabled: WAITS[a.key] ?? 'fork once the recording finishes' }));
 }
+
+/** What an action that waits for a run still recording says, by its key; every other one is a fork. */
+const WAITS: Record<string, string> = { r: 'replay once the recording finishes', p: 'pack once the recording finishes', b: 'look for the commit once the recording finishes' };
 
 /**
  * Find the commit: a run that failed is looked for where it started failing, between a commit where

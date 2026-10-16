@@ -364,6 +364,34 @@ describe('actions palette', () => {
     store.close();
   });
 
+  it('puts a prompt\'s label on its own lines, above what is typed, however long it is', async () => {
+    const { store, runId } = goldenStore();
+    // The golden is a pack's run: each fork's prompt starts with what replaying it runs.
+    const spawnCli = () => {
+      throw new Error('nothing is run here');
+    };
+    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli as never} columns={100} rows={30} />);
+    await tick(60);
+    stdin.write('j');
+    stdin.write('j'); // #3, the first model call
+    await tick(60);
+    stdin.write(':');
+    await frameWith(lastFrame, 'Inject an instruction');
+    stdin.write('i');
+    await frameWith(lastFrame, 'Instruction to add at #3:');
+    stdin.write('Be brief.');
+    const frame = await frameWith(lastFrame, '› Be brief.');
+    const lines = frame.split('\n').map((l) => l.replace(/^[\s│]+|[\s│]+$/g, ''));
+    // What is typed has its line to itself, and the label wraps above it, every word whole.
+    const at = lines.findIndex((l) => l.startsWith('› Be brief.'));
+    expect(lines[at]).toBe('› Be brief.');
+    const label = 'This run came from an imported pack; replaying it runs: node testing/reference-agent/dist/main.js. Instruction to add at #3:';
+    expect(lines.slice(0, at).join(' ')).toContain(label);
+    expect(lines[at + 1]).toBe('Enter to confirm · Esc to cancel');
+    stdin.write('\u001b');
+    store.close();
+  });
+
   it('offers tool actions on a tool call and the normalizer action on a fork with a hint', async () => {
     const { store, runId } = goldenStore();
     const calls = store.getCalls(runId);

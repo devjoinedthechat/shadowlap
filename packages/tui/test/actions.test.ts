@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CallRecord, RunRecord } from '@shadowlap/engine';
-import { actionMissing, buildActions, CAPTURE_NOTE, forkArgs, forkMenuTitle, splitCommand, terminalActions } from '../src/actions.js';
+import { Store, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { actionMissing, buildActions, CAPTURE_NOTE, forkArgs, forkMenuTitle, recordingNow, splitCommand, terminalActions } from '../src/actions.js';
 
 const ID = '01K5CQ4N7G0000000000000000';
 const run = (meta?: RunRecord['meta'], extra: Partial<RunRecord> = {}): RunRecord => ({
@@ -243,11 +243,28 @@ describe('the terminal UI\'s fork menu', () => {
       ['a', 'fork once the recording finishes'],
       ['e', 'fork once the recording finishes'],
       ['s', 'fork once the recording finishes'],
-      ['b', 'fork once the recording finishes'],
+      ['b', 'look for the commit once the recording finishes'],
       ['p', 'pack once the recording finishes'],
     ]);
+    expect(terminalActions(live, call, { recording: true }).map((a) => a.disabled)).toEqual(actions.map((a) => a.disabled));
     // Once it has ended, they are on again.
     expect(terminalActions({ ...live, status: 'completed', endedAt: 1 }, call).every((a) => !a.disabled)).toBe(true);
+  });
+
+  it('treats a run its recorder left marked running as ended, as the CLI does: nothing will add to it', () => {
+    const left = run(undefined, { status: 'running', endedAt: null, codeVersion: 'a1b2c3d' });
+    expect(terminalActions(left, call, { recording: false }).every((a) => !a.disabled)).toBe(true);
+    // Read from the store: a run this process records is live; one whose recorder has gone is not.
+    const store = Store.open(':memory:');
+    const recording = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    expect(recordingNow(store, recording)).toBe(true);
+    // No process to ask, and nothing heard from it for two days: left by its recorder.
+    const gone: RunRecord = { ...run(), runId: '01K5CQ4N7G00000000000000GN', status: 'running', endedAt: null, startedAt: Date.now() - 2 * 24 * 3_600_000 };
+    store.importRun(gone);
+    expect(recordingNow(store, gone)).toBe(false);
+    store.endRun(recording.runId, 'completed');
+    expect(recordingNow(store, store.getRun(recording.runId)!)).toBe(false);
+    store.close();
   });
 
   it('turns Find the commit off outside git and for a pack\'s run, and leaves it out for a capture', () => {
