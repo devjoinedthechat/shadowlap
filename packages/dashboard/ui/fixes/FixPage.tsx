@@ -206,7 +206,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
       {consent ? (
         <ConfirmDialog
-          title="Run commands from an imported pack?"
+          title="Run a command from an imported pack?"
           text={`${consent.why}.`}
           ok={consent.kind === JOB_KINDS.repair ? 'Repair' : 'Run'}
           onClose={() => setConsent(null)}

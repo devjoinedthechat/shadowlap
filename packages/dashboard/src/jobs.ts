@@ -35,6 +35,9 @@ import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './view
  *
  * A CLI that sends no events still works: a "recording run <id>" or "replaying run <id>" line in
  * its output names the run, as it always did.
+ *
+ * The project's working tree is one: a job whose command changes the agent's files (repair, fix
+ * apply) runs alone, and one that runs the agent from them waits for it (`worktreeUse`).
  */
 
 export interface SpawnCliOptions {
