@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineTone } from '../ui/jobs.js';
-import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
+import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
 // Training's logic without a browser: what a filter shows, the words for times and files, what Score
@@ -108,9 +108,12 @@ describe('the palette’s Training actions', () => {
     app: { exported, hasKind: (k: string) => kinds.includes(k), guard: (fn: () => void) => fn(), client: { training: () => new Promise(() => undefined) } },
     go: (to: string) => void went.push(to),
   });
+  const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-  it('offers both until Training was read, then only what there is, and only kinds the server runs', () => {
+  it('offers nothing until Training was read, then only what there is, and only kinds the server runs', () => {
     noteTrainingCounts(null);
+    expect(trainingPalette(ctx(['pairs', 'score']), KINDS)).toEqual([]);
+    noteTrainingCounts({ tabs: { pairs: 3, tasks: 2 } } as TrainingView);
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…', 'Score a model on the tasks…']);
     expect(trainingPalette(ctx(['pairs']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…']);
     noteTrainingCounts({ tabs: { pairs: 0, tasks: 2 } } as TrainingView);
@@ -118,6 +121,40 @@ describe('the palette’s Training actions', () => {
     noteTrainingCounts({ tabs: { pairs: 3, tasks: 0 } } as TrainingView);
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => [c.label, c.hint, c.group])).toEqual([['Export preference pairs…', 'shadowlap export pairs', 'Actions']]);
     expect(trainingPalette(ctx(['pairs'], [], true), KINDS)).toEqual([]);
+  });
+
+  it('reads the counts again each time it opens, and tells an open palette when what it offers changed', async () => {
+    noteTrainingCounts({ tabs: { pairs: 0, tasks: 0 } } as TrainingView);
+    let answer = { tabs: { pairs: 0, tasks: 0 } };
+    let reads = 0;
+    const live: TrainingPaletteContext = {
+      app: { exported: false, hasKind: () => true, guard: (fn: () => void) => fn(), client: { training: () => (reads++, Promise.resolve(answer as TrainingView)) } },
+      go: () => undefined,
+    };
+    let told = 0;
+    onTrainingCountsChange(() => told++);
+    try {
+      expect(trainingPalette(live, KINDS)).toEqual([]);
+      await flush();
+      expect([reads, told]).toEqual([1, 0]);
+      // A blame made pairs since: the palette opens on what it knew, and is told once the new counts land.
+      answer = { tabs: { pairs: 2, tasks: 0 } };
+      expect(trainingPalette(live, KINDS)).toEqual([]);
+      await flush();
+      expect([reads, told]).toEqual([2, 1]);
+      expect(trainingPalette(live, KINDS).map((c) => c.label)).toEqual(['Export preference pairs…']);
+      await flush();
+      // More pairs change nothing it offers, so an open palette isn't rebuilt for them.
+      answer = { tabs: { pairs: 5, tasks: 0 } };
+      trainingPalette(live, KINDS);
+      await flush();
+      expect([reads, told]).toEqual([4, 1]);
+      // The page's own read counts too: a task made ready there shows here.
+      noteTrainingCounts({ tabs: { pairs: 5, tasks: 1 } } as TrainingView);
+      expect(told).toBe(2);
+    } finally {
+      onTrainingCountsChange(() => undefined);
+    }
   });
 
   it('opens Training on the right tab and asks the page for the dialog', () => {

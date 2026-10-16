@@ -136,10 +136,22 @@ export function onTrainingDialog(fn: (kind: TrainingDialog) => void): () => void
 
 /** What the palette knows of Training: the counts from the last time the page or the palette read it. */
 let counts: { pairs: number; ready: number } | null = null;
-let asked = false;
 
+/** Which Training actions counts call for: `export`, `score`, both, or none yet. */
+const offered = (c: typeof counts) => (c === null ? null : `${c.pairs > 0 ? 'export' : ''}:${c.ready > 0 ? 'score' : ''}`);
+
+/** Tells an open palette to read its sources again: the page hands in the palette's own (paletteSourcesChanged), which needs the app. */
+let tellPalette: () => void = () => undefined;
+
+export function onTrainingCountsChange(fn: () => void): void {
+  tellPalette = fn;
+}
+
+/** Keeps the counts the page or the palette read (null forgets them), and tells an open palette when they change what it offers. */
 export function noteTrainingCounts(view: Pick<TrainingView, 'tabs'> | null): void {
+  const before = offered(counts);
   counts = view ? { pairs: view.tabs.pairs, ready: view.tabs.tasks } : null;
+  if (offered(counts) !== before) tellPalette();
 }
 
 /** What the palette's Training actions use from the palette's context (`PaletteContext` has it). */
@@ -163,22 +175,22 @@ export interface TrainingCommand {
 /**
  * The palette's Training actions: Export preference pairs… when there are pairs, Score a model on the
  * tasks… when a task is ready, each only when this dashboard runs its job kind (`kinds`, the client's
- * JOB_KINDS). Until Training was read once, both are offered (and the counts are read for next time);
- * either opens Training, and its dialog when there is something to export or score.
+ * JOB_KINDS). Each time the palette opens, the counts are read again (an ETag keeps it cheap): a blame
+ * or a fixed test may have changed them since, and an open palette is told when they did. Until they
+ * were read once, neither is offered. Either opens Training, and its dialog when there is something
+ * to export or score.
  */
 export function trainingPalette({ app, go }: TrainingPaletteContext, kinds: { pairs: string; score: string }): TrainingCommand[] {
   if (app.exported) return [];
-  if (counts === null && !asked) {
-    asked = true;
-    app.client.training().then(noteTrainingCounts, () => (asked = false));
-  }
+  app.client.training().then(noteTrainingCounts, () => undefined);
+  if (counts === null) return [];
   const out: TrainingCommand[] = [];
   const open = (tab: 'pairs' | 'tasks', kind: TrainingDialog) => () =>
     app.guard(() => {
       go(href.training(tab));
       requestTrainingDialog(kind);
     });
-  if (app.hasKind(kinds.pairs) && (counts === null || counts.pairs > 0)) out.push({ group: 'Actions', label: 'Export preference pairs…', hint: 'shadowlap export pairs', run: open('pairs', 'export') });
-  if (app.hasKind(kinds.score) && (counts === null || counts.ready > 0)) out.push({ group: 'Actions', label: 'Score a model on the tasks…', hint: 'shadowlap tasks score', run: open('tasks', 'score') });
+  if (app.hasKind(kinds.pairs) && counts.pairs > 0) out.push({ group: 'Actions', label: 'Export preference pairs…', hint: 'shadowlap export pairs', run: open('pairs', 'export') });
+  if (app.hasKind(kinds.score) && counts.ready > 0) out.push({ group: 'Actions', label: 'Score a model on the tasks…', hint: 'shadowlap tasks score', run: open('tasks', 'score') });
   return out;
 }

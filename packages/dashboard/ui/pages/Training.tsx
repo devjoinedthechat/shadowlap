@@ -7,11 +7,11 @@ import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { addPaletteSource } from '../palette-sources.js';
+import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, filterGroups, firstPick, leftNote, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickNote, pipClass, pipTip, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type PairChip, type TrainingDialog } from '../training.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
@@ -21,6 +21,8 @@ import { ENDPOINT, filterGroups, firstPick, leftNote, noteTrainingCounts, notesL
  */
 
 addPaletteSource((ctx) => trainingPalette(ctx, JOB_KINDS));
+// New counts that change what the palette offers rebuild it while it is open.
+onTrainingCountsChange(paletteSourcesChanged);
 
 export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const { client, tick, exported, actionsOff, hasKind, guard } = useApp();
@@ -29,7 +31,10 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const [dialog, setDialog] = useState<TrainingDialog | null>(null);
   const [wanted, setWanted] = useState<TrainingDialog | null>(() => takeTrainingDialog());
 
-  useEffect(() => noteTrainingCounts(view), [view]);
+  // What the palette offers follows the page's counts; a reload that hasn't landed yet forgets nothing.
+  useEffect(() => {
+    if (view) noteTrainingCounts(view);
+  }, [view]);
   // The palette asks for a dialog: it opens once the page knows there is something to export or score.
   useEffect(() => onTrainingDialog((kind) => setWanted(takeTrainingDialog() ?? kind)), []);
   useEffect(() => {
