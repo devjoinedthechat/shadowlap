@@ -8,7 +8,7 @@ import { copyText } from '../dom.js';
 import { dur, shortId, stamp } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { compareTarget, isFailed, runTag, runType } from '../runs.js';
+import { compareTarget, isFailed, isInterrupted, runTag, runType } from '../runs.js';
 import { useApp } from '../state.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
@@ -33,30 +33,38 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const replay = run.actions.find((a) => a.key === 'r');
   const pair = compareTarget(r, run.children);
   const parent = run.parent ? <a href={href.run(run.parent.runId)}>{shortId(run.parent.runId)}</a> : null;
+  // Failed, or only interrupted, as Runs, the sidebar and the Overview say it: the server's state.
   const failed = isFailed(like);
+  const cut = isInterrupted(like);
+  const outcome = like.outcome ?? null;
   // Why it failed, in a few words: what the run did against the check it failed ("send_email called
-  // 1 time"; the banner says what was expected), the agent's exit, an interruption. A test that
-  // diverged failed there, as `shadowlap test` says it; else the check of the fix blame found it in.
+  // 1 time"; the banner says what was expected), the agent's exit, a fix's check. A test that
+  // diverged failed there, as `shadowlap test` says it; one whose golden may fork, on its checks.
   const d = r.divergence;
-  const failure =
-    type === 'test' && d && failed
+  const failure = !failed
+    ? null
+    : type === 'test' && d && (!outcome || outcome.kind === 'diverged')
       ? `diverged at call ${d.callNo} (${d.kind} ${d.name})`
-      : (failureText({ status: r.status, checks: checksOf(run), blame: null }, true) ?? (run.fix?.check && failed ? fixCheckShort(run.fix.check, run.calls) : null));
+      : (failureText({ status: r.status, checks: checksOf(run), blame: null, outcome, calls: run.calls }, true) ?? (run.fix?.check ? fixCheckShort(run.fix.check, run.calls) : null));
   const checkFailed = !!failure?.startsWith('check failed');
+  // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
+  const stopped = cut ? ' · interrupted' : '';
   const eyebrow = live ? (
     <Eyebrow>recording now</Eyebrow>
   ) : type === 'fork' ? (
     <Eyebrow tone="fork">
       {rescued ? 'rescued by blame · ' : ''}fork @{r.divergence!.callNo}
       {parent ? <> of {parent}</> : null}
+      {stopped}
     </Eyebrow>
   ) : type === 'clean' || type === 'replay' ? (
-    <Eyebrow tone={failed ? 'err' : undefined}>
+    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>
       {type === 'clean' ? 'clean replay' : failed ? 'replay · failed' : 'replay'}
       {parent ? <> of {parent}</> : null}
+      {stopped}
     </Eyebrow>
   ) : type === 'test' ? (
-    <Eyebrow tone={failed ? 'err' : undefined}>
+    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>
       test replay{parent ? <> of {parent}</> : null}
       {r.meta?.test?.golden ? (
         <>
@@ -64,11 +72,12 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           <code>{r.meta.test.golden}</code>
         </>
       ) : null}
+      {stopped}
     </Eyebrow>
   ) : type === 'capture' ? (
     <Eyebrow>imported from a capture</Eyebrow>
   ) : (
-    <Eyebrow tone={failed ? 'err' : undefined}>{failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : r.meta?.imported ? 'recording · from a pack' : 'recording'}</Eyebrow>
+    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>{failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : cut ? 'recording · interrupted' : r.meta?.imported ? 'recording · from a pack' : 'recording'}</Eyebrow>
   );
   const off = actionsOff ?? undefined;
   // Push: a run only on this machine goes to the team store the config names.

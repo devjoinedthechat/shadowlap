@@ -6,7 +6,7 @@ import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
-import { scopeDepth, scopeLeaf, scopeCount } from '../scopes.js';
+import { blameScope, scopeDepth, scopeLeaf, scopeCount } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
@@ -111,6 +111,10 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     upstreamRequests: run.summary.upstreamRequests,
     volatile: test?.volatile ?? null,
     modelCalls: run.summary.byKind.api,
+    // How it came out, as Runs and the Overview have it.
+    ...(run.state ? { outcome: run.state.outcome, interrupted: run.state.interrupted, failed: run.state.failed } : {}),
+    calls: run.calls,
+    callCount: run.calls.length,
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -260,6 +264,13 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <Why code={[...(run.notRecorded?.tools ?? []), ...(run.notRecorded?.hosts ?? []).map((h) => h.target)]}>{b.why}</Why>
         </section>
       );
+    case 'interrupted':
+      return (
+        <section className="banner n">
+          <span className="bk">interrupted</span>
+          <Why>{b.why}</Why>
+        </section>
+      );
     case 'checks':
       return (
         <section className="banner live">
@@ -362,7 +373,8 @@ export function DiffPanel({ run }: { run: RunDetail }) {
 
 /** Scopes as chips with counts, nested ones under their parent; picking one narrows every view to it. */
 export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scopes: string[]; scope: string; onScope: (s: string) => void }) {
-  const first = scopes.find((s) => scopeDepth(s) === 0) ?? scopes[0]!;
+  // Blame the agent, not the model that plays its user: the scope picked, else the one that acts.
+  const first = blameScope(run.calls, scopes) ?? scopes[0]!;
   return (
     <section className="scopebar">
       <span className="k">scopes</span>

@@ -1,7 +1,7 @@
 import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
-import { classifiable, depthOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
+import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { callTotals, priced, spentOf, type StatsOptions } from './run-stats.js';
 
 /**
@@ -141,8 +141,33 @@ export function withLiveness(store: Store, index: RunIndex): IndexedRun[] {
 /** A run its recorder left, as an interrupted run: its outcome worked out again for that status (the kind stays). */
 function interrupted(index: RunIndex, r: IndexedRun): IndexedRun {
   const p = r.parentRunId ? index.byId.get(r.parentRunId) : undefined;
-  const outcome = runOutcome(classifiable({ ...r, status: 'crashed' }), { kind: r.kind, calls: r.calls, parent: p ? { calls: p.calls, status: p.status } : null, injected: r.injected, offline: r.offline });
+  const outcome = fixedOutcome(runOutcome(classifiable({ ...r, status: 'crashed' }), { kind: r.kind, calls: r.calls, parent: p ? { calls: p.calls, status: p.status } : null, injected: r.injected, offline: r.offline }), r.fixCheck);
   return { ...r, status: 'crashed', outcome, failed: isFailedOutcome(outcome) };
+}
+
+/**
+ * A run's state as every list shows it and its own page does: its status (`crashed` for one its
+ * recorder left running: interrupted), its kind, how it came out and whether that is a failure.
+ * Interrupted means stopped before it ended with nothing else that failed: the lists say so in a
+ * neutral tone, never as a failure.
+ */
+export interface RunState {
+  status: IndexedRun['status'];
+  kind: RunKind;
+  outcome: RunOutcome;
+  failed: boolean;
+  interrupted: boolean;
+  /** The kind as the run list's line under the id says it: recording, fork @n, clean replay, … */
+  label: string;
+}
+
+/** One run's state, from the same index and liveness check the run list reads. */
+export function runState(store: Store, runId: string): RunState | null {
+  const index = loadRunIndex(store);
+  const found = index.byId.get(runId);
+  if (!found) return null;
+  const r = found.status === 'running' && store.recordingRuns().abandoned.some((x) => x.run.runId === runId) ? interrupted(index, found) : found;
+  return { status: r.status, kind: r.kind, outcome: r.outcome, failed: r.failed, interrupted: r.status === 'crashed' && !r.failed, label: r.label };
 }
 
 export function chipCounts(runs: Iterable<IndexedRun>, inScope: (r: IndexedRun) => boolean): ChipCounts {

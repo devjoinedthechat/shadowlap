@@ -70,13 +70,15 @@ const GridFamilyRows = memo(function GridFamilyRows({ family, now }: { family: G
       {family.rows.map((r) => {
         const live = r.status === 'running';
         const g = kindGlyph(r.kind, { failed: r.failed, live });
+        // Interrupted (stopped before it ended, failing nothing else): said in grey, as on the run's page and in Runs.
+        const cut = r.status === 'crashed' && !r.failed ? ' · interrupted' : '';
         const counts = originCounts(r.origins);
         const rows = SHOW_ORIGINS.filter((o) => counts[o]).map((o) => ({ label: ORIGIN_NAME[o], value: num(counts[o]), color: ORIGIN_COLOR[o] }));
-        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }]);
+        const tip = tipCard(`${shortId(r.runId)} · ${r.label}${cut}${r.context ? ' · before this week' : ''}`, rows.length ? rows : [{ label: 'calls', value: num(r.calls) }]);
         return (
           <a key={r.runId} className={`grow${r.context ? ' ctx' : ''}`} href={href.run(r.runId)} data-tip={tip}>
             <span className="gid" style={{ paddingLeft: r.depth * 14 }}>
-              <Glyph kind={g.kind} label={g.label} className="ri" />
+              <Glyph kind={g.kind} label={cut ? `${g.label}, interrupted` : g.label} className="ri" />
               <code>{shortId(r.runId)}</code>
             </span>
             <GridCells row={r} family={family} live={live} />

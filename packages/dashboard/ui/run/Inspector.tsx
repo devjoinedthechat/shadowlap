@@ -76,7 +76,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} models={models} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
       </div>
     </section>
   );
@@ -111,7 +111,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, calls, models, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; models?: Readonly<Record<string, string>> | undefined; change: InspectorProps['change']; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
+function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; change: InspectorProps['change']; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -176,7 +176,6 @@ function ConversationTab({ detail, calls, models, change, flag, onSelect }: { de
         <span>
           {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{conv.fromCallNo ?? c.callNo}
           {which}
-          {conv.model && !which ? ` · ${modelLabel(models, conv.model)}` : ''}
         </span>
         {change ? (
           <button

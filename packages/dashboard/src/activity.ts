@@ -263,7 +263,7 @@ function recordingEnd(store: Store, run: RunRecord): ActivityItem {
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
   if (run.status === 'failed') return { ...item, kind: 'fail', text: `Recording failed · ${calls} · ${command(run)}` };
   if (checks?.failed) return { ...item, kind: 'fail', text: `Recorded ${calls} · check failed: ${checks.failed}` };
-  if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording stopped · ${calls} · ${command(run)}` };
+  if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording interrupted · ${calls} · ${command(run)}` };
   return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
 }
 
@@ -313,7 +313,7 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
   // A replay that made no calls at all (nothing went through Shadowlap) is not clean, and not a failure either.
   // "Clean replay" is what its icon says: a replay that made no calls, or was stopped, gets the plain one.
   if (run.status === 'completed') return { ...item, kind: checks?.failed ? 'fail' : 'rec', text: `Replay finished · no calls${outcome ? ` · ${outcome}` : ''}` };
-  const what = run.status === 'crashed' ? 'Replay stopped' : 'Replay failed';
+  const what = run.status === 'crashed' ? 'Replay interrupted' : 'Replay failed';
   return { ...item, kind: run.status === 'crashed' ? 'rec' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
 }
 

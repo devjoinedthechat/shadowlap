@@ -4,7 +4,7 @@ import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { shortId, stamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { familyLine, repeatBundle, type RunLike } from '../runs.js';
+import { familyLineParts, repeatBundle, type RunLike } from '../runs.js';
 import { useApp } from '../state.js';
 import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
 
@@ -14,12 +14,17 @@ import { FixBundleNode, useFixBundles } from '../fixes/Bundles.js';
  * many passed, and so are blame's probes and verify's attempts, leading to their fix (fixes/Bundles.tsx).
  */
 
+/**
+ * A run of the family as the lists see it: with the run list's state when the run is listed (its
+ * kind, outcome and whether it failed, an interrupted run's status), so its icon and line say what
+ * Runs and the sidebar say.
+ */
 function asRun(n: LineageNode, listed: RunListItem | undefined): RunLike {
   return {
     runId: n.runId,
     parentRunId: n.parentRunId,
     mode: n.mode,
-    status: n.status,
+    status: listed?.status ?? n.status,
     divergence: n.divergence,
     command: listed?.command ?? '',
     codeVersion: listed?.codeVersion ?? null,
@@ -35,6 +40,7 @@ function asRun(n: LineageNode, listed: RunListItem | undefined): RunLike {
     origins: n.origins ?? listed?.origins ?? null,
     test: listed?.test ?? null,
     checks: n.checks,
+    ...(listed ? { kind: listed.kind ?? null, outcome: listed.outcome ?? null, ...(typeof listed.failed === 'boolean' ? { failed: listed.failed } : {}) } : {}),
   };
 }
 
@@ -55,6 +61,7 @@ export function ForksView({ runId }: { runId: string }) {
   }
   const node = (n: LineageNode) => {
     const r = asRun(n, byId.get(n.runId));
+    const line = familyLineParts(r);
     const here = n.runId === runId || n.runId.startsWith(runId);
     return (
       <a key={n.runId} className={`fnode${here ? ' here' : ''}`} href={href.run(n.runId, n.divergence?.callNo ?? null)}>
@@ -64,7 +71,10 @@ export function ForksView({ runId }: { runId: string }) {
             <code>{shortId(n.runId)}</code>
             {here ? <span className="chip">this run</span> : null}
           </span>
-          <span className="f2 block">{familyLine(r)}</span>
+          <span className="f2 block">
+            {line.err ? <em>{line.err}</em> : null}
+            {line.text}
+          </span>
           {n.checks ? (
             <span className="checks">
               <span className={n.checks.passed === n.checks.total ? undefined : 'bad'}>

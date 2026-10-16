@@ -3,7 +3,7 @@ import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { captureSource } from './run-index.js';
-import { recentRuns, type RunRow } from './runs-list.js';
+import { recentRuns, runState, type RunRow, type RunState } from './runs-list.js';
 import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
 
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
@@ -97,6 +97,13 @@ export interface RunDetail extends RunPageFacts {
   actions: ActionItem[];
   /** The fix the run takes part in, and how (Fixes' fixForRun): the banner's fix, blame and Run blame. */
   fix: FixForRun | null;
+  /**
+   * How the run stands, worked out as the run list works it out (runs-list.ts `runState`), so its
+   * page says what Runs, the sidebar and the Overview say: its kind, its outcome, whether it failed,
+   * and whether it was interrupted. `run.status` is that state's: a run its recorder left `running`
+   * reads `crashed`.
+   */
+  state: RunState | null;
 }
 
 export interface CallDetail {
@@ -209,8 +216,10 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
   const summary = summarizeRun(run, calls, [], [], { modelOf: modelResolver(store), ...(options.prices ? { prices: options.prices } : {}) });
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   const analysis = analyseRun(store, run, calls);
+  const state = runState(store, runId);
   return {
-    run,
+    // Interrupted as the lists have it: a run its recorder left running is not recording any more.
+    run: state && state.status !== run.status ? { ...run, status: state.status } : run,
     label: runLabel(run, kindFacts(store, run, calls.length)),
     source: captureSource(run),
     summary,
@@ -220,6 +229,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),
+    state,
   };
 }
 

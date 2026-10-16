@@ -1811,3 +1811,11 @@ table.tasks a.rlink:hover code { text-decoration: underline; text-underline-offs
 .pg1 .pgof a { color: inherit; text-decoration: none; }
 .pg1 .pgof a:hover code { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 .pg1 .pgof code { font-size: 12px; color: inherit; }
+
+/* ============ run page: a run that was interrupted ============
+   It stopped before it ended and failed nothing else: its page, Runs, the sidebar and the Overview say
+   so in grey, never as a failure. */
+.eyebrow.n { color: var(--dim); }
+.eyebrow.n i { background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent); }
+.banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
+.banner.n .bk { color: var(--dim); }

@@ -66,3 +66,17 @@ export function scopeDepth(scope: string): number {
 export function scopeLeaf(scope: string): string {
   return scope.split('/').pop() ?? scope;
 }
+
+/**
+ * The scope the run page suggests blaming within, when none is picked: the top-level scope that acts
+ * (one that hands work to a scope nested in it, else the one with the most tool calls), so a model
+ * that plays the user in an eval is not what blame asks again. The first top-level scope otherwise.
+ */
+export function blameScope(calls: ReadonlyArray<ScopedCall & { kind?: string }>, chips: readonly string[]): string | null {
+  const top = chips.filter((s) => scopeDepth(s) === 0);
+  if (!top.length) return chips[0] ?? null;
+  const nests = top.filter((s) => chips.some((c) => c.startsWith(`${s}/`)));
+  const pool = nests.length ? nests : top;
+  const tools = (s: string) => calls.filter((c) => c.kind === 'tool' && inScope(c, s)).length;
+  return pool.reduce((best, s) => (tools(s) > tools(best) ? s : best), pool[0]!);
+}

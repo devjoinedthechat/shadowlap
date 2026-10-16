@@ -218,7 +218,11 @@ export function packJob(store: Store, project: ProjectInfo | null, req: Record<s
 }
 
 const RUN_ID = /^[0-9A-Za-z]{1,26}$/;
-const MAX_DATASET_RUNS = 500;
+/**
+ * The most runs one dataset job exports. Every id goes on the CLI's command line, and on Windows a
+ * command line holds 32,767 characters: 500 full ids stay well within it. The dialog says so past it.
+ */
+export const MAX_DATASET_RUNS = 500;
 
 /** A file name of the dataset: one run's id, or how many runs and when. */
 function datasetName(runIds: readonly string[], now: Date): string {

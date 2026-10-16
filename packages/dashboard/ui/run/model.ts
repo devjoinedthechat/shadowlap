@@ -8,9 +8,14 @@ import { modelCallOf, originOf } from './calls.js';
  * line in the views. No DOM here.
  */
 
-/** A run's detail as the lists see a run, so the same words and icons apply. */
+/**
+ * A run's detail as the lists see a run, so the same words and icons apply: with the server's state
+ * (its kind, outcome and whether it failed, worked out as the run list works it out), the page reads
+ * an interrupted run, a test that forked and passed, or a fix's failing run as Runs does.
+ */
 export function runLikeOf(d: RunDetail): RunLike {
   const meta = d.run.meta;
+  const state = d.state ?? null;
   const checks = meta?.checks?.length ? { passed: meta.checks.filter((c) => c.ok).length, total: meta.checks.length } : null;
   return {
     runId: d.run.runId,
@@ -32,6 +37,7 @@ export function runLikeOf(d: RunDetail): RunLike {
     test: meta?.test ?? null,
     blame: blameOf(d),
     checks,
+    ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
   };
 }
 

@@ -136,8 +136,24 @@ export interface ProvenanceView {
   lineage?: Array<{ runId: string; codeVersion: string | null }>;
 }
 
+/**
+ * How a run stands, as the server works it out for the run list and the run's page alike: its kind,
+ * its outcome, whether that is a failure, and whether it was interrupted (stopped before it ended,
+ * with nothing else that failed). `status` is the status the lists show.
+ */
+export interface RunStateView {
+  status: 'running' | 'completed' | 'failed' | 'crashed';
+  kind: string;
+  outcome: RunOutcomeView;
+  failed: boolean;
+  interrupted: boolean;
+  label: string;
+}
+
 /** What `/api/runs/:id` may add for the run page. */
 export interface RunDetailExtras {
+  /** How the run stands, as Runs, the sidebar and the Overview say it; absent from an older server. */
+  state?: RunStateView | null;
   /** The recorded duration of every replayed call, summed up the parent chain. */
   notWaitedMs?: number | null;
   forkAt?: number | null;
