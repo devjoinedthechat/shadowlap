@@ -244,6 +244,13 @@ describe('the team store', () => {
     const work = mkdtempSync(join(tmpdir(), 'sl-json-team-'));
     try {
       const env = { AWS_ACCESS_KEY_ID: 'AKIDJSONCONTRACT', AWS_SECRET_ACCESS_KEY: 'json/contract/secret', AWS_EC2_METADATA_DISABLED: 'true', SHADOWLAP_AUTHOR: 'dana' };
+      // --check first: a bucket these credentials can't find is refused and nothing is written, then the one they can is set.
+      const refused = await cli(work, ['store', 'set', `s3://no-such-bucket/team?endpoint=${s3.url}`, '--check', '--json'], env);
+      expect(refused.code, refused.out).toBe(1);
+      expect(json(refused)).toMatchObject({ set: false });
+      const checked = await cli(work, ['store', 'set', `s3://agent-runs/team?endpoint=${s3.url}`, '--check', '--json'], env);
+      expect(checked.code, checked.out).toBe(0);
+      expect(json(checked)).toMatchObject({ set: true, check: { ok: true, pullRequest: null } });
       const set = await cli(work, ['store', 'set', `s3://agent-runs/team?endpoint=${s3.url}`, '--json'], env);
       expect(set.code, set.out).toBe(0);
       const check = await cli(work, ['store', 'check', '--json'], env);
@@ -257,6 +264,11 @@ describe('the team store', () => {
       expect(share.code, share.out).toBe(0);
       hold([
         ['storeSet', json(set)],
+        ['storeSetChecked', json(checked)],
+        ['storeSetRefused', json(refused)],
+        // What --check adds is the check as store check prints it.
+        ['storeCheck', json(checked).check],
+        ['storeCheck', json(refused).check],
         ['storeCheck', json(check)],
         ['push', json(push)],
         ['pull', json(pull)],

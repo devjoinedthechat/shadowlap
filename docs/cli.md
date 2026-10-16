@@ -852,9 +852,11 @@ branches'. `push-from-ci off` writes `"ciPush": false` to the config: `test --pu
 the tests and keeps their runs in the job (outside CI, `--push` still pushes); `on` turns it back
 on. Each takes `--json`.
 
-With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config }`:
+With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config, set }`:
 the store as written to the config and its `url` without the options after `?`, its parts, the
-store it replaced (`previous`) and the config file's path. `check` prints
+store it replaced (`previous`), the config file's path, and `set`, true once the config is written.
+With `--check` it adds `check`, the check as `check --json` prints it; when the check fails it
+prints only `{ store, url, provider, set, check }`, with `set` false, writes nothing and exits 1. `check` prints
 `{ url, credentials, steps, ok, encryption, versioning, objectLock, warnings, notes, failure, pullRequest }`:
 where the `credentials` came from, each step (`name`, `ok`, `detail`, `code`), whether all passed
 (`ok`), the bucket's `encryption`, `versioning` and `objectLock` (`state`, `detail`), its

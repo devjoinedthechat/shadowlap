@@ -204,8 +204,11 @@ function setLocation(url: string, provider: Provider | undefined): StoreLocation
   }
 }
 
-/** Writes the store to the config and says so; `check` is the check that went before, with --check. */
-function writeStore(t: TeamEnv, loc: StoreLocation, flags: { json?: boolean }, check: StoreCheck | null): number {
+/**
+ * Writes the store to the config and says so; `check` is the check that went before, with --check,
+ * as `store check --json` prints it. The JSON says `set`: true, as the config was written.
+ */
+function writeStore(t: TeamEnv, loc: StoreLocation, flags: { json?: boolean }, check: (StoreCheck & { pullRequest: string | null }) | null): number {
   const value = formatStoreUrl(loc);
   const previous = config(t).store ?? null;
   setConfigKey(t.cwd, 'store', value);
@@ -236,7 +239,7 @@ export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; 
 export async function storeSetChecked(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): Promise<number> {
   const loc = setLocation(url, flags.provider);
   const { check, target } = await checkAt(t, loc, flags);
-  if (check.ok) return writeStore(t, loc, flags, check);
+  if (check.ok) return writeStore(t, loc, flags, { ...check, pullRequest: target.pr });
   const result = { store: formatStoreUrl(loc), url: loc.url, provider: loc.provider, set: false, check: { ...check, pullRequest: target.pr } };
   emitJobEvent({ type: 'result', data: result }, t.env);
   if (flags.json) line(t, JSON.stringify(result, null, 2));
