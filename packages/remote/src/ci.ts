@@ -7,7 +7,9 @@ import type { Provider, StoreLocation } from './url.js';
  * which write only under pr/ in the store (shadowlap store policy prints both policies), and
  * Shadowlap sends their runs to the pull request's folder. The cloud's trust is what keeps a pull
  * request, which can change this file, from the protected branches' credentials. R2 has no OIDC and
- * its tokens can't be kept to a folder, so pull requests run the tests there without pushing.
+ * its tokens can't be kept to a folder, so pull requests run the tests there without pushing. On
+ * GitHub, a pull request from a fork gets no OIDC token, so its job skips the credentials step it
+ * could only fail on, and push, finding no credentials, warns while the tests decide the job.
  */
 
 export type CiProvider = 'github' | 'gitlab' | 'other';
@@ -38,6 +40,9 @@ function github(loc: StoreLocation, run: string): CiStep {
   const region = loc.region ?? '<your bucket region>';
   const writerIf = "${{ !startsWith(github.event_name, 'pull_request') }}";
   const prIf = "startsWith(github.event_name, 'pull_request')";
+  // The pull request's own credentials, for its own repository's pull requests: GitHub gives a fork's
+  // job no OIDC token, so that step could only fail there, and the job with it.
+  const ownPrIf = `${prIf} && github.event.pull_request.head.repo.full_name == github.repository`;
   const file = '.github/workflows/shadowlap.yml (in a job)';
   if (provider === 'r2') {
     const text = [
@@ -83,7 +88,8 @@ function github(loc: StoreLocation, run: string): CiStep {
     '  - uses: actions/checkout@v7',
     `  - if: ${writerIf}`,
     ...auth[provider](false),
-    `  - if: ${prIf}   # the pull request's own credentials: they write only under pr/ in the store`,
+    "  # a pull request's own credentials, which write only under pr/; a fork's job gets none",
+    `  - if: ${ownPrIf}`,
     ...auth[provider](true),
     `  - run: ${run} --push`,
   ].join('\n');
@@ -99,7 +105,11 @@ function github(loc: StoreLocation, run: string): CiStep {
     text,
     oidc: true,
     pullRequests: 'own-folder',
-    notes: [`${trust[provider]} That trust, not this file, keeps a pull request from the first credentials: a pull request can change the workflow.`, ownFolderNote('pull request')],
+    notes: [
+      `${trust[provider]} That trust, not this file, keeps a pull request from the first credentials: a pull request can change the workflow.`,
+      ownFolderNote('pull request'),
+      "A pull request from a fork gets no OIDC token from GitHub, so its job skips the credentials and runs the tests without pushing; push says so in a warning.",
+    ],
   };
 }
 

@@ -222,9 +222,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
 
         <Step n={3} state={states.ci} title="Push from CI" cli={step ? step.command : null}>
           {states.ci === 'done' ? (
-            <p>{view.setup.ci === 'skipped' ? 'Skipped. Add it any time; the step is in Settings → Store.' : 'CI pushes every test run and its report, so the store covers every pull request.'}</p>
+            <p>{view.setup.ci === 'skipped' ? 'Skipped. Add it any time; the step is in Settings → Store.' : 'CI pushes every test run, its report and each fix it opens, so the store covers every pull request.'}</p>
           ) : (
-            <p>CI pushes every test run and its report, so the store covers every pull request. Give CI its own access to the bucket, with short-lived credentials where your CI allows it.</p>
+            <p>CI pushes every test run, its report and each fix it opens, so the store covers every pull request. Give CI its own access to the bucket, with short-lived credentials where your CI allows it.</p>
           )}
           {states.ci === 'cur' && view.ci ? (
             <>

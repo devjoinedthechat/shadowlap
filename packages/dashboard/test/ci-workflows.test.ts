@@ -4,11 +4,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from '../src/ci-workflows.js';
+import { ciTeamStore, ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from '../src/ci-workflows.js';
+import { fixOnFailureYaml } from '../src/ci-yaml.js';
+import { readTeamStoreInput } from '../src/team-store.js';
 
 /**
  * Settings → CI's read model: the panels' options from a query string, the pull request a fix in
- * this store would be, and what the project's git files say about its repository and branch.
+ * this store would be, what the project's git files say about its repository and branch, and the
+ * team store's Push from CI, which the Fix on failure step follows.
  */
 let store: Store;
 let dirs: string[] = [];
@@ -60,6 +63,65 @@ describe('the pull request a fix opens', () => {
     expect(view.fixOnFailure.preview.spent).toMatch(/ of \$5\.00$/);
     expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on main.');
     expect(view.alerts.message.link).toBe('github.com/owner/repo/actions/runs/…');
+  });
+});
+
+describe('the team store Fix on failure follows', () => {
+  const context = { preview: null, failing: 0, at: null, repository: null, branch: null };
+  const plain = fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code' });
+
+  it('pushes when Push from CI is on, and says so: what it needs and what lands', () => {
+    const f = ciWorkflows({ ...CI_DEFAULTS, fix: true }, { ...context, teamStore: { store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' } }).fixOnFailure;
+    expect(f.teamStore).toEqual({
+      push: true,
+      name: 'northwind-agent-runs/support-agent',
+      credentials: 'oidc',
+      note: 'Follows Push from CI: on, so fixes from your branches go there too.',
+      lands: [
+        { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
+        // A pull request's own credentials write only to its folder, and it sends no fixes.
+        { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' },
+      ],
+    });
+    expect(f.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'oidc' }));
+    expect(f.yaml).toContain('\n    push: true\n');
+    expect(f.needs.at(-1)).toEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
+    // The panel's options never turn it on or off: there is no switch for it here.
+    expect(Object.keys(CI_DEFAULTS)).not.toContain('push');
+    // R2 has no OIDC, and its keys can't be kept to pr/: only your branches' jobs get them, and push.
+    const r2 = ciWorkflows(CI_DEFAULTS, { ...context, teamStore: { store: 'r2://0123456789abcdef0123456789abcdef/agent-runs/support-agent', ciPush: true } }).fixOnFailure;
+    expect(r2.teamStore).toMatchObject({ push: true, credentials: 'keys' });
+    expect(r2.yaml).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' }));
+    expect(r2.yaml).toContain("\n    push: ${{ !startsWith(github.event_name, 'pull_request') }}\n");
+    expect(r2.needs.at(-1)).toEqual({ label: 'the bucket’s R2 keys as secrets, kept from pull requests’ jobs', value: 'secrets' });
+    expect(r2.teamStore.lands.at(-1)).toEqual({ label: 'from a pull request’s job, nothing: R2 keys can’t be kept to pr/', value: 'no push' });
+  });
+
+  it('leaves the step as it was when Push from CI is off, or there is no store to push to', () => {
+    const off = ciWorkflows(CI_DEFAULTS, { ...context, teamStore: { store: 's3://northwind-agent-runs/support-agent', ciPush: false } }).fixOnFailure;
+    expect(off.yaml).toBe(plain);
+    expect(off.teamStore).toEqual({ push: false, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: off, so fixes stay in GitHub.', lands: [] });
+    expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write']);
+    // No project, no store, or one that isn't a store URL: nothing to push to.
+    for (const teamStore of [undefined, null, { store: null }, { store: 'ftp://nowhere/runs' }]) {
+      const none = ciWorkflows(CI_DEFAULTS, { ...context, ...(teamStore === undefined ? {} : { teamStore }) }).fixOnFailure;
+      expect(none.yaml).toBe(plain);
+      expect(none.teamStore).toEqual({ push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] });
+    }
+  });
+
+  it('reads Push from CI from shadowlap.config.json as Settings → Store reads it', () => {
+    const project = tmp();
+    const read = () => ciTeamStore(readTeamStoreInput({ cwd: project, env: {}, home: project }));
+    expect(read().push).toBe(false);
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 'gs://northwind-agent-runs/support-agent' }));
+    // On unless the config turns it off, as the Store tab's switch shows it.
+    expect(read()).toMatchObject({ push: true, credentials: 'oidc', name: 'northwind-agent-runs/support-agent' });
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 'gs://northwind-agent-runs/support-agent', ciPush: false }));
+    expect(read()).toMatchObject({ push: false, name: 'northwind-agent-runs/support-agent' });
+    // A config that can't be read names no store, as Settings → Store has it.
+    writeFileSync(join(project, 'shadowlap.config.json'), '{ "store": ');
+    expect(read()).toMatchObject({ push: false, name: null });
   });
 });
 

@@ -5,6 +5,7 @@ import { validateRule } from '@shadowlap/engine';
 import { CI_DEFAULTS, ciWorkflows } from '../src/ci-workflows.js';
 import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
+import { TeamStoreRow } from '../ui/pages/settings/CiTeamStore.js';
 import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
 import { settingsApi } from '../ui/settings-api.js';
 import {
@@ -389,6 +390,22 @@ describe('the CI tab', () => {
   it('keeps only what a secret name can hold, as it is typed', () => {
     expect(typedSecret('ALERTS-hook 1')).toBe('ALERTShook1');
     expect(typedSecret('')).toBe('');
+  });
+
+  it('says Fix on failure follows Push from CI, and leads to Settings → Store rather than switching it', () => {
+    const row = (teamStore: { store: string | null; ciPush?: boolean }) =>
+      renderToStaticMarkup(createElement(TeamStoreRow, { store: ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, teamStore }).fixOnFailure.teamStore }));
+    const on = row({ store: 's3://northwind-agent-runs/support-agent' });
+    expect(on).toContain('<b>Team store</b><span>Follows Push from CI: on, so fixes from your branches go there too.</span>');
+    expect(on).toContain('href="#/settings/store"');
+    expect(on).toContain('title="Push from CI is set in Settings → Store, for northwind-agent-runs/support-agent"');
+    // No switch of its own: Push from CI is set in one place.
+    expect(on).not.toMatch(/<button|<select|<input|role="switch"|aria-pressed/);
+    expect(row({ store: 's3://northwind-agent-runs/support-agent', ciPush: false })).toContain('Follows Push from CI: off, so fixes stay in GitHub.');
+    // With none, the link leads to setting one up, which the row says there isn't yet.
+    const none = row({ store: null });
+    expect(none).toContain('None yet, so fixes stay in GitHub. With one, this follows Push from CI.');
+    expect(none).toContain('title="Set up a team store in Settings → Store"');
   });
 });
 

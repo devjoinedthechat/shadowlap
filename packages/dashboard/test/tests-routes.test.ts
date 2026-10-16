@@ -292,6 +292,38 @@ describe('GET /api/ci/workflows', () => {
       expect(((await res.json()) as { error: string }).error).toBe(error);
     }
   });
+
+  it('pushes each fix to the team store while Push from CI is on, as Settings → Store shows it', async () => {
+    const plain = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure.yaml;
+    expect(plain).not.toContain('push: true');
+    const config = join(project, 'shadowlap.config.json');
+    writeFileSync(config, `${JSON.stringify({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' }, null, 2)}\n`);
+    try {
+      // A store and no "ciPush": on, as the Store tab's switch shows it.
+      const store = await getJson<{ config: { version: string }; status: { ciPush: boolean } | null }>(dash, 'settings/store');
+      expect(store.status?.ciPush).toBe(true);
+      const on = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
+      expect(on.teamStore).toMatchObject({ push: true, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: on, so fixes from your branches go there too.' });
+      expect(on.yaml.split('\n').slice(0, 2)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }', "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints"]);
+      expect(on.yaml).toContain("    recordings: 'goldens/* evals/kept-elsewhere'\n    fix-on-failure: true\n    fix-budget: 2.00\n    repairer: claude-code\n    push: true\n  env:\n");
+      expect(on.needs.at(-1)).toEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
+      expect(on.teamStore.lands).toEqual([
+        { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
+        { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' },
+      ]);
+      // Switched off on the Store tab: the step is the one it was, byte for byte.
+      const res = await api(dash, 'settings/store/ci-push', { method: 'PUT', body: JSON.stringify({ on: false, expect: store.config.version }) });
+      expect(res.status, await res.clone().text()).toBe(200);
+      const off = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
+      expect(off.teamStore).toMatchObject({ push: false, note: 'Follows Push from CI: off, so fixes stay in GitHub.', lands: [] });
+      expect(off.yaml).toBe(plain);
+      expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write']);
+    } finally {
+      rmSync(config, { force: true });
+    }
+    // A dashboard with no project folder has no store to push to.
+    expect((await getJson<CiWorkflowsView>(bare, 'ci/workflows')).fixOnFailure.teamStore).toMatchObject({ push: false, name: null });
+  });
 });
 
 describe('the Tests jobs', () => {

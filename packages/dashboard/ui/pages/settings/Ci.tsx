@@ -7,7 +7,9 @@ import { useLatest } from '../../hooks.js';
 import { href } from '../../route.js';
 import type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
+import { TeamStoreRow } from './CiTeamStore.js';
 import { LoadProblem, Loading } from './common.js';
+import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 
 /**
@@ -15,8 +17,9 @@ import { ciShown, typedSecret } from './logic.js';
  * rows ending in what the step needs; on the right, what lands and a short list; the workflow file
  * across the bottom with Copy. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts),
  * asked again as you pick, which fills in the project's goldens, its newest verified fix, its
- * repository and its default branch. Nothing is stored: the steps go into your own workflow file
- * and run in your CI.
+ * repository, its default branch and its team store: Fix on failure follows Push from CI, which
+ * Settings → Store sets, and with it on the step pushes each fix there too. Nothing is stored: the
+ * steps go into your own workflow file and run in your CI.
  */
 
 /** What the panels were changed to, kept while the dashboard is open; what isn't changed is the server's default. */
@@ -58,12 +61,28 @@ export function CiTab() {
   );
 }
 
-/** The panels for what was changed: the server's answer, kept while the next one is asked so nothing empties as you type. */
+/**
+ * The panels for what was changed: the server's answer, kept while the next one is asked so nothing
+ * empties as you type. Asked again when the window comes back (Push from CI may have been switched
+ * in a terminal meanwhile), when Settings changed from elsewhere, and in another project.
+ */
 function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null } {
-  const { client } = useApp();
-  const key = JSON.stringify(o);
+  const { client, meta } = useApp();
   const options = useLatest(o);
+  const [seen, setSeen] = useState(0);
+  const key = `${JSON.stringify(o)}:${meta?.project?.id ?? ''}:${seen}`;
   const [served, setServed] = useState<{ view: CiWorkflowsView | null; error: Error | null }>({ view: null, error: null });
+  useEffect(() => {
+    const again = () => document.visibilityState === 'visible' && setSeen((n) => n + 1);
+    window.addEventListener('focus', again);
+    document.addEventListener('visibilitychange', again);
+    const off = onSettingsChanged(() => setSeen((n) => n + 1));
+    return () => {
+      window.removeEventListener('focus', again);
+      document.removeEventListener('visibilitychange', again);
+      off();
+    };
+  }, []);
   useEffect(() => {
     let alive = true;
     client.ciWorkflows(options.current).then(
@@ -140,12 +159,19 @@ function FixOnFailure({ o, view, set, onToggle }: { o: CiWorkflowOptions; view: 
             </div>
             <Select label="Repairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
+          {f.teamStore ? <TeamStoreRow store={f.teamStore} /> : null}
           <span className="k cineeds">it needs</span>
           <CiList rows={f.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">{f.preview.example ? 'what lands in GitHub · example' : 'what lands in GitHub'}</span>
           <PullRequest pr={f.preview} />
+          {f.teamStore?.lands.length ? (
+            <>
+              <span className="k">and in the team store</span>
+              <CiList rows={f.teamStore.lands} />
+            </>
+          ) : null}
           <span className="k">it never</span>
           <CiList rows={f.never} />
         </div>

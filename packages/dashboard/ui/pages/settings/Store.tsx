@@ -112,7 +112,7 @@ export function StoreTab() {
         <div className="setrow">
           <div>
             <b>Push from CI</b>
-            <span>CI pushes every test run and its report, so history covers every pull request.</span>
+            <span>CI pushes every test run, its report and each fix it opens, so history covers every pull request.</span>
           </div>
           {ci ? <CiStepButton step={ci} /> : null}
           <div className="seg" role="group" aria-label="Push from CI">

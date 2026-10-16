@@ -56,9 +56,90 @@ describe('the Fix on failure step', () => {
     expect(fixOnFailureNever('1.00').map((x) => x[1])).toEqual(['divergence', 'rejected', '$1.00', 'merge']);
   });
 
+  it('pushes too when Push from CI is on, saying the job needs the bucket’s credentials; off, it is the step it was', () => {
+    const off = fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code' });
+    // Off is the step before push existed, byte for byte, left out or said.
+    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: null })).toBe(off);
+    // Short-lived credentials (S3, Cloud Storage, Azure): the two credentials steps store ci prints go
+    // before it, and they need id-token; every job pushes, a pull request's to its own folder.
+    const oidc = fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'oidc' });
+    expect(oidc).toBe(
+      [
+        '# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }',
+        "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints",
+        '- run: npm install -g @anthropic-ai/claude-code',
+        '- uses: devjoinedthechat/shadowlap@main',
+        '  with:',
+        '    recordings: goldens/*',
+        '    fix-on-failure: true',
+        '    fix-budget: 2.00',
+        '    repairer: claude-code',
+        '    push: true',
+        '  env:',
+        '    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+        '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+        "    # and your agent's own provider keys: blame and verify run it live",
+      ].join('\n'),
+    );
+    // Everything else is as it was: the push lines are added, none changed.
+    const added = (yaml: string) => yaml.split('\n').filter((l) => !off.split('\n').includes(l));
+    expect(added(oidc)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }', "# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints", '    push: true']);
+    // Keys in the repository's secrets (R2, which has no OIDC and whose token can't be kept to pr/):
+    // only a job that isn't a pull request's gets them, and only it pushes, as store ci has it.
+    const keys = fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' });
+    expect(keys).toBe(
+      [
+        '# the job needs: permissions: { contents: write, pull-requests: write }',
+        "# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push",
+        '- run: npm install -g @anthropic-ai/claude-code',
+        '- uses: devjoinedthechat/shadowlap@main',
+        '  with:',
+        '    recordings: goldens/*',
+        '    fix-on-failure: true',
+        '    fix-budget: 2.00',
+        '    repairer: claude-code',
+        "    push: ${{ !startsWith(github.event_name, 'pull_request') }}",
+        '  env:',
+        '    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
+        '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
+        "    R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}",
+        "    R2_SECRET_ACCESS_KEY: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_SECRET_ACCESS_KEY || '' }}",
+        "    # and your agent's own provider keys: blame and verify run it live",
+      ].join('\n'),
+    );
+    expect(added(keys)).toEqual([
+      "# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push",
+      "    push: ${{ !startsWith(github.event_name, 'pull_request') }}",
+      "    R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}",
+      "    R2_SECRET_ACCESS_KEY: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_SECRET_ACCESS_KEY || '' }}",
+    ]);
+    // The same condition store ci puts on the step that holds R2's keys and pushes.
+    const writerIf = "${{ !startsWith(github.event_name, 'pull_request') }}";
+    expect(keys).toContain(`    push: ${writerIf}\n`);
+    expect(fixOnFailureYaml({ budget: '5', repairer: 'openai:gpt-5', push: 'keys' })).toContain(`    repairer: openai:gpt-5\n    push: ${writerIf}\n  env:\n    OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n`);
+    // What it needs names the bucket's credentials, after what the step needs without push.
+    expect(fixOnFailureNeeds('claude-code', 'oidc')).toEqual([...fixOnFailureNeeds('claude-code'), ['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']]);
+    expect(fixOnFailureNeeds('anthropic', 'keys')).toEqual([...fixOnFailureNeeds('anthropic'), ['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']]);
+    expect(fixOnFailureNeeds('anthropic', null)).toEqual(fixOnFailureNeeds('anthropic'));
+  });
+
+  it('is YAML a workflow reads as written, its expressions left whole for GitHub', () => {
+    // A plain scalar may hold ${{ }}, quotes, && and ||: none of them starts one, and no `: ` or ` #` is inside.
+    for (const push of [null, 'oidc', 'keys'] as const) {
+      for (const line of fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push }).split('\n')) {
+        const value = /^\s*(?:- )?[a-zA-Z_-]+: (.*)$/.exec(line)?.[1];
+        if (!value?.startsWith('${{')) continue;
+        expect(value.endsWith('}}'), line).toBe(true);
+        expect(value, line).not.toMatch(/: | #/);
+      }
+    }
+  });
+
   it('passes only inputs the action has', () => {
     expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer']);
-    for (const key of withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }))) expect(inputs).toContain(key);
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'oidc' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
+    expect(withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push: 'keys' }))).toEqual(['recordings', 'fix-on-failure', 'fix-budget', 'repairer', 'push']);
+    for (const push of [null, 'oidc', 'keys'] as const) for (const key of withKeys(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', push }))) expect(inputs).toContain(key);
     expect(outputs).toEqual(expect.arrayContaining(['passed', 'failed', 'diverged', 'checks-failed', 'session', 'fixes', 'fix-prs']));
   });
 });
@@ -106,6 +187,9 @@ describe('docs/ci.md', () => {
   it('shows the same steps the dashboard writes', () => {
     const docs = readFileSync(join(ROOT, 'docs', 'ci.md'), 'utf8');
     expect(docs).toContain(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code' }));
+    // With Push from CI on: for a store whose CI signs in with short-lived credentials, and for R2.
+    expect(docs).toContain(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'oidc' }));
+    expect(docs).toContain(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', push: 'keys' }));
     expect(docs).toContain(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' }));
     for (const input of inputs) expect(docs, `docs/ci.md lists the input ${input}`).toContain(`| \`${input}\` |`);
   });

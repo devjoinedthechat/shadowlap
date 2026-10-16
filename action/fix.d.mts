@@ -29,6 +29,19 @@ export interface GoldenState {
   why: string | null;
 }
 
+/**
+ * With push, how a fix's push to the team store went: `sent`, push reported sending it; `pr`, a pull
+ * request's job, whose runs went to its own folder (`pr` is its number) and which sends no fixes;
+ * `off`, the team turned pushing from CI off; `failed`, it couldn't happen or push didn't say it did
+ * (`why`: no store, no credentials, a fork's pull request, the store out of reach, a fix push's report
+ * leaves out). None of them fails the job.
+ */
+export interface FixPush {
+  state: 'sent' | 'pr' | 'off' | 'failed';
+  why: string | null;
+  pr: string | null;
+}
+
 export interface FixOutcome {
   golden?: string;
   name: string;
@@ -40,8 +53,8 @@ export interface FixOutcome {
   spent: number;
   verify?: string | null;
   goldenState?: GoldenState | null;
-  /** With push: whether the fix went to the team store (null when it wasn't asked to). */
-  pushed?: boolean | null;
+  /** With push: how the fix's push to the team store went (null when it wasn't asked to). */
+  pushed?: FixPush | null;
 }
 
 export function planFixes(report: { results: ReportResult[] }): FixPlan[];
@@ -52,5 +65,8 @@ export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.Proce
 export function refreshGolden(options: { cli: string; workdir: string; result: ReportResult; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): GoldenState;
 export function goldenNote(golden: GoldenState): string;
 export function cannotPush(workdir: string): string | null;
+export function forkPullRequest(env: NodeJS.ProcessEnv, read?: (path: string) => string): boolean;
+export function pushFix(options: { cli: string; db: string | null; workdir: string; env: NodeJS.ProcessEnv; fixIds?: string[]; sentInJob?: Set<string>; read?: (path: string) => string }): FixPush;
+export function pushLine(name: string, pushed: FixPush): string;
 export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; push?: boolean; env: NodeJS.ProcessEnv; log?: (line: string) => void }): FixOutcome[];
 export function fixSummary(fixes: FixOutcome[], budget: number | string): string;

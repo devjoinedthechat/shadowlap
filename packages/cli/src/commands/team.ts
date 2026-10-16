@@ -86,7 +86,7 @@ export function register(program: Command): void {
     .action((flags: { provider?: Provider; json?: boolean }) => run(() => storePolicy(env(), flags)));
   store
     .command('push-from-ci')
-    .description('Turn pushing from CI on or off: writes "ciPush" to shadowlap.config.json. Off, test --push in CI runs the tests and keeps their runs in the job')
+    .description('Turn pushing from CI on or off: writes "ciPush" to shadowlap.config.json. Off, test --push in CI runs the tests and keeps their runs in the job, and the GitHub Action keeps the fixes it opens there')
     .argument('<on|off>', 'on (the default) or off', parseChoice<'on' | 'off'>(['on', 'off']))
     .option('--json', 'machine-readable output')
     .action((value: 'on' | 'off', flags: { json?: boolean }) => run(() => storePushFromCi(env(), value, flags)));

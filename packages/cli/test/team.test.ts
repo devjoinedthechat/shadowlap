@@ -751,7 +751,7 @@ describe('a run pushed while it records, and test runs from CI', () => {
     storeSet(dana, storeUrl('ci-off'));
     dana.take();
     expect(storePushFromCi(dana, 'off')).toBe(0);
-    expect(dana.take().out).toContain('✓ Push from CI off: shadowlap test --push in CI runs the tests and keeps their runs in the job.');
+    expect(dana.take().out).toContain('✓ Push from CI off: shadowlap test --push in CI runs the tests and keeps their runs in the job, and the GitHub Action keeps the fixes it opens there.');
     expect(JSON.parse(readFileSync(join(dana.cwd, 'shadowlap.config.json'), 'utf8'))).toMatchObject({ store: expect.stringContaining('ci-off'), ciPush: false });
     const ci = teammate(dana, 'ci-off-runner', 'ci', { GITHUB_ACTIONS: 'true' });
     expect(await prepareTestPush(ci)).toBeNull();
@@ -760,6 +760,9 @@ describe('a run pushed while it records, and test runs from CI', () => {
     expect(await prepareTestPush(dana)).not.toBeNull();
     expect(storePushFromCi(dana, 'on', { json: true })).toBe(0);
     expect(JSON.parse(dana.take().out)).toMatchObject({ ciPush: true, previous: false });
+    // Said in words: CI fixes go with it, as the GitHub Action pushes them.
+    expect(storePushFromCi(dana, 'on')).toBe(0);
+    expect(dana.take().out).toContain('✓ Push from CI on: shadowlap test --push in CI pushes every test run and its report, and the GitHub Action each fix it opens.');
     writeFileSync(join(ci.cwd, 'shadowlap.config.json'), readFileSync(join(dana.cwd, 'shadowlap.config.json')));
     expect(await prepareTestPush(ci)).not.toBeNull();
   });

@@ -1525,6 +1525,10 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 @media (max-width: 640px) { .cilist li { grid-template-columns: 8px minmax(0, 1fr); } .cilist li code { grid-column: 2; } }
 .cip .cineeds { display: block; margin: 14px 0 8px; }
 .cip .teamside .slackmsg + .k { margin-top: 20px; }
+/* Fix on failure's team store: what it follows, with the way to Settings → Store; what lands there, under the pull request. */
+.cip .teamside .cilist + .k { margin-top: 20px; }
+.cip .cistore .linkbtn { flex: none; }
+@media (max-width: 640px) { .cip .cistore .linkbtn { margin-left: -7px; } }
 /* Fork menu: one line per action, its flag on the right like a shortcut. */
 .pop.fkm { width: 330px; }
 .pop.fkm button { display: flex; align-items: baseline; gap: 12px; padding: 7px 10px; }

@@ -227,7 +227,7 @@ Pin the action to a release tag once there is one. Until `shadowlap` is on npm, 
 | `annotations` | `true` | Annotate failed recordings |
 | `junit` | empty | Also write JUnit XML to this path |
 | `store` | empty | The store for the test history and the replays; empty uses the project's, `.shadowlap/shadowlap.db` |
-| `push` | `false` | Push every test run and the session's report to the [team store](./team.md#push-from-ci) set in `shadowlap.config.json` (`shadowlap test --push`), and each fix that `fix-on-failure` opens; the job needs credentials for the bucket |
+| `push` | `false` | Push every test run and the session's report to the [team store](./team.md#push-from-ci) set in `shadowlap.config.json` (`shadowlap test --push`), and each fix that `fix-on-failure` opens ([below](#fixes-in-the-team-store)); the job needs credentials for the bucket, and a push that can't happen is a warning, never a failure |
 | `fix-on-failure` | `false` | Open a fix pull request when a golden fails an outcome check ([below](#fix-on-failure)) |
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
@@ -287,6 +287,7 @@ It needs:
 - a model key for the repairer: `ANTHROPIC_API_KEY` for `claude-code` and `anthropic`, `OPENAI_API_KEY` for `openai:<model>`. The `claude-code` repairer runs Claude Code in print mode, so the runner needs it installed, which the first step does; `anthropic` and `openai:<model>` need nothing installed;
 - your agent's own provider keys in the same `env`, as for `shadowlap run`: blame re-runs the failing replay live from the call it probes, and verify runs the agent with the fix. An agent on OpenAI with the `anthropic` repairer needs `OPENAI_API_KEY` as well as `ANTHROPIC_API_KEY`; without its keys, blame fails and no fix is proposed;
 - permission to push a branch (`contents: write`) and to open the pull request (`pull-requests: write`), in the job's `permissions`, and `GH_TOKEN` for `gh`;
+- with Push from CI on, the bucket's credentials, so each fix reaches the [team store](#fixes-in-the-team-store) too;
 - a branch checked out. A pull request's own workflow checks out a detached merge commit, so check out its branch, and the fix becomes a pull request into it:
 
 ```yaml
@@ -295,7 +296,60 @@ It needs:
     ref: ${{ github.head_ref || github.ref }}
 ```
 
-It never opens a pull request for a divergence (most are intended: [update the golden](#update-a-golden-after-an-intended-change) or add a normalizer), never keeps a fix that verify rejected, never spends past the budget (each failing golden gets `fix-budget` dollars for blame, the repairer and verify together, and repair starts nothing once it is spent), and never merges anything: you review every fix. A failed check still fails the build. The job summary lists each failing golden with the pull request opened (and whether its golden was re-recorded), or why there is none, and what it spent of its budget. The fix commit is made by GitHub's Actions bot when git has no identity of its own on the runner. A session stopped by a signal, as when the job is cancelled, starts no fix. The fix in the store the job used (the `store` input) records the pull request it went to (`shadowlap fix pr`), so a dashboard on that store lists it as *from CI · PR #138*, and once the pull request is merged or closed, *from CI · PR #138 merged*: the dashboard reads its state from GitHub with `gh`, in the background, while Fixes is open. A job's store usually goes with the job, so to reach your teammates the fix has to travel: with `push: true` and a [team store](./team.md) set in `shadowlap.config.json`, the action pushes the test runs as `shadowlap test --push` does, and once a fix's pull request is open, every run the job made (`shadowlap push --all`), which takes the fix with its blame, repair and verdicts along. A teammate's `shadowlap pull` then brings it to their Fixes page. The job summary says *in the team store* beside each fix that went; one that couldn't (no store set, or the team turned [pushing from CI](./team.md#push-from-ci) off) says why in the job's log, and the job's result is the tests' all the same. A pull request's own job writes only to [its own folder](./team.md#pull-requests) and sends no fixes.
+It never opens a pull request for a divergence (most are intended: [update the golden](#update-a-golden-after-an-intended-change) or add a normalizer), never keeps a fix that verify rejected, never spends past the budget (each failing golden gets `fix-budget` dollars for blame, the repairer and verify together, and repair starts nothing once it is spent), and never merges anything: you review every fix. A failed check still fails the build. The job summary lists each failing golden with the pull request opened (and whether its golden was re-recorded), or why there is none, and what it spent of its budget. The fix commit is made by GitHub's Actions bot when git has no identity of its own on the runner. A session stopped by a signal, as when the job is cancelled, starts no fix. The fix in the store the job used (the `store` input) records the pull request it went to (`shadowlap fix pr`), so a dashboard on that store lists it as *from CI · PR #138*, and once the pull request is merged or closed, *from CI · PR #138 merged*: the dashboard reads its state from GitHub with `gh`, in the background, while Fixes is open.
+
+### Fixes in the team store
+
+A job's store usually goes with the job, so to reach your teammates a fix has to travel through the [team store](./team.md). With [Push from CI](./team.md#push-from-ci) on (Settings → Store, or `shadowlap store push-from-ci on`), the dashboard's Settings → CI writes the step with `push: true`, and the bucket's credentials among what it needs:
+
+```yaml
+# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }
+# and before it, the bucket's credentials: the two if: steps shadowlap store ci prints
+- run: npm install -g @anthropic-ai/claude-code
+- uses: devjoinedthechat/shadowlap@main
+  with:
+    recordings: goldens/*
+    fix-on-failure: true
+    fix-budget: 2.00
+    repairer: claude-code
+    push: true
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # and your agent's own provider keys: blame and verify run it live
+```
+
+`push: true` pushes the test runs as `shadowlap test --push` does, and once a fix's pull request is open, every run the job made (`shadowlap push --all`), which takes the fix with its blame, repair and verdicts along. A teammate's `shadowlap pull` then brings it to their Fixes page, as *from CI · PR #138*. Settings → CI has no switch of its own for this: the step follows Push from CI, and while that is off, or the project has no team store, it is the step above without the push lines.
+
+Pushing needs the bucket's credentials in the job, besides the permissions the fix needs. Amazon S3, Cloud Storage and Azure give a job short-lived credentials: add `id-token: write` to the job's permissions, as the first comment says, and copy the two `if:` steps that `shadowlap store ci --provider github` prints (Settings → Store's **Copy CI step**) into the job, after its checkout and before this step. The first gives your branches' jobs the credentials that write to the store; the second gives a pull request's job its own, which write only under `pr/`. Copy only those two steps. The rest of what `store ci` prints is a job of its own, and around this step it would keep fixes from opening: its `run:` step tests first and fails the job on a failed check, so this step never runs; its checkout leaves a pull request's job on a detached merge commit; and its `contents: read` can't push a fix's branch. This step runs the tests itself and pushes them as that `run:` step does, so a workflow that already has the `store ci` job can put this step in place of its `run:` step, with the permissions and the checkout the fix needs.
+
+Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's folder. A pull request's job runs the agent as the pull request changed it, so it never gets the keys: for an R2 store, the step gives `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, from the repository's secrets, only to jobs that aren't a pull request's, and pushes only from those, as `store ci` writes it for R2:
+
+```yaml
+# the job needs: permissions: { contents: write, pull-requests: write }
+# and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push
+- run: npm install -g @anthropic-ai/claude-code
+- uses: devjoinedthechat/shadowlap@main
+  with:
+    recordings: goldens/*
+    fix-on-failure: true
+    fix-budget: 2.00
+    repairer: claude-code
+    push: ${{ !startsWith(github.event_name, 'pull_request') }}
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}
+    R2_SECRET_ACCESS_KEY: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_SECRET_ACCESS_KEY || '' }}
+    # and your agent's own provider keys: blame and verify run it live
+```
+
+A pull request's job then tests and opens its fix, and says nothing about the team store. That condition lives in the workflow file, which a pull request can edit; to keep the keys from a pull request's workflow altogether, put them in an environment only protected branches can use, for a job of its own on those branches, as `store ci`'s note for R2 says.
+
+A push that can't happen never fails the job and never keeps a fix's pull request from opening: the pull request is opened first, and the push comes after it. The job summary says *in the team store* beside each fix that `shadowlap push` reported sending; beside one that didn't go, *not in the team store*, with why under the table (no store set, no credentials, the store out of reach, or a push that didn't report sending it), and the job's log has it as a warning. A team that turned Push from CI off is told so, without a warning. The test runs' push is what `shadowlap test --push` always does: a warning when it can't happen, and the tests decide the job.
+
+- **A pull request's own job** writes only to [its own folder](./team.md#pull-requests), `pr/<number>/`, and sends no fixes: with short-lived credentials the job's runs go there, and the summary says the fix stays off the team's Fixes page; with R2 it pushes nothing. Fixes reach the team from jobs on your branches, such as `main`.
+- **A pull request from a fork** gets no secrets, no OIDC token and a read-only `GITHUB_TOKEN` from GitHub, so its job can't sign in to the bucket or push a fix's branch: it opens no fix pull request and pushes nothing. The pull request's credentials step that `shadowlap store ci` prints is only for pull requests from your own repository (its `if:` compares the pull request's head repository with yours), so it can't fail a fork's job: the job goes on to this step, the test runs' push warns that there are no credentials, and the tests decide the job. Where a fork's job does open a fix but can't push it, the warning says the pull request is from a fork.
 
 ## Alerts
 

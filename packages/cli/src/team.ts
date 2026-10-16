@@ -249,7 +249,8 @@ export async function storeSetChecked(t: TeamEnv, url: string, flags: { provider
 
 /**
  * Settings → Store's "Push from CI": writes `ciPush` to shadowlap.config.json. Off, `test --push`
- * in CI runs the tests and keeps their runs in the job; on (the default), it pushes them.
+ * in CI runs the tests and keeps their runs in the job, and the GitHub Action keeps the fixes it
+ * opens there; on (the default), both are pushed.
  */
 export function storePushFromCi(t: TeamEnv, value: 'on' | 'off', flags: { json?: boolean } = {}): number {
   const on = value === 'on';
@@ -268,7 +269,7 @@ export function storePushFromCi(t: TeamEnv, value: 'on' | 'off', flags: { json?:
     line(t, JSON.stringify(result, null, 2));
     return 0;
   }
-  line(t, `${p.green('✓')} Push from CI ${on ? 'on' : 'off'}: shadowlap test --push in CI ${on ? 'pushes every test run and its report' : 'runs the tests and keeps their runs in the job'}.`);
+  line(t, `${p.green('✓')} Push from CI ${on ? 'on' : 'off'}: shadowlap test --push in CI ${on ? 'pushes every test run and its report, and the GitHub Action each fix it opens' : 'runs the tests and keeps their runs in the job, and the GitHub Action keeps the fixes it opens there'}.`);
   line(t, p.dim(`  wrote "ciPush": ${on} to ${CONFIG_FILE}; commit it for CI to see it.`));
   return 0;
 }

@@ -1,14 +1,17 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Store } from '@shadowlap/engine';
-import { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, WORKFLOW_FILE } from './ci-yaml.js';
+import { ciStep, parseStoreUrl, shortStoreName, type StoreLocation } from '@shadowlap/remote';
+import { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, WORKFLOW_FILE, type BucketCredentials } from './ci-yaml.js';
 import { fixDetail, fixList } from './fixes.js';
+import type { TeamStoreInput } from './team-store.js';
 
 /**
  * The read model behind Settings → CI (`GET /api/ci/workflows`): the two panels' workflow steps,
  * what each needs, and a preview of what lands, for the options the panels are set to. The YAML
  * comes from ci-yaml.ts, as docs/ci.md shows it; nothing here is stored, since the steps go into the
- * repository's own workflow file.
+ * repository's own workflow file. Whether the Fix on failure step pushes is none of its options: it
+ * follows Push from CI, read from shadowlap.config.json as Settings → Store reads it.
  */
 
 export interface CiWorkflowOptions {
@@ -52,6 +55,24 @@ export interface PullRequestPreview {
   example: boolean;
 }
 
+/**
+ * The team store as Fix on failure follows it: Push from CI, as Settings → Store shows it. On, the
+ * step pushes, so each fix it opens lands on teammates' Fixes page too; the panel says what it
+ * follows, how that stands, and where it is set. The CI tab has no switch of its own for it.
+ */
+export interface CiTeamStore {
+  /** Push from CI is on: shadowlap.config.json names a team store and its `ciPush` isn't false. The step pushes then. */
+  push: boolean;
+  /** The store by its short name, `northwind-agent-runs/support-agent`; null when the config names none. */
+  name: string | null;
+  /** How the job signs in to the store's bucket, as `shadowlap store ci` writes it; null without a store. */
+  credentials: BucketCredentials | null;
+  /** The panel's line about it: that it follows Push from CI, and how that is set now. */
+  note: string;
+  /** What lands in the team store when the step pushes; empty when it doesn't. */
+  lands: CiListRow[];
+}
+
 export interface CiWorkflowsView {
   /** Where the steps go: `.github/workflows/agent.yml`. */
   file: string;
@@ -68,6 +89,8 @@ export interface CiWorkflowsView {
     needs: CiListRow[];
     never: CiListRow[];
     preview: PullRequestPreview;
+    /** Push from CI, which the step follows: on, it pushes, and each fix reaches the team store too. */
+    teamStore: CiTeamStore;
   };
   alerts: {
     onlyMain: boolean;
@@ -165,6 +188,38 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
   return null;
 }
 
+/**
+ * Push from CI as Settings → Store shows it, from the same reading of shadowlap.config.json
+ * (readTeamStoreInput): on when the config names a team store, as a store URL, and its `ciPush`
+ * isn't false. A project with no store, or one whose URL can't be used, has none to push to.
+ * Fixes reach teammates from the jobs of your branches: a pull request's job writes only its runs,
+ * to its own folder, with short-lived credentials, and with R2's keys, which can't be kept to that
+ * folder, nothing at all.
+ */
+export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null): CiTeamStore {
+  let loc: StoreLocation | null = null;
+  try {
+    loc = input?.store ? parseStoreUrl(input.store) : null;
+  } catch {
+    loc = null;
+  }
+  if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
+  const push = input?.ciPush !== false;
+  const credentials: BucketCredentials = ciStep('github', loc).oidc ? 'oidc' : 'keys';
+  return {
+    push,
+    name: shortStoreName(loc),
+    credentials,
+    note: push ? 'Follows Push from CI: on, so fixes from your branches go there too.' : 'Follows Push from CI: off, so fixes stay in GitHub.',
+    lands: push
+      ? [
+          { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
+          credentials === 'oidc' ? { label: 'from a pull request’s job, only its runs, in its own folder', value: 'pr/<n>/' } : { label: 'from a pull request’s job, nothing: R2 keys can’t be kept to pr/', value: 'no push' },
+        ]
+      : [],
+  };
+}
+
 /** Where the project's git metadata is: its `.git` folder, or the one a worktree's `.git` file names. */
 function gitDir(project: string): string | null {
   const dotGit = join(project, '.git');
@@ -242,17 +297,30 @@ export function gitFacts(project: string | null): { repository: string | null; b
  * Both panels for the options given. `context` is what the store and the project say: the pull
  * request preview (null: the example), the goldens failing now (the Slack message's count, 1 when
  * none fail), when the tests last ran, the repository, the branch checked out and the default
- * branch (`main` when it can't be told), and the goldens the steps replay.
+ * branch (`main` when it can't be told), the goldens the steps replay, and the team store and
+ * Push from CI as the config has them (readTeamStoreInput; none when left out).
  */
 export function ciWorkflows(
   o: CiWorkflowOptions,
-  context: { preview: PullRequestPreview | null; failing: number; at: number | null; repository: string | null; branch: string | null; defaultBranch?: string | null; recordings?: string },
+  context: {
+    preview: PullRequestPreview | null;
+    failing: number;
+    at: number | null;
+    repository: string | null;
+    branch: string | null;
+    defaultBranch?: string | null;
+    recordings?: string;
+    teamStore?: Pick<TeamStoreInput, 'store' | 'ciPush'> | null;
+  },
 ): CiWorkflowsView {
   const recordings = context.recordings ?? 'goldens/*';
   const main = context.defaultBranch || 'main';
   const branch = o.onlyMain ? main : context.branch && context.branch !== main ? context.branch : 'your-branch';
   const repo = context.repository ?? 'owner/repo';
   const message = alertsMessage({ failed: Math.max(1, context.failing), branch, runUrl: `github.com/${repo}/actions/runs/…` });
+  // With Push from CI on, the step pushes too and needs the bucket's credentials; off, it is as it was.
+  const teamStore = ciTeamStore(context.teamStore ?? null);
+  const push = teamStore.push ? teamStore.credentials : null;
   return {
     file: WORKFLOW_FILE,
     action: ACTION,
@@ -263,10 +331,11 @@ export function ciWorkflows(
       budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
       repairers: REPAIRERS.map((r) => ({ ...r })),
       offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings }),
-      needs: rows(fixOnFailureNeeds(o.repairer)),
+      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push }),
+      needs: rows(fixOnFailureNeeds(o.repairer, push)),
       never: rows(fixOnFailureNever(o.budget)),
       preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
+      teamStore,
     },
     alerts: {
       onlyMain: o.onlyMain,
