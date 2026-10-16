@@ -95,6 +95,8 @@ export type { Pair, PairAnswer, PairConfidence, PairFormat, PairRowsOptions, Pai
 export { answersNothing, attemptScore, averageTokens, defaultTakeover, describeTask, entryFor, goldenPaths, isModelRequest, isPack, isRecordedInput, matchTask, NO_COMMAND_NOTE, oneSided, parseTaskFields, projectPath, readGolden } from './tasks.js';
 export type { Golden, OneSided, Takeover, Task, TaskCheck, TaskFields, TaskInput, TaskStatus } from './tasks.js';
 export { anthropicBase, choiceTarget, endpointVia, isLoopback, listingInput, listModelChoices, mainRefusal, modelReach, ollamaBase, openAIBase, OFFICIAL, refusedLine } from './models.js';
+// A rule the config already has, for a value a divergence shows (test --update, Training's Update the golden).
+export { ruleInForce } from './volatile.js';
 export type { ListModelsInput, ModelChoice, ModelListing, ModelReach } from './models.js';
 export { anthropicEventList, anthropicMessageEvents, anthropicMessageToOpenAIChat, anthropicToOpenAIChat, awsErrorType, chatCompletionChunks, chatCompletionOf, chatShapeOf, errorBody, errorMessage, openAIChatToAnthropic, openAIChatToAnthropicMessage, openAITools, untranslatable } from './translate.js';
 export type { AnthropicMessage, ChatCompletion, ChatShape, OpenAITool, ToOpenAIOptions, TranslatedRequest } from './translate.js';

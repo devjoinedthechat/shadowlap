@@ -251,6 +251,44 @@ describe('shadowlap export pairs, with nothing to export', () => {
   }, 60_000);
 });
 
+describe('a golden whose test forks before its task takes over', () => {
+  it('is blocked, said after the test, and re-recorded by test --update, which makes it ready', async () => {
+    policy = 'models';
+    const { work } = workdir('sl-forked-');
+    try {
+      const run = await record(work, [AGENT]);
+      expect((await shadowlap(work, ['pack', run, 'goldens/refund'])).code).toBe(0);
+      expect((await shadowlap(work, ['pack', run, 'goldens/budget'])).code).toBe(0);
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund': { fork: true, expect: { tools: { issue_refund: 0 } }, task: { takeover: 5 } }, 'goldens/budget': { fork: true, expect: { inputTokens: '<= 60000' } } } }));
+      // The agent asks another model now: its first request differs, so each test forks at #1 and runs live from there, writes stubbed.
+      const env = { AGENT_MODEL: 'claude-good' };
+      const test = await shadowlap(work, ['test', 'goldens/refund', 'goldens/budget', '--writes', 'stub'], env);
+      expect(test.code, test.out).toBe(0);
+      expect(test.stdout).toContain('✓ refund: forked at call 1');
+      // A model can't take over at #5 where the recording no longer replays: the test passes, and says so. The budget golden is no task.
+      expect(test.stdout).toContain("goldens/refund forks at #1, before its task's takeover at #5, so no model can be scored on it. Update it: shadowlap test goldens/refund --update");
+      expect(test.stdout).not.toContain('goldens/budget forks');
+      const listed = JSON.parse((await shadowlap(work, ['tasks', '--json'], env)).stdout) as { tasks: Array<Record<string, unknown>> };
+      expect(listed.tasks.find((t) => t.golden === 'goldens/refund')).toMatchObject({ status: 'blocked', note: 'its test forks at #1, before the takeover: update the golden', fork: { callNo: 1, runId: expect.stringMatching(/^\w{26}$/) } });
+      expect((await shadowlap(work, ['tasks'], env)).stdout).toContain('update it: shadowlap test goldens/refund --update');
+
+      const update = await shadowlap(work, ['test', 'goldens/refund', 'goldens/budget', '--update', '--writes', 'stub'], env);
+      expect(update.code, update.out).toBe(0);
+      expect(update.stdout).toContain("↻ updating goldens/refund: it forks at #1, before its task's takeover at #5, so no model can be scored on it; re-recording live, writes stubbed");
+      expect(update.stdout).toContain('replaced goldens/refund in the working tree');
+      expect(update.stdout).toMatch(/✓ refund: \d+\/\d+ replayed.*\(updated\)/);
+      // A golden that is no task forks as it may: it is left alone.
+      expect(update.stdout).not.toContain('updating goldens/budget');
+      const after = JSON.parse((await shadowlap(work, ['tasks', '--json'], env)).stdout) as { tasks: Array<Record<string, unknown>> };
+      const refund = after.tasks.find((t) => t.golden === 'goldens/refund')!;
+      expect(refund).toMatchObject({ status: 'ready', note: null, takeover: { callNo: 5 } });
+      expect(refund.fork).toBeUndefined();
+    } finally {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }, 120_000);
+});
+
 describe('shadowlap tasks', () => {
   let work = '';
   let db = '';

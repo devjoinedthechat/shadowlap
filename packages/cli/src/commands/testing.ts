@@ -18,6 +18,7 @@ import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
 import { openStore, parseChoice, parseIntArg, printOutcome, requireRun, telemetry, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
+import { takeoverReader } from '../tasks.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -164,6 +165,10 @@ export function register(program: Command): void {
       const tested = new Map<string, { ok: boolean; fork: boolean }>();
       // Goldens that diverged in a way an update would fix: not only on values that change every run.
       const updatable: string[] = [];
+      // A golden that may fork and forked before its task's takeover passes, but no model can be scored
+      // on it (a model takes over only where the recording still replays): --update re-records it too.
+      const takeoverAt = takeoverReader(projectDir, store);
+      const forkedEarly: Array<{ packDir: string; golden: string; at: number; takeover: number }> = [];
       // Ctrl-C, or a dashboard job being stopped: the replay running now is cut short (its agent, and
       // whatever the agent started, get the signal), the goldens after it don't run, and the session
       // ends with the results of the ones that finished.
@@ -215,17 +220,21 @@ export function register(program: Command): void {
             break;
           }
           printGolden(outcome);
+          const forked = !outcome.failure && spec?.fork ? (outcome.result?.shown.ended.summary.divergence ?? null) : null;
+          const takeover = forked ? takeoverAt(packDir) : null;
+          const early = forked && takeover !== null && forked.callNo < takeover ? { at: forked.callNo, takeover } : null;
 
           let updated: PackResult['updated'] = null;
-          if (flags.update && outcome.failure && !signal) {
-            if (outcome.kind !== 'diverged' || !outcome.parent || !outcome.result) {
+          if (flags.update && (outcome.failure || early) && !signal) {
+            if ((outcome.kind !== 'diverged' && !early) || !outcome.parent || !outcome.result) {
               process.stdout.write(p.dim(`    not updated: only a golden that diverged is re-recorded; ${outcome.kind === 'check' ? 'a failed check is fixed in the agent, not in its golden' : 'this one failed for another reason'}\n`));
             } else {
               const before = outcome.parent;
               const divergence = outcome.result.shown.ended.summary.divergence;
               const normalizers = outcome.normalizers;
               for (const w of volatileWarning(divergence, normalizers)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
-              process.stdout.write(`    ${p.cyan('↻')} updating ${golden}: re-recording live, writes stubbed\n`);
+              const why = early ? ` it forks at #${early.at}, before its task's takeover at #${early.takeover}, so no model can be scored on it;` : '';
+              process.stdout.write(`    ${p.cyan('↻')} updating ${golden}:${why} re-recording live, writes stubbed\n`);
               const u = await rerecordGolden(packDir, before, spec, {
                 store,
                 config,
@@ -281,6 +290,7 @@ export function register(program: Command): void {
           cases.push(junitCase(outcome));
           results.push(packResult(outcome, { expect, updated }));
           tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
+          if (!flags.update && early) forkedEarly.push({ packDir, golden, ...early });
           const divergence = outcome.result?.shown.ended.summary.divergence;
           if (!flags.update && outcome.kind === 'diverged' && !(divergence && volatileValues(divergence, outcome.normalizers).explainsAll)) updatable.push(packDir);
           // Team store: every run this golden made, once its result is kept, with the golden it replayed.
@@ -327,6 +337,8 @@ export function register(program: Command): void {
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));
+      // A golden that passes but forks before its task's takeover: Training lists its task as blocked until it is updated.
+      for (const f of forkedEarly) process.stdout.write(p.dim(`${safe(f.golden)} forks at #${f.at}, before its task's takeover at #${f.takeover}, so no model can be scored on it. Update it: shadowlap test ${safe(quoteArgv([f.packDir]))} --update\n`));
       await telemetry().flush();
       // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM.
       process.exitCode = signal ? (signal === 'SIGINT' ? 130 : 143) : report.failed ? 1 : 0;

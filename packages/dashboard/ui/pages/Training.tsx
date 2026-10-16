@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TrainingView } from '../api.js';
+import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
 import { Badge, CmdLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
@@ -7,6 +7,7 @@ import { Page } from '../components/Page.js';
 import { rowOpen } from '../components/Table.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { plural, shortId } from '../format.js';
+import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -252,10 +253,22 @@ function PairGroup({ g }: { g: PairGroupView }) {
 // ---------------------------------------------------------------------------------------------- tasks
 
 function TasksTab({ view }: { view: TrainingView }) {
+  const { actionsOff, hasKind, guard } = useApp();
+  const [updating, setUpdating] = useState<{ update: TaskUpdate; name: string } | null>(null);
+  // Updating a golden runs the agent from the working tree: not while a repair or an apply changes it.
+  const busy = useTreeBusy('reads', 'update the golden');
   const t = view.tasks;
   if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
   if (t.empty) return <EmptyState title={t.empty.title} text={t.empty.text} command={t.empty.command} />;
   const w = t.warning;
+  // A task its test's early fork blocks: Update the golden, off with the reason when nothing can run.
+  const canUpdate = hasKind(JOB_KINDS.taskUpdate);
+  const updateOff = actionsOff ?? busy;
+  const updateButton = (u: TaskUpdate, name: string, cls: string) => (
+    <button className={cls} type="button" disabled={!!updateOff} title={updateOff ?? `Re-record ${name} as your agent runs now, so its test replays up to the takeover`} onClick={() => guard(() => setUpdating({ update: u, name }))}>
+      Update the golden…
+    </button>
+  );
   return (
     <>
       {w ? (
@@ -273,7 +286,9 @@ function TasksTab({ view }: { view: TrainingView }) {
               ) : null}
             </p>
           </div>
-          {w.fix ? (
+          {w.fix?.update ? (
+            canUpdate ? <div className="actions">{updateButton(w.fix.update, w.name ?? w.fix.update.golden, 'btn sm')}</div> : null
+          ) : w.fix?.href ? (
             <div className="actions">
               <a className="btn sm" href={w.fix.href}>
                 {w.fix.label}
@@ -302,7 +317,7 @@ function TasksTab({ view }: { view: TrainingView }) {
                 <tr key={r.golden} className={r.href ? undefined : 'static'} onClick={r.href ? rowOpen(() => navigate(r.href!)) : undefined}>
                   <td>
                     {r.href ? (
-                      <a className="rlink" href={r.href} title={r.status.key === 'blocked' ? 'Open Tests' : 'Open the golden’s run at the takeover'}>
+                      <a className="rlink" href={r.href} title={r.opens ?? undefined}>
                         <code>{r.name}</code>
                       </a>
                     ) : (
@@ -336,6 +351,7 @@ function TasksTab({ view }: { view: TrainingView }) {
                   <td>
                     <Badge tone={r.status.badge}>{r.status.label}</Badge>
                     {r.status.short ? <span className="rsub">{r.status.short}</span> : null}
+                    {r.update && canUpdate ? <div className="trupd">{updateButton(r.update, r.name, 'btn sm')}</div> : null}
                   </td>
                 </tr>
               ))}
@@ -343,6 +359,7 @@ function TasksTab({ view }: { view: TrainingView }) {
           </table>
         </div>
       </section>
+      {updating ? <UpdateGoldenDialog name={updating.name} update={updating.update} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
       <Scores view={view} />
       <div className="grid2 trgap">
         <section className="panel">
@@ -539,6 +556,49 @@ function ExportPairsDialog({ view, onClose }: { view: TrainingView; onClose: () 
           </select>
         </label>
       </div>
+    </Dialog>
+  );
+}
+
+/**
+ * Update the golden of a task whose test forks before its takeover: what it runs and why, then the
+ * job. The server builds the commands again from the store and the config; these are shown so the
+ * change to the config and the working tree is plain before it is made.
+ */
+function UpdateGoldenDialog({ name, update, busy, onClose }: { name: string; update: TaskUpdate; /** Why nothing can run now, or null. */ busy: string | null; onClose: () => void }) {
+  const { client, watchJob, guard } = useApp();
+  const rules = update.normalizers.length;
+  const values = update.normalizers.join(', ');
+  const fork = `Its test forks at #${update.forkedAt}, before the takeover at #${update.takeover}, so no model can take over there.`;
+  const text = update.rerecords
+    ? `${fork} Updating re-records it live from its first call, with every write tool stubbed, and replaces it in your working tree only if its checks pass. It calls your providers.`
+    : `${fork} Only ${rules === 1 ? 'a value that changes' : 'values that change'} every run differ there: the ${rules === 1 ? 'normalizer is' : 'normalizers are'} the whole fix, and the golden is tested again.`;
+  return (
+    <Dialog
+      title={update.rerecords ? `Update ${name}?` : `Add the ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}?`}
+      text={text}
+      ok={update.rerecords ? (rules ? 'Add and update' : 'Update') : 'Add and test'}
+      okDisabled={!!busy}
+      onOk={() => {
+        if (busy) return;
+        guard(() => {
+          watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden }));
+          onClose();
+        });
+      }}
+      onClose={onClose}
+    >
+      {rules && update.rerecords ? (
+        <p className="muted trnote">
+          First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <code>{values}</code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
+        </p>
+      ) : null}
+      <div className="trsteps">
+        {update.steps.map((step) => (
+          <CmdLine key={step.join(' ')}>{commandText(step)}</CmdLine>
+        ))}
+      </div>
+      {busy ? <p className="trbusy">{busy}</p> : null}
     </Dialog>
   );
 }

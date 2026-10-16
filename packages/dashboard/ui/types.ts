@@ -382,7 +382,7 @@ export interface TestRunView {
 export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
 
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
-export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TrainingView } from '../src/training.js';
+export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
 
 // ---- Compare (#/compare/<a>/<b>): two runs compared, with what git says about the code between them (src/compare.ts) ----
 export type { CodeChange } from '../src/compare.js';

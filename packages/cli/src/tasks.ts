@@ -139,10 +139,35 @@ export function loadTasks(root: string, store: Store | null): TaskList {
         unreadable = err instanceof Error ? err.message : String(err);
       }
     }
-    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(tests.get(golden), spec) : null, forkedAt: pack ? testForkedAt(tests.get(golden), spec) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
+    const last = tests.get(golden);
+    const forkedAt = pack ? testForkedAt(last, spec) : null;
+    const task = describeTask({ path: golden, golden: pack, fields: key === null ? {} : (fields.get(key) ?? {}), checks: taskChecks(spec), testFailed: pack ? testFailed(last, spec) : null, forkedAt, forkedRun: forkedAt !== null ? (last?.runId ?? null) : null, ...(pack && store ? { ancestors: ancestorsOf(store, pack.run) } : {}) });
     return { ...task, ...(unreadable ? { note: `its pack can't be read: ${unreadable}` } : {}), spec, dir, pack };
   });
   return { tasks, oneSided: oneSided(tasks) };
+}
+
+/**
+ * For `shadowlap test --update`: the call each golden's task takes over at (a golden with outcome
+ * checks and a model call to take over), by the golden's directory, read once when first asked. A
+ * golden whose test may fork and forked before that call passes, but no model can be scored on it,
+ * since a model takes over only where the recording still replays: the update re-records it, as it
+ * re-records one that diverged. Null for a golden that is no task, or a config the tasks can't read.
+ */
+export function takeoverReader(root: string, store: Store): (packDir: string) => number | null {
+  let byGolden: Map<string, number> | null = null;
+  return (packDir) => {
+    if (!byGolden) {
+      byGolden = new Map();
+      try {
+        // A task, or one only its test keeps from being ready: not a golden that is no task for another reason.
+        for (const t of loadTasks(root, store).tasks) if (t.takeover && (t.status === 'ready' || t.status === 'blocked')) byGolden.set(t.golden, t.takeover.callNo);
+      } catch {
+        // the tests entries already ran; without tasks, nothing is re-recorded for one
+      }
+    }
+    return byGolden.get(projectPath(root, packDir)) ?? null;
+  };
 }
 
 /** The tasks the dashboard's Training screen lists: what `shadowlap tasks --json` prints, without what only scoring needs. */

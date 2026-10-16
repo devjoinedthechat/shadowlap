@@ -287,13 +287,42 @@ describe('the pairs and score jobs', () => {
     expect(none.status).toBe(409);
   });
 
+  it('updates the golden of a task whose test forks before its takeover: a rule for its per-run value, then test --update', async () => {
+    spawned.length = 0;
+    // The golden's last test forked at #3, where the request carries a per-run id its recording never had.
+    const golden = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { user: 'Refund order A-5001.' }).run.runId;
+    const forked = recordRun(store, [LOOKUP, POLICY, ESCALATE, DONE], { parentRunId: golden, user: 'Refund order A-5001.' }).run.runId;
+    store.setDivergence(forked, { callNo: 3, kind: 'api', name: 'POST /v1/messages', type: 'request_changed', diff: [{ path: '$.metadata', op: 'added', after: { user_id: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' } }] } as never);
+    const saved = tasks;
+    tasks = [...saved, { ...task('goldens/refund-forked', 'blocked', 'escalate above the limit', golden), note: 'its test forks at #3, before the takeover: update the golden', fork: { callNo: 3, runId: forked } }];
+    try {
+      const res = await startJob(dash, { kind: 'task-update', golden: 'goldens/refund-forked' });
+      expect(res.status).toBe(202);
+      expect(((await res.json()) as JobView).title).toBe('Updating refund-forked');
+      // The rule first; the update once it exited 0.
+      for (let i = 0; i < 100 && spawned.length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+      expect(spawned).toEqual([
+        ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'],
+        ['test', 'goldens/refund-forked', '--update'],
+      ]);
+      const failing = await startJob(dash, { kind: 'task-update', golden: 'goldens/refund-in-limit' });
+      expect(failing.status).toBe(400);
+      expect(await failing.json()).toEqual({ error: 'refund-in-limit is not blocked by its test forking before the takeover: its test fails; fix it on Tests' });
+      expect((await startJob(dash, { kind: 'task-update', golden: 'goldens/nowhere' })).status).toBe(400);
+      expect((await startJob(readOnly, { kind: 'task-update', golden: 'goldens/refund-forked' })).status).toBe(403);
+      expect(spawned).toHaveLength(2);
+    } finally {
+      tasks = saved;
+    }
+  });
+
   it('runs nothing from a read-only dashboard', async () => {
     spawned.length = 0;
     expect((await startJob(readOnly, { kind: 'pairs' })).status).toBe(403);
     expect((await startJob(readOnly, { kind: 'score', model: 'm' })).status).toBe(403);
     expect(spawned).toEqual([]);
     const meta = (await (await api(dash, 'meta')).json()) as { jobKinds: string[] };
-    expect(meta.jobKinds).toEqual(expect.arrayContaining(['pairs', 'score']));
+    expect(meta.jobKinds).toEqual(expect.arrayContaining(['pairs', 'score', 'task-update']));
   });
 });
 

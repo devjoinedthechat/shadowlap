@@ -1,4 +1,4 @@
-import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, mainRefusal, modelReach, PAIR_FORMATS, refusedLine, type ModelChoice, type ModelListing, type ModelReach, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 
 /**
@@ -42,6 +42,41 @@ export interface TrainingInput {
   models?: ModelListing | null;
   /** Which fix a source's pairs about a run belong to, when Fixes knows (sourceFixes). */
   fixOf?: FixOf;
+  /** What makes each task blocked by an early fork ready, by golden (taskUpdate). */
+  updates?: Record<string, TaskUpdate>;
+}
+
+/**
+ * What makes a task ready whose golden's test forks before the takeover (`Task.fork`): the golden
+ * passes, but a model takes over only where the recording still replays. Updating it re-records it
+ * as the agent runs now (`shadowlap test <golden> --update`), after a normalizer for each value its
+ * fork shows that changes on every run, which would fork the next test again. When such values were
+ * all that changed, the normalizers are the whole fix, and the golden is tested again instead.
+ */
+export interface TaskUpdate {
+  golden: string;
+  /** The call its last test forked at, and the call the task takes over at. */
+  forkedAt: number;
+  takeover: number;
+  /** The paths it adds a normalizer for first: `$.metadata.user_id`. */
+  normalizers: string[];
+  /** The golden is re-recorded (`test --update`), not only tested again. */
+  rerecords: boolean;
+  /** What the job runs, after `shadowlap`, in order. */
+  steps: string[][];
+}
+
+/** What Update the golden runs for a task blocked by an early fork, or null for any other task. */
+export function taskUpdate(store: Store, task: Task, normalizers: readonly Normalizer[]): TaskUpdate | null {
+  if (task.status !== 'blocked' || !task.fork || !task.takeover) return null;
+  const run = task.fork.runId ? store.getRun(task.fork.runId) : null;
+  const found = run?.divergence ? volatileValues(run.divergence, normalizers) : null;
+  // Only values that surely change every run get a rule, and only one the config doesn't have: an id
+  // that changed may be a real change, which the update records.
+  const sure = (found?.values ?? []).filter((v) => v.certain && !ruleInForce(v.normalizer, normalizers));
+  const rerecords = !found?.explainsAll;
+  const steps = [...sure.map((v) => normalizeAddArgs(v.normalizer)), rerecords ? ['test', task.golden, '--update'] : ['test', task.golden]];
+  return { golden: task.golden, forkedAt: task.fork.callNo, takeover: task.takeover.callNo, normalizers: sure.map((v) => v.path), rerecords, steps };
 }
 
 /**
@@ -51,10 +86,16 @@ export interface TrainingInput {
  */
 export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
 
-/** What the store holds for Training; `tasks` and `models` come from the caller. */
-export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf }): TrainingInput {
+/** What the store holds for Training; `tasks` and `models` come from the caller, and `normalizers` from the config as it is now. */
+export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
   const { pairs, sources } = findPairs(store);
-  const storedRuns = new Set(extra.tasks.flatMap((t) => (t.runId && store.getRun(t.runId) ? [t.runId] : [])));
+  // The goldens' runs, and the test runs that forked before a takeover, that the store still holds.
+  const storedRuns = new Set(extra.tasks.flatMap((t) => [t.runId, t.fork?.runId ?? null].filter((id): id is string => !!id && !!store.getRun(id))));
+  const updates: Record<string, TaskUpdate> = {};
+  for (const t of extra.tasks) {
+    const u = taskUpdate(store, t, extra.normalizers ?? []);
+    if (u) updates[t.golden] = u;
+  }
   return {
     pairs,
     sources,
@@ -65,6 +106,7 @@ export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: 
     storedRuns,
     ...(extra.models !== undefined ? { models: extra.models } : {}),
     ...(extra.fixOf ? { fixOf: extra.fixOf } : {}),
+    ...(Object.keys(updates).length ? { updates } : {}),
   };
 }
 
@@ -198,8 +240,15 @@ export interface TaskRowView {
   after: { live: string[]; stubbed: string[] } | null;
   status: { key: Task['status']; label: string; badge: 'ok' | 'y' | 'n'; short: string | null };
   rewards: string | null;
-  /** The golden's run at the takeover; Tests for a blocked task; null when the store doesn't hold the run. */
+  /**
+   * The golden's run at the takeover; Tests for a blocked task, or for one blocked by an early fork
+   * the test run where it forked; null when the store doesn't hold the run.
+   */
   href: string | null;
+  /** What the row's link opens, on hover. */
+  opens: string | null;
+  /** For a task blocked by an early fork: what Update the golden runs. */
+  update: TaskUpdate | null;
 }
 
 export interface ModelCardView {
@@ -296,7 +345,7 @@ export interface TrainingView {
      * Every ready task rewards the same thing. `text` says it in one line; `name` is the task that
      * rewards the opposite (shown as code) and `once` what it needs first, for a view that marks it up.
      */
-    warning: (OneSided & { text: string; name: string | null; once: string | null; fix: { label: string; href: string } | null }) | null;
+    warning: (OneSided & { text: string; name: string | null; once: string | null; fix: { label: string; href: string | null; update: TaskUpdate | null } | null }) | null;
     empty: { title: string; text: string; command: string } | null;
     /** Why the tasks couldn't be read, such as a mistake in the config's `tests`; null when they could. */
     error: string | null;
@@ -567,15 +616,19 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   for (const x of input.pairs) madeBy[x.source] = (madeBy[x.source] ?? 0) + 1;
 
   // ---- tasks ----
+  const updateOf = (t: Task) => input.updates?.[t.golden] ?? null;
   const warn = findOneSided(input.tasks);
   const opposite = warn?.opposite ? (input.tasks.find((t) => t.golden === warn.opposite!.golden) ?? null) : null;
+  // A task whose test fails is fixed on Tests; one whose test forks before its takeover, by updating its golden.
+  const oppositeUpdate = opposite ? updateOf(opposite) : null;
+  const once = !opposite ? null : oppositeUpdate ? 'its golden is updated' : opposite.status === 'blocked' ? 'its test passes' : 'it is a task';
   const warning = warn
     ? {
         ...warn,
-        text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${opposite.status === 'blocked' ? 'its test passes' : 'it is a task'}.` : ''}`,
+        text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once}.` : ''}`,
         name: opposite?.name ?? null,
-        once: opposite ? (opposite.status === 'blocked' ? 'its test passes' : 'it is a task') : null,
-        fix: opposite?.status === 'blocked' ? { label: 'Fix it on Tests', href: '#/tests' } : null,
+        once,
+        fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: 'Fix it on Tests', href: '#/tests', update: null } : null,
       }
     : null;
   // Tasks a model can be scored on first, then what keeps the rest from being one; the project's order within each.
@@ -586,6 +639,12 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     // Without an outcome check nothing is scored, so no model takes over: the mock's "no call to take over".
     const takeover = outcome.length && t.status !== 'no-golden' ? t.takeover : null;
     const k = takeover?.callNo ?? null;
+    const update = updateOf(t);
+    const atTakeover = stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null;
+    // A task blocked by an early fork opens the test run where it forked, where what changed shows; else the golden's run.
+    const forkRun = update && t.fork?.runId && stored(t.fork.runId) ? `#/run/${t.fork.runId}/${t.fork.callNo}` : null;
+    const href = update ? (forkRun ?? atTakeover) : t.status === 'blocked' ? '#/tests' : atTakeover;
+    const opens = !href ? null : href === '#/tests' ? 'Open Tests' : href === forkRun ? `Open the test run where it forked, at #${t.fork!.callNo}` : k !== null ? 'Open the golden’s run at the takeover' : 'Open the golden’s run';
     return {
       golden: t.golden,
       name: t.name,
@@ -595,7 +654,9 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
       after: k !== null ? t.after : null,
       status: { key: t.status, ...STATUS[t.status], short: t.note },
       rewards: t.rewards,
-      href: t.status === 'blocked' ? '#/tests' : stored(t.runId) ? `#/run/${t.runId}${k !== null ? `/${k}` : ''}` : null,
+      href,
+      opens,
+      update,
     };
   });
 
@@ -722,4 +783,22 @@ export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: st
   // A golden path that looks like an option would be read as one.
   if (chosen.some((g) => g.startsWith('-'))) return { error: 'a golden path must not start with "-"' };
   return { args: ['tasks', 'score', ...chosen, '--model', model.trim(), ...(base ? ['--base-url', base] : []), '--attempts', String(n)], goldens: chosen };
+}
+
+/**
+ * Update the golden of a task its test's early fork blocks, as a job: `{ golden }` from the dialog,
+ * which must name such a task. What it runs is `taskUpdate`'s, built here from the store and the
+ * config, never from the request: a `normalize add` for each value that changes every run, then
+ * `test <golden> --update`, which re-records it (or `test <golden>` when those rules are the fix).
+ */
+export function taskUpdateJob(body: unknown, store: Store, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
+  const golden = isObject(body) ? body.golden : undefined;
+  if (typeof golden !== 'string' || !golden) return { error: 'name the golden to update' };
+  const task = tasks.find((t) => t.golden === golden);
+  if (!task) return { error: `${golden} is not a golden of this project` };
+  // A golden path that looks like an option would be read as one.
+  if (task.golden.startsWith('-')) return { error: 'a golden path must not start with "-"' };
+  const u = taskUpdate(store, task, normalizers);
+  if (!u) return { error: `${task.name} is not blocked by its test forking before the takeover${task.status === 'blocked' ? `: ${task.note ?? 'its test fails'}; fix it on Tests` : ''}` };
+  return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `Adding a normalizer for ${task.name}` };
 }

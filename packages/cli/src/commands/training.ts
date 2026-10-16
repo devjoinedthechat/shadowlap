@@ -31,7 +31,7 @@ import { serveTasks } from '../serve-tasks.js';
 import { openStore, parseChoice, parseIntArg, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
 import { cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
-import { palette as p, shortId } from '../ui.js';
+import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 /**
  * Training: preference pairs read from the attempts blame, verify and --repeat left in the store,
@@ -101,6 +101,8 @@ function describeRow(t: LoadedTask): string[] {
   const checks = t.checks.filter((c) => !c.cap);
   if (t.status === 'ready' || t.status === 'blocked') lines.push(p.dim(`      scored by: the agent exits 0${checks.map((c) => `; ${safeLine(c.label)}`).join('')}`));
   if (t.after.live.length || t.after.stubbed.length) lines.push(p.dim(`      after the takeover: ${[...t.after.live.map((n) => `${safeLine(n)} live`), ...t.after.stubbed.map((n) => `${safeLine(n)} stubbed`)].join(', ')}`));
+  // Its test passes, but forks before the takeover: re-recorded as the agent runs now, a model can take over.
+  if (t.fork) lines.push(p.dim(`      update it: shadowlap test ${safeLine(quoteArgv([t.golden]))} --update`));
   return lines;
 }
 

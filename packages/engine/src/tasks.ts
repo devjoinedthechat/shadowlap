@@ -249,6 +249,13 @@ export interface Task {
   callName: string | null;
   /** What the recording's model calls used from the takeover on: a model's price per attempt is estimated from it. */
   tokensAfter: Usage | null;
+  /**
+   * Set when the task is blocked because its golden's last test forked before the takeover: the call
+   * it forked at, and that test's run (null when the store no longer has it). The golden passes, but
+   * a model can't take over where the recording no longer replays; updating the golden
+   * (`shadowlap test <golden> --update`) re-records it as the agent runs now.
+   */
+  fork?: { callNo: number; runId: string | null };
 }
 
 export interface TaskInput {
@@ -266,6 +273,8 @@ export interface TaskInput {
    * takeover blocks the task as a failing test does. Null or absent when it didn't fork.
    */
   forkedAt?: number | null;
+  /** The test run that forked there, when the store has it: a blocked task opens it at the fork. */
+  forkedRun?: string | null;
   /** The runs a golden came from, newest first, when the store has them and the pack doesn't. */
   ancestors?: RunRecord[];
 }
@@ -411,8 +420,13 @@ export function describeTask(input: TaskInput): Task {
   if (task.scopes.length > 1) return { ...task, status: 'not-a-task', note: `its model calls are made in more than one scope (${task.scopes.map(scopeName).join(', ')}), and scoring can't yet send only ${task.scope === null ? "one scope's" : `${task.scope}'s`} to the model under test` };
   if (input.testFailed === true) return { ...task, status: 'blocked', note: 'its test fails' };
   // A fork at the takeover changes nothing: the model under test answers that call anyway.
-  if (input.forkedAt != null && input.forkedAt < k) return { ...task, status: 'blocked', note: `its test forks at #${input.forkedAt}, before the takeover` };
+  if (input.forkedAt != null && input.forkedAt < k) return { ...task, status: 'blocked', note: forkNote(input.forkedAt), fork: { callNo: input.forkedAt, runId: input.forkedRun ?? null } };
   return task;
+}
+
+/** Why a task whose golden's test forks before its takeover is blocked, and what makes it ready. */
+export function forkNote(callNo: number): string {
+  return `its test forks at #${callNo}, before the takeover: update the golden`;
 }
 
 /** Why a golden packed from a capture is blocked: its test can't run, and how to give it a command. */

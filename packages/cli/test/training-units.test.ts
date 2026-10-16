@@ -6,6 +6,7 @@ import { message, startMockAnthropic, text, toolUse, type MockServer } from '@sh
 import { functionCall, startMockGemini, turn as geminiTurn, type MockServer as GeminiServer } from '@shadowlap-testing/mock-gemini';
 import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer } from '@shadowlap-testing/mock-openai';
 import { parseTests } from '../src/checks.js';
+import { volatileWarning } from '../src/golden-update.js';
 import { keptLine, replayedBefore } from '../src/commands/training.js';
 import { ANSWERED_BY, modelUnswitchable, resolveTarget, startTakeover, switchModel, takeoverMode, targetVia } from '../src/takeover.js';
 import { answeredBy, attemptCost, cannotScore, keepScores, lastTests, taskChecks, testFailed, testForkedAt, type LoadedTask, type TaskScore } from '../src/tasks.js';
@@ -376,6 +377,19 @@ describe('a golden\'s last test', () => {
     expect(testFailed(last.get('goldens/e'), null)).toBeNull();
     expect(lastTests(null, root).size).toBe(0);
     store.close();
+  });
+});
+
+describe('the warning test --update gives about a value that changes every run', () => {
+  const added = { type: 'request_changed' as const, callNo: 3, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata', op: 'added' as const, after: { user_id: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' } }] };
+  it('names the rule for a field new in the request, and says nothing once the config has it', () => {
+    expect(volatileWarning(added).map((w) => w.command)).toEqual(["shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'"]);
+    // Added just before the update (Training's Update the golden adds it first): the next run is masked, nothing to say.
+    expect(volatileWarning(added, [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }])).toEqual([]);
+    expect(volatileWarning(added, [{ path: '$.metadata.user_id', replace: '<ID>' }])).toEqual([]);
+    // A rule for another kind of call, or another path, is no rule for it.
+    expect(volatileWarning(added, [{ kind: 'tool', path: '$.metadata.user_id', replace: '<ID>' }])).toHaveLength(1);
+    expect(volatileWarning(added, [{ kind: 'api', path: '$.metadata.trace_id', pattern: 'ulid', replace: '<ULID>' }])).toHaveLength(1);
   });
 });
 

@@ -54,9 +54,11 @@ export const JOB_KINDS = {
   inspect: 'init',
   record: 'record',
   keepGolden: 'pack-test',
-  // Training: export preference pairs, and score a model on the tasks.
+  // Training: export preference pairs, score a model on the tasks, and update the golden of a task
+  // whose test forks before its takeover.
   pairs: 'pairs',
   score: 'score',
+  taskUpdate: 'task-update',
 } as const;
 
 export class ApiError extends Error {

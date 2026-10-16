@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type ModelListing, type Task, type TaskScoreRow } from '@shadowlap/engine';
-import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, trainingView } from '../src/training.js';
+import { approx, exportPairsJob, money, readTraining, scoreDialogView, scoreModelJob, scoreNote, taskUpdate, taskUpdateJob, trainingView } from '../src/training.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 
 /**
@@ -341,6 +341,66 @@ describe('the Training read model', () => {
     const scores = [score('claude-haiku-4-5', null, 'goldens/a', 1, 0.5, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 1, 200), score('qwen2.5:7b', 'http://gpu-box:8000/v1', 'goldens/a', 1, 0.5, 300)];
     const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
     expect(view.strip.best).toMatchObject({ value: '1.00', model: 'qwen2.5:7b', sub: 'qwen2.5:7b at 127.0.0.1:11434 · 2 models scored' });
+    s.close();
+  });
+
+  it('offers an update for a task whose test forks before its takeover, and opens the test run where it forked', () => {
+    const s = Store.open(':memory:');
+    // The test replay forked at #3, where the request carries a per-run user id the recording never had.
+    const golden = recordRun(s, [LOOKUP, POLICY, ESCALATE, DONE]).run;
+    const forked = recordRun(s, [LOOKUP, POLICY, ESCALATE, DONE], { parentRunId: golden.runId }).run;
+    const divergence = { callNo: 3, kind: 'api', name: 'POST /v1/messages', type: 'request_changed', diff: [{ path: '$.metadata', op: 'added', after: { user_id: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' } }] };
+    s.setDivergence(forked.runId, divergence as never);
+    const fork = { callNo: 3, runId: forked.runId };
+    const over = task('goldens/refund-over-limit', 'blocked', 'escalate above the limit', { runId: golden.runId, note: 'its test forks at #3, before the takeover: update the golden', fork });
+    const inLimit = task('goldens/refund-in-limit', 'ready', 'refund within the limit', { runId: golden.runId });
+
+    const update = taskUpdate(s, over, []);
+    expect(update).toEqual({
+      golden: 'goldens/refund-over-limit',
+      forkedAt: 3,
+      takeover: 17,
+      normalizers: ['$.metadata.user_id'],
+      rerecords: true,
+      steps: [
+        ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'],
+        ['test', 'goldens/refund-over-limit', '--update'],
+      ],
+    });
+    // A rule at that path in force already (added on Tests for another golden): the update alone, as the rule masks the value from the next run on.
+    expect(taskUpdate(s, over, [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }])).toMatchObject({ normalizers: [], steps: [['test', 'goldens/refund-over-limit', '--update']] });
+    expect(taskUpdate(s, over, [{ path: '$.metadata.user_id', replace: '<ID>' }])?.normalizers).toEqual([]);
+    expect(taskUpdate(s, over, [{ kind: 'tool', path: '$.metadata.user_id', replace: '<ID>' }])?.normalizers).toEqual(['$.metadata.user_id']);
+    // Nothing but a value that changes every run, in a field the recording has: the rule is the whole fix.
+    const changed = { ...divergence, diff: [{ path: '$.metadata.user_id', op: 'changed', before: '1c2b3a4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', after: '9b2f6c1e-4d7a-4c3b-9e8f-2a1b3c4d5e6f' }] };
+    s.setDivergence(forked.runId, changed as never);
+    expect(taskUpdate(s, over, [])).toMatchObject({ rerecords: false, steps: [['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'], ['test', 'goldens/refund-over-limit']] });
+    // A change of its own (another prompt): no rule, the update alone.
+    const prompt = { ...divergence, diff: [{ path: '$.system', op: 'changed', before: 'Be brief.', after: 'Escalate refunds above the limit.' }] };
+    s.setDivergence(forked.runId, prompt as never);
+    expect(taskUpdate(s, over, [])).toMatchObject({ normalizers: [], rerecords: true, steps: [['test', 'goldens/refund-over-limit', '--update']] });
+    // A task whose test fails, or a ready one, has none: a failing test is fixed on Tests.
+    expect(taskUpdate(s, task('goldens/x', 'blocked', null), [])).toBeNull();
+    expect(taskUpdate(s, inLimit, [])).toBeNull();
+
+    s.setDivergence(forked.runId, divergence as never);
+    const view = trainingView(readTraining(s, { tasks: [inLimit, over] }));
+    const row = view.tasks.rows.find((r) => r.name === 'refund-over-limit')!;
+    expect(row).toMatchObject({ status: { label: 'blocked', short: 'its test forks at #3, before the takeover: update the golden' }, href: `#/run/${forked.runId}/3`, opens: 'Open the test run where it forked, at #3', update: { forkedAt: 3, normalizers: ['$.metadata.user_id'] } });
+    expect(view.tasks.rows.find((r) => r.name === 'refund-in-limit')).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: null });
+    // The task that rewards the opposite is ready once its golden is updated: the warning offers that, not Tests.
+    expect(view.tasks.warning).toMatchObject({ name: 'refund-over-limit', once: 'its golden is updated', text: expect.stringContaining('refund-over-limit rewards the opposite once its golden is updated.'), fix: { label: 'Update the golden…', href: null, update: { golden: 'goldens/refund-over-limit' } } });
+    // With the test run gone, the row opens the golden's run at the takeover, and the update is still offered.
+    const gone = trainingView(readTraining(s, { tasks: [{ ...over, fork: { callNo: 3, runId: 'GONE' } }] }));
+    expect(gone.tasks.rows[0]).toMatchObject({ href: `#/run/${golden.runId}/17`, opens: 'Open the golden’s run at the takeover', update: { steps: [['test', 'goldens/refund-over-limit', '--update']] } });
+
+    // The job runs what the store and the config say, for such a task only.
+    expect(taskUpdateJob({ golden: 'goldens/refund-over-limit' }, s, [inLimit, over], [])).toEqual({ title: 'Updating refund-over-limit', steps: update!.steps });
+    expect(taskUpdateJob({ golden: 'goldens/refund-in-limit' }, s, [inLimit, over], [])).toEqual({ error: 'refund-in-limit is not blocked by its test forking before the takeover' });
+    expect(taskUpdateJob({ golden: 'goldens/x' }, s, [task('goldens/x', 'blocked', null)], [])).toEqual({ error: 'x is not blocked by its test forking before the takeover: its test fails; fix it on Tests' });
+    expect(taskUpdateJob({ golden: '../../etc' }, s, [inLimit, over], [])).toEqual({ error: '../../etc is not a golden of this project' });
+    expect(taskUpdateJob({}, s, [inLimit, over], [])).toEqual({ error: 'name the golden to update' });
+    expect(taskUpdateJob({ golden: '-x' }, s, [{ ...over, golden: '-x' }], [])).toEqual({ error: 'a golden path must not start with "-"' });
     s.close();
   });
 
