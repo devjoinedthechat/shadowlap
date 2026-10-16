@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { lineTone } from '../ui/jobs.js';
-import { ENDPOINT, fileName, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
+import { jobStatus, lineTone } from '../ui/jobs.js';
+import { ENDPOINT, fileName, filterGroups, trainingJobStatus, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingCountsChange, onTrainingDialog, pickedOption, pickNote, pipClass, pipTip, requestTrainingDialog, scoreFields, takeTrainingDialog, trainingPalette, whenDone, type TrainingPaletteContext } from '../ui/training.js';
 import type { ModelOptionView, PairGroupView, ScoreDialogView, TrainingView } from '../ui/types.js';
 
 // Training's logic without a browser: what a filter shows, the words for times and files, what Score
@@ -193,5 +193,31 @@ describe('the drawer while a model is scored', () => {
     // The task's line and the summary keep their own marks.
     expect(lineTone('▸ refund-over-limit · #1–#4 replayed · claude-haiku-4-5 from #5 · writes stubbed')).toBe('');
     expect(lineTone('✓ claude-haiku-4-5 · mean 0.87 · 10 attempts on 2 tasks · ≈$0.104 spent')).toBe('ok');
+  });
+});
+
+describe('how a Training job ended', () => {
+  const attempts = (n: number) => Array.from({ length: n }, (_, i) => ({ attempt: i + 1, score: 1 }));
+  const score = (code: number, tasks: Array<{ attempts: unknown[]; stopped?: string | null }>, skipped: unknown[] = [], mean: number | null = 0.87) => ({ kind: 'score', code, result: { model: 'claude-haiku-4-5', mean, tasks, skipped } });
+
+  it('says a score job scored every task and its mean, or how many it scored when a golden no longer replays', () => {
+    expect(trainingJobStatus(score(0, [{ attempts: attempts(5) }, { attempts: attempts(5) }]))).toEqual({ text: 'scored · mean 0.87 · exit 0', tone: 'ok' });
+    // The demo store's case: refund-over-limit forked at #3 before its takeover, so 3 of its 4 tasks were scored.
+    const partly = score(1, [{ attempts: attempts(5) }, { attempts: attempts(5) }, { attempts: attempts(5) }, { attempts: [], stopped: "goldens/refund-over-limit doesn't replay up to #17" }]);
+    expect(trainingJobStatus(partly)).toEqual({ text: '3 of 4 tasks scored · exit 1', tone: 'warn' });
+    expect(trainingJobStatus(score(1, [{ attempts: attempts(5) }], [{ task: 'goldens/x', reason: 'not a golden' }]))).toEqual({ text: '1 of 2 tasks scored · exit 1', tone: 'warn' });
+    expect(trainingJobStatus(score(1, [], [{ task: 'goldens/x', reason: 'unreachable' }], null))).toEqual({ text: 'nothing scored · exit 1', tone: 'err' });
+    // The drawer reads it before the CLI's words, which say "Diverged at call" for the golden that stopped.
+    expect(jobStatus({ args: ['tasks', 'score'], done: true, ...partly }, ['    ✗ Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence'])).toEqual({ text: '3 of 4 tasks scored · exit 1', tone: 'warn' });
+  });
+
+  it('says how many pairs an export wrote, or that it exported nothing', () => {
+    expect(trainingJobStatus({ kind: 'pairs', code: 0, result: { pairs: 5, file: '.shadowlap/exports/pairs.jsonl' } })).toEqual({ text: '5 pairs written · exit 0', tone: 'ok' });
+    expect(trainingJobStatus({ kind: 'pairs', code: 0, result: { pairs: 1, file: '-' } })).toEqual({ text: '1 pair written · exit 0', tone: 'ok' });
+    expect(trainingJobStatus({ kind: 'pairs', code: 0, result: { pairs: 0, file: null } })).toEqual({ text: 'nothing exported · exit 0', tone: 'warn' });
+    // Still running, another kind, or no result: the drawer reads the CLI's words.
+    expect(trainingJobStatus({ kind: 'pairs', code: null, result: { pairs: 5 } })).toBeNull();
+    expect(trainingJobStatus({ kind: 'replay', code: 0, result: { pairs: 5 } })).toBeNull();
+    expect(trainingJobStatus({ kind: 'score', code: 1 })).toBeNull();
   });
 });

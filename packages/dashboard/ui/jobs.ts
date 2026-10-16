@@ -1,4 +1,5 @@
 import { fixJobStatus } from './fixes/model.js';
+import { trainingJobStatus } from './training.js';
 
 /**
  * What the job drawer says about a CLI run the dashboard started: its title, how each output line
@@ -100,6 +101,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   // Blame, repair and fix apply say how they came out in their result.
   const fixes = fixJobStatus(job);
   if (fixes) return fixes;
+  // So do Score a model and Export pairs (Training).
+  const training = trainingJobStatus(job);
+  if (training) return training;
   const all = lines.join('\n');
   const code = job.code;
   if (code === null) return { text: 'stopped', tone: 'err' };
