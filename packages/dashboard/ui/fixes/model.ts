@@ -135,6 +135,20 @@ export function treeBusy(jobs: readonly TreeJob[], use: 'reads' | 'writes', verb
 
 // ---------------------------------------------------------------------------------------------- blame
 
+const EXAMPLE_CHECK = '{"tools":{"send_email":1}}';
+
+/** The check typed into Run blame's dialog, as the blame job takes it: a JSON object, or why it isn't one. */
+export function parseCheck(text: string): { expect: Record<string, unknown> } | { error: string } {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { error: `That isn’t JSON. Give an object, such as ${EXAMPLE_CHECK}.` };
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return { error: `The check is an object, such as ${EXAMPLE_CHECK}.` };
+  return { expect: value as Record<string, unknown> };
+}
+
 export interface CallCell {
   callNo: number;
   /** A model call (a ring) or another call (a dot); `gap` stands for calls left out. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bundledRuns, bundleGlyph, bundleLine, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseMarkdown, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
+import { bundledRuns, bundleGlyph, bundleLine, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
@@ -258,6 +258,14 @@ describe('report.md', () => {
       { code: false, text: ': done' },
     ]);
     expect(inlineParts('<b>not html</b>')).toEqual([{ code: false, text: '<b>not html</b>' }]);
+  });
+});
+
+describe('Run blame’s check', () => {
+  it('takes a JSON object, and says why anything else isn’t one', () => {
+    expect(parseCheck(' {"tools":{"send_email":1}} ')).toEqual({ expect: { tools: { send_email: 1 } } });
+    expect(parseCheck('{"tools":')).toEqual({ error: 'That isn’t JSON. Give an object, such as {"tools":{"send_email":1}}.' });
+    for (const text of ['[1]', 'null', '"send_email"', '3']) expect(parseCheck(text)).toEqual({ error: 'The check is an object, such as {"tools":{"send_email":1}}.' });
   });
 });
 
