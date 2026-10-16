@@ -20,6 +20,13 @@ export const REPAIRERS: ReadonlyArray<{ value: string; label: string }> = [
 /** Budgets per failing golden the panel offers, in dollars. */
 export const FIX_BUDGETS: readonly string[] = ['1.00', '2.00', '5.00'];
 
+/**
+ * How a GitHub Actions job signs in to the team store's bucket, as `shadowlap store ci` writes it:
+ * short-lived credentials the job asks the cloud for (`id-token: write`: Amazon S3, Cloud Storage,
+ * Azure), or keys kept in the repository's secrets (Cloudflare R2, which has no OIDC).
+ */
+export type BucketCredentials = 'oidc' | 'keys';
+
 export interface FixOnFailureSettings {
   /** Dollars per failing golden. */
   budget: string;
@@ -27,6 +34,12 @@ export interface FixOnFailureSettings {
   repairer: string;
   /** The goldens the step replays (default `goldens/*`). */
   recordings?: string;
+  /**
+   * Push from CI is on for the project (Settings → Store): the step pushes, so each fix it opens
+   * reaches the team store too, and the job needs the bucket's credentials, got this way. Absent
+   * when it is off: the step is the one it always was.
+   */
+  push?: BucketCredentials | null;
 }
 
 /** The secret holding the repairer's model key. */
@@ -52,13 +65,29 @@ export function scalar(value: string): string {
 const AGENT_KEYS_COMMENT = "# and your agent's own provider keys: blame and verify run it live";
 
 /**
+ * With push, the second comment: where the bucket's credentials come from. Short-lived ones are
+ * asked for by the steps `shadowlap store ci` prints, before the action runs; keys go in the
+ * step's env, as that command prints them.
+ */
+const BUCKET_COMMENT: Record<BucketCredentials, string> = {
+  oidc: "# and the bucket's credentials first: the steps shadowlap store ci prints",
+  keys: "# and the bucket's keys in this step's env: shadowlap store ci prints them",
+};
+
+/**
  * The Fix on failure step. Its job needs contents and pull-requests write permission, which the
  * comment states. Blame and verify run the agent itself live, so the step's env also needs the
  * agent's own provider keys, which the last comment says; the panel can't know which they are.
+ * With `push` (Push from CI is on) the action pushes the test runs and each fix it opens to the
+ * team store, so the job also needs the bucket's credentials, which a second comment says, and
+ * short-lived ones need `id-token: write` among its permissions. Without it, the step is exactly
+ * the one it was before.
  */
 export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   const repairer = s.repairer.trim() || 'anthropic';
-  const lines = ['# the job needs: permissions: { contents: write, pull-requests: write }'];
+  const push = s.push ?? null;
+  const lines = [`# the job needs: permissions: { contents: write, pull-requests: write${push === 'oidc' ? ', id-token: write' : ''} }`];
+  if (push) lines.push(BUCKET_COMMENT[push]);
   // The claude-code repairer runs Claude Code in print mode, so the runner needs it installed.
   if (repairer === 'claude-code' || repairer.startsWith('claude-code:')) lines.push('- run: npm install -g @anthropic-ai/claude-code');
   const key = repairerKey(repairer);
@@ -69,6 +98,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
     '    fix-on-failure: true',
     `    fix-budget: ${dollars(s.budget)}`,
     `    repairer: ${scalar(repairer)}`,
+    ...(push ? ['    push: true'] : []),
     '  env:',
     `    ${key}: \${{ secrets.${key} }}`,
     '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
@@ -77,14 +107,17 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   return lines.join('\n');
 }
 
-/** What Fix on failure needs, as label and value. */
-export function fixOnFailureNeeds(repairer: string): Array<[string, string]> {
-  return [
+/** What Fix on failure needs, as label and value; with `push`, the bucket's credentials too. */
+export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | null = null): Array<[string, string]> {
+  const needs: Array<[string, string]> = [
     ['a model key for the repairer', repairerKey(repairer)],
     ['your agent’s provider keys: blame and verify run it live', 'env'],
     ['permission to push a branch', 'contents: write'],
     ['permission to open the pull request', 'pull-requests: write'],
   ];
+  if (push === 'oidc') needs.push(['the bucket’s credentials, from shadowlap store ci', 'id-token: write']);
+  if (push === 'keys') needs.push(['the bucket’s keys, from shadowlap store ci', 'secrets']);
+  return needs;
 }
 
 /** What Fix on failure never does. */

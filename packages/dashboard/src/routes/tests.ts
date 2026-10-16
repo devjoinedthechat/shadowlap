@@ -6,6 +6,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import type { Router } from '../router.js';
+import { readTeamStoreInput } from '../team-store.js';
 import { bisectChoices, bisectJob, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
@@ -152,6 +153,8 @@ export function register(router: Router, ctx: RouteContext): void {
         branch: git.branch,
         defaultBranch: git.defaultBranch,
         recordings: list.length ? testPatterns(list, FOLDER).join(' ') : `${FOLDER}/*`,
+        // Push from CI, read as Settings → Store reads it: the Fix on failure step pushes when it is on.
+        teamStore: ctx.project ? readTeamStoreInput({ cwd: ctx.project.path }) : null,
       }),
     );
   });
