@@ -6,6 +6,7 @@ import type { Readable } from 'node:stream';
 import type { Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
+import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './worktree.js';
 
 /**
  * Jobs: the CLI runs the dashboard starts. The browser never sends a command line. It names a job
@@ -36,8 +37,8 @@ import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './view
  * A CLI that sends no events still works: a "recording run <id>" or "replaying run <id>" line in
  * its output names the run, as it always did.
  *
- * The project's working tree is one: a job whose command changes the agent's files (repair, fix
- * apply) runs alone, and one that runs the agent from them waits for it (`worktreeUse`).
+ * A project's working tree is one: a job whose command changes the agent's files (repair, fix
+ * apply) runs alone in it, and one that runs the agent from them is refused meanwhile (worktree.ts).
  */
 
 export interface SpawnCliOptions {
@@ -145,44 +146,6 @@ export interface JobKind {
   build(req: JobRequest, ctx: JobBuildContext): JobBuildResult | Promise<JobBuildResult>;
 }
 
-/**
- * How a job uses the project's working tree, the agent's own files: `writes` changes them (a repair
- * tries each candidate there and puts the files back; fix apply applies a patch for good), `reads`
- * runs the agent from them (run, replay, blame, verify, test, calibrate, tasks score). A job that
- * writes runs alone, and one that reads never alongside one that writes: an agent started meanwhile
- * would run a candidate's prompt, and blame or test would hold it against the code. Bisect replays
- * in worktrees of its own, so it is neither. Worked out from the command a builder returns, so every
- * feature's kinds take part. `doing` says what the job is doing there, for the 409 another job gets
- * and for the page, which disables what would be refused.
- */
-export interface JobTree {
-  use: 'reads' | 'writes';
-  doing: string;
-}
-
-/** Commands that run the agent from the working tree: what each is called, and what to do once the tree is free. */
-const TREE_READS: Readonly<Record<string, { noun: string; verb: string }>> = {
-  run: { noun: 'a recording', verb: 'record' },
-  replay: { noun: 'a replay', verb: 'replay' },
-  blame: { noun: 'a blame', verb: 'blame' },
-  verify: { noun: 'a verify', verb: 'verify' },
-  test: { noun: 'a test', verb: 'test' },
-  calibrate: { noun: 'a calibration', verb: 'calibrate' },
-};
-
-function treeCommand(args: readonly string[]): { tree: JobTree; verb: string } | null {
-  const [command, sub] = args;
-  if (command === 'repair') return { tree: { use: 'writes', doing: 'a repair is trying candidates in your working tree' }, verb: 'repair' };
-  if (command === 'fix' && sub === 'apply') return { tree: { use: 'writes', doing: 'a patch is being applied to your working tree' }, verb: 'apply the patch' };
-  const reads = command === 'tasks' ? (sub === 'score' ? { noun: 'tasks score', verb: 'score' } : undefined) : TREE_READS[command ?? ''];
-  return reads ? { tree: { use: 'reads', doing: `${reads.noun} is running your agent from your working tree` }, verb: reads.verb } : null;
-}
-
-/** How the CLI command `args` (what follows `shadowlap`) uses the working tree, or null when it runs no agent. */
-export function worktreeUse(args: readonly string[]): JobTree | null {
-  return treeCommand(args)?.tree ?? null;
-}
-
 /** Where uploads come from (`uploads.ts`): claimed by a job's builder, released when it fails, discarded when the job ends. */
 export interface UploadSource {
   claim(uploadId: unknown, jobId: string): { path: string; name: string; bytes: number } | null;
@@ -216,8 +179,9 @@ interface Job {
   kind: string;
   title: string;
   args: string[];
-  /** How it uses the working tree (`worktreeUse`), while it runs. */
+  /** How it uses its working tree (worktree.ts), while it runs, and that tree's folder through links. */
   worktree: JobTree | null;
+  treeAt: string | null;
   runId: string | null;
   opensRun: boolean;
   cwd: string | null;
@@ -339,13 +303,9 @@ export class JobManager {
     return n;
   }
 
-  /** A running job a job using the working tree as `tree` would clash with: one that writes it, or any that uses it when this one writes. */
-  private treeClash(tree: JobTree): JobTree | null {
-    for (const j of this.jobs.values()) {
-      if (j.done || !j.worktree) continue;
-      if (tree.use === 'writes' || j.worktree.use === 'writes') return j.worktree;
-    }
-    return null;
+  /** The working trees running jobs hold. */
+  private *heldTrees(): Iterable<{ tree: JobTree | null; at: string | null }> {
+    for (const j of this.jobs.values()) if (!j.done) yield { tree: j.worktree, at: j.treeAt };
   }
 
   /** Builds and starts a job of `kind`. Throws an HttpError the client should see when it cannot. */
@@ -378,7 +338,8 @@ export class JobManager {
     }
     let cwd: string | null;
     let title: string;
-    let tree: ReturnType<typeof treeCommand>;
+    let tree: JobTree | null = null;
+    let treeAt: string | null = null;
     try {
       // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
       if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
@@ -386,10 +347,14 @@ export class JobManager {
       cwd = this.jobCwd(built.cwd);
       title = clean(built.title ?? def.title(req), 120) || kind;
       if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
-      // The working tree is one: no job runs the agent from it while another changes it.
-      tree = treeCommand(built.args);
-      const clash = tree ? this.treeClash(tree.tree) : null;
-      if (clash) throw new HttpError(409, `${clash.doing}: ${tree!.verb} once it is done`);
+      // A project's working tree is one: no job runs the agent from it while another changes it.
+      const use = treeUse(jobCommands(built));
+      if (use) {
+        treeAt = treeFolder(cwd);
+        const clash = treeClash(this.heldTrees(), use.use, treeAt);
+        if (clash) throw new HttpError(409, `${clash.doing}: ${use.verb} once it is done`);
+        tree = { use: use.use, doing: use.doing, folder: cwd };
+      }
     } catch (err) {
       uploads?.release(id);
       throw err instanceof HttpError ? err : new HttpError(500, err instanceof Error ? err.message : String(err));
@@ -402,7 +367,8 @@ export class JobManager {
       kind,
       title,
       args: [...built.args],
-      worktree: tree?.tree ?? null,
+      worktree: tree,
+      treeAt,
       runId: built.runId ?? null,
       opensRun: built.opensRun ?? false,
       cwd,

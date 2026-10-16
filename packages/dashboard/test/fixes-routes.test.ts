@@ -422,7 +422,7 @@ describe('the working tree, one change at a time', () => {
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
     await start({ jobStopGraceMs: 200 });
     const repair = await started({ kind: 'repair', fixId: fix.fixId });
-    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is trying candidates in your working tree' });
+    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is trying candidates in your working tree', folder: project });
     const refused = async (body: Record<string, unknown>, message: string) => {
       const res = await job(body);
       expect(res.status, JSON.stringify(body)).toBe(409);
@@ -447,7 +447,7 @@ describe('the working tree, one change at a time', () => {
     slow.add('blame');
     await start({ jobStopGraceMs: 200 });
     const blaming = await started({ kind: 'blame', runId: run, expect: null });
-    expect(blaming.worktree).toEqual({ use: 'reads', doing: 'a blame is running your agent from your working tree' });
+    expect(blaming.worktree).toEqual({ use: 'reads', doing: 'a blame is running your agent from your working tree', folder: project });
     // Another blame reads the tree too: both run.
     const second = await started({ kind: 'blame', runId: other, expect: null });
     for (const [body, verb] of [

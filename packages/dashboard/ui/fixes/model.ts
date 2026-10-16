@@ -88,21 +88,47 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
 }
 
-/** A job as the working tree's lock reads it: whether it is running, and how it uses the tree. */
+/** A job as the working tree's lock reads it: whether it is running, and how it uses which tree. */
 export interface TreeJob {
   id: string;
   done: boolean;
-  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
+  /** `folder` is the folder it runs in, its project's (null or absent: the dashboard's own). */
+  worktree?: { use: 'reads' | 'writes'; doing: string; folder?: string | null } | null;
 }
 
 /**
- * Why an action that uses the working tree as `use` can't start now, as the server would refuse it:
- * a job that changes the tree is running, or, for one that changes it, any job running the agent
- * from it. `verb` is what to do once it is free: "A repair is trying candidates in your working
- * tree: blame once it is done." Null when it can start.
+ * The jobs the lock reads: the server's list, with this tab's own on top, as they last read (they
+ * show before the change feed brings the list again). A job the server no longer has (`lost`) holds
+ * nothing.
  */
-export function treeBusy(jobs: readonly TreeJob[], use: 'reads' | 'writes', verb: string): string | null {
-  const j = jobs.find((x) => !x.done && x.worktree && (use === 'writes' || x.worktree.use === 'writes'));
+export function mergeTreeJobs(listed: readonly TreeJob[] | null | undefined, watched: ReadonlyArray<{ job: TreeJob; lost?: boolean | undefined }>): TreeJob[] {
+  const byId = new Map<string, TreeJob>();
+  for (const j of listed ?? []) byId.set(j.id, j);
+  for (const w of watched) {
+    if (w.lost) byId.delete(w.job.id);
+    else byId.set(w.job.id, w.job);
+  }
+  return [...byId.values()];
+}
+
+/** Whether two folders are one working tree, as the server tells them apart: the same, or one inside the other. Null is the dashboard's own, one with every tree. */
+export function sameFolder(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return true;
+  const trim = (p: string) => p.replace(/[\\/]+$/, '');
+  const [x, y] = [trim(a), trim(b)];
+  const within = (outer: string, inner: string) => inner === outer || inner.startsWith(`${outer}/`) || inner.startsWith(`${outer}\\`);
+  return within(x, y) || within(y, x);
+}
+
+/**
+ * Why an action that uses the working tree of `folder` (the project's) as `use` can't start now, as
+ * the server would refuse it: in that tree, a job that changes it is running, or, for one that
+ * changes it, any job running the agent from it. Jobs in another project's tree don't count. `verb`
+ * is what to do once it is free: "A repair is trying candidates in your working tree: blame once it
+ * is done." Null when it can start.
+ */
+export function treeBusy(jobs: readonly TreeJob[], use: 'reads' | 'writes', verb: string, folder: string | null = null): string | null {
+  const j = jobs.find((x) => !x.done && x.worktree && sameFolder(x.worktree.folder, folder) && (use === 'writes' || x.worktree.use === 'writes'));
   const doing = j?.worktree?.doing;
   return doing ? `${doing.charAt(0).toUpperCase()}${doing.slice(1)}: ${verb} once it is done.` : null;
 }

@@ -17,7 +17,7 @@ import type { Router } from '../router.js';
  * (its own --expect, or the config's tests for the recording it replays, through its ancestors),
  * the fix it fails in or its labels point to, or the agent's exit; when none of those applies, or
  * the run failed a check none of them names, it answers 422 and the page asks. Repair and apply
- * change the working tree, so the job manager runs them alone (`worktreeUse` in jobs.ts).
+ * change the working tree, so the job manager runs them alone in their project (worktree.ts).
  */
 
 const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
@@ -185,7 +185,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // Repair and apply change the working tree, and blame runs the agent from it: the job manager
-  // runs no two of them at once where that would clash (`worktreeUse` in jobs.ts).
+  // runs no two of them at once in one project where that would clash (worktree.ts).
   jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
   jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
   jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => applyJob(req, b.store) });

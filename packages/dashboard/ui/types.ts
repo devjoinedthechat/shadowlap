@@ -256,11 +256,11 @@ export interface JobView {
   id: string;
   args: string[];
   /**
-   * How it uses the project's working tree: a job that `writes` it (repair, fix apply) runs alone,
-   * one that `reads` it (runs the agent from it) never alongside one that writes. `doing` says what
-   * it is doing there. Null when it runs no agent.
+   * How it uses its project's working tree: a job that `writes` it (repair, fix apply) runs alone in
+   * it, one that `reads` it (runs the agent from it) never alongside one that writes. `doing` says
+   * what it is doing there, `folder` the folder it runs in. Null when it runs no agent.
    */
-  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
+  worktree?: { use: 'reads' | 'writes'; doing: string; folder?: string | null } | null;
   runId: string | null;
   opensRun: boolean;
   startedAt: number;

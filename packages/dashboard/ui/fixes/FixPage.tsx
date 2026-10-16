@@ -11,9 +11,9 @@ import { useApp } from '../state.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { fixAction, fixName, fixStamp, laterStamp, shortFixId, statusBadge, stepFor, treeBusy } from './model.js';
+import { fixAction, fixName, fixStamp, laterStamp, shortFixId, statusBadge, stepFor } from './model.js';
 import { RepairStepView } from './RepairStep.js';
-import { useTreeJobs } from './tree.js';
+import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
 
 /**
@@ -147,11 +147,12 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
  */
 export function FixActions({ fix }: { fix: FixDetail }) {
   const app = useApp();
-  const tree = useTreeJobs();
+  const action = fixAction(fix);
+  // A repair or an apply changes the working tree: it waits for every job running the agent from it.
+  const busy = useTreeBusy('writes', fix.status === 'open' ? 'repair' : 'apply the patch');
   const [asking, setAsking] = useState<'repair' | 'apply' | null>(null);
   const [consent, setConsent] = useState<{ why: string; kind: string; fields: Record<string, unknown> } | null>(null);
   if (app.exported) return null;
-  const action = fixAction(fix);
   const off = app.actionsOff;
   const gitApply = fix.actions.apply?.gitApply ?? null;
   const copy = gitApply ? (
@@ -185,8 +186,6 @@ export function FixActions({ fix }: { fix: FixDetail }) {
     );
   const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
   const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
-  // A repair or an apply changes the working tree: it waits for every job running the agent from it.
-  const busy = treeBusy(tree, 'writes', action.kind === 'repair' ? 'repair' : 'apply the patch');
   const why = off ?? missing ?? busy;
   const start = (jobKind: string, fields: Record<string, unknown>) =>
     app.client.startJob(jobKind, fields).then(

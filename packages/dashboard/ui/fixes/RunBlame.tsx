@@ -3,8 +3,7 @@ import { ApiError, JOB_KINDS } from '../api.js';
 import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
-import { treeBusy } from './model.js';
-import { useTreeJobs } from './tree.js';
+import { useTreeBusy } from './tree.js';
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -17,9 +16,9 @@ import { useTreeJobs } from './tree.js';
  */
 export function RunBlameButton({ runId, failed = [], className = 'linkbtn' }: { runId: string; failed?: readonly string[]; className?: string }) {
   const app = useApp();
-  const tree = useTreeJobs();
+  const busy = useTreeBusy('reads', 'blame');
   const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; fields: Record<string, unknown> }>(null);
-  const why = app.actionsOff ?? treeBusy(tree, 'reads', 'blame');
+  const why = app.actionsOff ?? busy;
   const start = (fields: Record<string, unknown>) => {
     app.client.startJob(JOB_KINDS.blame, { runId, ...fields }).then(
       (job) => app.watchJob(Promise.resolve(job)),

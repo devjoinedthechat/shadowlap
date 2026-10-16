@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bundledRuns, bundleGlyph, bundleLine, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, outcomeTone, parseMarkdown, probeBadge, roleBadges, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
+import { bundledRuns, bundleGlyph, bundleLine, callRowCells, candidateTone, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseMarkdown, probeBadge, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
@@ -82,6 +82,34 @@ describe('the working tree', () => {
     expect(treeBusy([repairing], 'writes', 'apply the patch')).toBe('A repair is trying candidates in your working tree: apply the patch once it is done.');
     expect(treeBusy([packing], 'writes', 'repair')).toBeNull();
     expect(treeBusy([], 'writes', 'repair')).toBeNull();
+  });
+
+  it('counts only jobs in the project’s own tree: its folder, or one inside it or around it', () => {
+    const at = (folder: string | null) => ({ ...repairing, worktree: { ...repairing.worktree, folder } });
+    expect(treeBusy([at('/p/one')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at('/p/one/sub')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at('/p')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at('/p/two')], 'reads', 'blame', '/p/one')).toBeNull();
+    expect(treeBusy([at('/p/one-two')], 'reads', 'blame', '/p/one')).toBeNull();
+    // A job, or a page, with no folder is the dashboard's own: one with every tree.
+    expect(treeBusy([at(null)], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at('/p/two')], 'reads', 'blame')).toMatch(/^A repair is trying/);
+  });
+
+  it('tells folders apart as the server does, whatever their trailing slash', () => {
+    expect(sameFolder('/p/one', '/p/one/')).toBe(true);
+    expect(sameFolder('/p/one/', '/p/one/a')).toBe(true);
+    expect(sameFolder('C:\\p\\one', 'C:\\p\\one\\a')).toBe(true);
+    expect(sameFolder('/p/one', '/p/onetwo')).toBe(false);
+    expect(sameFolder(undefined, '/p')).toBe(true);
+  });
+
+  it('reads the server’s jobs with this tab’s own on top, and forgets one the server lost', () => {
+    const listed = [blaming, { ...repairing, done: false }];
+    const watched = [{ job: { ...repairing, done: true } }, { job: packing }, { job: blaming, lost: true }];
+    expect(mergeTreeJobs(listed, watched)).toEqual([{ ...repairing, done: true }, packing]);
+    expect(mergeTreeJobs(null, [{ job: blaming }])).toEqual([blaming]);
+    expect(mergeTreeJobs(undefined, [])).toEqual([]);
   });
 });
 
