@@ -374,7 +374,8 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       old.end();
       const s = overviewSummary(local, { tz: 'UTC', now: NOW });
       const engine = cacheUse(local, s.windows.week.from, { limit: 4 });
-      expect(s.cache).toEqual({ input: engine.liveInput, cacheRead: engine.liveRead, readShare: engine.readShare, misses: [{ runId, kind: 'recording', callNo: 3, scope: null, tokens: engine.largest[0]!.sentAgain }], sentAgain: engine.sentAgain, missCount: 1 });
+      expect(s.cache).toEqual({ input: engine.liveInput, cacheRead: engine.liveRead, readShare: engine.readShare, misses: [{ runId, kind: 'recording', callNo: 3, scope: null, model: 'sonnet-5', tokens: engine.largest[0]!.sentAgain }], sentAgain: engine.sentAgain, missCount: 1 });
+      expect(engine.largest.map((m) => [m.runId, m.callNo, m.model])).toEqual([[runId, 3, 'sonnet-5']]);
       expect(s.cache.readShare).toBeGreaterThan(0);
       const empty = overviewSummary(Store.open(':memory:'), { tz: 'UTC', now: NOW });
       expect(empty.cache).toEqual({ input: 0, cacheRead: 0, readShare: null, misses: [], sentAgain: 0, missCount: 0 });

@@ -1,11 +1,11 @@
-import { countOrigins, displayOrigin, estimateCost, ORIGIN_CODE, runCache, type CallRecord, type Origin, type OriginCounts, type Outcome, type Price, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
+import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunCacheUse, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/tui/data';
 import { keepingIndex, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
 /**
  * What a run's calls add up to: where each answer came from, the tokens each model used live,
  * replayed and captured, how long the replayed calls would have taken, and its live model calls'
- * use of the prompt cache under the run page's rule (the engine's `runCache`). Worked out in one
+ * use of the prompt cache under the run page's rule (the engine's `runCacheUse`). Worked out in one
  * pass over the run's calls; the prompt cache, which reads every request to find the run's
  * conversations, only for the runs the Overview's week asks about (`cacheTotalsOf`). A finished
  * run's totals never change, so they are kept in the store (`run_stats`) and read back as one row
@@ -36,10 +36,12 @@ export interface CallTotals {
   cache?: CacheTotals | null;
 }
 
+/** A run's part of the engine's `cacheUse` (`RunCacheUse`), as `run_stats` keeps it. */
 export interface CacheTotals {
   input: number;
   read: number;
-  misses: Array<[callNo: number, scope: string | null, tokens: number]>;
+  /** The model is the shortened name; kept since the Overview's misses carry it (null in totals kept before). */
+  misses: Array<[callNo: number, scope: string | null, tokens: number, model: string | null]>;
 }
 
 export interface RunStats {
@@ -155,7 +157,14 @@ function readTotals(json: unknown): CallTotals | null {
     const c = t.cache;
     if (c === null) out.cache = null;
     else if (c && typeof c === 'object' && Array.isArray(c.misses))
-      out.cache = { input: n(c.input), read: n(c.read), misses: c.misses.filter((m) => Array.isArray(m) && m.length === 3 && typeof m[0] === 'number' && typeof m[2] === 'number').map((m) => [m[0], typeof m[1] === 'string' ? m[1] : null, m[2]]) };
+      out.cache = {
+        input: n(c.input),
+        read: n(c.read),
+        // Kept before the model was: three fields, and no model.
+        misses: (c.misses as unknown[])
+          .filter((m): m is unknown[] => Array.isArray(m) && (m.length === 3 || m.length === 4) && typeof m[0] === 'number' && typeof m[2] === 'number')
+          .map((m) => [m[0] as number, typeof m[1] === 'string' ? m[1] : null, m[2] as number, typeof m[3] === 'string' ? m[3] : null]),
+      };
     return out;
   } catch {
     return null;
@@ -225,12 +234,13 @@ export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly Inde
   const totals = callTotals(store, index, runs);
   const out = new Map<string, CacheTotals | null>();
   const keep: Array<{ runId: string; key: string; stats: string }> = [];
+  let modelOf: ModelResolver | null = null;
   for (const r of runs) {
     const t = totals.get(r.runId);
     if (!t) continue;
     if (t.cache === undefined) {
       // The totals in memory are this object: the next ask finds the cache in them.
-      t.cache = cacheTotals(store, r.runId);
+      t.cache = cacheTotals(store, r.runId, (modelOf ??= modelResolver(store)));
       k.cachesRead++;
       if (r.status !== 'running') keep.push({ runId: r.runId, key: keyOf(r), stats: JSON.stringify(t) });
     }
@@ -271,7 +281,7 @@ export function warmRunStats(store: Store, options: { budgetMs?: number; now?: n
       const r = index.runs[w.next++]!;
       if (r.status === 'running' || r.calls === 0) continue;
       const known = k.memory.get(r.runId);
-      const cache = r.startedAt >= recent && !(r.meta.imported && r.mode === 'record');
+      const cache = r.startedAt >= recent && !importedRecording(r);
       if (known?.key === keyOf(r) && (!cache || known.totals.cache !== undefined)) continue;
       batch.push(r);
       if (cache) caches.push(r);
@@ -342,7 +352,7 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
       const input = n(usage.inputTokens);
       const cacheRead = n(usage.cacheReadInputTokens);
       const cacheWrite = n(usage.cacheCreationInputTokens);
-      const imported = !!run.meta.imported && run.mode === 'record';
+      const imported = importedRecording(run);
       if (origin === 'live' && !imported) b.liveUsage = true;
       const bucket = origin === 'replayed' ? 'r' : origin === 'live' ? (imported ? 'c' : 'l') : null;
       if (!bucket) continue;
@@ -376,18 +386,17 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
 }
 
 /**
- * A run's live model calls under the prompt cache's rule, the run page's Context view's (the
- * engine's `runCache`, conversation by conversation): what they sent, what they read from the
- * cache, and the live calls where it stopped hitting. As the engine's `cacheUse` counts them for the
- * Overview: a call Shadowlap answered with an injected failure is not a live call.
+ * A run's part of the Overview's prompt cache: the engine's `runCacheUse` (the run page's Context
+ * view's rule, conversation by conversation, over its live model calls), as `run_stats` keeps it.
  */
-function cacheTotals(store: Store, runId: string): CacheTotals | null {
-  const calls = store.getCalls(runId);
-  const r = runCache(store, calls);
-  if (!r.liveInput) return null;
-  const byNo = new Map(calls.map((c) => [c.callNo, c]));
-  const live = (c: CallRecord | undefined) => !!c && c.origin === 'live' && !c.end?.meta.injected;
-  return { input: r.liveInput, read: r.liveRead, misses: r.misses.filter((m) => live(byNo.get(m.callNo))).map((m) => [m.callNo, m.scope, m.sentAgain]) };
+function cacheTotals(store: Store, runId: string, modelOf: ModelResolver): CacheTotals | null {
+  const use = runCacheUse(store, store.getCalls(runId), modelOf);
+  return use ? { input: use.liveInput, read: use.liveRead, misses: use.misses.map((m) => [m.callNo, m.scope, m.sentAgain, m.model]) } : null;
+}
+
+/** A run's kept prompt cache totals as the engine's `sumCacheUse` takes them. */
+export function cacheUseOf(t: CacheTotals | null): RunCacheUse | null {
+  return t ? { liveInput: t.input, liveRead: t.read, misses: t.misses.map(([callNo, scope, sentAgain, model]) => ({ callNo, scope, sentAgain, model })) } : null;
 }
 
 /**

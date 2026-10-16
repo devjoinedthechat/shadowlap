@@ -221,7 +221,8 @@ describe('the prompt cache', () => {
       expect(totals.get(replay)!.cache).toBeNull();
       expect(cachesRead(first)).toBe(0);
       const cache = cacheTotalsOf(first, index, runs);
-      expect(cache.get(runId)).toMatchObject({ misses: [[3, null, expect.any(Number)]] });
+      // Each miss with the model that answered it, shortened as the run page shows it.
+      expect(cache.get(runId)).toMatchObject({ misses: [[3, null, expect.any(Number), 'sonnet-5']] });
       expect(cache.get(runId)!.read).toBeGreaterThan(0);
       expect(cache.get(replay)).toBeNull();
       expect(cachesRead(first)).toBe(1);
@@ -237,8 +238,21 @@ describe('the prompt cache', () => {
         const i2 = loadRunIndex(next);
         expect(cacheTotalsOf(next, i2, [runId, replay].map((id) => i2.byId.get(id)!))).toEqual(cache);
         expect([runsRead(next), cachesRead(next)]).toEqual([0, 0]);
+        // Totals kept before the model was carry three fields a miss: read as they are, with no model.
+        const [row] = next.query(`SELECT key, stats FROM run_stats WHERE run_id = ?`, runId);
+        const kept = JSON.parse(String(row!.stats)) as { cache: { misses: unknown[][] } };
+        kept.cache.misses = kept.cache.misses.map((m) => m.slice(0, 3));
+        next.saveRunStats([{ runId, key: String(row!.key), stats: JSON.stringify(kept) }]);
       } finally {
         next.close();
+      }
+      const older = Store.open(path);
+      try {
+        const i3 = loadRunIndex(older);
+        expect(cacheTotalsOf(older, i3, [i3.byId.get(runId)!]).get(runId)).toEqual({ ...cache.get(runId)!, misses: [[3, null, cache.get(runId)!.misses[0]![2], null]] });
+        expect(cachesRead(older)).toBe(0);
+      } finally {
+        older.close();
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

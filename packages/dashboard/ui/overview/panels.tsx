@@ -327,7 +327,7 @@ export function CacheCard({ cache }: { cache: CacheUse }) {
               {cache.misses.map((m) => {
                 const g = kindGlyph(m.kind);
                 return (
-                  <a key={`${m.runId}#${m.callNo}`} href={href.run(m.runId, m.callNo, 'context')}>
+                  <a key={`${m.runId}#${m.callNo}`} href={href.run(m.runId, m.callNo, 'context')} title={`${m.model ? `${m.model} · ` : ''}${num(m.tokens)} tokens sent again`}>
                     <Glyph kind={g.kind} label={g.label} className="ri" />
                     <code>{shortId(m.runId)}</code>
                     <span>

@@ -1,8 +1,8 @@
-import { countOrigins, emptyOriginCounts, fixOfRun, lostAt, originCells, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 import { fixesSummary, needsLookFixes } from './fixes.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { cacheTotalsOf, callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
+import { cacheTotalsOf, cacheUseOf, callTotals, runStats, sumStats, type RunStats, type StatsOptions } from './run-stats.js';
 import { failingTests, overviewTests, type GoldenList } from './tests.js';
 
 /**
@@ -18,8 +18,8 @@ import { failingTests, overviewTests, type GoldenList } from './tests.js';
  *
  * The numbers other screens own come from their read models: Fixes (`fixesSummary`,
  * `needsLookFixes`) and Tests (`overviewTests`, `failingTests`, over the goldens on disk). The
- * prompt cache follows the run page's Context view's rule (the engine's `runCache`), kept per run
- * with the run's other totals: the engine's `cacheUse`, from a row per run.
+ * prompt cache is the engine's `cacheUse`: each run's part (`runCacheUse`, the run page's Context
+ * view's rule) kept with the run's other totals, and the week's summed by `sumCacheUse`.
  */
 
 export interface TimeWindow {
@@ -147,6 +147,8 @@ export interface CacheMissRow {
   kind: RunKind;
   callNo: number;
   scope: string | null;
+  /** The model that answered it, shortened ("sonnet-5"); null when not known. */
+  model: string | null;
   /** Input tokens sent again: the previous call's whole input, less what this call read from the cache. */
   tokens: number;
 }
@@ -315,7 +317,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
       testsPassing: tests,
       spent: { value: sums.week.spent, lastWeek: sums.lastWeek.spent, notRespent: sums.week.notRespent, notWaitedMs: sums.week.notWaitedMs },
     },
-    cache: cacheUse(store, index, week.from),
+    cache: weekCache(store, index, week.from),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
     needsLook: needsLook(store, goldens, options.teamStore ?? null),
   };
@@ -454,32 +456,25 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
 }
 
 /**
- * Live model calls' cache use in runs started since the week started, as the engine's `cacheUse`
- * counts it (attempts included, imported recordings left out: they were live somewhere else), from
- * each run's kept totals (worked out once per run, the first time a week asks), with each miss's
- * run kind for its icon. Largest misses first.
+ * Live model calls' cache use in runs started since the week started: the engine's `cacheUse`
+ * (attempts included, imported recordings left out: they were live somewhere else), summed by its
+ * `sumCacheUse` from each run's part as `run_stats` keeps it (worked out once per run, the first
+ * time a week asks), with each miss's run kind for its icon. Largest misses first.
  */
-function cacheUse(store: Store, index: RunIndex, since: number): CacheUse {
-  const runs = index.runs.filter((r) => r.startedAt >= since && !(r.meta.imported && r.mode === 'record'));
+function weekCache(store: Store, index: RunIndex, since: number): CacheUse {
+  const runs = index.runs.filter((r) => r.startedAt >= since && !importedRecording(r));
   const caches = cacheTotalsOf(store, index, runs);
-  let input = 0;
-  let cacheRead = 0;
-  const all: Array<CacheMissRow & { startedAt: number }> = [];
-  for (const r of runs) {
-    const c = caches.get(r.runId);
-    if (!c) continue;
-    input += c.input;
-    cacheRead += c.read;
-    for (const [callNo, scope, tokens] of c.misses) all.push({ runId: r.runId, kind: r.kind, callNo, scope, tokens, startedAt: r.startedAt });
-  }
-  all.sort((a, b) => b.tokens - a.tokens || b.startedAt - a.startedAt || a.callNo - b.callNo);
+  const use = sumCacheUse(
+    runs.map((r) => ({ runId: r.runId, startedAt: r.startedAt, use: cacheUseOf(caches.get(r.runId) ?? null) })),
+    4,
+  );
   return {
-    input,
-    cacheRead,
-    readShare: input ? cacheRead / input : null,
-    misses: all.slice(0, 4).map(({ startedAt: _startedAt, ...m }) => m),
-    sentAgain: all.reduce((t, m) => t + m.tokens, 0),
-    missCount: all.length,
+    input: use.liveInput,
+    cacheRead: use.liveRead,
+    readShare: use.readShare,
+    misses: use.largest.map((m) => ({ runId: m.runId, kind: index.byId.get(m.runId)?.kind ?? 'recording', callNo: m.callNo, scope: m.scope, model: m.model, tokens: m.sentAgain })),
+    sentAgain: use.sentAgain,
+    missCount: use.misses,
   };
 }
 
