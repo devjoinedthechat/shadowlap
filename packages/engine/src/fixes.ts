@@ -405,6 +405,29 @@ export function markFixApplied(store: Store, fixId: string, applied: NonNullable
   }, 'immediate');
 }
 
+/**
+ * Applied fixes whose last test of their goldens failed, and which a test session has since passed
+ * on every one of those goldens (`passed`, by their path in the project): their test is marked
+ * passed, so they hold again. The usual way there: another fix changed what every request carries,
+ * which left these goldens behind, and `shadowlap test --update` re-recorded them. Returns the fixes
+ * it marked.
+ */
+export function settleAppliedFixes(store: Store, passed: ReadonlySet<string>, at: number = Date.now()): StoredFix[] {
+  const path = (p: string) => p.split(/[\\/]+/).join('/').replace(/^\.\//, '').replace(/\/+$/, '');
+  const ok = new Set([...passed].map(path));
+  return store.transaction(() => {
+    const settled: StoredFix[] = [];
+    for (const fix of store.listFixes()) {
+      const applied = fix.data.applied;
+      if (fix.status !== 'applied' || applied?.tests !== 'failed' || !applied.goldens.length) continue;
+      if (!applied.goldens.every((g) => ok.has(path(g)))) continue;
+      applyMark(store, fix.fixId, { ...applied, tests: 'passed' }, at);
+      settled.push(store.getFix(fix.fixId)!);
+    }
+    return settled;
+  }, 'immediate');
+}
+
 /** Gives a fix a title of its own; blames that join it later keep it. */
 export function setFixTitle(store: Store, fixId: string, title: string): StoredFix {
   const clean = cleanTitle(title);

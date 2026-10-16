@@ -2,13 +2,14 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { formatTokens, packRun, recordEvent, resolveAuthor, Store, unpackRun, volatileValues, type WritePolicy } from '@shadowlap/engine';
+import { formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
+import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, type GoldenOutcome, type RecordingTestContext } from '../golden-test.js';
 import { describeChange, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
@@ -183,6 +184,8 @@ export function register(program: Command): void {
       process.on('SIGTERM', onSignal);
       const stopped = () => signal !== null;
       let cut = null as string | null;
+      // Applied fixes whose goldens failed their last test and passed every one of them here.
+      let settled: StoredFix[] = [];
       try {
         for (const packDir of packs) {
           if (signal) break;
@@ -296,6 +299,13 @@ export function register(program: Command): void {
           // Team store: every run this golden made, once its result is kept, with the golden it replayed.
           if (pusher && made.length) await pusher.pushRuns(store, made);
         }
+        // An applied fix marked as not holding holds again once its goldens pass, as after an update
+        // re-recorded what another fix changed. Never fails the session.
+        try {
+          settled = settleAppliedFixes(store, new Set([...tested].filter(([, t]) => t.ok).map(([g]) => g)));
+        } catch (err) {
+          process.stderr.write(p.yellow(`[shadowlap] applied fixes whose goldens passed were not marked: ${(err as Error).message}\n`));
+        }
         // Housekeeping never fails a session whose goldens all ran: the reports below still get written.
         if (!signal) {
           const unpruned = pruneQuietly(store, session, tested);
@@ -336,6 +346,7 @@ export function register(program: Command): void {
       else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}`, secondary: true });
       emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) });
       process.stdout.write(`\n${report.passed} passed, ${report.failed} failed${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);
+      for (const fix of settled) process.stdout.write(`${p.green('✓')} ${shortFixId(fix.fixId)} holds again: its goldens passed · ${safe(fix.title)}\n`);
       // What to do about a divergence that was meant (one on values that change every run has its normalizer hint above).
       if (updatable.length) process.stdout.write(p.dim(`If the change was intended, update ${updatable.length === 1 ? 'it' : 'them'}: shadowlap test ${safe(quoteArgv(updatable))} --update\n`));
       // A golden that passes but forks before its task's takeover: Training lists its task as blocked until it is updated.

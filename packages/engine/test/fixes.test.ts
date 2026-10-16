@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { checkKey, coversCheck, fixCost, FixIdError, fixLabelInfo, fixOfRun, fixRecords, markFixApplied, prNumber, recordBlame, recordRepair, recordVerdict, resolveFix, setFixTitle, Store } from '../src/index.js';
+import { checkKey, coversCheck, fixCost, FixIdError, fixLabelInfo, fixOfRun, fixRecords, markFixApplied, prNumber, recordBlame, recordRepair, recordVerdict, resolveFix, setFixTitle, settleAppliedFixes, Store } from '../src/index.js';
 import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from './fix-fixtures.js';
 
 let store: Store;
@@ -346,6 +346,22 @@ describe('Fixes: reading them back', () => {
     // Applied again (fix apply finishing what repair --apply left): when it was applied stays, what was done is replaced.
     const again = markFixApplied(store, fix.fixId, { patch: 'applied', repairId: 'repair-1', goldens: ['goldens/01M3RZ4XKN'], tests: 'passed', by: 'dana', via: 'fix apply' }, 9_500);
     expect(again).toMatchObject({ appliedAt: 9_000, data: { titleEdited: true, applied: { goldens: ['goldens/01M3RZ4XKN'], tests: 'passed', by: 'dana', via: 'fix apply' } } });
+  });
+
+  it('holds an applied fix again once a test session passes every golden its test failed on', () => {
+    const fix = blame(makeRun(store)).fix;
+    const other = blame(makeRun(store), { expect: { tools: { other: 1 } } }).fix;
+    markFixApplied(store, fix.fixId, { patch: 'applied', repairId: 'repair-1', goldens: ['goldens/01M3RZ4XKN', 'goldens/01M3RZ5B2C'], tests: 'failed', by: 'dana', via: 'fix apply' }, 9_000);
+    markFixApplied(store, other.fixId, { patch: 'applied', repairId: 'repair-2', goldens: ['goldens/01M3RZ4XKN'], tests: 'skipped', via: 'repair --apply' }, 9_100);
+    // One of its goldens passed: it still doesn't hold.
+    expect(settleAppliedFixes(store, new Set(['goldens/01M3RZ4XKN']), 9_500)).toEqual([]);
+    expect(store.getFix(fix.fixId)!.data.applied?.tests).toBe('failed');
+    // Both did, written as a session or a path may write them: it holds, applied when it was.
+    const settled = settleAppliedFixes(store, new Set(['goldens/01M3RZ4XKN', './goldens/01M3RZ5B2C/']), 9_600);
+    expect(settled.map((f) => f.fixId)).toEqual([fix.fixId]);
+    expect(store.getFix(fix.fixId)).toMatchObject({ status: 'applied', appliedAt: 9_000, data: { applied: { tests: 'passed', goldens: ['goldens/01M3RZ4XKN', 'goldens/01M3RZ5B2C'], by: 'dana', via: 'fix apply' } } });
+    // A fix whose goldens were never tested is left for fix apply to finish.
+    expect(store.getFix(other.fixId)!.data.applied?.tests).toBe('skipped');
   });
 
   it('changes only what it is asked to: a column, or one key of the data', () => {
