@@ -341,7 +341,7 @@ describe('mcpServers', () => {
       // Its headers go along as --header, each value a variable shadowlap mcp reads from its environment.
       {
         name: 'stripe', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.stripe.com/?key=•••', viaShadowlap: false,
-        line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: Bearer ${STRIPE_TOKEN}'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••', '--header', 'Authorization: Bearer ${STRIPE_TOKEN}'] }, hidden: true,
+        line: "shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: Bearer $STRIPE_TOKEN'", entry: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com/?key=•••', '--header', 'Authorization: Bearer $STRIPE_TOKEN'] }, hidden: true,
         env: [{ name: 'STRIPE_TOKEN', value: '…' }], putBack: ['STRIPE_TOKEN (its Authorization header)', 'the ••• in its URL'], recordedAs: { transport: 'http', server: 'mcp.stripe.com' },
       },
       { name: 'linear', file: '.vscode/mcp.json', transport: 'http', target: 'https://mcp.linear.app/mcp', viaShadowlap: true, line: 'npx -y shadowlap mcp --url https://mcp.linear.app/mcp', entry: { command: 'npx', args: ['-y', 'shadowlap', 'mcp', '--url', 'https://mcp.linear.app/mcp'] }, hidden: false, env: [], putBack: [], recordedAs: { transport: 'http', server: 'mcp.linear.app' } },
@@ -387,8 +387,9 @@ describe('mcpServers', () => {
     );
     expect(claude!.putBack).toEqual([{ server: 'github', values: ['GITHUB_PERSONAL_ACCESS_TOKEN'] }]);
     const servers = (JSON.parse(cursor!.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
-    expect(servers.stripe).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com', '--header', 'Authorization: Bearer ${STRIPE_TOKEN}', '--header', 'X-Account: ${STRIPE_X_ACCOUNT}'], env: { STRIPE_TOKEN: '…', STRIPE_X_ACCOUNT: '…' } });
-    expect(servers.issues).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer ${ISSUES_TOKEN}'] });
+    expect(servers.stripe).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com', '--header', 'Authorization: Bearer $STRIPE_TOKEN', '--header', 'X-Account: $STRIPE_X_ACCOUNT'], env: { STRIPE_TOKEN: '…', STRIPE_X_ACCOUNT: '…' } });
+    // The reference moves to the entry's env, written as Cursor fills one in; the header names it as the proxy reads it.
+    expect(servers.issues).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $ISSUES_TOKEN'], env: { ISSUES_TOKEN: '${env:ISSUES_TOKEN}' } });
     expect(cursor!.putBack).toEqual([{ server: 'stripe', values: ['STRIPE_TOKEN (its Authorization header)', 'STRIPE_X_ACCOUNT (its X-Account header)'] }]);
     // Pasted with the values put back, shadowlap mcp sends the headers the server had.
     const headers = servers.stripe!.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
@@ -396,6 +397,35 @@ describe('mcpServers', () => {
     expect(vscode!.text).toContain('"servers": {');
     expect(t.mcp.otherForms).toEqual([]);
     expect(JSON.stringify(t.mcp)).not.toMatch(/never_shown/);
+  });
+
+  it('copies a header as $NAME, which Claude Code leaves alone, never as ${NAME}, which it fills in on the command line', () => {
+    put('.mcp.json', JSON.stringify({
+      mcpServers: {
+        // Claude Code's own remote entry: it fills in ${LINEAR_TOKEN} from its environment.
+        linear: { type: 'http', url: 'https://mcp.linear.app/mcp', headers: { Authorization: 'Bearer ${LINEAR_TOKEN}', 'X-Org': '${LINEAR_ORG:-acme}' } },
+        // Written as docs/mcp.md says: the header names the variable, the env gives it.
+        issues: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $ISSUES_TOKEN'], env: { ISSUES_TOKEN: '${ISSUES_TOKEN}' } },
+        // Already the proxy's form, in a remote entry: it stays as it is.
+        notes: { url: 'https://notes.example.com/mcp', headers: { Authorization: 'Bearer $NOTES_TOKEN' } },
+      },
+    }));
+    const t = toolsSettings({ store, cwd });
+    const [claude] = t.mcp.clientConfigs;
+    const servers = (JSON.parse(claude!.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
+    expect(servers.linear).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Bearer $LINEAR_TOKEN', '--header', 'X-Org: $LINEAR_X_ORG'], env: { LINEAR_TOKEN: '${LINEAR_TOKEN}', LINEAR_X_ORG: '${LINEAR_ORG:-acme}' } });
+    // A header the person already wrote as a variable is neither hidden nor rewritten, and nothing is left to put back.
+    expect(servers.issues).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $ISSUES_TOKEN'], env: { ISSUES_TOKEN: '${ISSUES_TOKEN}' } });
+    expect(servers.notes).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://notes.example.com/mcp', '--header', 'Authorization: Bearer $NOTES_TOKEN'] });
+    expect(claude!.putBack).toEqual([]);
+    // No ${…} in an argument, where Claude Code would fill in the token itself.
+    expect(Object.values(servers).flatMap((x) => x.args).filter((a) => a.includes('${'))).toEqual([]);
+    // With the environment Claude Code fills in, shadowlap mcp sends the headers the server had.
+    const headers = servers.linear!.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
+    expect(parseHeaderFlags(headers, { LINEAR_TOKEN: 'lin_api_1', LINEAR_X_ORG: 'acme' })).toEqual({ authorization: 'Bearer lin_api_1', 'x-org': 'acme' });
+    // The table shows the proxied entry's header as it is: it holds no secret.
+    expect(mcpServers(cwd).servers.find((x) => x.name === 'issues')).toMatchObject({ hidden: false, target: 'https://mcp.example.com/mcp', putBack: [] });
+    expect(hideSecrets(['--header', 'Authorization: Bearer $ISSUES_TOKEN', '--header', 'Authorization: Bearer ${env:ISSUES_TOKEN}', '--header', 'X-Key: $ecr3t-k3y'])).toEqual(['--header', 'Authorization: Bearer $ISSUES_TOKEN', '--header', 'Authorization: Bearer ${env:ISSUES_TOKEN}', '--header', 'X-Key: •••']);
   });
 
   it('names the form no server in the project uses, and leaves a server without values to put back alone', () => {

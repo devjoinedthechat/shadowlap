@@ -301,7 +301,8 @@ export function mcpEntryText(name: string, entry: { command: string; args: reado
 /** The forms a server takes, each with the line that records one: what the page shows for a form no server here uses. */
 export const MCP_FORMS: Readonly<Record<'stdio' | 'http', { label: string; line: string }>> = {
   stdio: { label: 'Started as a command', line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-filesystem .' },
-  http: { label: 'Reached by its URL', line: 'shadowlap mcp --url https://mcp.example.com/mcp --header "Authorization: Bearer ${TOKEN}"' },
+  // `$TOKEN`, which the proxy reads from its environment: a client that fills in `${…}` itself would put the token on the command line.
+  http: { label: 'Reached by its URL', line: "shadowlap mcp --url https://mcp.example.com/mcp --header 'Authorization: Bearer $TOKEN'" },
 };
 
 /** Words in a server's name that say nothing about which server it is. */
