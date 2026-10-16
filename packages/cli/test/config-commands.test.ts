@@ -391,7 +391,7 @@ describe('shadowlap gc', () => {
     const free = store.size().free;
     store.close();
     let r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
-    const plan = JSON.parse(r.out) as GcPlan & { store: { free: number } };
+    const plan = JSON.parse(r.out) as Omit<GcPlan, 'store'> & { store: { before: number; free: number; after: null } };
     expect(plan).toMatchObject({ count: 0, deferred: false });
     expect(plan.store.free).toBe(free);
     r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
@@ -402,7 +402,7 @@ describe('shadowlap gc', () => {
     r = await shadowlap(['gc']);
     expect(r.out).toMatch(/✓ removed 3 blobs nothing referenced and compacted the store · store .+ → .+/);
     r = await shadowlap(['gc', '--json']);
-    const done = JSON.parse(r.out) as GcPlan & { store: { after: number; free: number } };
+    const done = JSON.parse(r.out) as { count: number; dryRun: boolean; store: { before: number; after: number; free: number } };
     expect(done).toMatchObject({ count: 0, dryRun: false });
     expect(done.store.after).toBeLessThanOrEqual(done.store.before);
   });
