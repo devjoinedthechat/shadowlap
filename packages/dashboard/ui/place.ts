@@ -17,6 +17,29 @@ export function placePop(anchor: Box, pop: { width: number; height: number }, vi
   return { top, left };
 }
 
+/** What placing a menu reads: its opener, its own size and the window's. */
+export interface PopMeasure {
+  anchor: Box;
+  pop: { width: number; height: number };
+  view: { width: number; height: number };
+}
+
+/**
+ * Keeps an open menu in its place: places it now, and again each time `watch` calls back, which
+ * `components/Popover.tsx` asks for when the window resizes and when the menu itself changes size. A
+ * menu can open small and grow: the fork menu shows "Loading the call…" until the call arrives,
+ * and placed only at that height it ran off the bottom of the window under a low row. `watch`
+ * returns what stops it, and so does this.
+ */
+export function keepPlaced(measure: () => PopMeasure, align: 'right' | 'left', set: (place: { top: number; left: number }) => void, watch: (again: () => void) => () => void): () => void {
+  const place = () => {
+    const m = measure();
+    set(placePop(m.anchor, m.pop, m.view, align));
+  };
+  place();
+  return watch(place);
+}
+
 /**
  * Where a strip that scrolls sideways (a phone's tab strip) has to scroll so one of its items shows
  * whole, `pad` clear of the edge it comes in from: `strip` is its scroll position and visible width,

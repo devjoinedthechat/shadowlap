@@ -107,9 +107,11 @@ function ActionDialog({ runId, capture, pending, onRun, onClose }: { runId: stri
  */
 export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onClose }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void }) {
   const { hasKind, actionsOff } = useApp();
+  // Opened from a row that isn't the selected call, the menu waits for the call. Once it arrives the
+  // menu opens afresh (its key), so its first item takes the focus as it does on a call already loaded.
   if (!call) {
     return (
-      <Popover anchor={anchor} onClose={onClose} className="fkm" label="Fork">
+      <Popover key="loading" anchor={anchor} onClose={onClose} className="fkm" label="Fork">
         <div className="pnote">Loading the call…</div>
       </Popover>
     );
@@ -127,7 +129,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   const blocked = bisectBlocked(run.run.runId, offers?.bisect ?? null, hasKind(JOB_KINDS.bisect));
   const bisect = bisectLabel(offers?.bisect);
   return (
-    <Popover anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
+    <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
       <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
       {capture && replay ? (
         <>

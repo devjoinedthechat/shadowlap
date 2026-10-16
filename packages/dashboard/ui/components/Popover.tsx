@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useLatest } from '../hooks.js';
-import { placePop } from '../place.js';
+import { keepPlaced } from '../place.js';
 import { useLayer } from '../state.js';
 
 /**
@@ -28,18 +28,32 @@ export function Popover({ anchor, onClose, children, className = '', align = 'ri
   const closeRef = useLatest(onClose);
   useLayer('menu', true, onClose);
 
+  // Placed again whenever the window or the menu itself changes size: a menu whose items arrive after
+  // it opens grows, and must still end inside the window.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !anchor) return;
-    const place = () => {
-      const r = anchor.getBoundingClientRect();
-      const width = matchWidth ? Math.max(r.width, 280) : undefined;
-      const p = placePop(r, { width: width ?? el.offsetWidth, height: el.offsetHeight }, { width: innerWidth, height: innerHeight }, align);
-      setPos(width ? { ...p, width } : p);
-    };
-    place();
-    window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
+    const widthOf = (r: DOMRect) => (matchWidth ? Math.max(r.width, 280) : undefined);
+    return keepPlaced(
+      () => {
+        const r = anchor.getBoundingClientRect();
+        return { anchor: r, pop: { width: widthOf(r) ?? el.offsetWidth, height: el.offsetHeight }, view: { width: innerWidth, height: innerHeight } };
+      },
+      align,
+      (p) => {
+        const width = widthOf(anchor.getBoundingClientRect());
+        setPos((cur) => (cur && cur.top === p.top && cur.left === p.left && cur.width === width ? cur : width ? { ...p, width } : p));
+      },
+      (again) => {
+        const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(again) : null;
+        sized?.observe(el);
+        window.addEventListener('resize', again);
+        return () => {
+          sized?.disconnect();
+          window.removeEventListener('resize', again);
+        };
+      },
+    );
   }, [anchor, align, matchWidth]);
 
   // Its first item takes the focus once the menu shows: until it is placed it is hidden, and a hidden
