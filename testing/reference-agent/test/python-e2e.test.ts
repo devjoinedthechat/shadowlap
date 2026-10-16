@@ -104,4 +104,15 @@ describe.skipIf(!PYTHON)('Python reference agent', () => {
     expect(result.toolErrors).toEqual(['send_email: ShadowlapWriteBlocked']);
     expect(result.requestId).toBe(recorded.requestId); // uuid replayed before the fork
   });
+
+  it('forks when AGENT_SYSTEM_SUFFIX adds to the system prompt, as the quickstart does with the TypeScript agent', async () => {
+    const run = sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv: ['python', 'agent.py'], cwd: '/' } });
+    const result = await runAgent(run, { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
+    const { summary } = sidecar.endRun(run.runId, 'completed');
+    expect(summary.divergence).toMatchObject({ type: 'request_changed', callNo: 3, name: 'POST /v1/messages', replayedBefore: 2 });
+    expect(summary.divergence?.diff?.[0]).toMatchObject({ path: '$.system', op: 'changed' });
+    expect(JSON.stringify(summary.divergence?.diff?.[0])).toContain('Today is 2026-09-16. Be brief.');
+    expect(summary.byOrigin.blocked).toBe(1);
+    expect(result.toolErrors).toEqual(['send_email: ShadowlapWriteBlocked']);
+  });
 });

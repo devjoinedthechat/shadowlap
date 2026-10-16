@@ -6,6 +6,7 @@ by the real `anthropic` SDK (streaming, parallel tool calls) and the Shadowlap P
     SHADOWLAP_UPSTREAM_ANTHROPIC=<mock url> shadowlap run -- python testing/reference-agent/python/agent.py
 
     AGENT_DATE=2026-09-16   adds "Today is …" to the system prompt (change it to see a fork)
+    AGENT_SYSTEM_SUFFIX="…" appends to the system prompt, as the TypeScript agent does (forks at call 3)
 
 Prints a JSON summary on stdout; progress on stderr. The SDK is imported from the repository so the
 script runs without installing it; `pip install shadowlap` works the same way.
@@ -65,7 +66,8 @@ def main() -> dict:
     started_at = now()
     request_id = uuid()
     date = os.environ.get("AGENT_DATE")
-    system = "You are a research agent. Use the tools, then email a summary." + (f" Today is {date}." if date else "")
+    suffix = os.environ.get("AGENT_SYSTEM_SUFFIX")
+    system = "You are a research agent. Use the tools, then email a summary." + (f" Today is {date}." if date else "") + (f" {suffix}" if suffix else "")
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", "test-key"), max_retries=2)
     messages = [{"role": "user", "content": f"Research request {request_id}: investigate replay for agents and report back."}]
     model_calls = 0
