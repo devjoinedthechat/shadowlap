@@ -781,18 +781,22 @@ folder, `pr/<number>/` in the store. `pull` leaves those folders out unless give
 runs it brings from one stay on this machine: `push --all` leaves them out, and `push` refuses one
 by name.
 
-`push --json` prints `{ store, pullRequest, pushed, updated, unchanged, queued, repaired, refused, blobs, segment, onlyLocal }`:
+`push --json` prints `{ store, pullRequest, pushed, updated, unchanged, queued, repaired, refused, blobs, segment, onlyLocal, fixes }`:
 the store, the pull request whose folder it wrote to (or `null`), the runs `pushed`, `updated`
 (labels, notes or results merged), `unchanged`, `queued` (still recording) and `repaired` (parts
 the bucket lost, sent again), each run `refused` with why, the `blobs` `uploaded`, already
-`present` and their `bytes`, the index `segment` it wrote (or `null`), and how many runs are still
-`onlyLocal`. `pull --json` prints `{ store, pulled, merged, needPush, skippedDeleted, missing, unknown, failed, skippedSegments, blobs, segments, inStore, byAuthor, onlyLocal, pullRequests }`:
+`present` and their `bytes`, the index `segment` it wrote (or `null`), how many runs are still
+`onlyLocal`, and the `fixes` that went with the runs (none from a pull request's job): the ids
+`sent`, those that `failed` (`fixId`, `reason`), and the teammates' `repairs` the store's copies
+brought. `pull --json` prints `{ store, pulled, merged, needPush, skippedDeleted, missing, unknown, failed, skippedSegments, blobs, segments, inStore, byAuthor, onlyLocal, pullRequests, fixes }`:
 the runs `pulled` and `merged`, the merged ones whose changes the next push sends (`needPush`),
 runs deleted here and not pulled again (`skippedDeleted`), runs gone from the store (`missing`),
 names that match no run (`unknown`), runs that couldn't come (`failed`, with why) and index
 segments that couldn't be read (`skippedSegments`), the `blobs` `downloaded` and their `bytes`, the
-`segments` read, the runs `inStore` and `onlyLocal` here, the pulled runs `byAuthor`, and with
-`--include-pr` each pull request's folder (`pullRequests`).
+`segments` read, the runs `inStore` and `onlyLocal` here, the pulled runs `byAuthor`, with
+`--include-pr` each pull request's folder (`pullRequests`), and the `fixes` that came with the
+runs: the ids new here (`pulled`), those here the store's copy added to (`merged`), those in the
+store that couldn't be read (`failed`: `fixId`, `reason`), and the `repairs` whose files it wrote.
 
 ## share
 
@@ -842,9 +846,10 @@ store it replaced (`previous`) and the config file's path. `check` prints
 where the `credentials` came from, each step (`name`, `ok`, `detail`, `code`), whether all passed
 (`ok`), the bucket's `encryption`, `versioning` and `objectLock` (`state`, `detail`), its
 `warnings`, what couldn't be checked (`notes`), the kind of the first `failure`, and the pull
-request whose folder it checked. `show` prints `{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, queued, check }`:
-the last push and pull (epoch milliseconds), the runs `inStore`, `onlyLocal` and `queued` to go
-when they end, and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
+request whose folder it checked. `show` prints `{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, localAttempts, queued, check }`:
+the last push and pull (epoch milliseconds), the runs `inStore`, `onlyLocal` (a run counts while
+it, or an attempt filed under it, is only here), the attempts only here (`localAttempts`), the
+runs `queued` to go when they end, and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
 `credentials`). `policy` prints `{ provider, writer, pullRequest, notes }`, each policy with whom
 it is `for`, its `kind`, its `text` and `notes`. `ci` prints `{ ci, provider, file, text, oidc, pullRequests, notes }`:
 the step's `text` and the `file` it goes in, whether it uses short-lived credentials (`oidc`), and
