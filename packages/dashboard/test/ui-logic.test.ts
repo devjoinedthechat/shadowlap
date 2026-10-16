@@ -622,7 +622,8 @@ describe('a run’s calls in the views', () => {
     expect(callDetail(call(1, 'api'))).toEqual({ text: 'sonnet-5 · tool_use', err: false });
     expect(callDetail(call(1, 'api', { outcome: 'error', status: 529, attempts: 2 }))).toEqual({ text: 'HTTP 529 · 3 attempts', err: true });
     expect(resultLine(call(3, 'tool', { origin: 'blocked', outcome: 'error' }))).toEqual({ text: 'blocked', err: true });
-    expect(resultLine(call(3, 'tool', { origin: 'stubbed', resultShort: '{"sent":true}' }))).toEqual({ text: 'stubbed {"sent":true}', err: false });
+    // The server's line (the engine's toolResultLine) says it was stubbed; the page doesn't say it twice.
+    expect(resultLine(call(3, 'tool', { origin: 'stubbed', resultShort: 'stubbed {"sent":true}' }))).toEqual({ text: 'stubbed {"sent":true}', err: false });
     expect(resultLine(call(3, 'tool', { outcome: 'error', error: 'TimeoutError: 30 s' }))).toEqual({ text: 'TimeoutError: 30 s', err: true });
     expect(resultLine(call(1, 'api'))).toBeNull();
     const parent = indexCalls([{ callNo: 3, origin: 'live', latencyMs: 410 }]);
