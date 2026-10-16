@@ -4,7 +4,7 @@ import { num } from '../../format.js';
 import { ONLY_PROJECT, useProjectRemoval } from '../../project-actions.js';
 import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useSettingsData } from './common.js';
-import { UNUSED_WORTH, bytesText } from './logic.js';
+import { bytesText, sizeNote } from './logic.js';
 
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
@@ -42,7 +42,7 @@ export function ProjectTab() {
         </dd>
         <dt>Size</dt>
         <dd>
-          {bytesText(data.store.bytes)} <small>blobs shared between runs{data.store.free >= UNUSED_WORTH ? ` · ${bytesText(data.store.free)} unused, which Clean up old runs gives back` : ''}</small>
+          {bytesText(data.store.bytes)} <small>{sizeNote(data.store.free, data.running)}</small>
         </dd>
         <dt>Dashboard</dt>
         <dd>

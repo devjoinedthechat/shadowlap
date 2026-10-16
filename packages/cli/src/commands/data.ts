@@ -386,12 +386,14 @@ function formatGc(r: GcReport): string {
     lines.push(`  blobs nothing would reference: ${r.blobs} · ${formatBytes(r.bytes)}${r.deferred ? p.dim(` · collected once no run is recording: ${waiting}`) : ''}`);
     // Vacuuming waits while a run records, as blobs do.
     if (r.store.free >= UNUSED_SHOWN) lines.push(`  unused space in the store: ${formatBytes(r.store.free)}${r.recordingCount ? p.dim(' · given back once no run is recording') : ''}`);
+    // No run to delete, but blobs and unused pages to give back: plain gc deletes no run and does that, once no run is recording.
+    const back = [r.blobs ? `${formatBytes(r.bytes)} of blobs nothing references` : null, r.store.free >= UNUSED_SHOWN ? `${formatBytes(r.store.free)} of unused space` : null].filter(Boolean).join(' and ');
     if (r.count) {
       lines.push(`${p.green('✓')} dry run: would delete ${plural(r.count, 'run')} and free ${formatBytes(r.bytes)}. To delete exactly these runs: shadowlap gc${r.cutoff !== null ? ` --before ${r.cutoff}` : ''}${r.keep !== null ? ` --keep ${r.keep}` : ''} --expect ${r.expect}`);
-    } else if (!r.recordingCount && (r.blobs || r.store.free >= UNUSED_SHOWN)) {
-      // No run to delete, but blobs and unused pages to give back: plain gc deletes no run and does that.
-      const what = [r.blobs ? `${formatBytes(r.bytes)} of blobs nothing references` : null, r.store.free >= UNUSED_SHOWN ? `${formatBytes(r.store.free)} of unused space` : null].filter(Boolean).join(' and ');
-      lines.push(`${p.green('✓')} dry run: no runs to delete; would give back ${what}. To do that: shadowlap gc`);
+    } else if (back && !r.recordingCount) {
+      lines.push(`${p.green('✓')} dry run: no runs to delete; would give back ${back}. To do that: shadowlap gc`);
+    } else if (back) {
+      lines.push(`${p.green('✓')} dry run: no runs to delete; ${back} can be given back with shadowlap gc once no run is recording.`);
     } else {
       lines.push(`${p.green('✓')} dry run: nothing to delete or give back.`);
     }
