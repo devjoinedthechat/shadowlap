@@ -162,7 +162,9 @@ describe('what can be translated', () => {
   it('knows the APIs it carries and says why it refuses the others', () => {
     expect(chatShapeOf('anthropic', 'POST /v1/messages')).toBe('anthropic');
     expect(chatShapeOf('openai', 'POST /v1/chat/completions')).toBe('openai-chat');
-    expect(chatShapeOf('openai', 'POST /v1/responses')).toBeNull();
+    expect(chatShapeOf('openai', 'POST /v1/responses')).toBe('openai-responses');
+    expect(chatShapeOf('azure', 'POST /openai/responses')).toBe('openai-responses');
+    expect(chatShapeOf('openai', 'POST /v1/completions')).toBeNull();
     // The clouds: Claude on Vertex AI and Bedrock speaks Anthropic's messages; Azure and the OpenAI-compatible endpoints speak chat.
     expect(chatShapeOf('vertex', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5@20260101:rawPredict')).toBe('anthropic');
     expect(chatShapeOf('vertex', 'POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-5:streamRawPredict')).toBe('anthropic');

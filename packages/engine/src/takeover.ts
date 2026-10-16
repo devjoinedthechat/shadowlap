@@ -1,5 +1,6 @@
 import { awsEvent, chatCompletionToConverse, converseStreamBody, converseToOpenAIChat } from './translate-converse.js';
 import { chatCompletionToGemini, geminiStreamBody, geminiToOpenAIChat, geminiUsesIds } from './translate-gemini.js';
+import { chatCompletionToResponse, responseEvents, responsesToOpenAIChat } from './translate-responses.js';
 import { anthropicEventList, anthropicMessageEvents, anthropicToOpenAIChat, awsErrorType, chatCompletionChunks, chatShapeOf, errorBody, openAIChatToAnthropicMessage, untranslatable, type ChatCompletion, type ChatShape, type TranslatedRequest } from './translate.js';
 
 /**
@@ -28,8 +29,8 @@ export interface TakeoverTarget {
  * How a recorded model call reaches the target:
  * - `same`: the recording's own provider and API, asked for another model, with the agent's own key;
  * - `endpoint`: an OpenAI chat recording (OpenAI, Azure, an OpenAI-compatible cloud endpoint), asked at another OpenAI-compatible endpoint;
- * - `to-openai`: an Anthropic, Converse or Gemini recording, translated for an OpenAI-compatible endpoint and back;
- * - `to-anthropic`: an OpenAI chat, Converse or Gemini recording, translated for Anthropic's API and back;
+ * - `to-openai`: an Anthropic, Responses API, Converse or Gemini recording, translated for an OpenAI-compatible endpoint's chat completions and back;
+ * - `to-anthropic`: an OpenAI chat, Responses API, Converse or Gemini recording, translated for Anthropic's API and back;
  * - `anthropic-api`: Claude on Vertex AI or Bedrock, asked of Anthropic's API in the same shape.
  */
 export type TakeoverMode = 'same' | 'endpoint' | 'to-openai' | 'to-anthropic' | 'anthropic-api';
@@ -39,11 +40,11 @@ export function takeoverMode(provider: string | null, shape: ChatShape | null, t
   if (target.route === 'anthropic') {
     if (provider === 'anthropic') return 'same';
     if (shape === 'anthropic') return 'anthropic-api';
-    return shape === 'openai-chat' || shape === 'converse' || shape === 'gemini' ? 'to-anthropic' : null;
+    return shape === 'openai-chat' || shape === 'openai-responses' || shape === 'converse' || shape === 'gemini' ? 'to-anthropic' : null;
   }
   if (provider === 'openai' && target.scoreBase === null) return 'same';
   if (shape === 'openai-chat') return 'endpoint';
-  return shape === 'anthropic' || shape === 'converse' || shape === 'gemini' ? 'to-openai' : null;
+  return shape === 'anthropic' || shape === 'openai-responses' || shape === 'converse' || shape === 'gemini' ? 'to-openai' : null;
 }
 
 /**
@@ -134,6 +135,7 @@ export function requestFor(mode: 'to-openai' | 'anthropic-api', shape: ChatShape
     return { body: { ...rest, messages, model: options.model, stream: false }, dropped: [...dropped] };
   }
   const opts = { model: options.model, ...(options.maxTokensField ? { maxTokensField: options.maxTokensField } : {}) };
+  if (shape === 'openai-responses') return responsesToOpenAIChat(body, opts);
   if (shape === 'converse') return converseToOpenAIChat(body, opts);
   if (shape === 'gemini') return geminiToOpenAIChat(body, opts);
   if (shape === 'anthropic') return anthropicToOpenAIChat(body, opts);
@@ -176,6 +178,10 @@ export interface AnswerOptions {
 /** The model under test's answer, as a chat completion, in the recording's own API, streamed as its client asked. */
 export function answerAs(provider: string, shape: ChatShape, completion: ChatCompletion, o: AnswerOptions): EncodedAnswer {
   if (shape === 'anthropic') return anthropicAnswer(provider, openAIChatToAnthropicMessage(completion, { model: o.model }), o.stream);
+  if (shape === 'openai-responses') {
+    const r = chatCompletionToResponse(completion, { model: o.model, ...(o.request ? { request: o.request } : {}) });
+    return o.stream ? encoded(SSE, responseEvents(r)) : encoded(JSON_TYPE, JSON.stringify(r));
+  }
   if (shape === 'converse') {
     const r = chatCompletionToConverse(completion);
     return o.stream ? encoded(EVENTSTREAM, converseStreamBody(r)) : encoded(JSON_TYPE, JSON.stringify(r));

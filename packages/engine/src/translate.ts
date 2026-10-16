@@ -14,16 +14,17 @@
  *
  * The same goes for the clouds that serve these models (E8): Claude through Vertex AI (`rawPredict`)
  * or Amazon Bedrock (`invoke`) speaks Anthropic's messages; Azure OpenAI's deployments, and Vertex
- * AI's and Gemini's OpenAI-compatible endpoints, speak OpenAI's chat; Bedrock's Converse API and
- * Gemini's generateContent (on the Gemini API or Vertex AI) translate through translate-converse.ts
- * and translate-gemini.ts. Each answer goes back as that cloud sends it, streamed or not.
+ * AI's and Gemini's OpenAI-compatible endpoints, speak OpenAI's chat; Bedrock's Converse API,
+ * Gemini's generateContent (on the Gemini API or Vertex AI) and OpenAI's Responses API translate
+ * through translate-converse.ts, translate-gemini.ts and translate-responses.ts. Each answer goes back
+ * as that API sends it, streamed or not.
  */
 
 /**
  * The shape of a recorded model call's request and answer: Anthropic's messages, OpenAI's chat
- * completions, Bedrock's Converse API, or Gemini's generateContent.
+ * completions or Responses API, Bedrock's Converse API, or Gemini's generateContent.
  */
-export type ChatShape = 'anthropic' | 'openai-chat' | 'converse' | 'gemini';
+export type ChatShape = 'anthropic' | 'openai-chat' | 'openai-responses' | 'converse' | 'gemini';
 
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -49,6 +50,8 @@ export function chatShapeOf(provider: string | null | undefined, callName: strin
   if (provider === 'bedrock' && /\/invoke(-with-response-stream)?$/.test(path) && /(^|[.:/])anthropic\./.test(bedrockModel(path) ?? '')) return 'anthropic';
   // OpenAI's chat completions, and the clouds that speak them: Azure's deployments, Vertex AI's and Gemini's OpenAI-compatible endpoints.
   if ((provider === 'openai' || provider === 'azure' || provider === 'vertex' || provider === 'gemini') && /\/chat\/completions$/.test(path)) return 'openai-chat';
+  // OpenAI's Responses API, on OpenAI and Azure OpenAI (translate-responses.ts).
+  if ((provider === 'openai' || provider === 'azure') && /\/responses$/.test(path)) return 'openai-responses';
   if (provider === 'bedrock' && /\/converse(-stream)?$/.test(path)) return 'converse';
   if ((provider === 'gemini' || provider === 'vertex') && /:(stream)?generateContent$/i.test(path)) return 'gemini';
   return null;

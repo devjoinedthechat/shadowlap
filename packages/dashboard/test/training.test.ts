@@ -262,10 +262,10 @@ describe('the Training read model', () => {
   });
 
   it('offers only the models that can answer a ready task, scores one that answers some on those, and says why the rest are left out', () => {
-    // One task recorded on Anthropic's API, one on OpenAI's Responses API (which only another OpenAI model answers), one through Bedrock's Converse API.
+    // One task recorded on Anthropic's API, one asking Llama through Bedrock's InvokeModel (a body no translation reads), one through Bedrock's Converse API.
     const tasks = [
       task('goldens/refund', 'ready', 'escalate'),
-      task('goldens/responses', 'ready', 'escalate', { provider: 'openai', callName: 'POST /v1/responses', model: 'gpt-5' }),
+      task('goldens/llama', 'ready', 'escalate', { provider: 'bedrock', callName: 'POST /model/meta.llama4-maverick-17b-instruct-v1%3A0/invoke', model: 'meta.llama4-maverick-17b-instruct-v1:0' }),
       task('goldens/converse', 'ready', 'escalate', { provider: 'bedrock', callName: 'POST /model/amazon.nova-pro-v1%3A0/converse', model: 'amazon.nova-pro-v1:0' }),
     ];
     const listing: ModelListing = {
@@ -282,14 +282,16 @@ describe('the Training read model', () => {
     const dialog = trainingView({ pairs: [], sources: [], tasks, scores: [], exports: [], models: listing }).scoreDialog!;
     expect(dialog.options.map((o) => [o.id, o.request.goldens])).toEqual([
       ['claude-sonnet-5', ['goldens/refund']],
-      ['gpt-5', ['goldens/responses']],
       ['claude-haiku-4-5', ['goldens/refund', 'goldens/converse']],
       ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
     ]);
-    expect(dialog.options[2]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not responses: it uses the OpenAI Responses API, which only another model of its own provider can answer");
-    expect(dialog.options[0]!.note).toContain("not responses: it was recorded on OpenAI's API, and claude-sonnet-5 is asked of Anthropic's API; converse: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API");
-    // Bedrock's own model answers its own task only by switching models there, which a signed URL doesn't allow: that, not the others' providers, is why.
-    expect(dialog.leftOut).toEqual([{ group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: 'converse: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL' }]);
+    expect(dialog.options[1]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
+    expect(dialog.options[0]!.note).toContain("not llama: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API; converse: it was recorded on Amazon Bedrock, and claude-sonnet-5 is asked of Anthropic's API");
+    // OpenAI's recorded model answers none of them; Bedrock's own answers its own tasks only by switching models there, which a signed URL doesn't allow: that, not the others' providers, is why.
+    expect(dialog.leftOut).toEqual([
+      { group: 'Recorded with', models: ['gpt-5'], why: "refund: it was recorded on Anthropic's API, and gpt-5 is asked of OpenAI's API" },
+      { group: 'Recorded with', models: ['amazon.nova-pro-v1:0'], why: 'llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL' },
+    ]);
     expect(dialog.groups).toEqual(['Recorded with', 'Anthropic API', 'Ollama, on this machine']);
   });
 

@@ -103,8 +103,8 @@ describe('Score a model', () => {
     expect(pickNote(null, '1', DIALOG.endpoint)).toBe('');
     expect(leftOutLine([])).toBeNull();
     expect(leftOutLine(undefined)).toBeNull();
-    expect(leftOutLine([{ group: 'Anthropic API', models: ['claude-haiku-4-5', 'claude-opus-5-5'], why: "refund-flow: it uses the OpenAI Responses API, which only another model of its own provider can answer" }, { group: 'Recorded with', models: ['gpt-prod'], why: 'refund-flow: its takeover call goes through Azure OpenAI' }])).toBe(
-      "Not offered: Anthropic API: claude-haiku-4-5, claude-opus-5-5 (refund-flow: it uses the OpenAI Responses API, which only another model of its own provider can answer) · gpt-prod (refund-flow: its takeover call goes through Azure OpenAI)",
+    expect(leftOutLine([{ group: 'Anthropic API', models: ['claude-haiku-4-5', 'claude-opus-5-5'], why: "refund-flow: it is an openai request (/v1/completions), which only another model of its own provider can answer" }, { group: 'Recorded with', models: ['gpt-prod'], why: 'refund-flow: its takeover call goes through Azure OpenAI' }])).toBe(
+      "Not offered: Anthropic API: claude-haiku-4-5, claude-opus-5-5 (refund-flow: it is an openai request (/v1/completions), which only another model of its own provider can answer) · gpt-prod (refund-flow: its takeover call goes through Azure OpenAI)",
     );
     expect(leftOutLine([{ group: 'OpenAI API', models: ['a', 'b', 'c', 'd', 'e'], why: 'x' }])).toBe('Not offered: OpenAI API: a, b, c and 2 more (x)');
     expect(notesLine([])).toBeNull();

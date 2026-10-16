@@ -4,6 +4,7 @@ import { anthropicAnswer, answerAs, errorAs, isTakeoverCall, requestFor, takeove
 import { chatCompletionOf } from '../src/translate.js';
 import { chatCompletionToConverse, converseStreamBody, converseToOpenAIChat } from '../src/translate-converse.js';
 import { chatCompletionToGemini, geminiStreamBody, geminiToOpenAIChat, geminiUsesIds } from '../src/translate-gemini.js';
+import { chatCompletionToResponse, responseEvents, responsesToOpenAIChat } from '../src/translate-responses.js';
 
 /**
  * Another provider at the takeover, for the clouds (E8): a recording made on Bedrock, Vertex AI,
@@ -52,7 +53,8 @@ describe('how a recorded call reaches the model under test', () => {
     expect(takeoverRefusal('azure', AZURE, same)).toBe('its takeover call goes through Azure OpenAI, where the deployment in the URL picks the model');
     expect(takeoverRefusal('vertex', VERTEX_CLAUDE, same)).toContain('Vertex AI');
     expect(takeoverRefusal('gemini', GEMINI, same)).toBeNull();
-    expect(takeoverRefusal('openai', 'POST /v1/responses', local)).toBe('it uses the OpenAI Responses API, which only another model of its own provider can answer');
+    expect(takeoverRefusal('openai', 'POST /v1/responses', local)).toBeNull();
+    expect(takeoverRefusal('openai', 'POST /v1/completions', claude)).toBe('it is an openai request (/v1/completions), which only another model of its own provider can answer');
     expect(takeoverRefusal('bedrock', 'POST /model/meta.llama4-maverick-17b-instruct-v1%3A0/invoke', local)).toContain("through Bedrock's InvokeModel");
     expect(takeoverRefusal(null, AZURE, local)).toBe("its recording doesn't say which provider the takeover call went to");
   });
@@ -170,6 +172,103 @@ describe('Gemini generateContent', () => {
     expect(chatCompletionToGemini(ANSWER, { model: 'm', ids: true }).candidates[0]!.content.parts[1]).toEqual({ functionCall: { name: 'escalate', args: { reason: 'refund of $240 is above $100' }, id: 'call_1' } });
     expect(geminiStreamBody(r, true)).toBe(`data: ${JSON.stringify(r)}\r\n\r\n`);
     expect(JSON.parse(geminiStreamBody(r, false))).toEqual([r]);
+  });
+});
+
+describe('OpenAI\'s Responses API', () => {
+  const request = {
+    model: 'gpt-5',
+    instructions: 'You are a support agent.',
+    input: [
+      { role: 'user', content: 'Refund order A-1042.' },
+      { type: 'reasoning', id: 'rs_1', summary: [] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Looking it up.' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'lookup_order', arguments: '{"order_id":"A-1042"}' },
+      { type: 'function_call_output', call_id: 'call_1', output: '{"amount":240}' },
+      { type: 'function_call', call_id: 'call_2', name: 'read_policy', arguments: '{}' },
+      { type: 'function_call', call_id: 'call_3', name: 'lookup_customer', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'call_2', output: [{ type: 'input_text', text: 'escalate above $100' }] },
+      { type: 'function_call_output', call_id: 'call_3', output: '{"tier":"gold"}' },
+    ],
+    tools: [{ type: 'function', name: 'escalate', description: 'Hand it to a manager.', parameters: { type: 'object' } }, { type: 'web_search' }],
+    tool_choice: 'required',
+    parallel_tool_calls: false,
+    max_output_tokens: 300,
+    text: { format: { type: 'json_schema', name: 'decision', schema: { type: 'object' }, strict: true } },
+    reasoning: { effort: 'low' },
+  };
+
+  it('turns input items into chat messages, a turn\'s calls together, and names what it drops', () => {
+    const t = responsesToOpenAIChat(request, { model: 'my-finetune' });
+    expect(t.body).toEqual({
+      model: 'my-finetune',
+      messages: [
+        { role: 'system', content: 'You are a support agent.' },
+        { role: 'user', content: 'Refund order A-1042.' },
+        { role: 'assistant', content: 'Looking it up.', tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id":"A-1042"}' } }] },
+        { role: 'tool', tool_call_id: 'call_1', content: '{"amount":240}' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call_2', type: 'function', function: { name: 'read_policy', arguments: '{}' } }, { id: 'call_3', type: 'function', function: { name: 'lookup_customer', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'call_2', content: 'escalate above $100' },
+        { role: 'tool', tool_call_id: 'call_3', content: '{"tier":"gold"}' },
+      ],
+      tools: [{ type: 'function', function: { name: 'escalate', description: 'Hand it to a manager.', parameters: { type: 'object' } } }],
+      tool_choice: 'required',
+      parallel_tool_calls: false,
+      max_tokens: 300,
+      response_format: { type: 'json_schema', json_schema: { name: 'decision', schema: { type: 'object' }, strict: true } },
+    });
+    expect(t.dropped.sort()).toEqual(['reasoning items', 'the reasoning setting', 'the web_search tool']);
+    expect(responsesToOpenAIChat({ input: 'Hi', previous_response_id: 'resp_0' }, { model: 'm' }).dropped).toEqual(["the conversation kept on OpenAI's side (previous_response_id)"]);
+  });
+
+  it('answers as a Response, or as the events a streaming client reads, ending in response.completed', () => {
+    const r = chatCompletionToResponse(ANSWER, { model: 'my-finetune', request });
+    expect(r).toMatchObject({
+      object: 'response',
+      status: 'completed',
+      model: 'my-finetune',
+      output: [
+        { type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Above the limit.', annotations: [] }] },
+        { type: 'function_call', call_id: 'call_1', name: 'escalate', arguments: '{"reason":"refund of $240 is above $100"}', status: 'completed' },
+      ],
+      parallel_tool_calls: false,
+      tool_choice: 'required',
+      usage: { input_tokens: 120, input_tokens_details: { cached_tokens: 100 }, output_tokens: 20, total_tokens: 140 },
+    });
+    const events = responseEvents(r)
+      .split('\n\n')
+      .filter(Boolean)
+      .map((e) => JSON.parse(e.split('\n')[1]!.slice('data: '.length)) as { type: string; sequence_number: number; response?: unknown; delta?: string });
+    expect(events.map((e) => e.type)).toEqual([
+      'response.created',
+      'response.in_progress',
+      'response.output_item.added',
+      'response.content_part.added',
+      'response.output_text.delta',
+      'response.output_text.done',
+      'response.content_part.done',
+      'response.output_item.done',
+      'response.output_item.added',
+      'response.function_call_arguments.delta',
+      'response.function_call_arguments.done',
+      'response.output_item.done',
+      'response.completed',
+    ]);
+    expect(events.map((e) => e.sequence_number)).toEqual(events.map((_, i) => i));
+    expect(events.at(-1)!.response).toEqual(r);
+    // Cut short by the token limit: incomplete, and said so.
+    const cut = chatCompletionToResponse(chatCompletionOf({ choices: [{ message: { content: 'Above' }, finish_reason: 'length' }] }, { model: 'm' }), { model: 'm' });
+    expect(cut).toMatchObject({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } });
+    expect(responseEvents(cut)).toContain('event: response.incomplete');
+  });
+
+  it('is scored with another model through chat completions, or another of OpenAI\'s as it is', () => {
+    expect(takeoverMode('openai', 'openai-responses', local)).toBe('to-openai');
+    expect(takeoverMode('openai', 'openai-responses', claude)).toBe('to-anthropic');
+    expect(takeoverMode('openai', 'openai-responses', openai)).toBe('same');
+    expect(takeoverMode('azure', 'openai-responses', openai)).toBe('to-openai');
+    expect(JSON.parse(answerAs('openai', 'openai-responses', ANSWER, { model: 'm', stream: false }).body.toString())).toMatchObject({ object: 'response' });
+    expect(answerAs('openai', 'openai-responses', ANSWER, { model: 'm', stream: true }).contentType).toMatch(/^text\/event-stream/);
   });
 });
 

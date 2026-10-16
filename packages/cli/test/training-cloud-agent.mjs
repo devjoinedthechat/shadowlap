@@ -1,17 +1,18 @@
 // The support agent of the training tests on a cloud's own API, for recordings that another
 // provider's model takes over: it looks the order up, reads the refund policy, then refunds or
-// escalates. Azure OpenAI and Gemini (on the Gemini API and on Vertex AI) go through their own SDKs;
-// Claude on Vertex AI and on Bedrock, and Bedrock's Converse API, are called with fetch, as their
-// SDKs send them. Every call goes to the cloud's real host and is captured in the process.
+// escalates. Azure OpenAI, OpenAI's Responses API and Gemini (on the Gemini API and on Vertex AI) go
+// through their own SDKs; Claude on Vertex AI and on Bedrock, and Bedrock's Converse API, are called
+// with fetch, as their SDKs send them. Every call goes to the cloud's real host and is captured in the
+// process, or to the base URL shadowlap run gives the OpenAI SDK.
 //
 //   node training-cloud-agent.mjs <api> [--stream]
 //
-//   api               azure | gemini | vertex-gemini | vertex-claude | bedrock-claude | bedrock-converse
+//   api               azure | openai-responses | gemini | vertex-gemini | vertex-claude | bedrock-claude | bedrock-converse
 //   --stream          read every answer as the API streams it
 //   AGENT_OUTBOX=…    file the write tools append to
 import { appendFileSync } from 'node:fs';
 import { GoogleGenAI } from '@google/genai';
-import { AzureOpenAI } from 'openai';
+import OpenAI, { AzureOpenAI } from 'openai';
 import { eventStreamFrames, eventStreamMessages } from '@shadowlap/engine';
 import { tool } from '@shadowlap/sdk';
 
@@ -111,6 +112,26 @@ const ASK = {
       }
     }
     return { text, calls: [...calls.values()].map((c) => ({ id: c.id, name: c.name, input: JSON.parse(c.args || '{}') })) };
+  },
+
+  async 'openai-responses'() {
+    const client = new OpenAI({ apiKey: 'k', maxRetries: 0 });
+    const input = [];
+    for (const t of turns) {
+      if (t.role === 'user') input.push({ role: 'user', content: t.text });
+      else if (t.role === 'assistant') {
+        if (t.text) input.push({ role: 'assistant', content: t.text });
+        for (const c of t.calls) input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: JSON.stringify(c.input) });
+      } else for (const r of t.results) input.push({ type: 'function_call_output', call_id: r.id, output: JSON.stringify(r.output) });
+    }
+    const request = { model: 'gpt-5', instructions: SYSTEM, input, tools: TOOLS.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.schema, strict: false })) };
+    let response = null;
+    if (STREAM) {
+      for await (const e of await client.responses.create({ ...request, stream: true })) if (e.type === 'response.completed') response = e.response;
+    } else response = await client.responses.create(request);
+    if (!response) throw new Error('the stream ended without response.completed');
+    const out = response.output;
+    return { text: out.filter((i) => i.type === 'message').flatMap((i) => i.content).filter((c) => c.type === 'output_text').map((c) => c.text).join(''), calls: out.filter((i) => i.type === 'function_call').map((i) => ({ id: i.call_id, name: i.name, input: JSON.parse(i.arguments || '{}') })) };
   },
 
   async gemini(vertex = false) {

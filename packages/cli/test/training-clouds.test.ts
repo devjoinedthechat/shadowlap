@@ -13,8 +13,8 @@ import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer, type 
 import { resolveTarget, startTakeover } from '../src/takeover.js';
 
 /**
- * Scoring on a cloud's recording (E8): the support agent recorded on Azure OpenAI, the Gemini API,
- * Vertex AI (Gemini and Claude) and Amazon Bedrock (Claude and the Converse API), each golden then
+ * Scoring on a cloud's recording (E8): the support agent recorded on Azure OpenAI, OpenAI's Responses
+ * API, the Gemini API, Vertex AI (Gemini and Claude) and Amazon Bedrock (Claude and the Converse API), each golden then
  * taken over at its decision by a model at an OpenAI-compatible endpoint or by Anthropic's API. The
  * conversation is translated for the model and its answer back into the cloud's own API, streamed as
  * the agent asked, and the agent goes on as if its cloud had answered. The recorded model refunds the
@@ -41,6 +41,8 @@ const cloudAsked: string[] = [];
 
 /** How many turns the model already had in a request of each shape. */
 function assistantTurns(path: string, body: Record<string, unknown>): number {
+  // The Responses API keeps the model's turns as items: each of this agent's turns calls one tool.
+  if (Array.isArray(body.input)) return (body.input as Array<{ type?: string }>).filter((i) => i.type === 'function_call').length;
   const list = (Array.isArray(body.messages) ? body.messages : Array.isArray(body.contents) ? body.contents : []) as Array<{ role?: string }>;
   return list.filter((m) => m.role === 'assistant' || m.role === 'model').length;
 }
@@ -66,7 +68,7 @@ beforeAll(async () => {
     req.on('end', () => {
       const url = new URL(req.url ?? '/', 'http://cloud');
       const path = url.pathname;
-      const provider = path.includes('/openai/deployments/') ? 'azure' : path.startsWith('/model/') ? 'bedrock' : path.includes('/publishers/') ? 'vertex' : 'gemini';
+      const provider = path.includes('/openai/deployments/') ? 'azure' : path.endsWith('/responses') ? 'openai' : path.startsWith('/model/') ? 'bedrock' : path.includes('/publishers/') ? 'vertex' : 'gemini';
       const shape = chatShapeOf(provider, `POST ${path}`);
       cloudAsked.push(`${provider} ${path}`);
       if (!shape) {
@@ -108,6 +110,7 @@ function shadowlap(work: string, args: string[]): Promise<Result> {
         SHADOWLAP_UPSTREAM_VERTEX: cloudUrl,
         SHADOWLAP_UPSTREAM_BEDROCK: cloudUrl,
         SHADOWLAP_UPSTREAM_GEMINI: cloudUrl,
+        SHADOWLAP_UPSTREAM_OPENAI: cloudUrl,
         SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url,
         ANTHROPIC_API_KEY: 'test-key',
         SHADOWLAP_TELEMETRY: '0',
@@ -150,6 +153,8 @@ function withStore<T>(db: string, fn: (s: Store) => T): T {
 
 const CASES: Array<{ api: string; stream: boolean; provider: string }> = [
   { api: 'azure', stream: true, provider: 'azure' },
+  { api: 'openai-responses', stream: true, provider: 'openai' },
+  { api: 'openai-responses', stream: false, provider: 'openai' },
   { api: 'gemini', stream: true, provider: 'gemini' },
   { api: 'vertex-gemini', stream: false, provider: 'vertex' },
   { api: 'vertex-claude', stream: true, provider: 'vertex' },
@@ -201,6 +206,12 @@ describe('a cloud recording scored with Anthropic\'s API', () => {
 
       await golden(work, 'bedrock-converse', false);
       r = await shadowlap(work, ['tasks', 'score', 'goldens/bedrock-converse', '--model', 'anthropic:claude-good', '--attempts', '1']);
+      expect(r.code, r.out).toBe(0);
+      expect(r.stdout).toMatch(/✓ claude-good · mean 1\.00/);
+
+      // OpenAI's Responses API, streamed, answered by Anthropic's API through chat completions.
+      await golden(work, 'openai-responses', true);
+      r = await shadowlap(work, ['tasks', 'score', 'goldens/openai-responses', '--model', 'anthropic:claude-good', '--attempts', '1']);
       expect(r.code, r.out).toBe(0);
       expect(r.stdout).toMatch(/✓ claude-good · mean 1\.00/);
     } finally {

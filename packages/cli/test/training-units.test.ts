@@ -390,7 +390,9 @@ describe('what a score refuses before anything runs', () => {
     expect(cannotScore(task('POST /v1/messages', 'anthropic'), same('claude-haiku-4-5'))).toBeNull();
     expect(cannotScore(task('POST /v1/chat/completions', 'openai'), same('gpt-5'))).toBeNull();
     // Another provider's model is refused for these: they don't translate.
-    expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toBe("goldens/g can't be answered by m at http://127.0.0.1:8000/v1: it uses the OpenAI Responses API, which only another model of its own provider can answer");
+    expect(cannotScore(task('POST /v1/completions', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toBe("goldens/g can't be answered by m at http://127.0.0.1:8000/v1: it is an openai request (/v1/completions), which only another model of its own provider can answer");
+    // The Responses API translates for another model's chat completions.
+    expect(cannotScore(task('POST /v1/responses', 'openai'), resolveTarget({ model: 'm', baseUrl: 'http://127.0.0.1:8000/v1' }))).toBeNull();
   });
 
   it('a takeover asked at a call that asks a model nothing', () => {
