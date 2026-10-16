@@ -1,11 +1,10 @@
-import { ACTION, ALERT_FAILURES, FIX_BUDGETS, REPAIRERS, WORKFLOW_FILE, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml } from '../../../src/ci-yaml.js';
-import type { CiOptions, CiPullRequest, CiWorkflowsView } from '../../settings-api.js';
+import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 
 /**
  * What the Settings tabs work out without a server or a DOM: the tabs and their addresses, the Add
  * dialog's rule and the command it stands for, how the preview names a rule, sizes and times as the
- * tabs show them, what the drawer offers after calibrate and a clean-up, and the CI tab's panels
- * when the server doesn't serve them. The tests import it.
+ * tabs show them, what the drawer offers after calibrate and a clean-up, and what the CI tab's
+ * controls show. The tests import it.
  */
 
 export { SETTINGS_TABS, settingsTab, type SettingsTab } from './tabs.js';
@@ -371,60 +370,17 @@ export function pasteWhere(files: ReadonlyArray<{ path: string; found: boolean }
 
 // ---- CI ----
 
-/** What the CI tab's panels start as: Fix on failure off, $2 with Claude Code; alerts for main, to SLACK_WEBHOOK_URL. */
-export const CI_DEFAULTS: CiOptions = { fix: false, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
-
-/** The pull request the panel shows before any fix was verified here: the docs' refund agent. */
-function examplePullRequest(budget: string): CiPullRequest {
-  return {
-    title: 'Escalate refunds above the policy limit',
-    author: 'github-actions',
-    base: 'main',
-    branch: 'shadowlap/fix-refund-limit',
-    verify: 'target 3 of 3 · held-out 2 of 2 · good 5 of 5',
-    blame: 'lost at model call #5 · confidence high',
-    change: 'prompts/refund.md +1 −0',
-    spent: `≈$0.84 of $${budget}`,
-    fixId: null,
-    example: true,
-  };
-}
-
-const ciRows = (list: ReadonlyArray<readonly [string, string]>) => list.map(([label, value]) => ({ label, value }));
-
 /**
- * Both CI panels written here, from the same functions the server uses (`src/ci-yaml.ts`), for a
- * dashboard that doesn't serve `GET /api/ci/workflows`: what it serves for a project with no
- * goldens listed, no verified fix and no GitHub remote it can read.
+ * What the CI tab's controls show: what was changed on the tab, else what the server answered with
+ * (its defaults, which the panels' first answer carries), so nothing in the UI repeats them.
  */
-export function localCiWorkflows(o: CiOptions): CiWorkflowsView {
-  const recordings = 'goldens/*';
-  const message = alertsMessage({ failed: 1, branch: o.onlyMain ? 'main' : 'your-branch', runUrl: 'github.com/owner/repo/actions/runs/…' });
+export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsView): CiWorkflowOptions {
   return {
-    file: WORKFLOW_FILE,
-    action: ACTION,
-    fixOnFailure: {
-      on: o.fix,
-      budget: o.budget,
-      repairer: o.repairer,
-      budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
-      repairers: REPAIRERS.map((r) => ({ ...r })),
-      offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings }),
-      needs: ciRows(fixOnFailureNeeds(o.repairer)),
-      never: ciRows(fixOnFailureNever(o.budget)),
-      preview: examplePullRequest(o.budget),
-    },
-    alerts: {
-      onlyMain: o.onlyMain,
-      secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings }),
-      needs: ciRows(alertsNeeds(o.secret)),
-      failures: ciRows(ALERT_FAILURES),
-      message: { app: 'GitHub Actions', text: message.text, link: message.link, at: null },
-    },
-    recordings,
-    repository: null,
+    fix: changed.fix ?? view.fixOnFailure.on,
+    budget: changed.budget ?? view.fixOnFailure.budget,
+    repairer: changed.repairer ?? view.fixOnFailure.repairer,
+    onlyMain: changed.onlyMain ?? view.alerts.onlyMain,
+    secret: changed.secret ?? view.alerts.secret,
   };
 }
 

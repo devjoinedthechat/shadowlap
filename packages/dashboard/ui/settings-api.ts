@@ -13,7 +13,8 @@ import type {
  * Settings' part of the API client (`client.settings`): each tab's read, and the edits to
  * shadowlap.config.json. Every edit sends the version of the file the tab read (`config.version`),
  * so the server refuses it with a 409 when the file changed on disk since. Types only from the
- * server's read model (`src/settings.ts`): nothing here needs Node.
+ * server's read model (`src/settings.ts`): nothing here needs Node. The CI tab reads
+ * `client.ciWorkflows`, which Tests uses too.
  */
 
 export type { CodingAgentsSettings, MatchingSettings, ProjectSettings, RedactionPreviewView, RedactionSettings, RuleRow, StoreSettings, ToolsSettings };
@@ -40,74 +41,6 @@ export interface McpLine {
   copy?: { command: string; args: string[] };
 }
 
-/** What the CI tab's two panels are set to, as `GET /api/ci/workflows` takes them. */
-export interface CiOptions {
-  /** Fix on failure is on. */
-  fix: boolean;
-  /** Dollars per failing golden: `2.00`. */
-  budget: string;
-  /** As `repair --repairer` takes it: `claude-code`, `anthropic`, `openai:gpt-5`. */
-  repairer: string;
-  /** Alerts post only for the main branch. */
-  onlyMain: boolean;
-  /** The repository secret that holds the Slack webhook URL. */
-  secret: string;
-}
-
-/** A row of an "it needs" or "it never" list, or a failure with its tag. */
-export interface CiListRow {
-  label: string;
-  value: string;
-}
-
-/** The pull request Fix on failure opens, as GitHub shows it: from the newest fix verified here, or an example. */
-export interface CiPullRequest {
-  title: string;
-  author: string;
-  base: string;
-  branch: string;
-  verify: string | null;
-  blame: string | null;
-  change: string | null;
-  /** `≈$0.84 of $2.00`. */
-  spent: string;
-  fixId: string | null;
-  example: boolean;
-}
-
-/**
- * Settings → CI as the tests feature serves it (`GET /api/ci/workflows`, its `CiWorkflowsView`):
- * both panels' workflow steps, what each needs, and what lands, for the options given.
- */
-export interface CiWorkflowsView {
-  /** Where the steps go: `.github/workflows/agent.yml`. */
-  file: string;
-  action: string;
-  fixOnFailure: {
-    on: boolean;
-    budget: string;
-    repairer: string;
-    budgets: Array<{ value: string; label: string }>;
-    repairers: Array<{ value: string; label: string }>;
-    offNote: string;
-    yaml: string;
-    needs: CiListRow[];
-    never: CiListRow[];
-    preview: CiPullRequest;
-  };
-  alerts: {
-    onlyMain: boolean;
-    secret: string;
-    yaml: string;
-    needs: CiListRow[];
-    failures: CiListRow[];
-    /** The message as Slack shows it; `at` is when the tests last ran. */
-    message: { app: string; text: string; link: string; at: number | null };
-  };
-  recordings: string;
-  repository: string | null;
-}
-
 export interface SettingsApi {
   matching(): Promise<MatchingSettings>;
   redaction(runId?: string | null): Promise<RedactionSettings>;
@@ -118,8 +51,6 @@ export interface SettingsApi {
   mcpLine(input: { command?: string; url?: string }): Promise<McpLine>;
   project(): Promise<ProjectSettings>;
   store(): Promise<StoreSettings>;
-  /** The CI tab's panels from the tests feature's endpoint; null when this server doesn't have it (the tab writes them itself). */
-  ciWorkflows(options: CiOptions): Promise<CiWorkflowsView | null>;
   addRule(list: RuleListName, rule: RuleInput, expect: string): Promise<{ n: number; added: boolean; version: string }>;
   removeRule(list: RuleListName, n: number, expect: string): Promise<{ n: number; version: string }>;
   setClock(mode: 'auto' | 'exact', expect: string): Promise<{ clock: string; changed: boolean; version: string }>;
@@ -130,12 +61,6 @@ export interface SettingsApi {
 
 /** The client's request function, as `createClient` has it. */
 export type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
-
-/** A server without the endpoint asked for (an older one, or one built before the feature that serves it). */
-function noEndpoint(err: unknown): boolean {
-  const e = err as { status?: number; message?: string } | null;
-  return !!e && (e.status === 404 || e.status === 405) && /^no endpoint/.test(e.message ?? '');
-}
 
 export function settingsApi(request: Request): SettingsApi {
   const q = encodeURIComponent;
@@ -149,15 +74,6 @@ export function settingsApi(request: Request): SettingsApi {
     mcpLine: (input) => request(`settings/tools/mcp?${input.url !== undefined ? `url=${q(input.url)}` : `command=${q(input.command ?? '')}`}`),
     project: () => request('settings/project'),
     store: () => request('settings/store'),
-    ciWorkflows: async (o) => {
-      const query = `fix=${o.fix ? 'on' : 'off'}&budget=${q(o.budget)}&repairer=${q(o.repairer)}&onlyMain=${o.onlyMain ? 'on' : 'off'}&secret=${q(o.secret)}`;
-      try {
-        return await request<CiWorkflowsView>(`ci/workflows?${query}`);
-      } catch (err) {
-        if (noEndpoint(err)) return null;
-        throw err;
-      }
-    },
     addRule: (list, rule, expect) => send('POST', `settings/rules/${list}`, { rule, expect }),
     removeRule: (list, n, expect) => request(`settings/rules/${list}/${n}?expect=${q(expect)}`, { method: 'DELETE' }),
     setClock: (mode, expect) => send('PUT', 'settings/clock', { mode, expect }),
@@ -177,7 +93,6 @@ export function noSettings(refuse: () => Promise<never>): SettingsApi {
     mcpLine: refuse,
     project: refuse,
     store: refuse,
-    ciWorkflows: refuse,
     addRule: refuse,
     removeRule: refuse,
     setClock: refuse,

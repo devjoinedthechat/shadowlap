@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Store } from '@shadowlap/engine';
 import { ACTION, ALERT_FAILURES, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, WORKFLOW_FILE } from './ci-yaml.js';
@@ -71,6 +71,8 @@ export interface CiWorkflowsView {
   };
   alerts: {
     onlyMain: boolean;
+    /** The repository's default branch, which "only for the main branch" means: `main`, `master`, or what origin names. */
+    branch: string;
     /** The secret's name as GitHub allows it (letters, digits and `_`). */
     secret: string;
     yaml: string;
@@ -118,12 +120,12 @@ export function parseCiOptions(q: URLSearchParams): CiWorkflowOptions | { error:
 const dollars = (n: number) => `$${n.toFixed(2)}`;
 const rows = (list: ReadonlyArray<readonly [string, string]>): CiListRow[] => list.map(([label, value]) => ({ label, value }));
 
-/** The example a panel shows before any fix was verified here: the mock's own. */
-function examplePreview(budget: string): PullRequestPreview {
+/** The example a panel shows before any fix was verified here: the mock's own, into the repository's default branch. */
+function examplePreview(budget: string, base: string): PullRequestPreview {
   return {
     title: 'Escalate refunds above the policy limit',
     author: 'github-actions',
-    base: 'main',
+    base,
     branch: 'shadowlap/fix-refund-limit',
     verify: 'target 3 of 3 · held-out 2 of 2 · good 5 of 5',
     blame: 'lost at model call #5 · confidence high',
@@ -176,14 +178,38 @@ function gitDir(project: string): string | null {
 }
 
 /**
- * The project's GitHub repository (`owner/repo`, from the `origin` remote, else the first remote on
- * github.com) and the branch checked out, read from its git files without running git. Nulls when
- * either can't be told.
+ * The repository's default branch, which pull requests go into and "only for the main branch" means:
+ * what origin's HEAD names (`refs/remotes/origin/HEAD`, as a clone or `git remote set-head` leaves
+ * it), else `main` or `master` when the repository has one, else null.
  */
-export function gitFacts(project: string | null): { repository: string | null; branch: string | null } {
-  if (!project) return { repository: null, branch: null };
+function defaultBranchOf(common: string): string | null {
+  try {
+    const m = /^ref:\s*refs\/remotes\/[^/\s]+\/(\S+)\s*$/m.exec(readFileSync(join(common, 'refs', 'remotes', 'origin', 'HEAD'), 'utf8'));
+    if (m) return m[1]!;
+  } catch {
+    // no HEAD of origin's to read
+  }
+  let packed = '';
+  try {
+    packed = readFileSync(join(common, 'packed-refs'), 'utf8');
+  } catch {
+    // nothing packed
+  }
+  const lines = packed.split(/\r?\n/);
+  const has = (ref: string) => existsSync(join(common, ...ref.split('/'))) || lines.some((l) => l.endsWith(` ${ref}`));
+  for (const b of ['main', 'master']) if (has(`refs/remotes/origin/${b}`) || has(`refs/heads/${b}`)) return b;
+  return null;
+}
+
+/**
+ * The project's GitHub repository (`owner/repo`, from the `origin` remote, else the first remote on
+ * github.com), the branch checked out, and the repository's default branch, read from its git files
+ * without running git. Nulls when one can't be told.
+ */
+export function gitFacts(project: string | null): { repository: string | null; branch: string | null; defaultBranch: string | null } {
+  if (!project) return { repository: null, branch: null, defaultBranch: null };
   const dir = gitDir(project);
-  if (!dir) return { repository: null, branch: null };
+  if (!dir) return { repository: null, branch: null, defaultBranch: null };
   let branch: string | null = null;
   try {
     branch = /^ref:\s*refs\/heads\/(.+)$/m.exec(readFileSync(join(dir, 'HEAD'), 'utf8'))?.[1]?.trim() ?? null;
@@ -209,18 +235,22 @@ export function gitFacts(project: string | null): { repository: string | null; b
   } catch {
     // no config to read
   }
-  return { repository, branch };
+  return { repository, branch, defaultBranch: defaultBranchOf(common) };
 }
 
 /**
  * Both panels for the options given. `context` is what the store and the project say: the pull
  * request preview (null: the example), the goldens failing now (the Slack message's count, 1 when
- * none fail), when the tests last ran, the repository and the branch checked out, and the goldens
- * the steps replay.
+ * none fail), when the tests last ran, the repository, the branch checked out and the default
+ * branch (`main` when it can't be told), and the goldens the steps replay.
  */
-export function ciWorkflows(o: CiWorkflowOptions, context: { preview: PullRequestPreview | null; failing: number; at: number | null; repository: string | null; branch: string | null; recordings?: string }): CiWorkflowsView {
+export function ciWorkflows(
+  o: CiWorkflowOptions,
+  context: { preview: PullRequestPreview | null; failing: number; at: number | null; repository: string | null; branch: string | null; defaultBranch?: string | null; recordings?: string },
+): CiWorkflowsView {
   const recordings = context.recordings ?? 'goldens/*';
-  const branch = o.onlyMain ? 'main' : context.branch && context.branch !== 'main' ? context.branch : 'your-branch';
+  const main = context.defaultBranch || 'main';
+  const branch = o.onlyMain ? main : context.branch && context.branch !== main ? context.branch : 'your-branch';
   const repo = context.repository ?? 'owner/repo';
   const message = alertsMessage({ failed: Math.max(1, context.failing), branch, runUrl: `github.com/${repo}/actions/runs/…` });
   return {
@@ -236,12 +266,13 @@ export function ciWorkflows(o: CiWorkflowOptions, context: { preview: PullReques
       yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings }),
       needs: rows(fixOnFailureNeeds(o.repairer)),
       never: rows(fixOnFailureNever(o.budget)),
-      preview: context.preview ? { ...context.preview, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget),
+      preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
     },
     alerts: {
       onlyMain: o.onlyMain,
+      branch: main,
       secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings }),
+      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main }),
       needs: rows(alertsNeeds(o.secret)),
       failures: rows(ALERT_FAILURES),
       message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },

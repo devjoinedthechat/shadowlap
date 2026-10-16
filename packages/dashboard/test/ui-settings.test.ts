@@ -2,21 +2,20 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { validateRule } from '@shadowlap/engine';
-import { alertsYaml, fixOnFailureYaml } from '../src/ci-yaml.js';
+import { CI_DEFAULTS, ciWorkflows } from '../src/ci-workflows.js';
 import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
 import { settingsApi } from '../ui/settings-api.js';
 import {
-  CI_DEFAULTS,
   MCP_FORMS,
   SETTINGS_TABS,
   bytesText,
+  ciShown,
   emptyRuleForm,
   gcDeleteCommand,
   gcDryRun,
   gcGivesBack,
-  localCiWorkflows,
   maskedLine,
   mcpEntryText,
   mcpRows,
@@ -263,33 +262,15 @@ describe('MCP servers', () => {
 });
 
 describe('the CI tab', () => {
-  it('asks the tests feature for its panels, and writes them itself where the server has none', async () => {
-    const asked: string[] = [];
-    const served = settingsApi(<T,>(path: string) => {
-      asked.push(path);
-      return Promise.resolve({ file: '.github/workflows/agent.yml' } as T);
-    });
-    expect(await served.ciWorkflows({ ...CI_DEFAULTS, fix: true, repairer: 'openai:gpt-5', secret: 'ALERTS_HOOK' })).toMatchObject({ file: '.github/workflows/agent.yml' });
-    expect(asked).toEqual(['ci/workflows?fix=on&budget=2.00&repairer=openai%3Agpt-5&onlyMain=on&secret=ALERTS_HOOK']);
-    const older = settingsApi(() => Promise.reject(Object.assign(new Error('no endpoint GET /api/ci/workflows'), { status: 404 })));
-    expect(await older.ciWorkflows(CI_DEFAULTS)).toBeNull();
-    // Anything else the server says is the tab's to show.
-    const refusing = settingsApi(() => Promise.reject(Object.assign(new Error('budget is an amount in dollars, such as 2.00'), { status: 400 })));
-    await expect(refusing.ciWorkflows(CI_DEFAULTS)).rejects.toThrow(/budget/);
-  });
-
-  it('writes both panels as the endpoint does for a project with nothing to fill in', () => {
-    const view = localCiWorkflows({ ...CI_DEFAULTS, budget: '5.00', onlyMain: false, secret: 'ALERTS_HOOK' });
-    expect(view.fixOnFailure.yaml).toBe(fixOnFailureYaml({ budget: '5.00', repairer: 'claude-code', recordings: 'goldens/*' }));
-    expect(view.fixOnFailure.needs.map((r) => r.value)).toContain('ANTHROPIC_API_KEY');
-    expect(view.fixOnFailure.never.find((r) => r.label === 'spends past the budget')?.value).toBe('$5.00');
-    expect(view.fixOnFailure.preview).toMatchObject({ example: true, fixId: null, spent: '≈$0.84 of $5.00' });
-    expect(view.fixOnFailure.budgets.map((b) => b.label)).toEqual(['$1', '$2', '$5']);
-    expect(view.alerts.yaml).toBe(alertsYaml({ onlyMain: false, secret: 'ALERTS_HOOK', recordings: 'goldens/*' }));
-    expect(view.alerts.yaml).not.toContain('refs/heads/main');
-    expect(view.alerts.needs.map((r) => r.value)).toContain('ALERTS_HOOK');
-    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on your-branch.');
-    expect(localCiWorkflows({ ...CI_DEFAULTS, repairer: 'openai:gpt-5' }).fixOnFailure.needs.map((r) => r.value)).toContain('OPENAI_API_KEY');
+  it('shows what was changed on it, else what the server answered with', () => {
+    const view = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, defaultBranch: 'master' });
+    expect(ciShown({}, view)).toEqual(CI_DEFAULTS);
+    expect(ciShown({ fix: true, secret: 'ALERTS_HOOK' }, view)).toEqual({ ...CI_DEFAULTS, fix: true, secret: 'ALERTS_HOOK' });
+    // The branch "only for the main branch" means is the repository's default, in the switch's words and the YAML.
+    expect(view.alerts.branch).toBe('master');
+    expect(view.alerts.yaml).toContain("github.ref == 'refs/heads/master'");
+    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on master.');
+    expect(view.fixOnFailure.preview).toMatchObject({ example: true, base: 'master' });
   });
 
   it('keeps only what a secret name can hold, as it is typed', () => {

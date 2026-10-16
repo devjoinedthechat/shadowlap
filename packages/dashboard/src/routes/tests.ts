@@ -94,6 +94,7 @@ export function register(router: Router, ctx: RouteContext): void {
         at: summary.lastRunAt,
         repository: git.repository,
         branch: git.branch,
+        defaultBranch: git.defaultBranch,
         recordings: list.length ? testPatterns(list, FOLDER).join(' ') : `${FOLDER}/*`,
       }),
     );
