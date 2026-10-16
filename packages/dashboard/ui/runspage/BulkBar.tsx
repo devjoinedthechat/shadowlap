@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { DatasetDialog } from '../components/DatasetDialog.js';
+import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { num, plural, shortId } from '../format.js';
 import { href } from '../route.js';
@@ -158,43 +159,5 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
       ) : null}
       {open === 'dataset' ? <DatasetDialog ids={ended.map((r) => r.runId)} onClose={() => setOpen(null)} /> : null}
     </>
-  );
-}
-
-/** Runs as an eval dataset: the format and which calls become examples. */
-export function DatasetDialog({ ids, onClose }: { ids: string[]; onClose: () => void }) {
-  const { client, watchJob } = useApp();
-  const [format, setFormat] = useState('jsonl');
-  const [calls, setCalls] = useState('final');
-  return (
-    <Dialog
-      title={`Export ${named(ids)} as an eval dataset`}
-      text="One JSON line per example: the conversation exactly as the model saw it, its answer, and metadata with the labels, notes and check results."
-      ok="Export"
-      onClose={onClose}
-      onOk={() => {
-        onClose();
-        watchJob(client.startJob(JOB_KINDS.dataset, { runIds: ids, format, calls }));
-      }}
-    >
-      <div className="form">
-        <label>
-          Format
-          <select value={format} onChange={(e) => setFormat(e.target.value)}>
-            <option value="jsonl">jsonl</option>
-            <option value="braintrust">braintrust</option>
-            <option value="langfuse">langfuse</option>
-            <option value="openai-chat">openai-chat</option>
-          </select>
-        </label>
-        <label>
-          Examples
-          <select value={calls} onChange={(e) => setCalls(e.target.value)}>
-            <option value="final">Last model call of each run</option>
-            <option value="model">Every model call</option>
-          </select>
-        </label>
-      </div>
-    </Dialog>
   );
 }

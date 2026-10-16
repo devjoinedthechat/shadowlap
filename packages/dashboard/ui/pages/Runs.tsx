@@ -23,8 +23,6 @@ import { useTeamStore } from '../teamstore.js';
 import type { BisectChoices, ChipCounts, RunsPage as RunsPageView, RunsPageRow, RunsQuery } from '../types.js';
 import { viewerTimeZone } from './Overview.js';
 
-export { DatasetDialog } from '../runspage/BulkBar.js';
-
 /**
  * Runs: every run in a table, a page at a time from the server, with the 12-week calendar above it,
  * the type chips, a filter and sorting; attempts bundled under the run they came from. Runs picked

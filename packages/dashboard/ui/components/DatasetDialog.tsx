@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { shortId } from '../format.js';
+import { num, shortId } from '../format.js';
 import { useApp } from '../state.js';
 import { Dialog } from './Dialog.js';
 
@@ -18,7 +18,7 @@ export function DatasetDialog({ ids, rules = null, onClose }: { ids: string[]; r
   const redaction = rules === null ? '' : rules ? ` ${rules === 1 ? 'The redaction rule applies' : `The ${rules} redaction rules apply`} to the conversations and answers it keeps.` : ' No redaction rules apply: the examples hold what was recorded.';
   return (
     <Dialog
-      title={`Export ${ids.length === 1 ? shortId(ids[0]!) : `${ids.length} runs`} as an eval dataset`}
+      title={`Export ${ids.length === 1 ? shortId(ids[0]!) : `${num(ids.length)} runs`} as an eval dataset`}
       text={`One JSON line per example: the conversation exactly as the model saw it, its answer, and metadata with the labels, notes and check results.${redaction}`}
       ok="Export"
       onClose={onClose}
