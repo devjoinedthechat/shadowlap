@@ -294,14 +294,21 @@ function pushError(stderr) {
  * page as "from CI · PR #138". It runs once the fix's pull request is open, so nothing here keeps that
  * from opening, and it never throws or fails the job. How it went:
  *
- *   sent    the fix is in the team store
+ *   sent    push reported sending the fix: this push, or an earlier one in the same job (`sentInJob`,
+ *           which the caller keeps across the job and this push's report is added to)
  *   pr      a pull request's job, which writes only to the pull request's own folder (pr/<number>/)
  *           and sends no fixes: the job's runs went there, and the fix stays off the team's Fixes page
  *   off     the team turned pushing from CI off
- *   failed  it couldn't happen, and why: no team store set, no credentials for the bucket (a pull
- *           request from a fork gets none), the store out of reach, the fix refused…
+ *   failed  it couldn't happen, or push didn't say it did, and why: no team store set, no credentials
+ *           for the bucket (a pull request from a fork gets none), the store out of reach, the fix
+ *           refused, runs that stayed in the job, a fix repair didn't name or push didn't mention…
+ *
+ * Only push's own word puts a fix in the store: its report lists the fixes it sent and those that
+ * couldn't go (`fixes`, held to docs/cli.md by the CLI's JSON contract test), and a report without
+ * that list, or one that leaves the fix out, is a warning, never "in the team store".
  */
-export function pushFix({ cli, db, workdir, env, fixIds = [], read }) {
+export function pushFix({ cli, db, workdir, env, fixIds = [], sentInJob = new Set(), read }) {
+  const failed = (why) => ({ state: 'failed', why, pr: null });
   const why = cannotPush(workdir);
   if (why) return { state: why === PUSH_OFF ? 'off' : 'failed', why, pr: null };
   const r = run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'push', '--all', '--json'], workdir, env);
@@ -313,16 +320,19 @@ export function pushFix({ cli, db, workdir, env, fixIds = [], read }) {
   }
   if (r.status !== 0 || !out || typeof out !== 'object') {
     const said = pushError(r.stderr) || r.error?.message || `shadowlap push exited ${r.status ?? r.signal}`;
-    return { state: 'failed', why: forkPullRequest(env, read) ? `a pull request from a fork, whose job GitHub gives no secrets: ${said}` : said, pr: null };
+    return failed(forkPullRequest(env, read) ? `a pull request from a fork, whose job GitHub gives no secrets: ${said}` : said);
   }
   if (out.pullRequest) return { state: 'pr', why: null, pr: String(out.pullRequest) };
-  const refused = (out.fixes?.failed ?? []).find((f) => fixIds.includes(f?.fixId));
-  if (refused) return { state: 'failed', why: `the store didn't take the fix: ${refused.reason}`, pr: null };
-  // A fix goes once one of its runs is in the store: one not sent while runs stayed here may have had none.
-  const sent = new Set(out.fixes?.sent ?? []);
-  const stayed = fixIds.some((id) => !sent.has(id)) ? (out.refused ?? [])[0] : null;
-  if (stayed) return { state: 'failed', why: `runs stayed in the job, so the fix may have too: ${stayed.reason}`, pr: null };
-  return { state: 'sent', why: null, pr: null };
+  const fixes = out.fixes;
+  if (!fixes || typeof fixes !== 'object' || !Array.isArray(fixes.sent) || !Array.isArray(fixes.failed)) return failed("shadowlap push didn't say which fixes it sent");
+  for (const id of fixes.sent) if (typeof id === 'string') sentInJob.add(id);
+  if (!fixIds.length) return failed("repair named no fix, so there was none for push to send");
+  const refused = fixes.failed.find((f) => fixIds.includes(f?.fixId));
+  if (refused) return failed(`the store didn't take the fix: ${refused.reason}`);
+  if (fixIds.every((id) => sentInJob.has(id))) return { state: 'sent', why: null, pr: null };
+  // A fix goes once one of its runs is in the store: runs that stayed here may have kept it here too.
+  const stayed = Array.isArray(out.refused) ? out.refused[0] : null;
+  return failed(stayed ? `runs stayed in the job, so the fix may have too: ${stayed.reason}` : "shadowlap push didn't report sending it");
 }
 
 /** A workflow command's message on one line, as GitHub reads it: `%`, CR and LF escaped. */
@@ -343,6 +353,8 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
   const scratch = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-fix-'));
   const fixEnv = repairEnv(workdir, env);
   const out = [];
+  // The fixes this job's pushes reported sending: a later push leaves out one an earlier sent, as it is there.
+  const sentInJob = new Set();
   try {
     for (const plan of plans) {
       const r = plan.result;
@@ -386,7 +398,7 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
         if (opened.pr && push) {
           const fixIds = (repair.fixes ?? []).map((f) => f?.fixId).filter((id) => typeof id === 'string');
           try {
-            pushed = pushFix({ cli, db, workdir, env: fixEnv, fixIds });
+            pushed = pushFix({ cli, db, workdir, env: fixEnv, fixIds, sentInJob });
           } catch (err) {
             pushed = { state: 'failed', why: err instanceof Error ? err.message : String(err), pr: null };
           }

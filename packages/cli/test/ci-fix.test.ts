@@ -479,6 +479,38 @@ describe('pushing a fix CI opened to the team store', () => {
     expect(none.why).toMatch(/^No AWS credentials found\. /);
   });
 
+  /** A stand-in for the CLI whose push prints `report` as `push --all --json` prints its result, and succeeds. */
+  function pushing(report: unknown): string {
+    const path = join(dir, 'push-says.mjs');
+    writeFileSync(path, `process.stdout.write(${JSON.stringify(JSON.stringify(report, null, 2))});\n`);
+    return path;
+  }
+
+  it("puts the fix in the team store only on push's word: its report names the fix as sent, now or earlier in the job", () => {
+    const checkout = job({ store: 's3://northwind-agent-runs/team?region=eu-central-1' });
+    const report = (extra: Record<string, unknown>) => ({ store: 's3://northwind-agent-runs/team', pullRequest: null, pushed: ['01JOBRUN'], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 3, present: 0, bytes: 2048 }, segment: 'seg-1', onlyLocal: 0, ...extra });
+    const fixes = (sent: string[], failed: Array<{ fixId: string; reason: string }> = []) => ({ fixes: { sent, failed, repairs: [] } });
+    const said = (r: unknown, o: { fixIds?: string[]; sentInJob?: Set<string> } = {}) => pushFix({ ...checkout, cli: pushing(r), fixIds: ['fx-A'], ...o });
+    expect(said(report(fixes(['fx-A'])))).toEqual({ state: 'sent', why: null, pr: null });
+    // A report without its list of fixes, as when push changes what it prints, says nothing about this one.
+    expect(said(report({}))).toEqual({ state: 'failed', why: "shadowlap push didn't say which fixes it sent", pr: null });
+    expect(said(report({ fixes: { sent: 'fx-A' } }))).toEqual({ state: 'failed', why: "shadowlap push didn't say which fixes it sent", pr: null });
+    // One the report leaves out, with every run gone, isn't taken to be there.
+    expect(said(report(fixes(['fx-OTHER'])))).toEqual({ state: 'failed', why: "shadowlap push didn't report sending it", pr: null });
+    // ...unless an earlier push in the same job sent it: the store has it, and nothing since changed it.
+    const sentInJob = new Set<string>();
+    expect(said(report(fixes(['fx-A'])), { sentInJob })).toMatchObject({ state: 'sent' });
+    expect([...sentInJob]).toEqual(['fx-A']);
+    expect(said(report(fixes([])), { sentInJob })).toMatchObject({ state: 'sent' });
+    // Repair named no fix: whatever push sent, it can't have been this one.
+    expect(said(report(fixes(['fx-B'])), { fixIds: [] })).toEqual({ state: 'failed', why: 'repair named no fix, so there was none for push to send', pr: null });
+    // The store refused it, or runs it went with stayed in the job.
+    expect(said(report(fixes([], [{ fixId: 'fx-A', reason: 'it would be 17000001 bytes, over the 16777216 a pull reads, so it stays on this machine' }])))).toEqual({ state: 'failed', why: "the store didn't take the fix: it would be 17000001 bytes, over the 16777216 a pull reads, so it stays on this machine", pr: null });
+    expect(said(report({ refused: [{ runId: '01JOBRUN2', reason: 'a blob it needs is missing here' }], ...fixes([]) }))).toEqual({ state: 'failed', why: 'runs stayed in the job, so the fix may have too: a blob it needs is missing here', pr: null });
+    // A pull request's job: its folder, and no fixes.
+    expect(said(report({ pullRequest: '12', ...fixes([]) }))).toEqual({ state: 'pr', why: null, pr: '12' });
+  });
+
   it('says so when the store is out of reach', async () => {
     const port = await closedPort();
     const r = pushFix({ cli: CLI, ...job({ store: `s3://northwind-agent-runs/team?endpoint=http://127.0.0.1:${port}` }, { AWS_ACCESS_KEY_ID: 'AKIDCIFIXEXAMPLE', AWS_SECRET_ACCESS_KEY: 'ci/secret' }) });

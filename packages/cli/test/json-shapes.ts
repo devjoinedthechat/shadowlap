@@ -85,8 +85,11 @@ export const SHAPES = {
   modelChoice: { page: 'training.md', section: 'Models to score', grows: true, fields: ['group', 'id', 'via', 'where', 'baseUrl', 'flags', 'perAttempt', 'local', 'lastScore'] },
   modelNote: { page: 'training.md', section: 'Models to score', grows: true, fields: ['group', 'note'] },
   // The team store.
-  push: { section: 'push', grows: true, fields: ['store', 'pullRequest', 'pushed', 'updated', 'unchanged', 'queued', 'repaired', 'refused', 'blobs', 'segment', 'onlyLocal'] },
-  pull: { section: 'pull', grows: true, fields: ['store', 'pulled', 'merged', 'needPush', 'skippedDeleted', 'missing', 'unknown', 'failed', 'skippedSegments', 'blobs', 'segments', 'inStore', 'byAuthor', 'onlyLocal', 'pullRequests'] },
+  // The GitHub Action reads push's `fixes` to say whether a CI fix reached the team store.
+  push: { section: 'push', grows: true, fields: ['store', 'pullRequest', 'pushed', 'updated', 'unchanged', 'queued', 'repaired', 'refused', 'blobs', 'segment', 'onlyLocal', 'fixes'] },
+  pushFixes: { section: 'push', grows: true, fields: ['sent', 'failed', 'repairs'] },
+  pull: { section: 'pull', grows: true, fields: ['store', 'pulled', 'merged', 'needPush', 'skippedDeleted', 'missing', 'unknown', 'failed', 'skippedSegments', 'blobs', 'segments', 'inStore', 'byAuthor', 'onlyLocal', 'pullRequests', 'fixes'] },
+  pullFixes: { section: 'pull', grows: true, fields: ['pulled', 'merged', 'failed', 'repairs'] },
   share: { section: 'share', grows: true, fields: ['runId', 'url', 'expiresAt', 'note', 'store', 'key', 'bytes', 'redacted', 'rules', 'runs'] },
   storeSet: { section: 'store', grows: true, fields: ['store', 'url', 'provider', 'bucket', 'prefix', 'account', 'region', 'previous', 'config'] },
   storeCheck: { section: 'store', grows: true, fields: ['url', 'credentials', 'steps', 'ok', 'encryption', 'versioning', 'objectLock', 'warnings', 'notes', 'failure', 'pullRequest'] },
