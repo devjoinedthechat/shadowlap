@@ -140,7 +140,8 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
     const step = { wasStatus: prevStatus.current, status: run.run.status, prevLast: prevLast.current, last, selected };
     const next = followNewest(step);
     if (next !== null) navigate(href.run(runId, next, view), true);
-    if (recordingEnded(step)) toast(`Recording finished · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
+    const ended = recordingEnded(step);
+    if (ended) toast(`Recording ${ended} · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
     prevLast.current = last;
     prevStatus.current = run.run.status;
   }, [last, selected, runId, view, run.run.status, calls.length, toast]);

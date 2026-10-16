@@ -101,13 +101,16 @@ describe('a recording followed live', () => {
   it('follows the last calls when they arrive with the end of the recording', () => {
     // The 30-call recording that finished with the selection left on #27.
     expect(followNewest(step({ status: 'completed', prevLast: 27, last: 30, selected: 27 }))).toBe(30);
-    expect(recordingEnded(step({ status: 'completed' }))).toBe(true);
+    expect(recordingEnded(step({ status: 'completed' }))).toBe('finished');
+    expect(recordingEnded(step({ status: 'failed' }))).toBe('finished');
+    // Stopped before it ended (Ctrl-C, its recorder killed): the toast says so, as every list does.
+    expect(recordingEnded(step({ status: 'crashed' }))).toBe('interrupted');
   });
 
   it('leaves a finished run alone, and says nothing about one that was never recording', () => {
     expect(followNewest(step({ wasStatus: 'completed', status: 'completed' }))).toBeNull();
-    expect(recordingEnded(step())).toBe(false);
-    expect(recordingEnded(step({ wasStatus: 'completed', status: 'completed' }))).toBe(false);
+    expect(recordingEnded(step())).toBeNull();
+    expect(recordingEnded(step({ wasStatus: 'completed', status: 'completed' }))).toBeNull();
     expect(followNewest(step({ prevLast: null, last: 1, selected: null }))).toBeNull();
   });
 });
