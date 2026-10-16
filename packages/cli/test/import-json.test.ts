@@ -187,6 +187,28 @@ describe('import --json', () => {
     expect(refused.err).toMatch(/--name: a file name, without folders/);
   });
 
+  it('keeps a name that reads like a flag as the name: --json stays the source, and the output stays words', async () => {
+    writeFileSync(join(cwd, '01K5CQ4N7G0000000000000002-json.har'), JSON.stringify({ log: { version: '1.2', entries: [harEntry('https://api.anthropic.com/v1/messages', 'hi')] } }));
+    // As a dashboard job passes it: one argument.
+    const joined = await shadowlap(['import', 'har', '01K5CQ4N7G0000000000000002-json.har', '--name=--json']);
+    expect(joined.code).toBe(0);
+    // Not --json's output: the CLI's own words.
+    expect(() => JSON.parse(joined.out)).toThrow();
+    const [first] = joined.events.filter((e) => e.type === 'run');
+    // As typed by hand, the name after the flag: still the name.
+    const split = await shadowlap(['import', 'har', '01K5CQ4N7G0000000000000002-json.har', '--name', '-x.har', '--json']);
+    expect(split.code).toBe(0);
+    const [second] = JSON.parse(split.out).runs;
+    const store = Store.open(db);
+    try {
+      expect(store.getRun(String(first!.runId))!.meta?.imported?.from).toBe('--json');
+      expect(store.getRun(second.runId)!.meta?.imported?.from).toBe('-x.har');
+      expect(second.source).toBe('-x.har');
+    } finally {
+      store.close();
+    }
+  });
+
   it('puts an agent run back together from the files of several workers, in the order its calls started', async () => {
     const r = await shadowlap(['import', 'litellm', 'worker-1.jsonl', 'worker-2.jsonl', '--json']);
     expect(r.code).toBe(0);

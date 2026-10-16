@@ -6,8 +6,10 @@ import type { Router } from '../router.js';
 /**
  * Import a capture or a trace (Runs → Import a capture): a file the browser uploaded first
  * (`POST /api/uploads`), or a Langfuse or LangSmith trace by its id. The `import` job kind runs
- * `shadowlap import <format> <file>`; the CLI reports each run it made by its full id on the job's
- * events pipe, with a link to each, so the drawer shows the CLI's own words rather than its JSON.
+ * `shadowlap import <format> <file> --name=<name picked>`. It leaves out `--json`, which a job
+ * needed only for the full run ids: the CLI reports each run it made by its full id on the job's
+ * events pipe (and what `--json` prints, as the job's result), with a link to each, so the drawer
+ * shows the CLI's own words rather than its JSON.
  * A trace is fetched by the CLI with the keys already in this machine's environment, which never
  * pass through the browser. `GET /api/imports` says whether those keys are set, and where each
  * trace store is reached, without saying what the keys are.
@@ -94,11 +96,13 @@ export function register(router: Router, ctx: RouteContext): void {
       const file = upload(req.uploadId);
       if (!file) return { error: 'uploadId: upload the file first (POST /api/uploads), and use it for one import' };
       // The run's source is the name of the file you picked ("my capture (2).har"), not the name it
-      // was kept under; a name no run's source can carry falls back to that safe one. The job runs
-      // in the project folder: the upload is named from there.
+      // was kept under; a name no run's source can carry falls back to that safe one. It goes as one
+      // argument, `--name=<name>`, so a file named like a flag ("--json", "-x.har") stays a name
+      // whatever the parser. The job runs in the project folder: the upload is named from there
+      // (`.shadowlap/uploads/…`, which reads as no option either).
       const rel = ctx.project ? relative(ctx.project.path, file.path) : '';
       const path = rel && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel) ? rel : file.path;
-      return { args: ['import', format as FileFormat, path, '--name', file.original ?? file.name], opensRun: true };
+      return { args: ['import', format as FileFormat, path, `--name=${file.original ?? file.name}`], opensRun: true };
     },
   });
 }

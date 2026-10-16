@@ -386,10 +386,18 @@ describe('imports', () => {
     // Kept on disk under a safe name; the run's source is the name as picked.
     const { uploadId, name } = await send('my capture (2).har');
     expect(name).toBe('my_capture_2.har');
-    expect(await built({ kind: 'import', format: 'har', uploadId })).toEqual(['import', 'har', `.shadowlap/uploads/${uploadId}-my_capture_2.har`, '--name', 'my capture (2).har']);
+    expect(await built({ kind: 'import', format: 'har', uploadId })).toEqual(['import', 'har', `.shadowlap/uploads/${uploadId}-my_capture_2.har`, '--name=my capture (2).har']);
     // A name no source can carry (folders, a control character) goes by the safe one.
     const odd = await send('..\\captures\u0007\\prod.har');
-    expect((await built({ kind: 'import', format: 'har', uploadId: odd.uploadId })).slice(3)).toEqual(['--name', odd.name]);
+    expect((await built({ kind: 'import', format: 'har', uploadId: odd.uploadId })).slice(3)).toEqual([`--name=${odd.name}`]);
+    // A file named like a flag stays a name: one argument with --name, never one of its own, and the
+    // file on disk goes by a name that reads as no option either.
+    for (const picked of ['--json', '-x.har', '--host=evil.har']) {
+      const up = await send(picked);
+      const args = await built({ kind: 'import', format: 'har', uploadId: up.uploadId });
+      expect(args, picked).toEqual(['import', 'har', `.shadowlap/uploads/${up.uploadId}-${up.name}`, `--name=${picked}`]);
+      expect(args.slice(0, 3).some((a) => a.startsWith('-')), picked).toBe(false);
+    }
     // One upload, one import.
     const again = await post(dash, 'jobs', { kind: 'import', format: 'har', uploadId });
     expect(again.status).toBe(400);
