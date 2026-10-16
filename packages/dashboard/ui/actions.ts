@@ -1,4 +1,3 @@
-import { jsonText } from './format.js';
 import type { PromptChoice } from './types.js';
 
 /**
@@ -127,6 +126,21 @@ export function isUserAnswer(a: ActionLike): boolean {
   return a.key === 'u';
 }
 
+/**
+ * The recorded result an override starts from, laid out to edit as the design shows it: an object
+ * or a list indented, one value a line. Anything else (a string, a number) stays as the action gives
+ * it, which is already the JSON the CLI reads.
+ */
+function prettyJson(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  try {
+    const v: unknown = JSON.parse(text);
+    return typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : text;
+  } catch {
+    return text;
+  }
+}
+
 /** Whether an action replaces a tool result, so its prompt opens with the recorded one to edit. */
 export function isOverride(a: ActionLike): boolean {
   return !isUserAnswer(a) && (a.key === 'o' || /^--override\b/.test(a.flag ?? ''));
@@ -211,7 +225,7 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
       ...base,
       title: `Override ${at}${named}`,
       text: a.hint ?? 'The agent gets this instead of the recorded result. Calls before it replay; from here the run goes on live, with writes fenced.',
-      initial: p.initial ?? (ctx.recorded === undefined ? '' : jsonText(ctx.recorded)),
+      initial: prettyJson(p.initial) ?? (ctx.recorded === undefined ? '' : JSON.stringify(ctx.recorded, null, 2)),
       placeholder: p.placeholder ?? '{"ok": true}',
       multiline: true,
       ok: 'Fork',
