@@ -50,7 +50,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   // An interrupted run says so after what it is, in grey: it stopped, it did not fail.
   const stopped = cut ? ' · interrupted' : '';
   const eyebrow = live ? (
-    <Eyebrow>recording now</Eyebrow>
+    <Eyebrow>recording</Eyebrow>
   ) : type === 'fork' ? (
     <Eyebrow tone="fork">
       {rescued ? 'rescued by blame · ' : ''}fork @{r.divergence!.callNo}
