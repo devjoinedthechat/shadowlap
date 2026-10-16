@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { approx } from '../ui/format.js';
 import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
@@ -69,9 +70,11 @@ describe('an interrupted run, everywhere it is shown', () => {
 describe('a failed recording in the Forks tree', () => {
   it('sets what went wrong apart, as the sidebar does', () => {
     const failed: RunLike = { ...base, kind: 'recording', outcome: { kind: 'lost', callNo: 9 }, failed: true };
-    expect(familyLineParts(failed)).toEqual({ err: 'check failed', text: ' · 8 calls · ≈$0.004' });
-    expect(familyLineParts({ ...base, kind: 'recording', outcome: { kind: 'check-failed', check: null }, failed: true, status: 'failed' })).toEqual({ err: 'failed', text: ' · 8 calls · ≈$0.004' });
-    expect(familyLineParts(base)).toEqual({ err: null, text: 'recording · 8 calls · ≈$0.004' });
+    // What it spent, as the page writes an estimate wherever it shows one.
+    const spent = approx(base.spent);
+    expect(familyLineParts(failed)).toEqual({ err: 'check failed', text: ` · 8 calls · ${spent}` });
+    expect(familyLineParts({ ...base, kind: 'recording', outcome: { kind: 'check-failed', check: null }, failed: true, status: 'failed' })).toEqual({ err: 'failed', text: ` · 8 calls · ${spent}` });
+    expect(familyLineParts(base)).toEqual({ err: null, text: `recording · 8 calls · ${spent}` });
   });
 });
 
