@@ -170,6 +170,12 @@ describe('deriveSetup', () => {
     // Finished: each step done only when there is something to show for it.
     const finished = deriveSetup({ stage: 'done', runId: 'R', calibration: { added: [] }, golden: null }, facts({ runs: 1, recordings: [fact('R')] }));
     expect(finished).toMatchObject({ stage: 'done', steps: { recorded: true, clean: true, tested: false }, golden: null });
+    // Finished with its golden packed and tested: done. Skipped before the test passed: not, until one does.
+    const packs = [{ path: 'goldens/x', runIds: ['R'] }];
+    expect(deriveSetup({ stage: 'done', runId: 'R', golden: 'goldens/x' }, facts({ runs: 1, recordings: [fact('R')] }), { packs }).steps.tested).toBe(true);
+    expect(deriveSetup({ stage: 'done', runId: 'R', golden: 'goldens/x', skipped: true }, facts({ runs: 1, recordings: [fact('R')] }), { packs }).steps.tested).toBe(false);
+    const passing = facts({ runs: 1, recordings: [fact('R')], tests: [{ golden: 'goldens/x', ok: true, at: 9, reason: null, goldenRunId: 'R' }] });
+    expect(deriveSetup({ stage: 'done', runId: 'R', golden: 'goldens/x', skipped: true }, passing, { packs }).steps.tested).toBe(true);
   });
 });
 

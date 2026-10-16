@@ -54,7 +54,7 @@ export interface ProjectSetup {
   calibration: { added: Array<{ path: string; why: string | null }> } | null;
   /** The golden kept as a test (step 4), relative to the folder. */
   golden: string | null;
-  /** Finished with Skip the rest, before a golden was kept. */
+  /** Finished with Skip the rest, before the golden's test passed (or before there was a golden). */
   skipped: boolean;
   updatedAt: number;
 }
@@ -620,7 +620,7 @@ export class ProjectRegistry {
    * store, which is also what brings the finished setup back if the folder is added again. The
    * dashboard offers it only after the first recording (`ProjectHost.finishSetup` checks), and
    * passes what the setup found: its recording, the golden kept from it, and whether the setup is
-   * finished before a golden was kept. Without them, the list's own say.
+   * finished before that golden's test passed. Without them, the list's own say.
    */
   finishSetup(id: string, options: { runId?: string | null; golden?: string | null; skipped?: boolean } = {}): ProjectEntry {
     const at = this.now();

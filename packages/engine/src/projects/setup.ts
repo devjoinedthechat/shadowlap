@@ -268,6 +268,8 @@ export interface SetupState {
   calibration?: { added: ReadonlyArray<{ path: string; why: string | null }> } | null;
   /** The golden kept from the named recording. */
   golden?: string | null;
+  /** Finished with Skip the rest, before the golden's test passed: the last step wasn't done then. */
+  skipped?: boolean;
 }
 
 /** A pack in the project's repository, with the runs it holds (`listPacks`). */
@@ -366,7 +368,8 @@ export function deriveSetup(state: SetupState, facts: StoreFacts, repo: { packs?
   if (finished && hasRuns) {
     const recorded = !!run && !run.live;
     const clean = recorded && ((own && state.calibration != null) || run.replayedClean);
-    const tested = recorded && passed(own ? 'tested' : 'recorded');
+    // Finished by skipping the rest: tested only once a test of its golden passed since.
+    const tested = recorded && passed(own && !state.skipped ? 'tested' : 'recorded');
     return { ...base, stage: 'done', live: !!run?.live, shows: 'none', steps: { recorded, clean, tested }, golden: recorded ? golden : null, goldenTest: recorded ? goldenTest : null };
   }
   if (!run || run.live) {
