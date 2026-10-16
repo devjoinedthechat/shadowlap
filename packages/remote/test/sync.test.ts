@@ -823,3 +823,20 @@ describe("a pull request's folder", () => {
     expect(JSON.parse(remote.objects.get(keys.run(golden.runId))!.body.toString()).run.meta.labels).toBeUndefined();
   });
 });
+
+describe('runs imported from traces', () => {
+  it('push and pull a partial recording that covers some tools by name, and refuse a name that could rewrite a terminal', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'maya@northwind.example');
+    const trace = record(a.store, 'from a trace');
+    a.store.updateRunMeta(trace.runId, { covers: ['api', 'tool:lookup_order'], imported: { at: 1, from: 'langfuse:7f3a9c2e' } });
+    const hostile = record(a.store, 'hostile trace');
+    a.store.updateRunMeta(hostile.runId, { covers: ['api', 'tool:x\u001b]0;owned\u0007'], imported: { at: 1, from: 'otel.json' } });
+    const result = await push(a, { all: true });
+    expect(result.pushed).toEqual([trace.runId]);
+    expect(result.refused).toEqual([{ runId: hostile.runId, reason: expect.stringMatching(/covers/) }]);
+    const b = machine(remote, 'dana@northwind.example');
+    expect((await pull(b)).pulled).toEqual([trace.runId]);
+    expect(b.store.getRun(trace.runId)!.meta?.covers).toEqual(['api', 'tool:lookup_order']);
+  });
+});
