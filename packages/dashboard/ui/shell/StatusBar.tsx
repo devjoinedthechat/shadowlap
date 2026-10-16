@@ -48,7 +48,7 @@ export function StatusBar() {
           {store ? (
             // The team store's name gives way first on a narrow window, whole on hover.
             <span className="storeat" title={`team store ${store.url}`}>
-              store {store.name} · {store.syncedAt ? `synced ${whenShort(store.syncedAt, now)}` : 'not synced yet'}
+              store {store.name} · {store.settingUp ? 'setting up' : store.syncedAt ? `synced ${whenShort(store.syncedAt, now)}` : 'not synced yet'}
               {readOnly ? ' · read-only' : ''}
             </span>
           ) : (

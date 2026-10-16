@@ -11,19 +11,37 @@ your cloud admin gives access to, which [`shadowlap store policy`](#access) prin
 
 ## Set it up
 
-Four steps, each building on the one before:
+Four steps, each building on the one before, on the dashboard's setup page (`#/setup/store`:
+Settings → Store's **Set up the store**, or **Set up the team store** in the palette) or in a
+terminal:
 
 ```sh
-shadowlap store set s3://northwind-agent-runs/support-agent     # 1. connect your bucket…
-shadowlap store check                                           #    …and check this machine's access
-shadowlap push --all                                            # 2. every run on this machine
-shadowlap store ci --provider github                            # 3. a CI step that pushes test runs
+shadowlap store set s3://northwind-agent-runs/support-agent --check   # 1. connect your bucket
+shadowlap push --all                                                  # 2. every run on this machine
+shadowlap store ci --provider github                                  # 3. a CI step that pushes test runs
 git add shadowlap.config.json && git commit -m "Use the team store"   # 4. bring your team
 ```
 
-`store set` writes one line to `shadowlap.config.json`, and committing it is what brings the team
-in: anyone who pulls the commit and can read the bucket runs `shadowlap pull` to get the team's
-runs. Credentials never go in the file.
+`store set --check` checks this machine's access first, as [`store check`](#access) does, and
+writes one line to `shadowlap.config.json` only when that works; committing it is what brings the
+team in: anyone who pulls the commit and can read the bucket runs `shadowlap pull` to get the
+team's runs. Credentials never go in the file. A check that fails writes nothing and says what to
+fix, then to run the same `store set … --check` again (in the dashboard, **Check access and
+connect** again); for access, the policy to ask for is `store policy --provider <cloud>`, since no
+store is set yet.
+
+In the dashboard each step shows its command. **Connect your bucket** picks the cloud (Amazon S3,
+Google Cloud, Azure Blob or Cloudflare R2), checks the bucket and folder against its scheme, says
+whose credentials this machine would use, shows the access to ask your cloud admin for (what
+`store policy` prints, with Copy), and **Check access and connect** runs `store set --check`.
+**Push your runs** runs `push --all`. **Push from CI** shows the step for GitHub Actions, GitLab
+CI or any other CI, written for your cloud: **I added it**, or **Skip for now** (Settings →
+Store's **Copy CI step** keeps it, for the CI you picked). **Bring your team** shows the line to
+commit, and **Finish** ends the setup. Until then the store works already, and the dashboard leads
+back to the setup: it is first in the Overview's Needs a look, Settings → Store names the step
+that is next with **Continue the setup**, the palette offers **Continue setting up the store**, and
+the status bar says *setting up*. A store set in a terminal has no setup under way: it shows as
+the store straight away, and the setup page shows the steps left.
 
 ## The store
 
@@ -41,6 +59,11 @@ A query adds what the name can't say: `?region=eu-central-1` and `?profile=<name
 Backblaze B2; path-style unless `&path-style=false`), `?auth=hmac` to reach Cloud Storage through
 its S3-compatible API with `GCS_HMAC_ACCESS_KEY_ID` and `GCS_HMAC_SECRET_ACCESS_KEY`. Requests go
 straight to the cloud; no cloud SDK is involved.
+
+What this machine knows of a store (what it pushed, pulled and checked) is kept per store: its
+bucket and folder, and the server an `?endpoint=` names. A region, a profile or another way of
+signing in reaches the same store; another endpoint is another server, so pointing the project at
+one starts afresh, and its first push sends everything.
 
 The URL is in a committed file, so it never decides where your credentials go. Google and Azure
 credentials (an access token, a SAS, or an account key, whose signature doesn't name the host) are
@@ -108,6 +131,7 @@ runs/<run>/calls.jsonl.gz  its calls
 index/<id>.json            one per push: what it pushed, so a pull lists the store without reading every run
 shares/<run>-<id>.html     reports behind share links
 tests/<id>.json            the report of each test --push session
+fixes/<fx-id>.json         a fix, with its blames, repairs and verdicts
 pr/<number>/…              what a pull request's CI job pushed, laid out the same way
 ```
 
@@ -117,7 +141,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   machine that has none; a run that came from a pack or the store keeps the author it came with.
 - **A run still recording** is queued and goes to the store when the command that recorded it
   ends it: `run`, `replay` (with `--repeat` too), `serve`, `blame` and `verify` push what was
-  queued as they finish. Anything else that ends a run leaves it for the next push.
+  queued as they finish. Anything else that ends a run leaves it for the next push. A run whose
+  recorder is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted,
+  as `gc` does, and sends it, and it counts as only on this machine until then.
 - **Labels and notes** merge both ways: something added on either machine is kept, something
   removed on either is removed. A copy that never synced with the store (a golden unpacked in CI)
   joins its labels and notes with the store's.
@@ -127,6 +153,24 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your
   machine replays, or whom it names as its author.
+- **Fixes** go with the runs they are about: a push sends a [fix](./cli.md#fix) (its blames,
+  repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
+  team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
+  copies merge: every blame, repair and verdict either made, open turned verified by either, and a
+  title someone gave it (the store's when both did). A push that meets a teammate's newer copy
+  merges it the same way.
+- **Applied is each machine's own.** A fix is applied in a working tree: one applied on one
+  machine is verified on the others, with its patch ready to apply there, and stays in their Needs
+  a look until it is. `shadowlap fix apply` there puts the patch in, or finds it in already once
+  the change came through git, and marks it applied on that machine only.
+- **A teammate's repair** comes with its `fix.patch` and reports, written to
+  `.shadowlap/repairs/<id>/` as where it ran, so **Copy git apply** and `shadowlap fix apply` work.
+  The recordings it made of the fixed runs (its goldens) stay on the machine that ran it, because a
+  golden runs the command it recorded when it is tested: they are committed from there. The Fixes
+  page says so, and applying the fix here puts in the patch alone, with nothing left to finish.
+- **A fix too large to read** (over 16 MB, the size a pull reads of a run's record) stays on the
+  machine that has it, and the push says so; a pull that meets one in the store names it and brings
+  the others.
 - **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it.
 - **A pulled run is someone else's recording.** It is checked as strictly as a
   [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
@@ -152,7 +196,14 @@ removes an old blob takes it from every newer run that uses it. `shares/` and `p
 exceptions; see [Share links](#share-links) and [Pull requests](#pull-requests).
 
 `shadowlap store show` says what this machine knows, without a request: the last push and pull, how
-many runs are in the store, how many are only here, and the last check.
+many runs are in the store, how many are only here, and the last check. Runs are counted as the
+dashboard counts them: attempts (`--repeat`, blame's probes, verify's attempts) are filed under the
+run they came from, and a run is only here while it, or an attempt filed under it, isn't in the
+store, as the Runs page's `local` tag marks it. Settings → Store and the Overview's Needs a look say
+the same numbers. Needs a look's row opens Runs, as the design does: the runs only here carry the
+`local` tag, and Push in the bulk bar sends the ones picked, with their attempts; Settings → Store's
+**Push local runs** sends them all. A run in the store whose attempts aren't (a `replay --repeat`
+since the push) has **Push** on its own page, which sends the attempts.
 
 ### Push from CI
 
@@ -177,7 +228,7 @@ it. With write access to the store, such a job could change the runs everyone pu
 CVE-2025-36852 describes for shared build caches kept in a bucket. So a pull request's job never
 writes to the team's runs:
 
-- **It writes only to its own folder,** `pr/<number>/` under the store's folder. Shadowlap
+- **It writes only to its own folder,** `pr/<number>/` under the store's folder, and sends no fixes. Shadowlap
   recognises a GitHub Actions `pull_request` job (and `pull_request_target`, and reviews of pull
   requests) and a GitLab merge request pipeline by their own variables; on any other CI,
   `SHADOWLAP_PR=<number>` says the job is one. `push`, `test --push`, `share` and `store check` all

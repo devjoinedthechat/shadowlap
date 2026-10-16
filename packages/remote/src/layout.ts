@@ -9,9 +9,10 @@ import { ulid, validateCall, validateRun, type CallRecord, type RunRecord } from
  *   index/<ulid>.json          one per push: what it pushed, for listing without reading every run
  *   shares/<run>-<id>.html     redacted reports behind share links
  *   tests/<ulid>.json          the report of each `shadowlap test --push` session
+ *   fixes/<fx-id>.json         a fix with its blames, verdicts and repairs, rewritten as it grows (fix-doc.ts)
  *   pr/<number>/…              what a pull request's CI job wrote, laid out the same way (see pr.ts)
  *
- * Everything but run.json is written once and never changed. A push writes blobs, then calls, then
+ * Everything but run.json and a fix's document is written once and never changed. A push writes blobs, then calls, then
  * run.json, then its index segment, so whatever a reader finds listed is complete.
  */
 
@@ -47,6 +48,11 @@ export interface IndexEntry {
   calls: number;
   /** The hash of its synced metadata (labels, notes, results), so a pull knows when they changed. */
   metaHash: string;
+  /**
+   * For an attempt (`--repeat`, a blame probe, a verify attempt): the run it is filed under, so a
+   * machine that hasn't pulled it counts it with its run. Absent from segments older pushes wrote.
+   */
+  attemptOf?: string | null;
 }
 
 export interface IndexSegment {
@@ -81,6 +87,8 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 /** The same, but for text that may run over lines: a tab and a line feed are allowed. */
 const CONTROL_BUT_LINES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
 const KINDS = new Set(['api', 'tool', 'clock', 'random']);
+/** Tools a partial recording lists as covered (`tool:<name>`), at most. */
+const MAX_COVERED_TOOLS = 1000;
 /** A CI provider's name, as ciProvider gives it. */
 const CI_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -122,9 +130,9 @@ function checkStrings(v: unknown, where: string, depth = 0): void {
 
 /**
  * A run's metadata from the bucket, beyond what a pack's checks cover (labels, notes, redactions):
- * who made it is one short line, what it covers is a list of call kinds, its normalizer hash is a
- * hash, and no string anywhere in it can rewrite a terminal. A blame's request fields are data for a
- * model, never shown raw, and are left as they are.
+ * who made it is one short line, what it covers lists call kinds and tools, its normalizer hash is
+ * a hash, and no string anywhere in it can rewrite a terminal. A blame's request fields are data
+ * for a model, never shown raw, and are left as they are.
  */
 function checkMeta(meta: unknown, where: string): void {
   if (meta === undefined) return;
@@ -141,7 +149,11 @@ function checkMeta(meta: unknown, where: string): void {
   if (meta.author !== undefined && nameOrNull(meta.author) === null) fail(`${where}.author`, 'must be one line of at most 200 characters');
   if (meta.covers !== undefined) {
     const c = meta.covers;
-    if (!Array.isArray(c) || c.length === 0 || c.length > KINDS.size || c.some((k) => typeof k !== 'string' || !KINDS.has(k)) || new Set(c).size !== c.length) fail(`${where}.covers`, `must list call kinds: ${[...KINDS].join(', ')}`);
+    // Call kinds, and one tool's calls as `tool:<name>`: the tools whose outputs a trace kept.
+    const covered = (k: unknown) => typeof k === 'string' && (KINDS.has(k) || (k.startsWith('tool:') && k.length > 5 && k.length <= 205 && !CONTROL.test(k)));
+    if (!Array.isArray(c) || c.length === 0 || c.length > KINDS.size + MAX_COVERED_TOOLS || !c.every(covered) || new Set(c).size !== c.length) {
+      fail(`${where}.covers`, `must list call kinds (${[...KINDS].join(', ')}) or tools as tool:<name>`);
+    }
   }
   if (meta.normalizersHash !== undefined && (typeof meta.normalizersHash !== 'string' || !HEX64.test(meta.normalizersHash))) fail(`${where}.normalizersHash`, 'must be a SHA-256 hex digest');
   if (meta.ci !== undefined && (typeof meta.ci !== 'string' || !CI_NAME.test(meta.ci))) fail(`${where}.ci`, 'must name a CI provider');
@@ -218,6 +230,7 @@ export function parseSegment(bytes: Buffer, key: string): IndexSegment {
       labels: Array.isArray(e.labels) ? e.labels.filter((l): l is string => typeof l === 'string' && l.length <= 40 && LABEL.test(l)).slice(0, 50) : [],
       calls: typeof e.calls === 'number' && Number.isSafeInteger(e.calls) && e.calls >= 0 ? e.calls : 0,
       metaHash: e.metaHash,
+      ...(isRunId(e.attemptOf) ? { attemptOf: e.attemptOf } : {}),
     });
   }
   return { format: INDEX_FORMAT, version: LAYOUT_VERSION, at: typeof raw.at === 'number' ? raw.at : 0, by: nameOrNull(raw.by), runs };

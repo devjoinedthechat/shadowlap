@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
 import { checksOf, runLikeOf } from './model.js';
-import { canPush } from './share.js';
+import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
 /**
@@ -122,7 +122,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
                 className="btn"
                 type="button"
                 disabled={!!actionsOff}
-                title={off ?? `Copy this run to the team store, ${offers!.team!.store}, with the runs it came from`}
+                title={off ?? pushTitle(offers!.team!)}
                 onClick={() => guard(() => app.watchJob(client.startJob(JOB_KINDS.push, { runIds: [r.runId] })))}
               >
                 Push

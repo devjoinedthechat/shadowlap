@@ -21,6 +21,11 @@ function eventsFd(env: NodeJS.ProcessEnv): number | null {
   return Number.isInteger(fd) && fd >= 3 ? fd : null;
 }
 
+/** Whether this command runs as a dashboard job, whose drawer shows its output: what to do next can name the dashboard's button. */
+export function inDashboardJob(env: NodeJS.ProcessEnv = process.env): boolean {
+  return eventsFd(env) !== null;
+}
+
 /** Reports one event to the dashboard job that started this command. Never throws. */
 export function emitJobEvent(event: JobEvent, env: NodeJS.ProcessEnv = process.env): void {
   const fd = eventsFd(env);

@@ -1,8 +1,11 @@
 import { resolveAuthor, type Store } from '@shadowlap/engine';
+import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
+import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
+import { checkSetupUrl, isProvider, recordSetup, storeSetupView } from '../store-setup.js';
 import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../team-store.js';
 
 /**
@@ -23,8 +26,8 @@ export function teamStoreFor(ctx: RouteContext): TeamStoreStatus | null {
  * Which of these runs are only on this machine: not pulled from a pull request's folder, and not
  * listed in the store's index. The Runs page's `local` tag. A recording in progress is one of them
  * until it is pushed, as the design tags it. How many runs are only here is the store status's
- * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store status` all say that one):
- * finished runs, the attempts bundled under them included, as `push --all` sends them.
+ * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store show` all say that one), counted
+ * the way these tags are: by run, a run whose attempts are only here counted once with them.
  */
 export function localRunIds(store: Store, remote: string, runIds: readonly string[]): Set<string> {
   if (!runIds.length) return new Set();
@@ -52,15 +55,6 @@ export function localAttempts(store: Store, remote: string, runIds: readonly str
   return attempts.filter((id) => local.has(id)).slice(0, room);
 }
 
-/**
- * Ends the runs the store still marks running though nothing records them, as gc does: interrupted,
- * at their last call. The CLI queues a run that is running until it ends, and these never would.
- * `only` limits it to the runs a push names.
- */
-function endAbandoned(store: Store, only: ReadonlySet<string> | null): void {
-  for (const { run, lastAt } of store.recordingRuns().abandoned) if (!only || only.has(run.runId)) store.endRun(run.runId, 'crashed', lastAt);
-}
-
 /** At most this many runs in one push from the dashboard (the bulk bar's selection). */
 const PUSH_MAX = 1000;
 const RUN_ID = /^[0-9A-Z]{26}$/;
@@ -80,20 +74,86 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged({ store, you: store ? whoAmI() : null });
   });
 
+  // The setup page (#/setup/store): where it stands, each provider with the credentials this machine
+  // would use, the CI steps and the commit that brings the team in. Read from the config and this
+  // machine; nothing is asked of a bucket.
+  router.get('/store/setup', (r) => {
+    if (!ctx.project) throw new HttpError(501, 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard');
+    r.tagged(storeSetupView(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })));
+  });
+
+  // A URL typed in Connect your bucket, checked against the provider picked as store set checks
+  // it, with the access to ask the cloud admin for and whose credentials would open it.
+  router.get('/store/setup/url', (r) => {
+    const provider = r.query.get('provider');
+    if (!isProvider(provider)) throw new HttpError(400, 'provider is s3, gcs, azure or r2');
+    const url = r.query.get('url') ?? '';
+    if (url.length > 2048) throw new HttpError(400, 'url: at most 2,048 characters');
+    r.json(checkSetupUrl(provider, url));
+  });
+
+  // The steps the CLI leaves no trace of: Push from CI added or skipped (and for which CI), and the
+  // setup finished. Kept with what this machine knows of the store the config names.
+  router.post('/store/setup', async (r) => {
+    const body = await r.body();
+    const team = teamStoreFor(ctx);
+    if (!team) throw new HttpError(409, 'no team store yet: connect a bucket first');
+    const patch: Parameters<typeof recordSetup>[2] = {};
+    if (body.ci !== undefined) {
+      if (body.ci !== 'added' && body.ci !== 'skipped') throw new HttpError(400, 'ci is added or skipped');
+      patch.ci = body.ci;
+    }
+    if (body.ciProvider !== undefined) {
+      if (typeof body.ciProvider !== 'string' || !(CI_PROVIDERS as readonly string[]).includes(body.ciProvider)) throw new HttpError(400, 'ciProvider is github, gitlab or other');
+      patch.ciProvider = body.ciProvider as CiProvider;
+    }
+    if (body.finished !== undefined) {
+      if (body.finished !== true) throw new HttpError(400, 'finished is true');
+      patch.finishedAt = Date.now();
+    }
+    if (!Object.keys(patch).length) throw new HttpError(400, 'say what was done: ci, ciProvider or finished');
+    r.json({ setup: recordSetup(ctx.store, team.key, patch) });
+  });
+
+  // Check access and connect: `store set <url> --provider <p> --check`, which checks the bucket with
+  // this machine's credentials and writes the store to the config only when that works.
+  ctx.jobs.registerJobKind('store-set', {
+    title: () => 'Connecting the store',
+    build: (req) => {
+      if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
+      if (!isProvider(req.provider)) return { error: 'provider is s3, gcs, azure or r2' };
+      if (typeof req.url !== 'string' || !req.url.trim() || req.url.length > 2048) return { error: 'url: the bucket and folder, such as s3://my-bucket/agent-runs' };
+      let configured: string;
+      try {
+        configured = formatStoreUrl(parseStoreUrl(req.url, req.provider));
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+      return { args: ['store', 'set', configured, '--provider', req.provider, '--check'] };
+    },
+  });
+  // Once it has connected the store (the check passed, the config names it), the setup of that store
+  // is under way, and Settings → Store goes on to the next steps. One that failed starts nothing.
+  ctx.jobs.onJob((n) => {
+    if (n.type !== 'end' || n.job.kind !== 'store-set' || n.job.code !== 0) return;
+    try {
+      recordSetup(ctx.store, storeKey(parseStoreUrl(n.job.args[2] ?? '')), { startedAt: n.job.startedAt, finishedAt: null });
+    } catch {
+      // not a store URL: not a job this module built
+    }
+  });
+
   // Push: the runs picked with the attempts bundled under them (their ancestors go too, as the CLI
   // does), or with `all` every run only on this machine. A run still recording is queued by the CLI
-  // and goes when it ends; one its recorder left is ended as interrupted first, as gc would, so it
-  // goes now.
+  // and goes when it ends; one its recorder left is ended as interrupted by the CLI's push, as gc
+  // would, so it goes now. Building the job only names them: nothing changes before it runs.
   ctx.jobs.registerJobKind('push', {
     title: (req) => (req.all === true ? 'Pushing local runs' : 'Pushing'),
     build: (req, { store }) => {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       const team = teamStoreFor(ctx);
       if (!team) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
-      if (req.all === true) {
-        endAbandoned(store, null);
-        return { args: ['push', '--all'] };
-      }
+      if (req.all === true) return { args: ['push', '--all'] };
       if (!Array.isArray(req.runIds) || !req.runIds.length) return { error: 'runIds: pick the runs to push, or push them all' };
       if (req.runIds.length > PUSH_MAX) return { error: `runIds: at most ${PUSH_MAX} runs at once` };
       const ids: string[] = [];
@@ -104,8 +164,7 @@ export function register(router: Router, ctx: RouteContext): void {
         if (!ids.includes(run.runId)) ids.push(run.runId);
       }
       // At most PUSH_MAX ids on the command line, the runs picked first.
-      const attempts = localAttempts(store, team.url, ids, PUSH_MAX - ids.length);
-      endAbandoned(store, new Set([...ids, ...attempts]));
+      const attempts = localAttempts(store, team.key, ids, PUSH_MAX - ids.length);
       return { args: ['push', ...ids, ...attempts], ...(ids.length === 1 ? { runId: ids[0]! } : {}) };
     },
   });

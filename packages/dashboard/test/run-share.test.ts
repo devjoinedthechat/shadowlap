@@ -389,3 +389,19 @@ describe('the run page’s routes', () => {
     expect(otel.status).toBe(400);
   });
 });
+
+describe('Push on a run in the store whose attempts are only here', () => {
+  it('offers it, as the Runs page tags the run local, and says the attempts are what goes', () => {
+    const url = 's3://northwind-agent-runs/support-agent';
+    const golden = addRun(store, { startedAt: T0 + 100, calls: 'l' });
+    store.setTeamRun(url, { runId: golden, state: 'pushed', at: T0, base: null, baseHash: null, remoteHash: 'h1', entry: null });
+    const team = () => runOffers(store, golden, { redact: [], config: { store: url } })!.team;
+    expect(team()).toEqual({ store: 'northwind-agent-runs/support-agent', state: 'in-store' });
+    // replay --repeat 2 since the push: the run is in the store, its two attempts aren't.
+    const attempts = [1, 2].map((n) => addRun(store, { parent: golden, startedAt: T0 + 100 + n, calls: 'r', meta: { repeat: { group: 'g', attempt: n, of: 2 } } }));
+    expect(team()).toEqual({ store: 'northwind-agent-runs/support-agent', state: 'only-here', localAttempts: { run: false, attempts: 2 } });
+    // Pushed: nothing is only here any more.
+    for (const id of attempts) store.setTeamRun(url, { runId: id, state: 'pushed', at: T0, base: null, baseHash: null, remoteHash: 'h2', entry: null });
+    expect(team()).toEqual({ store: 'northwind-agent-runs/support-agent', state: 'in-store' });
+  });
+});

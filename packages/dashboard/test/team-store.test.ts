@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { parseStoreUrl, pull, pullRequestLocation, push, recordCheck, StoreError } from '@shadowlap/remote';
-import { readTeamStoreInput, teamStoreStatus, type TeamStoreInput } from '../src/team-store.js';
+import { countsOf, readTeamStoreInput, teamStoreStatus, type TeamStoreInput } from '../src/team-store.js';
 import { MemoryStore } from '../../remote/test/fakes/memory.js';
 
 /**
@@ -42,9 +42,14 @@ describe('the team store status', () => {
   it('names the bucket, the region and the folder, and what this machine knows of the store, and nothing else', () => {
     const store = Store.open(':memory:');
     const status = teamStoreStatus(store, input())!;
-    expect(status).toMatchObject({ url: ID, configured: URL_, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', region: 'eu-central-1', name: 'northwind-agent-runs/support-agent', syncedAt: null, check: null, ciPush: true });
+    expect(status).toMatchObject({ url: ID, key: ID, configured: URL_, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', region: 'eu-central-1', name: 'northwind-agent-runs/support-agent', syncedAt: null, check: null, ciPush: true, settingUp: false });
+    // Set up from the setup page: setting up until it is finished.
+    store.setTeamSync(ID, { data: { setup: { startedAt: NOW, ci: null, ciProvider: null, finishedAt: null } } });
+    expect(teamStoreStatus(store, input())!.settingUp).toBe(true);
+    store.setTeamSync(ID, { data: { setup: { startedAt: NOW, ci: 'added', ciProvider: 'github', finishedAt: NOW } } });
+    expect(teamStoreStatus(store, input())!.settingUp).toBe(false);
     expect(Object.keys(status).sort()).toEqual(
-      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'syncedAt', 'url'].sort(),
+      ['access', 'account', 'bucket', 'check', 'ciProviders', 'ciPush', 'configured', 'inStore', 'key', 'localAttempts', 'localRuns', 'name', 'onlyLocal', 'prefix', 'provider', 'providerName', 'pulledAt', 'pushedAt', 'queued', 'region', 'settingUp', 'syncedAt', 'url'].sort(),
     );
     store.close();
   });
@@ -109,6 +114,38 @@ describe('the team store status', () => {
   });
 });
 
+describe('counted by run', () => {
+  it('files attempts under their run, as the Runs page, Needs a look and store show count them', async () => {
+    const store = Store.open(':memory:');
+    const rec = run(store);
+    for (const attempt of [1, 2, 3]) {
+      const a = store.createRun({ mode: 'replay', parentRunId: rec, command: cmd, meta: { repeat: { group: 'g', attempt, of: 3 } } });
+      store.endRun(a.runId, 'completed');
+    }
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, localRuns: [rec], inStore: 0 });
+    const remote = new MemoryStore(parseStoreUrl(URL_));
+    const ctx = { store, remote, actor: 'dana@northwind.example', now: () => NOW };
+    // shadowlap push <run> sends the run alone: its attempts keep it local.
+    await push(ctx, { runIds: [rec] });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 1, localAttempts: 3, localRuns: [rec], inStore: 1 });
+    await push(ctx, { all: true });
+    expect(teamStoreStatus(store, input())).toMatchObject({ onlyLocal: 0, localAttempts: 0, localRuns: [], inStore: 1 });
+    store.close();
+  });
+
+  it('keeps what it knows of a store under its identity: another endpoint is another store', async () => {
+    const store = Store.open(':memory:');
+    run(store);
+    const minio = 's3://northwind-agent-runs/support-agent?endpoint=https://minio.internal:9000';
+    await push({ store, remote: new MemoryStore(parseStoreUrl(minio)), actor: 'dana@northwind.example', now: () => NOW }, { all: true });
+    expect(teamStoreStatus(store, input({ store: minio }))).toMatchObject({ url: ID, key: `${ID}?endpoint=https://minio.internal:9000`, inStore: 1, onlyLocal: 0, pushedAt: NOW });
+    // The same bucket and folder on another server holds nothing this machine pushed.
+    expect(teamStoreStatus(store, input({ store: 's3://northwind-agent-runs/support-agent?endpoint=https://ceph.internal' }))).toMatchObject({ inStore: 0, onlyLocal: 1, pushedAt: null });
+    expect(teamStoreStatus(store, input())).toMatchObject({ inStore: 0, onlyLocal: 1, pushedAt: null });
+    store.close();
+  });
+});
+
 describe('a large store', () => {
   it('counts what is in the store and only here without reading every run', async () => {
     const store = Store.open(':memory:');
@@ -122,6 +159,31 @@ describe('a large store', () => {
     const newest = store.allRuns().filter((r) => r.status !== 'running' && !ids.slice(0, 10).includes(r.runId)).sort((a, b) => b.startedAt - a.startedAt || (a.runId < b.runId ? 1 : -1));
     expect(status.localRuns).toEqual(newest.map((r) => r.runId));
     expect(store.teamLocalOnly(ID, 5).ids).toEqual(status.localRuns.slice(0, 5));
+    store.close();
+  });
+
+  it('counts again when runs or the store rows change, never for a call a recording appends', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-team-counts-'));
+    dirs.push(dir);
+    const path = join(dir, 'shadowlap.db');
+    const store = Store.open(path);
+    const ids = Array.from({ length: 4 }, () => run(store));
+    const live = run(store, {}, false);
+    const counts = countsOf(store, ID);
+    expect(counts).toMatchObject({ onlyLocal: 4, inStore: 0 });
+    // The recorder, a process of its own, appends calls: the same counts, not counted again.
+    const recorder = Store.open(path);
+    for (let n = 1; n <= 3; n++) recorder.appendCallStart({ runId: live, callNo: n, kind: 'api', name: 'messages', fingerprint: `f${n}`, occurrence: 1, origin: 'live', effect: null, requestRef: null, meta: {}, at: NOW + n });
+    expect(countsOf(store, ID)).toBe(counts);
+    // A run that ends, one added, a push: each counts again.
+    recorder.endRun(live, 'completed');
+    expect(countsOf(store, ID)).toMatchObject({ onlyLocal: 5 });
+    run(recorder);
+    expect(countsOf(store, ID)).toMatchObject({ onlyLocal: 6 });
+    const remote = new MemoryStore(parseStoreUrl(URL_));
+    await push({ store: recorder, remote, actor: 'dana@northwind.example', now: () => NOW }, { runIds: ids.slice(0, 2) });
+    expect(countsOf(store, ID)).toMatchObject({ onlyLocal: 4, inStore: 2 });
+    recorder.close();
     store.close();
   });
 });

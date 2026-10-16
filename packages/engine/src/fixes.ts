@@ -466,12 +466,13 @@ export function repairToApply(rec: FixRecords): StoredRepair | null {
 /**
  * What applying a fix left undone, for one applied with a repair's patch: recordings of the fixed
  * runs not copied into the project (`repair --apply` without `--goldens`), or a test of them that
- * hasn't passed (it failed, or was skipped). Null when nothing is left.
+ * hasn't passed (it failed, or was skipped). Null when nothing is left. A repair that came with a
+ * pull (`pulled`) left its recordings on the machine that ran it: none are wanted here.
  */
-export function applyLeft(fix: StoredFix, repair: StoredRepair | null): { goldens: boolean; test: boolean } | null {
+export function applyLeft(fix: StoredFix, repair: StoredRepair | null, o: { pulled?: boolean } = {}): { goldens: boolean; test: boolean } | null {
   const applied = fix.data.applied;
   if (fix.status !== 'applied' || !applied || applied.patch === 'none' || !repair) return null;
-  const wanted = repair.report.output.goldens.length;
+  const wanted = o.pulled ? 0 : repair.report.output.goldens.length;
   const left = { goldens: applied.goldens.length < wanted, test: wanted > 0 && applied.tests !== 'passed' };
   return left.goldens || left.test ? left : null;
 }

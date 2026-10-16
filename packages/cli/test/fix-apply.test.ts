@@ -73,3 +73,33 @@ describe('fix apply after repair --apply', () => {
     }
   });
 });
+
+describe("fix apply of a teammate's repair, from the team store", () => {
+  it('puts the patch in, says its recordings stay on the machine that ran it, and leaves nothing to finish', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const report = repairReport({ targets: [run, makeRun(store, { labels: ['refund-over-limit'] })], dir });
+      // What a pull writes: the patch and the reports, never the goldens.
+      mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
+      expect(fix.status).toBe('verified');
+
+      const lines: string[] = [];
+      const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
+      expect(result).toMatchObject({ status: 'applied', patch: 'applied', goldens: [], tests: 'skipped' });
+      expect(lines.filter((l) => l.includes('is gone'))).toEqual([]);
+      expect(lines).toContain('  the 2 recordings the fixed code made stay on the machine that ran repair-mv9gxsdm, which came with a pull: commit them from there');
+      expect(store.getFix(fix.fixId)).toMatchObject({ status: 'applied', data: { applied: { patch: 'applied', goldens: [], tests: 'skipped' } } });
+      // Nothing is left to finish: a second run says it is applied.
+      const again = await applyFix(store, store.getFix(fix.fixId)!, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: () => undefined });
+      expect(again.status).toBe('already-applied');
+    } finally {
+      store.close();
+    }
+  });
+});

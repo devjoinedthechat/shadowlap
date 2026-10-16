@@ -101,7 +101,7 @@ describe('the Overview', () => {
   it('lists runs only on this machine in Needs a look once a team store is set', async () => {
     setConfig({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' });
     const s = await get<OverviewSummary>(dash, 'summary');
-    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/settings/store' });
+    expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine', action: 'Push', href: '#/runs' });
   });
 });
 
@@ -151,8 +151,8 @@ describe('the Runs table', () => {
     const page = await get<{ runs: RunsPageRow[] }>(dash, 'runs/page');
     expect(page.runs.map((r) => r.local)).toEqual([true, true, true, true]);
     // A recording in progress is only here too, though no count has it yet: it can't be pushed until
-    // it ends. Needs a look says the store status's count, as Settings → Store and the CLI do: the
-    // finished runs only here, the attempt bundled under one of them included, as push --all sends it.
+    // it ends. Needs a look says the store status's count, as Settings → Store and the CLI do: by
+    // run, the attempt bundled under one of them counted with its run, as the Runs page files it.
     const live = addRun(store, { startedAt: NOW, calls: 'l', status: 'running' });
     const attempt = addRun(store, { parent: ids.rec, startedAt: NOW - 30 * 60_000, calls: 'rrrr', meta: { repeat: { group: 'g', attempt: 1, of: 1 } } });
     try {
@@ -160,8 +160,8 @@ describe('the Runs table', () => {
       expect(now.runs.find((r) => r.runId === live)).toMatchObject({ status: 'running', local: true });
       expect(now.runs.some((r) => r.runId === attempt)).toBe(false);
       const s = await get<OverviewSummary>(dash, 'summary');
-      expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
-      expect(teamStoreStatus(store, { store: 's3://northwind-agent-runs/support-agent' })!.onlyLocal).toBe(5);
+      expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
+      expect(teamStoreStatus(store, { store: 's3://northwind-agent-runs/support-agent' })).toMatchObject({ onlyLocal: 4, localAttempts: 1 });
       // Pushing the run sends the attempt bundled under it as well, so it leaves nothing behind.
       expect(await built({ kind: 'push', runIds: [ids.rec] })).toEqual(['push', ids.rec, attempt]);
       // The run in the store, its attempt not (made after the push): the run's row still says local,
@@ -314,14 +314,18 @@ describe('a run its recorder left', () => {
     expect(out.done).toEqual([left]);
   });
 
-  it('is ended as interrupted when it is pushed, as gc would, so the push sends it now', async () => {
+  it('is counted as only here, and a push names it: the CLI ends it as interrupted, as gc would, and sends it', async () => {
     leave();
     setConfig({ store: 's3://northwind-agent-runs/support-agent' });
-    // Still marked running, so the store's count (and the CLI's) has it once it is ended.
+    // Still marked running, but nothing records it: the store's count (and the CLI's) has it
+    // already, since a push ends it and sends it.
     const before = await get<OverviewSummary>(dash, 'summary');
-    expect(before.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '4 runs are only on this machine' });
+    expect(before.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
     expect(await built({ kind: 'push', runIds: [left] })).toEqual(['push', left]);
-    expect(store.getRun(left)).toMatchObject({ status: 'crashed' });
+    expect(await built({ kind: 'push', all: true })).toEqual(['push', '--all']);
+    // Building the job changes nothing: a job refused after it is built (too many running, the
+    // working tree in use) must leave the run as it was.
+    expect(store.getRun(left)).toMatchObject({ status: 'running' });
     const after = await get<OverviewSummary>(dash, 'summary');
     expect(after.needsLook.items.at(-1)).toMatchObject({ kind: 'local', title: '5 runs are only on this machine' });
   });

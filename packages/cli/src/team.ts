@@ -1,5 +1,6 @@
-import { resolve } from 'node:path';
-import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, resolveAuthor, safeText, Store, ulid, type RunRecord } from '@shadowlap/engine';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -20,6 +21,8 @@ import {
   recordCheck,
   shareReport,
   SHARE_DAYS,
+  storeKey,
+  attemptOfRun,
   LayoutError,
   StoreError,
   StoreUrlError,
@@ -36,7 +39,7 @@ import {
   type StoreLocation,
 } from '@shadowlap/remote';
 import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, type ShadowlapConfig } from './config.js';
-import { emitJobEvent } from './job-events.js';
+import { emitJobEvent, inDashboardJob } from './job-events.js';
 import type { TestReport } from './test-report.js';
 import { palette as p, safe, shortId } from './ui.js';
 import { ancestorsOf, stillRecording } from './shared.js';
@@ -193,18 +196,21 @@ function pullRequestLine(target: WriteTarget): string {
 
 // ---------------------------------------------------------------------------------------------- store setup
 
-export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): number {
-  let loc: StoreLocation;
+function setLocation(url: string, provider: Provider | undefined): StoreLocation {
   try {
-    loc = parseStoreUrl(url, flags.provider);
+    return parseStoreUrl(url, provider);
   } catch (err) {
     throw new TeamError((err as Error).message);
   }
+}
+
+/** Writes the store to the config and says so; `check` is the check that went before, with --check. */
+function writeStore(t: TeamEnv, loc: StoreLocation, flags: { json?: boolean }, check: StoreCheck | null): number {
   const value = formatStoreUrl(loc);
   const previous = config(t).store ?? null;
   setConfigKey(t.cwd, 'store', value);
   withStore(t, (store) => recordEvent(store, { kind: 'store.set', actor: actor(t), ref: loc.url, data: { provider: loc.provider, previous } }));
-  const result = { store: value, url: loc.url, provider: loc.provider, bucket: loc.bucket, prefix: loc.prefix, account: loc.account ?? null, region: loc.region ?? null, previous, config: configPath(t.cwd) };
+  const result = { store: value, url: loc.url, provider: loc.provider, bucket: loc.bucket, prefix: loc.prefix, account: loc.account ?? null, region: loc.region ?? null, previous, config: configPath(t.cwd), set: true, ...(check ? { check } : {}) };
   emitJobEvent({ type: 'result', data: result }, t.env);
   if (flags.json) {
     line(t, JSON.stringify(result, null, 2));
@@ -212,9 +218,30 @@ export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; 
   }
   line(t, `${p.green('✓')} Store set: ${value} ${p.dim(`(${storeKindName(loc)}${loc.region ? `, ${loc.region}` : ''})`)}`);
   line(t, p.dim(`  wrote "store" to ${CONFIG_FILE}${previous && previous !== value ? `, replacing ${previous}` : ''}. Credentials never go there: each machine uses its own.`));
-  line(t, p.dim(`  Next: shadowlap store check, then commit ${CONFIG_FILE} so the team uses the same store:`));
+  line(t, p.dim(`  Next: ${check ? 'shadowlap push --all' : 'shadowlap store check'}, then commit ${CONFIG_FILE} so the team uses the same store:`));
   line(t, p.dim(`    git add ${CONFIG_FILE} && git commit -m "Use the team store"`));
   return 0;
+}
+
+export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): number {
+  return writeStore(t, setLocation(url, flags.provider), flags, null);
+}
+
+/**
+ * `store set <url> --check`: checks the store with this machine's credentials first (list, write,
+ * read and delete a test object; encryption, versioning and object lock), and writes it to the
+ * config only when that works, so a store that can't be used never reaches the commit that brings
+ * the team in. Settings → Store's "Check access and connect" runs it.
+ */
+export async function storeSetChecked(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): Promise<number> {
+  const loc = setLocation(url, flags.provider);
+  const { check, target } = await checkAt(t, loc, flags);
+  if (check.ok) return writeStore(t, loc, flags, check);
+  const result = { store: formatStoreUrl(loc), url: loc.url, provider: loc.provider, set: false, check: { ...check, pullRequest: target.pr } };
+  emitJobEvent({ type: 'result', data: result }, t.env);
+  if (flags.json) line(t, JSON.stringify(result, null, 2));
+  else note(t, p.red(`✗ ${checkFailure(target.loc, check.failure, { unset: loc, dashboard: inDashboardJob(t.env) })} Nothing was written to ${CONFIG_FILE}.`));
+  return 1;
 }
 
 /**
@@ -245,8 +272,12 @@ export function storePushFromCi(t: TeamEnv, value: 'on' | 'off', flags: { json?:
 
 const STEP_WORDS: Record<string, string> = { list: 'list', write: 'write', read: 'read', delete: 'delete' };
 
-export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Promise<number> {
-  const loc = requireStore(t);
+/**
+ * Checks a store with this machine's credentials: where it writes (in a pull request's job, its own
+ * folder), the steps and what the bucket keeps, recorded as the store's last check and in Activity.
+ * Prints the steps unless asked for JSON.
+ */
+async function checkAt(t: TeamEnv, loc: StoreLocation, flags: { json?: boolean }): Promise<{ check: StoreCheck; target: WriteTarget }> {
   const target = writeTarget(t, loc);
   const remote = openRemote(t, target.loc);
   if (!flags.json) {
@@ -256,22 +287,30 @@ export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Pr
   const check: StoreCheck = await checkStore(remote, { now: t.now });
   const last: LastCheck = { ok: check.ok, at: t.now(), encryption: check.encryption, versioning: check.versioning, objectLock: check.objectLock.state, credentials: check.credentials };
   withStore(t, (store) => {
-    recordCheck(store, target.loc.url, last);
+    recordCheck(store, storeKey(target.loc), last);
     recordEvent(store, { kind: 'store.checked', actor: actor(t), ref: target.loc.url, data: { ok: check.ok, versioning: check.versioning, objectLock: check.objectLock.state, encryption: check.encryption } });
   });
+  if (!flags.json) {
+    line(t, p.dim(`  credentials: ${check.credentials ?? 'none found'}`));
+    for (const s of check.steps) line(t, `  ${s.ok ? p.green('✓') : p.red('✗')} ${STEP_WORDS[s.name]}${s.detail ? p.dim(`  ${safe(s.detail)}`) : ''}`);
+    line(t, `  Encryption   ${check.encryption ?? p.yellow('not reported')}`);
+    line(t, `  Versioning   ${check.versioning}`);
+    line(t, `  Object lock  ${check.objectLock.state}${check.objectLock.detail ? p.dim(` (${safe(check.objectLock.detail)})`) : ''}`);
+    for (const w of check.warnings) note(t, p.yellow(`! ${w}`));
+    for (const n of check.notes) note(t, p.dim(`  ${n}`));
+  }
+  return { check, target };
+}
+
+export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Promise<number> {
+  const loc = requireStore(t);
+  const { check, target } = await checkAt(t, loc, flags);
   const result = { ...check, pullRequest: target.pr };
   emitJobEvent({ type: 'result', data: result }, t.env);
   if (flags.json) {
     line(t, JSON.stringify(result, null, 2));
     return check.ok ? 0 : 1;
   }
-  line(t, p.dim(`  credentials: ${check.credentials ?? 'none found'}`));
-  for (const s of check.steps) line(t, `  ${s.ok ? p.green('✓') : p.red('✗')} ${STEP_WORDS[s.name]}${s.detail ? p.dim(`  ${safe(s.detail)}`) : ''}`);
-  line(t, `  Encryption   ${check.encryption ?? p.yellow('not reported')}`);
-  line(t, `  Versioning   ${check.versioning}`);
-  line(t, `  Object lock  ${check.objectLock.state}${check.objectLock.detail ? p.dim(` (${safe(check.objectLock.detail)})`) : ''}`);
-  for (const w of check.warnings) note(t, p.yellow(`! ${w}`));
-  for (const n of check.notes) note(t, p.dim(`  ${n}`));
   if (!check.ok) {
     note(t, p.red(`✗ ${checkFailure(target.loc, check.failure)}`));
     return 1;
@@ -281,19 +320,30 @@ export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Pr
   return 0;
 }
 
-/** What a failed store check means, and what to do next, by the kind of its first failure. */
-function checkFailure(loc: StoreLocation, failure: StoreCheck['failure']): string {
+/** A word as a shell takes it: quoted when it holds anything but letters, digits and `@%+=:,./-`. */
+const shellWord = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+
+/**
+ * What a failed store check means, and what to do next, by the kind of its first failure. After
+ * `store check`, the store is the config's; after `store set --check` (`unset`, the store asked
+ * for), nothing was set, so the next step is that command again, or in a dashboard job, the
+ * setup's Check access and connect.
+ */
+function checkFailure(loc: StoreLocation, failure: StoreCheck['failure'], o: { unset?: StoreLocation; dashboard?: boolean } = {}): string {
+  const asked = o.unset ?? null;
+  const again = !asked ? 'run shadowlap store check again' : o.dashboard ? 'Check access and connect again' : `run shadowlap store set ${shellWord(formatStoreUrl(asked))} --check again`;
+  const policy = asked ? `shadowlap store policy --provider ${asked.provider}` : 'shadowlap store policy';
   switch (failure) {
     case 'network':
-      return `Couldn't reach ${loc.url}: check the address${loc.endpoint ? ` (${loc.endpoint})` : ''} and this machine's network, then run shadowlap store check again.`;
+      return `Couldn't reach ${loc.url}: check the address${loc.endpoint ? ` (${loc.endpoint})` : ''} and this machine's network, then ${again}.`;
     case 'credentials':
-      return `The credentials on this machine don't work for ${loc.url} (see the first step above). Sign in, or set the right keys, the way the cloud's own tools find them; then run shadowlap store check again.`;
+      return `The credentials on this machine don't work for ${loc.url} (see the first step above). Sign in, or set the right keys, the way the cloud's own tools find them; then ${again}.`;
     case 'no-bucket':
-      return `${loc.url} names a bucket these credentials can't find. Check the name, then set it again with shadowlap store set <url>.`;
+      return asked ? `${loc.url} names a bucket these credentials can't find. Check the name, then ${again}.` : `${loc.url} names a bucket these credentials can't find. Check the name, then set it again with shadowlap store set <url>.`;
     case 'denied':
-      return `These credentials can't use ${loc.url} yet. The access to ask your cloud admin for: shadowlap store policy`;
+      return `These credentials can't use ${loc.url} yet. Ask your cloud admin for the access ${asked && o.dashboard ? 'this step shows' : `${policy} prints`}, then ${again}.`;
     default:
-      return `${loc.url} didn't work with these credentials: see the steps above. If it is access, ask your cloud admin for what shadowlap store policy prints.`;
+      return `${loc.url} didn't work with these credentials: see the steps above. If it is access, ask your cloud admin for what ${policy} prints${asked ? `; then ${again}` : ''}.`;
   }
 }
 
@@ -346,10 +396,12 @@ export interface StoreStatus {
   region: string | null;
   pushedAt: number | null;
   pulledAt: number | null;
-  /** Runs in the store, as far as this machine knows (its pushes and the index it last read). */
+  /** Runs in the store, as far as this machine knows (its pushes and the index it last read); attempts filed under their run. */
   inStore: number;
-  /** Runs here that aren't in the store. */
+  /** Runs here with something not in the store: the run, or attempts filed under it. */
   onlyLocal: number;
+  /** Attempts only here, filed under runs here. */
+  localAttempts: number;
   /** Runs queued while recording, pushed when they end. */
   queued: number;
   /** The last `shadowlap store check` here. */
@@ -357,8 +409,9 @@ export interface StoreStatus {
 }
 
 export function storeStatus(store: Store, loc: StoreLocation, value: string): StoreStatus {
-  const sync = store.teamSync(loc.url);
-  const summary = store.teamSummary(loc.url);
+  const key = storeKey(loc);
+  const sync = store.teamSync(key);
+  const counts = teamRunCounts(store, key, 0);
   return {
     url: loc.url,
     store: value,
@@ -369,10 +422,11 @@ export function storeStatus(store: Store, loc: StoreLocation, value: string): St
     region: loc.region ?? null,
     pushedAt: sync?.pushedAt ?? null,
     pulledAt: sync?.pulledAt ?? null,
-    inStore: summary.inStore,
-    onlyLocal: store.teamLocalOnly(loc.url, 0).count,
-    queued: summary.queued,
-    check: lastCheck(store, loc.url),
+    inStore: counts.inStore,
+    onlyLocal: counts.onlyLocal,
+    localAttempts: counts.localAttempts,
+    queued: counts.queued,
+    check: lastCheck(store, key),
   };
 }
 
@@ -409,8 +463,49 @@ function runList(store: Store, args: string[]): string[] {
   });
 }
 
-function onlyLocal(store: Store, url: string): number {
-  return store.teamLocalOnly(url, 0).count;
+/**
+ * Runs among these ids and the attempts filed under runs (`--repeat`, blame's probes, verify's
+ * attempts), told apart as the Runs page tells them: a push or a pull says how many runs it moved,
+ * with their attempts, so its numbers read like every screen's.
+ */
+function byRun(store: Store, ids: readonly string[]): { runs: number; attempts: number } {
+  let attempts = 0;
+  for (const id of ids) {
+    const run = store.getRun(id);
+    const under = run ? attemptOfRun(store, run) : null;
+    if (under && store.getRun(under)) attempts++;
+  }
+  return { runs: ids.length - attempts, attempts };
+}
+
+/** "45 runs", "45 runs and 69 attempts": what a push or a pull moved, by run. */
+function runsAnd(n: { runs: number; attempts: number }): string {
+  return `${plural(n.runs, 'run')}${n.attempts ? ` and ${plural(n.attempts, 'attempt')}` : ''}`;
+}
+
+/** The runs a pull brought, their attempts counted apart, and the runs by who made them. */
+function pulledRuns(store: Store, ids: readonly string[]): { runs: string[]; attempts: number; byAuthor: Record<string, number> } {
+  const runs: string[] = [];
+  const byAuthor: Record<string, number> = {};
+  let attempts = 0;
+  for (const id of ids) {
+    const run = store.getRun(id);
+    const under = run ? attemptOfRun(store, run) : null;
+    if (under && store.getRun(under)) {
+      attempts++;
+      continue;
+    }
+    runs.push(id);
+    const who = run?.meta?.author ?? 'unknown';
+    byAuthor[who] = (byAuthor[who] ?? 0) + 1;
+  }
+  return { runs, attempts, byAuthor };
+}
+
+/** Runs only on this machine, and in the store, by run: what store show, push and pull say. */
+function runCounts(store: Store, loc: StoreLocation): { inStore: number; onlyLocal: number } {
+  const c = teamRunCounts(store, storeKey(loc), 0);
+  return { inStore: c.inStore, onlyLocal: c.onlyLocal };
 }
 
 /** A store or bucket-layout failure, in words, as a TeamError: the command prints it without a stack. */
@@ -432,9 +527,16 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   const store = Store.open(t.dbPath);
   let result: PushResult;
   let left: number;
+  let moved: Moved;
+  let fixTitles = new Map<string, string>();
+  let repairFiles: string[] = [];
   try {
     const runIds = runList(store, runArgs);
     const who = actor(t);
+    // A run whose recorder is gone (killed, out of memory) would wait for an end that never comes:
+    // ended as interrupted at its last call, as gc ends it, it goes now.
+    const named = new Set(runIds);
+    for (const { run, lastAt } of store.recordingRuns().abandoned) if (flags.all || named.has(run.runId)) store.endRun(run.runId, 'crashed', lastAt);
     if (!flags.json) {
       note(t, p.dim(`Pushing to ${target.loc.url} as ${safe(who ?? 'an unknown author')} with ${safe(await remote.credentials().catch(() => 'no credentials'))}`));
       if (target.pr) note(t, p.dim(`  ${pullRequestLine(target)}`));
@@ -444,13 +546,12 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
     } catch (err) {
       throw asTeamError(err, 'The runs that went up before it are in the store, listed for the team; push again to send the rest.');
     }
-    left = onlyLocal(store, target.loc.url);
-    recordEvent(store, {
-      kind: 'store.pushed',
-      actor: who,
-      ref: target.loc.url,
-      data: { pushed: result.pushed.length, updated: result.updated.length, repaired: result.repaired.length, queued: result.queued.length, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, ...(target.pr ? { pullRequest: target.pr } : {}) },
-    });
+    left = runCounts(store, target.loc).onlyLocal;
+    moved = movedByRun(store, result);
+    fixTitles = new Map(result.fixes.sent.map((id) => [id, store.getFix(id)?.title ?? id]));
+    recordEvent(store, { kind: 'store.pushed', actor: who, ref: target.loc.url, data: pushedEvent(result, moved, target.pr ? { pullRequest: target.pr } : {}) });
+    // A teammate's repair the store's copy of a fix brought, beside the project as a pull writes it.
+    repairFiles = writeRepairFiles(t, store, result.fixes.repairs);
   } finally {
     store.close();
   }
@@ -463,14 +564,40 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
     line(t, JSON.stringify(out, null, 2));
     return code;
   }
-  const parts = [plural(result.pushed.length, 'run') + ' pushed'];
-  if (result.updated.length) parts.push(`${result.updated.length} updated ${p.dim('(labels, notes, results)')}`);
-  if (result.unchanged.length) parts.push(`${result.unchanged.length} already there`);
+  const parts = [`${runsAnd(moved.pushed)} pushed`];
+  if (result.updated.length) parts.push(`${runsAnd(moved.updated)} updated ${p.dim('(labels, notes, results)')}`);
+  if (result.unchanged.length) parts.push(`${runsAnd(moved.unchanged)} already there`);
   if (result.repaired.length) parts.push(`${result.repaired.length} mended ${p.dim('(parts the store had lost, sent again)')}`);
   line(t, `${p.green('✓')} ${parts.join(', ')} · ${plural(result.blobs.uploaded, 'blob')} uploaded (${bytes(result.blobs.bytes)})${result.blobs.present ? `, ${result.blobs.present} already in the store` : ''}`);
-  if (result.queued.length) line(t, p.dim(`  ${plural(result.queued.length, 'run')} still recording: ${result.queued.length === 1 ? 'it goes' : 'they go'} when ${result.queued.length === 1 ? 'it ends' : 'they end'} (${result.queued.map((id) => shortId(id)).join(', ')})`));
+  if (result.queued.length) line(t, p.dim(`  ${runsAnd(moved.queued)} still recording: ${result.queued.length === 1 ? 'it goes' : 'they go'} when ${result.queued.length === 1 ? 'it ends' : 'they end'} (${result.queued.map((id) => shortId(id)).join(', ')})`));
   if (result.refused.length) problemLines(t, `${plural(result.refused.length, 'run')} stayed on this machine:`, result.refused);
+  fixLines(t, 'sent', result.fixes.sent, fixTitles, result.fixes.failed, "couldn't go to the store; the next push tries again");
+  if (repairFiles.length) line(t, p.dim(`  teammates' repairs that came with them, their patches and reports: ${repairFiles.join(', ')}`));
   return code;
+}
+
+type Moved = Record<'pushed' | 'updated' | 'unchanged' | 'queued', { runs: number; attempts: number }>;
+
+/** What a push moved, by run: the attempts filed under runs are counted apart, as every screen counts them. */
+function movedByRun(store: Store, result: PushResult): Moved {
+  return { pushed: byRun(store, result.pushed), updated: byRun(store, result.updated), unchanged: byRun(store, result.unchanged), queued: byRun(store, result.queued) };
+}
+
+/** A push as Activity keeps it: runs, their attempts apart, and the fixes that went with them. */
+function pushedEvent(result: PushResult, moved: Moved, extra: Record<string, unknown>): Record<string, unknown> {
+  return { pushed: moved.pushed.runs, updated: moved.updated.runs, attempts: moved.pushed.attempts + moved.updated.attempts, repaired: result.repaired.length, queued: moved.queued.runs, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, fixes: result.fixes.sent.length, ...extra };
+}
+
+/** What a push or a pull did with fixes: each by its title, and the ones that couldn't go or come. */
+function fixLines(t: TeamEnv, verb: string, ids: readonly string[], titles: ReadonlyMap<string, string>, failed: ReadonlyArray<{ fixId: string; reason: string }>, why: string): void {
+  if (ids.length) {
+    const named = ids.slice(0, 3).map((id) => `"${safe(titles.get(id) ?? id)}"`);
+    line(t, p.dim(`  ${plural(ids.length, 'fix', 'fixes')} ${verb}: ${named.join(', ')}${ids.length > 3 ? ` and ${ids.length - 3} more` : ''}`));
+  }
+  if (failed.length) {
+    note(t, p.yellow(`! ${plural(failed.length, 'fix', 'fixes')} ${why}:`));
+    for (const f of failed) note(t, p.yellow(`  ${f.fixId}  ${safe(f.reason)}`));
+  }
 }
 
 /** What `pull --include-pr` brought from one pull request's folder. */
@@ -490,7 +617,10 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
   const remote = openRemote(t, loc);
   const store = Store.open(t.dbPath);
   let result: PullResult;
-  let left: number;
+  let left: { inStore: number; onlyLocal: number };
+  let got: { runs: string[]; attempts: number; byAuthor: Record<string, number> };
+  let fixTitles = new Map<string, string>();
+  let repairFiles: string[] = [];
   const prs: PullRequestPull[] = [];
   try {
     const log = flags.json ? {} : { log: (l: string) => note(t, p.dim(`  ${safe(l)}`)) };
@@ -502,7 +632,7 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
       // folders only when the store's own runs lack them.
       if (flags.includePr && (!runArgs.length || result.unknown.length)) {
         const main = result;
-        const own = new Set(store.teamRuns(loc.url).filter(teamRunInStore).map((r) => r.runId));
+        const own = new Set(store.teamRuns(storeKey(loc)).filter(teamRunInStore).map((r) => r.runId));
         const fetchExcluded = async (runIds: string[]) => {
           const r = await pull({ store, remote, actor: actor(t), now: t.now, ...log }, { runIds });
           main.pulled.push(...r.pulled);
@@ -526,18 +656,26 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
     } catch (err) {
       throw asTeamError(err);
     }
-    left = onlyLocal(store, loc.url);
+    left = runCounts(store, loc);
+    got = pulledRuns(store, result.pulled);
     recordEvent(store, {
       kind: 'store.pulled',
       actor: actor(t),
       ref: loc.url,
-      data: { pulled: result.pulled.length, merged: result.merged.length, failed: result.failed.length, byAuthor: result.byAuthor, ...(flags.includePr ? { pullRequests: prs.map((x) => ({ number: x.number, pulled: x.pulled.length })) } : {}) },
+      // By run, as Activity says it: the attempts filed under them are counted apart.
+      data: { pulled: got.runs.length, attempts: got.attempts, merged: result.merged.length, failed: result.failed.length, byAuthor: got.byAuthor, fixes: result.fixes.pulled.length + result.fixes.merged.length, ...(flags.includePr ? { pullRequests: prs.map((x) => ({ number: x.number, pulled: x.pulled.length })) } : {}) },
     });
+    fixTitles = new Map([...result.fixes.pulled, ...result.fixes.merged].map((id) => [id, store.getFix(id)?.title ?? id]));
+    // A teammate's repair, beside the project as on the machine that ran it: its patch and reports,
+    // so Copy git apply and Apply the patch work here too.
+    repairFiles = writeRepairFiles(t, store, result.fixes.repairs);
   } finally {
     store.close();
   }
-  for (const runId of [...result.pulled, ...prs.flatMap((x) => x.pulled)]) emitJobEvent({ type: 'run', runId, role: 'imported' }, t.env);
-  const out = { store: loc.url, ...result, onlyLocal: left, pullRequests: prs };
+  // The runs it brought, for the dashboard's drawer to open; their attempts are reached through them.
+  for (const runId of [...got.runs, ...prs.flatMap((x) => x.pulled)]) emitJobEvent({ type: 'run', runId, role: 'imported' }, t.env);
+  // Counted by run, as every screen counts them: attempts are filed under their run.
+  const out = { store: loc.url, ...result, inStore: left.inStore, onlyLocal: left.onlyLocal, pullRequests: prs };
   emitJobEvent({ type: 'result', data: out }, t.env);
   // Names that match nothing, or named runs that couldn't come: the command didn't do what it was asked.
   const failed = result.failed.length + prs.reduce((n, x) => n + x.failed.length, 0);
@@ -546,11 +684,11 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
     line(t, JSON.stringify(out, null, 2));
     return code;
   }
-  const by = Object.entries(result.byAuthor)
+  const by = Object.entries(got.byAuthor)
     .sort((a, b) => b[1] - a[1])
     .map(([who, n]) => `${safe(who.includes('@') ? who.split('@')[0]! : who)} ${n}`);
-  line(t, `${p.green('✓')} ${plural(result.pulled.length, 'run')} pulled${by.length ? ` ${p.dim(`(${by.join(', ')})`)}` : ''}${result.blobs.downloaded ? ` · ${plural(result.blobs.downloaded, 'blob')} (${bytes(result.blobs.bytes)})` : ''}${result.merged.length ? ` · ${plural(result.merged.length, "run's labels and notes", "runs' labels and notes")} merged` : ''}`);
-  line(t, p.dim(`  The store has ${plural(result.inStore, 'run')}; ${left} only on this machine${left ? ' (shadowlap push --all sends them)' : ''}.`));
+  line(t, `${p.green('✓')} ${runsAnd({ runs: got.runs.length, attempts: got.attempts })} pulled${by.length ? ` ${p.dim(`(${by.join(', ')})`)}` : ''}${result.blobs.downloaded ? ` · ${plural(result.blobs.downloaded, 'blob')} (${bytes(result.blobs.bytes)})` : ''}${result.merged.length ? ` · ${plural(result.merged.length, "run's labels and notes", "runs' labels and notes")} merged` : ''}`);
+  line(t, p.dim(`  The store has ${plural(left.inStore, 'run')}; ${left.onlyLocal} only on this machine${left.onlyLocal ? ' (shadowlap push --all sends them)' : ''}.`));
   if (result.needPush.length) line(t, p.dim(`  ${plural(result.needPush.length, 'run')} here ${result.needPush.length === 1 ? 'has' : 'have'} changes the store doesn't: the next push sends them.`));
   if (result.skippedDeleted.length) line(t, p.dim(`  ${plural(result.skippedDeleted.length, 'run')} deleted on this machine stay deleted; name one to pull it again.`));
   if (result.missing.length) note(t, p.yellow(`! ${plural(result.missing.length, 'run')} listed in the store ${result.missing.length === 1 ? 'is' : 'are'} gone from it, deleted there: ${result.missing.map((id) => shortId(id)).join(', ')}`));
@@ -566,8 +704,38 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
       for (const s of x.skippedSegments) note(t, p.yellow(`! Skipped ${safe(s.key)} in pull request ${x.number}'s index: ${safe(s.reason)}`));
     }
   }
+  fixLines(t, 'pulled', result.fixes.pulled, fixTitles, result.fixes.failed, "in the store couldn't be read; the next pull tries again");
+  fixLines(t, 'merged', result.fixes.merged, fixTitles, [], '');
+  if (repairFiles.length) line(t, p.dim(`  their repairs' patches and reports: ${repairFiles.join(', ')}`));
   for (const name of result.unknown) note(t, p.red(`✗ No run in the store matches "${safe(name)}" (or more than one does).`));
   return code;
+}
+
+/**
+ * Writes the files of repairs a pull brought beside the project, as the repair wrote them where it
+ * ran: `fix.patch`, `report.json` and `report.md` in `.shadowlap/repairs/<id>/`, so `shadowlap fix
+ * apply` and the Fixes page's Copy git apply find the patch here. Never into a folder that is there
+ * already. The recordings a repair made of the fixed runs (its goldens) aren't among them: a golden
+ * runs the command it recorded when it is tested, so it comes from the repository, never the store.
+ */
+function writeRepairFiles(t: TeamEnv, store: Store, repairIds: readonly string[]): string[] {
+  const written: string[] = [];
+  for (const id of repairIds) {
+    const r = store.getRepair(id);
+    if (!r || !/^repair-[0-9a-z]{1,40}$/.test(r.repairId) || r.dir !== `.shadowlap/repairs/${r.repairId}`) continue;
+    const dir = join(t.cwd, '.shadowlap', 'repairs', r.repairId);
+    if (existsSync(dir)) continue;
+    try {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      if (r.report.patch) writeFileSync(join(dir, 'fix.patch'), r.report.patch);
+      writeFileSync(join(dir, 'report.json'), JSON.stringify(r.report, null, 2) + '\n');
+      writeFileSync(join(dir, 'report.md'), repairMarkdown(r.report));
+      written.push(r.dir);
+    } catch (err) {
+      note(t, p.yellow(`! couldn't write ${r.dir}: ${safe((err as Error).message)}`));
+    }
+  }
+  return written;
 }
 
 export async function teamShare(t: TeamEnv, runArg: string, flags: { lineage?: boolean; json?: boolean; version?: string; uiDir?: string } = {}): Promise<number> {
@@ -645,7 +813,7 @@ export async function pushIfQueued(t: TeamEnv): Promise<void> {
   const url = target.loc.url;
   let ready: string[];
   try {
-    ready = withStore(t, (store) => queuedRuns(store, url).ready);
+    ready = withStore(t, (store) => queuedRuns(store, storeKey(target.loc)).ready);
   } catch {
     return;
   }
@@ -658,7 +826,9 @@ export async function pushIfQueued(t: TeamEnv): Promise<void> {
       const result = await push({ store, remote, actor: actor(t), ci: ciProvider(t.env), pullRequest: target.pr, now: t.now }, { runIds: [] });
       for (const id of [...result.pushed, ...result.updated]) if (ready.includes(id)) note(t, p.dim(`[shadowlap] pushed ${shortId(id)} to ${url}, as asked while it was recording`));
       for (const r of result.refused) note(t, p.yellow(`! ${shortId(r.runId)} was queued for the store, but it stays here: ${safe(r.reason)}`));
-      recordEvent(store, { kind: 'store.pushed', actor: actor(t), ref: url, data: { pushed: result.pushed.length, updated: result.updated.length, refused: result.refused.length, queued: true } });
+      // By run, as a push from the command line records it; `queued: true` says it waited for the run to end.
+      recordEvent(store, { kind: 'store.pushed', actor: actor(t), ref: url, data: pushedEvent(result, movedByRun(store, result), { queued: true, ...(target.pr ? { pullRequest: target.pr } : {}) }) });
+      writeRepairFiles(t, store, result.fixes.repairs);
     } finally {
       store.close();
     }

@@ -1,9 +1,11 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { callRefs, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
 import { isPrecondition, StoreError, type ObjectStore } from './object-store.js';
 import { eachLimit } from './pool.js';
+import { storeKey } from './url.js';
 
 /**
  * Push and pull: runs between this machine's store and the team's bucket. Content-addressed, so a
@@ -68,6 +70,8 @@ export interface PushResult {
   blobs: { uploaded: number; present: number; bytes: number };
   /** The index segment this push wrote, if it changed anything. */
   segment: string | null;
+  /** The fixes that went with the runs (fix-sync.ts); none from a pull request's job. */
+  fixes: FixPushResult;
 }
 
 export interface PullOptions {
@@ -106,6 +110,8 @@ export interface PullResult {
   inStore: number;
   /** Pulled runs by who made them. */
   byAuthor: Record<string, number>;
+  /** The fixes that came with them (fix-sync.ts); none from a pull request's folder. */
+  fixes: FixPullResult;
 }
 
 const BLOB_HEAD_OVER = 64 * 1024;
@@ -116,8 +122,9 @@ function now(ctx: SyncContext): number {
   return ctx.now?.() ?? Date.now();
 }
 
+/** What this machine keeps about the store under: its identity (storeKey). */
 function remoteId(ctx: SyncContext): string {
-  return ctx.remote.location.url;
+  return storeKey(ctx.remote.location);
 }
 
 function json(value: unknown): Buffer {
@@ -144,7 +151,16 @@ export function runBlobs(store: Store, calls: readonly CallRecord[]): string[] {
   return [...out];
 }
 
-export function indexEntry(run: RunRecord, calls: number, hash: string): IndexEntry {
+/**
+ * The run an attempt is filed under (the run it replayed), as the Runs page files it, or null for
+ * a run that is no attempt. The fork blame rescued a run with is a probe that shows as a fork.
+ */
+export function attemptOfRun(store: Store, run: RunRecord): string | null {
+  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  return classifyRun(run, { rescued: parent?.meta?.blame?.rescuedRunId === run.runId }).attemptOf;
+}
+
+export function indexEntry(run: RunRecord, calls: number, hash: string, attemptOf: string | null = null): IndexEntry {
   return {
     runId: run.runId,
     parentRunId: run.parentRunId,
@@ -158,6 +174,7 @@ export function indexEntry(run: RunRecord, calls: number, hash: string): IndexEn
     labels: run.meta?.labels ?? [],
     calls,
     metaHash: hash,
+    ...(attemptOf ? { attemptOf } : {}),
   };
 }
 
@@ -315,7 +332,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   const row = ctx.store.teamRun(rid, run.runId);
   const localHash = metaHash(run.meta);
   if (!verify && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
-    return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash), index: false, repaired: false };
+    return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash, attemptOfRun(ctx.store, run)), index: false, repaired: false };
   }
   const written = await writeRun(ctx, run, row, known, tally);
   if ('refused' in written) return { kind: 'refused', reason: written.refused };
@@ -326,7 +343,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   // Not listed by any index this machine knows of, or listed as it was before: the index gets an entry.
   const unindexed = !row || row.remoteHash === null;
   const index = fresh || unindexed || row.remoteHash !== hash;
-  const entry = indexEntry(doc.run, doc.calls, hash);
+  const entry = indexEntry(doc.run, doc.calls, hash, attemptOfRun(ctx.store, run));
   // What both sides now agree on is the base of the next merge. remoteHash stays what the index
   // lists, so until push() has written the segment this run counts as not yet in the store.
   ctx.store.setTeamRun(rid, {
@@ -397,7 +414,7 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
     if (row.state !== 'queued') continue;
     for (const r of withAncestors(store, row.runId)) targets.set(r.runId, r);
   }
-  const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null };
+  const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null, fixes: { sent: [], failed: [], repairs: [] } };
   const known = new Set<string>();
   const entries: IndexEntry[] = [];
   const refused = new Set<string>();
@@ -471,6 +488,9 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
     }
   }
   if (failure) throw failure.error;
+  // The fixes about the runs in the store go with them; a pull request's job sends none.
+  if (!ctx.pullRequest) result.fixes = await pushFixes(ctx);
+  for (const f of result.fixes.sent) ctx.log?.(`sent fix ${f}`);
   store.setTeamSync(rid, { pushedAt: now(ctx) });
   return result;
 }
@@ -612,7 +632,7 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
   const synced = syncedMeta(doc.run.meta);
   const hash = metaHash(synced);
   const row = ctx.store.teamRun(remoteId(ctx), runId);
-  ctx.store.setTeamRun(remoteId(ctx), { runId, state: 'pulled', at: now(ctx), base: synced, baseHash: hash, remoteHash: row?.remoteHash ?? hash, entry: row?.entry ?? (indexEntry(doc.run, calls.length, hash) as unknown as Record<string, unknown>) });
+  ctx.store.setTeamRun(remoteId(ctx), { runId, state: 'pulled', at: now(ctx), base: synced, baseHash: hash, remoteHash: row?.remoteHash ?? hash, entry: row?.entry ?? (indexEntry(doc.run, calls.length, hash, attemptOfRun(ctx.store, doc.run)) as unknown as Record<string, unknown>) });
   return doc;
 }
 
@@ -646,7 +666,7 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
   const store = ctx.store;
   const { segments, skipped } = await readIndex(ctx);
   const rows = new Map(store.teamRuns(rid).map((r) => [r.runId, r]));
-  const result: PullResult = { pulled: [], merged: [], needPush: [], skippedDeleted: [], missing: [], unknown: [], failed: [], skippedSegments: skipped, blobs: { downloaded: 0, bytes: 0 }, segments, inStore: 0, byAuthor: {} };
+  const result: PullResult = { pulled: [], merged: [], needPush: [], skippedDeleted: [], missing: [], unknown: [], failed: [], skippedSegments: skipped, blobs: { downloaded: 0, bytes: 0 }, segments, inStore: 0, byAuthor: {}, fixes: { pulled: [], merged: [], failed: [], repairs: [] } };
 
   const excluded = options.exclude ?? new Set<string>();
   const wanted = new Set<string>();
@@ -734,6 +754,10 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
     } else if (outcome === 'missing') result.missing.push(row.runId);
   }
   result.inStore = store.teamRuns(rid).filter(teamRunInStore).length;
+  // The fixes the team made, merged with this machine's; a pull request's folder brings none.
+  if (!ctx.pullRequest) result.fixes = await pullFixes(ctx);
+  for (const f of result.fixes.pulled) ctx.log?.(`pulled fix ${f}`);
+  for (const f of result.fixes.merged) ctx.log?.(`merged fix ${f}`);
   store.setTeamSync(rid, { pulledAt: now(ctx) });
   return result;
 }

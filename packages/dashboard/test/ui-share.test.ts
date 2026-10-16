@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, type BlameFacts } from '../ui/run/offers.js';
-import { canPush, defaultPackFolder, htmlCopyVia, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
+import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
 import type { BisectOffer, RunOffers, TestBannerOffer } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
@@ -227,5 +227,14 @@ describe('the diverged test’s actions', () => {
     expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
     // A server that says nothing of the test.
     expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });
+  });
+});
+
+describe('Push on a run page', () => {
+  it('says what it sends: the run, its attempts only here, or both', () => {
+    expect(pushTitle({ store: 'bucket/team', state: 'only-here' })).toBe('Copy this run to the team store, bucket/team, with the runs it came from');
+    expect(pushTitle({ store: 'bucket/team', state: 'only-here', localAttempts: { run: true, attempts: 3 } })).toBe('Copy this run and its 3 attempts to the team store, bucket/team, with the runs it came from');
+    expect(pushTitle({ store: 'bucket/team', state: 'only-here', localAttempts: { run: false, attempts: 1 } })).toBe('Copy this run’s attempt to the team store, bucket/team: the run is there already');
+    expect(canPush({ exported: false, live: false, hasPush: true, team: { store: 'bucket/team', state: 'only-here', localAttempts: { run: false, attempts: 2 } } })).toBe(true);
   });
 });

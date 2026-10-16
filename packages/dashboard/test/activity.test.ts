@@ -363,6 +363,11 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, queued: 2, refused: 1, blobs: 1, bytes: 10 }, at: 2010 });
     recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, refused: 0, queued: true }, at: 2020 });
     recordEvent(store, { kind: 'store.pulled', actor: 'maya@example.com', ref: 's3://northwind/agent', data: { pulled: 3, merged: 1, failed: 0, byAuthor: { 'dana@example.com': 3 } }, at: 2100 });
+    // By run, with the attempts filed under them apart, and the fixes that went with them.
+    recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 1, updated: 0, attempts: 5, queued: true, refused: 0, fixes: 2 }, at: 2030 });
+    recordEvent(store, { kind: 'store.pushed', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { pushed: 0, updated: 0, attempts: 2, queued: 0, refused: 0, fixes: 1 }, at: 2040 });
+    recordEvent(store, { kind: 'store.pulled', actor: 'maya@example.com', ref: 's3://northwind/agent', data: { pulled: 2, attempts: 7, merged: 0, failed: 1, fixes: 1 }, at: 2110 });
+    recordEvent(store, { kind: 'store.pulled', actor: 'maya@example.com', ref: 's3://northwind/agent', data: { pulled: 0, attempts: 0, merged: 0, failed: 0, fixes: 3 }, at: 2120 });
     recordEvent(store, { kind: 'run.shared', runId: run, ref: 'reports/01k5cq.html', data: { expiresAt: 9_999_999, redacted: true, runs: 2 }, at: 2300 });
     recordEvent(store, { kind: 'store.set', actor: 'dana@example.com', ref: 's3://northwind/agent', data: { provider: 's3', previous: null }, at: 2400 });
     recordEvent(store, { kind: 'store.set', actor: 'dana@example.com', ref: 's3://northwind/agent-runs', data: { provider: 's3', previous: 's3://northwind/agent' }, at: 2410 });
@@ -400,6 +405,12 @@ describe('events as each feature records them', () => {
     const items = activity(store, { limit: 200 }).items;
     const at = (t: number) => items.find((i) => i.at === t);
     expect([2000, 2010, 2020, 2100].map((t) => at(t)?.text)).toEqual(['Pushed 3 runs to the store', 'Pushed 1 run to the store · 2 waiting · 1 refused', 'Pushed 1 run to the store', 'Pulled 3 runs from the store']);
+    expect([2030, 2040, 2110, 2120].map((t) => at(t)?.text)).toEqual([
+      'Pushed 1 run and 5 attempts to the store · 2 fixes',
+      'Pushed 2 attempts to the store · 1 fix',
+      'Pulled 2 runs and 7 attempts from the store · 1 fix · 1 failed',
+      'Pulled 3 fixes from the store',
+    ]);
     expect(at(2300)).toMatchObject({ kind: 'project', text: `Shared ${run.slice(0, 10)} as a link · with 1 more run · redacted`, href: `#/run/${run}` });
     expect([2400, 2410, 2420, 2430, 2440, 2450, 2460].map((t) => at(t)?.text)).toEqual(['Store set', 'Store changed', 'Store checked', 'Store checked · versioning off · no object lock', 'Store check failed', 'Push from CI off', 'Push from CI on']);
     expect(at(2410)).toMatchObject({ kind: 'setting', ref: 's3://northwind/agent-runs', actor: 'dana@example.com' });

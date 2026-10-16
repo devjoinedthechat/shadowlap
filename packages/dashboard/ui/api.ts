@@ -7,6 +7,7 @@ import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns }
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
+import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
@@ -44,6 +45,8 @@ export const JOB_KINDS = {
   push: 'push',
   pull: 'pull',
   share: 'share',
+  // The team store's setup (Settings → Store): check access to a bucket and connect it (store set --check).
+  storeSet: 'store-set',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
   // normalizer and re-run (and `tests` above runs them).
   testUpdate: 'test-update',
@@ -184,6 +187,8 @@ export interface Client {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+  /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
+  storeSetup: StoreSetupApi;
 
   // ---- Projects
   /** Projects: the switcher, Add a project, removing one, and the setup (`projects-api.ts`). */
@@ -392,6 +397,7 @@ export function createClient(token: string): Client {
     testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
     settings: settingsApi(request),
+    storeSetup: storeSetupApi(request),
     projects: projectsApi(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
@@ -462,6 +468,7 @@ export function createExportedClient(data: StaticPayload): Client {
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
+    storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
     models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),

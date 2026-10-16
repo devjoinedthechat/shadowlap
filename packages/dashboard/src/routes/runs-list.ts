@@ -57,7 +57,7 @@ export function register(router: Router, ctx: RouteContext): void {
     if (team) {
       const index = loadRunIndex(store);
       const attemptsOf = (runId: string) => (index.attempts.get(runId) ?? []).map((a) => a.runId);
-      const local = localRunIds(store, team.url, page.runs.flatMap((x) => [x.runId, ...attemptsOf(x.runId)]));
+      const local = localRunIds(store, team.key, page.runs.flatMap((x) => [x.runId, ...attemptsOf(x.runId)]));
       runs = page.runs.map((x) => {
         const n = attemptsOf(x.runId).filter((id) => local.has(id)).length;
         return { ...x, local: local.has(x.runId) || n > 0, ...(n ? { localAttempts: { run: local.has(x.runId), attempts: n } } : {}) };

@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { safeText } from '@shadowlap/engine';
 import { CI_PROVIDERS, LayoutError, PROVIDERS, StoreError, StoreUrlError, type CiProvider, type Provider } from '@shadowlap/remote';
 import { parseChoice, VERSION, type GlobalOpts } from '../shared.js';
-import { storeCheck, storeCi, storePolicy, storePushFromCi, storeSet, storeShow, teamEnv, TeamError, teamPull, teamPush, teamShare } from '../team.js';
+import { storeCheck, storeCi, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, teamEnv, TeamError, teamPull, teamPush, teamShare } from '../team.js';
 import { palette as p } from '../ui.js';
 
 /**
@@ -65,8 +65,9 @@ export function register(program: Command): void {
     .description('Use a bucket as the team store: writes "store" to shadowlap.config.json')
     .argument('<url>', 's3://bucket/folder, gs://bucket/folder, az://account/container/folder or r2://account/bucket/folder')
     .option('--provider <provider>', `check the URL against one provider's scheme: ${PROVIDER_FLAG}`, provider)
+    .option('--check', "check access first, as store check does, and write the store only when it works")
     .option('--json', 'machine-readable output')
-    .action((url: string, flags: { provider?: Provider; json?: boolean }) => run(() => storeSet(env(), url, flags)));
+    .action((url: string, flags: { provider?: Provider; check?: boolean; json?: boolean }) => run(() => (flags.check ? storeSetChecked(env(), url, flags) : storeSet(env(), url, flags))));
   store
     .command('check')
     .description("List, write, read and delete a test object with this machine's credentials; report encryption, versioning and object lock")

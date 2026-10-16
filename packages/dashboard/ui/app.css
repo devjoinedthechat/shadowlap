@@ -567,9 +567,10 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .cand .cnum { font: 600 12px var(--mono); color: var(--faint); padding-top: 2px; }
 .cand q { quotes: none; font-size: 13.5px; }
 .cand .why { display: block; margin-top: 3px; color: var(--faint); font-size: 12.5px; }
-.files a, .files div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; font: 12.5px var(--mono); }
+.files a, .files div { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; font: 12.5px var(--mono); }
 .files div:first-child { border-top: 0; }
-.files span { color: var(--faint); font-family: var(--body); font-size: 12.5px; }
+/* A longer note (a teammate's repair) wraps beside the name rather than over it. */
+.files span { color: var(--faint); font-family: var(--body); font-size: 12.5px; text-align: right; }
 .prbody { padding: 16px 18px; font-size: 13.5px; color: var(--dim); }
 .prbody h3 { margin: 0 0 8px; font: 600 15px var(--body); color: var(--ink); }
 .prbody ul { margin: 8px 0 0; padding-left: 18px; }
@@ -1771,9 +1772,7 @@ code.tipped { cursor: help; }
 .dialog .mcpform { margin-top: 12px; }
 .dialog .mcphow { margin: 10px 0 0; }
 .dialog .codebox { margin-bottom: 0; }
-.stepempty.nostore ol.setup { margin-top: 18px; }
 .fieldnote.storeerr { margin: 0 0 12px; }
-.stepempty.nostore ol.setup > li:last-child { padding-bottom: 0; }
 
 /* projects: the switcher, Add a project, the setup and the Remove dialog (what the mock drew inline) */
 .nextsteps .nextnote { padding: 0 18px 16px; margin: 0; }
@@ -1811,3 +1810,14 @@ table.tasks a.rlink:hover code { text-decoration: underline; text-underline-offs
 .pg1 .pgof a { color: inherit; text-decoration: none; }
 .pg1 .pgof a:hover code { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 .pg1 .pgof code { font-size: 12px; color: inherit; }
+
+/* the team store's setup (Settings → Store): the access to ask for, the CI step's notes, credentials not found */
+.stepempty.nostore .cli { margin-top: 0; }
+ol.setup.storesetup .foundsum .policypart { margin-top: 10px; }
+ol.setup.storesetup .foundsum .policypart p.muted { margin: 0; font-size: 12.5px; }
+ol.setup.storesetup .foundsum .policypart .codebox { margin: 6px 0 8px; max-height: 320px; overflow-y: auto; }
+ol.setup.storesetup .foundsum { margin-bottom: 18px; }
+ol.setup.storesetup p.muted.cinote { margin: -4px 0 10px; font-size: 12px; line-height: 1.5; max-width: 76ch; }
+ol.setup.storesetup dd .warnt { color: var(--warn); }
+ol.setup.storesetup dl.kvs dd { word-break: normal; overflow-wrap: anywhere; }
+ol.setup.storesetup .recline + .fieldnote { margin-top: 8px; }

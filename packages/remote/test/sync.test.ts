@@ -823,3 +823,40 @@ describe("a pull request's folder", () => {
     expect(JSON.parse(remote.objects.get(keys.run(golden.runId))!.body.toString()).run.meta.labels).toBeUndefined();
   });
 });
+
+describe('runs imported from traces', () => {
+  it('push and pull a partial recording that covers some tools by name, and refuse a name that could rewrite a terminal', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'maya@northwind.example');
+    const trace = record(a.store, 'from a trace');
+    a.store.updateRunMeta(trace.runId, { covers: ['api', 'tool:lookup_order'], imported: { at: 1, from: 'langfuse:7f3a9c2e' } });
+    const hostile = record(a.store, 'hostile trace');
+    a.store.updateRunMeta(hostile.runId, { covers: ['api', 'tool:x\u001b]0;owned\u0007'], imported: { at: 1, from: 'otel.json' } });
+    const result = await push(a, { all: true });
+    expect(result.pushed).toEqual([trace.runId]);
+    expect(result.refused).toEqual([{ runId: hostile.runId, reason: expect.stringMatching(/covers/) }]);
+    const b = machine(remote, 'dana@northwind.example');
+    expect((await pull(b)).pulled).toEqual([trace.runId]);
+    expect(b.store.getRun(trace.runId)!.meta?.covers).toEqual(['api', 'tool:lookup_order']);
+  });
+});
+
+describe('attempts in the index', () => {
+  it('names the run each attempt is filed under, so a teammate counts it with its run before pulling it', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const rec = record(a.store, 'the recording');
+    const attempt = record(a.store, 'an attempt', { parent: rec.runId });
+    a.store.updateRunMeta(attempt.runId, { repeat: { group: 'g', attempt: 1, of: 1 } });
+    const fork = record(a.store, 'a fork', { parent: rec.runId });
+    await push(a, { all: true });
+    const entries = new Map(remote.keysUnder('index/').flatMap((k) => parseSegment(remote.objects.get(k)!.body, k).runs).map((e) => [e.runId, e]));
+    expect(entries.get(attempt.runId)!.attemptOf).toBe(rec.runId);
+    expect(entries.get(rec.runId)).not.toHaveProperty('attemptOf');
+    expect(entries.get(fork.runId)).not.toHaveProperty('attemptOf');
+    // A segment that says something else than a run id is read without it.
+    writeSegment(remote, '01K5CQ4N7G00000000000000ZZ', [{ runId: '01K5CQ4N7G00000000000000AA', parentRunId: null, startedAt: 1, metaHash: 'a'.repeat(64), attemptOf: '../../etc' }]);
+    const seg = parseSegment(remote.objects.get(keys.segment('01K5CQ4N7G00000000000000ZZ'))!.body, 'x');
+    expect(seg.runs[0]).not.toHaveProperty('attemptOf');
+  });
+});

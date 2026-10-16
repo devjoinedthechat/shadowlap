@@ -318,6 +318,33 @@ CREATE TABLE IF NOT EXISTS team_sync (
   pulled_at  INTEGER,
   data       TEXT
 );
+-- The fixes this machine sent to the store or took from it: the hash of a fix as both sides last
+-- agreed on it, which a push compares this machine's copy with, and the version of the store's
+-- object last read, so a pull reads only the fixes that changed there.
+CREATE TABLE IF NOT EXISTS team_fixes (
+  remote   TEXT    NOT NULL,
+  fix_id   TEXT    NOT NULL,
+  hash     TEXT    NOT NULL,
+  version  TEXT,
+  at       INTEGER NOT NULL,
+  PRIMARY KEY (remote, fix_id)
+) WITHOUT ROWID;
+-- The repairs that came with a fix from a store: made on a teammate's machine, where the recordings
+-- the fixed code made (its goldens) stayed. Their patch and reports are written beside the project.
+CREATE TABLE IF NOT EXISTS team_repairs (
+  repair_id  TEXT    PRIMARY KEY,
+  remote     TEXT    NOT NULL,
+  at         INTEGER NOT NULL
+) WITHOUT ROWID;
+-- Every write to team_runs and team_sync moves the 'team' counter: what is only on this machine is
+-- counted again when runs or the store's rows change, never for a call a recording appends, and the
+-- dashboard shows a push, a pull or a step of the store's setup as soon as it is made.
+INSERT OR IGNORE INTO change_counts (name, n) VALUES ('team', 0);
+CREATE TRIGGER IF NOT EXISTS change_counts_team_insert AFTER INSERT ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_update AFTER UPDATE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_delete AFTER DELETE ON team_runs BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_insert AFTER INSERT ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
+CREATE TRIGGER IF NOT EXISTS change_counts_team_sync_update AFTER UPDATE ON team_sync BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'team'; END;
 `;
 
 // ---- tests (v4): the shapes of the test tables ----
@@ -422,6 +449,16 @@ export interface TeamRunRow {
   remoteHash: string | null;
   /** The bucket's index entry for it: who made it, when, its status, labels and calls. */
   entry: Record<string, unknown> | null;
+}
+
+/** A fix this machine and the store last agreed on (v4 team_fixes). */
+export interface TeamFixRow {
+  fixId: string;
+  /** The hash of the fix as both sides last had it. */
+  hash: string;
+  /** The version (ETag, generation) of the store's object last read or written. */
+  version: string | null;
+  at: number;
 }
 
 /** When this machine last pushed to and pulled from a store, and what setup recorded about it. */
@@ -1696,6 +1733,29 @@ export class Store {
     this.db
       .prepare(`INSERT INTO team_sync (remote, pushed_at, pulled_at, data) VALUES (?, ?, ?, ?) ON CONFLICT (remote) DO UPDATE SET pushed_at = excluded.pushed_at, pulled_at = excluded.pulled_at, data = excluded.data`)
       .run(remote, next.pushedAt, next.pulledAt, JSON.stringify(next.data));
+  }
+
+  /** The fixes this machine and a store last agreed on, by fix id. */
+  teamFixes(remote: string): Map<string, TeamFixRow> {
+    const rows = this.db.prepare(`SELECT * FROM team_fixes WHERE remote = ?`).all(remote);
+    return new Map(rows.map((r) => [String(r.fix_id), { fixId: String(r.fix_id), hash: String(r.hash), version: r.version === null ? null : String(r.version), at: Number(r.at) }]));
+  }
+
+  setTeamFix(remote: string, row: TeamFixRow): void {
+    this.db
+      .prepare(`INSERT INTO team_fixes (remote, fix_id, hash, version, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (remote, fix_id) DO UPDATE SET hash = excluded.hash, version = excluded.version, at = excluded.at`)
+      .run(remote, row.fixId, row.hash, row.version, row.at);
+  }
+
+  /** Marks a repair as one that came with a fix from a store (`remote`): made on another machine. */
+  markRepairPulled(remote: string, repairId: string, at: number = Date.now()): void {
+    this.db.prepare(`INSERT OR IGNORE INTO team_repairs (repair_id, remote, at) VALUES (?, ?, ?)`).run(repairId, remote, at);
+  }
+
+  /** The store a repair came from, and when; null for a repair made on this machine. */
+  repairPulled(repairId: string): { remote: string; at: number } | null {
+    const row = this.db.prepare(`SELECT remote, at FROM team_repairs WHERE repair_id = ?`).get(repairId);
+    return row ? { remote: String(row.remote), at: Number(row.at) } : null;
   }
 
   /**

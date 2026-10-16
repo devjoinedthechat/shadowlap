@@ -18,9 +18,11 @@ export class MemoryStore implements ObjectStore {
     return 'memory';
   }
 
-  async get(key: string): Promise<GetResult | null> {
+  async get(key: string, options: { maxBytes?: number } = {}): Promise<GetResult | null> {
     this.log.push({ op: 'get', key });
     const o = this.objects.get(key);
+    // As the drivers answer an object larger than asked for (http.ts): before reading it.
+    if (o && options.maxBytes !== undefined && o.body.length > options.maxBytes) throw new StoreError('too-large', `The memory store: the answer is ${o.body.length} bytes, over the ${options.maxBytes}-byte limit`);
     return o ? { body: Buffer.from(o.body), version: o.version } : null;
   }
 
