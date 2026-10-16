@@ -1787,6 +1787,9 @@ code.tipped { cursor: help; }
 .egrp.mcp .fieldnote.putback ul { margin: 6px 0 0; padding-left: 18px; }
 .egrp.mcp .fieldnote.putback li { overflow-wrap: anywhere; }
 .egrp.mcp .fieldnote.putback li code { color: var(--ink); margin-right: 4px; }
+/* what a copy leaves out for good, and why: a quiet line under what it asks to put back */
+.egrp.mcp .fieldnote.mcpnote { margin: 8px 0 0; color: var(--faint); overflow-wrap: anywhere; }
+.egrp.mcp .fieldnote.mcpnote code { color: var(--ink); }
 .egrp.mcp .mcpform2 { margin-top: 12px; display: grid; gap: 6px; }
 .egrp.mcp .mcpform2 .muted { font-size: 12.5px; }
 .dialog.ruledlg { width: min(560px, 100%); }
@@ -1795,6 +1798,9 @@ code.tipped { cursor: help; }
 .dialog .advtoggle svg.shut { transform: rotate(-90deg); }
 .dialog .advpart { margin-top: 10px; display: grid; gap: 10px; }
 .dialog .advpart .form:empty { display: none; }
+/* a regex on its own takes the whole row, and on a phone the regex and the name stack */
+.dialog .advpart .form > label:only-child { grid-column: 1 / -1; }
+@media (max-width: 520px) { .dialog .advpart .form { grid-template-columns: minmax(0, 1fr); } }
 .dialog .advpart .advnote { margin: 0; }
 .dialog.ruledlg .cmdline { margin-top: 14px; }
 .cmdline.words > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -1814,6 +1820,28 @@ ol.setup .warnbox .actions { margin-top: 2px; }
 /* a step's warning and error keep their colour against the step's own text colour */
 ol.setup .sb > p.fieldnote.err { color: var(--err); }
 ol.setup .sb > p.fieldnote.warn { color: var(--warn); }
+/* a finished step's summary: the marker, then the words, which wrap beside it and never leave it alone on a line */
+details.foundsum > summary { flex-wrap: nowrap; }
+details.foundsum > summary > .sumtext { min-width: 0; }
+/* a step's result: the dot stays with its words; when they need the room, the button goes below */
+.recline > .ic, .recline > .dotlive { flex: none; }
+.recline > .rtext { flex: 1 1 16em; min-width: 0; }
+/* every field you type exact characters into, and every code you read them in, shows them as typed:
+   a regex's (?<= is not ≤, != is not ≠, a replacement's -> is not an arrow. Important, because a
+   rule's own `font:` shorthand resets both properties to normal, as `.form input` and `.cilist code`
+   do. So do the other places that show a rule, a value, a path or a file name in the same font:
+   chips, the redaction preview's samples, a code block's file, the PR preview, the Project tab's
+   values and Add a project's folders. */
+input, textarea, select, code, pre, kbd, .cmdline, .codebox, .chip, .pvs, .codehead > span, .prl li, .kvs dd, .folders .fold b { font-variant-ligatures: none !important; font-feature-settings: "liga" 0, "calt" 0 !important; }
+/* a note under an MCP server's name wraps rather than widening the Server column past the mock's */
+.egrp.mcp td small.mnote { max-width: 240px; }
+.egrp.mcp .mcptable th:first-child { width: 22%; }
+/* the Remove dialog on a phone: each path on disk under its words, rather than both squeezed onto one line */
+@media (max-width: 520px) {
+  .dialog .ondisk li { grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; }
+  .dialog .ondisk li i { grid-row: span 2; align-self: start; }
+  .dialog .ondisk li code { grid-column: 2; max-width: 100%; }
+}
 
 /* training: what the mock drew inline, and what the real page links that it didn't (an attempt's run from its pip) */
 .trgap { margin-top: 16px; }

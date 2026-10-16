@@ -69,18 +69,53 @@ describe('the project\'s git facts', () => {
     mkdirSync(join(repo, '.git', 'worktrees', 'wt'), { recursive: true });
     writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/main\n');
     writeFileSync(join(repo, '.git', 'config'), '[remote "upstream"]\n\turl = https://example.com/x.git\n[remote "origin"]\n\turl = https://github.com/acme/support-agent\n');
-    expect(gitFacts(repo)).toEqual({ repository: 'acme/support-agent', branch: 'main' });
+    expect(gitFacts(repo)).toEqual({ repository: 'acme/support-agent', branch: 'main', defaultBranch: null });
     // A worktree: its .git is a file naming its folder, whose commondir leads to the shared config.
     const wt = tmp();
     writeFileSync(join(wt, '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`);
     writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'HEAD'), 'ref: refs/heads/fix-refund-limit\n');
     writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
-    expect(gitFacts(wt)).toEqual({ repository: 'acme/support-agent', branch: 'fix-refund-limit' });
+    expect(gitFacts(wt)).toEqual({ repository: 'acme/support-agent', branch: 'fix-refund-limit', defaultBranch: null });
     // No git, a detached HEAD, a remote elsewhere: nothing made up.
-    expect(gitFacts(tmp())).toEqual({ repository: null, branch: null });
-    expect(gitFacts(null)).toEqual({ repository: null, branch: null });
+    expect(gitFacts(tmp())).toEqual({ repository: null, branch: null, defaultBranch: null });
+    expect(gitFacts(null)).toEqual({ repository: null, branch: null, defaultBranch: null });
     writeFileSync(join(repo, '.git', 'HEAD'), '3f1c9a2e5b7d4e219c0a8d6f2b1e7a43aa001122\n');
     writeFileSync(join(repo, '.git', 'config'), '[remote "origin"]\n\turl = git@gitlab.com:acme/support-agent.git\n');
-    expect(gitFacts(repo)).toEqual({ repository: null, branch: null });
+    expect(gitFacts(repo)).toEqual({ repository: null, branch: null, defaultBranch: null });
+  });
+
+  it('reads the default branch from origin’s HEAD, else main or master, in a worktree too', () => {
+    const repo = tmp();
+    mkdirSync(join(repo, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/fix-refund-limit\n');
+    writeFileSync(join(repo, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/acme/support-agent\n');
+    // A branch called master, packed: the default.
+    writeFileSync(join(repo, '.git', 'packed-refs'), '# pack-refs with: peeled fully-peeled sorted\n3f1c9a2e5b7d4e219c0a8d6f2b1e7a43aa001122 refs/heads/master\n');
+    expect(gitFacts(repo).defaultBranch).toBe('master');
+    // A main beside it wins; what origin's HEAD names wins over both.
+    writeFileSync(join(repo, '.git', 'refs', 'heads', 'main'), '3f1c9a2e5b7d4e219c0a8d6f2b1e7a43aa001122\n');
+    expect(gitFacts(repo).defaultBranch).toBe('main');
+    mkdirSync(join(repo, '.git', 'refs', 'remotes', 'origin'), { recursive: true });
+    writeFileSync(join(repo, '.git', 'refs', 'remotes', 'origin', 'HEAD'), 'ref: refs/remotes/origin/trunk\n');
+    expect(gitFacts(repo)).toEqual({ repository: 'acme/support-agent', branch: 'fix-refund-limit', defaultBranch: 'trunk' });
+    // A worktree reads the repository it belongs to.
+    mkdirSync(join(repo, '.git', 'worktrees', 'wt'), { recursive: true });
+    const wt = tmp();
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`);
+    writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'HEAD'), 'ref: refs/heads/other\n');
+    writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
+    expect(gitFacts(wt).defaultBranch).toBe('trunk');
+  });
+
+  it('posts alerts for the default branch and opens fix pull requests into it', () => {
+    const view = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 2, at: null, repository: 'acme/support-agent', branch: 'feature', defaultBranch: 'master' });
+    expect(view.alerts).toMatchObject({ onlyMain: true, branch: 'master' });
+    expect(view.alerts.yaml).toContain("&& github.ref == 'refs/heads/master'");
+    expect(view.alerts.message.text).toBe('Shadowlap: 2 golden(s) failed on master.');
+    expect(view.fixOnFailure.preview.base).toBe('master');
+    // Off: the branch checked out, unless it is the default one.
+    expect(ciWorkflows({ ...CI_DEFAULTS, onlyMain: false }, { preview: null, failing: 0, at: null, repository: null, branch: 'feature', defaultBranch: 'master' }).alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on feature.');
+    // Unknown: main, as before.
+    expect(ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null }).alerts.branch).toBe('main');
   });
 });

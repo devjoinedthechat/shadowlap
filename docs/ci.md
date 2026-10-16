@@ -318,7 +318,7 @@ To hear about failures in Slack, let the action count them without failing, post
   run: exit 1
 ```
 
-They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, or a check fails (token and cost budgets included).
+They need an incoming webhook from your Slack workspace, its URL as a repository secret (`SLACK_WEBHOOK_URL` here), and the test step's `id`. The `github.ref` condition keeps pull requests quiet, since their checks already show a failure; drop it to post for every branch. The dashboard's Settings → CI writes your repository's default branch there, and as the base of a fix pull request: the branch origin's HEAD names, else `main` or `master`, whichever the repository has. A golden counts as failed when its replay diverges, it tries a live call, the agent exits with an error, or a check fails (token and cost budgets included).
 
 ## Keeping goldens honest
 

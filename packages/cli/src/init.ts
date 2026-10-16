@@ -145,6 +145,39 @@ function pythonDependencies(cwd: string): Set<string> {
   return names;
 }
 
+/**
+ * The extras Python dependencies are asked for with (`pydantic-ai-slim[openai,anthropic]`), from
+ * pyproject.toml (its dependency arrays, and Poetry's `extras = [...]`), requirements files and
+ * Pipfile: an extra named after a provider installs that provider's SDK.
+ */
+function pythonExtras(cwd: string): Array<{ name: string; extra: string }> {
+  const out: Array<{ name: string; extra: string }> = [];
+  const add = (name: string, list: string) => {
+    for (const e of list.split(',')) {
+      const extra = e.trim().replace(/^["']|["']$/g, '').toLowerCase();
+      if (extra) out.push({ name: name.toLowerCase().replace(/_/g, '-'), extra });
+    }
+  };
+  const spec = (text: string) => {
+    const m = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*\[([^\]\n]*)\]/.exec(text);
+    if (m) add(m[1]!, m[2]!);
+  };
+  const table = (line: string) => {
+    const m = /^\s*([\w.-]+)\s*=\s*\{[^}]*\bextras\s*=\s*\[([^\]]*)\]/.exec(line);
+    if (m) add(m[1]!, m[2]!);
+  };
+  const read = (f: string) => (existsSync(join(cwd, f)) ? readFileSync(join(cwd, f), 'utf8') : '');
+  const pyproject = read('pyproject.toml');
+  for (const s of tomlRequirements(pyproject, ['dependencies', 'requires'])) spec(s);
+  for (const line of pyproject.split('\n')) table(line);
+  for (const f of ['requirements.txt', 'requirements-dev.txt', 'requirements.in']) for (const line of read(f).split('\n')) if (!line.trim().startsWith('#')) spec(line);
+  for (const line of read('Pipfile').split('\n')) table(line);
+  return out;
+}
+
+/** Extras that install a provider's SDK, by the provider (Pydantic AI's names). */
+const EXTRA_PROVIDERS: Record<string, Provider['id']> = { openai: 'openai', anthropic: 'anthropic', google: 'gemini', gemini: 'gemini', 'google-genai': 'gemini', vertexai: 'vertex', bedrock: 'bedrock' };
+
 function sourceFiles(cwd: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, depth: number) => {
@@ -293,12 +326,58 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
   return out;
 }
 
-/** An OpenAI-compatible server the project already uses: from the environment, a .env file or a base URL fallback in code. */
-function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>): InitReport['modelServer'] {
+/**
+ * Agent frameworks that bring an OpenAI client of their own, which reads OPENAI_BASE_URL: the OpenAI
+ * Agents SDK, CrewAI (OpenAI is its default model), Mastra's model router, and Pydantic AI as a whole
+ * (`pydantic-ai`, not `pydantic-ai-slim`, which has it only with its `[openai]` extra). LangChain and
+ * the AI SDK reach OpenAI only through a package of their own for it (`langchain-openai`,
+ * `@ai-sdk/openai`), which counts as an OpenAI SDK.
+ */
+const OPENAI_FRAMEWORKS: ReadonlySet<Framework['id']> = new Set(['openai-agents', 'openai-agents-python', 'crewai', 'mastra']);
+
+/** The largest lockfile read for the packages it installs: a big project's is a few megabytes. */
+const MAX_LOCKFILE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Whether an OpenAI client is installed though no dependency names it: `openai` in a lockfile,
+ * which pulls it in for another package. (An `[openai]` extra names it: see pythonExtras.)
+ */
+function openaiInstalled(cwd: string): boolean {
+  const read = (name: string) => {
+    try {
+      const p = join(cwd, name);
+      return statSync(p).size <= MAX_LOCKFILE_BYTES ? readFileSync(p, 'utf8') : '';
+    } catch {
+      return '';
+    }
+  };
+  const locks: Array<[string, RegExp]> = [
+    ['uv.lock', /^name = "openai"$/m],
+    ['poetry.lock', /^name = "openai"$/m],
+    ['pdm.lock', /^name = "openai"$/m],
+    ['Pipfile.lock', /^\s*"openai": \{/m],
+    ['package-lock.json', /"node_modules\/openai"\s*:/],
+    ['pnpm-lock.yaml', /^\s*\/?openai@/m],
+    ['yarn.lock', /^"?openai@/m],
+    ['bun.lock', /^\s*"openai": \["openai@/m],
+  ];
+  return locks.some(([name, re]) => re.test(read(name)));
+}
+
+/**
+ * An OpenAI-compatible server the project already uses: from the environment, a .env file or a base
+ * URL fallback in code. OPENAI_BASE_URL reaches only an OpenAI client, so it is this project's
+ * server unless every model client found is another provider's (Anthropic's, Gemini's): an OpenAI
+ * SDK, a framework that brings one (OPENAI_FRAMEWORKS, Pydantic AI as a whole), an OpenAI client
+ * installed for another package, or SDKs that can't be told all count.
+ */
+function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>, providers: readonly Provider[], frameworks: readonly Framework[]): InitReport['modelServer'] {
   const toUpstream = (url: string) => url.replace(/\/+$/, '').replace(/\/v1$/, '');
   const local = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?/.test(url) && !url.includes('/openai');
-  if (env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
-  for (const f of ['.env', '.env.local']) {
+  const framework = frameworks.some((f) => OPENAI_FRAMEWORKS.has(f.id) || (f.id === 'pydantic-ai' && f.package === 'pydantic-ai'));
+  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai') || framework || openaiInstalled(cwd);
+  if (openaiClient && env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
+  for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);
     if (!existsSync(p)) continue;
     const m = /^\s*OPENAI_BASE_URL\s*=\s*["']?([^"'\s#]+)/m.exec(readFileSync(p, 'utf8'));
@@ -351,7 +430,45 @@ function nodeEntry(cwd: string, pkg: Record<string, unknown> | null): { file: st
   return null;
 }
 
-function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[]): InitReport['command'] {
+/**
+ * The model client a file imports, by the name it is imported as (`@anthropic-ai/sdk`, `openai`): a
+ * provider's SDK, or an agent framework's model or runner. Not a framework's tools alone (`ai`'s
+ * `tool`, `langchain_core`), which a module of tools imports too. Null for none.
+ */
+function modelImport(file: string, text: string): string | null {
+  if (file.endsWith('.py')) {
+    const m = /^[ \t]*(?:from[ \t]+(anthropic|openai|pydantic_ai|crewai|langgraph|langchain_(?:openai|anthropic|google_genai|google_vertexai|aws))(?:\.[\w.]+)?[ \t]+import\b|import[ \t]+(anthropic|openai)\b|from[ \t]+google[ \t]+import[ \t]+(genai)\b)/m.exec(text);
+    return m ? (m[3] ? 'google-genai' : (m[1] ?? m[2])!) : null;
+  }
+  const m = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)['"](@anthropic-ai\/[\w.-]+|openai|@google\/genai|@ai-sdk\/[\w.-]+|@openai\/agents|@mastra\/core|@langchain\/(?:openai|anthropic|google-genai|google-vertexai|aws|langgraph))['"]/.exec(text);
+  return m ? m[1]! : null;
+}
+
+/** Where a command found by its file came from, as the setup words it: `the entry file agent.py`. */
+const entryFile = (file: string) => `the entry file ${file}`;
+
+/** Files that aren't how an agent starts, whatever they import: tests, fixtures and tool configs. */
+const NOT_AN_ENTRY = /^(test_.*|.*_test\.py|.*\.(test|spec)\.[cm]?[jt]sx?|conftest\.py|setup\.py|.*\.config\.[cm]?[jt]s|.*\.d\.[cm]?ts)$/;
+
+/**
+ * The agent's file when nothing names how it starts: the one file at the top of the folder that
+ * imports a model SDK or an agent framework (`triage.mjs`), and that no other file there imports.
+ * Null when there are none or several, since a guess between them would only be a guess.
+ */
+function modelEntry(cwd: string, texts: ReadonlyArray<readonly [string, string]>, uv: boolean): InitReport['command'] {
+  const top = texts.filter(([f]) => relative(cwd, f) === basename(f) && /\.(py|[cm]?js|[cm]?ts|tsx)$/.test(f) && !NOT_AN_ENTRY.test(basename(f)));
+  const calling = top.filter(([f, t]) => modelImport(f, t) !== null).map(([f]) => basename(f));
+  if (calling.length !== 1) return null;
+  const file = calling[0]!;
+  const stem = file.replace(/\.[^.]+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // A module another file imports is part of the agent, not where it starts.
+  const imported = file.endsWith('.py') ? new RegExp(`^[ \\t]*(?:from[ \\t]+\\.?${stem}[ \\t]+import|import[ \\t]+${stem}\\b)`, 'm') : new RegExp(`['"]\\.\\/${stem}(?:\\.[cm]?[jt]sx?)?['"]`);
+  if (top.some(([f, t]) => basename(f) !== file && imported.test(t))) return null;
+  const argv = file.endsWith('.py') ? (uv ? ['uv', 'run', file] : ['python', file]) : /\.([cm]?ts|tsx)$/.test(file) ? ['npx', 'tsx', file] : ['node', file];
+  return { argv, from: entryFile(file) };
+}
+
+function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager: InitReport['packageManager'], languages: Language[], texts: ReadonlyArray<readonly [string, string]> = []): InitReport['command'] {
   const scripts = (pkg?.scripts ?? {}) as Record<string, string>;
   const runner = manager === 'pnpm' ? ['pnpm'] : manager === 'yarn' ? ['yarn'] : manager === 'bun' ? ['bun', 'run'] : ['npm', 'run'];
   for (const name of ['agent', 'start', 'dev', 'run']) {
@@ -368,16 +485,17 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
     const script = pythonScript(cwd);
     if (script) return { argv: uv ? ['uv', 'run', script.name] : manager === 'poetry' ? ['poetry', 'run', script.name] : [script.name], from: `${script.table} in pyproject.toml` };
     for (const f of ['agent.py', 'main.py', 'app.py', 'run.py', 'src/agent.py', 'src/main.py']) {
-      if (existsSync(join(cwd, f))) return { argv: uv ? ['uv', 'run', f] : ['python', f], from: f };
+      if (existsSync(join(cwd, f))) return { argv: uv ? ['uv', 'run', f] : ['python', f], from: entryFile(f) };
     }
   }
   for (const f of ['agent.ts', 'src/agent.ts', 'index.ts', 'src/index.ts', 'main.ts', 'src/main.ts']) {
-    if (existsSync(join(cwd, f))) return { argv: ['npx', 'tsx', f], from: f };
+    if (existsSync(join(cwd, f))) return { argv: ['npx', 'tsx', f], from: entryFile(f) };
   }
   for (const f of ['agent.mjs', 'agent.js', 'index.mjs', 'index.js', 'main.js', 'src/index.js']) {
-    if (existsSync(join(cwd, f))) return { argv: ['node', f], from: f };
+    if (existsSync(join(cwd, f))) return { argv: ['node', f], from: entryFile(f) };
   }
-  return null;
+  // Named after what it does (`triage.mjs`): the one file at the top that calls a model.
+  return modelEntry(cwd, texts, existsSync(join(cwd, 'uv.lock')));
 }
 
 export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env): InitReport {
@@ -413,6 +531,8 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   };
   for (const [name, id] of Object.entries(JS_PROVIDERS)) if (deps[name]) addProvider(id, name);
   for (const [name, id] of Object.entries(PY_PROVIDERS)) if (py.has(name)) addProvider(id, name);
+  // An extra that installs a provider's SDK with a framework: `pydantic-ai-slim[openai]`. (A provider's own SDK's extras, as `anthropic[bedrock]`, add a transport, not an SDK.)
+  for (const { name, extra } of pythonExtras(cwd)) if (EXTRA_PROVIDERS[extra] && !(name in PY_PROVIDERS)) addProvider(EXTRA_PROVIDERS[extra], `${name}[${extra}]`);
   if (deps['@openai/agents']) addProvider('openai', '@openai/agents');
   // Scripts without a dependency file (a requirements.txt nobody wrote): the imports tell.
   const IMPORTS: Array<[RegExp, Provider['id'], string]> = [
@@ -461,10 +581,10 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     packageManager,
     providers,
     frameworks,
-    command: detectCommand(cwd, pkg, packageManager, languages),
+    command: detectCommand(cwd, pkg, packageManager, languages, texts),
     tools,
     hardcodedBaseUrls,
-    modelServer: findModelServer(cwd, env, texts),
+    modelServer: findModelServer(cwd, env, texts, providers, frameworks),
     scannedFiles: files.length,
     config: { path: configPath, existed: existsSync(configPath) },
   };

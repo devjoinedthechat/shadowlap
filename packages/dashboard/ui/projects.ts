@@ -27,6 +27,37 @@ export function setupShowsOn(route: Route, s: { exported: boolean; meta: Meta | 
   return route.page === 'overview' && s.meta?.project?.settingUp === true;
 }
 
+/**
+ * Whether the setup page asks the server for the project's setup (`GET /api/setup`): once the meta
+ * says this dashboard serves projects. One that serves one store (`--read-only`, the terminal UI's)
+ * has no such route, so it is never asked; an exported copy answers without asking.
+ */
+export function asksForSetup(meta: Meta | null): boolean {
+  return !!meta && (meta.static === true || !!meta.project?.id);
+}
+
+/**
+ * What the setup page shows: `wait` until the meta, and then the project's setup, arrive; with no
+ * setup to follow (a dashboard that serves one store, or a server that answered none), `nothing`
+ * ("Nothing to set up here") once the store has runs, else `steps`, the four steps with their
+ * commands from the first, never marked done since nothing here can tell how far it got; else
+ * `project`, the project's own setup.
+ */
+export function setupPageShows(s: { meta: Meta | null; view: object | null | undefined; runs: readonly RunLike[] | null }): 'wait' | 'nothing' | 'steps' | 'project' {
+  if (!s.meta) return 'wait';
+  if (asksForSetup(s.meta) && s.view === undefined) return 'wait';
+  if (asksForSetup(s.meta) && s.view) return 'project';
+  return (s.runs ?? []).some((r) => !isAttempt(r)) ? 'nothing' : 'steps';
+}
+
+/**
+ * The record job a first run's confirmation starts: for the project the dialog was opened in, so a
+ * dashboard switched to another project since refuses it (409) rather than run the command there.
+ */
+export function confirmedRecording(asked: { project: string; command: string }): { project: string; command: string; confirmed: true } {
+  return { project: asked.project, command: asked.command, confirmed: true };
+}
+
 /** The typed name confirms deleting a project's recordings: trimmed and composed, as the server compares it. */
 export function nameMatches(typed: string, name: string): boolean {
   return typed.trim().normalize('NFC') === name.normalize('NFC');
@@ -83,7 +114,7 @@ export function recordingLine(runId: string, calls: number): { id: string; rest:
 }
 
 /** What the record step's terminal line says until a command is found or typed (`setupCommands`). */
-const RECORD_PLACEHOLDER = '<the command that starts your agent>';
+export const RECORD_PLACEHOLDER = '<the command that starts your agent>';
 
 /**
  * The record step's "or in a terminal" line with the command as typed in the field, in place of
@@ -120,4 +151,32 @@ export function storePath(meta: Pick<Meta, 'dbPath' | 'project'>): string {
 /** The line under an exported copy's project block: `1 run · nothing runs from here`. */
 export function exportedLine(runs: number): string {
   return `${plural(runs, 'run')} · nothing runs from here`;
+}
+
+/**
+ * Whether a page stays as it is when the dashboard switches to another project elsewhere (another
+ * tab switched, or removed the project this one showed): a page every project has (the Overview,
+ * Runs, Tests, Fixes, Training, Settings, Add a project, the setup) stays, with whatever is typed on
+ * it, and reads the current project's data; one that names a run, a pair of runs or a fix of the
+ * project it showed has nothing to show in the other and goes to the Overview. A dialog open on a
+ * page that stays closes, unless it holds only what was typed into it (`dialogOnSwitch`).
+ */
+export function keepsPageOnSwitch(route: Route): boolean {
+  switch (route.page) {
+    case 'run':
+    case 'notfound':
+      return false;
+    case 'compare':
+      return !route.a && !route.b;
+    case 'fixes':
+      return !route.id;
+    default:
+      return true;
+  }
+}
+
+/** What the page says once it has turned to the project switched to elsewhere: `refused` when a change it asked for was refused for it. */
+export function switchedText(o: { from: string | null; to: string; refused: boolean }): string {
+  if (o.refused && o.from) return `Nothing was done in ${o.from}: the dashboard switched to ${o.to} elsewhere, and this page shows ${o.to} now.`;
+  return `The dashboard switched to ${o.to} elsewhere: this page shows it now.`;
 }

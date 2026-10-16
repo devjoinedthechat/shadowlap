@@ -5,9 +5,9 @@ import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
-import { onProjectSwitched, type ProjectsView } from '../projects-api.js';
-import { exportedLine } from '../projects.js';
-import { href } from '../route.js';
+import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
+import { exportedLine, keepsPageOnSwitch, switchedText } from '../projects.js';
+import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
 import { RemoveProjectDialog } from './RemoveProject.js';
@@ -28,8 +28,7 @@ export function projectOf(meta: Meta | null): { name: string; path: string } | n
 /** The last list the switcher loaded: what the palette's Projects group offers. */
 let lastList: ProjectsView | null = null;
 
-/** Where a switch made from this page lands once the project's meta has arrived: its Overview, or the page a link named. */
-let landing: { id: string; to: string } | null = null;
+
 
 /** The same page, however its hash is written: `#/`, `#` and none are the Overview. */
 const samePage = (a: string, b: string) => a.replace(/^#\/?/, '') === b.replace(/^#\/?/, '');
@@ -47,7 +46,7 @@ export async function switchProject(app: AppState, id: string, to: string = href
       app.toast(err instanceof Error ? err.message : String(err));
       return;
     }
-    landing = { id, to };
+    expectProject(id, to);
     await app.reload();
   }
   if (!samePage(location.hash, to)) navigate(to);
@@ -116,18 +115,39 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
   const several = list ? list.items.length > 1 : true;
   useEffect(() => provideProjectRemoval({ current: () => ({ id, blocked: several ? null : ONLY_PROJECT }), Dialog: RemoveProjectDialog }), [id, several]);
 
-  // A switch made elsewhere (another tab, a removed project) lands on the Overview; one made here
-  // where it was asked to (the Overview, or a job's link in the project it ran in).
+  // A switch made here lands where it was asked to (the Overview, or a job's link in the project it
+  // ran in). One made elsewhere (another tab, a project removed there) keeps a page every project
+  // has, with what is typed on it, and reads the current project; a page that names a run or a fix
+  // of the other project goes to the Overview. A dialog that asked about the other project closes
+  // (Dialog), never to act on this one. The toast says what happened.
+  const refused = useRef(false);
+  const shownName = useRef(project.name);
+  const { reload, toast } = app;
   useEffect(() => {
+    const from = shownName.current;
+    shownName.current = project.name;
     if (seen.current === id) return;
     seen.current = id;
-    const to = landing?.id === id ? landing.to : href.overview();
-    landing = null;
-    if (!samePage(location.hash, to)) navigate(to);
-  }, [id]);
+    const mine = takeLanding(id);
+    // A change refused for the project it showed, or a dialog that asked about it and closed: nothing was done there.
+    const wasRefused = takeDialogDropped() || refused.current;
+    refused.current = false;
+    if (mine !== null) {
+      if (!samePage(location.hash, mine)) navigate(mine);
+      return;
+    }
+    if (!keepsPageOnSwitch(parseRoute(location.hash))) navigate(href.overview());
+    toast(switchedText({ from, to: project.name, refused: wasRefused }));
+  }, [id, project.name, toast]);
   // A change asked for here was refused because the dashboard switched elsewhere: turn to that project at once.
-  const { reload } = app;
-  useEffect(() => onProjectSwitched(() => void reload()), [reload]);
+  useEffect(
+    () =>
+      onProjectSwitched(() => {
+        refused.current = true;
+        void reload();
+      }),
+    [reload],
+  );
 
   const pick = (pid: string) => {
     menu.close();
@@ -150,7 +170,8 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
         <span className="pa">{initial(project.name)}</span>
         <span className="pn">
           <b>{project.name}</b>
-          <small>{project.display ?? compactPath(project.path, 30)}</small>
+          {/* A long folder keeps its last folders, as the switcher's list shows it; the whole path is on hover. */}
+          <small>{compactPath(project.display ?? project.path, 30)}</small>
         </span>
         <Icon name="caret" className="caret" />
       </button>
@@ -163,7 +184,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
                 type="button"
                 role="menuitem"
                 onClick={() => pick(p.id)}
-                title={p.why ?? undefined}
+                title={p.why ?? p.path}
                 aria-keyshortcuts={p.removable ? 'Delete' : undefined}
                 onKeyDown={(e) => {
                   // The × shows under the pointer only: from the keyboard, Delete on the project removes it.

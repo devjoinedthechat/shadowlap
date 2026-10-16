@@ -117,7 +117,7 @@ def send_page(to: str) -> dict:
     expect(r.packageManager).toBe('uv');
     expect(r.providers.map((p) => p.id)).toEqual(['openai']);
     expect(r.frameworks.map((f) => f.id)).toEqual(['pydantic-ai']);
-    expect(r.command).toEqual({ argv: ['uv', 'run', 'agent.py'], from: 'agent.py' });
+    expect(r.command).toEqual({ argv: ['uv', 'run', 'agent.py'], from: 'the entry file agent.py' });
     expect(r.tools.map((t) => [t.name, t.via, t.effect, t.suggested])).toEqual([
       ['fetch_page', 'pydantic-ai', null, 'read'],
       ['send_page', 'shadowlap', 'write', 'write'],
@@ -137,7 +137,7 @@ def send_page(to: str) -> dict:
     expect(scripted(declared, {})).toEqual({ argv: ['research-agent'], from: '[project.scripts] in pyproject.toml' });
     expect(scripted('[tool.poetry]\nname = "x"\n\n[tool.poetry.scripts]\nagent = "x.cli:main"\n', { 'poetry.lock': '' })).toEqual({ argv: ['poetry', 'run', 'agent'], from: '[tool.poetry.scripts] in pyproject.toml' });
     // Without one, the entry file.
-    expect(scripted('[project]\nname = "x"\n', { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'main.py'], from: 'main.py' });
+    expect(scripted('[project]\nname = "x"\n', { 'uv.lock': '' })).toEqual({ argv: ['uv', 'run', 'main.py'], from: 'the entry file main.py' });
   });
 
   it('starts a Node project by the file its package.json names, before guessing one by its name', () => {
@@ -149,8 +149,63 @@ def send_page(to: str) -> dict:
     expect(started({ bin: 'src/cli.ts' }, { 'src/cli.ts': '' })).toEqual({ argv: ['npx', 'tsx', 'src/cli.ts'], from: 'package.json bin: src/cli.ts' });
     // A start script still comes first; a file that isn't there, or outside the folder, is passed over.
     expect(started({ main: 'main.js', scripts: { start: 'node agent.js' } })).toEqual({ argv: ['npm', 'start'], from: 'package.json scripts.start: node agent.js' });
-    expect(started({ main: 'gone.js' })).toEqual({ argv: ['node', 'agent.js'], from: 'agent.js' });
-    expect(started({ main: '../elsewhere/main.js' })).toEqual({ argv: ['node', 'agent.js'], from: 'agent.js' });
+    expect(started({ main: 'gone.js' })).toEqual({ argv: ['node', 'agent.js'], from: 'the entry file agent.js' });
+    expect(started({ main: '../elsewhere/main.js' })).toEqual({ argv: ['node', 'agent.js'], from: 'the entry file agent.js' });
+  });
+
+  it('starts an agent named after what it does by the one file at the top that calls a model', () => {
+    const command = (files: Record<string, string>) => inspectProject(project(files), {}).command;
+    const pkg = JSON.stringify({ name: 'triage-bot', type: 'module', dependencies: { '@anthropic-ai/sdk': '^0.126.0' } });
+    const triage = "import Anthropic from '@anthropic-ai/sdk';\nimport { label } from './labels.mjs';\n";
+    expect(command({ 'package.json': pkg, 'triage.mjs': triage, 'labels.mjs': 'export const label = 1;\n', 'triage.test.mjs': "import Anthropic from '@anthropic-ai/sdk';\n" })).toEqual({ argv: ['node', 'triage.mjs'], from: 'the entry file triage.mjs' });
+    expect(command({ 'tsconfig.json': '{}', 'digest.ts': "import { GoogleGenAI } from '@google/genai';\n" })).toEqual({ argv: ['npx', 'tsx', 'digest.ts'], from: 'the entry file digest.ts' });
+    expect(command({ 'uv.lock': '', 'bot.py': 'from anthropic import Anthropic\n' })).toEqual({ argv: ['uv', 'run', 'bot.py'], from: 'the entry file bot.py' });
+    expect(command({ 'requirements.txt': 'openai\n', 'bot.py': 'import openai\n' })).toEqual({ argv: ['python', 'bot.py'], from: 'the entry file bot.py' });
+    // Two that call a model, one another file imports, one in a folder below, or tools alone: no guess.
+    expect(command({ 'package.json': pkg, 'triage.mjs': triage, 'digest.mjs': "import OpenAI from 'openai';\n" })).toBeNull();
+    expect(command({ 'package.json': pkg, 'llm.mjs': "import Anthropic from '@anthropic-ai/sdk';\n", 'run.mjs': "import { ask } from './llm.mjs';\n" })).toBeNull();
+    expect(command({ 'requirements.txt': 'openai\n', 'llm.py': 'import openai\n', 'cli.py': 'from llm import ask\n' })).toBeNull();
+    expect(command({ 'package.json': pkg, 'src/triage.mjs': triage })).toBeNull();
+    expect(command({ 'package.json': pkg, 'tools.ts': "import { tool } from 'ai';\n" })).toBeNull();
+  });
+
+  it('takes OPENAI_BASE_URL as the model server only for a project with an OpenAI client, or SDKs it can’t tell', () => {
+    const env = { OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1' };
+    const found = { url: 'http://127.0.0.1:11434/v1', upstream: 'http://127.0.0.1:11434', from: 'OPENAI_BASE_URL in your environment' };
+    const anthropic = { 'package.json': JSON.stringify({ name: 'triage-bot', dependencies: { '@anthropic-ai/sdk': '^0.126.0' } }), 'agent.mjs': "import Anthropic from '@anthropic-ai/sdk';\n" };
+    // Its calls go to Anthropic's API, wherever OPENAI_BASE_URL points: in the environment or in .env.
+    expect(inspectProject(project(anthropic), env).modelServer).toBeNull();
+    expect(inspectProject(project({ ...anthropic, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }), {}).modelServer).toBeNull();
+    const openai = { 'package.json': JSON.stringify({ name: 'triage-bot', dependencies: { openai: '^6.0.0' } }), 'agent.mjs': "import OpenAI from 'openai';\n" };
+    expect(inspectProject(project(openai), env).modelServer).toEqual(found);
+    expect(inspectProject(project({ 'agent.py': 'print(1)\n' }), env).modelServer).toEqual(found);
+    expect(formatInit(inspectProject(project(anthropic), env), palette, false)).not.toContain('SHADOWLAP_UPSTREAM_OPENAI');
+  });
+
+  it('counts an OpenAI client a framework, an extra or a lockfile brings in, next to another provider’s SDK', () => {
+    const env = { OPENAI_BASE_URL: 'http://127.0.0.1:11434/v1' };
+    const server = (files: Record<string, string>, given: Record<string, string> = env) => inspectProject(project(files), given).modelServer?.url ?? null;
+    // Pydantic AI's `openai:` models next to Anthropic's SDK: the agent's OpenAI calls go to the local server, from the environment or .env.
+    const pydantic = { 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "pydantic-ai-slim[openai]"]\n', 'agent.py': "from pydantic_ai import Agent\nagent = Agent('openai:llama3.2')\n" };
+    expect(server(pydantic)).toBe('http://127.0.0.1:11434/v1');
+    // The extra installs OpenAI's SDK: it is one of the project's SDKs, named by what brought it.
+    expect(inspectProject(project(pydantic), {}).providers).toEqual([{ id: 'anthropic', via: 'anthropic' }, { id: 'openai', via: 'pydantic-ai-slim[openai]' }]);
+    expect(server({ ...pydantic, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:11434/v1\n' }, {})).toBe('http://127.0.0.1:11434/v1');
+    // Pydantic AI as a whole, the OpenAI Agents SDK, CrewAI or Mastra beside another provider's SDK: each brings an OpenAI client.
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "pydantic-ai>=1"]\n', 'agent.py': 'from pydantic_ai import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'requirements.txt': 'anthropic\nopenai-agents\n', 'agent.py': 'from agents import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'requirements.txt': 'anthropic\ncrewai\n', 'agent.py': 'from crewai import Agent\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@ai-sdk/anthropic': '^2.0.0', '@mastra/core': '^0.20.0' } }), 'agent.mjs': "import { Agent } from '@mastra/core/agent';\n" })).toBe('http://127.0.0.1:11434/v1');
+    // The AI SDK, LangChain or Pydantic AI's slim package with Anthropic's provider alone: every client is Anthropic's.
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@ai-sdk/anthropic': '^2.0.0', ai: '^5.0.0' } }), 'agent.mjs': "import { generateText } from 'ai';\n" })).toBeNull();
+    expect(server({ 'requirements.txt': 'langchain\nlangchain-anthropic\n', 'agent.py': 'from langchain_anthropic import ChatAnthropic\n' })).toBeNull();
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["pydantic-ai-slim[anthropic]"]\n', 'agent.py': 'from pydantic_ai import Agent\n' })).toBeNull();
+    // An extra alone, or openai in the lockfile for another package.
+    expect(server({ 'requirements.txt': 'anthropic\nsome-agent-kit[openai]>=1\n', 'agent.py': 'import anthropic\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic", "some-agent-kit"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "openai"\nversion = "1.54.0"\n', 'agent.py': 'import anthropic\n' })).toBe('http://127.0.0.1:11434/v1');
+    expect(server({ 'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/sdk': '^0.126.0', 'agent-kit': '^1.0.0' } }), 'package-lock.json': JSON.stringify({ packages: { 'node_modules/openai': { version: '6.0.0' } } }), 'agent.mjs': "import Anthropic from '@anthropic-ai/sdk';\n" })).toBe('http://127.0.0.1:11434/v1');
+    // Anthropic's SDK and nothing that brings an OpenAI client in: not this project's server.
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "anthropic"\n', 'agent.py': 'import anthropic\n' })).toBeNull();
   });
 
   it('counts Python tools wrapped with the framework adapters as declared', () => {

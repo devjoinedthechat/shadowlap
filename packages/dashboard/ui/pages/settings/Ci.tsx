@@ -1,34 +1,35 @@
 import { useEffect, useState } from 'react';
 import { CodeBlock } from '../../components/bits.js';
 import { Tile } from '../../components/Icon.js';
+import { shortFixId } from '../../fixes/model.js';
 import { clock } from '../../format.js';
 import { useLatest } from '../../hooks.js';
 import { href } from '../../route.js';
-import type { CiListRow, CiOptions, CiPullRequest, CiWorkflowsView } from '../../settings-api.js';
+import type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
 import { LoadProblem, Loading } from './common.js';
-import { CI_DEFAULTS, localCiWorkflows, typedSecret } from './logic.js';
+import { ciShown, typedSecret } from './logic.js';
 
 /**
  * CI (`#/settings/alerts`, as Alerts had it): two panels with one layout. Settings on the left as
  * rows ending in what the step needs; on the right, what lands and a short list; the workflow file
- * across the bottom with Copy. The panels come from the tests feature's `GET /api/ci/workflows`,
- * asked again as you pick, which fills in the project's goldens, its newest verified fix and its
- * repository; a dashboard without that endpoint writes the same steps here (`localCiWorkflows`).
- * Nothing is stored: the steps go into your own workflow file and run in your CI.
+ * across the bottom with Copy. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts),
+ * asked again as you pick, which fills in the project's goldens, its newest verified fix, its
+ * repository and its default branch. Nothing is stored: the steps go into your own workflow file
+ * and run in your CI.
  */
 
-/** What the panels are set to, kept while the dashboard is open. */
-const kept: CiOptions = { ...CI_DEFAULTS };
+/** What the panels were changed to, kept while the dashboard is open; what isn't changed is the server's default. */
+const kept: Partial<CiWorkflowOptions> = {};
 
 export function CiTab() {
   const { toast } = useApp();
-  const [o, setO] = useState<CiOptions>(() => ({ ...kept }));
-  const set = (patch: Partial<CiOptions>) => {
+  const [changed, setChanged] = useState<Partial<CiWorkflowOptions>>(() => ({ ...kept }));
+  const set = (patch: Partial<CiWorkflowOptions>) => {
     Object.assign(kept, patch);
-    setO({ ...kept });
+    setChanged({ ...kept });
   };
-  const { view, error } = useCiWorkflows(o);
+  const { view, error } = useCiWorkflows(changed);
   if (!view) {
     if (error) return <LoadProblem error={error} />;
     return (
@@ -38,6 +39,8 @@ export function CiTab() {
       </>
     );
   }
+  // What the controls show: what was changed here, else what the server answered with.
+  const o = ciShown(changed, view);
   return (
     <>
       <FixOnFailure
@@ -55,36 +58,22 @@ export function CiTab() {
   );
 }
 
-/** The server answered that it has no `/api/ci/workflows`: asked once a page load, then written here. */
-let endpointMissing = false;
-
-/**
- * The panels for the options: the server's answer, kept while the next one is asked so nothing
- * empties as you type; written here once the server says it has no such endpoint.
- */
-function useCiWorkflows(o: CiOptions): { view: CiWorkflowsView | null; error: Error | null } {
+/** The panels for what was changed: the server's answer, kept while the next one is asked so nothing empties as you type. */
+function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null } {
   const { client } = useApp();
   const key = JSON.stringify(o);
   const options = useLatest(o);
   const [served, setServed] = useState<{ view: CiWorkflowsView | null; error: Error | null }>({ view: null, error: null });
-  const [missing, setMissing] = useState(endpointMissing);
   useEffect(() => {
-    if (missing) return;
     let alive = true;
-    client.settings.ciWorkflows(options.current).then(
-      (view) => {
-        if (!alive) return;
-        if (view !== null) return setServed({ view, error: null });
-        endpointMissing = true;
-        setMissing(true);
-      },
+    client.ciWorkflows(options.current).then(
+      (view) => alive && setServed({ view, error: null }),
       (err: unknown) => alive && setServed((s) => ({ view: s.view, error: err instanceof Error ? err : new Error(String(err)) })),
     );
     return () => {
       alive = false;
     };
-  }, [client, key, missing, options]);
-  if (missing) return { view: localCiWorkflows(o), error: null };
+  }, [client, key, options]);
   return served;
 }
 
@@ -114,7 +103,7 @@ function Select({ label, value, options, onChange }: { label: string; value: str
   );
 }
 
-function FixOnFailure({ o, view, set, onToggle }: { o: CiOptions; view: CiWorkflowsView; set: (patch: Partial<CiOptions>) => void; onToggle: (on: boolean) => void }) {
+function FixOnFailure({ o, view, set, onToggle }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; onToggle: (on: boolean) => void }) {
   const f = view.fixOnFailure;
   return (
     <section className={`panel set cip${o.fix ? '' : ' off'}`}>
@@ -169,7 +158,7 @@ function FixOnFailure({ o, view, set, onToggle }: { o: CiOptions; view: CiWorkfl
 }
 
 /** The pull request Fix on failure opens, as GitHub shows it: the newest fix verified here, or the docs' example. */
-function PullRequest({ pr }: { pr: CiPullRequest }) {
+function PullRequest({ pr }: { pr: PullRequestPreview }) {
   // The file the fix changes leads its line, then its lines and what it cost: `prompts/refund.md +1 −0 · ≈$0.84 of $2.00`.
   const change = pr.change ? /^(\S+)(.*)$/.exec(pr.change) : null;
   return (
@@ -184,7 +173,9 @@ function PullRequest({ pr }: { pr: CiPullRequest }) {
         <b title={pr.title}>{pr.title}</b>
         {pr.fixId ? (
           <span>
-            <a href={href.fixes(pr.fixId)}>{pr.fixId}</a>
+            <a href={href.fixes(pr.fixId)} title={`The fix this pull request would carry: ${pr.fixId}`}>
+              {shortFixId(pr.fixId)}
+            </a>
           </span>
         ) : pr.example ? (
           <span>#142</span>
@@ -225,7 +216,7 @@ function PullRequest({ pr }: { pr: CiPullRequest }) {
   );
 }
 
-function Alerts({ o, view, set }: { o: CiOptions; view: CiWorkflowsView; set: (patch: Partial<CiOptions>) => void }) {
+function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
   const a = view.alerts;
   const toggle = () => set({ onlyMain: !o.onlyMain });
   return (
@@ -241,7 +232,7 @@ function Alerts({ o, view, set }: { o: CiOptions; view: CiWorkflowsView; set: (p
           </p>
           <div className="setrow tight">
             <div>
-              <b>Only for the main branch</b>
+              <b>Only for the {a.branch} branch</b>
               <span>Pull requests stay quiet; their checks already show it.</span>
             </div>
             <span
@@ -249,7 +240,7 @@ function Alerts({ o, view, set }: { o: CiOptions; view: CiWorkflowsView; set: (p
               role="switch"
               tabIndex={0}
               aria-checked={o.onlyMain}
-              aria-label="Only for the main branch"
+              aria-label={`Only for the ${a.branch} branch`}
               onClick={toggle}
               onKeyDown={(e) => {
                 if (e.key === ' ' || e.key === 'Enter') {

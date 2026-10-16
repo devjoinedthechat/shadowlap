@@ -1,7 +1,7 @@
 import { lstatSync, opendirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
-import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
+import { displayPath, expandHome, isWithin, realpathOrNull, tildePath } from './paths.js';
 
 /**
  * Folders for the dashboard's Add a project page: what kind of project a folder holds, and the
@@ -15,8 +15,10 @@ import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
  *   CORS preflight), so such a page can neither call it nor read its answer; adding a project is a
  *   change, and changes are also refused from another origin.
  * - It lists one directory level per request (the folder the typed path is in), directories only,
- *   by name and project kind. It never returns a file's name or contents, and says nothing about
- *   whether a file is there: a file and a path where nothing is get the same answer.
+ *   by name and project kind, plus the projects one level inside the folders there that have no
+ *   project files of their own (real folders only, never through a link). It never returns a
+ *   file's name or contents, and says nothing about whether a file is there: a file and a path
+ *   where nothing is get the same answer.
  * - Only under the user's home folder, or roots they configured (`roots` in the project list, or
  *   `SHADOWLAP_PROJECT_ROOTS`). A path that resolves elsewhere, through `..` or a symbolic link,
  *   lists nothing. A configured root can't be a filesystem root, a system folder, or a folder
@@ -30,7 +32,9 @@ import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
  *   folder. So a path elsewhere, or in a hidden or system folder, gets the same answer whether or
  *   not something is there: `~/.ssh/id_rsa/` can't be told from `~/.ssh/nothing/`.
  * - Capped: at most {@link SUGGEST_LIMITS.scanned} entries read from a directory, at most
- *   {@link SUGGEST_LIMITS.described} of them looked into for project files, and at most
+ *   {@link SUGGEST_LIMITS.described} of them looked into for project files, at most
+ *   {@link SUGGEST_LIMITS.insideFolders} folders looked into one level down (and
+ *   {@link SUGGEST_LIMITS.insideDescribed} of their subfolders), and at most
  *   {@link SUGGEST_LIMITS.maxResults} returned.
  *
  * Adding a folder from the dashboard checks the same limits again ({@link checkFolder}), and also
@@ -93,9 +97,11 @@ const LOCKFILES: ReadonlyArray<readonly [string, ProjectLanguage, string]> = [
 
 const NO_PROJECT_FILES = 'No project files';
 
+// A path that isn't there is the common answer here (most folders have few of the files looked
+// for), so it is asked without an exception for it: suggestions look at thousands.
 function isFile(path: string): boolean {
   try {
-    return statSync(path).isFile();
+    return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
   } catch {
     return false;
   }
@@ -103,10 +109,22 @@ function isFile(path: string): boolean {
 
 function isDirectory(path: string): boolean {
   try {
-    return statSync(path).isDirectory();
+    return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
   } catch {
     return false;
   }
+}
+
+/** Folder names in a list's order, as people read them: case and accents aside. One collator for every comparison, which is what keeps a sort of thousands fast. */
+const BY_NAME = new Intl.Collator('en', { sensitivity: 'base' });
+
+/** Paths as people read them under `home` (`~/code/agent`), with the home folder's real path found once rather than for every path. */
+function displayer(home: string): (path: string) => string {
+  const bases = [...new Set([resolve(home), realpathOrNull(home) ?? resolve(home)])];
+  return (path) => {
+    for (const base of bases) if (isWithin(path, base)) return tildePath(path, base);
+    return path;
+  };
 }
 
 /** A small text file's contents, or '' (a manifest is never this large; a huge one isn't read). */
@@ -147,9 +165,9 @@ function defaultManager(folder: string, language: ProjectLanguage, has: (name: s
  * nothing below the folder; it only checks for a fixed set of names, so a folder of any size costs
  * the same.
  */
-export function describeFolder(folder: string, options: { home?: string } = {}): FolderKind {
+export function describeFolder(folder: string, options: { home?: string; display?: (path: string) => string } = {}): FolderKind {
   const home = options.home ?? homedir();
-  const shown = displayPath(folder, home);
+  const shown = options.display ? options.display(folder) : displayPath(folder, home);
   const none = (why: string): FolderKind => ({ kind: null, label: NO_PROJECT_FILES, languages: [], managers: [], files: [], why });
   if (!isDirectory(folder)) {
     try {
@@ -478,6 +496,13 @@ export const SUGGEST_LIMITS = Object.freeze({
   described: 200,
   /** Longest query read. */
   queryChars: 1024,
+  /** Folders without project files looked into for projects one level down (`~/code/invoice-bot`), at most. */
+  insideFolders: 40,
+  /** Entries read from each of them at most. */
+  insideScanned: 500,
+  /** Their subfolders looked into for project files at most, all of them together, and in each of them. */
+  insideDescribed: 200,
+  insideEach: 25,
 });
 
 export interface FolderSuggestion {
@@ -512,12 +537,70 @@ export interface SuggestOptions {
   limit?: number;
 }
 
+/** Folder names code is usually kept in: looked into first for projects one level down. Compared lowercased. */
+const CODE_FOLDERS = new Set(['code', 'src', 'source', 'dev', 'developer', 'development', 'projects', 'project', 'repos', 'repositories', 'git', 'github', 'gitlab', 'work', 'workspace', 'workspaces', 'agents', 'apps', 'sites', 'desktop']);
+
+/** How well a folder's name matches what was typed after the last `/`: 0 starts with it (or nothing typed), 1 holds it, -1 neither. */
+function nameRank(name: string, prefix: string): number {
+  const lower = name.normalize('NFC').toLowerCase();
+  return !prefix || lower.startsWith(prefix) ? 0 : lower.includes(prefix) ? 1 : -1;
+}
+
+/**
+ * The projects one level inside each of `parents` (folders without project files), within the
+ * `inside…` limits: subfolders with project files whose name matches `prefix`, or all of them when
+ * the parent's own name matched. Real folders only, never a link, a hidden folder or a system one
+ * (`depth` is theirs below the root). Keyed by the parent's path, each list by name.
+ */
+interface Ranked {
+  name: string;
+  path: string;
+  rank: number;
+}
+
+function projectsInside(parents: readonly Ranked[], prefix: string, depth: number, suggest: (m: Ranked) => FolderSuggestion): Map<string, Array<Ranked & { suggestion: FolderSuggestion }>> {
+  const out = new Map<string, Array<Ranked & { suggestion: FolderSuggestion }>>();
+  let described = 0;
+  for (const parent of parents.slice(0, SUGGEST_LIMITS.insideFolders)) {
+    if (described >= SUGGEST_LIMITS.insideDescribed) break;
+    let handle;
+    try {
+      handle = opendirSync(parent.path);
+    } catch {
+      continue;
+    }
+    const children: Ranked[] = [];
+    try {
+      let scanned = 0;
+      for (let entry = handle.readSync(); entry && ++scanned <= SUGGEST_LIMITS.insideScanned; entry = handle.readSync()) {
+        if (!entry.isDirectory() || entry.name.startsWith('.') || systemName(entry.name, depth)) continue;
+        const rank = parent.rank >= 0 ? parent.rank : nameRank(entry.name, prefix);
+        if (rank >= 0) children.push({ name: entry.name, path: join(parent.path, entry.name), rank });
+      }
+    } finally {
+      handle.closeSync();
+    }
+    children.sort((a, b) => BY_NAME.compare(a.name, b.name));
+    const found: Array<Ranked & { suggestion: FolderSuggestion }> = [];
+    for (const c of children.slice(0, SUGGEST_LIMITS.insideEach)) {
+      if (described >= SUGGEST_LIMITS.insideDescribed) break;
+      described++;
+      const suggestion = suggest(c);
+      if (suggestion.folder.kind) found.push({ ...c, suggestion });
+    }
+    if (found.length) out.set(parent.path, found);
+  }
+  return out;
+}
+
 /**
  * Completes a typed path with the folders it could mean, one directory level at a time: `~/co`
  * lists the home folder's subfolders matching "co" (those that start with it first), `~/code/`
  * lists everything in `~/code`, and an empty query lists the home folder (and the configured roots
- * themselves). Folders with project files come before those without; each says what it holds.
- * See the limits at the top of this file.
+ * themselves). A folder without project files that holds projects one level down stands aside for
+ * them: `~/code/invoice-bot` is listed rather than `~/code` (which still opens when typed), and
+ * `~/inv` finds it too. Folders with project files come before those without; each says what it
+ * holds. See the limits at the top of this file.
  */
 export function suggestFolders(query: string, options: SuggestOptions = {}): FolderSuggestions {
   const home = options.home ?? homedir();
@@ -557,8 +640,10 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   for (const p of options.opened ?? []) opened.set(realpathOrNull(p.path) ?? resolve(p.path), p.id);
 
   // Read one level, directories only, skipping hidden and system names.
-  const matches: Array<{ name: string; path: string; rank: number }> = [];
-  const links: Array<{ name: string; path: string; rank: number }> = [];
+  const matches: Ranked[] = [];
+  const links: Ranked[] = [];
+  // Folders whose own name doesn't match: a project one level inside one may (`~/inv` finds `~/code/invoice-bot`).
+  const others: Ranked[] = [];
   const depth = realDir === root ? 0 : 1;
   let truncated = false;
   let handle;
@@ -576,9 +661,11 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
       }
       const name = entry.name;
       if (name.startsWith('.') || systemName(name, depth)) continue;
-      const lower = name.normalize('NFC').toLowerCase();
-      const rank = !prefix || lower.startsWith(prefix) ? 0 : lower.includes(prefix) ? 1 : -1;
-      if (rank < 0) continue;
+      const rank = nameRank(name, prefix);
+      if (rank < 0) {
+        if (entry.isDirectory()) others.push({ name, path: join(realDir, name), rank });
+        continue;
+      }
       if (entry.isDirectory()) matches.push({ name, path: join(realDir, name), rank });
       else if (entry.isSymbolicLink()) links.push({ name, path: join(realDir, name), rank });
     }
@@ -596,23 +683,37 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
     matches.push({ ...link, path: target });
   }
 
-  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+  const byName = (a: { name: string }, b: { name: string }) => BY_NAME.compare(a.name, b.name);
   matches.sort((a, b) => a.rank - b.rank || byName(a, b));
   if (matches.length > SUGGEST_LIMITS.described) truncated = true;
-  const described = matches.slice(0, SUGGEST_LIMITS.described).map((m) => {
+  const display = displayer(home);
+  const suggest = (m: { name: string; path: string }): FolderSuggestion => {
     const id = opened.get(m.path) ?? null;
-    return { ...m, suggestion: { path: m.path, display: displayPath(m.path, home), name: m.name, folder: describeFolder(m.path, { home }), added: id !== null, projectId: id } satisfies FolderSuggestion };
+    return { path: m.path, display: display(m.path), name: m.name, folder: describeFolder(m.path, { home, display }), added: id !== null, projectId: id };
+  };
+  const described = matches.slice(0, SUGGEST_LIMITS.described).map((m) => ({ ...m, suggestion: suggest(m) }));
+
+  // Projects one level inside the folders that have no project files: those that match first, then
+  // the rest; in each, the folders code is usually kept in (`~/code`, `~/projects`) before the others.
+  const codeFirst = (a: Ranked, b: Ranked) => Number(!CODE_FOLDERS.has(a.name.toLowerCase())) - Number(!CODE_FOLDERS.has(b.name.toLowerCase())) || byName(a, b);
+  const parents = [...described.filter((d) => !d.suggestion.folder.kind).sort(codeFirst), ...others.sort(codeFirst)];
+  const inside = projectsInside(parents, prefix, depth + 1, suggest);
+  const listedHere = described.flatMap((d) => {
+    const found = inside.get(d.path);
+    // A folder that holds projects stands aside for them; one that holds none is listed as it is.
+    return found?.length ? found : [d];
   });
-  // The best match first, then folders with project files before those without.
-  described.sort((a, b) => a.rank - b.rank || Number(!a.suggestion.folder.kind) - Number(!b.suggestion.folder.kind) || byName(a, b));
-  let folders = described.map((d) => d.suggestion);
+  for (const o of others) listedHere.push(...(inside.get(o.path) ?? []));
+  // The best match first, then folders with project files before those without, by what they show as.
+  listedHere.sort((a, b) => a.rank - b.rank || Number(!a.suggestion.folder.kind) - Number(!b.suggestion.folder.kind) || BY_NAME.compare(a.suggestion.display, b.suggestion.display));
+  let folders = listedHere.map((d) => d.suggestion);
 
   // With nothing typed, the configured roots themselves are offered too, so they can be opened.
   if (query.trim() === '' || query.trim() === '~') {
     const realHome = realpathOrNull(home) ?? resolve(home);
     for (const r of roots.filter((x) => x !== realHome)) {
       const id = opened.get(r) ?? null;
-      folders.push({ path: r, display: displayPath(r, home), name: basename(r), folder: describeFolder(r, { home }), added: id !== null, projectId: id });
+      folders.push({ path: r, display: display(r), name: basename(r), folder: describeFolder(r, { home, display }), added: id !== null, projectId: id });
     }
   }
   if (folders.length > limit) {

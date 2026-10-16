@@ -2,36 +2,43 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { validateRule } from '@shadowlap/engine';
-import { alertsYaml, fixOnFailureYaml } from '../src/ci-yaml.js';
+import { CI_DEFAULTS, ciWorkflows } from '../src/ci-workflows.js';
 import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
 import { settingsApi } from '../ui/settings-api.js';
 import {
-  CI_DEFAULTS,
   MCP_FORMS,
   SETTINGS_TABS,
+  addServerNotes,
   bytesText,
+  ciShown,
+  copiedLineText,
+  entryEnvFor,
   emptyRuleForm,
   gcDeleteCommand,
   gcDryRun,
-  localCiWorkflows,
+  gcGivesBack,
   maskedLine,
   mcpEntryText,
   mcpRows,
   mcpShortName,
   orList,
   partialLine,
+  pasteFile,
   pasteWhere,
   previewChip,
   proposedCount,
   regexLiteral,
   ruleCommand,
+  runListKey,
   ruleInput,
   ruleProblem,
+  ruleWarning,
   serverNameFor,
   settingsTab,
   shellWords,
+  sizeNote,
   suggestedReplace,
   syncText,
   typedSecret,
@@ -51,6 +58,23 @@ function ruleFromCommand(command: string): Record<string, string> {
   for (let i = 3; i < argv.length; i += 2) out[argv[i]!.replace(/^--/, '')] = argv[i + 1]!;
   return out;
 }
+
+describe('when a tab reads again', () => {
+  it('follows the runs there are and which still record, not the calls a recording adds', () => {
+    const runs = [
+      { runId: 'B', status: 'running' },
+      { runId: 'A', status: 'completed' },
+    ];
+    const key = runListKey(runs, 'support-agent');
+    // The same runs, reloaded while B records: nothing to read again.
+    expect(runListKey(runs.map((r) => ({ ...r })), 'support-agent')).toBe(key);
+    expect(runListKey([{ runId: 'B', status: 'completed' }, runs[1]!], 'support-agent')).not.toBe(key);
+    expect(runListKey([{ runId: 'C', status: 'completed' }, ...runs], 'support-agent')).not.toBe(key);
+    expect(runListKey(runs.slice(0, 1), 'support-agent')).not.toBe(key);
+    expect(runListKey(runs, 'triage-bot')).not.toBe(key);
+    expect(runListKey(null, 'support-agent')).not.toBe(key);
+  });
+});
 
 describe('the Settings tabs', () => {
   it('opens Matching without a tab, keeps CI at its old address, and knows no other tab', () => {
@@ -96,6 +120,14 @@ describe('the Add dialog', () => {
     expect(ruleProblem(form({ mode: 'regex' }))).toMatch(/regex/);
     expect(ruleProblem(form({ mode: 'whole' }))).toMatch(/path/);
     expect(ruleProblem(form({ path: 'metadata.user_id' }))).toMatch(/starts with \$/);
+  });
+
+  it('warns about a regex that can take minutes on some text, and still adds it, as the CLI does', () => {
+    expect(ruleWarning(form({ mode: 'regex', regex: '(a+)+$' }))).toBe('It repeats a group that repeats itself, as (a+)+ does, which can take minutes on some text: write it without the outer repeat.');
+    expect(ruleWarning(form({ mode: 'regex', regex: '/(\\w*\\s?)*/i' }))).not.toBeNull();
+    expect(ruleProblem(form({ mode: 'regex', regex: '(a+)+$' }))).toBeNull();
+    for (const regex of ['req_[a-z0-9]+', '(?<=key=)\\w+', '\\b(?:\\d[ -]?){13,16}\\b', '']) expect(ruleWarning(form({ mode: 'regex', regex })), regex).toBeNull();
+    expect(ruleWarning(form({}))).toBeNull();
   });
 
   it('shows the command that adds the very same rule, quoted for a shell', () => {
@@ -159,6 +191,13 @@ describe('sizes, times and lists', () => {
     expect(syncText(new Date(2025, 8, 30, 9, 0).getTime(), now)).toBe('Sep 30, 2025');
   });
 
+  it('says what Clean up gives back on the Size row, once no run is recording when one is', () => {
+    expect(sizeNote(0, 0)).toBe('blobs shared between runs');
+    expect(sizeNote(512 * 1024, 1)).toBe('blobs shared between runs');
+    expect(sizeNote(4.9 * 1024 * 1024, 0)).toBe('blobs shared between runs · 4.9 MB unused, which Clean up old runs gives back');
+    expect(sizeNote(4.9 * 1024 * 1024, 1)).toBe('blobs shared between runs · 4.9 MB unused, which Clean up old runs gives back once no run is recording');
+  });
+
   it('joins with "or"', () => {
     expect(orList([])).toBe('');
     expect(orList(['CLAUDE.md'])).toBe('CLAUDE.md');
@@ -183,7 +222,15 @@ describe('what the drawer offers', () => {
     expect(dry).toMatchObject({ count: 3, olderThanDays: 30 });
     expect(gcDeleteCommand(dry!)).toBe('shadowlap gc --before 1757000000000 --expect 3-0123456789abcdef');
     expect(gcDeleteCommand({ ...dry!, cutoff: null, keep: 200 })).toBe('shadowlap gc --keep 200 --expect 3-0123456789abcdef');
-    expect(gcDryRun({ done: true, code: 0, result: { ...report, count: 0 } })).toBeNull();
+    // No run old enough: what deleted runs left (blobs nothing uses, unused space past 1 MB) by a plain gc, unless a run records.
+    const none = { ...report, count: 0, expect: '0-e3b0c44298fc1c14' };
+    expect(gcDryRun({ done: true, code: 0, result: none })).toMatchObject({ count: 0, bytes: 2048, free: 0 });
+    expect(gcDeleteCommand(gcDryRun({ done: true, code: 0, result: none })!)).toBe('shadowlap gc');
+    const unused = gcDryRun({ done: true, code: 0, result: { ...none, bytes: 0, store: { free: 50 * 1024 * 1024 } } });
+    expect(unused).toMatchObject({ free: 50 * 1024 * 1024 });
+    expect(gcGivesBack(unused!)).toBe(50 * 1024 * 1024);
+    expect(gcDryRun({ done: true, code: 0, result: { ...none, bytes: 0, store: { free: 4096 } } })).toBeNull();
+    expect(gcDryRun({ done: true, code: 0, result: { ...none, recordingCount: 1 } })).toBeNull();
     expect(gcDryRun({ done: true, code: 0, result: { ...report, dryRun: false } })).toBeNull();
     expect(gcDryRun({ done: true, code: 1, result: report })).toBeNull();
     expect(gcDryRun({ done: false, code: null, result: report })).toBeNull();
@@ -229,40 +276,56 @@ describe('MCP servers', () => {
     expect(splitCommandLine(MCP_FORMS.stdio.line).slice(0, 3)).toEqual(['shadowlap', 'mcp', '--']);
   });
 
+  it('says what a copied line needs, and nothing about the entry’s own environment', () => {
+    expect(copiedLineText({ name: 'github', file: '.mcp.json', line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-github' })).toBe('Copied the line for github · put it in front of the server in .mcp.json');
+    expect(copiedLineText({ name: 'db', file: '.mcp.json', line: "shadowlap mcp -- npx -y server-postgres 'postgresql://•••@db/prod'" })).toBe('Copied the line for db · put it in front of the server in .mcp.json, then put back the ••• in it');
+    expect(copiedLineText({ name: 'stripe', file: '.cursor/mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .cursor/mcp.json, then set STRIPE_TOKEN in its env');
+    // Claude Code fills in ${…} in .mcp.json from the environment it starts from, and won't start the server without it.
+    expect(copiedLineText({ name: 'stripe', file: '.mcp.json', line: "shadowlap mcp --url https://mcp.stripe.com --header 'Authorization: Bearer ${STRIPE_TOKEN}'" })).toBe('Copied the line for stripe · put it in front of the server in .mcp.json, then set STRIPE_TOKEN in the environment Claude Code starts from');
+  });
+
+  it('says what Add a server hid, what it copies as typed, and where a Basic header’s variable is set', () => {
+    const files = (...found: string[]) => ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json'].map((path) => ({ path, found: found.includes(path) }));
+    expect(pasteFile(files())).toBeNull();
+    expect(pasteFile(files('.vscode/mcp.json', '.mcp.json'))).toBe('.mcp.json');
+    expect(pasteFile(files('.cursor/mcp.json'))).toBe('.cursor/mcp.json');
+    // Nothing hidden: nothing to say.
+    expect(addServerNotes({ line: 'shadowlap mcp --url https://mcp.linear.app/mcp', hidden: false, basic: null, copy: { args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] } }, null)).toBeNull();
+    // A query shown hidden is copied as typed: said so, and nothing about a user and password that aren't there.
+    const query = addServerNotes({ line: "shadowlap mcp --url 'https://mcp.example.com/mcp?transport=•••&profile=•••'", hidden: true, basic: null, copy: { args: ['mcp', '--url', 'https://mcp.example.com/mcp?transport=sse&profile=work'] } }, '.mcp.json');
+    expect(query).toEqual({ basic: null, inCopy: false, asTyped: true });
+    // A user and password: the variable, set where the file's client reads it.
+    const basic = { line: "shadowlap mcp --url https://mcp.linear.app/mcp --header 'Authorization: Basic $LINEAR_AUTH'", hidden: true, basic: 'LINEAR_AUTH', copy: { args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Basic $LINEAR_AUTH'] } };
+    expect(addServerNotes(basic, '.mcp.json')).toEqual({ basic: { name: 'LINEAR_AUTH', where: 'claude-code' }, inCopy: false, asTyped: false });
+    expect(addServerNotes(basic, '.cursor/mcp.json')!.basic).toEqual({ name: 'LINEAR_AUTH', where: 'env' });
+    expect(addServerNotes(basic, null)!.basic).toEqual({ name: 'LINEAR_AUTH', where: 'either' });
+    // A command with a URL's user and password (••• in the copy too) and a token (copied as typed).
+    expect(addServerNotes({ line: "shadowlap mcp -- node s.js --api-key ••• 'postgresql://•••@db/prod'", hidden: true, basic: null, copy: { args: ['mcp', '--', 'node', 's.js', '--api-key', 'sk-1', 'postgresql://•••@db/prod'] } }, null)).toEqual({ basic: null, inCopy: true, asTyped: true });
+    // In .mcp.json the variable is a reference Claude Code fills in; elsewhere "…", for its value.
+    const env = [{ name: 'LINEAR_AUTH', value: '…' }];
+    expect(entryEnvFor(env, 'LINEAR_AUTH', '.mcp.json')).toEqual([{ name: 'LINEAR_AUTH', value: '${LINEAR_AUTH}' }]);
+    expect(entryEnvFor(env, 'LINEAR_AUTH', '.vscode/mcp.json')).toEqual(env);
+    expect(entryEnvFor(env, 'LINEAR_AUTH', null)).toEqual(env);
+  });
+
   it('writes a client entry to paste under mcpServers', () => {
     expect(mcpEntryText('linear', { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp'] })).toBe('"linear": {\n  "command": "shadowlap",\n  "args": ["mcp", "--url", "https://mcp.linear.app/mcp"]\n}');
     expect(JSON.parse(`{${mcpEntryText('a "b"', { command: 'shadowlap', args: ['mcp', '--', 'x'] })}}`)).toEqual({ 'a "b"': { command: 'shadowlap', args: ['mcp', '--', 'x'] } });
+    // With the variable a URL's user and password became.
+    expect(JSON.parse(`{${mcpEntryText('linear', { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Basic $LINEAR_AUTH'] }, [{ name: 'LINEAR_AUTH', value: '…' }])}}`)).toEqual({ linear: { command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Basic $LINEAR_AUTH'], env: { LINEAR_AUTH: '…' } } });
   });
 });
 
 describe('the CI tab', () => {
-  it('asks the tests feature for its panels, and writes them itself where the server has none', async () => {
-    const asked: string[] = [];
-    const served = settingsApi(<T,>(path: string) => {
-      asked.push(path);
-      return Promise.resolve({ file: '.github/workflows/agent.yml' } as T);
-    });
-    expect(await served.ciWorkflows({ ...CI_DEFAULTS, fix: true, repairer: 'openai:gpt-5', secret: 'ALERTS_HOOK' })).toMatchObject({ file: '.github/workflows/agent.yml' });
-    expect(asked).toEqual(['ci/workflows?fix=on&budget=2.00&repairer=openai%3Agpt-5&onlyMain=on&secret=ALERTS_HOOK']);
-    const older = settingsApi(() => Promise.reject(Object.assign(new Error('no endpoint GET /api/ci/workflows'), { status: 404 })));
-    expect(await older.ciWorkflows(CI_DEFAULTS)).toBeNull();
-    // Anything else the server says is the tab's to show.
-    const refusing = settingsApi(() => Promise.reject(Object.assign(new Error('budget is an amount in dollars, such as 2.00'), { status: 400 })));
-    await expect(refusing.ciWorkflows(CI_DEFAULTS)).rejects.toThrow(/budget/);
-  });
-
-  it('writes both panels as the endpoint does for a project with nothing to fill in', () => {
-    const view = localCiWorkflows({ ...CI_DEFAULTS, budget: '5.00', onlyMain: false, secret: 'ALERTS_HOOK' });
-    expect(view.fixOnFailure.yaml).toBe(fixOnFailureYaml({ budget: '5.00', repairer: 'claude-code', recordings: 'goldens/*' }));
-    expect(view.fixOnFailure.needs.map((r) => r.value)).toContain('ANTHROPIC_API_KEY');
-    expect(view.fixOnFailure.never.find((r) => r.label === 'spends past the budget')?.value).toBe('$5.00');
-    expect(view.fixOnFailure.preview).toMatchObject({ example: true, fixId: null, spent: '≈$0.84 of $5.00' });
-    expect(view.fixOnFailure.budgets.map((b) => b.label)).toEqual(['$1', '$2', '$5']);
-    expect(view.alerts.yaml).toBe(alertsYaml({ onlyMain: false, secret: 'ALERTS_HOOK', recordings: 'goldens/*' }));
-    expect(view.alerts.yaml).not.toContain('refs/heads/main');
-    expect(view.alerts.needs.map((r) => r.value)).toContain('ALERTS_HOOK');
-    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on your-branch.');
-    expect(localCiWorkflows({ ...CI_DEFAULTS, repairer: 'openai:gpt-5' }).fixOnFailure.needs.map((r) => r.value)).toContain('OPENAI_API_KEY');
+  it('shows what was changed on it, else what the server answered with', () => {
+    const view = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null, defaultBranch: 'master' });
+    expect(ciShown({}, view)).toEqual(CI_DEFAULTS);
+    expect(ciShown({ fix: true, secret: 'ALERTS_HOOK' }, view)).toEqual({ ...CI_DEFAULTS, fix: true, secret: 'ALERTS_HOOK' });
+    // The branch "only for the main branch" means is the repository's default, in the switch's words and the YAML.
+    expect(view.alerts.branch).toBe('master');
+    expect(view.alerts.yaml).toContain("github.ref == 'refs/heads/master'");
+    expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on master.');
+    expect(view.fixOnFailure.preview).toMatchObject({ example: true, base: 'master' });
   });
 
   it('keeps only what a secret name can hold, as it is typed', () => {

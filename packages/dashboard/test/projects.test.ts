@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveSetup, emptySetup, emptyStoreFacts, type FolderKind, type FolderSuggestions, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
-import { addProjectPage, addedMessage, nameMatches, projectEventText, projectSwitcher, removeDialog, setupView, type SetupInput } from '../src/projects.js';
+import { addProjectPage, addedMessage, nameMatches, projectEventText, projectSwitcher, removeDialog, setupView, shortPath, type SetupInput } from '../src/projects.js';
 
 const HOME = '/home/dana';
 const RUN = '01K5CQ7A3M00000000000000AB';
@@ -53,6 +53,14 @@ describe('projectSwitcher', () => {
     expect(v.items[1]!.removeLabel).toBe('Remove triage-bot from the dashboard');
     expect(v.add).toEqual({ label: 'Add project…', hint: 'a folder with your agent’s code', href: '#/new' });
     expect(v.note).toBe('Each project keeps its own store.');
+  });
+
+  it('keeps a long folder to its last folders on the line, the whole path on hover', () => {
+    const deep = '/srv/build/workspaces/team-agents/2026/support/refund-agent';
+    const v = projectSwitcher({ projects: [entry('refund-agent', { stage: 'done' }, deep)], current: 'refund-agent', stats: { 'refund-agent': { runs: 2, attempts: 0, goldens: 0 } }, home: HOME });
+    expect(v.items[0]).toMatchObject({ path: deep, detail: '…/2026/support/refund-agent · 2 runs' });
+    expect(shortPath('~/support-agent')).toBe('~/support-agent');
+    expect(shortPath('C:\\Users\\dana\\work\\clients\\northwind\\agents\\refund-agent')).toBe('…\\northwind\\agents\\refund-agent');
   });
 
   it('offers no × for the only project, and says when a folder is gone', () => {
@@ -215,6 +223,9 @@ describe('setupView', () => {
     const v = view(p, facts({ runs: 1, recordings: [run()] }), { run: { runId: RUN, status: 'completed', calls: 12, spent: 0.0412, durationMs: 38_200 } });
     expect(v.record.state).toBe('done');
     expect(v.record.recorded).toEqual({ runId: RUN, href: `#/run/${RUN}`, calls: 12, spent: 0.0412, durationMs: 38_200, text: 'Recorded 01K5CQ7A3M · 12 calls · ≈$0.041 · 38.2 s' });
+    // Less than a tenth of a cent, as the CLI says it.
+    const cheap = view(p, facts({ runs: 1, recordings: [run()] }), { run: { runId: RUN, status: 'completed', calls: 1, spent: 0.00004, durationMs: 94 } });
+    expect(cheap.record.recorded?.text).toBe('Recorded 01K5CQ7A3M · 1 call · ≈<$0.001 · 94 ms');
     expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. Wrap them and record again before you keep it as a test.');
     expect(v.record.again).toEqual({ label: 'Record again', action: 'record', command: { value: 'uv run research-agent', enabled: true }, cli: ['shadowlap run -- uv run research-agent'] });
     expect(v.record.empty).toBeNull();
@@ -227,7 +238,10 @@ describe('setupView', () => {
   it('folds the findings into one line once a run is recorded and every tool is wrapped', () => {
     const wrapped = findings({ tools: findings().tools.map((t) => ({ ...t, wrapped: true })), wrap: [] });
     const v = view(entry('research-agent', { stage: 'recorded', findings: wrapped, runId: RUN }), facts({ runs: 1, recordings: [run()] }));
-    expect(v.inspect).toMatchObject({ folded: true, warning: null, summary: "Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · uv run research-agent 'Summarize Northwind’s Q3 10-Q'" });
+    expect(v.inspect).toMatchObject({ folded: true, warning: null, summary: "Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · uv run research-agent 'Summarize Northwind’s Q3 10-Q'", summaryCommand: "uv run research-agent 'Summarize Northwind’s Q3 10-Q'" });
+    // init found no command: the line ends on the one typed and recorded with.
+    const typed = view(entry('triage-bot', { stage: 'recorded', findings: { ...wrapped, command: null }, runId: RUN, command: ['node', 'triage.mjs'] }), facts({ runs: 1, recordings: [run()] }));
+    expect(typed.inspect).toMatchObject({ summary: 'Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · node triage.mjs', summaryCommand: 'node triage.mjs' });
   });
 
   it('says what calibrate added, then asks where to keep the golden, with the redaction note', () => {
@@ -375,14 +389,18 @@ describe('setupView', () => {
     });
     expect(packed.done).toBeNull();
     expect(packed.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
+    // One step current at a time: the setup moved on to the golden, past calibrating, which can still be run.
+    expect(packed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'current']);
+    expect(packed.calibrate.button).toMatchObject({ label: 'Calibrate', enabled: true });
     // Its test failed: why, and where to look.
     const test = (ok: boolean) => ({ golden: 'goldens/q3', ok, at: 30, reason: ok ? null : 'diverged at call 4 (api POST /v1/messages).', goldenRunId: RUN });
     const failed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(false)] }), {}, packs);
     expect(failed.test).toMatchObject({ state: 'current', button: { label: 'Run the test again', action: 'testgolden' }, packed: { failed: true, text: 'goldens/q3 failed its test: diverged at call 4 (api POST /v1/messages). Fix what changed, or record again, then run it again.', link: { label: 'Open Tests', href: '#/tests' } } });
-    // Passed: done. Packed without calibrating first: step 3 was skipped.
+    // Passed: done. Packed without calibrating first, the test that passed replayed it clean: step 3 is done too.
     const passed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(true)] }), {}, packs);
     expect(passed.test).toMatchObject({ state: 'done', cli: [], button: null, packed: null, result: { text: 'goldens/q3 replayed clean offline', link: { label: 'Open Tests', href: '#/tests' } } });
-    expect(passed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'done']);
+    expect(passed.steps.map((x) => x.state)).toEqual(['done', 'done', 'done', 'done']);
+    expect(passed.calibrate.text).toBe('A replay of 01K5CQ7A3M ran clean.');
     expect(passed.skip).toBeNull();
     expect(passed.done).toMatchObject({ title: 'research-agent is set up.' });
   });

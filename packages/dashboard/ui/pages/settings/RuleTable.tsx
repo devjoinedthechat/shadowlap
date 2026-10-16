@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icon.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
-import { emptyRuleForm, ruleCommand, ruleInput, ruleProblem, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
+import { emptyRuleForm, ruleCommand, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -115,6 +115,10 @@ export function RuleDialog({
 }) {
   const app = useApp();
   const norm = list === 'normalize';
+  // What is typed here stays when the dashboard switches project elsewhere, and then goes to the project shown: said so.
+  const openedIn = useRef(app.meta?.project?.id ?? null);
+  const now = app.meta?.project;
+  const moved = openedIn.current && now?.id && now.id !== openedIn.current ? `The dashboard switched to ${now.name} elsewhere: Add rule adds this to ${now.name}’s ${CONFIG_FILE}.` : null;
   const [f, setF] = useState<RuleFormState>(() => emptyRuleForm(list, patterns));
   const [replaceTyped, setReplaceTyped] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -130,6 +134,7 @@ export function RuleDialog({
     setError(null);
   };
   const problem = ruleProblem(f);
+  const warning = ruleWarning(f);
   const add = async () => {
     if (problem || busy) return;
     setBusy(true);
@@ -155,6 +160,7 @@ export function RuleDialog({
       onOk={() => void add()}
       onClose={onClose}
       className="ruledlg"
+      keepOnSwitch
     >
       <div className="form">
         <label>
@@ -234,7 +240,7 @@ export function RuleDialog({
         </div>
       ) : null}
       <CommandLine command={ruleCommand(list, f)} />
-      {error || problem ? <p className={`fieldnote ${error ? 'err' : 'warn'}`}>{error ?? problem}</p> : null}
+      {error || problem || warning || moved ? <p className={`fieldnote ${error ? 'err' : 'warn'}`}>{error ?? problem ?? warning ?? moved}</p> : null}
     </Dialog>
   );
 }

@@ -1,5 +1,8 @@
 import { Worker } from 'node:worker_threads';
 import { previewRedaction, type Normalizer, type RedactionPreview, type Store } from '@shadowlap/engine';
+import { repeatsARepeat } from './regex-shape.js';
+
+export { repeatsARepeat };
 
 /**
  * The Redaction tab's preview, read where it can't hold up the dashboard server: every rule runs
@@ -134,37 +137,4 @@ export function tookTooLong(rules: readonly Normalizer[], ms: number): string {
   const suspect = rules.findIndex((r) => r.pattern !== undefined && repeatsARepeat(r.pattern));
   if (suspect < 0) return `The preview stopped after ${seconds} on one call: a rule takes that long on this run’s text, and would in a pack too.`;
   return `The preview stopped after ${seconds} on one call. Rule #${suspect + 1}, ${rules[suspect]!.pattern}, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.`;
-}
-
-/**
- * Whether a regex (`/…/flags`) repeats a group that itself holds an unbounded repeat, as (a+)+,
- * (\w*\s?)* or (x+y?){2,}: the shape that can backtrack for minutes on a value it almost matches.
- * Named patterns are fine.
- */
-export function repeatsARepeat(pattern: string): boolean {
-  if (!pattern.startsWith('/')) return false;
-  const src = pattern.replace(/^\/|\/[a-z]*$/g, '');
-  const groups: boolean[] = [];
-  let inClass = false;
-  const unbounded = (at: number) => src[at] === '+' || src[at] === '*' || /^\{\d*,\}/.test(src.slice(at));
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
-    if (c === '\\') {
-      i++;
-      continue;
-    }
-    if (inClass) {
-      if (c === ']') inClass = false;
-      continue;
-    }
-    if (c === '[') inClass = true;
-    else if (c === '(') groups.push(false);
-    else if (c === ')') {
-      const inner = groups.pop() ?? false;
-      const repeated = unbounded(i + 1) || /^\{\d+,\d{2,}\}/.test(src.slice(i + 1));
-      if (inner && repeated) return true;
-      if (groups.length && (inner || repeated)) groups[groups.length - 1] = true;
-    } else if (groups.length && unbounded(i)) groups[groups.length - 1] = true;
-  }
-  return false;
 }

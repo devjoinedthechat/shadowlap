@@ -317,10 +317,11 @@ export interface GcReport {
   deferred: boolean;
   /**
    * The store's size: every page of the database before, and after a real run (vacuumed), whatever
-   * its write-ahead log holds, and `free`, the pages inside it that nothing uses, which a vacuum
-   * gives back. A dashboard holding the store open can keep the files on disk larger until it lets go.
+   * its write-ahead log holds; `free`, the pages in it nothing uses, which vacuuming gives back too
+   * (runs deleted by `rm` or the dashboard leave them). A dashboard holding the store open can keep
+   * the files on disk larger until it lets go.
    */
-  store: { path: string; before: number; after: number | null; free: number };
+  store: { path: string; before: number; free: number; after: number | null };
 }
 
 /** How many runs a report lists by name. */
@@ -334,7 +335,7 @@ const listed = (r: RunRecord): GcRun => {
 function emptyReport(dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const expect = expectToken([]);
   if (flags.expect !== undefined && flags.expect !== expect) throw new Error(`gc would delete 0 runs, not the ${flags.expect.split('-')[0]} the dry run listed: there is no store at ${dbPath}`);
-  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, deferred: false, store: { path: dbPath, before: 0, after: flags.dryRun ? null : 0, free: 0 } };
+  return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, deferred: false, store: { path: dbPath, before: 0, free: 0, after: flags.dryRun ? null : 0 } };
 }
 
 function cutoffOf(flags: GcFlags, now: number): number | null {
@@ -359,6 +360,7 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
     throw new Error(`the runs gc would delete changed since the dry run (${why}). Nothing was deleted; run the dry run again.`);
   }
   const freed = store.unreferencedBlobs(doomed.map((r) => r.runId));
+  const size = store.size();
   const report: GcReport = {
     dryRun: flags.dryRun === true,
     olderThanDays: flags.olderThan ?? null,
@@ -375,7 +377,7 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
     abandoned: abandoned.slice(0, LISTED).map((r) => listed(r.run)),
     abandonedCount: abandoned.length,
     deferred: live.length > 0 && freed.hashes.length > 0,
-    store: { path: dbPath, before: store.size().bytes, after: null, free: store.size().free },
+    store: { path: dbPath, before: size.bytes, free: size.free, after: null },
   };
   if (report.dryRun) return report;
   store.transaction(() => {
@@ -402,6 +404,8 @@ export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date
 }
 
 const SHOWN = 20;
+/** Unused space worth a line of its own, and a clean-up of its own: 1 MB. */
+const UNUSED_SHOWN = 1024 * 1024;
 
 function formatGc(r: GcReport): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -424,21 +428,27 @@ function formatGc(r: GcReport): string {
   const waiting = `${plural(r.recordingCount, 'run')} ${r.recordingCount === 1 ? 'is' : 'are'} still recording (${ids(r.recording, r.recordingCount)})`;
   if (r.dryRun) {
     lines.push(`  blobs nothing would reference: ${r.blobs} · ${formatBytes(r.bytes)}${r.deferred ? p.dim(` · collected once no run is recording: ${waiting}`) : ''}`);
-    // What a vacuum alone gives back, which a gc with no runs to delete still does.
-    const vacuum = r.store.free ? ` The store has ${formatBytes(r.store.free)} free inside its file, which shadowlap gc gives back.` : '';
+    // Vacuuming waits while a run records, as blobs do.
+    if (r.store.free >= UNUSED_SHOWN) lines.push(`  unused space in the store: ${formatBytes(r.store.free)}${r.recordingCount ? p.dim(' · given back once no run is recording') : ''}`);
+    // No run to delete, but blobs and unused pages to give back: plain gc deletes no run and does that, once no run is recording.
+    const back = [r.blobs ? `${formatBytes(r.bytes)} of blobs nothing references` : null, r.store.free >= UNUSED_SHOWN ? `${formatBytes(r.store.free)} of unused space` : null].filter(Boolean).join(' and ');
     if (r.count) {
       lines.push(`${p.green('✓')} dry run: would delete ${plural(r.count, 'run')} and free ${formatBytes(r.bytes)}. To delete exactly these runs: shadowlap gc${r.cutoff !== null ? ` --before ${r.cutoff}` : ''}${r.keep !== null ? ` --keep ${r.keep}` : ''} --expect ${r.expect}`);
-    } else if (r.blobs) {
-      lines.push(`${p.green('✓')} dry run: no run to delete; shadowlap gc would free ${formatBytes(r.bytes)} of blobs nothing references.${vacuum}`);
+    } else if (back && !r.recordingCount) {
+      lines.push(`${p.green('✓')} dry run: no runs to delete; would give back ${back}. To do that: shadowlap gc`);
+    } else if (back) {
+      lines.push(`${p.green('✓')} dry run: no runs to delete; ${back} can be given back with shadowlap gc once no run is recording.`);
     } else {
-      lines.push(`${p.green('✓')} dry run: nothing to delete.${vacuum}`);
+      lines.push(`${p.green('✓')} dry run: nothing to delete or give back.`);
     }
   } else if (r.deferred) {
     lines.push(`  ${p.yellow('!')} no blobs collected: ${waiting}. A recording stores a blob just before the call that uses it, so gc leaves blobs alone until it ends; run gc again then.`);
     lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
   } else {
     lines.push(`  blobs nothing referenced: ${r.blobs} · ${formatBytes(r.bytes)}`);
-    lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')} and ${plural(r.blobs, 'blob')} · store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`);
+    const size = `store ${formatBytes(r.store.before)} → ${formatBytes(r.store.after ?? r.store.before)}`;
+    if (r.count) lines.push(`${p.green('✓')} deleted ${plural(r.count, 'run')} and ${plural(r.blobs, 'blob')} · ${size}`);
+    else lines.push(`${p.green('✓')} ${r.blobs ? `removed ${plural(r.blobs, 'blob')} nothing referenced and ` : ''}compacted the store · ${size}`);
   }
   return lines.join('\n') + '\n';
 }

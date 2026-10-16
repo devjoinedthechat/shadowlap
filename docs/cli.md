@@ -13,9 +13,9 @@ Reads the project in the current directory and prints the steps to a first recor
 - the language and package manager, from `package.json`, `pyproject.toml`, requirements files and lockfiles;
 - the model SDKs (Anthropic, OpenAI, Gemini, and the AI SDK and LangChain provider packages), from dependencies or imports;
 - the agent framework and its version: the Vercel AI SDK, OpenAI Agents SDK, Mastra, LangChain and LangGraph, the Anthropic tool runner, Pydantic AI, the OpenAI Agents SDK for Python, CrewAI;
-- the command that starts the agent, from `package.json` scripts, the file `package.json` names (its `bin`, then its `main`), a script `pyproject.toml` declares (`[project.scripts]`, run with `uv run` in a uv project), or a conventional entry file;
+- the command that starts the agent, from `package.json` scripts, the file `package.json` names (its `bin`, then its `main`), a script `pyproject.toml` declares (`[project.scripts]`, run with `uv run` in a uv project), a conventional entry file (`agent.py`, `main.py`, `agent.ts`, `index.js`…), or else the one file at the top of the folder that imports a model SDK and that no other file there imports (`node triage.mjs`). With several such files it names none;
 - every tool definition it can find, whether it declares an effect, and a suggested effect for those that don't. The suggestion goes by the tool name's leading verb, and a name with no hint gets `write`, which never runs again after a fork;
-- a model server the project already points at, such as Ollama in `OPENAI_BASE_URL`, and the `SHADOWLAP_UPSTREAM_OPENAI` value that keeps it as the upstream.
+- a model server the project already points at, such as Ollama in `OPENAI_BASE_URL`, and the `SHADOWLAP_UPSTREAM_OPENAI` value that keeps it as the upstream. `OPENAI_BASE_URL` counts unless every model client the project has is another provider's: an OpenAI SDK (`langchain-openai` and `@ai-sdk/openai` among them, and a framework's `[openai]` extra, which installs it), a framework that brings one (Pydantic AI as a whole, the OpenAI Agents SDK, CrewAI, Mastra), `openai` in a lockfile, or SDKs `init` can't tell all count. An agent on Anthropic's or Gemini's SDK alone (or Pydantic AI's slim package with its `[anthropic]` extra) never sends to it.
 
 It warns about a model client constructed with a literal base URL: `shadowlap run` cannot redirect it, so its calls would not be recorded.
 
@@ -659,7 +659,18 @@ A run whose recording process was killed (`kill -9`, out of memory, a machine th
 ✓ dry run: would delete 3 runs and free 2.1 MB. To delete exactly these runs: shadowlap gc --before 1757000000000 --expect 3-9c1f0e2a6b7d4c5e
 ```
 
-The size is what those blobs take in the store. With no run to delete, the dry run says so, and how much of the store's file is free space that `gc` would give back by vacuuming it. `--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the `store`: its `path`, its size `before` and, after a real run, `after`, and the space inside it that is `free`, which a vacuum gives back. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
+The size is what those blobs take in the store. When no run matches, it says what a plain `shadowlap gc` would give back instead (blobs nothing references, and unused space of 1 MB or more that deleted runs left in the store), with no command that deletes runs:
+
+```
+▸ runs older than 30 days: none · runs still recording are never touched
+  blobs nothing would reference: 14 · 2.1 MB
+  unused space in the store: 51.4 MB
+✓ dry run: no runs to delete; would give back 2.1 MB of blobs nothing references and 51.4 MB of unused space. To do that: shadowlap gc
+```
+
+While a run is recording, gc gives none of it back, so the dry run says it can be given back once no run is recording: `✓ dry run: no runs to delete; 51.4 MB of unused space can be given back with shadowlap gc once no run is recording.`
+
+`--json` prints the same report: `dryRun`, `olderThanDays`, `keep`, the `cutoff` (runs that started before it go, in epoch milliseconds), `total` runs, how many runs it deletes (`count`, or would) and the first 100 of them (`runs`), `expect`, `blobs` and `bytes` freed, the runs still `recording` and the `abandoned` ones (the first 100 of each, with `recordingCount` and `abandonedCount`), whether blobs were `deferred` because of a recording, and the `store`: its `path`, its size `before`, its unused space `free` (which vacuuming gives back), and, after a real run, `after`. The lists stop at 100 so the report stays small however many runs a clean-up deletes. The store's size counts the database's pages whatever its write-ahead log holds, so another process holding the store open (a dashboard) doesn't make a cleanup look like growth. A real run is recorded in the project's activity as `runs.cleaned`.
 
 To delete exactly what a dry run listed, pass its cutoff and its `expect` back: `shadowlap gc --before <cutoff> --expect <count>-<digest>` names those runs (how many, and a digest of their ids), and refuses, deleting nothing and with exit status 1, when the runs that match now are different, even the same number of others. `--before` also takes a date (`2026-09-01`). In a project that has never recorded, `gc` reports nothing to clean and creates no store.
 

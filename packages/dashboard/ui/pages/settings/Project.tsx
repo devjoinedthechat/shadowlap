@@ -4,12 +4,13 @@ import { num } from '../../format.js';
 import { ONLY_PROJECT, useProjectRemoval } from '../../project-actions.js';
 import { useApp } from '../../state.js';
 import { LoadProblem, Loading, useSettingsData } from './common.js';
-import { bytesText } from './logic.js';
+import { bytesText, sizeNote } from './logic.js';
 
 /**
  * Project: its name, store, runs and attempts, the store's size and the dashboard's address; Clean
- * up old runs (a dry run first, then "Delete N runs" from the drawer); and Remove from dashboard,
- * which opens the projects feature's own dialog, here in the page.
+ * up old runs (a dry run first, then "Delete N runs" from the drawer, or with no run old enough
+ * "Free X" for what deleted runs left unused); and Remove from dashboard, which opens the projects
+ * feature's own dialog, here in the page.
  */
 export function ProjectTab() {
   const app = useApp();
@@ -41,7 +42,7 @@ export function ProjectTab() {
         </dd>
         <dt>Size</dt>
         <dd>
-          {bytesText(data.store.bytes)} <small>blobs shared between runs{data.store.free > 1024 * 1024 ? ` · ${bytesText(data.store.free)} a clean-up gives back` : ''}</small>
+          {bytesText(data.store.bytes)} <small>{sizeNote(data.store.free, data.running)}</small>
         </dd>
         <dt>Dashboard</dt>
         <dd>
@@ -52,7 +53,8 @@ export function ProjectTab() {
         <button className="btn" type="button" disabled={!canClean} title={cleanTitle} onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}>
           Clean up old runs
         </button>
-        <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={blocked ?? app.actionsOff ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
+        {/* A read-only dashboard's reason first: it changes nothing, whichever project it shows. */}
+        <button className="btn quiet dz push" type="button" disabled={!!blocked || !!app.actionsOff} title={app.actionsOff ?? blocked ?? `Forget ${data.name} here; its folder, store and goldens stay on disk`} onClick={() => app.guard(() => setRemoving(true))}>
           Remove from dashboard
         </button>
       </div>

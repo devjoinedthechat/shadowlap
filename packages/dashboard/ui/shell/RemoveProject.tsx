@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../components/Dialog.js';
-import type { RemoveDialogView } from '../projects-api.js';
+import { expectProject, type RemoveDialogView } from '../projects-api.js';
 import { nameMatches } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -61,6 +61,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
           toast(out.message);
           onRemoved?.(out.current);
           onClose();
+          expectProject(out.current);
           await app.reload();
           navigate(href.overview());
         },

@@ -47,7 +47,8 @@ export interface ProjectStats {
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const runsLabel = (n: number) => (n ? plural(n, 'run') : 'no runs yet');
 /** `≈$0.041`, as the mock writes a cost. */
-const approx = (usd: number) => (usd ? `≈$${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}` : '$0');
+/** A recording's cost as the CLI prints it: `≈$0.041`, and `≈<$0.001` for less than a tenth of a cent. */
+const approx = (usd: number) => (!usd ? '$0' : usd < 0.0005 ? '≈<$0.001' : `≈$${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}`);
 /** `38.2 s`, `1m 5s`, as the mock writes a duration. */
 const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 /** `a`, `a and b`, `a, b and c`. */
@@ -75,7 +76,7 @@ export interface SwitcherItem {
   /** Its store can't be read (from a newer Shadowlap, or not a database): `why` says so, on hover. */
   unreadable: boolean;
   why?: string;
-  /** The line under the name: `~/triage-bot · no runs yet · setting up`. */
+  /** The line under the name: `~/triage-bot · no runs yet · setting up`, a long path cut to its last folders (`shortPath`). */
   detail: string;
   /** The × that removes it: shown only while there is more than one project. */
   removable: boolean;
@@ -89,6 +90,24 @@ export interface SwitcherView {
   items: SwitcherItem[];
   add: { label: string; hint: string; href: string };
   note: string;
+}
+
+/**
+ * A folder as a line under a project's name shows it: as it is up to `max` characters (`~/triage-bot`),
+ * else its last folders after `…/`, so a long path outside the home folder keeps the line short.
+ * The whole path shows on hover.
+ */
+export function shortPath(path: string, max = 32): string {
+  if (path.length <= max) return path;
+  const sep = !path.includes('/') && path.includes('\\') ? '\\' : '/';
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  let out = parts[parts.length - 1] ?? path;
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const next = `${parts[i]}${sep}${out}`;
+    if (next.length + 2 > max) break;
+    out = next;
+  }
+  return `…${sep}${out}`;
 }
 
 /** The switcher at the top of the sidebar: every project with its path and runs, the current one marked. */
@@ -110,7 +129,7 @@ export function projectSwitcher(input: { projects: readonly ProjectEntry[]; curr
       settingUp,
       missing,
       unreadable,
-      detail: [path, missing ? 'folder not found' : unreadable ? 'store can’t be read' : runsLabel(stats.runs), ...(settingUp && !missing && !unreadable ? ['setting up'] : [])].join(' · '),
+      detail: [shortPath(path), missing ? 'folder not found' : unreadable ? 'store can’t be read' : runsLabel(stats.runs), ...(settingUp && !missing && !unreadable ? ['setting up'] : [])].join(' · '),
       ...(unreadable ? { why: stats.unreadable! } : {}),
       removable,
       removeLabel: `Remove ${p.name} from the dashboard`,
@@ -265,6 +284,8 @@ export interface InspectStep extends StepBase {
   findings: { rows: FindingRow[]; tools: ToolRow[] } | null;
   /** Once a run is recorded and every tool is wrapped, the findings fold into this line. */
   summary: string | null;
+  /** The command the summary ends on, to show as code. */
+  summaryCommand: string | null;
   folded: boolean;
   /** Tools that aren't wrapped: what that means, the code to wrap them, and the re-check. */
   warning: { title: string; text: string; code: WrapSnippet[]; copy: string; recheck: { label: string; action: 'recheck' } } | null;
@@ -404,7 +425,9 @@ export function setupView(input: SetupInput): SetupView {
     text: findings ? null : passedInspect ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
     button: findings ? null : { label: 'Inspect the folder', action: 'init' },
     findings: findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
-    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(findings.command ? [quoteArgv(findings.command)] : [])].join(' · ') : null,
+    // The command the run was recorded with, typed or found, as the design's summary ends on it.
+    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(argv ? [quoteArgv(argv)] : [])].join(' · ') : null,
+    summaryCommand: findings && argv ? quoteArgv(argv) : null,
     folded: !!findings && recorded && unwrapped.length === 0,
     warning:
       findings && unwrapped.length
@@ -465,6 +488,10 @@ export function setupView(input: SetupInput): SetupView {
       : null,
   };
 
+  // 4's golden, packed (here or in a terminal) and its test not passed yet: the setup has moved on to
+  // it, so step 3 shows as passed by, one step current at a time; it can still be run.
+  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
+
   // 3 · Make the replay clean
   const added = setup.own ? (s.calibration?.added ?? null) : null;
   const last = !clean && recorded ? (input.calibration ?? null) : null;
@@ -474,7 +501,7 @@ export function setupView(input: SetupInput): SetupView {
     key: 'calibrate',
     n: 3,
     title: 'Make the replay clean',
-    state: state(clean, recorded, tested),
+    state: state(clean, recorded, tested || packedOnly !== null),
     cli: clean ? [] : commands.calibrate,
     text: clean
       ? added === null
@@ -495,7 +522,6 @@ export function setupView(input: SetupInput): SetupView {
   // 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
   // in a terminal) whose test hasn't passed keeps the step open, with the test to run.
   const calls = totals?.calls ?? 0;
-  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
   const failed = packedOnly !== null && setup.goldenTest?.ok === false;
   const test: TestStep = {
     key: 'test',

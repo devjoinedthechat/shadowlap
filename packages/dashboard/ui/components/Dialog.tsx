@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { choiceAnswer } from '../actions.js';
 import { dialogFocus } from '../focus.js';
+import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import { useLayer } from '../state.js';
 import type { PromptChoice } from '../types.js';
 import { CmdLine } from './bits.js';
@@ -29,9 +30,16 @@ export interface DialogProps {
   className?: string;
   /** `cancel` focuses Cancel when the dialog opens, for a confirm that can't be undone: Enter twice never deletes anything. */
   initialFocus?: 'cancel';
+  /**
+   * A dialog belongs to the project the page showed when it opened: when the dashboard switches to
+   * another project elsewhere (another tab), it closes, since its action would land in that one.
+   * `keepOnSwitch` keeps one that holds only what was typed into it (a rule, a server's command),
+   * which then acts on the project the page shows (`dialogOnSwitch`).
+   */
+  keepOnSwitch?: boolean;
 }
 
-export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus }: DialogProps) {
+export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = false, onOk, onClose, cancel = 'Cancel', className = '', initialFocus, keepOnSwitch = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayer('dialog', true, onClose);
@@ -45,6 +53,23 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
     else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
     return () => prev?.focus?.();
   }, []);
+  // Asked in one project, never answered in another: the page turning to another project closes it.
+  const openedIn = useRef(shownProject());
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
+  useEffect(
+    () =>
+      onShownProject((now) => {
+        const what = dialogOnSwitch({ openedIn: openedIn.current, shown: now, keeps: keepOnSwitch });
+        if (what === 'adopt') openedIn.current = now;
+        if (what !== 'close') return;
+        noteDialogDropped();
+        close.current();
+      }),
+    [keepOnSwitch],
+  );
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`dialog${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby={id} ref={ref}>

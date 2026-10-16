@@ -1,14 +1,27 @@
-import { ACTION, ALERT_FAILURES, FIX_BUDGETS, REPAIRERS, WORKFLOW_FILE, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml } from '../../../src/ci-yaml.js';
-import type { CiOptions, CiPullRequest, CiWorkflowsView } from '../../settings-api.js';
+import { repeatsARepeat } from '../../../src/regex-shape.js';
+import type { CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 
 /**
  * What the Settings tabs work out without a server or a DOM: the tabs and their addresses, the Add
  * dialog's rule and the command it stands for, how the preview names a rule, sizes and times as the
- * tabs show them, what the drawer offers after calibrate and a clean-up, and the CI tab's panels
- * when the server doesn't serve them. The tests import it.
+ * tabs show them, what the drawer offers after calibrate and a clean-up, and what the CI tab's
+ * controls show. The tests import it.
  */
 
 export { SETTINGS_TABS, settingsTab, type SettingsTab } from './tabs.js';
+
+// ---- when a tab reads again ----
+
+/**
+ * What a tab's data depends on in the run list: which runs there are, which are still recording,
+ * and the project. A recording adding calls changes none of it, so an open tab doesn't read its data
+ * again every time the run list reloads while something records.
+ */
+export function runListKey(runs: ReadonlyArray<{ runId: string; status: string }> | null, project: string | null): string {
+  if (!runs) return `${project ?? ''}:-`;
+  const running = runs.reduce((n, r) => n + (r.status === 'running' ? 1 : 0), 0);
+  return `${project ?? ''}:${runs.length}:${runs[0]?.runId ?? ''}:${runs[runs.length - 1]?.runId ?? ''}:${running}`;
+}
 
 // ---- the Add dialog ----
 
@@ -76,6 +89,15 @@ export function ruleProblem(f: RuleFormState): string | null {
   if (f.mode === 'whole' && !f.path.trim()) return 'Give the path whose whole value is replaced.';
   if (f.path.trim() && !f.path.trim().startsWith('$')) return 'A path starts with $, such as $.metadata.user_id.';
   return null;
+}
+
+/**
+ * What the dialog warns about but still adds, as the CLI does: a regex that repeats a group that
+ * repeats itself, as (a+)+, which can take minutes on some text, in every replay or copy it reads.
+ */
+export function ruleWarning(f: RuleFormState): string | null {
+  if (f.mode !== 'regex' || !f.regex.trim() || !repeatsARepeat(regexLiteral(f.regex))) return null;
+  return 'It repeats a group that repeats itself, as (a+)+ does, which can take minutes on some text: write it without the outer repeat.';
 }
 
 /** An argument as a shell takes it, quoted only when it has to be. */
@@ -204,20 +226,49 @@ export interface GcDryRun {
   cutoff: number | null;
   keep: number | null;
   olderThanDays: number | null;
+  /** What the blobs only those runs use take. */
   bytes: number;
+  /** Unused space in the store now, which a clean-up's vacuum gives back too. */
+  free: number;
   expect: string;
 }
 
-/** The dry run "Delete N runs" confirms: a finished one that found runs; null hides the button. */
+/** Unused space worth a clean-up of its own when no run is old enough: 1 MB, as `gc` counts it. */
+export const UNUSED_WORTH = 1024 * 1024;
+
+/**
+ * What the drawer offers after a clean-up's dry run: "Delete N runs" when it found runs; "Free X"
+ * when it found none but blobs nothing uses or unused space to give back (a plain `gc`, which
+ * deletes no run); null, nothing, when there is neither, or while a run records (gc waits for it).
+ */
 export function gcDryRun(job: { done: boolean; code: number | null; result?: unknown }): GcDryRun | null {
   if (!job.done || job.code !== 0) return null;
-  const r = job.result as Partial<GcDryRun> | null | undefined;
-  if (!r || typeof r !== 'object' || r.dryRun !== true || typeof r.count !== 'number' || r.count < 1 || typeof r.expect !== 'string') return null;
-  return { dryRun: true, count: r.count, cutoff: typeof r.cutoff === 'number' ? r.cutoff : null, keep: typeof r.keep === 'number' ? r.keep : null, olderThanDays: typeof r.olderThanDays === 'number' ? r.olderThanDays : null, bytes: typeof r.bytes === 'number' ? r.bytes : 0, expect: r.expect };
+  const r = job.result as (Partial<GcDryRun> & { store?: { free?: unknown }; recordingCount?: unknown }) | null | undefined;
+  if (!r || typeof r !== 'object' || r.dryRun !== true || typeof r.count !== 'number' || r.count < 0 || typeof r.expect !== 'string') return null;
+  const bytes = typeof r.bytes === 'number' ? r.bytes : 0;
+  const free = typeof r.store?.free === 'number' ? r.store.free : 0;
+  if (r.count === 0 && (Number(r.recordingCount) > 0 || (bytes <= 0 && free < UNUSED_WORTH))) return null;
+  return { dryRun: true, count: r.count, cutoff: typeof r.cutoff === 'number' ? r.cutoff : null, keep: typeof r.keep === 'number' ? r.keep : null, olderThanDays: typeof r.olderThanDays === 'number' ? r.olderThanDays : null, bytes, free, expect: r.expect };
 }
 
-/** The command "Delete N runs" runs, as the server builds it from the dry run: shown in the confirm dialog. */
+/** What a dry run that found no runs would give back: the blobs nothing uses, and the unused space past 1 MB. */
+/**
+ * The Size row's words after the size: blobs are shared, and the space deleted runs left unused
+ * that Clean up old runs gives back, once no run is recording when one is (gc leaves the store
+ * alone while a recording writes to it).
+ */
+export function sizeNote(free: number, recording: number): string {
+  if (free < UNUSED_WORTH) return 'blobs shared between runs';
+  return `blobs shared between runs · ${bytesText(free)} unused, which Clean up old runs gives back${recording ? ' once no run is recording' : ''}`;
+}
+
+export function gcGivesBack(d: GcDryRun): number {
+  return d.bytes + (d.free >= UNUSED_WORTH ? d.free : 0);
+}
+
+/** The command the confirm runs, as the server builds it from the dry run: exactly the runs it listed, or for none, a plain `gc`. */
 export function gcDeleteCommand(d: GcDryRun): string {
+  if (d.count === 0) return 'shadowlap gc';
   return ['shadowlap gc', ...(d.cutoff !== null ? [`--before ${d.cutoff}`] : []), ...(d.keep !== null ? [`--keep ${d.keep}`] : []), `--expect ${d.expect}`].join(' ');
 }
 
@@ -293,9 +344,57 @@ export function mcpRows(mcp: { servers: readonly McpServerLike[]; recorded: read
   return rows;
 }
 
-/** A client entry to paste under `mcpServers`, as docs/mcp.md writes one. */
-export function mcpEntryText(name: string, entry: { command: string; args: readonly string[] }): string {
-  return `${JSON.stringify(name)}: {\n  "command": ${JSON.stringify(entry.command)},\n  "args": [${entry.args.map((a) => JSON.stringify(a)).join(', ')}]\n}`;
+/** A client entry to paste under `mcpServers`, as docs/mcp.md writes one, with its `env` when it has one. */
+export function mcpEntryText(name: string, entry: { command: string; args: readonly string[] }, env: ReadonlyArray<{ name: string; value: string }> = []): string {
+  const q = (v: string) => JSON.stringify(v);
+  const lines = [`${q(name)}: {`, `  "command": ${q(entry.command)},`, `  "args": [${entry.args.map(q).join(', ')}]${env.length ? ',' : ''}`];
+  if (env.length) lines.push(`  "env": { ${env.map((e) => `${q(e.name)}: ${q(e.value)}`).join(', ')} }`);
+  return [...lines, '}'].join('\n');
+}
+
+/**
+ * What the toast says once a row's `shadowlap mcp` line is copied: where it goes, and what in the
+ * line itself needs a value before the client starts it (a ••• it hides, a `${VAR}` its header
+ * reads). The entry's own environment stays as it is in the file, so it isn't named.
+ */
+export function copiedLineText(row: { name: string; file: string | null; line: string | null }): string {
+  const line = row.line ?? '';
+  const vars = [...new Set([...line.matchAll(/\$\{([A-Za-z_][\w]*)\}/g)].map((m) => m[1]!))];
+  // Claude Code fills in ${…} in .mcp.json itself, from the environment it starts from.
+  const where = row.file === CLAUDE_CODE_FILE ? 'the environment Claude Code starts from' : 'its env';
+  const needs = [...(line.includes('•••') ? ['put back the ••• in it'] : []), ...(vars.length ? [`set ${orList(vars)} in ${where}`] : [])];
+  return `Copied the line for ${row.name} · put it in front of the server in ${row.file ?? 'your client’s config'}${needs.length ? `, then ${needs.join(' and ')}` : ''}`;
+}
+
+/** Claude Code's project file: it fills in `${NAME}` in it from the environment Claude Code starts from, and won't start a server while NAME is unset there. */
+export const CLAUDE_CODE_FILE = '.mcp.json';
+
+/** The project's client config a copied entry goes in: the first one found, or null when there is none. */
+export function pasteFile(files: ReadonlyArray<{ path: string; found: boolean }>): string | null {
+  return files.find((f) => f.found)?.path ?? null;
+}
+
+/**
+ * The copied entry's environment for the file it goes in: in .mcp.json, the variable a URL's user
+ * and password became is `${NAME}`, which Claude Code fills in; elsewhere `…`, for its value.
+ */
+export function entryEnvFor(env: ReadonlyArray<{ name: string; value: string }>, basic: string | null | undefined, file: string | null): Array<{ name: string; value: string }> {
+  return env.map((e) => (file === CLAUDE_CODE_FILE && e.name === basic ? { name: e.name, value: `\${${e.name}}` } : { ...e }));
+}
+
+/**
+ * What "Add a server…" says under the entry, by what it hid: `basic`, the variable a URL's user and
+ * password became and where to set it (in .mcp.json's case, where Claude Code starts; for another
+ * file, the entry's env; with no file yet, either); `inCopy`, a URL's user and password in a
+ * command, which show as ••• in the copy too; `asTyped`, anything else that shows as ••• but is
+ * copied as typed (a URL's query, a key in its path, a token in a command). Null when nothing was.
+ */
+export function addServerNotes(shown: { line: string; hidden: boolean; basic?: string | null; copy?: { args: readonly string[] } | null }, file: string | null): { basic: { name: string; where: 'claude-code' | 'env' | 'either' } | null; inCopy: boolean; asTyped: boolean } | null {
+  if (!shown.hidden) return null;
+  const count = (text: string) => text.split('•••').length - 1;
+  const copied = count((shown.copy?.args ?? []).join(' '));
+  const basic = shown.basic ? { name: shown.basic, where: file === CLAUDE_CODE_FILE ? ('claude-code' as const) : file ? ('env' as const) : ('either' as const) } : null;
+  return { basic, inCopy: copied > 0, asTyped: count(shown.line) > copied };
 }
 
 /** The forms a server takes, each with the line that records one: what the page shows for a form no server here uses. */
@@ -340,60 +439,17 @@ export function pasteWhere(files: ReadonlyArray<{ path: string; found: boolean }
 
 // ---- CI ----
 
-/** What the CI tab's panels start as: Fix on failure off, $2 with Claude Code; alerts for main, to SLACK_WEBHOOK_URL. */
-export const CI_DEFAULTS: CiOptions = { fix: false, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
-
-/** The pull request the panel shows before any fix was verified here: the docs' refund agent. */
-function examplePullRequest(budget: string): CiPullRequest {
-  return {
-    title: 'Escalate refunds above the policy limit',
-    author: 'github-actions',
-    base: 'main',
-    branch: 'shadowlap/fix-refund-limit',
-    verify: 'target 3 of 3 · held-out 2 of 2 · good 5 of 5',
-    blame: 'lost at model call #5 · confidence high',
-    change: 'prompts/refund.md +1 −0',
-    spent: `≈$0.84 of $${budget}`,
-    fixId: null,
-    example: true,
-  };
-}
-
-const ciRows = (list: ReadonlyArray<readonly [string, string]>) => list.map(([label, value]) => ({ label, value }));
-
 /**
- * Both CI panels written here, from the same functions the server uses (`src/ci-yaml.ts`), for a
- * dashboard that doesn't serve `GET /api/ci/workflows`: what it serves for a project with no
- * goldens listed, no verified fix and no GitHub remote it can read.
+ * What the CI tab's controls show: what was changed on the tab, else what the server answered with
+ * (its defaults, which the panels' first answer carries), so nothing in the UI repeats them.
  */
-export function localCiWorkflows(o: CiOptions): CiWorkflowsView {
-  const recordings = 'goldens/*';
-  const message = alertsMessage({ failed: 1, branch: o.onlyMain ? 'main' : 'your-branch', runUrl: 'github.com/owner/repo/actions/runs/…' });
+export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsView): CiWorkflowOptions {
   return {
-    file: WORKFLOW_FILE,
-    action: ACTION,
-    fixOnFailure: {
-      on: o.fix,
-      budget: o.budget,
-      repairer: o.repairer,
-      budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
-      repairers: REPAIRERS.map((r) => ({ ...r })),
-      offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings }),
-      needs: ciRows(fixOnFailureNeeds(o.repairer)),
-      never: ciRows(fixOnFailureNever(o.budget)),
-      preview: examplePullRequest(o.budget),
-    },
-    alerts: {
-      onlyMain: o.onlyMain,
-      secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings }),
-      needs: ciRows(alertsNeeds(o.secret)),
-      failures: ciRows(ALERT_FAILURES),
-      message: { app: 'GitHub Actions', text: message.text, link: message.link, at: null },
-    },
-    recordings,
-    repository: null,
+    fix: changed.fix ?? view.fixOnFailure.on,
+    budget: changed.budget ?? view.fixOnFailure.budget,
+    repairer: changed.repairer ?? view.fixOnFailure.repairer,
+    onlyMain: changed.onlyMain ?? view.alerts.onlyMain,
+    secret: changed.secret ?? view.alerts.secret,
   };
 }
 

@@ -374,10 +374,71 @@ describe('shadowlap gc', () => {
     expect(JSON.parse(r.out)).toMatchObject({ count: 0, runs: [], blobs: 2, deferred: false, recording: [], abandonedCount: 0 });
     r = await shadowlap(['gc', '--dry-run']);
     expect(r.out).toContain('▸ no runs to delete (--older-than <days> or --keep <n> picks them)');
-    // Nothing to delete: no command that deletes, and what a vacuum alone would give back.
-    expect(r.out).toMatch(/✓ dry run: nothing to delete\.( The store has .+ free inside its file, which shadowlap gc gives back\.)?\n/);
+    // Nothing to delete and nothing to give back: no command to delete nothing with.
+    expect(r.out).toContain('✓ dry run: nothing to delete or give back.');
     expect(r.out).not.toContain('--expect');
     expect(JSON.parse((await shadowlap(['gc', '--dry-run', '--json'])).out).store).toEqual({ path: dbPath(), before: expect.any(Number), after: null, free: expect.any(Number) });
+  });
+
+  it('offers to give back what deleted runs left unused when no run is old enough, without a command that deletes runs', async () => {
+    const store = Store.open(dbPath());
+    // 3 MB of blobs only deleted runs used, as `rm` or the dashboard's Delete leave them, and the pages they leave unused.
+    for (let i = 0; i < 3; i++) {
+      const run = store.createRun({ mode: 'record', command: { argv: ['node', 'big.js'], cwd } });
+      store.appendCallStart({ runId: run.runId, callNo: 1, kind: 'tool', name: 't', fingerprint: String(i).repeat(64), occurrence: 1, origin: 'live', effect: 'read', requestRef: store.putBlob(randomBytes(1024 * 1024)), meta: {}, at: 1 });
+      store.endRun(run.runId, 'completed');
+      store.deleteRun(run.runId);
+    }
+    const free = store.size().free;
+    store.close();
+    let r = await shadowlap(['gc', '--older-than', '30', '--dry-run', '--json']);
+    const plan = JSON.parse(r.out) as Omit<GcPlan, 'store'> & { store: { before: number; free: number; after: null } };
+    expect(plan).toMatchObject({ count: 0, deferred: false });
+    expect(plan.store.free).toBe(free);
+    r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
+    expect(r.out).toContain('▸ runs older than 30 days: none');
+    expect(r.out).toMatch(/✓ dry run: no runs to delete; would give back .+\. To do that: shadowlap gc\n/);
+    expect(r.out).not.toContain('--expect');
+    // While a run records, gc leaves the blobs alone: the dry run says they can be given back once it ends, and never that there is nothing.
+    const recording = Store.open(dbPath());
+    const live = recording.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd } });
+    recording.close();
+    r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
+    expect(r.out).toMatch(/✓ dry run: no runs to delete; 3\.0 MB of blobs nothing references can be given back with shadowlap gc once no run is recording\.\n/);
+    expect(r.out).not.toContain('nothing to delete or give back');
+    expect(r.out).not.toContain('To do that');
+    const ended = Store.open(dbPath());
+    ended.endRun(live.runId, 'completed');
+    ended.close();
+    // Plain gc deletes no run and gives it back.
+    r = await shadowlap(['gc']);
+    expect(r.out).toMatch(/✓ removed 3 blobs nothing referenced and compacted the store · store .+ → .+/);
+    r = await shadowlap(['gc', '--json']);
+    const done = JSON.parse(r.out) as { count: number; dryRun: boolean; store: { before: number; after: number; free: number } };
+    expect(done).toMatchObject({ count: 0, dryRun: false });
+    expect(done.store.after).toBeLessThanOrEqual(done.store.before);
+  });
+
+  it('says the unused space a recording holds up can be given back once it ends, not that there is nothing', async () => {
+    const store = Store.open(dbPath());
+    for (let i = 0; i < 3; i++) {
+      const run = store.createRun({ mode: 'record', command: { argv: ['node', 'big.js'], cwd } });
+      store.appendCallStart({ runId: run.runId, callNo: 1, kind: 'tool', name: 't', fingerprint: String(i).repeat(64), occurrence: 1, origin: 'live', effect: 'read', requestRef: store.putBlob(randomBytes(1024 * 1024)), meta: {}, at: 1 });
+      store.endRun(run.runId, 'completed');
+      store.deleteRun(run.runId);
+    }
+    // The blobs go, and their pages stay unused until a vacuum; then a run starts recording.
+    store.gcBlobs();
+    expect(store.size().free).toBeGreaterThan(1024 * 1024);
+    const live = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd } });
+    store.close();
+    const r = await shadowlap(['gc', '--older-than', '30', '--dry-run']);
+    expect(r.out).toMatch(/unused space in the store: .+ · given back once no run is recording\n/);
+    expect(r.out).toMatch(/✓ dry run: no runs to delete; .+ of unused space can be given back with shadowlap gc once no run is recording\.\n/);
+    expect(r.out).not.toContain('nothing to delete or give back');
+    const after = Store.open(dbPath());
+    after.endRun(live.runId, 'completed');
+    after.close();
   });
 
   it('keeps its report small however many runs a clean-up deletes', async () => {

@@ -34,6 +34,13 @@ that comes from data goes there, everything else is a class.
 Esc closes the topmost layer: a menu, then a dialog, then a panel, then the phone sidebar. A new
 overlay registers itself with `useLayer(kind, open, close)` from `state.tsx`.
 
+A dialog belongs to the project the page showed when it opened. When the dashboard switches to
+another project elsewhere (another tab) and the page stays, the dialog closes, since its action would
+land in the other project, and the switch's toast says nothing was done; `keepOnSwitch` keeps one
+that holds only what was typed into it (a rule, a server's command), which then acts on the project
+shown (`dialogOnSwitch` in `projects-api.ts`). A dialog that starts a job for its project names that
+project in the job, so a server switched since refuses it.
+
 ## Data
 
 | Component | File | Notes |
