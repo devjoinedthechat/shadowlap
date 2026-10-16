@@ -3,9 +3,9 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
+import { markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixBundles, goldenExpect } from '../src/fixes.js';
+import { blameCheckFor, fixBundles } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
 
 /**
@@ -18,11 +18,15 @@ let store: Store;
 let project: string;
 let dash: Dashboard | null = null;
 const spawned: string[][] = [];
+/** Commands the stand-in keeps running (for 20 s, or until stopped): a repair, unless a test says otherwise. */
+const slow = new Set<string>();
 
 beforeEach(() => {
   store = Store.open(':memory:');
   project = realpathSync(mkdtempSync(join(tmpdir(), 'sl-fixes-routes-')));
   spawned.length = 0;
+  slow.clear();
+  slow.add('repair');
 });
 afterEach(async () => {
   await dash?.close();
@@ -38,8 +42,8 @@ async function start(o: Partial<DashboardOptions> = {}): Promise<Dashboard> {
     project: { path: project },
     spawnCli: (args, options) => {
       spawned.push(args);
-      // A repair takes a while; everything else is over at once.
-      const script = args[0] === 'repair' ? 'setTimeout(() => {}, 20000)' : '';
+      // A repair takes a while; everything else is over at once, unless the test made it slow too.
+      const script = slow.has(args[0]!) ? 'setTimeout(() => {}, 20000)' : '';
       return spawn(process.execPath, ['-e', script], { stdio: options?.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
     },
     ...o,
@@ -160,6 +164,18 @@ describe('PUT /api/fixes/:id/title', () => {
     expect((await api('fixes/fx-NOSUCHFIX/title', { method: 'PUT', body: JSON.stringify({ title: 'x' }) })).status).toBe(404);
   });
 
+  it('shows in the change feed as fixes, wherever the title was set', async () => {
+    const { fixId } = story();
+    await start();
+    const before = await json(await api('changes'));
+    await api(`fixes/${fixId}/title`, { method: 'PUT', body: JSON.stringify({ title: 'Renamed here' }) });
+    const renamed = await json(await api(`changes?since=${before.cursor}`));
+    expect(renamed).toMatchObject({ changed: true, runs: false, calls: false, other: ['fixes'] });
+    // As `shadowlap fix title` sets it: in the store, not through the dashboard.
+    setFixTitle(store, fixId, 'Renamed in a terminal');
+    expect((await json(await api(`changes?since=${renamed.cursor}`))).other).toEqual(['fixes']);
+  });
+
   it('is a write a read-only dashboard refuses', async () => {
     const { fixId } = story();
     await start({ readOnly: true });
@@ -275,13 +291,66 @@ describe('the blame job', () => {
     ]);
   });
 
-  it('reads a golden’s check by its folder, or a pattern on its last part', () => {
-    const tests = { 'goldens/a': { expect: { tools: { x: 0 } } }, 'goldens/b-*': { expect: { tools: { y: 1 } } }, 'goldens/c': { repeat: 3 } };
-    expect(goldenExpect(tests, 'goldens/a/')).toEqual({ tools: { x: 0 } });
-    expect(goldenExpect(tests, 'goldens/b-twice')).toEqual({ tools: { y: 1 } });
-    expect(goldenExpect(tests, 'goldens/c')).toBeUndefined();
-    expect(goldenExpect(tests, 'other/b-twice')).toBeUndefined();
-    expect(goldenExpect(undefined, 'goldens/a')).toBeUndefined();
+  it('judges a replay of a test run by its golden’s check, as the CLI did, whether it exited 0 or 1', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-*': { fork: true, expect: { tools: { issue_refund: { count: 0, args: { amount: 240 } } } } } } }));
+    const golden = makeRun(store, { status: 'completed', meta: { imported: { at: 1, from: 'refund-over-limit' } } });
+    const tested = makeRun(store, { mode: 'replay', parent: golden, status: 'completed', meta: { test: { golden: 'goldens/refund-over-limit', session: 's1' } } });
+    const failedCheck = [{ ok: false, label: 'issue_refund with {"amount":240} called 0 times', detail: 'called 1 time' }];
+    // A clean replay of the test run that failed its check, and a --strict one that also exited 1:
+    // labelled like a fix that blamed on another check, which must not win over the config.
+    const clean = makeRun(store, { mode: 'replay', parent: tested, status: 'completed', labels: ['double-email'], meta: { checks: failedCheck } });
+    const strict = makeRun(store, { mode: 'replay', parent: tested, status: 'failed', labels: ['double-email'], meta: { checks: failedCheck } });
+    blame(makeRun(store, { labels: ['double-email'] }), { expect: { tools: { send_email: 1 } } });
+    await start();
+    await started({ kind: 'blame', runId: clean });
+    await started({ kind: 'blame', runId: strict });
+    const refund = JSON.stringify({ tools: { issue_refund: { count: 0, args: { amount: 240 } } } });
+    expect(spawned).toEqual([
+      ['blame', clean, '--expect', refund],
+      ['blame', strict, '--expect', refund],
+    ]);
+    // Without the config, the labels' fix would have given its check.
+    expect(blameCheckFor(store, store.getRun(strict)!, { configDir: project })).toEqual({ expect: { tools: { send_email: 1 } }, from: 'labels' });
+  });
+
+  it('finds a pack’s check by the folder it was unpacked from, and the check a replay was given', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'refund-over-limit': { expect: { tools: { escalate: 1 } } } } }));
+    const unpacked = makeRun(store, { status: 'completed', meta: { imported: { at: 1, from: 'refund-over-limit' } } });
+    const replay = makeRun(store, { mode: 'replay', parent: unpacked, status: 'failed', meta: { checks: [{ ok: false, label: 'escalate called 1 time', detail: 'called 0 times' }] } });
+    const judged = makeRun(store, { mode: 'replay', parent: unpacked, status: 'completed', meta: { expect: { tools: { send_email: 0 } }, checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }] } });
+    await start();
+    await started({ kind: 'blame', runId: replay });
+    await started({ kind: 'blame', runId: judged });
+    expect(spawned).toEqual([
+      ['blame', replay, '--expect', '{"tools":{"escalate":1}}'],
+      ['blame', judged, '--expect', '{"tools":{"send_email":0}}'],
+    ]);
+    expect(blameCheckFor(store, store.getRun(judged)!, {})).toEqual({ expect: { tools: { send_email: 0 } }, from: 'replay' });
+  });
+
+  it('asks for a check the run failed that nothing names, rather than blaming on the exit code', async () => {
+    const run = makeRun(store, { status: 'failed', meta: { checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }] } });
+    await start();
+    const res = await job({ kind: 'blame', runId: run });
+    expect(res.status).toBe(422);
+    expect((await json(res)).error).toBe(`say what a passing run must do: ${run.slice(0, 10)} failed “send_email called 0 times”, and neither the run nor shadowlap.config.json gives that check. Give it as expect JSON, such as {"tools":{"send_email":1}}`);
+    expect(spawned).toEqual([]);
+  });
+
+  it('refuses a run still recording, and a check too long to be one', async () => {
+    const recording = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 3_000 }).runId;
+    const run = makeRun(store, {});
+    await start();
+    const live = await job({ kind: 'blame', runId: recording, expect: null });
+    expect(live.status).toBe(409);
+    expect((await json(live)).error).toMatch(/still recording: blame it once it has ended/);
+    const long = { output: { includes: ['x'.repeat(17 * 1024)] } };
+    for (const expect_ of [long, JSON.stringify(long)]) {
+      const res = await job({ kind: 'blame', runId: run, expect: expect_ });
+      expect(res.status).toBe(400);
+      expect((await json(res)).error).toBe('that check is too long');
+    }
+    expect(spawned).toEqual([]);
   });
 
   it('runs a command from an imported pack only once it is confirmed, and never a capture’s', async () => {
@@ -329,21 +398,72 @@ describe('the repair job', () => {
   });
 });
 
-describe('a repair or an apply at a time', () => {
-  it('refuses another while one changes the working tree', async () => {
-    const { fixId } = story();
+describe('the repair job’s imported runs', () => {
+  it('asks before it runs the command of a run from someone else’s pack, the fix’s own or one a label brings in', async () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    // A good run from a pack: the fix doesn't hold it, but --keeps label:good selects it.
+    const imported = makeRun(store, { labels: ['good'], status: 'completed', meta: { imported: { at: 1, from: 'pack' } } });
+    await start({ jobStopGraceMs: 200 });
+    const res = await job({ kind: 'repair', fixId: fix.fixId });
+    expect(res.status).toBe(409);
+    expect((await json(res)).error).toMatch(new RegExp(`^${imported.slice(0, 10)} came from an imported pack`));
+    expect(spawned).toEqual([]);
+    const j = await started({ kind: 'repair', fixId: fix.fixId, yes: true });
+    expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code', '--yes']);
+    await api(`jobs/${j.id}/stop`, { method: 'POST' });
+  });
+});
+
+describe('the working tree, one change at a time', () => {
+  it('runs no agent from the tree while a repair tries candidates in it, nor another repair or an apply', async () => {
+    const { fixId, failing } = story();
     const run = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
     await start({ jobStopGraceMs: 200 });
     const repair = await started({ kind: 'repair', fixId: fix.fixId });
-    for (const body of [{ kind: 'apply', fixId }, { kind: 'repair', fixId: fix.fixId }]) {
+    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is trying candidates in your working tree' });
+    const refused = async (body: Record<string, unknown>, message: string) => {
+      const res = await job(body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect((await json(res)).error).toBe(message);
+    };
+    await refused({ kind: 'blame', runId: run, expect: null }, 'a repair is trying candidates in your working tree: blame once it is done');
+    await refused({ kind: 'action', runId: failing, key: 'r' }, 'a repair is trying candidates in your working tree: replay once it is done');
+    await refused({ kind: 'repair', fixId: fix.fixId }, 'a repair is trying candidates in your working tree: repair once it is done');
+    await refused({ kind: 'apply', fixId }, 'a repair is trying candidates in your working tree: apply the patch once it is done');
+    expect(spawned).toHaveLength(1);
+    // Once it is done, the tree is free again.
+    await api(`jobs/${repair.id}/stop`, { method: 'POST' });
+    await finished(repair);
+    await started({ kind: 'blame', runId: run, expect: null });
+  });
+
+  it('starts no repair or apply while an agent runs from the tree, and lets agents run side by side', async () => {
+    const { fixId } = story();
+    const run = makeRun(store, { labels: ['double-email'] });
+    const other = makeRun(store, {});
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    slow.add('blame');
+    await start({ jobStopGraceMs: 200 });
+    const blaming = await started({ kind: 'blame', runId: run, expect: null });
+    expect(blaming.worktree).toEqual({ use: 'reads', doing: 'a blame is running your agent from your working tree' });
+    // Another blame reads the tree too: both run.
+    const second = await started({ kind: 'blame', runId: other, expect: null });
+    for (const [body, verb] of [
+      [{ kind: 'repair', fixId: fix.fixId }, 'repair'],
+      [{ kind: 'apply', fixId }, 'apply the patch'],
+    ] as const) {
       const res = await job(body);
       expect(res.status).toBe(409);
-      expect((await json(res)).error).toMatch(/a repair is running/);
+      expect((await json(res)).error).toBe(`a blame is running your agent from your working tree: ${verb} once it is done`);
     }
-    // A blame changes nothing in the working tree: it can run meanwhile.
-    await started({ kind: 'blame', runId: run, expect: null });
-    await api(`jobs/${repair.id}/stop`, { method: 'POST' });
+    // A job that runs no agent waits for nothing.
+    const pack = await started({ kind: 'action', runId: other, key: 'p', value: join(project, 'pack') });
+    expect(pack.worktree).toBeNull();
+    const listed = await json<{ jobs: JobView[] }>(await api('jobs'));
+    expect(listed.jobs.map((j) => j.worktree?.use ?? null)).toEqual([null, 'reads', 'reads']);
+    for (const j of [blaming, second]) await api(`jobs/${j.id}/stop`, { method: 'POST' });
   });
 });
 
@@ -358,6 +478,17 @@ describe('the apply job', () => {
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });
     const again = await started({ kind: 'apply', fixId });
     expect(again.title).toBe('Finishing the apply');
+  });
+
+  it('marks applied a fix verified on the working tree as it is, which has no patch', async () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: { tools: { send_email: 1 } }, command: 'shadowlap verify --fixes label:double-email' });
+    expect(store.getFix(fix.fixId)!.status).toBe('verified');
+    await start();
+    const j = await started({ kind: 'apply', fixId: fix.fixId });
+    expect(j.title).toBe('Marking the fix applied');
+    expect(spawned.at(-1)).toEqual(['fix', 'apply', fix.fixId]);
   });
 
   it('refuses an open fix and one with nothing left to do', async () => {

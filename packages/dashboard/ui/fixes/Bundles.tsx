@@ -19,8 +19,8 @@ const NONE: FixBundle[] = [];
  * forks blame rescued runs with, which show as forks of their own though they are attempts too.
  */
 export function useFixBundles(runId: string): { bundles: FixBundle[]; bundled: Set<string>; rescued: Set<string> } {
-  const { client, tick, exported } = useApp();
-  const loaded = useLoad(() => (exported ? null : client.fixBundles(runId)), `bundles:${runId}`, tick);
+  const { client, tick, feeds, exported } = useApp();
+  const loaded = useLoad(() => (exported ? null : client.fixBundles(runId)), `bundles:${runId}`, `${tick}:${feeds.fixes ?? 0}`);
   const bundles = loaded.data ?? NONE;
   return useMemo(() => ({ bundles, bundled: bundledRuns(bundles), rescued: new Set(bundles.flatMap((b) => b.attempts.filter((a) => a.rescued).map((a) => a.runId))) }), [bundles]);
 }

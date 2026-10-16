@@ -180,9 +180,10 @@ export function Banner({ run, blame, rescued, checks, showDiff, onToggleDiff, on
           <Why>{b.why}</Why>
           {b.fix ? (
             <span className="end">{fixLink()}</span>
-          ) : !b.blamed && app.hasKind(JOB_KINDS.blame) && !app.actionsOff ? (
+          ) : !b.blamed && app.hasKind(JOB_KINDS.blame) ? (
             <span className="end">
-              <RunBlameButton runId={r.runId} {...(run.blameExpect !== undefined ? { expect: run.blameExpect } : {})} />
+              {/* The server picks the check, as the CLI judges the run; on a read-only dashboard it shows disabled, with why. */}
+              <RunBlameButton runId={r.runId} failed={checks.filter((c) => !c.ok).map((c) => c.label)} />
             </span>
           ) : null}
         </section>

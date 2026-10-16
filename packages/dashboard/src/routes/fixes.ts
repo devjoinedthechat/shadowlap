@@ -1,7 +1,7 @@
 import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
+import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import type { Router } from '../router.js';
@@ -13,9 +13,11 @@ import type { Router } from '../router.js';
  * failed run, with the check it failed), `repair` (an open fix, from its failing and good runs) and
  * `apply` (a verified fix's patch, into the working tree). Each builder checks what it is asked and
  * builds the command line; the CLI records what it did, so the pages read it back from the store.
- * A blame needs the check the run failed: the one the request names, else the one its replay was
- * judged by, the config's for a test's golden, the fix it fails in or its labels point to, or the
- * agent's exit; with none of those it answers 422, and the page asks.
+ * A blame needs the check the run failed: the one the request names, else the one it was judged by
+ * (its own --expect, or the config's tests for the recording it replays, through its ancestors),
+ * the fix it fails in or its labels point to, or the agent's exit; when none of those applies, or
+ * the run failed a check none of them names, it answers 422 and the page asks. Repair and apply
+ * change the working tree, so the job manager runs them alone (`worktreeUse` in jobs.ts).
  */
 
 const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
@@ -47,11 +49,11 @@ function configuredRepairer(ctx: RouteContext): string | null {
   }
 }
 
-/** The config's `tests`, as written: where a test run's golden gets its checks. A config that can't be read gives none. */
-function configTests(ctx: RouteContext): unknown {
-  if (!ctx.project) return undefined;
+/** The config's `tests` in `folder`, as written: where a run judged by the config gets its checks. A config that can't be read gives none. */
+function configTests(folder: string | null): unknown {
+  if (!folder) return undefined;
   try {
-    return readConfigFile(ctx.project.path).data.tests;
+    return readConfigFile(folder).data.tests;
   } catch {
     return undefined;
   }
@@ -81,20 +83,49 @@ function importedCommand(runs: RunRecord[], yes: unknown): JobBuildResult | null
   return { error: `${imported.runId.slice(0, 10)} came from an imported pack: this runs the command it was recorded with (${imported.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
 }
 
-function blameJob(req: JobRequest, store: Store, tests: () => unknown): JobBuildResult {
+/**
+ * The runs a repair command line gives its `--fixes`, `--holdout` and `--keeps`, as the CLI selects
+ * them when it runs: run ids, and `label:<name>` for every run with that label, imported ones too.
+ */
+function selectedRuns(store: Store, argv: readonly string[]): RunRecord[] {
+  const out = new Map<string, RunRecord>();
+  let listing = false;
+  for (const a of argv) {
+    if (a.startsWith('--')) {
+      listing = a === '--fixes' || a === '--holdout' || a === '--keeps';
+      continue;
+    }
+    if (!listing) continue;
+    if (a.startsWith('label:')) {
+      const label = a.slice('label:'.length);
+      for (const r of store.allRuns()) if (r.meta?.labels?.includes(label)) out.set(r.runId, r);
+    } else {
+      const r = lookupRun(store, a);
+      if (r) out.set(r.runId, r);
+    }
+  }
+  return [...out.values()];
+}
+
+function blameJob(req: JobRequest, store: Store, configDir: string | null): JobBuildResult {
   if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
   const run = lookupRun(store, req.runId);
   if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
-  if (run.status === 'running') return { error: `${run.runId.slice(0, 10)} is still recording: blame it once it has ended`, status: 409 };
-  if (!hasRecordedCommand(run)) return { error: `${run.runId.slice(0, 10)} was imported from a capture and has no command to re-run: blame it in a terminal with yours, shadowlap blame ${run.runId.slice(0, 10)} -- <command>`, status: 409 };
+  const id = run.runId.slice(0, 10);
+  if (run.status === 'running') return { error: `${id} is still recording: blame it once it has ended`, status: 409 };
+  if (!hasRecordedCommand(run)) return { error: `${id} was imported from a capture and has no command to re-run: blame it in a terminal with yours, shadowlap blame ${id} -- <command>`, status: 409 };
   let expect: unknown;
   if ('expect' in req) {
     const asked = requestedCheck(req.expect);
     if ('error' in asked) return { error: asked.error };
     expect = asked.expect;
   } else {
-    const found = blameCheckFor(store, run, { tests: run.meta?.test ? tests() : undefined });
-    if (!found) return { error: `say what a passing run must do: blame needs the check ${run.runId.slice(0, 10)} failed, as expect JSON such as {"tools":{"send_email":1}}`, status: 422 };
+    const found = blameCheckFor(store, run, { tests: configTests(configDir), configDir });
+    if (!found) {
+      const failed = failedChecks(run);
+      const what = failed.length ? `${id} failed “${failed[0]}”, and neither the run nor shadowlap.config.json gives that check` : `blame needs the check ${id} failed`;
+      return { error: `say what a passing run must do: ${what}. Give it as expect JSON, such as {"tools":{"send_email":1}}`, status: 422 };
+    }
     expect = found.expect;
   }
   const consent = importedCommand([run], req.yes);
@@ -107,8 +138,8 @@ function repairJob(req: JobRequest, store: Store, repairer: string | null): JobB
   const d = fixDetail(store, fix.fixId, { repairer })!;
   if (fix.status !== 'open') return { error: `${short(fix.fixId)} is ${fix.status} already: a change was verified for it`, status: 409 };
   if (!d.actions.repair) return { error: `none of the failing runs of ${short(fix.fixId)} is left in the store, so there is nothing to repair`, status: 409 };
-  const runs = [...d.failingRuns, ...d.goodRuns].map((r) => store.getRun(r.runId)).filter((r): r is RunRecord => r !== null);
-  const consent = importedCommand(runs, req.yes);
+  // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
+  const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes);
   if (consent) return consent;
   return { args: [...repairJobArgv(d.actions.repair.argv, repairer), ...(req.yes === true ? ['--yes'] : [])] };
 }
@@ -124,12 +155,6 @@ function applyJob(req: JobRequest, store: Store): JobBuildResult {
 
 export function register(router: Router, ctx: RouteContext): void {
   const { store, jobs } = ctx;
-  // A repair writes each candidate into the working tree and puts it back, and an apply changes it
-  // for good: while one runs, another would trip over it.
-  const busy = (): JobBuildResult | null => {
-    const running = jobs.list().find((j) => !j.done && (j.kind === 'repair' || j.kind === 'apply'));
-    return running ? { error: `${running.kind === 'repair' ? 'a repair' : 'an apply'} is running and changes the working tree until it is done: wait for it to finish`, status: 409 } : null;
-  };
 
   router.get('/fixes', (r) => {
     const status = r.query.get('status') ?? 'all';
@@ -159,7 +184,9 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx) }));
   });
 
-  jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store, () => configTests(ctx)) });
-  jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => busy() ?? repairJob(req, b.store, configuredRepairer(ctx)) });
-  jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => busy() ?? applyJob(req, b.store) });
+  // Repair and apply change the working tree, and blame runs the agent from it: the job manager
+  // runs no two of them at once where that would clash (`worktreeUse` in jobs.ts).
+  jobs.registerJobKind('blame', { title: () => 'Blaming', build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
+  jobs.registerJobKind('repair', { title: () => 'Repairing', build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
+  jobs.registerJobKind('apply', { title: () => 'Applying the patch', build: (req, b) => applyJob(req, b.store) });
 }

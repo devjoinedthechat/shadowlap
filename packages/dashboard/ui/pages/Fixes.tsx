@@ -20,10 +20,18 @@ export function FixesPage({ id, step, sub }: { id: string | null; step: string |
 /** The command the empty page offers: blame names where a failed run was lost, and opens its fix. */
 const BLAME = `shadowlap blame <run> --expect '{"tools":{"send_email":1}}'`;
 
+/** The filter chip, kept while the page is open in this tab: back from a fix, the list is as it was left. */
+let chipShown: FixChip = 'all';
+
 function FixList() {
-  const { client, tick, exported } = useApp();
-  const [chip, setChip] = useState<FixChip>('all');
-  const loaded = useLoad(() => (exported ? null : client.fixes()), 'fixes', tick);
+  const { client, tick, feeds, exported } = useApp();
+  const [chip, setChipState] = useState<FixChip>(() => chipShown);
+  const setChip = (c: FixChip) => {
+    chipShown = c;
+    setChipState(c);
+  };
+  // Again when runs change, or fixes do (a blame or repair in a terminal, a title set elsewhere).
+  const loaded = useLoad(() => (exported ? null : client.fixes()), 'fixes', `${tick}:${feeds.fixes ?? 0}`);
   const list = loaded.data;
   useEffect(() => {
     if (list) rememberList(list);

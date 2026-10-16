@@ -78,14 +78,33 @@ export function verifyFor(f: Pick<FixDetail, 'verify' | 'defaultVerify'>, sub: s
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */
-export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: 'Apply the patch' | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; why: string };
+export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: 'Apply the patch' | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; label: 'Repair from here' | 'Apply the patch'; why: string };
 
 export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
-  if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
+  if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: 'Repair from here', why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
   const apply = f.actions.apply;
-  if (!apply) return { kind: 'none', why: 'No change has been verified for it.' };
+  if (!apply) return { kind: 'none', label: 'Apply the patch', why: 'No change has been verified for it.' };
   if (f.actions.applied) return apply.pending ? { kind: 'apply', label: 'Finish applying' } : { kind: 'applied' };
   return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
+}
+
+/** A job as the working tree's lock reads it: whether it is running, and how it uses the tree. */
+export interface TreeJob {
+  id: string;
+  done: boolean;
+  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
+}
+
+/**
+ * Why an action that uses the working tree as `use` can't start now, as the server would refuse it:
+ * a job that changes the tree is running, or, for one that changes it, any job running the agent
+ * from it. `verb` is what to do once it is free: "A repair is trying candidates in your working
+ * tree: blame once it is done." Null when it can start.
+ */
+export function treeBusy(jobs: readonly TreeJob[], use: 'reads' | 'writes', verb: string): string | null {
+  const j = jobs.find((x) => !x.done && x.worktree && (use === 'writes' || x.worktree.use === 'writes'));
+  const doing = j?.worktree?.doing;
+  return doing ? `${doing.charAt(0).toUpperCase()}${doing.slice(1)}: ${verb} once it is done.` : null;
 }
 
 // ---------------------------------------------------------------------------------------------- blame

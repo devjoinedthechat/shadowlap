@@ -255,6 +255,12 @@ export interface JobFile {
 export interface JobView {
   id: string;
   args: string[];
+  /**
+   * How it uses the project's working tree: a job that `writes` it (repair, fix apply) runs alone,
+   * one that `reads` it (runs the agent from it) never alongside one that writes. `doing` says what
+   * it is doing there. Null when it runs no agent.
+   */
+  worktree?: { use: 'reads' | 'writes'; doing: string } | null;
   runId: string | null;
   opensRun: boolean;
   startedAt: number;
@@ -272,6 +278,9 @@ export interface JobView {
   result?: unknown;
 }
 
+/** A job in `GET /api/jobs`: everything but its output and its result. */
+export type JobListItem = Omit<JobView, 'lines' | 'result'>;
+
 /** `/api/changes`: whether anything shown changed since the cursor. */
 export interface Changes {
   cursor?: string;
@@ -281,6 +290,8 @@ export interface Changes {
   calls?: boolean;
   events?: boolean;
   jobs?: boolean;
+  /** Other counted tables that changed, by name (`fixes`, …). */
+  other?: string[];
   live?: LiveRun[];
 }
 

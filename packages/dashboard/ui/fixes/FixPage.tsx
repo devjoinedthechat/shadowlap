@@ -11,8 +11,9 @@ import { useApp } from '../state.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { fixAction, fixName, fixStamp, laterStamp, shortFixId, statusBadge, stepFor } from './model.js';
+import { fixAction, fixName, fixStamp, laterStamp, shortFixId, statusBadge, stepFor, treeBusy } from './model.js';
 import { RepairStepView } from './RepairStep.js';
+import { useTreeJobs } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
 
 /**
@@ -21,8 +22,9 @@ import { VerifyStepView } from './VerifyStep.js';
  * Repair from here on an open fix, Apply the patch on a verified one.
  */
 export function FixPage({ id, step, sub }: { id: string; step: string | null; sub: string | null }) {
-  const { client, tick } = useApp();
-  const loaded = useLoad(() => client.fix(id), `fix:${id}`, tick);
+  const { client, tick, feeds } = useApp();
+  // Again when runs change, or fixes do (a title set in a terminal, a repair's report).
+  const loaded = useLoad(() => client.fix(id), `fix:${id}`, `${tick}:${feeds.fixes ?? 0}`);
   const fix = loaded.data;
   useEffect(() => {
     if (fix) rememberFix(fix, id);
@@ -138,10 +140,16 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
   );
 }
 
-/** Repair from here, or Copy git apply and Apply the patch, each asking first. */
+/**
+ * Repair from here, or Copy git apply and Apply the patch, each asking first. Disabled, with the
+ * reason, where nothing runs, while another job uses the working tree, or when there is nothing to
+ * do. A repair whose runs came from someone else's pack asks once more before it runs their command.
+ */
 export function FixActions({ fix }: { fix: FixDetail }) {
   const app = useApp();
+  const tree = useTreeJobs();
   const [asking, setAsking] = useState<'repair' | 'apply' | null>(null);
+  const [consent, setConsent] = useState<{ why: string; kind: string; fields: Record<string, unknown> } | null>(null);
   if (app.exported) return null;
   const action = fixAction(fix);
   const off = app.actionsOff;
@@ -157,7 +165,15 @@ export function FixActions({ fix }: { fix: FixDetail }) {
       Copy git apply
     </button>
   ) : null;
-  if (action.kind === 'none') return null;
+  if (action.kind === 'none')
+    return (
+      <>
+        {copy}
+        <button className="btn lime" type="button" disabled title={off ?? action.why}>
+          {action.label}
+        </button>
+      </>
+    );
   if (action.kind === 'applied')
     return (
       <>
@@ -169,24 +185,43 @@ export function FixActions({ fix }: { fix: FixDetail }) {
     );
   const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
   const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
-  // A repair or an apply changes the working tree until it is done: one at a time.
-  const running = app.jobs.find((w) => !w.job.done && !w.lost && (w.job.kind === JOB_KINDS.repair || w.job.kind === JOB_KINDS.applyFix));
-  const busy = running ? `${running.job.kind === JOB_KINDS.repair ? 'A repair' : 'An apply'} is running and changes the working tree until it is done.` : null;
+  // A repair or an apply changes the working tree: it waits for every job running the agent from it.
+  const busy = treeBusy(tree, 'writes', action.kind === 'repair' ? 'repair' : 'apply the patch');
   const why = off ?? missing ?? busy;
+  const start = (jobKind: string, fields: Record<string, unknown>) =>
+    app.client.startJob(jobKind, fields).then(
+      (job) => app.watchJob(Promise.resolve(job)),
+      (err: unknown) => {
+        if (err instanceof ApiError && err.status === 409 && /imported pack/.test(err.message)) setConsent({ why: err.message, kind: jobKind, fields });
+        else app.watchJob(Promise.reject(err));
+      },
+    );
   return (
     <>
       {copy}
       <button className="btn lime" type="button" disabled={!!why} title={why ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? 'Repair from here' : action.label}
       </button>
-      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} /> : null}
-      {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} /> : null}
+      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId }))} /> : null}
+      {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
+      {consent ? (
+        <ConfirmDialog
+          title="Run commands from an imported pack?"
+          text={`${consent.why}.`}
+          ok={consent.kind === JOB_KINDS.repair ? 'Repair' : 'Run'}
+          onClose={() => setConsent(null)}
+          onOk={() => {
+            const c = consent;
+            setConsent(null);
+            app.guard(() => void start(c.kind, { ...c.fields, yes: true }));
+          }}
+        />
+      ) : null}
     </>
   );
 }
 
-function RepairDialog({ fix, onClose }: { fix: FixDetail; onClose: () => void }) {
-  const app = useApp();
+function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: () => void }) {
   const who = fix.repairer.configured ? `${fix.repairer.name} (from shadowlap.config.json)` : 'your own Claude Code';
   return (
     <Dialog
@@ -196,7 +231,7 @@ function RepairDialog({ fix, onClose }: { fix: FixDetail; onClose: () => void })
       onClose={onClose}
       onOk={() => {
         onClose();
-        app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.repair, { fixId: fix.fixId })));
+        onRun();
       }}
     >
       <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>
@@ -205,13 +240,12 @@ function RepairDialog({ fix, onClose }: { fix: FixDetail; onClose: () => void })
   );
 }
 
-function ApplyDialog({ fix, label, onClose }: { fix: FixDetail; label: string; onClose: () => void }) {
-  const app = useApp();
+function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: () => void }) {
   const apply = fix.actions.apply!;
   const file = fix.repair?.change?.file ?? null;
   const run = () => {
     onClose();
-    app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.applyFix, { fixId: fix.fixId })));
+    onRun();
   };
   const command = `shadowlap fix apply ${shortFixId(fix.fixId)}`;
   if (apply.kind === 'mark')

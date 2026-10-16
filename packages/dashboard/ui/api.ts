@@ -3,7 +3,7 @@ import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, FixBundle, FixDetail, FixList, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
+import type { CallDetail, Changes, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, StaticPayload } from './types.js';
 
 /**
  * The dashboard's API client, the one module that talks to the server. Its types are in `types.ts`:
@@ -100,6 +100,8 @@ export interface Client {
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
+  /** The jobs the server remembers, newest first, running ones included, without their output. */
+  jobs(): Promise<JobListItem[]>;
   remove(id: string): Promise<{ deleted: string }>;
   /** Saves a run, with the runs it came from, as one HTML file. */
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
@@ -209,6 +211,7 @@ export function createClient(token: string): Client {
     action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
+    jobs: async () => (await request<{ jobs: JobListItem[] }>('jobs')).jobs,
     remove: (runId) => request<{ deleted: string }>(`runs/${id(runId)}`, { method: 'DELETE' }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
     // end up in history and logs: so a file is fetched here and handed to the browser to save.
@@ -291,6 +294,7 @@ export function createExportedClient(data: StaticPayload): Client {
     action: readOnly,
     startJob: readOnly,
     job: readOnly,
+    jobs: () => Promise.resolve([]),
     remove: readOnly,
     exportHtml: readOnly,
     downloadFile: readOnly,

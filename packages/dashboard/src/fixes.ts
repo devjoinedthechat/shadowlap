@@ -14,9 +14,11 @@ import {
   formatUsd,
   GOOD_LABEL,
   outcomeOf,
+  recordingsOfRun,
   repairMarkdown,
   repairToApply,
   resolveFix,
+  testsEntryFor,
   verdictCounts,
   type FixData,
   type FixRecords,
@@ -1312,56 +1314,56 @@ export interface BlameCheck {
   /** The check as `--expect` takes it; null to blame on the exit code alone. */
   expect: unknown;
   /**
-   * Where it came from: the replay was judged by it (`replay`), the config's `tests` give it for the
-   * golden a test replayed (`golden`), the fix the run fails in has it (`fix`), a fix the run's
-   * labels point to has it (`labels`), or the agent exited with an error, which every blame checks
-   * (`exit`).
+   * Where it came from: the run was judged by it with `--expect` (`replay`); shadowlap.config.json's
+   * `tests` give it for the recording the run replays, found through its ancestors as the CLI finds
+   * it (`config`); the fix the run fails in has it (`fix`); a fix the run's labels point to has it
+   * (`labels`); or the agent exited with an error, which every blame checks (`exit`).
    */
-  from: 'replay' | 'golden' | 'fix' | 'labels' | 'exit';
+  from: 'replay' | 'config' | 'fix' | 'labels' | 'exit';
 }
 
 const plainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const folder = (p: string) => p.replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/\/+$/, '');
+
+/** The checks a run failed, as it recorded them (`meta.checks`). */
+export function failedChecks(run: RunRecord): string[] {
+  const checks: unknown = run.meta?.checks;
+  if (!Array.isArray(checks)) return [];
+  return checks.flatMap((c) => (plainObject(c) && c.ok === false && typeof c.label === 'string' ? [c.label] : []));
+}
 
 /**
- * The `expect` the config's `tests` give a golden folder (as `shadowlap test` names it, relative to
- * the project): its own entry first, else one whose last part is a pattern (`goldens/refund-*`).
+ * The `expect` shadowlap.config.json's `tests` give the recording a run replays (the golden a test
+ * replayed, or the pack it was unpacked from, through its ancestors), or undefined when no entry
+ * names one. `tests` is the config's `tests` as written; `configDir` the folder it is in.
  */
-export function goldenExpect(tests: unknown, golden: string): unknown {
+export function configExpect(store: Store, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
   if (!plainObject(tests)) return undefined;
-  const want = folder(golden);
-  let pattern: unknown;
-  for (const [key, spec] of Object.entries(tests)) {
-    if (!plainObject(spec) || spec.expect === undefined) continue;
-    const at = folder(key);
-    if (!at.includes('*')) {
-      if (at === want) return spec.expect;
-      continue;
-    }
-    const cut = at.lastIndexOf('/');
-    const [dir, last] = [at.slice(0, Math.max(0, cut)), at.slice(cut + 1)];
-    const re = new RegExp(`^${last.split('*').map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`);
-    const wantCut = want.lastIndexOf('/');
-    if (pattern === undefined && want.slice(0, Math.max(0, wantCut)) === dir && re.test(want.slice(wantCut + 1))) pattern = spec.expect;
+  const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
+  for (const dir of recordingsOfRun(store, run)) {
+    const entry = testsEntryFor(entries, dir, configDir);
+    if (entry) return plainObject(entry.spec) && plainObject(entry.spec.expect) ? entry.spec.expect : undefined;
   }
-  return pattern;
+  return undefined;
 }
 
 /**
  * The check a blame of a run can use when nobody named one, or null when nothing says what a
- * passing run must do: then the dashboard asks for it. `tests` is the config's `tests`, for a run
- * `shadowlap test` made.
+ * passing run must do: then the dashboard asks for it. In order: the run's own `--expect`; the
+ * config's, for the recording it replays (`tests`, the config's `tests`, and `configDir`, its
+ * folder); the fix it fails in; a fix its labels point to; the agent's exit, for a run that exited
+ * with an error. A run that failed a check none of these name gets null rather than the exit code:
+ * blaming on the exit alone would look for another failure than the one it had.
  */
-export function blameCheckFor(store: Store, run: RunRecord, options: { tests?: unknown } = {}): BlameCheck | null {
+export function blameCheckFor(store: Store, run: RunRecord, options: { tests?: unknown; configDir?: string | null } = {}): BlameCheck | null {
   const judged = run.meta?.expect;
-  if (judged && typeof judged === 'object' && !Array.isArray(judged)) return { expect: judged, from: 'replay' };
-  const golden = run.meta?.test?.golden;
-  const configured = typeof golden === 'string' ? goldenExpect(options.tests, golden) : undefined;
-  if (plainObject(configured)) return { expect: configured, from: 'golden' };
+  if (plainObject(judged)) return { expect: judged, from: 'replay' };
+  const configured = options.configDir ? configExpect(store, run, options.tests, options.configDir) : undefined;
+  if (configured) return { expect: configured, from: 'config' };
   const failing = fixOfRun(store, run.runId);
   if (failing) return { expect: failing.check.expect ?? null, from: 'fix' };
   const suggested = fixLabels(run).length ? checkSuggestion(run, labelledFixes(store)) : null;
   if (suggested) return { expect: suggested.expect ?? null, from: 'labels' };
+  if (failedChecks(run).length) return null;
   if (run.status === 'failed') return { expect: null, from: 'exit' };
   return null;
 }
