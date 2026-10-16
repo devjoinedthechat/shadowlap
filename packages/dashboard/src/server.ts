@@ -443,7 +443,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     // page then turns to; routes that name what they act on (a project, a job) take any.
     const shown = req.headers['x-shadowlap-project'];
     if (now.current && method !== 'GET' && method !== 'HEAD' && !match.anyProject && typeof shown === 'string' && shown && shown !== now.current.id) {
-      const was = projects?.list().find((p) => p.id === shown)?.name ?? shown;
+      const was = projects?.list().find((p) => p.id === shown)?.name ?? shown.slice(0, 64);
       return json(res, 409, { error: `The dashboard switched to ${now.current.name} elsewhere, so nothing was done in ${was}.`, current: now.current });
     }
     await match.handler(routeRequest(req, res, url, match.params));
