@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, parseCheck, parseMarkdown, plainCell, probeBadge, repairAsk, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, outdatedOf, parseCheck, parseMarkdown, plainCell, probeBadge, repairAsk, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
 
@@ -330,6 +330,21 @@ describe('the job drawer', () => {
     expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'passed' }), [])).toEqual({ text: 'applied · tests passed · exit 0', tone: 'ok' });
     expect(jobStatus(job('apply', 1, { status: 'applied', tests: 'failed' }), [])).toEqual({ text: 'applied · tests failed · exit 1', tone: 'err' });
     expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'skipped' }), [])).toEqual({ text: 'applied · exit 0', tone: 'ok' });
+  });
+
+  it('ends a fix apply that left other goldens behind on how many to update, and asks before updating them', () => {
+    const outdated = [
+      { golden: 'goldens/refund-in-limit', callNo: 1, path: '$.tools[4].description' },
+      { golden: 'goldens/01M53A4MZS', callNo: 1, path: '$.tools[4].description' },
+    ];
+    expect(jobStatus(job('apply', 0, { status: 'applied', tests: 'passed', outdated }), [])).toEqual({ text: 'applied · tests passed · 2 goldens to update · exit 0', tone: 'warn' });
+    expect(jobStatus(job('apply', 1, { status: 'applied', tests: 'failed', outdated: outdated.slice(0, 1) }), [])).toEqual({ text: 'applied · tests failed · 1 golden to update · exit 1', tone: 'err' });
+    expect(outdatedOf({ outdated: [...outdated, { golden: '', callNo: 1, path: '$' }, { golden: 'x' }, 'goldens/y'] })).toEqual(outdated);
+    expect(outdatedOf(null)).toEqual([]);
+    const ask = updateOutdatedAsk(outdated);
+    expect(ask).toMatchObject({ title: 'Update 2 goldens?', command: 'shadowlap test goldens/refund-in-limit goldens/01M53A4MZS --update', fields: { goldens: ['goldens/refund-in-limit', 'goldens/01M53A4MZS'] } });
+    expect(ask.text).toMatch(/^They diverge on what the patch changed \(#1 \$\.tools\[4\]\.description\)\. Use this when the change was intended: each is re-recorded live with writes stubbed/);
+    expect(updateOutdatedAsk(outdated.slice(1))).toMatchObject({ title: 'Update 01M53A4MZS?', fields: { golden: 'goldens/01M53A4MZS' } });
   });
 
   it('leaves other jobs, and a result it does not know, to the output', () => {

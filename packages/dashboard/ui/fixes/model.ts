@@ -1,3 +1,4 @@
+import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyRow, VerifyStep } from '../types.js';
 
 /**
@@ -509,7 +510,39 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
   if (job.kind === 'apply') {
     if (r.status === 'already-applied') return { text: `applied already · ${exit}`, tone };
     if (r.status !== 'applied') return null;
-    return { text: `applied${r.tests === 'passed' || r.tests === 'failed' ? ` · tests ${r.tests}` : ''} · ${exit}`, tone: r.tests === 'failed' ? 'err' : tone };
+    const outdated = outdatedOf(r).length;
+    const left = outdated ? ` · ${outdated} golden${outdated === 1 ? '' : 's'} to update` : '';
+    return { text: `applied${r.tests === 'passed' || r.tests === 'failed' ? ` · tests ${r.tests}` : ''}${left} · ${exit}`, tone: r.tests === 'failed' ? 'err' : outdated && tone === 'ok' ? 'warn' : tone };
   }
   return null;
+}
+
+/** One of the project's other goldens a fix's patch made diverge, as `fix apply --json` lists it. */
+export interface OutdatedGolden {
+  golden: string;
+  callNo: number;
+  path: string;
+}
+
+/** The goldens a fix apply's result lists as diverging on what its patch changed (`outdated`), well formed only. */
+export function outdatedOf(result: unknown): OutdatedGolden[] {
+  const list = isRecord(result) && Array.isArray(result.outdated) ? result.outdated : [];
+  return list.filter((g): g is OutdatedGolden => isRecord(g) && typeof g.golden === 'string' && g.golden !== '' && typeof g.callNo === 'number' && typeof g.path === 'string');
+}
+
+/**
+ * What the apply drawer's Update goldens asks before it re-records them, in the words of the Tests
+ * screen's Update goldens: which, where the patch made them diverge, what an update does, and the
+ * command it runs.
+ */
+export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title: string; text: string; command: string; fields: Record<string, unknown> } {
+  const names = outdated.map((g) => g.golden);
+  const one = names.length === 1;
+  const where = [...new Set(outdated.map((g) => `#${g.callNo} ${g.path}`))];
+  return {
+    title: one ? `Update ${names[0]!.split('/').pop()}?` : `Update ${names.length} goldens?`,
+    text: `${one ? 'It diverges' : 'They diverge'} on what the patch changed (${where.slice(0, 2).join(', ')}${where.length > 2 ? ', …' : ''}). Use this when the change was intended: ${one ? 'it is' : 'each is'} re-recorded live with writes stubbed, ${one ? 'its' : 'each one’s'} checks run, and the new recording replaces the old one in your working tree only if they pass. You review the change in your pull request.`,
+    command: commandText(['test', ...names, '--update']),
+    fields: one ? { golden: names[0] } : { goldens: names },
+  };
 }

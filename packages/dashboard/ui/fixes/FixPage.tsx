@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
-import { JOB_KINDS, ApiError } from '../api.js';
+import { createPortal } from 'react-dom';
+import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
 import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
 import { useLoad } from '../hooks.js';
+import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { fixAction, fixName, fixStamp, laterStamp, repairAsk, shortFixId, statusBadge, stepFor } from './model.js';
+import { fixAction, fixName, fixStamp, laterStamp, outdatedOf, repairAsk, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
@@ -289,11 +291,51 @@ function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: st
     return <ConfirmDialog title="Finish applying the fix?" text={`The patch is in your working tree. What is left: ${apply.pending ?? 'nothing'}.`} ok={label} command={command} onOk={run} onClose={onClose} />;
   // A teammate's repair, from the team store: its recordings are on the machine that ran it.
   const text = apply.pulled
-    ? `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply. The recordings the fixed code made stay on the machine that ran the repair, so nothing is copied or replayed here. Review the change before you commit it.`
-    : `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Review the change before you commit it.`;
+    ? `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply. The recordings the fixed code made stay on the machine that ran the repair, so nothing is copied here. Your goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`
+    : `This changes your working tree: the patch goes into ${file ?? 'your files'} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`;
   return (
     <Dialog title="Apply the patch?" text={text} ok={label} onOk={run} onClose={onClose}>
       <CmdLine>{command}</CmdLine>
     </Dialog>
   );
 }
+
+/**
+ * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
+ * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
+ */
+function ApplyFooter({ job }: { job: JobView }) {
+  const app = useApp();
+  const [asking, setAsking] = useState(false);
+  const [started, setStarted] = useState(false);
+  const outdated = outdatedOf(job.result);
+  if (!job.done || !outdated.length || !app.hasKind(JOB_KINDS.testUpdate)) return null;
+  const ask = updateOutdatedAsk(outdated);
+  return (
+    <>
+      <button className="btn lime" type="button" disabled={started || !!app.actionsOff} title={app.actionsOff ?? ask.command} onClick={() => app.guard(() => setAsking(true))}>
+        Update goldens
+      </button>
+      {/* Over the page, not inside the drawer, whose header and footer styles would reach it. */}
+      {asking
+        ? createPortal(
+            <ConfirmDialog
+              title={ask.title}
+              text={ask.text}
+              ok="Update"
+              command={ask.command}
+              onClose={() => setAsking(false)}
+              onOk={() => {
+                setAsking(false);
+                setStarted(true);
+                app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
+              }}
+            />,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+addJobFooter(JOB_KINDS.applyFix, ApplyFooter);
