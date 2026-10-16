@@ -1,9 +1,11 @@
+import { describeBlocks } from './blame.js';
 import { canonicalize } from './canonical.js';
 import { describeChanges, type RunChanges } from './changes.js';
 import { normalizeConversation } from './conversation.js';
+import type { Block } from './deltas.js';
 import { hintsFor, structuralDiff } from './diff.js';
 import { pathOf } from './repeat.js';
-import { finalAnswer } from './responses.js';
+import { finalAnswer, normalizeResponse } from './responses.js';
 import { sha256 } from './ids.js';
 import { loadApiRequest } from './manifest.js';
 import type { Palette } from './report.js';
@@ -30,6 +32,13 @@ export interface CallDifference {
   hints?: Hint[];
   /** For a response difference: a one-line description. */
   detail?: string;
+  /**
+   * For a model call's response difference: the model answered the same (its text, tool calls and
+   * thinking, and how it stopped), and only what each response carries anew differs (its id, token
+   * counts). Two live runs of one agent get new responses every call, so the call isn't identical,
+   * but nothing the model said changed.
+   */
+  sameAnswer?: true;
 }
 
 export interface RunComparison {
@@ -147,23 +156,66 @@ function request(store: Store, c: CallRecord): unknown {
   return c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef);
 }
 
-function responseDetail(store: Store, x: CallRecord, y: CallRecord): string {
+/** A model call's answer as the provider's response says it, or null when it can't be read (an error, nothing stored). */
+function answerOf(store: Store, c: CallRecord): { blocks: Block[]; stop: string | null } | null {
+  const ref = c.end?.responseRef;
+  if (!ref || c.end?.outcome !== 'ok') return null;
+  try {
+    const provider = c.end.meta.provider ?? c.meta.provider;
+    const r = normalizeResponse(store.getBlob(ref), c.end.meta.headers?.['content-type'], c.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
+    return r.blocks.length ? { blocks: r.blocks, stop: r.stopReason } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What an answer says (its text, tool calls and thinking), without what each response carries anew: ids, token counts. */
+function saidIn(blocks: readonly Block[], thinking: boolean): string {
+  return canonicalize(blocks.flatMap((b): unknown[] => (b.type === 'tool_call' ? [{ c: b.name, i: b.input ?? {} }] : b.type === 'text' || thinking ? [{ [b.type]: b.text.trim().replace(/\s+/g, ' ') }] : [])));
+}
+
+/** How long each answer is shown in the detail. */
+const ANSWER_SHOWN = 90;
+
+/** A response difference: what it says, and for a model call whether the model answered the same. */
+function responseDifference(store: Store, x: CallRecord, y: CallRecord): { detail: string; sameAnswer?: true } {
   if (x.kind === 'api') {
     const parts: string[] = [];
-    const bx = x.end?.meta.bytes ?? store.getBlob(x.end?.responseRef ?? '')?.length ?? 0;
-    const by = y.end?.meta.bytes ?? store.getBlob(y.end?.responseRef ?? '')?.length ?? 0;
-    parts.push(`${bx} → ${by} bytes`);
-    if (x.end?.meta.stopReason !== y.end?.meta.stopReason) parts.push(`stop ${x.end?.meta.stopReason ?? '?'} → ${y.end?.meta.stopReason ?? '?'}`);
-    const ox = x.end?.meta.usage?.outputTokens;
-    const oy = y.end?.meta.usage?.outputTokens;
-    if (ox !== undefined && oy !== undefined && ox !== oy) parts.push(`${ox} → ${oy} output tokens`);
+    // What the model answered each time, as the pairs in Training show answers. A response is new
+    // bytes on every live call (its id, its token counts), so the same answer can come back as another
+    // response: that is said, rather than counted as bytes.
+    const ax = answerOf(store, x);
+    const ay = answerOf(store, y);
+    let same = false;
+    if (ax && ay) {
+      const shown = (a: { blocks: Block[] }) => a.blocks.filter((b) => b.type !== 'thinking');
+      if (saidIn(ax.blocks, false) !== saidIn(ay.blocks, false)) {
+        const dx = describeBlocks(shown(ax), ANSWER_SHOWN);
+        const dy = describeBlocks(shown(ay), ANSWER_SHOWN);
+        parts.push(dx !== dy ? `${dx} → ${dy}` : `${dx} → an answer that starts the same and goes on differently`);
+      } else if (saidIn(ax.blocks, true) !== saidIn(ay.blocks, true)) parts.push('the same answer, after other thinking');
+      else if (ax.stop !== ay.stop) parts.push('the same words and tool calls');
+      else {
+        same = true;
+        parts.push('the same answer (its id or token counts differ)');
+      }
+      if (ax.stop !== ay.stop) parts.push(`stop ${ax.stop ?? '?'} → ${ay.stop ?? '?'}`);
+    } else {
+      const bx = x.end?.meta.bytes ?? store.getBlob(x.end?.responseRef ?? '')?.length ?? 0;
+      const by = y.end?.meta.bytes ?? store.getBlob(y.end?.responseRef ?? '')?.length ?? 0;
+      parts.push(`${bx} → ${by} bytes`);
+      if (x.end?.meta.stopReason !== y.end?.meta.stopReason) parts.push(`stop ${x.end?.meta.stopReason ?? '?'} → ${y.end?.meta.stopReason ?? '?'}`);
+      const ox = x.end?.meta.usage?.outputTokens;
+      const oy = y.end?.meta.usage?.outputTokens;
+      if (ox !== undefined && oy !== undefined && ox !== oy) parts.push(`${ox} → ${oy} output tokens`);
+    }
     if (x.end?.outcome !== y.end?.outcome) parts.push(`${x.end?.outcome ?? 'pending'} → ${y.end?.outcome ?? 'pending'}`);
-    return parts.join(', ');
+    return { detail: parts.join(', '), ...(same ? { sameAnswer: true as const } : {}) };
   }
   const rx = x.end?.responseRef ? store.getJson(x.end.responseRef) : null;
   const ry = y.end?.responseRef ? store.getJson(y.end.responseRef) : null;
   const d = structuralDiff(rx, ry);
-  return d.length ? `${d.length} difference${d.length === 1 ? '' : 's'}, first at ${d[0]!.path}` : 'different bytes, same value';
+  return { detail: d.length ? `${d.length} difference${d.length === 1 ? '' : 's'}, first at ${d[0]!.path}` : 'different bytes, same value' };
 }
 
 /**
@@ -217,7 +269,7 @@ export function compareRuns(store: Store, a: RunRecord, aCalls: CallRecord[], b:
       }
     } else {
       prefixIntact = false;
-      responseDifferences.push({ callNo: y.callNo, kind: y.kind, name: y.name, detail: responseDetail(store, x, y) });
+      responseDifferences.push({ callNo: y.callNo, kind: y.kind, name: y.name, ...responseDifference(store, x, y) });
     }
   }
   return {

@@ -69,23 +69,47 @@ export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCar
   ];
 }
 
+/**
+ * The answers that changed, for the table: a model that answered a call the same way again (its text,
+ * tool calls and thinking; only the new response's id or token counts differ) gave no different answer.
+ */
+export function changedAnswers<T extends { sameAnswer?: unknown }>(c: { responseDifferences: readonly T[] }): T[] {
+  return c.responseDifferences.filter((r) => !r.sameAnswer);
+}
+
+/**
+ * How the calls with the same request were answered: `2 calls got a different answer`, and those the
+ * model answered the same way in a new response (two live runs of one agent), or null when none differs.
+ */
+function answeredLine(c: Pick<CompareView, 'responseDifferences'>, toSame: boolean): string | null {
+  const changed = changedAnswers(c).length;
+  const again = c.responseDifferences.length - changed;
+  const responses = (n: number) => (n === 1 ? 'a new response' : 'new responses');
+  if (changed && again) return `${plural(changed, 'call')} got a different answer and ${num(again)} the same one in ${responses(again)}`;
+  if (changed) return `${plural(changed, 'call')} got a different answer${toSame ? ' to the same request' : ''}`;
+  return again ? `${plural(again, 'call')} got the same answer in ${responses(again)}` : null;
+}
+
 /** The line beside the identical prefix: how far the runs agree, and where they part. */
 export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'>): { lead: string; rest: string } {
   const n = c.identicalPrefix;
   const first = c.firstRequestDifference?.callNo ?? null;
-  const answers = c.responseDifferences.length;
   const lead = n ? `#1–#${num(n)} identical.` : 'No identical prefix.';
-  if (first) return { lead, rest: `The first request that differs is #${first}${answers ? `; before it, ${plural(answers, 'call')} got a different answer to the same request` : ''}.` };
+  if (first) {
+    const answered = answeredLine(c, true);
+    return { lead, rest: `The first request that differs is #${first}${answered ? `; before it, ${answered}` : ''}.` };
+  }
   // A run that went on past the other's end (one still recording): only the requests both made match.
   const shared = c.onlyInA || c.onlyInB ? 'Every request they share matches' : 'Every request matches';
-  if (answers) return { lead, rest: `${shared}; ${plural(answers, 'call')} got a different answer.` };
+  const answered = answeredLine(c, false);
+  if (answered) return { lead, rest: `${shared}; ${answered}.` };
   if (c.onlyInA || c.onlyInB) return { lead, rest: `${shared}.` };
   return { lead, rest: 'Every call matches.' };
 }
 
 /** The line beside "Same request, different answer": how many calls, and before which request when one differs. */
 export function answersSub(c: Pick<CompareView, 'firstRequestDifference' | 'responseDifferences'>): string {
-  const n = plural(c.responseDifferences.length, 'call');
+  const n = plural(changedAnswers(c).length, 'call');
   return c.firstRequestDifference ? `${n}, before the first request that differs` : n;
 }
 

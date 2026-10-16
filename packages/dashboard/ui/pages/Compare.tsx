@@ -3,7 +3,7 @@ import type { CallRow, CompareView, RunDetail, RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import { answersSub, changeCards, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
+import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
 import { callName, clip, num, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
@@ -248,7 +248,9 @@ function Paths({ c, a, b }: { c: CompareView; a: RunDetail; b: RunDetail }) {
 
 function ResponseDifferences({ c }: { c: CompareView }) {
   const first = c.firstRequestDifference?.callNo;
-  if (!c.responseDifferences.length)
+  // A call the model answered the same way in a new response is in the prefix line, not here.
+  const rows = changedAnswers(c);
+  if (!rows.length)
     return <p className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</p>;
   return (
     <section className="panel cmpresp">
@@ -267,7 +269,7 @@ function ResponseDifferences({ c }: { c: CompareView }) {
             </tr>
           </thead>
           <tbody>
-            {c.responseDifferences.map((r) => (
+            {rows.map((r) => (
               <tr key={r.callNo} className="static">
                 <td className="num">{r.callNo}</td>
                 <td>{callName(r.kind, r.name)}</td>

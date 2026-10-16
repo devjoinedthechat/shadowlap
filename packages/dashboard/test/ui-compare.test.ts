@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changeCards, codeNote, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, pickable, pickerLabel, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
@@ -96,6 +96,20 @@ describe('the prefix line', () => {
     const answers = [{ callNo: 16, kind: 'tool' as const, name: 'lookup_policy', detail: '1 difference' }];
     expect(answersSub({ firstRequestDifference: { callNo: 17, kind: 'api', name: 'POST /v1/messages' }, responseDifferences: answers })).toBe('1 call, before the first request that differs');
     expect(answersSub({ firstRequestDifference: null, responseDifferences: [...answers, { ...answers[0]!, callNo: 18 }] })).toBe('2 calls');
+  });
+
+  it('counts a call the model answered the same way in a new response apart from an answer that changed', () => {
+    // Two live runs of one agent: every response is new bytes (its id, its token counts), the answers the same.
+    const same = (callNo: number) => ({ callNo, kind: 'api' as const, name: 'POST /v1/messages', detail: 'the same answer (its id or token counts differ)', sameAnswer: true as const });
+    const changed = { callNo: 5, kind: 'api' as const, name: 'POST /v1/messages', detail: '"Issuing the refund." → "Above the limit."' };
+    const live = { identicalPrefix: 0, firstRequestDifference: null, onlyInA: 0, onlyInB: 8 };
+    expect(prefixLine({ ...live, responseDifferences: [1, 2, 3, 4, 5, 6].map(same) }).rest).toBe('Every request they share matches; 6 calls got the same answer in new responses.');
+    expect(prefixLine({ ...live, onlyInB: 0, responseDifferences: [same(1)] }).rest).toBe('Every request matches; 1 call got the same answer in a new response.');
+    expect(prefixLine({ ...live, responseDifferences: [same(1), same(2), changed] }).rest).toBe('Every request they share matches; 1 call got a different answer and 2 the same one in new responses.');
+    expect(prefixLine({ ...base, identicalPrefix: 0, responseDifferences: [same(1), changed] }).rest).toBe('The first request that differs is #17; before it, 1 call got a different answer and 1 the same one in a new response.');
+    // The table lists only the answers that changed, and counts them.
+    expect(changedAnswers({ responseDifferences: [same(1), changed, same(6)] })).toEqual([changed]);
+    expect(answersSub({ firstRequestDifference: null, responseDifferences: [same(1), changed, same(6)] })).toBe('1 call');
   });
 });
 
