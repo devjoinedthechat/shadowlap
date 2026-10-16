@@ -10,7 +10,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
-import { useTreeBusy } from '../fixes/tree.js';
+import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
 import { NotFoundPage } from './NotFound.js';
 
@@ -112,6 +112,8 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const asks = asksForSetup(meta);
   // Recording, calibrating and testing run the agent from the project's working tree: not while a repair or an apply changes it.
   const treeBusy = useTreeBusy('reads', 'run this step');
+  // Keeping it as a test replays a golden as well: not while another test job runs here either, as the server refuses it.
+  const testsWait = useTestsWait('run this step');
 
   const load = useCallback(() => {
     client.projects.setup().then(
@@ -250,7 +252,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
         <InspectBody step={view.inspect} off={off} canInspect={hasKind(JOB_KINDS.inspect)} onInspect={inspect} />
         <RecordBody step={view.record} off={off} tree={treeBusy} canRecord={hasKind(JOB_KINDS.record)} live={live} command={command} setCommand={setCommand} error={recordError} onRecord={record} />
         <CalibrateBody step={view.calibrate} off={off} tree={treeBusy} busy={running(JOB_KINDS.calibrate)} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={calibrate} />
-        <TestBody step={view.test} off={off} tree={treeBusy} busy={running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
+        <TestBody step={view.test} off={off} tree={testsWait} busy={running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={golden} setGolden={setGolden} error={goldenError} onPack={pack} onTest={testGolden} />
       </ol>
       {view.done ? (
         <div className="setupdone">

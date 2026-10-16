@@ -711,6 +711,25 @@ describe('the setup', () => {
     expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ stage: 'done', skipped: false, golden: 'goldens/research-agent' });
   });
 
+  it('waits to keep it as a test while a test session runs in the project, as the Tests jobs do', async () => {
+    const w = await world();
+    await w.api('projects', { method: 'POST', body: { path: w.research } });
+    w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
+    const store = w.host.context('research-agent').store();
+    recordInto(store, w.research, 3);
+    // A session this very process runs, as one started in a terminal: its process is alive.
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f' });
+    try {
+      const refused = await w.api<{ error: string }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x', project: 'research-agent' } });
+      expect(refused).toMatchObject({ status: 409, body: { error: 'shadowlap test goldens/* is running: keep it as a test once it is done' } });
+    } finally {
+      store.finishTestSession(s.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
+    }
+    const kept = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x', project: 'research-agent' } });
+    expect(kept.status).toBe(202);
+    await w.waitJob(kept.body.id);
+  });
+
   it('remembers a confirmed command only once its recording started', async () => {
     let refuse = true;
     const w = await world({

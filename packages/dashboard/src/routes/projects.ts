@@ -5,6 +5,7 @@ import { HttpError } from '../http.js';
 import type { JobNotice } from '../jobs.js';
 import { addedMessage, addProjectPage, projectSwitcher, removeDialog, setupView, type PickedFolder, type SetupView } from '../projects.js';
 import type { Router } from '../router.js';
+import { sessionBusy, testsBusy } from './tests.js';
 
 /**
  * Projects: one dashboard over several folders, each with its own store (`DashboardOptions.projects`).
@@ -250,7 +251,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // it is packed (here or in a terminal), the test alone, to run it again.
   ctx.jobs.registerJobKind('pack-test', {
     title: () => 'Packing and testing',
-    build: (req, { projectId, project }) => {
+    build: (req, { store, projectId, project }) => {
       if (!project || !projectId) return { error: ONE_STORE, status: 501 };
       if (typeof req.project === 'string' && req.project && req.project !== projectId) return { error: `The dashboard switched to ${projectId}. Open ${req.project} again to keep its golden.`, status: 409 };
       const entry = entryOf(h, projectId);
@@ -260,6 +261,10 @@ export function register(router: Router, ctx: RouteContext): void {
       const asked = typeof req.golden === 'string' && req.golden.trim() ? req.golden : (setup.golden ?? '');
       const check = goldenPath(asked, { folder: entry.path, runId: run.runId });
       if (!check.ok) return { error: check.error };
+      // It replays a golden, so it waits as Tests' jobs do: for one of them in this project, and for a
+      // test session started in a terminal or another dashboard.
+      const busy = testsBusy(ctx.jobs.list(), projectId, 'keep it as a test') ?? sessionBusy(store, 'keep it as a test');
+      if (busy) return { error: busy, status: 409 };
       const packed = h.context(projectId).packs().some((p) => p.path === check.path && p.runIds.includes(run.runId));
       if (packed) return { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' };
       return { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
