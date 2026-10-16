@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store, unpackRun, type RunMeta } from '@shadowlap/engine';
+import { fixRecords, recordBlame, recordRepair, Store, unpackRun, type RunMeta } from '@shadowlap/engine';
+import { blameReport, EXPECT, repairReport } from '../../engine/test/fix-fixtures.js';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
 import { prepareTestPush, pushIfQueued, storeCheck, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, TeamError, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
 import { loadConfig } from '../src/config.js';
@@ -149,6 +150,43 @@ describe('push and pull through the bucket', () => {
     const dstore = Store.open(dana.dbPath);
     expect(dstore.getRun(runId)!.meta?.labels).toEqual(['refund-flow']);
     dstore.close();
+  });
+
+  it("takes a fix with its blame, repair and verdict to a teammate, with the repair's patch beside their project", async () => {
+    const dana = machine('fix-dana', 'dana@northwind.example');
+    storeSet(dana, storeUrl('fixes'));
+    const runId = goldenInto(dana);
+    const store = Store.open(dana.dbPath);
+    let fixId: string;
+    try {
+      store.updateRunMeta(runId, { labels: ['refund-bug'] });
+      fixId = recordBlame(store, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId}`, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times', actor: 'dana@northwind.example' }).fix.fixId;
+      recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [runId] }), expect: EXPECT, command: `shadowlap repair --fixes ${runId}` });
+    } finally {
+      store.close();
+    }
+    dana.take();
+    expect(await teamPush(dana, [], { all: true })).toBe(0);
+    expect(dana.take().out).toContain('1 fix sent: "Refunds above the limit issued without approval"');
+    expect(keysUnder('fixes')).toContain(`fixes/fixes/${fixId}.json`);
+
+    const maya = teammate(dana, 'fix-maya', 'maya@northwind.example');
+    expect(await teamPull(maya, [])).toBe(0);
+    const out = maya.take().out;
+    expect(out).toContain('1 fix pulled: "Refunds above the limit issued without approval"');
+    expect(out).toContain(".shadowlap/repairs/repair-munzln2i");
+    const mstore = Store.open(maya.dbPath);
+    try {
+      const fix = mstore.getFix(fixId)!;
+      expect(fix.status).toBe('verified');
+      const rec = fixRecords(mstore, fix);
+      expect([rec.failing, rec.blames.length, rec.repairs.length, rec.verdicts.map((v) => v.verdict)]).toEqual([[runId], 1, 1, ['accepted']]);
+      expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'fix.patch'), 'utf8')).toBe(rec.repairs[0]!.report.patch);
+      expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'report.md'), 'utf8')).toContain('Escalate refunds above the policy limit');
+      expect(existsSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'goldens'))).toBe(false);
+    } finally {
+      mstore.close();
+    }
   });
 
   it("says when this machine has no credentials for the store", async () => {

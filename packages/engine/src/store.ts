@@ -318,6 +318,17 @@ CREATE TABLE IF NOT EXISTS team_sync (
   pulled_at  INTEGER,
   data       TEXT
 );
+-- The fixes this machine sent to the store or took from it: the hash of a fix as both sides last
+-- agreed on it, which a push compares this machine's copy with, and the version of the store's
+-- object last read, so a pull reads only the fixes that changed there.
+CREATE TABLE IF NOT EXISTS team_fixes (
+  remote   TEXT    NOT NULL,
+  fix_id   TEXT    NOT NULL,
+  hash     TEXT    NOT NULL,
+  version  TEXT,
+  at       INTEGER NOT NULL,
+  PRIMARY KEY (remote, fix_id)
+) WITHOUT ROWID;
 `;
 
 // ---- tests (v4): the shapes of the test tables ----
@@ -422,6 +433,16 @@ export interface TeamRunRow {
   remoteHash: string | null;
   /** The bucket's index entry for it: who made it, when, its status, labels and calls. */
   entry: Record<string, unknown> | null;
+}
+
+/** A fix this machine and the store last agreed on (v4 team_fixes). */
+export interface TeamFixRow {
+  fixId: string;
+  /** The hash of the fix as both sides last had it. */
+  hash: string;
+  /** The version (ETag, generation) of the store's object last read or written. */
+  version: string | null;
+  at: number;
 }
 
 /** When this machine last pushed to and pulled from a store, and what setup recorded about it. */
@@ -1675,6 +1696,18 @@ export class Store {
     this.db
       .prepare(`INSERT INTO team_sync (remote, pushed_at, pulled_at, data) VALUES (?, ?, ?, ?) ON CONFLICT (remote) DO UPDATE SET pushed_at = excluded.pushed_at, pulled_at = excluded.pulled_at, data = excluded.data`)
       .run(remote, next.pushedAt, next.pulledAt, JSON.stringify(next.data));
+  }
+
+  /** The fixes this machine and a store last agreed on, by fix id. */
+  teamFixes(remote: string): Map<string, TeamFixRow> {
+    const rows = this.db.prepare(`SELECT * FROM team_fixes WHERE remote = ?`).all(remote);
+    return new Map(rows.map((r) => [String(r.fix_id), { fixId: String(r.fix_id), hash: String(r.hash), version: r.version === null ? null : String(r.version), at: Number(r.at) }]));
+  }
+
+  setTeamFix(remote: string, row: TeamFixRow): void {
+    this.db
+      .prepare(`INSERT INTO team_fixes (remote, fix_id, hash, version, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (remote, fix_id) DO UPDATE SET hash = excluded.hash, version = excluded.version, at = excluded.at`)
+      .run(remote, row.fixId, row.hash, row.version, row.at);
   }
 
   /**

@@ -743,7 +743,10 @@ a run still recording goes when it ends; labels and notes merge both ways, and a
 from the machine that made it; a run deleted here isn't pulled again unless named. Both count by
 run, as the dashboard does: "45 runs and 69 attempts pushed", where attempts (`--repeat`, blame's
 probes, verify's attempts) are those filed under their runs, and a run counts as only on this
-machine while it, or an attempt filed under it, isn't in the store. A push names the
+machine while it, or an attempt filed under it, isn't in the store. Fixes go with their runs: a
+push sends each [fix](#fix) with its blames, repairs and verdicts once one of its runs is in the
+store, and a pull brings the team's, merged with this machine's (a pulled repair's `fix.patch` and
+reports land in `.shadowlap/repairs/<id>/`). A push names the
 pusher as the author of a run made here without one, and leaves here, saying why, a run a pull
 would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store that
 fails is skipped with its forks and tried again next time. A run named to `push` that the store has

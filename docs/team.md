@@ -124,6 +124,7 @@ runs/<run>/calls.jsonl.gz  its calls
 index/<id>.json            one per push: what it pushed, so a pull lists the store without reading every run
 shares/<run>-<id>.html     reports behind share links
 tests/<id>.json            the report of each test --push session
+fixes/<fx-id>.json         a fix, with its blames, repairs and verdicts
 pr/<number>/…              what a pull request's CI job pushed, laid out the same way
 ```
 
@@ -143,6 +144,14 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your
   machine replays, or whom it names as its author.
+- **Fixes** go with the runs they are about: a push sends a [fix](./cli.md#fix) (its blames,
+  repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
+  team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
+  copies merge: every blame, repair and verdict either made, the status furthest along, and a title
+  someone gave it (the store's when both did). A repair that came with a pull has its `fix.patch`
+  and reports written to `.shadowlap/repairs/<id>/`, as where it ran, so `shadowlap fix apply` and
+  **Copy git apply** work; the recordings it made of the fixed runs stay on that machine, because a
+  golden runs the command it recorded when it is tested: commit them from there.
 - **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it.
 - **A pulled run is someone else's recording.** It is checked as strictly as a
   [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
@@ -197,7 +206,7 @@ it. With write access to the store, such a job could change the runs everyone pu
 CVE-2025-36852 describes for shared build caches kept in a bucket. So a pull request's job never
 writes to the team's runs:
 
-- **It writes only to its own folder,** `pr/<number>/` under the store's folder. Shadowlap
+- **It writes only to its own folder,** `pr/<number>/` under the store's folder, and sends no fixes. Shadowlap
   recognises a GitHub Actions `pull_request` job (and `pull_request_target`, and reviews of pull
   requests) and a GitLab merge request pipeline by their own variables; on any other CI,
   `SHADOWLAP_PR=<number>` says the job is one. `push`, `test --push`, `share` and `store check` all

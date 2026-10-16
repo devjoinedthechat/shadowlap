@@ -9,9 +9,10 @@ import { ulid, validateCall, validateRun, type CallRecord, type RunRecord } from
  *   index/<ulid>.json          one per push: what it pushed, for listing without reading every run
  *   shares/<run>-<id>.html     redacted reports behind share links
  *   tests/<ulid>.json          the report of each `shadowlap test --push` session
+ *   fixes/<fx-id>.json         a fix with its blames, verdicts and repairs, rewritten as it grows (fix-doc.ts)
  *   pr/<number>/…              what a pull request's CI job wrote, laid out the same way (see pr.ts)
  *
- * Everything but run.json is written once and never changed. A push writes blobs, then calls, then
+ * Everything but run.json and a fix's document is written once and never changed. A push writes blobs, then calls, then
  * run.json, then its index segment, so whatever a reader finds listed is complete.
  */
 

@@ -1,5 +1,6 @@
-import { resolve } from 'node:path';
-import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -515,6 +516,7 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   let result: PushResult;
   let left: number;
   let moved: Record<'pushed' | 'updated' | 'unchanged' | 'queued', { runs: number; attempts: number }>;
+  let fixTitles = new Map<string, string>();
   try {
     const runIds = runList(store, runArgs);
     const who = actor(t);
@@ -529,12 +531,13 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
     }
     left = runCounts(store, target.loc).onlyLocal;
     moved = { pushed: byRun(store, result.pushed), updated: byRun(store, result.updated), unchanged: byRun(store, result.unchanged), queued: byRun(store, result.queued) };
+    fixTitles = new Map(result.fixes.sent.map((id) => [id, store.getFix(id)?.title ?? id]));
     recordEvent(store, {
       kind: 'store.pushed',
       actor: who,
       ref: target.loc.url,
       // By run, as Activity says it: the attempts filed under them are counted apart.
-      data: { pushed: moved.pushed.runs, updated: moved.updated.runs, attempts: moved.pushed.attempts + moved.updated.attempts, repaired: result.repaired.length, queued: moved.queued.runs, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, ...(target.pr ? { pullRequest: target.pr } : {}) },
+      data: { pushed: moved.pushed.runs, updated: moved.updated.runs, attempts: moved.pushed.attempts + moved.updated.attempts, repaired: result.repaired.length, queued: moved.queued.runs, refused: result.refused.length, blobs: result.blobs.uploaded, bytes: result.blobs.bytes, fixes: result.fixes.sent.length, ...(target.pr ? { pullRequest: target.pr } : {}) },
     });
   } finally {
     store.close();
@@ -555,7 +558,20 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   line(t, `${p.green('✓')} ${parts.join(', ')} · ${plural(result.blobs.uploaded, 'blob')} uploaded (${bytes(result.blobs.bytes)})${result.blobs.present ? `, ${result.blobs.present} already in the store` : ''}`);
   if (result.queued.length) line(t, p.dim(`  ${runsAnd(moved.queued)} still recording: ${result.queued.length === 1 ? 'it goes' : 'they go'} when ${result.queued.length === 1 ? 'it ends' : 'they end'} (${result.queued.map((id) => shortId(id)).join(', ')})`));
   if (result.refused.length) problemLines(t, `${plural(result.refused.length, 'run')} stayed on this machine:`, result.refused);
+  fixLines(t, 'sent', result.fixes.sent, fixTitles, result.fixes.failed, "couldn't go to the store; the next push tries again");
   return code;
+}
+
+/** What a push or a pull did with fixes: each by its title, and the ones that couldn't go or come. */
+function fixLines(t: TeamEnv, verb: string, ids: readonly string[], titles: ReadonlyMap<string, string>, failed: ReadonlyArray<{ fixId: string; reason: string }>, why: string): void {
+  if (ids.length) {
+    const named = ids.slice(0, 3).map((id) => `"${safe(titles.get(id) ?? id)}"`);
+    line(t, p.dim(`  ${plural(ids.length, 'fix', 'fixes')} ${verb}: ${named.join(', ')}${ids.length > 3 ? ` and ${ids.length - 3} more` : ''}`));
+  }
+  if (failed.length) {
+    note(t, p.yellow(`! ${plural(failed.length, 'fix', 'fixes')} ${why}:`));
+    for (const f of failed) note(t, p.yellow(`  ${f.fixId}  ${safe(f.reason)}`));
+  }
 }
 
 /** What `pull --include-pr` brought from one pull request's folder. */
@@ -577,6 +593,8 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
   let result: PullResult;
   let left: { inStore: number; onlyLocal: number };
   let got: { runs: string[]; attempts: number; byAuthor: Record<string, number> };
+  let fixTitles = new Map<string, string>();
+  let repairFiles: string[] = [];
   const prs: PullRequestPull[] = [];
   try {
     const log = flags.json ? {} : { log: (l: string) => note(t, p.dim(`  ${safe(l)}`)) };
@@ -619,8 +637,12 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
       actor: actor(t),
       ref: loc.url,
       // By run, as Activity says it: the attempts filed under them are counted apart.
-      data: { pulled: got.runs.length, attempts: got.attempts, merged: result.merged.length, failed: result.failed.length, byAuthor: got.byAuthor, ...(flags.includePr ? { pullRequests: prs.map((x) => ({ number: x.number, pulled: x.pulled.length })) } : {}) },
+      data: { pulled: got.runs.length, attempts: got.attempts, merged: result.merged.length, failed: result.failed.length, byAuthor: got.byAuthor, fixes: result.fixes.pulled.length + result.fixes.merged.length, ...(flags.includePr ? { pullRequests: prs.map((x) => ({ number: x.number, pulled: x.pulled.length })) } : {}) },
     });
+    fixTitles = new Map([...result.fixes.pulled, ...result.fixes.merged].map((id) => [id, store.getFix(id)?.title ?? id]));
+    // A teammate's repair, beside the project as on the machine that ran it: its patch and reports,
+    // so Copy git apply and Apply the patch work here too.
+    repairFiles = writeRepairFiles(t, store, result.fixes.repairs);
   } finally {
     store.close();
   }
@@ -656,8 +678,38 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
       for (const s of x.skippedSegments) note(t, p.yellow(`! Skipped ${safe(s.key)} in pull request ${x.number}'s index: ${safe(s.reason)}`));
     }
   }
+  fixLines(t, 'pulled', result.fixes.pulled, fixTitles, result.fixes.failed, "in the store couldn't be read; the next pull tries again");
+  fixLines(t, 'merged', result.fixes.merged, fixTitles, [], '');
+  if (repairFiles.length) line(t, p.dim(`  their repairs' patches and reports: ${repairFiles.join(', ')}`));
   for (const name of result.unknown) note(t, p.red(`✗ No run in the store matches "${safe(name)}" (or more than one does).`));
   return code;
+}
+
+/**
+ * Writes the files of repairs a pull brought beside the project, as the repair wrote them where it
+ * ran: `fix.patch`, `report.json` and `report.md` in `.shadowlap/repairs/<id>/`, so `shadowlap fix
+ * apply` and the Fixes page's Copy git apply find the patch here. Never into a folder that is there
+ * already. The recordings a repair made of the fixed runs (its goldens) aren't among them: a golden
+ * runs the command it recorded when it is tested, so it comes from the repository, never the store.
+ */
+function writeRepairFiles(t: TeamEnv, store: Store, repairIds: readonly string[]): string[] {
+  const written: string[] = [];
+  for (const id of repairIds) {
+    const r = store.getRepair(id);
+    if (!r || !/^repair-[0-9a-z]{1,40}$/.test(r.repairId) || r.dir !== `.shadowlap/repairs/${r.repairId}`) continue;
+    const dir = join(t.cwd, '.shadowlap', 'repairs', r.repairId);
+    if (existsSync(dir)) continue;
+    try {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      if (r.report.patch) writeFileSync(join(dir, 'fix.patch'), r.report.patch);
+      writeFileSync(join(dir, 'report.json'), JSON.stringify(r.report, null, 2) + '\n');
+      writeFileSync(join(dir, 'report.md'), repairMarkdown(r.report));
+      written.push(r.dir);
+    } catch (err) {
+      note(t, p.yellow(`! couldn't write ${r.dir}: ${safe((err as Error).message)}`));
+    }
+  }
+  return written;
 }
 
 export async function teamShare(t: TeamEnv, runArg: string, flags: { lineage?: boolean; json?: boolean; version?: string; uiDir?: string } = {}): Promise<number> {

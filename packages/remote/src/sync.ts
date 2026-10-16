@@ -1,5 +1,6 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
 import { isPrecondition, StoreError, type ObjectStore } from './object-store.js';
@@ -69,6 +70,8 @@ export interface PushResult {
   blobs: { uploaded: number; present: number; bytes: number };
   /** The index segment this push wrote, if it changed anything. */
   segment: string | null;
+  /** The fixes that went with the runs (fix-sync.ts); none from a pull request's job. */
+  fixes: FixPushResult;
 }
 
 export interface PullOptions {
@@ -107,6 +110,8 @@ export interface PullResult {
   inStore: number;
   /** Pulled runs by who made them. */
   byAuthor: Record<string, number>;
+  /** The fixes that came with them (fix-sync.ts); none from a pull request's folder. */
+  fixes: FixPullResult;
 }
 
 const BLOB_HEAD_OVER = 64 * 1024;
@@ -409,7 +414,7 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
     if (row.state !== 'queued') continue;
     for (const r of withAncestors(store, row.runId)) targets.set(r.runId, r);
   }
-  const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null };
+  const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null, fixes: { sent: [], failed: [] } };
   const known = new Set<string>();
   const entries: IndexEntry[] = [];
   const refused = new Set<string>();
@@ -483,6 +488,9 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
     }
   }
   if (failure) throw failure.error;
+  // The fixes about the runs in the store go with them; a pull request's job sends none.
+  if (!ctx.pullRequest) result.fixes = await pushFixes(ctx);
+  for (const f of result.fixes.sent) ctx.log?.(`sent fix ${f}`);
   store.setTeamSync(rid, { pushedAt: now(ctx) });
   return result;
 }
@@ -658,7 +666,7 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
   const store = ctx.store;
   const { segments, skipped } = await readIndex(ctx);
   const rows = new Map(store.teamRuns(rid).map((r) => [r.runId, r]));
-  const result: PullResult = { pulled: [], merged: [], needPush: [], skippedDeleted: [], missing: [], unknown: [], failed: [], skippedSegments: skipped, blobs: { downloaded: 0, bytes: 0 }, segments, inStore: 0, byAuthor: {} };
+  const result: PullResult = { pulled: [], merged: [], needPush: [], skippedDeleted: [], missing: [], unknown: [], failed: [], skippedSegments: skipped, blobs: { downloaded: 0, bytes: 0 }, segments, inStore: 0, byAuthor: {}, fixes: { pulled: [], merged: [], failed: [], repairs: [] } };
 
   const excluded = options.exclude ?? new Set<string>();
   const wanted = new Set<string>();
@@ -746,6 +754,9 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
     } else if (outcome === 'missing') result.missing.push(row.runId);
   }
   result.inStore = store.teamRuns(rid).filter(teamRunInStore).length;
+  // The fixes the team made, merged with this machine's; a pull request's folder brings none.
+  if (!ctx.pullRequest) result.fixes = await pullFixes(ctx);
+  for (const f of [...result.fixes.pulled, ...result.fixes.merged]) ctx.log?.(`fix ${f}`);
   store.setTeamSync(rid, { pulledAt: now(ctx) });
   return result;
 }

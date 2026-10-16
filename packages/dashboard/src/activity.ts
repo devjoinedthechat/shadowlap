@@ -119,10 +119,11 @@ const EVENT_TEXT = new Map<string, Describe>([
       // `queued` is a count of runs left for later, or `true` for a push that was queued while they recorded.
       const queued = num(d.queued);
       const refused = num(d.refused);
-      return { kind: 'project', text: parts(`Pushed ${plural((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), 'run')} to the store`, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null) };
+      const fixes = num(d.fixes);
+      return { kind: 'project', text: parts(`Pushed ${plural((num(d.pushed) ?? num(d.runs) ?? 0) + (num(d.updated) ?? 0), 'run')} to the store`, fixes ? plural(fixes, 'fix', 'fixes') : null, queued ? `${queued} waiting` : null, refused ? `${refused} refused` : null) };
     },
   ],
-  ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.failed) ? `${num(d.failed)} failed` : null) })],
+  ['store.pulled', (_e, d) => ({ kind: 'project', text: parts(`Pulled ${plural(num(d.pulled) ?? num(d.runs) ?? 0, 'run')} from the store`, num(d.fixes) ? plural(num(d.fixes)!, 'fix', 'fixes') : null, num(d.failed) ? `${num(d.failed)} failed` : null) })],
   ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
 ]);
 

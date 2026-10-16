@@ -29,3 +29,5 @@ export { eachLimit } from './pool.js';
 export { CREDENTIAL_HINTS, credentialsHere, lastCheck, recordCheck, type LastCheck } from './project.js';
 export { PR_FOLDER, pullRequestFolders, pullRequestJob, pullRequestLocation, type PullRequestJob } from './pr.js';
 export { noProxyMatches, proxyFetch, proxyFor, type ProxyEnv } from './proxy.js';
+export { applyFixDoc, FIX_FORMAT, FIX_VERSION, fixDocHash, fixDocOf, fixKey, mergeFixDocs, parseFixDoc, type FixDoc } from './fix-doc.js';
+export { pullFixes, pushFixes, type FixProblem, type FixPullResult, type FixPushResult } from './fix-sync.js';
