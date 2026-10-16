@@ -90,7 +90,7 @@ function useAncestors(run: RunDetail): RunDetail[] {
 }
 
 /** The turn a fork changed in the conversation at a call: the first that differs from the parent's at the same call. */
-function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | null): { turn: number; firstAt: number } | null {
+function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | null): { turn: number; firstAt: number; by: 'fork' | 'replay' } | null {
   const { client } = useApp();
   const parent = run.run.parentRunId;
   const n = detail?.call.callNo ?? null;
@@ -102,9 +102,11 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
     const other = theirs.data?.conversation?.turns;
     if (!other) return null;
     // The first turn that differs, or the first one the parent did not have (an instruction added at the end).
-    for (let i = 0; i < mine.length; i++) if (i >= other.length || JSON.stringify(mine[i]) !== JSON.stringify(other[i])) return { turn: i, firstAt: forkAt };
+    // A test's replay that diverged changed its request without forking: the message says "this replay".
+    const by = run.run.meta?.test ? 'replay' : 'fork';
+    for (let i = 0; i < mine.length; i++) if (i >= other.length || JSON.stringify(mine[i]) !== JSON.stringify(other[i])) return { turn: i, firstAt: forkAt, by };
     return null;
-  }, [want, detail, theirs.data, forkAt]);
+  }, [want, detail, theirs.data, forkAt, run.run.meta?.test]);
 }
 
 function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {

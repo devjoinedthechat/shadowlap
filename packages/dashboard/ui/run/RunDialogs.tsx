@@ -47,7 +47,7 @@ export function BisectDialog({ runId, offer, onRun, onClose }: { runId: string; 
       initial={copy.initial}
       placeholder="a commit, a tag or a branch"
       {...(copy.choices.length ? { choices: copy.choices } : {})}
-      command={copy.command('…')}
+      command={(good) => copy.command(good || '…')}
       ok="Find the commit"
       onRun={onRun}
       onClose={onClose}

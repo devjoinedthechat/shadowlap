@@ -33,8 +33,8 @@ export interface InspectorProps {
   tab: InspectorTab;
   onTab: (t: InspectorTab) => void;
   onStep: (delta: number) => void;
-  /** The turn this fork changed, and the call the change was first sent at. */
-  change: { turn: number; firstAt: number } | null;
+  /** The turn this fork changed, the call the change was first sent at, and what changed it (a test's replay says so). */
+  change: { turn: number; firstAt: number; by?: 'fork' | 'replay' } | null;
   live: boolean;
   /** The flag that made the fork, as the run names it (`--fail-at 19=529`), for a call Shadowlap answered. */
   flag?: string | null;
@@ -111,7 +111,7 @@ function shown(text: string, format: boolean): string {
   return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
 }
 
-function ConversationTab({ detail, calls, models, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; models?: Readonly<Record<string, string>> | undefined; change: { turn: number; firstAt: number } | null; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
+function ConversationTab({ detail, calls, models, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; models?: Readonly<Record<string, string>> | undefined; change: InspectorProps['change']; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
   const [format, setFormatState] = useState(formatJsonPref);
   const setFormat = (v: boolean) => {
@@ -201,7 +201,7 @@ function ConversationTab({ detail, calls, models, change, flag, onSelect }: { de
               Show {hidden} earlier {hidden === 1 ? 'message' : 'messages'}
             </button>
           ) : null}
-          <Message turn={t} callNo={from.get(i) ?? null} format={format} names={names} changed={change?.turn === i} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
+          <Message turn={t} callNo={from.get(i) ?? null} format={format} names={names} changed={change?.turn === i} changedBy={change?.by ?? 'fork'} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
         </Fragment>
       ))}
     </>
@@ -228,7 +228,7 @@ function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; cal
   );
 }
 
-function Message({ turn, callNo, format, names, changed, firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
+function Message({ turn, callNo, format, names, changed, changedBy = 'fork', firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; changedBy?: 'fork' | 'replay'; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
   const role = turn.role;
   return (
     <div className={`msg ${role}${changed ? ' changed' : ''}`} ref={innerRef}>
@@ -241,7 +241,7 @@ function Message({ turn, callNo, format, names, changed, firstAt, innerRef }: { 
         {turn.blocks.map((b, i) => (
           <MessageBlock key={i} block={b} format={format} names={names} />
         ))}
-        {changed ? <span className="chg">changed in this fork{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
+        {changed ? <span className="chg">changed in this {changedBy}{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
       </div>
     </div>
   );
