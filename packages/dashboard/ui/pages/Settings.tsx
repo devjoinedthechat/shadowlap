@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
+import { useActiveTabInView } from '../hooks.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { AgentsTab } from './settings/Agents.js';
@@ -30,7 +31,7 @@ export function SettingsPage({ tab }: { tab: string | null }) {
   return (
     <Page>
       <PageHeader eyebrow="shadowlap.config.json" title="Settings" text="The rules this project replays and shares by." />
-      <nav className="stabs" aria-label="Settings">
+      <nav className="stabs" aria-label="Settings" ref={useActiveTabInView<HTMLElement>(shown)}>
         {SETTINGS_TABS.map((t) => (
           <a key={t.key} href={href.settings(t.key)} aria-current={t.key === shown ? 'page' : undefined}>
             {t.label}

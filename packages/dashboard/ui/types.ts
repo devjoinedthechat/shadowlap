@@ -337,6 +337,8 @@ export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
 export type { TraceSourceView } from '../src/routes/imports.js';
 export type { TeamStoreStatus } from '../src/team-store.js';
 export type { ActivityIcon, ActivityItem, ActivityPage, UploadView } from '../src/views.js';
+/** A hit from what runs recorded, naming the run it is an attempt of (the palette's In recorded data). */
+export type { RecordedHit } from '../src/search-hits.js';
 
 /** What the Runs table asks the server for: a page under the chips, the filter field, the days picked and the sort. */
 export interface RunsQuery {

@@ -44,14 +44,21 @@ export function Calendar({
   const todayIndex = days.length - 1;
   const focusDay = focus ?? (range ? range[0] : todayIndex);
 
-  // A drag ends wherever the pointer is let go, on the calendar or not.
+  // A drag ends wherever the pointer is let go, on the calendar or not. The day it ended on takes the
+  // focus, so Escape undoes the pick and the arrow keys go on from there. The pointer focused the day
+  // it went down on, so the browser shows no ring for either (the grid can't be text-selected, so a
+  // drag selects nothing); an arrow key brings the ring back. A browser whose buttons take no focus
+  // from a click (Safari, Firefox on a Mac) is asked for no ring instead (`focusVisible`).
   useEffect(() => {
     if (!drag) return;
     const up = () => {
       const d = dragRef.current;
       dragRef.current = null;
       setDrag(null);
-      if (d) onPick(dragEnd(d));
+      if (!d) return;
+      onPick(dragEnd(d));
+      setFocus(d.b);
+      grid.current?.querySelector<HTMLElement>(`[data-day="${d.b}"]`)?.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
     };
     const cancel = () => {
       dragRef.current = null;
@@ -74,7 +81,6 @@ export function Calendar({
     if (e.button !== 0) return;
     const day = dayAt(e);
     if (day === null) return;
-    e.preventDefault();
     const d = dragStart(day, range, e.shiftKey);
     dragRef.current = d;
     setDrag(d);

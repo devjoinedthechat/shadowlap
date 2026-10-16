@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
+import { copyCompares } from '../runs.js';
 import { useApp, useLayer } from '../state.js';
 
 /** The shortcuts panel (?): Anywhere, Go to, and On a run, dimmed away from a run. */
@@ -30,7 +31,7 @@ const or = (a: string, b: string) => (
 );
 
 function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
-  const { exported } = useApp();
+  const { exported, meta } = useApp();
   useLayer('dialog', true, close);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -42,9 +43,10 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
     [
       'Anywhere',
       true,
+      // An exported copy has no palette: there `/` only filters a run's calls, so it sits under On a run.
       [
         ...(exported ? [] : ([[k(isMac() ? '⌘' : 'Ctrl', 'K'), 'Search or jump to anything']] as Array<[ReactNode, string]>)),
-        [k('/'), onRun ? 'Filter this run’s calls' : 'Search or jump to anything'],
+        ...(exported ? [] : ([[k('/'), onRun ? 'Filter this run’s calls' : 'Search or jump to anything']] as Array<[ReactNode, string]>)),
         [k('?'), 'Show these shortcuts'],
         [k('Esc'), 'Close a menu, dialog or panel'],
       ],
@@ -53,7 +55,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
       'Go to',
       true,
       exported
-        ? [[then('g', 'r'), 'Runs'], [then('g', 'c'), 'Compare']]
+        ? [[then('g', 'r'), 'Runs'], ...(copyCompares(meta?.runIds) ? ([[then('g', 'c'), 'Compare']] as Array<[ReactNode, string]>) : [])]
         : [
             [then('g', 'o'), 'Overview'],
             [then('g', 'r'), 'Runs'],
@@ -81,7 +83,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
         [k('v'), 'Next view'],
         [k('n'), 'Jump to the fork or lost call'],
         [k('p'), 'Open the parent run'],
-        ...(exported ? [] : ([[k('f'), 'Fork at the selected call']] as Array<[ReactNode, string]>)),
+        ...(exported ? ([[k('/'), 'Filter this run’s calls']] as Array<[ReactNode, string]>) : ([[k('f'), 'Fork at the selected call']] as Array<[ReactNode, string]>)),
       ],
     ],
   ];

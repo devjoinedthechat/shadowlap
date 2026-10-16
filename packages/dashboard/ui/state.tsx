@@ -3,7 +3,7 @@ import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta
 import { isUnreachable } from './backoff.js';
 import { connStart, connStep, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
-import { afterPollError, jobTitle, lastLine } from './jobs.js';
+import { afterPollError, endToast, jobTitle } from './jobs.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
 
@@ -158,9 +158,9 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     setTick((n) => n + 1);
   }, [client]);
 
-  // The first load: meta, then the runs. An exported copy loads once and never polls.
+  // The first load: meta, then the runs. An exported copy loads once and never polls. The
+  // ?state=expired preview loads too, so its card covers a page, as an expiry does.
   useEffect(() => {
-    if (preview === 'expired') return;
     let alive = true;
     client.meta().then(
       (m) => {
@@ -352,7 +352,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         if (next.code === 0 && (next.kind === JOB_KINDS.har || next.kind === JOB_KINDS.exportHtml)) for (const f of next.files ?? []) if (!f.directory) void client.downloadFile(f).catch(() => undefined);
         // A job whose drawer was closed early still says how it ended.
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
-        if (!shown?.open) toast(`${jobTitle(next)} finished${lastLine(all) ? ` · ${lastLine(all)}` : ''}`);
+        if (!shown?.open) toast(endToast(next, all));
       };
       setTimeout(step, 200);
     },

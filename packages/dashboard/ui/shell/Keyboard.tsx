@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { isTyping } from '../dom.js';
 import { useLatest } from '../hooks.js';
 import { GO_KEYS, GO_WINDOW_MS } from '../route.js';
+import { copyCompares } from '../runs.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 
@@ -42,7 +43,8 @@ export function Keyboard() {
         gAt.current = 0;
         const to = GO_KEYS[e.key];
         if (fresh && to) {
-          if (a.exported && to !== '#/runs' && to !== '#/compare') return;
+          // An exported copy has Runs, and Compare when it holds two runs or more.
+          if (a.exported && to !== '#/runs' && !(to === '#/compare' && copyCompares(a.meta?.runIds))) return;
           e.preventDefault();
           navigate(to);
           return;

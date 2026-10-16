@@ -11,9 +11,10 @@ import { choicesHere, commitsHere } from '../src/commits-here.js';
 import type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
 import { traceHost, traceSources } from '../src/routes/imports.js';
 import type { RunsByDay, RunsPage } from '../src/runs-list.js';
+import type { RecordedHit } from '../src/search-hits.js';
 import { teamStoreStatus } from '../src/team-store.js';
 import type { GoldenSource } from '../src/tests.js';
-import { addRun, DAY, HOUR } from './read-model-store.js';
+import { addRun, DAY, HOUR, type CallSpec } from './read-model-store.js';
 
 /**
  * The Overview's and the Runs page's routes over HTTP, with the team store's and the imports' job
@@ -447,5 +448,39 @@ describe('imports', () => {
     expect(traceHost('http://localhost:3000/')).toBe('http://localhost:3000');
     expect(traceHost('ftp://x')).toBeNull();
     expect(traceHost('')).toBeNull();
+  });
+});
+
+describe('searching what runs recorded', () => {
+  /** A model call whose prompt says `text`, a conversation of its own. */
+  const say = (code: string, text: string, scope = 's1'): CallSpec => ({ code, scope, request: { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: text }] } });
+
+  it('answers a run’s own hits before any attempt’s, and an attempt’s only for a run with none, naming that run', async () => {
+    const s = Store.open(':memory:');
+    const d = await startDashboard({ store: s, dbPath: ':memory:', project: { path: project } });
+    try {
+      const rec = addRun(s, { startedAt: NOW - DAY, status: 'failed', calls: [say('l', 'Order A-1042: refund it, though it is above the limit the policy sets for a refund without a manager.')] });
+      // A blame's probes of it say what it said, closer to the words searched for.
+      for (let i = 0; i < 30; i++) addRun(s, { parent: rec, startedAt: NOW - HOUR + i, divergence: 1, meta: { probe: { of: rec, callNo: 1, passed: false } }, calls: [say('r', 'refund the order'), say('r', 'refund it', 's2')] });
+      // A run that never said it, whose attempts did.
+      const quiet = addRun(s, { startedAt: NOW - 2 * DAY, calls: [say('l', 'Where is order A-1042?')] });
+      const tries = [1, 2, 3].map((i) => addRun(s, { parent: quiet, startedAt: NOW - 2 * HOUR + i, divergence: 1, meta: { repeat: { group: 'g', attempt: i, of: 3 } }, calls: [say('l', 'refund issued'), say('l', 'refund sent', 's2')] }));
+
+      const { hits } = await get<{ hits: RecordedHit[] }>(d, 'search?q=refund&limit=40');
+      expect(hits[0]).toMatchObject({ runId: rec, attemptOf: null, callNo: 1, field: 'prompt' });
+      expect(hits.filter((h) => h.runId === rec || h.attemptOf === rec)).toHaveLength(1);
+      expect(hits.slice(1).map((h) => h.attemptOf)).toEqual([quiet, quiet]);
+      expect(hits.slice(1).every((h) => tries.includes(h.runId))).toBe(true);
+      // The palette asks for a few: a run of its own still comes first.
+      expect((await get<{ hits: RecordedHit[] }>(d, 'search?q=refund&limit=1')).hits.map((h) => h.runId)).toEqual([rec]);
+      expect((await get<{ hits: RecordedHit[] }>(d, 'search?q=')).hits).toEqual([]);
+    } finally {
+      await d.close();
+      s.close();
+    }
+  });
+
+  it('asks for the token', async () => {
+    expect((await fetch(`${dash.url}/api/search?q=refund`)).status).toBe(401);
   });
 });

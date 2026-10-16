@@ -5,7 +5,7 @@ import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
 import { callName, shortId } from '../format.js';
-import { useLatest, useLoad } from '../hooks.js';
+import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
 import { followNewest, recordingEnded } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
@@ -298,7 +298,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
-          <div className="tabs" role="tablist" aria-label="Views">
+          <div className="tabs" role="tablist" aria-label="Views" ref={useActiveTabInView<HTMLDivElement>(v)}>
             {tabs.map(([key, label, count]) => (
               <button key={key} type="button" role="tab" aria-selected={v === key} onClick={() => setView(key)} title={CYCLE_VIEWS.includes(key) ? 'v cycles the views' : undefined}>
                 {label}

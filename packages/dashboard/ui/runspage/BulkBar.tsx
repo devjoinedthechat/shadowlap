@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { letGoAfterPush, pushable, untilDone } from './push.js';
 import { JOB_KINDS } from '../api.js';
 import { DatasetDialog } from '../components/DatasetDialog.js';
-import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
+import { CmdLine, CopyButton } from '../components/bits.js';
+import { Dialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { num, plural, shortId } from '../format.js';
 import { href } from '../route.js';
@@ -10,13 +11,13 @@ import { navigate } from '../router.js';
 import { isLive } from '../runs.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { bulkToast, named } from './bulk.js';
+import { bulkToast, datasetOff, inBatches, joinDeleted, joinLabelled, named, rmCommand } from './bulk.js';
 
 /**
  * The bar over the Runs table once runs are picked: Label, Push (with a team store), Pack, Dataset,
- * Compare (exactly two) and Delete, then Clear. Label and Delete act on every run picked at once,
- * by its full id; Pack (one run after another) and Dataset start the run page's export jobs, Push
- * the team store's.
+ * Compare (exactly two) and Delete, then Clear. Label and Delete act on every run picked by its full
+ * id, a thousand to a request; Pack (one run after another) and Dataset (at most 500 runs) start the
+ * run page's export jobs, Push the team store's.
  */
 
 /** What the bar needs of a run picked: it may no longer be on the page shown. */
@@ -39,6 +40,8 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
   // through, and is left alone by a delete.
   const ended = runs.filter((r) => !isLive(r));
   const off = actionsOff ?? undefined;
+  // The bar picks up to 1,000 runs; one dataset takes fewer.
+  const tooMany = datasetOff(ended.length);
 
   // Each run into share/<id>, one after another: pack takes one run, and a dashboard runs at most
   // 16 jobs at once.
@@ -98,7 +101,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           </button>
         ) : null}
         {hasKind(JOB_KINDS.dataset) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
+          <button className="btn sm" type="button" disabled={!!actionsOff || !!tooMany} title={off ?? tooMany ?? undefined} onClick={() => guard(() => (ended.length ? setOpen('dataset') : toast('A run that is still recording can’t be exported until it ends.')))}>
             Dataset
           </button>
         ) : null}
@@ -134,7 +137,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           onClose={() => setOpen(null)}
           onRun={(label) => {
             setOpen(null);
-            client.labelRuns(ids, [label]).then(
+            inBatches(ids, (part) => client.labelRuns(part, [label])).then(joinLabelled).then(
               (out) => {
                 toast(bulkToast({ verb: 'Labelled', done: out.done.map((d) => d.runId), of: ids.length, skipped: out.skipped, suffix: ` “${label}”` }));
                 onDone();
@@ -145,17 +148,16 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
         />
       ) : null}
       {open === 'delete' ? (
-        <ConfirmDialog
+        <Dialog
           title={`Delete ${named(ended.map((r) => r.runId))}?`}
           text={`Removes the runs and the recorded data nothing else uses. Their forks keep their own data but lose the link.${live.length ? ` ${live.map((r) => shortId(r.runId)).join(', ')} ${live.length === 1 ? 'is' : 'are'} still recording and ${live.length === 1 ? 'is' : 'are'} left alone.` : ''}`}
-          command={`shadowlap rm ${ended.map((r) => shortId(r.runId)).join(' ')}`}
           ok={`Delete ${ended.length === 1 ? 'run' : plural(ended.length, 'run')}`}
-          danger
+          tone="danger"
           onClose={() => setOpen(null)}
           onOk={() => {
             setOpen(null);
             const doomed = ended.map((r) => r.runId);
-            client.deleteRuns(doomed).then(
+            inBatches(doomed, (part) => client.deleteRuns(part)).then(joinDeleted).then(
               (out) => {
                 toast(bulkToast({ verb: 'Deleted', done: out.done, of: doomed.length, skipped: out.skipped }));
                 clear();
@@ -164,9 +166,28 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
               (err: unknown) => toast(err instanceof Error ? err.message : String(err)),
             );
           }}
-        />
+        >
+          <DeleteCommand ids={ended.map((r) => r.runId)} />
+        </Dialog>
       ) : null}
       {open === 'dataset' ? <DatasetDialog ids={ended.map((r) => r.runId)} onClose={() => setOpen(null)} /> : null}
+    </>
+  );
+}
+
+/** The command a bulk Delete runs: every id for a few runs, the first few and how many more for a long pick, whole behind Copy. */
+function DeleteCommand({ ids }: { ids: readonly string[] }) {
+  const rm = rmCommand(ids);
+  return (
+    <>
+      <CmdLine>{rm.shown}</CmdLine>
+      {rm.shown !== rm.full ? (
+        <div className="cmdcopy">
+          <CopyButton text={rm.full} label="the command">
+            Copy the whole command
+          </CopyButton>
+        </div>
+      ) : null}
     </>
   );
 }

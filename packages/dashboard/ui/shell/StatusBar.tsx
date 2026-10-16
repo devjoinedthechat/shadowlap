@@ -5,9 +5,13 @@ import { isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
 
-/** The status bar: the store, the counts, the sync state, the address and the version. Below 640px only the left side stays. */
+/**
+ * The status bar: the store, the counts (runs, then the attempts bundled under them), the sync state,
+ * the address and the version. Below 640px only the left side stays. A recording in progress shows in
+ * the top bar's chip, not here.
+ */
 export function StatusBar() {
-  const { meta, runs, conn, syncedAt, exported, live } = useApp();
+  const { meta, runs, conn, syncedAt, exported } = useApp();
   const now = useNow(10_000);
   // With a team store set, the right side names it and when this machine last pushed or pulled.
   const store = useTeamStore();
@@ -36,7 +40,6 @@ export function StatusBar() {
       <span>
         {runCount === null ? '…' : `${num(runCount)} ${runCount === 1 ? 'run' : 'runs'}`}
         {attempts ? ` · ${num(attempts)} ${attempts === 1 ? 'attempt' : 'attempts'}` : ''}
-        {live.length && conn === 'ok' ? ` · ${live.length} recording` : ''}
       </span>
       <span className="sp" />
       {exported ? (

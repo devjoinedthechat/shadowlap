@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { stripScroll } from './place.js';
 
 /** The latest value, for callbacks that must not re-subscribe when it changes. */
 export function useLatest<T>(value: T): { readonly current: T } {
@@ -98,4 +99,23 @@ export function useNow(ms = 15_000): number {
   const [now, setNow] = useState(() => Date.now());
   useInterval(() => setNow(Date.now()), ms);
   return now;
+}
+
+/**
+ * A ref for a strip of tabs that scrolls sideways on a narrow screen (Settings' tabs, a run's views):
+ * it shows its active tab (`aria-current="page"` or `aria-selected="true"`) when it mounts and
+ * whenever `shown` (the tab shown) changes, by scrolling the strip alone, never the page.
+ */
+export function useActiveTabInView<E extends HTMLElement>(shown: unknown): RefObject<E | null> {
+  const ref = useRef<E>(null);
+  useLayoutEffect(() => {
+    const strip = ref.current;
+    const tab = strip?.querySelector<HTMLElement>('[aria-current="page"], [aria-selected="true"]');
+    if (!strip || !tab) return;
+    const s = strip.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    const to = stripScroll({ scrollLeft: strip.scrollLeft, width: strip.clientWidth }, { left: t.left - s.left + strip.scrollLeft, width: t.width });
+    if (to !== null) strip.scrollLeft = to;
+  }, [shown]);
+  return ref;
 }

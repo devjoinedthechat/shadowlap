@@ -13,6 +13,7 @@ that comes from data goes there, everything else is a class.
 | Component | File | Use it for |
 |---|---|---|
 | `Page` | `Page.tsx` | Every scrolling page. Gives back the scrollbar's width (`--sbw`) so the content's right edge stays under the top bar's. |
+| `useActiveTabInView` | `hooks.ts` | A ref for a strip of tabs that scrolls sideways on a phone (Settings' tabs, a run's views): it shows the active tab on mount and when the tab shown changes, scrolling the strip alone (`stripScroll` in `place.ts`). |
 | `PageHeader` | `bits.tsx` | The eyebrow, the title, one line under it, and the page's actions on the right (`.ph`). |
 | `Eyebrow` | `bits.tsx` | The small capitals above a title; `tone="fork"` or `"err"`. |
 | `EmptyState` | `bits.tsx` | Nothing here yet: what it is, and the command that makes it (`.panel.stepempty`). |
@@ -22,7 +23,7 @@ that comes from data goes there, everything else is a class.
 
 | Component | File | Notes |
 |---|---|---|
-| `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). Esc or a click on the dimmed page cancels. |
+| `Dialog` | `Dialog.tsx` | Title, one line, a body, Cancel and the action (`tone`: `lime`, `danger`, `solid`). Esc or a click on the dimmed page cancels. It opens on its first field, else its action, but on Cancel when the action is red or `initialFocus="cancel"` asks for it (`dialogFocus` in `focus.ts`), so Enter twice never does what can't be undone. A body taller than the window scrolls, with the title and the buttons in view. |
 | `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`), its first item focused once it shows, ↑ ↓ between items (passing over buttons hidden until hovered), closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
@@ -66,12 +67,15 @@ to as `{id, status, title}` or as the fixes read model's `{role, fix, blame}`) i
 views' shape there, once. A new field goes in `types.ts` as optional, and in `normalize.ts` when its shape needs it.
 
 The logic behind the components has no DOM and is unit-tested: `route.ts` (routes and links),
-`palette.ts` (matching), `strip.ts` (cells and grouping), `origins.ts`, `runs.ts` (what a run is and
+`palette.ts` (matching, the Actions group's order, and which hits from recorded data show: a run's own before its attempts'), `strip.ts` (cells and grouping), `origins.ts`, `runs.ts` (what a run is and
 how it ended, the Forks view's lines, the run an exported copy opens on), `recorded.ts` (a replayed
 call's recorded duration), `cache.ts` (where the cache stopped hitting, and what the Context view
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
+`focus.ts` (what a dialog focuses first), `shell/top.ts` (the top bar's pill, a run's parent in its
+crumbs, the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
+crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Training, `training.ts` (what a pairs filter
 shows, what Score a model sends, and the palette's Training actions). Tests has `goldens.ts`: the
@@ -86,7 +90,8 @@ its sources again. Pages a later version fills in each have their own file under
 
 The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
 and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
-`calendar-model.ts`), the table, the bulk bar, the import dialog (`imports.ts` reads a file's first
+`calendar-model.ts`), the table, the bulk bar (`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command),
+the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`), Find the commit (`find-commit.ts`, what it asks bisect
 for) and authors; `runspage/query.ts` builds the page's requests and reads the
 filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered

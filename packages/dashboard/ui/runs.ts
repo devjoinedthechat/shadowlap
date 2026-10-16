@@ -340,3 +340,8 @@ export function exportStartRun(runIds: readonly string[], runs: ReadonlyArray<{ 
   const parents = new Set(runs.filter((r) => included.has(r.runId) && r.parentRunId && included.has(r.parentRunId)).map((r) => r.parentRunId!));
   return runIds.find((id) => !parents.has(id)) ?? runIds[0] ?? null;
 }
+
+/** Whether an exported copy has Compare: it holds two runs or more. A copy of one run has nothing to compare it with. */
+export function copyCompares(runIds: readonly string[] | null | undefined): boolean {
+  return (runIds?.length ?? 0) >= 2;
+}

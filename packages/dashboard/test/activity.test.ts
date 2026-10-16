@@ -415,6 +415,8 @@ describe('events as each feature records them', () => {
     expect([2400, 2410, 2420, 2430, 2440, 2450, 2460].map((t) => at(t)?.text)).toEqual(['Store set', 'Store changed', 'Store checked', 'Store checked · versioning off · no object lock', 'Store check failed', 'Push from CI off', 'Push from CI on']);
     expect(at(2410)).toMatchObject({ kind: 'setting', ref: 's3://northwind/agent-runs', actor: 'dana@example.com' });
     expect(at(2440)?.kind).toBe('fail');
+    // The store's entries open Settings → Store, where its bucket, last sync and local runs are.
+    expect([2000, 2100, 2400, 2420, 2440, 2450].map((t) => at(t)?.href)).toEqual(Array(6).fill('#/settings/store'));
     expect(at(3000)).toMatchObject({ kind: 'blame', text: 'Blamed · confirmation email sent twice, lost at model call #9', href: '#/fixes/fx-double-email/blame', runId: run });
     expect(at(3010)?.text).toBe('Blamed model call #5 · confidence high');
     expect(at(3020)?.text).toBe('Blame stopped · refund over the limit');

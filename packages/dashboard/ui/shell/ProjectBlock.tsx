@@ -6,6 +6,7 @@ import { compactPath, projectOfStore } from '../format.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
 import { onProjectSwitched, type ProjectsView } from '../projects-api.js';
+import { exportedLine } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp, type AppState } from '../state.js';
@@ -67,7 +68,7 @@ export function ProjectBlock({ meta }: { meta: Meta | null }) {
         <span className="pa">S</span>
         <span className="pn">
           <b>Exported copy</b>
-          <small>{meta.runIds?.length ?? 0} runs · nothing runs from here</small>
+          <small>{exportedLine(meta.runIds?.length ?? 0)}</small>
         </span>
       </div>
     );

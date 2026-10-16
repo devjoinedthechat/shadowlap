@@ -135,3 +135,23 @@ export function lastLine(lines: readonly string[]): string {
   }
   return '';
 }
+
+/**
+ * What the toast says when a job ends behind a closed drawer: its title and how it came out, in the
+ * drawer's status words ("Running the tests finished · 1 failed · exit 1"). When those say no more than
+ * the exit code, the last line the job printed says it instead.
+ */
+export function endToast(job: JobLike, lines: readonly string[]): string {
+  const status = jobStatus(job, lines).text;
+  const generic = /^(finished · )?exit \d+$/.test(status);
+  const last = lastLine(lines);
+  return `${jobTitle(job)} finished · ${generic && last ? last : status.replace(/^finished · /, '')}`;
+}
+
+/**
+ * Whether a job of one of `kinds` (the jobs that run the goldens) is still running, as far as this
+ * page follows it: the palette offers no second session meanwhile. A job the server lost is over.
+ */
+export function jobRunning(jobs: ReadonlyArray<{ job: Pick<JobLike, 'done' | 'kind'>; lost?: boolean }>, kinds: ReadonlySet<string>): boolean {
+  return jobs.some((w) => !w.job.done && !w.lost && kinds.has(w.job.kind ?? ''));
+}

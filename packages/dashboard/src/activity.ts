@@ -33,6 +33,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 const short = (runId: string) => runId.slice(0, 10);
 const FIX_ID = /^fx-[\w-]+$/;
 const fixHref = (ref: string | null, step?: string) => (ref && FIX_ID.test(ref) ? `#/fixes/${ref}${step ? `/${step}` : ''}` : '#/fixes');
+/** Where the team store's entries open: Settings → Store, which shows the bucket, its last sync and what is only here. */
+const STORE_TAB = '#/settings/store';
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter((s): s is string => s !== null) : []);
 /** Words joined by the feed's separator, the empty ones left out. */
 const parts = (...words: Array<string | null | false | undefined>) => words.filter(Boolean).join(' · ');
@@ -166,7 +168,8 @@ function storedItem(e: StoredEvent): ActivityItem {
   } catch {
     t = fallback(e);
   }
-  const href = t.href ?? (e.runId ? `#/run/${e.runId}` : undefined);
+  // The team store's entries open Settings → Store, whichever run one names.
+  const href = t.href ?? (e.kind.startsWith('store.') ? STORE_TAB : e.runId ? `#/run/${e.runId}` : undefined);
   const ref = e.ref ?? (e.runId ? short(e.runId) : undefined);
   return { id: `e:${e.eventId}`, at: e.at, kind: t.kind, text: t.text, ...(e.runId ? { runId: e.runId } : {}), ...(href ? { href } : {}), ...(e.actor ? { actor: e.actor } : {}), ...(ref ? { ref } : {}) };
 }

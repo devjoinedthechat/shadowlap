@@ -3,9 +3,9 @@ import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '.
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
-import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
+import { endToast, jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
-import { highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
+import { ACTION_ORDER, highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
@@ -107,6 +107,24 @@ describe('palette', () => {
   it('keeps at most six hits from recorded data, two per run', () => {
     const hits = ['a', 'a', 'a', 'b', 'c', 'c', 'd', 'e', 'f'].map((runId, i) => ({ runId, i }));
     expect(limitRecorded(hits).map((h) => h.i)).toEqual([0, 1, 3, 4, 5, 6]);
+  });
+
+  it('shows the runs recorded data came from before their attempts, and an attempt only for a run with no hit of its own', () => {
+    // A blame's probes replay the recording's text: the search finds them first, five alike.
+    const probe = (runId: string) => ({ runId, attemptOf: 'rec' });
+    const hits = [probe('p1'), probe('p2'), probe('p3'), probe('p4'), probe('p5'), { runId: 'test', attemptOf: null }, { runId: 'rec', attemptOf: null }, { runId: 'fork', attemptOf: null }, { runId: 'r1', attemptOf: 'gone-run' }, { runId: 'r2', attemptOf: 'gone-run' }, { runId: 'r3', attemptOf: 'gone-run' }];
+    expect(limitRecorded(hits).map((h) => h.runId)).toEqual(['test', 'rec', 'fork', 'r1', 'r2']);
+    // Only probes found: two of them stand for their run, not five.
+    expect(limitRecorded(hits.slice(0, 5)).map((h) => h.runId)).toEqual(['p1', 'p2']);
+    // Hits that say nothing about attempts keep the server's order.
+    expect(limitRecorded([{ runId: 'x' }, { runId: 'y' }]).map((h) => h.runId)).toEqual(['x', 'y']);
+  });
+
+  it('orders Actions as the design does, whichever page added them, with Keyboard shortcuts last', () => {
+    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run the tests', 'Calibrate', 'Import a capture…', 'Something new…', 'Score a model on the tasks…', 'Export preference pairs…', 'Update goldens…'].map((label) => ({ group: 'Actions', label, hint: '' }));
+    expect(matchPalette(actions, '').map((x) => x.label)).toEqual([...ACTION_ORDER, 'Something new…', 'Keyboard shortcuts']);
+    // Typed, a better match still leads.
+    expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export preference pairs…', 'Update goldens…']);
   });
 
   it('marks the first typed word and the server’s matches', () => {
@@ -275,6 +293,11 @@ describe('formatting', () => {
     expect(money(1.2)).toBe('$1.2');
     expect(approx(0.0281)).toBe('≈$0.028');
     expect(approx(0)).toBe('$0');
+    // A live run that spent less than a tenth of a cent doesn't read as nothing beside a capture's "$0.0007".
+    expect(approx(0.0004656)).toBe('≈$0.0005');
+    expect(approx(0.0015)).toBe('≈$0.0015');
+    expect(approx(0.00004)).toBe('<$0.0001');
+    expect(approx(2.5)).toBe('≈$2.50');
     expect(ktok(12400)).toBe('12.4k');
     expect(ktok(950)).toBe('950');
     expect(ktok(1_250_000)).toBe('1.25M');
@@ -483,6 +506,14 @@ describe('job drawer', () => {
     expect(jobStatus(done(1), ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
     expect(jobStatus(done(null), [])).toEqual({ text: 'stopped', tone: 'err' });
     expect(lastLine(['a', '✓ Forked at call 17 · ran to the end', '  '])).toBe('Forked at call 17 · ran to the end');
+  });
+
+  it('says how a job ended when its drawer was closed: the outcome, or its last line when that is all the exit code says', () => {
+    const tests = { args: ['test', 'goldens/a', 'goldens/b'], done: true, code: 1 };
+    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Running the tests finished · 1 failed · exit 1');
+    expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replaying finished · forked · exit 0');
+    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packing finished · packed share/x · 14 calls');
+    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 2 }, [])).toBe('Packing finished · exit 2');
   });
 });
 

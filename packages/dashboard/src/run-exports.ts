@@ -218,7 +218,8 @@ export function packJob(store: Store, project: ProjectInfo | null, req: Record<s
 }
 
 const RUN_ID = /^[0-9A-Za-z]{1,26}$/;
-const MAX_DATASET_RUNS = 500;
+/** The most runs one dataset takes: the Runs page's bulk bar offers Dataset up to this many (ui/runspage/bulk.ts). */
+export const MAX_DATASET_RUNS = 500;
 
 /** A file name of the dataset: one run's id, or how many runs and when. */
 function datasetName(runIds: readonly string[], now: Date): string {
