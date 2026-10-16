@@ -62,11 +62,27 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
     }
   };
 
-  // A run still recording goes too: the CLI queues it, and pushes it when it ends.
-  const push = () => {
+  // A run still recording goes too: the CLI queues it, and pushes it when it ends. Once the push has
+  // worked the selection is let go, as the runs it picked are in the store.
+  const push = async () => {
     const up = runs.filter((r) => isLive(r) || r.local !== false);
     if (!up.length) return toast('Already in the store.');
-    watchJob(client.startJob(JOB_KINDS.push, { runIds: up.map((r) => r.runId) }));
+    let job: JobView;
+    try {
+      job = await client.startJob(JOB_KINDS.push, { runIds: up.map((r) => r.runId) });
+    } catch (err) {
+      return toast(err instanceof Error ? err.message : String(err));
+    }
+    watchJob(Promise.resolve(job));
+    for (let v = job; ; ) {
+      if (v.done) return v.code === 0 ? clear() : undefined;
+      await new Promise((ok) => setTimeout(ok, 400));
+      try {
+        v = await client.job(job.id, v.total);
+      } catch {
+        return;
+      }
+    }
   };
 
   return (
@@ -79,7 +95,7 @@ export function BulkBar({ runs, store, clear, onDone }: { runs: readonly PickedR
           Label
         </button>
         {store && hasKind(JOB_KINDS.push) ? (
-          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(push)}>
+          <button className="btn sm" type="button" disabled={!!actionsOff} title={off} onClick={() => guard(() => void push())}>
             Push
           </button>
         ) : null}
