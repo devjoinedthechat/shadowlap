@@ -32,7 +32,7 @@ export { ciWorkflows, CI_DEFAULTS, fixPreview, gitFacts, parseCiOptions } from '
 export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from './ci-workflows.js';
 export { TEST_JOB_KINDS, testsBuild } from './routes/tests.js';
 // Settings: one read model per tab; edits go through the engine's config-file module.
-export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, previewArgv, projectSettings, proposedRules, readShippedDoc, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from './settings.js';
+export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, readShippedDoc, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from './settings.js';
 export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, MatchingSettings, McpRecordedServer, McpServerRow, ProjectSettings, RedactionSettings, RuleForm, RuleRow, SettingsContext, ToolRow, ToolsSettings } from './settings.js';
 // Training: pairs, tasks and the model picker.
 export { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, trainingView } from './training.js';

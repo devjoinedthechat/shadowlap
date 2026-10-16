@@ -1,20 +1,10 @@
 import { Fragment } from 'react';
 import { Brand, Icon } from '../components/Icon.js';
+import { settingsTabLabel } from '../pages/settings/tabs.js';
 import { shortId } from '../format.js';
 import { href, type Route } from '../route.js';
 import { useApp } from '../state.js';
 import { useFixCrumb } from '../fixes/data.js';
-
-/** The names of Settings' tabs, for the breadcrumb. */
-export const SETTINGS_TABS: Readonly<Record<string, string>> = {
-  matching: 'Matching',
-  redaction: 'Redaction',
-  alerts: 'CI',
-  agents: 'Coding agents',
-  tools: 'Tools',
-  project: 'Project',
-  store: 'Store',
-};
 
 type Crumb = { label: string; href?: string; mono?: boolean };
 
@@ -34,10 +24,8 @@ function crumbsFor(route: Route, parentOf: (id: string) => string | null, fixNam
       return [{ label: 'Tests' }];
     case 'training':
       return [{ label: 'Training', href: href.training() }, { label: route.tab === 'tasks' ? 'Tasks' : 'Pairs', mono: true }];
-    case 'settings': {
-      const tab = route.tab ?? 'matching';
-      return [{ label: 'Settings', href: href.settings() }, { label: SETTINGS_TABS[tab] ?? tab, mono: true }];
-    }
+    case 'settings':
+      return [{ label: 'Settings', href: href.settings() }, { label: settingsTabLabel(route.tab), mono: true }];
     case 'new':
       return [{ label: 'Add a project' }];
     case 'setup':

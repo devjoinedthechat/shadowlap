@@ -11,6 +11,7 @@ import * as runs from './runs.js';
 // The run page: what it offers to do with a run, show --json, and the Share menu's exports.
 import * as runPage from './run-page.js';
 import * as search from './search.js';
+import * as settings from './settings.js';
 import * as tests from './tests.js';
 import * as uploads from './uploads.js';
 // overview-runs: the Overview, the Runs page, imports and the team store.
@@ -46,6 +47,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   imports,
   fixes,
   tests,
+  settings,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

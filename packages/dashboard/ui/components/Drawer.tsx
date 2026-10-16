@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { shortId } from '../format.js';
+import { jobFooter } from '../job-actions.js';
 import { jobCommand, jobStatus, jobTitle, lineTone } from '../jobs.js';
 import { href } from '../route.js';
 import { useApp, useLayer, type WatchedJob } from '../state.js';
@@ -33,6 +34,8 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   const folders = files.filter((f) => f.directory);
   const links = job.links ?? [];
   const opens = job.done && job.newRunId && (job.opensRun || links.length === 0) && !links.some((l) => l.href.includes(job.newRunId!));
+  // What the job's own feature adds: calibrate's "Add it (--write)", a clean-up's "Delete N runs".
+  const Footer = jobFooter(job.kind);
   return (
     <div className="drawer" role="dialog" aria-label={title} aria-live="polite">
       <header>
@@ -89,6 +92,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         <button className="btn" type="button" onClick={close}>
           Close
         </button>
+        {Footer && !lost ? <Footer job={job} /> : null}
         {links.map((l) => (
           <a key={l.href + l.label} className="btn lime" href={l.href} onClick={close}>
             {l.label}

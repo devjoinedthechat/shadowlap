@@ -115,7 +115,13 @@ describe('previewRedaction', () => {
     redactRun(store, run.runId, [EMAIL], dst);
     expect(dst.getCalls(run.runId)[0]!.end!.meta.error).toEqual({ name: 'Error', message: 'mailbox of <EMAIL> is full' });
     dst.close();
-    expect(previewRedaction(store, run.runId, [EMAIL], { maxCalls: 2 })).toMatchObject({ calls: 2, partial: { read: 2, of: 5 }, total: 2 });
+    expect(previewRedaction(store, run.runId, [EMAIL], { maxCalls: 2 })).toMatchObject({ calls: 2, partial: { read: 2, of: 5, stopped: 'calls' }, total: 2 });
+    expect(previewRedaction(store, run.runId, [EMAIL], { maxCalls: 5 }).partial).toBeNull();
+    // A byte limit stops it between calls, once what it read reaches the limit: the first call's request.
+    expect(previewRedaction(store, run.runId, [EMAIL], { maxBytes: 1 })).toMatchObject({ calls: 1, partial: { read: 1, of: 5, stopped: 'bytes' }, total: 1 });
+    expect(previewRedaction(store, run.runId, [EMAIL], { maxBytes: 10_000 }).partial).toBeNull();
+    // A deadline already past reads nothing more, and says so.
+    expect(previewRedaction(store, run.runId, [EMAIL], { deadline: Date.now() - 1 })).toMatchObject({ calls: 0, partial: { read: 0, of: 5, stopped: 'time' }, total: 0 });
     store.close();
   });
 

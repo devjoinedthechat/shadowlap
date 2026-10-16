@@ -5,6 +5,7 @@ import { bundleSource } from './fixes/model.js';
 import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
+import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
@@ -38,7 +39,7 @@ export const JOB_KINDS = {
   importCapture: 'import',
   calibrate: 'calibrate',
   gc: 'gc',
-  // The team store (overview-runs): push and pull, and a run's share link.
+  // The team store (overview-runs): push and pull (Runs, and Settings → Store), and a run's share link.
   push: 'push',
   pull: 'pull',
   share: 'share',
@@ -170,6 +171,10 @@ export interface Client {
   testRun(id: string, before?: number): Promise<TestRunView>;
   /** Settings → CI's two panels for the options given; those left out take the server's defaults (`/api/ci/workflows`). */
   ciWorkflows(options?: Partial<CiWorkflowOptions>): Promise<CiWorkflowsView>;
+
+  // ---- Settings
+  /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
+  settings: SettingsApi;
 }
 
 
@@ -359,6 +364,7 @@ export function createClient(token: string): Client {
     tests: () => request<TestsView>('tests'),
     testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
+    settings: settingsApi(request),
   };
 }
 
@@ -425,5 +431,6 @@ export function createExportedClient(data: StaticPayload): Client {
     tests: () => get<TestsView>('tests'),
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
+    settings: noSettings(readOnly),
   };
 }

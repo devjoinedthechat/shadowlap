@@ -63,7 +63,7 @@ describe('meta', () => {
       address: new URL(dash.url).host,
       counts: { runs: 2, attempts: 3 },
       live: [{ runId: liveId, calls: 1 }],
-      jobKinds: expect.arrayContaining(['action']),
+      jobKinds: expect.arrayContaining(['action', 'calibrate', 'gc']),
       uploadLimit: 64 * 1024 * 1024,
       project: { name: project.split(/[\\/]/).pop(), path: project },
     });

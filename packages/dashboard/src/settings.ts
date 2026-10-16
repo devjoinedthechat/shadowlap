@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Dirent, type Stats } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -8,21 +9,29 @@ import {
   REDACTION_EXPORTS,
   RULE_KINDS,
   calibrationTarget,
+  commandIsImported,
   configClock,
+  hasRecordedCommand,
   namedPatterns,
+  parseRules,
   readConfigFile,
   readRules,
+  tildePath,
   type CallKind,
   type ClockMode,
   type ConfigFile,
   type Effect,
   type Normalizer,
   type RedactionExport,
+  type RedactionPreview,
   type RuleList,
   type RunRecord,
   type Store,
 } from '@shadowlap/engine';
+import { ciStep, parseStoreUrl, type StoreLocation } from '@shadowlap/remote';
+import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
 import { countRuns } from './runs-list.js';
+import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
 
 /**
  * The read model behind Settings: one plain function per tab (Matching, Redaction, Coding agents,
@@ -113,11 +122,11 @@ export interface RedactionSettings {
   /** Every way a run's content leaves the machine, which rules each applies and what it does with the run's details (decision 6). */
   where: readonly RedactionExport[];
   /**
-   * Runs a preview can be made for: every run that has ended, newest first, each with the job that
-   * previews it. The job runs `redact preview <run> --json`, whose result event is the preview (a
-   * RedactionPreview), so reading a long run never holds up the server.
+   * Runs a preview can be made for: every run but those still recording, newest first. The preview
+   * itself is read apart (`GET /api/settings/redaction/preview`, redactionPreview), on a thread of its
+   * own, so reading a long run never holds up the server.
    */
-  runs: Array<{ runId: string; label: string; preview: string[] }>;
+  runs: Array<{ runId: string; label: string }>;
   /** The run the tab previews first: the newest that has ended, or the one asked for. */
   previewRunId: string | null;
   /** Why there is no preview to run: no run yet, the run asked for is unknown or still recording, or rules that can't be read. */
@@ -178,12 +187,24 @@ export interface McpServerRow {
   target: string;
   /** Its entry already starts `shadowlap mcp`. */
   viaShadowlap: boolean;
-  /** The `shadowlap mcp` line in front of it: as the entry has it, or as it would be. */
+  /**
+   * The `shadowlap mcp` line in front of it: as the entry has it, or as it would be. A remote
+   * server's headers become `--header "Name: ${VAR}"`, which `shadowlap mcp` fills in from its
+   * environment, with VAR in `env`.
+   */
   line: string;
-  /** What the client's entry takes instead of its command and args; its environment and headers stay as they are. */
+  /** What the client's entry takes instead of its command and args. */
   entry: { command: string; args: string[] };
-  /** Something that looked like a credential is shown as ••• in `target`, `line` and `entry`: copy it from the entry as it is. */
+  /** Something that looked like a credential is shown as ••• in `target`, `line` and `entry`. */
   hidden: boolean;
+  /**
+   * The entry's environment as the client config to copy writes it: a value that is only a
+   * reference (`${GITHUB_TOKEN}`) as it is, any other as `…`, never its text; and for a remote
+   * server, a variable for each header's value.
+   */
+  env: Array<{ name: string; value: string }>;
+  /** What a copy of its entry leaves out, to put back before the client starts it: `GITHUB_TOKEN`, `the ••• in its command`. */
+  putBack: string[];
   /** How `shadowlap mcp` names the server in what it records: its transport, and its host or its command (with the package a runner such as npx starts). */
   recordedAs: { transport: 'stdio' | 'http'; server: string };
   /** What the recordings hold from it (McpRecordedServer), or null when nothing was recorded through it. */
@@ -207,6 +228,15 @@ export interface McpRecordedServer {
   inConfig: boolean;
 }
 
+/** One client config to copy. */
+export interface ClientConfigBlock {
+  /** The project file it stands for, or null for the docs' example. */
+  file: string | null;
+  text: string;
+  /** Per server, each value the copy leaves out, to put back before the client starts it. */
+  putBack: Array<{ server: string; values: string[] }>;
+}
+
 export interface ToolsSettings {
   config: ConfigInfo;
   /** Runs live after a fork: read and pure tools, and tools that declare no effect. */
@@ -222,14 +252,22 @@ export interface ToolsSettings {
     recorded: McpRecordedServer[];
     /** The client config files looked at, and why one couldn't be read. */
     files: Array<{ path: string; found: boolean; error: string | null }>;
-    /** The client configuration example from docs/mcp.md. */
-    clientConfig: string | null;
+    /**
+     * The client configs to copy: one per project file that lists servers, each server with
+     * `shadowlap mcp` in front, credentials and environment values left out and named in `putBack`;
+     * without any, the example in docs/mcp.md (`file` null), which shows both forms.
+     */
+    clientConfigs: ClientConfigBlock[];
+    /** The forms (`stdio`, a command; `http`, a URL) no server in the blocks uses: the page shows a line for each. Empty for the docs' example. */
+    otherForms: Array<'stdio' | 'http'>;
   };
 }
 
 export interface ProjectSettings {
   name: string;
   folder: string;
+  /** The folder and the store's file as people read them: `~/support-agent/.shadowlap/shadowlap.db` inside the home folder. */
+  shown: { folder: string; store: string | null };
   /**
    * The store's file, and its size as the database counts it (its pages, whatever the write-ahead
    * log holds), so it doesn't jump while the log waits for a checkpoint. `free` is what a vacuum
@@ -245,9 +283,10 @@ export interface ProjectSettings {
   abandoned: number;
   address: string | null;
   /**
-   * Clean up old runs: the dry run first, whose result (the GcReport `gc --json` prints) counts the
-   * runs (`count`), lists the first 100 and what they free; then "Delete N runs" (N is `count`) runs
-   * cleanupArgv(result), which deletes exactly those runs or, if others match by then, nothing.
+   * Clean up old runs: the dry run first, whose result event (the GcReport `gc --json` prints)
+   * counts the runs (`count`), lists the first 100 and what they free, while the drawer shows what gc
+   * prints; then "Delete N runs" (N is `count`) runs cleanupArgv(result), which deletes exactly those
+   * runs or, if others match by then, nothing.
    */
   cleanup: { olderThanDays: number; dryRun: string[] };
 }
@@ -301,6 +340,27 @@ function commandOf(run: RunRecord): string {
   return argv.join(' ');
 }
 
+/** How long a run's label in a picker gets: its id and enough of its command to tell it apart. */
+const LABEL_COMMAND = 60;
+
+/**
+ * A command line short enough for a picker: an absolute path keeps its last two parts
+ * (`node …/dist/main.js`), and the whole is cut at LABEL_COMMAND characters.
+ */
+export function shortCommand(command: string): string {
+  const short = command
+    .split(' ')
+    .map((a) => {
+      const parts = a.split(/[\\/]/).filter(Boolean);
+      return /^(\/|~\/|[A-Za-z]:\\)/.test(a) && parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : a;
+    })
+    .join(' ');
+  return short.length > LABEL_COMMAND ? `${short.slice(0, LABEL_COMMAND - 1)}…` : short;
+}
+
+/** A run as a picker lists it: `01K5CQ4N7G · python refund_agent.py`. */
+const runLabel = (run: RunRecord) => `${shortRun(run.runId)} · ${shortCommand(commandOf(run))}`;
+
 // ---- Matching ----
 
 export function matchingSettings(ctx: SettingsContext): MatchingSettings {
@@ -334,13 +394,10 @@ export function proposedRules(result: unknown): Array<Partial<Record<'kind' | 'n
 /** How many runs the preview's run picker lists. */
 const PREVIEW_RUNS = 100;
 
-/** The job that previews what the rules mask in one run: its result event is the preview. */
-export const previewArgv = (runId: string): string[] => ['redact', 'preview', runId, '--json'];
-
 /**
- * The Redaction tab: the rules, where they apply, and the runs a preview can be made for, each with
- * its job. `runId` picks the run to preview first; without one, the newest run that has ended.
- * Nothing here reads a run's calls: the preview runs as a job.
+ * The Redaction tab: the rules, where they apply, and the runs a preview can be made for. `runId`
+ * picks the run to preview first; without one, the newest run that has ended. Nothing here reads a
+ * run's calls: the preview is read apart (redactionPreview).
  */
 export function redactionSettings(ctx: SettingsContext, options: { runId?: string | null } = {}): RedactionSettings {
   const { info, file } = loadConfigFile(ctx.cwd, 'redact');
@@ -348,7 +405,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
   // Every run but those a process is still recording: one its process abandoned can be previewed.
   const recording = new Set(ctx.store.recordingRuns().live.map((r) => r.run.runId));
   const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => !recording.has(r.runId));
-  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: `${shortRun(r.runId)} · ${commandOf(r)}`, preview: previewArgv(r.runId) }));
+  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: runLabel(r) }));
   let previewRunId: string | null = ended[0]?.runId ?? null;
   let previewError: string | null = null;
   if (options.runId) {
@@ -589,7 +646,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
     http,
-    mcp: { effects, servers, recorded, files: found.files, clientConfig: doc === null ? null : mcpClientConfig(doc) },
+    mcp: { effects, servers, recorded, files: found.files, ...clientConfigs(servers, doc === null ? null : mcpClientConfig(doc)) },
   };
 }
 
@@ -855,8 +912,8 @@ function proxied(command: string, args: string[]): { transport: 'stdio' | 'http'
   return { transport: 'stdio', target: [] };
 }
 
-/** How a server entry is recorded, from its command and arguments: the row without its name, file and what was recorded. */
-type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'recorded'>;
+/** How a server entry is recorded, from its command and arguments: the row without its name, file, environment, what to put back and what was recorded. */
+type ServerRecording = Omit<McpServerRow, 'name' | 'file' | 'env' | 'putBack' | 'recorded'>;
 
 function commandServer(command: string, args: string[]): ServerRecording {
   const shownArgs = hideSecrets(args);
@@ -871,9 +928,75 @@ function commandServer(command: string, args: string[]): ServerRecording {
   return { transport: 'stdio', target: commandLine(shown), viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--', ...shown]), entry: { command: 'shadowlap', args: ['mcp', '--', ...shown] }, hidden: shown.some((a, i) => a !== [command, ...args][i]), recordedAs: { transport: 'stdio', server: stdioServerName(command, args) } };
 }
 
-function urlServer(url: string): ServerRecording {
+/** A remote server by its URL, with the `--header` flags `shadowlap mcp --url` sends (`Authorization: Bearer ${STRIPE_TOKEN}`). */
+function urlServer(url: string, headers: readonly string[] = []): ServerRecording {
   const shown = hideUrlSecrets(url);
-  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', 'mcp', '--url', shown]), entry: { command: 'shadowlap', args: ['mcp', '--url', shown] }, hidden: shown !== url, recordedAs: { transport: 'http', server: httpServerName(url) } };
+  const args = ['mcp', '--url', shown, ...headers.flatMap((h) => ['--header', h])];
+  return { transport: 'http', target: shown, viaShadowlap: false, line: commandLine(['shadowlap', ...args]), entry: { command: 'shadowlap', args }, hidden: shown !== url, recordedAs: { transport: 'http', server: httpServerName(url) } };
+}
+
+/** What stands in for a value the page never shows: an environment value to put back. */
+const LEFT_OUT = '…';
+/** A value that is only a reference the client, or `shadowlap mcp`, fills in from the environment (`${GITHUB_TOKEN}`, `${env:KEY}`): it holds no secret, so it is shown. */
+const REFERENCE = /^\$\{[^}\s]+\}$/;
+/** An Authorization header's scheme, kept in front of the variable that stands for its token. */
+const SCHEME = /^(Bearer|Basic|Token|Bot)\s+(\S[\s\S]*)$/i;
+const ENV_NAME = /^[A-Za-z_][\w.-]{0,99}$/;
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/;
+const envWord = (text: string) => text.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'SERVER';
+
+/** An entry's environment as a copy shows it: references as they are, any other value as `…`, to put back. */
+function envOf(value: unknown): Array<{ name: string; value: string }> {
+  if (!isObject(value)) return [];
+  return Object.entries(value)
+    .filter(([name]) => ENV_NAME.test(name))
+    .map(([name, v]) => ({ name, value: typeof v === 'string' && REFERENCE.test(v.trim()) ? v.trim() : LEFT_OUT }));
+}
+
+/**
+ * A remote server's headers as `shadowlap mcp --header` flags. A value that is a reference stays as
+ * it is; any other becomes `${SERVER_HEADER}` (an Authorization header keeps its scheme:
+ * `Bearer ${STRIPE_TOKEN}`), a variable added to the entry's environment for the person to set.
+ * Only the scheme word is read from a value; its text never leaves here.
+ */
+function headerFlags(value: unknown, server: string, taken: Set<string>): Array<{ flag: string; env: string | null }> {
+  if (!isObject(value)) return [];
+  return Object.entries(value)
+    .filter(([name]) => HEADER_NAME.test(name))
+    .map(([name, v]) => {
+      const text = typeof v === 'string' ? v.trim() : '';
+      const scheme = SCHEME.exec(text);
+      if (REFERENCE.test(text) || (scheme && REFERENCE.test(scheme[2]!.trim()))) return { flag: `${name}: ${text}`, env: null };
+      const base = `${envWord(server)}_${scheme && /^authorization$/i.test(name) ? 'TOKEN' : envWord(name)}`;
+      let env = base;
+      for (let i = 2; taken.has(env); i++) env = `${base}_${i}`;
+      taken.add(env);
+      return { flag: `${name}: ${scheme ? `${scheme[1]} ` : ''}\${${env}}`, env };
+    });
+}
+
+/**
+ * The client configs to copy: one per project file that lists servers, in the order clients read
+ * them, each written as docs/mcp.md writes one and under the key its file uses (`servers` for VS
+ * Code), with what each copy leaves out to put back. Without a server, the docs' example. And the
+ * forms no server in them uses, for the page to show beside them.
+ */
+export function clientConfigs(servers: ReadonlyArray<Pick<McpServerRow, 'name' | 'file' | 'transport' | 'entry' | 'env' | 'putBack'>>, docExample: string | null = null): { clientConfigs: ClientConfigBlock[]; otherForms: Array<'stdio' | 'http'> } {
+  const q = (v: string) => JSON.stringify(v);
+  const blocks = MCP_FILES.flatMap(({ path, key }): ClientConfigBlock[] => {
+    const here = servers.filter((s) => s.file === path);
+    if (!here.length) return [];
+    const entries = here.map((s) => {
+      const lines = [`    ${q(s.name)}: {`, `      "command": ${q(s.entry.command)},`, `      "args": [${s.entry.args.map(q).join(', ')}]${s.env.length ? ',' : ''}`];
+      if (s.env.length) lines.push(`      "env": { ${s.env.map((e) => `${q(e.name)}: ${q(e.value)}`).join(', ')} }`);
+      return [...lines, '    }'].join('\n');
+    });
+    const text = ['{', `  ${q(key)}: {`, entries.join(',\n'), '  }', '}'].join('\n');
+    return [{ file: path, text, putBack: here.filter((s) => s.putBack.length).map((s) => ({ server: s.name, values: s.putBack })) }];
+  });
+  if (!blocks.length) return { clientConfigs: docExample === null ? [] : [{ file: null, text: docExample, putBack: [] }], otherForms: [] };
+  const used = new Set(servers.filter((s) => blocks.some((b) => b.file === s.file)).map((s) => s.transport));
+  return { clientConfigs: blocks, otherForms: (['stdio', 'http'] as const).filter((t) => !used.has(t)) };
 }
 
 /**
@@ -890,6 +1013,20 @@ export function mcpServerFor(input: { command?: string | null; url?: string | nu
   const argv = splitCommandLine(input.command ?? '');
   if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
   return commandServer(argv[0]!, argv.slice(1));
+}
+
+/**
+ * The client entry for what "Add a server…" has, as the person typed it: what Copy the entry
+ * copies. The line and entry the dialog shows hide credentials (mcpServerFor); the copy keeps them,
+ * since the person typed them, and the dialog says so.
+ */
+export function mcpEntryAsTyped(input: { command?: string | null; url?: string | null }): { command: string; args: string[] } {
+  const url = input.url?.trim();
+  if (url) return { command: 'shadowlap', args: ['mcp', '--url', url] };
+  const argv = splitCommandLine(input.command ?? '');
+  if (!argv.length) throw new Error('type the command that starts the server, such as npx -y @modelcontextprotocol/server-filesystem .');
+  if (shadowlapMcpArgs(argv[0]!, argv.slice(1))) return { command: argv[0]!, args: argv.slice(1) };
+  return { command: 'shadowlap', args: ['mcp', '--', ...argv] };
 }
 
 /** The MCP servers a project's client configs list, with how each would be recorded. */
@@ -917,8 +1054,23 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
       const url = str(entry.url) ?? str(entry.serverUrl) ?? str(entry.httpUrl);
       const command = str(entry.command);
       const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === 'string') : [];
-      if (command) servers.push({ name, file: path, ...commandServer(command, args) });
-      else if (url) servers.push({ name, file: path, ...urlServer(url) });
+      const env = envOf(entry.env);
+      const putBack = env.filter((e) => e.value === LEFT_OUT).map((e) => e.name);
+      if (command) {
+        const server = commandServer(command, args);
+        if (server.hidden) putBack.push(`the ${HIDDEN} in its command`);
+        servers.push({ name, file: path, ...server, env, putBack });
+      } else if (url) {
+        const headers = headerFlags(entry.headers, name, new Set(env.map((e) => e.name)));
+        const server = urlServer(url, headers.map((h) => h.flag));
+        for (const h of headers) {
+          if (!h.env) continue;
+          env.push({ name: h.env, value: LEFT_OUT });
+          putBack.push(`${h.env} (its ${h.flag.slice(0, h.flag.indexOf(':'))} header)`);
+        }
+        if (server.hidden) putBack.push(`the ${HIDDEN} in its URL`);
+        servers.push({ name, file: path, ...server, env, putBack });
+      }
     }
     return { path, found: true, error: null };
   });
@@ -939,13 +1091,14 @@ export function projectSettings(ctx: SettingsContext): ProjectSettings {
   return {
     name: ctx.name ?? basename(ctx.cwd),
     folder: ctx.cwd,
+    shown: { folder: shownPath(ctx.cwd), store: dbPath ? shownPath(dbPath) : null },
     store: { path: dbPath, bytes: size.bytes, free: size.free },
     runs: counts.runs,
     attempts: counts.attempts,
     running: recording.live.length,
     abandoned: recording.abandoned.length,
     address: ctx.address ?? null,
-    cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', String(CLEANUP_DAYS), '--dry-run', '--json'] },
+    cleanup: { olderThanDays: CLEANUP_DAYS, dryRun: ['gc', '--older-than', String(CLEANUP_DAYS), '--dry-run'] },
   };
 }
 
@@ -957,5 +1110,156 @@ export function projectSettings(ctx: SettingsContext): ProjectSettings {
 export function cleanupArgv(dryRun: { cutoff: number | null; keep: number | null; expect: string }): string[] {
   if (dryRun.cutoff === null && dryRun.keep === null) throw new Error('the dry run picked no runs: give it --older-than or --keep');
   if (!/^\d+-[0-9a-f]{16}$/.test(dryRun.expect)) throw new Error('the dry run says no "expect": run it again with this version of Shadowlap');
-  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', dryRun.expect, '--json'];
+  return ['gc', ...(dryRun.cutoff !== null ? ['--before', String(dryRun.cutoff)] : []), ...(dryRun.keep !== null ? ['--keep', String(dryRun.keep)] : []), '--expect', dryRun.expect];
+}
+
+/** A path inside the home folder as `~/…` (reached by its own path or its real one); any other as it is. */
+export function shownPath(path: string, home: string = homedir()): string {
+  let real: string | null = null;
+  try {
+    real = realpathSync(home);
+  } catch {
+    // a home folder that can't be resolved: compare as given
+  }
+  for (const base of new Set([home, ...(real ? [real] : [])])) {
+    const shown = tildePath(path, base);
+    if (shown !== path) return shown;
+  }
+  return path;
+}
+
+// ---- refusals ----
+
+/**
+ * Why Settings can't do what was asked, with the HTTP status the route answers with: 404 for a run
+ * that isn't there, 409 for one still recording, 422 for rules that can't be read.
+ */
+export class SettingsRefusal extends Error {
+  override readonly name = 'SettingsRefusal';
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const RUN_REF = /^[0-9A-Za-z]{1,26}$/;
+
+/** The run an id or a unique prefix names, or a refusal that says why there is none. */
+function findRun(store: Store, ref: string): RunRecord {
+  if (!RUN_REF.test(ref)) throw new SettingsRefusal(400, 'name a run by its id or a unique prefix of it');
+  let run: RunRecord | null;
+  try {
+    run = store.findRun(ref);
+  } catch (err) {
+    throw new SettingsRefusal(400, err instanceof Error ? err.message : String(err));
+  }
+  if (!run) throw new SettingsRefusal(404, `no run matches ${ref}`);
+  return run;
+}
+
+// ---- Calibrate ----
+
+/**
+ * Why `calibrate` can't take this run, in the words the dashboard shows; null when it can. It takes
+ * what the Calibrate button offers: a finished recording made here, whose command it runs again
+ * offline. A replay or a fork is calibrated through the recording it came from; an import runs
+ * someone else's command, or none.
+ */
+export function notCalibratable(store: Store, run: RunRecord): string | null {
+  const id = shortRun(run.runId);
+  if (run.mode !== 'record') return `${id} is a replay; calibrate the recording it came from${run.parentRunId ? ` (${shortRun(run.parentRunId)})` : ''}`;
+  if (store.recordingRuns().live.some((r) => r.run.runId === run.runId)) return `${id} is still recording; calibrate it once it has ended`;
+  if (run.status !== 'completed' && run.status !== 'failed') return `${id} did not finish (${run.status}); calibrate a recording that ran to its end`;
+  if (!hasRecordedCommand(run) || commandIsImported(run)) return `${id} was imported, so there is no command recorded here to run again`;
+  return null;
+}
+
+/** The run a calibrate job takes: the one named, checked, or the one the button offers. */
+export function calibrateRun(ctx: Pick<SettingsContext, 'store' | 'setupRunId'>, runRef: string | null | undefined): RunRecord {
+  if (runRef) {
+    const run = findRun(ctx.store, runRef);
+    const why = notCalibratable(ctx.store, run);
+    if (why) throw new SettingsRefusal(409, why);
+    return run;
+  }
+  const target = calibrationTarget(ctx.store, { setupRunId: ctx.setupRunId ?? null });
+  if (!target) throw new SettingsRefusal(409, 'Record a run first: calibrate replays a finished recording made here');
+  return target.run;
+}
+
+// ---- the redaction preview, in the dashboard ----
+
+export interface RedactionPreviewView {
+  run: { runId: string; label: string };
+  /**
+   * What `redact preview <run> --json` prints: per rule, a count and up to two samples; the run's
+   * details apart. `partial` says how far a long run was read before a limit stopped it.
+   */
+  preview: RedactionPreview;
+  /** The command that previews the whole run in a terminal. */
+  command: string;
+}
+
+/**
+ * What the project's redaction rules would mask in one run, exactly as pack applies them (path
+ * rules included). The rules are the file's, as the table lists them, numbered the same way. The
+ * run is read apart, on a thread of its own and within limits (redaction-preview.ts), so the server
+ * answers everything else meanwhile; a store with no file is read here, within the same limits.
+ * Refused for a run still recording (409), a run that isn't there (404), rules that can't be read
+ * (422), a rule that takes too long on one call (422), and while other previews are read or another
+ * command holds the store (503).
+ */
+export async function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd' | 'dbPath'>, runRef: string, options: { signal?: AbortSignal; limits?: PreviewLimitsConfig } = {}): Promise<RedactionPreviewView> {
+  const run = findRun(ctx.store, runRef);
+  if (ctx.store.recordingRuns().live.some((r) => r.run.runId === run.runId)) throw new SettingsRefusal(409, `${shortRun(run.runId)} is still recording; preview it once it has ended`);
+  let rules: Normalizer[];
+  try {
+    rules = parseRules(readConfigFile(ctx.cwd).data.redact, 'redact');
+  } catch (err) {
+    throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
+  }
+  const limits = options.limits ?? PREVIEW_LIMITS;
+  let preview: RedactionPreview;
+  try {
+    preview = ctx.dbPath && ctx.dbPath !== ':memory:' ? await previewApart({ dbPath: ctx.dbPath, runId: run.runId, rules }, { limits, ...(options.signal ? { signal: options.signal } : {}) }) : previewHere(ctx.store, run.runId, rules, limits);
+  } catch (err) {
+    if (err instanceof PreviewError) throw new SettingsRefusal(err.status, err.message);
+    throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
+  }
+  return { run: { runId: run.runId, label: runLabel(run) }, preview, command: `shadowlap redact preview ${shortRun(run.runId)}` };
+}
+
+// ---- Store ----
+
+export interface StoreSettings {
+  /** The config, for the version an edit (Push from CI) sends back. */
+  config: ConfigInfo;
+  /** `store` as shadowlap.config.json has it; null when it names none ("No store yet"). */
+  configured: string | null;
+  /** Why the configured store can't be used: not a bucket URL, or a config that can't be read. */
+  error: string | null;
+  /** The bucket, the last sync, runs in the store and only here, the last check, your access, Push from CI. */
+  status: TeamStoreStatus | null;
+  /** "Copy CI step": the GitHub Actions step `shadowlap store ci --provider github` prints. */
+  ciStep: { file: string; text: string; oidc: boolean } | null;
+}
+
+/**
+ * Settings → Store, the team store: what `shadowlap store show` says, offline. Push and pull are
+ * jobs; Push from CI is a config edit. Nothing here reaches the bucket.
+ */
+export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput): StoreSettings {
+  const { info } = loadConfigFile(ctx.cwd);
+  const configured = input.store;
+  if (!configured) return { config: info, configured: null, error: info.error, status: null, ciStep: null };
+  let loc: StoreLocation;
+  try {
+    loc = parseStoreUrl(configured);
+  } catch (err) {
+    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null };
+  }
+  const step = ciStep('github', loc);
+  return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc } };
 }
