@@ -3,7 +3,7 @@ import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '.
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
-import { jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
+import { endToast, jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
@@ -501,6 +501,14 @@ describe('job drawer', () => {
     expect(jobStatus(done(1), ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
     expect(jobStatus(done(null), [])).toEqual({ text: 'stopped', tone: 'err' });
     expect(lastLine(['a', '✓ Forked at call 17 · ran to the end', '  '])).toBe('Forked at call 17 · ran to the end');
+  });
+
+  it('says how a job ended when its drawer was closed: the outcome, or its last line when that is all the exit code says', () => {
+    const tests = { args: ['test', 'goldens/a', 'goldens/b'], done: true, code: 1 };
+    expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Running the tests finished · 1 failed · exit 1');
+    expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replaying finished · forked · exit 0');
+    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packing finished · packed share/x · 14 calls');
+    expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 2 }, [])).toBe('Packing finished · exit 2');
   });
 });
 

@@ -135,3 +135,15 @@ export function lastLine(lines: readonly string[]): string {
   }
   return '';
 }
+
+/**
+ * What the toast says when a job ends behind a closed drawer: its title and how it came out, in the
+ * drawer's status words ("Running the tests finished · 1 failed · exit 1"). When those say no more than
+ * the exit code, the last line the job printed says it instead.
+ */
+export function endToast(job: JobLike, lines: readonly string[]): string {
+  const status = jobStatus(job, lines).text;
+  const generic = /^(finished · )?exit \d+$/.test(status);
+  const last = lastLine(lines);
+  return `${jobTitle(job)} finished · ${generic && last ? last : status.replace(/^finished · /, '')}`;
+}
