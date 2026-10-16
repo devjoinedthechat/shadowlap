@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 import { BULK_MAX } from '../src/runs-list.js';
 import { dialogFocus } from '../ui/focus.js';
+import { jobRunning } from '../ui/jobs.js';
+import { knownParent, noteParent, onParentNoted } from '../ui/parents.js';
 import { stripScroll } from '../ui/place.js';
 import { exportedLine } from '../ui/projects.js';
 import { BULK_BATCH, DATASET_MAX, datasetOff, inBatches, joinDeleted, joinLabelled, RM_ALL, rmCommand } from '../ui/runspage/bulk.js';
 import { TRACE_COPY } from '../ui/runspage/imports.js';
 import { copyCompares } from '../ui/runs.js';
+import { crumbParent, liveChip, topPill } from '../ui/shell/top.js';
 
 describe('a tab strip on a narrow screen', () => {
   // A strip 358px wide, scrolled to its start; tabs from the start of its content.
@@ -90,6 +93,75 @@ describe('dialogs', () => {
   it('start on Cancel whatever they hold when asked to', () => {
     expect(dialogFocus('lime', 'cancel')).toBe('.dlg-cancel');
     expect(dialogFocus('danger', 'cancel')).toBe('.dlg-cancel');
+  });
+});
+
+describe('the top bar', () => {
+  const RO = 'This dashboard is read-only (started with --read-only): it shows runs and changes nothing.';
+  const EMBEDDED = 'This dashboard is read-only: start it with shadowlap dashboard to change runs and run actions.';
+
+  it('says what kind of dashboard it is in the pill, with why on hover', () => {
+    expect(topPill({ exported: true, readOnly: false, actionsOff: 'This is an exported copy: nothing runs from here.', store: null })).toEqual({ word: 'exported', title: 'This is an exported copy: nothing runs from here.' });
+    expect(topPill({ exported: false, readOnly: true, actionsOff: RO, store: null })).toEqual({ word: 'read-only', title: RO });
+    // Embedded without the CLI: nothing was started with --read-only, and the title says what was.
+    expect(topPill({ exported: false, readOnly: true, actionsOff: EMBEDDED, store: null })).toEqual({ word: 'read-only', title: EMBEDDED });
+    expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'team', title: 'team store s3://northwind-agent-runs/support-agent' });
+    // Read-only wins the word; the title still names the team store.
+    expect(topPill({ exported: false, readOnly: true, actionsOff: RO, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'read-only', title: `${RO} · team store s3://northwind-agent-runs/support-agent` });
+    expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: null })).toEqual({ word: 'dashboard', title: null });
+    // A link that expired turns actions off, but the dashboard is no less a dashboard.
+    expect(topPill({ exported: false, readOnly: false, actionsOff: 'This link has expired.', store: null }).word).toBe('dashboard');
+  });
+
+  it('names a run’s parent from the run list, else from the detail its page loaded, and only runs a copy holds', () => {
+    const holds = (id: string) => id === '01M51X7EDD';
+    expect(crumbParent({ listed: { parentRunId: '01M51X7EDD' }, loaded: undefined, exported: false, holds })).toBe('01M51X7EDD');
+    expect(crumbParent({ listed: { parentRunId: null }, loaded: '01M51X7EDD', exported: false, holds })).toBeNull();
+    // An attempt the list leaves out: nothing until its page has loaded it, then its parent.
+    expect(crumbParent({ listed: null, loaded: undefined, exported: false, holds })).toBeNull();
+    expect(crumbParent({ listed: null, loaded: '01M51X7EDD', exported: false, holds })).toBe('01M51X7EDD');
+    expect(crumbParent({ listed: null, loaded: null, exported: false, holds })).toBeNull();
+    expect(crumbParent({ listed: { parentRunId: '01M51X7H8Q' }, loaded: undefined, exported: true, holds })).toBeNull();
+    expect(crumbParent({ listed: { parentRunId: '01M51X7EDD' }, loaded: undefined, exported: true, holds })).toBe('01M51X7EDD');
+  });
+
+  it('keeps the parents of the runs loaded, and says when it learns one', () => {
+    let heard = 0;
+    const stop = onParentNoted(() => heard++);
+    expect(knownParent('01M528J9G5')).toBeUndefined();
+    noteParent(['01M528J9G5', '01M528J9G5XXXXXXXXXXXXXXXX'], '01M51X7EDD');
+    expect(knownParent('01M528J9G5')).toBe('01M51X7EDD');
+    expect(knownParent('01M528J9G5XXXXXXXXXXXXXXXX')).toBe('01M51X7EDD');
+    noteParent(['01M528J9G5'], '01M51X7EDD');
+    expect(heard).toBe(1);
+    noteParent(['01M51X7EDD'], null);
+    expect(knownParent('01M51X7EDD')).toBeNull();
+    expect(heard).toBe(2);
+    stop();
+    noteParent(['01M528JDY1'], '01M51X7EDD');
+    expect(heard).toBe(2);
+  });
+
+  it('keeps a recording’s chip while offline, saying when it was last heard of, as the design does', () => {
+    const at = new Date(2026, 9, 16, 14, 2).getTime();
+    expect(liveChip({ recording: '01M51XRN57', conn: 'ok', loadedAt: at })).toEqual({ runId: '01M51XRN57', title: null });
+    expect(liveChip({ recording: '01M51XRN57', conn: 'offline', loadedAt: at })).toEqual({ runId: '01M51XRN57', title: 'Recording when last heard of, at 14:02: live updates are paused' });
+    expect(liveChip({ recording: '01M51XRN57', conn: 'expired', loadedAt: at })).toBeNull();
+    expect(liveChip({ recording: null, conn: 'ok', loadedAt: at })).toBeNull();
+  });
+});
+
+describe('the palette', () => {
+  it('offers no second test session while one started from the page runs', () => {
+    const kinds = new Set(['test', 'test-update', 'normalize-and-test']);
+    const job = (kind: string, done: boolean, lost?: boolean) => ({ job: { kind, done }, ...(lost === undefined ? {} : { lost }) });
+    expect(jobRunning([], kinds)).toBe(false);
+    expect(jobRunning([job('test', false)], kinds)).toBe(true);
+    expect(jobRunning([job('normalize-and-test', false)], kinds)).toBe(true);
+    expect(jobRunning([job('test', true)], kinds)).toBe(false);
+    // The server was restarted and no longer has it: it isn't running from here.
+    expect(jobRunning([job('test', false, true)], kinds)).toBe(false);
+    expect(jobRunning([job('replay', false)], kinds)).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
 import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
+import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
@@ -292,7 +293,13 @@ export function createClient(token: string): Client {
         return shape(m, normalizeMeta);
       }),
     runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
-    run: (runId) => request<RunDetail>(`runs/${id(runId)}`).then((d) => shape(d, normalizeRunDetail)),
+    run: (runId) =>
+      request<RunDetail>(`runs/${id(runId)}`).then((d) => {
+        const out = shape(d, normalizeRunDetail);
+        // The top bar's crumb names the parent of a run the run list leaves out from here (parents.ts).
+        noteParent([runId, out.run.runId], out.run.parentRunId ?? null);
+        return out;
+      }),
     call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => request<{ nodes: LineageNode[] }>(`runs/${id(runId)}/lineage`).then((r) => r.nodes),
     provenance: async (runId) => {

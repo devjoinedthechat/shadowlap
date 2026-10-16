@@ -3,6 +3,7 @@ import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
 import { callName, shortId } from '../format.js';
+import { jobRunning } from '../jobs.js';
 import { highlight, limitRecorded, matchPalette, RECORDED_MIN_CHARS, snippetParts } from '../palette.js';
 import { onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
 import { href, type Route } from '../route.js';
@@ -16,7 +17,8 @@ import { useApp, useLayer, type PaletteCommand } from '../state.js';
  */
 
 /** The jobs that run the goldens: while one runs, the palette offers no second session. */
-const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
+const TEST_KINDS: ReadonlySet<string> = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_KINDS.normalizeAndTest]);
+
 export function Palette({ route }: { route: Route }) {
   const app = useApp();
   const { palette, setPalette } = app;
@@ -58,8 +60,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
         ];
     for (const [label, to] of pages) out.push({ group: 'Go to', label, hint: '', run: () => go(to) });
     // Not a second session while one started here runs: Tests' own button says so meanwhile.
-    const testsRunning = app.jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
-    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !testsRunning)
+    if (!app.actionsOff && app.hasKind(JOB_KINDS.tests) && !jobRunning(app.jobs, TEST_KINDS))
       out.push({ group: 'Actions', label: 'Run the tests', hint: 'shadowlap test goldens/*', run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.tests, {}))) });
     out.push({ group: 'Actions', label: 'Keyboard shortcuts', hint: '?', run: () => app.setHelp(true) });
     for (const source of paletteSources()) {

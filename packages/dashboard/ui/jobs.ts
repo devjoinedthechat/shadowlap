@@ -147,3 +147,11 @@ export function endToast(job: JobLike, lines: readonly string[]): string {
   const last = lastLine(lines);
   return `${jobTitle(job)} finished · ${generic && last ? last : status.replace(/^finished · /, '')}`;
 }
+
+/**
+ * Whether a job of one of `kinds` (the jobs that run the goldens) is still running, as far as this
+ * page follows it: the palette offers no second session meanwhile. A job the server lost is over.
+ */
+export function jobRunning(jobs: ReadonlyArray<{ job: Pick<JobLike, 'done' | 'kind'>; lost?: boolean }>, kinds: ReadonlySet<string>): boolean {
+  return jobs.some((w) => !w.job.done && !w.lost && kinds.has(w.job.kind ?? ''));
+}
