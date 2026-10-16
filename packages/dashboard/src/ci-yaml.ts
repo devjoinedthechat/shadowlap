@@ -140,7 +140,7 @@ export function alertsYaml(s: AlertsSettings): string {
     '',
     '- name: Tell Slack',
     `  if: ${cond}`,
-    '  uses: slackapi/slack-github-action@v2',
+    '  uses: slackapi/slack-github-action@v4',
     '  with:',
     `    webhook: \${{ secrets.${secret} }}`,
     '    webhook-type: incoming-webhook',

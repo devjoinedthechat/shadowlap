@@ -65,14 +65,14 @@ function github(loc: StoreLocation, run: string): CiStep {
   }
   // The credentials step twice: the writer's for everything but pull requests, the pull request's for them.
   const auth: Record<Exclude<Provider, 'r2'>, (pr: boolean) => string[]> = {
-    s3: (pr) => ['    uses: aws-actions/configure-aws-credentials@v4', '    with:', `      role-to-assume: arn:aws:iam::<account-id>:role/shadowlap-ci${pr ? '-pr' : ''}`, `      aws-region: ${region}`],
+    s3: (pr) => ['    uses: aws-actions/configure-aws-credentials@v6', '    with:', `      role-to-assume: arn:aws:iam::<account-id>:role/shadowlap-ci${pr ? '-pr' : ''}`, `      aws-region: ${region}`],
     gcs: (pr) => [
-      '    uses: google-github-actions/auth@v2',
+      '    uses: google-github-actions/auth@v3',
       '    with:',
       '      workload_identity_provider: projects/<project-number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>',
       `      service_account: shadowlap-ci${pr ? '-pr' : ''}@<project>.iam.gserviceaccount.com`,
     ],
-    azure: (pr) => ['    uses: azure/login@v2', '    with:', `      client-id: \${{ vars.${pr ? 'AZURE_PR_CLIENT_ID' : 'AZURE_CLIENT_ID'} }}`, '      tenant-id: ${{ vars.AZURE_TENANT_ID }}', '      subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}'],
+    azure: (pr) => ['    uses: azure/login@v3', '    with:', `      client-id: \${{ vars.${pr ? 'AZURE_PR_CLIENT_ID' : 'AZURE_CLIENT_ID'} }}`, '      tenant-id: ${{ vars.AZURE_TENANT_ID }}', '      subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}'],
   };
   const text = [
     'permissions:',

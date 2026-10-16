@@ -66,7 +66,7 @@ describe('the Fix on failure step', () => {
 describe('the Alerts steps', () => {
   it('post the failed count to Slack, only for main when asked, then fail the job', () => {
     const yaml = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' });
-    expect(yaml).toContain("  if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'\n  uses: slackapi/slack-github-action@v2");
+    expect(yaml).toContain("  if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'\n  uses: slackapi/slack-github-action@v4");
     expect(yaml).toContain('    recordings: goldens/*\n    fail-on-divergence: false\n');
     expect(yaml).toContain('    webhook: ${{ secrets.SLACK_WEBHOOK_URL }}\n    webhook-type: incoming-webhook\n');
     expect(yaml.trimEnd().endsWith("- name: Fail the job\n  if: steps.goldens.outputs.failed != '0'\n  run: exit 1")).toBe(true);

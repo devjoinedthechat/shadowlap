@@ -310,7 +310,7 @@ To hear about failures in Slack, let the action count them without failing, post
 
 - name: Tell Slack
   if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'
-  uses: slackapi/slack-github-action@v2
+  uses: slackapi/slack-github-action@v4
   with:
     webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
     webhook-type: incoming-webhook
