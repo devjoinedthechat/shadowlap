@@ -379,8 +379,11 @@ export interface RedactionPreview {
   calls: number;
   /** Calls left out because a stored request or response could not be read. */
   unreadable: number;
-  /** Set when `maxCalls` stopped the preview early: how many of the run's calls it read. */
-  partial: { read: number; of: number } | null;
+  /**
+   * Set when a limit stopped the preview early (PreviewLimits): how many of the run's calls it read,
+   * and which limit it reached.
+   */
+  partial: { read: number; of: number; stopped: 'calls' | 'bytes' | 'time' } | null;
   /** Everything the rules would mask in what `pack` copies, summed over the rules. */
   total: number;
   rules: RedactionRulePreview[];
@@ -391,6 +394,20 @@ export interface RedactionPreview {
    * command. Not part of `total`.
    */
   details: { count: number; samples: Array<{ before: string; after: string }>; rules: number[] };
+}
+
+/**
+ * Where a preview stops before the end of a long run, for a caller that must answer while someone
+ * waits (the dashboard). It stops between calls: the first limit reached ends it, and `partial`
+ * says which. The CLI's `redact preview` sets none and reads every call.
+ */
+export interface PreviewLimits {
+  /** Calls to read at most. */
+  maxCalls?: number;
+  /** Bytes of stored requests and responses to read at most (each stored part counted once). */
+  maxBytes?: number;
+  /** A time (ms since the epoch) after which no further call is read. */
+  deadline?: number;
 }
 
 const SAMPLES = 2;
@@ -471,10 +488,10 @@ function unseenParts(store: Store, call: CallRecord, seen: Set<string>): unknown
  * Every request of a conversation sends the earlier messages again, and a value repeated that way
  * counts once; so a message already read at the same place in an earlier request is not read
  * again, and the preview takes time in proportion to the run, not to the square of its length.
- * `maxCalls` stops it after that many calls, for a caller that must answer quickly; `partial` then
- * says how far it got.
+ * Limits stop it between calls, for a caller that must answer quickly (PreviewLimits); `partial`
+ * then says how far it got and why it stopped.
  */
-export function previewRedaction(store: Store, runId: string, rules: Normalizer[], options: { maxCalls?: number } = {}): RedactionPreview {
+export function previewRedaction(store: Store, runId: string, rules: Normalizer[], options: PreviewLimits = {}): RedactionPreview {
   const run = store.getRun(runId);
   if (!run) throw new Error(`unknown run ${runId}`);
   // A run its process abandoned can be previewed: nothing will add to it.
@@ -508,12 +525,29 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     },
   };
   const all = store.getCalls(runId);
-  const calls = options.maxCalls !== undefined && all.length > options.maxCalls ? all.slice(0, Math.max(0, options.maxCalls)) : all;
-  const reader = readingOnce(store);
+  // Every stored part is read through here, each once (readingOnce), so `bytes` is what was read.
+  let bytes = 0;
+  const counting = Object.create(store, {
+    getBlob: {
+      value: (hash: string) => {
+        const blob = store.getBlob(hash);
+        bytes += blob?.length ?? 0;
+        return blob;
+      },
+    },
+  }) as Store;
+  const reader = readingOnce(counting);
   const skipSeen = !rules.some(seesWholeParts);
   const seen = new Set<string>();
+  let read = 0;
   let unreadable = 0;
-  for (const call of calls) {
+  let stopped: NonNullable<RedactionPreview['partial']>['stopped'] | null = null;
+  for (const call of all) {
+    if (options.maxCalls !== undefined && read >= options.maxCalls) stopped = 'calls';
+    else if (options.maxBytes !== undefined && bytes >= options.maxBytes) stopped = 'bytes';
+    else if (options.deadline !== undefined && Date.now() >= options.deadline) stopped = 'time';
+    if (stopped) break;
+    read++;
     rules.forEach((rule, i) => {
       if (normalizerApplies(rule, call.kind, call.name)) per[i]!.scoped++;
     });
@@ -523,8 +557,8 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
         applyNormalizers(request, rules, call.kind, call.name, observer);
       }
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
-        const bytes = end.responseRef ? store.getBlob(end.responseRef) : null;
-        if (bytes) observeResponse(bytes, rules, observer);
+        const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
+        if (response) observeResponse(response, rules, observer);
         if (end.meta.error) redactedError(end.meta.error, rules, observer);
       }
     } catch {
@@ -546,7 +580,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
   };
   for (const text of [run.command.argv.join(' '), ...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
   details.rules.sort((a, b) => a - b);
-  return { runId, calls: calls.length - unreadable, unreadable, partial: calls.length < all.length ? { read: calls.length, of: all.length } : null, total: previews.reduce((s, p) => s + p.count, 0), rules: previews, details };
+  return { runId, calls: read - unreadable, unreadable, partial: stopped ? { read, of: all.length, stopped } : null, total: previews.reduce((s, p) => s + p.count, 0), rules: previews, details };
 }
 
 function zeroNote(rule: Normalizer, scoped: number, reached: number): string {

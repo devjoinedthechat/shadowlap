@@ -111,8 +111,8 @@ export interface CiWorkflowsView {
 export interface SettingsApi {
   matching(): Promise<MatchingSettings>;
   redaction(runId?: string | null): Promise<RedactionSettings>;
-  /** What the redaction rules would mask in one run, path rules included. */
-  preview(runId: string): Promise<RedactionPreviewView>;
+  /** What the redaction rules would mask in one run, path rules included; `signal` stops waiting, and the server stops reading. */
+  preview(runId: string, signal?: AbortSignal): Promise<RedactionPreviewView>;
   agents(): Promise<CodingAgentsSettings>;
   tools(): Promise<ToolsSettings>;
   mcpLine(input: { command?: string; url?: string }): Promise<McpLine>;
@@ -143,7 +143,7 @@ export function settingsApi(request: Request): SettingsApi {
   return {
     matching: () => request('settings/matching'),
     redaction: (runId) => request(`settings/redaction${runId ? `?run=${q(runId)}` : ''}`),
-    preview: (runId) => request(`settings/redaction/preview?run=${q(runId)}`),
+    preview: (runId, signal) => request(`settings/redaction/preview?run=${q(runId)}`, signal ? { signal } : {}),
     agents: () => request('settings/agents'),
     tools: () => request('settings/tools'),
     mcpLine: (input) => request(`settings/tools/mcp?${input.url !== undefined ? `url=${q(input.url)}` : `command=${q(input.command ?? '')}`}`),

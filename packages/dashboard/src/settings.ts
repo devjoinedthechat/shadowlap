@@ -14,7 +14,6 @@ import {
   hasRecordedCommand,
   namedPatterns,
   parseRules,
-  previewRedaction,
   readConfigFile,
   readRules,
   tildePath,
@@ -30,6 +29,7 @@ import {
   type Store,
 } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, type StoreLocation } from '@shadowlap/remote';
+import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
 import { countRuns } from './runs-list.js';
 import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
 
@@ -122,11 +122,11 @@ export interface RedactionSettings {
   /** Every way a run's content leaves the machine, which rules each applies and what it does with the run's details (decision 6). */
   where: readonly RedactionExport[];
   /**
-   * Runs a preview can be made for: every run that has ended, newest first, each with the job that
-   * previews it. The job runs `redact preview <run> --json`, whose result event is the preview (a
-   * RedactionPreview), so reading a long run never holds up the server.
+   * Runs a preview can be made for: every run but those still recording, newest first. The preview
+   * itself is read apart (`GET /api/settings/redaction/preview`, redactionPreview), on a thread of its
+   * own, so reading a long run never holds up the server.
    */
-  runs: Array<{ runId: string; label: string; preview: string[] }>;
+  runs: Array<{ runId: string; label: string }>;
   /** The run the tab previews first: the newest that has ended, or the one asked for. */
   previewRunId: string | null;
   /** Why there is no preview to run: no run yet, the run asked for is unknown or still recording, or rules that can't be read. */
@@ -373,13 +373,10 @@ export function proposedRules(result: unknown): Array<Partial<Record<'kind' | 'n
 /** How many runs the preview's run picker lists. */
 const PREVIEW_RUNS = 100;
 
-/** The job that previews what the rules mask in one run: its result event is the preview. */
-export const previewArgv = (runId: string): string[] => ['redact', 'preview', runId, '--json'];
-
 /**
- * The Redaction tab: the rules, where they apply, and the runs a preview can be made for, each with
- * its job. `runId` picks the run to preview first; without one, the newest run that has ended.
- * Nothing here reads a run's calls: the preview runs as a job.
+ * The Redaction tab: the rules, where they apply, and the runs a preview can be made for. `runId`
+ * picks the run to preview first; without one, the newest run that has ended. Nothing here reads a
+ * run's calls: the preview is read apart (redactionPreview).
  */
 export function redactionSettings(ctx: SettingsContext, options: { runId?: string | null } = {}): RedactionSettings {
   const { info, file } = loadConfigFile(ctx.cwd, 'redact');
@@ -387,7 +384,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
   // Every run but those a process is still recording: one its process abandoned can be previewed.
   const recording = new Set(ctx.store.recordingRuns().live.map((r) => r.run.runId));
   const ended = ctx.store.listRuns(PREVIEW_RUNS * 2).filter((r) => !recording.has(r.runId));
-  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: runLabel(r), preview: previewArgv(r.runId) }));
+  const runs = ended.slice(0, PREVIEW_RUNS).map((r) => ({ runId: r.runId, label: runLabel(r) }));
   let previewRunId: string | null = ended[0]?.runId ?? null;
   let previewError: string | null = null;
   if (options.runId) {
@@ -1123,16 +1120,12 @@ export function calibrateRun(ctx: Pick<SettingsContext, 'store' | 'setupRunId'>,
 
 // ---- the redaction preview, in the dashboard ----
 
-/**
- * Calls a preview reads in the dashboard before it stops and says how far it got (`partial`): a
- * preview answers while the page waits, and the server answers everything else meanwhile. The
- * command it names reads them all.
- */
-export const PREVIEW_MAX_CALLS = 2000;
-
 export interface RedactionPreviewView {
   run: { runId: string; label: string };
-  /** What `redact preview <run> --json` prints: per rule, a count and up to two samples; the run's details apart. */
+  /**
+   * What `redact preview <run> --json` prints: per rule, a count and up to two samples; the run's
+   * details apart. `partial` says how far a long run was read before a limit stopped it.
+   */
   preview: RedactionPreview;
   /** The command that previews the whole run in a terminal. */
   command: string;
@@ -1140,11 +1133,13 @@ export interface RedactionPreviewView {
 
 /**
  * What the project's redaction rules would mask in one run, exactly as pack applies them (path
- * rules included), computed here so the page shows it as soon as a run is picked. The rules are
- * the file's, as the table lists them, numbered the same way. Refused for a run still recording
- * (409), a run that isn't there (404), and rules that can't be read (422).
+ * rules included). The rules are the file's, as the table lists them, numbered the same way. The
+ * run is read apart, on a thread of its own and within limits (redaction-preview.ts), so the server
+ * answers everything else meanwhile; a store with no file is read here, within the same limits.
+ * Refused for a run still recording (409), a run that isn't there (404), rules that can't be read
+ * (422), a rule that takes too long on one call (422), and while other previews are read (503).
  */
-export function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd'>, runRef: string, options: { maxCalls?: number } = {}): RedactionPreviewView {
+export async function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd' | 'dbPath'>, runRef: string, options: { signal?: AbortSignal; limits?: PreviewLimitsConfig } = {}): Promise<RedactionPreviewView> {
   const run = findRun(ctx.store, runRef);
   if (ctx.store.recordingRuns().live.some((r) => r.run.runId === run.runId)) throw new SettingsRefusal(409, `${shortRun(run.runId)} is still recording; preview it once it has ended`);
   let rules: Normalizer[];
@@ -1153,7 +1148,14 @@ export function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd'>, ru
   } catch (err) {
     throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
   }
-  const preview = previewRedaction(ctx.store, run.runId, rules, { maxCalls: options.maxCalls ?? PREVIEW_MAX_CALLS });
+  const limits = options.limits ?? PREVIEW_LIMITS;
+  let preview: RedactionPreview;
+  try {
+    preview = ctx.dbPath && ctx.dbPath !== ':memory:' ? await previewApart({ dbPath: ctx.dbPath, runId: run.runId, rules }, { limits, ...(options.signal ? { signal: options.signal } : {}) }) : previewHere(ctx.store, run.runId, rules, limits);
+  } catch (err) {
+    if (err instanceof PreviewError) throw new SettingsRefusal(err.status, err.message);
+    throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
+  }
   return { run: { runId: run.runId, label: runLabel(run) }, preview, command: `shadowlap redact preview ${shortRun(run.runId)}` };
 }
 

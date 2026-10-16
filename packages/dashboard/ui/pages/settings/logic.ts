@@ -159,6 +159,14 @@ export function maskedLine(total: number): string {
   return `${total.toLocaleString('en-US')} value${total === 1 ? '' : 's'} would be masked`;
 }
 
+/** How far a preview a limit stopped got, and which limit: the words before the command that reads the whole run. */
+export function partialLine(p: { read: number; of: number; stopped?: 'calls' | 'bytes' | 'time' }): string {
+  const first = `Read the first ${p.read.toLocaleString('en-US')} of ${p.of.toLocaleString('en-US')} calls`;
+  if (p.stopped === 'bytes') return `${first}, as much as a preview reads.`;
+  if (p.stopped === 'time') return `${first} in the time a preview takes.`;
+  return `${first}.`;
+}
+
 // ---- words ----
 
 /** `a`, `a or b`, `a, b or c`. */

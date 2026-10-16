@@ -1,11 +1,11 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
+import { ApiError } from '../../api.js';
 import { tipText } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
-import { useLoad } from '../../hooks.js';
-import type { RedactionSettings } from '../../settings-api.js';
+import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, runEdit, useSettingsData } from './common.js';
-import { maskedLine, previewChip } from './logic.js';
+import { maskedLine, partialLine, previewChip } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
 /**
@@ -90,12 +90,48 @@ function Where({ where }: { where: RedactionSettings['where'] }) {
   );
 }
 
-function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string | null; onPick: (runId: string) => void }) {
+/** How long the page waits before asking again when the server is reading other previews (a 503). */
+const BUSY_RETRY_MS = 800;
+const BUSY_RETRIES = 6;
+
+/**
+ * The preview of one run, read again when the key changes (another run, the rules edited). Asking
+ * for another one stops waiting for the last, and the server stops reading it.
+ */
+function usePreview(runId: string | null, key: string): { view: RedactionPreviewView | null; error: Error | null; loading: boolean } {
   const { client } = useApp();
+  const [state, setState] = useState<{ key: string; view: RedactionPreviewView | null; error: Error | null; loading: boolean }>({ key: '', view: null, error: null, loading: false });
+  useEffect(() => {
+    if (!runId) {
+      setState({ key, view: null, error: null, loading: false });
+      return;
+    }
+    const stop = new AbortController();
+    setState({ key, view: null, error: null, loading: true });
+    const ask = (tries: number): void => {
+      client.settings.preview(runId, stop.signal).then(
+        (view) => {
+          if (!stop.signal.aborted) setState({ key, view, error: null, loading: false });
+        },
+        (err: unknown) => {
+          if (stop.signal.aborted) return;
+          // Other previews (another tab of the dashboard) are being read: ask again in a moment.
+          if (err instanceof ApiError && err.status === 503 && tries < BUSY_RETRIES) return void setTimeout(() => !stop.signal.aborted && ask(tries + 1), BUSY_RETRY_MS);
+          setState({ key, view: null, error: err instanceof Error ? err : new Error(String(err)), loading: false });
+        },
+      );
+    };
+    ask(0);
+    return () => stop.abort();
+  }, [client, runId, key]);
+  return state.key === key ? state : { view: null, error: null, loading: !!runId };
+}
+
+function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string | null; onPick: (runId: string) => void }) {
   const broken = data.rules.find((r) => r.error);
   const can = !!pick && !data.config.error && !broken && data.rules.length > 0;
   // Read again when the rules change (the file's version) or another run is picked.
-  const p = useLoad(() => (can ? client.settings.preview(pick) : null), `preview:${pick}:${data.config.version}:${data.rules.length}`);
+  const p = usePreview(can ? pick : null, `preview:${pick}:${data.config.version}:${data.rules.length}`);
   if (!pick || !data.runs.length) {
     return (
       <div className="pbody preview">
@@ -106,7 +142,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
       </div>
     );
   }
-  const view = p.data;
+  const view = p.view;
   return (
     <div className="pbody preview">
       <div className="pvhead">
@@ -167,7 +203,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           ) : null}
           {view.preview.partial ? (
             <p className="muted pvfoot">
-              Read the first {view.preview.partial.read.toLocaleString('en-US')} of {view.preview.partial.of.toLocaleString('en-US')} calls. <code>{view.command}</code> reads them all.
+              {partialLine(view.preview.partial)} <code>{view.command}</code> reads them all.
             </p>
           ) : null}
           {view.preview.unreadable ? <p className="fieldnote warn">{view.preview.unreadable === 1 ? '1 call could not be read and is' : `${view.preview.unreadable} calls could not be read and are`} not counted.</p> : null}

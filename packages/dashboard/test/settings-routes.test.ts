@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, storeApiRequest, type CallMeta, type RunMeta } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
+import { PREVIEW_LIMITS } from '../src/redaction-preview.js';
 
 /**
  * Settings over HTTP: each tab's read, the edits to shadowlap.config.json (checked as the CLI checks
@@ -237,6 +238,71 @@ describe('the redaction preview', () => {
     const broken = await api(`settings/redaction/preview?run=${done.runId}`);
     expect(broken.status).toBe(422);
     expect(await error(broken)).toMatch(/redaction rule #1/);
+  });
+
+  // The preview runs on a worker thread, started from the built dashboard (npm run build first).
+  describe('read apart, within limits', () => {
+    const saved = { ...PREVIEW_LIMITS };
+    afterEach(() => void Object.assign(PREVIEW_LIMITS, saved));
+
+    /** A run with a value a pattern like (a+)+$ backtracks on for minutes. */
+    function slowRun() {
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(a+)+$/', replace: '<A>' }] }));
+      const run = recording();
+      modelCall(run.runId, 1, `${'a'.repeat(40)}!`);
+      return run;
+    }
+
+    it('stops a long run at a limit between calls, and says how far it got and which limit', async () => {
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+      const run = recording();
+      for (let n = 1; n <= 12; n++) modelCall(run.runId, n, `c-${n}@example.com`);
+      type View = { preview: { calls: number; total: number; partial: { read: number; of: number; stopped: string } | null } };
+      expect((await get<View>(`settings/redaction/preview?run=${run.runId}`)).preview).toMatchObject({ calls: 12, partial: null, total: 24 });
+      PREVIEW_LIMITS.maxCalls = 5;
+      expect((await get<View>(`settings/redaction/preview?run=${run.runId}`)).preview).toMatchObject({ calls: 5, partial: { read: 5, of: 12, stopped: 'calls' }, total: 10 });
+      PREVIEW_LIMITS.maxCalls = 2000;
+      PREVIEW_LIMITS.maxBytes = 1;
+      expect((await get<View>(`settings/redaction/preview?run=${run.runId}`)).preview).toMatchObject({ calls: 1, partial: { read: 1, of: 12, stopped: 'bytes' } });
+    });
+
+    it('ends a preview whose rule takes too long on one call, naming the rule, and answers everything else meanwhile', async () => {
+      const run = slowRun();
+      Object.assign(PREVIEW_LIMITS, { softMs: 200, hardMs: 1500 });
+      const t0 = Date.now();
+      const preview = api(`settings/redaction/preview?run=${run.runId}`);
+      await new Promise((r) => setTimeout(r, 300));
+      // The server's own thread is free: the status bar's meta answers at once.
+      const m0 = Date.now();
+      expect((await api('meta')).status).toBe(200);
+      expect(Date.now() - m0).toBeLessThan(500);
+      const res = await preview;
+      expect(res.status).toBe(422);
+      expect(await error(res)).toBe('The preview stopped after 2 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
+      expect(Date.now() - t0).toBeLessThan(5000);
+    });
+
+    it('stops reading when the page stops waiting, and refuses a preview past the threads it reads on', async () => {
+      const run = slowRun();
+      Object.assign(PREVIEW_LIMITS, { workers: 1, softMs: 200, hardMs: 20_000 });
+      const stop = new AbortController();
+      const first = fetch(`${dash.url}/api/settings/redaction/preview?run=${run.runId}`, { headers: { 'x-shadowlap-token': dash.token }, signal: stop.signal }).catch(() => null);
+      await new Promise((r) => setTimeout(r, 300));
+      // Its one thread is busy: another preview is refused, and the page asks again in a moment.
+      const busy = await api(`settings/redaction/preview?run=${run.runId}`);
+      expect(busy.status).toBe(503);
+      expect(await error(busy)).toMatch(/Other previews are still being read/);
+      stop.abort();
+      await first;
+      // The page stopped waiting, so the thread was ended: the next preview gets it.
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+      let status = 0;
+      for (let i = 0; i < 40 && status !== 200; i++) {
+        status = (await api(`settings/redaction/preview?run=${run.runId}`)).status;
+        if (status !== 200) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(status).toBe(200);
+    });
   });
 });
 

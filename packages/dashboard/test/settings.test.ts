@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
-import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectClientConfig, projectSettings, proposedRules, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
+import { PREVIEW_LIMITS, repeatsARepeat, tookTooLong } from '../src/redaction-preview.js';
+import { agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectClientConfig, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
@@ -130,7 +131,7 @@ describe('redactionSettings', () => {
     return run;
   }
 
-  it('lists the runs a preview can be made for, each with its job, and says where the rules apply', () => {
+  it('lists the runs a preview can be made for, and says where the rules apply', () => {
     writeConfig({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { kind: 'tool', path: '$.args.api_key', pattern: '/.+/', replace: '<KEY>' }] });
     const old = recording({ at: 1 });
     const run = seeded();
@@ -144,7 +145,7 @@ describe('redactionSettings', () => {
     expect(r.where.map((e) => e.id)).toContain('pairs');
     expect(r.form.kinds).toEqual(['api', 'tool']);
     expect(r.runs.map((x) => x.runId)).toEqual([run.runId, old.runId]);
-    expect(r.runs[0]).toEqual({ runId: run.runId, label: `${run.runId.slice(0, 10)} · node agent.js`, preview: ['redact', 'preview', run.runId, '--json'] });
+    expect(r.runs[0]).toEqual({ runId: run.runId, label: `${run.runId.slice(0, 10)} · node agent.js` });
     expect(r).toMatchObject({ previewRunId: run.runId, previewError: null });
     expect(r.rules.map((x) => x.remove)).toEqual([1, 2].map((n) => ['redact', 'rm', String(n), '--expect', r.config.version]));
 
@@ -153,7 +154,7 @@ describe('redactionSettings', () => {
     expect(redactionSettings({ store, cwd }, { runId: 'NOPE' })).toMatchObject({ previewRunId: null, previewError: 'no run matches NOPE' });
   });
 
-  it('reads no run\'s calls, however long the run: the preview is a job', () => {
+  it('reads no run\'s calls, however long the run: the preview is read apart', () => {
     seeded();
     const guarded = new Proxy(store, {
       get(target, key) {
@@ -163,6 +164,24 @@ describe('redactionSettings', () => {
       },
     });
     expect(redactionSettings({ store: guarded, cwd }).previewRunId).not.toBeNull();
+  });
+
+  it('reads the preview here for a store in memory, within the same limits', async () => {
+    writeConfig({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] });
+    const run = seeded();
+    const full = await redactionPreview({ store, cwd }, run.runId);
+    expect(full.preview).toMatchObject({ calls: 2, partial: null, total: 2 });
+    expect(full.command).toBe(`shadowlap redact preview ${run.runId.slice(0, 10)}`);
+    const cut = await redactionPreview({ store, cwd }, run.runId, { limits: { ...PREVIEW_LIMITS, maxCalls: 1 } });
+    expect(cut.preview).toMatchObject({ calls: 1, partial: { read: 1, of: 2, stopped: 'calls' } });
+    await expect(redactionPreview({ store, cwd }, 'NOPE')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('names the rule that likely took too long: one that repeats a repeated group', () => {
+    for (const p of ['/(a+)+$/', '/(\\w*\\s?)*/', '/(x+y?){2,}/', '/^((ab)*c)+$/i', '/(?:\\d+-)+/']) expect(repeatsARepeat(p), p).toBe(true);
+    for (const p of ['email', 'uuid', '/req_[a-z0-9]+/i', '/\\b(?:\\d[ -]?){13,16}\\b/', '/(a+)/', '/[(a+)]+/', '/\\(a+\\)+/']) expect(repeatsARepeat(p), p).toBe(false);
+    expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(a+)+$/', replace: '<A>' }], 15_000)).toBe('The preview stopped after 15 s on one call. Rule #2, /(a+)+$/, repeats a group that repeats itself, which can take minutes on some text, in a pack too: write it without the outer repeat.');
+    expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }], 15_000)).toBe('The preview stopped after 15 s on one call: a rule takes that long on this run’s text, and would in a pack too.');
   });
 
   it('explains why there is no preview to run', () => {

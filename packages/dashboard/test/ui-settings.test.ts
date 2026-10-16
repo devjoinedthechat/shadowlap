@@ -19,6 +19,7 @@ import {
   mcpRows,
   mcpShortName,
   orList,
+  partialLine,
   previewChip,
   proposedCount,
   regexLiteral,
@@ -127,6 +128,12 @@ describe('the preview', () => {
     expect(previewChip({ pattern: 'email', replace: '<EMAIL>' })).toBe('email');
     expect(maskedLine(1)).toBe('1 value would be masked');
     expect(maskedLine(1200)).toBe('1,200 values would be masked');
+  });
+
+  it('says how far a long run was read, and which limit stopped it', () => {
+    expect(partialLine({ read: 2000, of: 5312, stopped: 'calls' })).toBe('Read the first 2,000 of 5,312 calls.');
+    expect(partialLine({ read: 812, of: 2000, stopped: 'bytes' })).toBe('Read the first 812 of 2,000 calls, as much as a preview reads.');
+    expect(partialLine({ read: 40, of: 2000, stopped: 'time' })).toBe('Read the first 40 of 2,000 calls in the time a preview takes.');
   });
 });
 

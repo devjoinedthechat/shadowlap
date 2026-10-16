@@ -127,13 +127,24 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/settings/redaction', (r) => r.tagged(redactionSettings(settings(), { runId: r.query.get('run') })));
 
-  router.get('/settings/redaction/preview', (r) => {
+  // Read apart, on a thread of its own and within limits; a page that stops waiting (another run
+  // picked, the tab left) ends it.
+  router.get('/settings/redaction/preview', async (r) => {
     const run = r.query.get('run');
     if (!run) throw new HttpError(400, 'name the run to preview: ?run=<id>');
+    const gone = new AbortController();
+    const onClose = () => {
+      if (!r.res.writableFinished) gone.abort();
+    };
+    r.res.once('close', onClose);
     try {
-      r.json(redactionPreview(settings(), run));
+      const view = await redactionPreview(settings(), run, { signal: gone.signal });
+      r.json(view);
     } catch (err) {
+      if (gone.signal.aborted) return void r.res.destroy();
       refusal(err);
+    } finally {
+      r.res.off('close', onClose);
     }
   });
 
