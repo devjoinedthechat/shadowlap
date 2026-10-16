@@ -133,11 +133,14 @@ function Prefix({ c }: { c: CompareView }) {
   const line = prefixLine(c);
   return (
     <div className="prefix">
-      <span className="ms" style={{ gridTemplateColumns: `repeat(${cells}, minmax(0, 1fr))` }} aria-hidden="true">
-        {Array.from({ length: n ? cells : 0 }, (_, i) => (
-          <i key={i} className="rep" />
-        ))}
-      </span>
+      {/* Nothing identical: no bar, so the line has the row to itself. */}
+      {n ? (
+        <span className="ms" style={{ gridTemplateColumns: `repeat(${cells}, minmax(0, 1fr))` }} aria-hidden="true">
+          {Array.from({ length: cells }, (_, i) => (
+            <i key={i} className="rep" />
+          ))}
+        </span>
+      ) : null}
       <span>
         <b>{line.lead}</b> {line.rest}
       </span>
