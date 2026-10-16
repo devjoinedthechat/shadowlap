@@ -561,7 +561,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `tests` | Outcome checks for `shadowlap test`, by recording directory ([details](./ci.md#outcome-checks)), and a `task` object with where a model under test takes over, why, what the task rewards and the agent's scope (see [Training](./training.md)) |
 | `repair` | `repairer` (`provider:model`) and `baseUrl` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
-| `ciPush` | `false` keeps `test --push` from pushing to the team store in CI (`shadowlap store push-from-ci on\|off`) |
+| `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |
 
 The schema is [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json) in the repository. It gives completion in any
 editor that reads `$schema`, and it lets CI check a config without running Shadowlap. It is
@@ -834,7 +834,7 @@ shadowlap store check                                    # list, write, read and
 shadowlap store show                                     # last push and pull, runs in the store and only here, last check (offline)
 shadowlap store policy [--provider s3|gcs|azure|r2]      # the access to ask your cloud admin for: two policies
 shadowlap store ci --provider github|gitlab|other [--packs <glob>]   # a CI step that runs test --push
-shadowlap store push-from-ci on|off                      # whether test --push pushes from CI
+shadowlap store push-from-ci on|off                      # whether CI pushes its test runs and fixes
 ```
 
 Set up the [team store](./team.md#the-store). `set` checks the URL against the provider's scheme
@@ -851,7 +851,8 @@ where the CI and the cloud allow it, and the pull-request credentials beside the
 branches' (on GitHub, for pull requests from the repository itself: a fork's gets no OIDC token, so
 its job skips them and runs the tests without pushing). `push-from-ci off` writes `"ciPush": false`
 to the config: `test --push` in CI then runs the tests and keeps their runs in the job (outside CI,
-`--push` still pushes); `on` turns it back on. Each takes `--json`.
+`--push` still pushes), and the GitHub Action keeps the fixes it opens there too; `on` turns it
+back on. Each takes `--json`.
 
 With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config }`:
 the store as written to the config and its `url` without the options after `?`, its parts, the
