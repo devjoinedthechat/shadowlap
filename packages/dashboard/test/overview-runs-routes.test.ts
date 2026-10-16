@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import type { OverviewSummary } from '../src/overview.js';
-import type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
+import { choicesHere, commitsHere, type DaysBisect, type RunsPageRow } from '../src/routes/runs-list.js';
 import { traceHost, traceSources } from '../src/routes/imports.js';
 import type { RunsByDay, RunsPage } from '../src/runs-list.js';
 import { teamStoreStatus } from '../src/team-store.js';
@@ -201,6 +202,50 @@ describe('the calendar', () => {
     expect(await get<DaysBisect>(dash, `runs/bisect?from=${NOW - 25 * DAY}&to=${NOW - 15 * DAY}`)).toEqual({ runId: null, reason: 'nothing failed on the days picked' });
     const res = await api(dash, 'runs/bisect');
     expect(res.status).toBe(400);
+  });
+
+  it('offers only commits this checkout has: a teammate’s pulled runs name commits of theirs', () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'sl-ovr-git-')));
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=dana@northwind.example', '-c', 'user.name=Dana', '-c', 'commit.gpgsign=false', ...args], { cwd: repo }).toString().trim();
+    try {
+      git('init', '-q', '.');
+      writeFileSync(join(repo, 'policy.txt'), 'refund limit 100\n');
+      git('add', '-A');
+      git('commit', '-qm', 'Start');
+      const first = git('rev-parse', 'HEAD');
+      writeFileSync(join(repo, 'policy.txt'), 'refund limit 50\n');
+      git('commit', '-qam', 'Tighten');
+      const second = git('rev-parse', 'HEAD');
+      const theirs = '1fb4209c0ffee00000000000000000000000beef';
+      // A full name and a short one are commits here; another checkout's, a branch name and
+      // anything that reads like an option are not asked about.
+      expect(commitsHere(repo, [first, second.slice(0, 7), theirs, null, 'HEAD', '--all'])).toEqual(new Set([first, second.slice(0, 7)]));
+      expect(commitsHere(repo, [])).toEqual(new Set());
+      // Not a repository: git can't say, so nothing is taken away.
+      expect(commitsHere(tmpdir(), [first])).toBeNull();
+
+      const choices = {
+        target: { kind: 'run' as const, runId: ids.failed! },
+        failed: true,
+        good: theirs,
+        bad: 'feedface',
+        revisions: [
+          { rev: theirs, at: NOW - DAY, runs: 2, failed: 0 },
+          { rev: second, at: NOW - 2 * DAY, runs: 1, failed: 1 },
+          { rev: first, at: NOW - 3 * DAY, runs: 3, failed: 0 },
+        ],
+        fork: true,
+        live: true,
+        unavailable: null,
+        args: ['bisect', ids.failed!, '--good', theirs, '--bad', 'feedface', '--fork'],
+      };
+      const here = commitsHere(repo, [choices.good, choices.bad, ...choices.revisions.map((r) => r.rev)])!;
+      // The good commit falls to the newest one here where the runs didn't all fail; the bad one to HEAD.
+      expect(choicesHere(choices, here)).toEqual({ ...choices, good: first, bad: null, revisions: choices.revisions.slice(1), args: ['bisect', ids.failed, '--good', first, '--fork'] });
+      expect(choicesHere({ ...choices, unavailable: 'this run is still recording' }, here).args).toBeNull();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
@@ -31,6 +32,38 @@ export type RunsPageRow = RunRow & { local?: boolean; localAttempts?: { run: boo
 
 /** What Find the commit offers for the failures on the days picked: the run it starts from and the choices bisect has, or why there is none. */
 export type DaysBisect = { runId: string; label: string; command: string; startedAt: number; choices: BisectChoices } | { runId: null; reason: string };
+
+/**
+ * Which of these revisions are commits the project's git has. With a team store, a teammate's runs
+ * name commits of their own checkout, which bisect can't start from here. Null when git can't say
+ * (no git, not a repository): the choices stay as they are, and bisect says why it can't run.
+ */
+export function commitsHere(cwd: string, revs: ReadonlyArray<string | null>): Set<string> | null {
+  // Only a commit's hex name: a revision comes from a run, which may have come from anyone.
+  const wanted = [...new Set(revs.filter((r): r is string => !!r && /^[0-9a-f]{4,64}$/i.test(r)))];
+  if (!wanted.length) return new Set();
+  try {
+    const out = execFileSync('git', ['cat-file', '--batch-check'], { cwd, input: wanted.map((r) => `${r}^{commit}\n`).join(''), stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000, maxBuffer: 1024 * 1024 });
+    // One line each, in order: "<sha> commit <size>", or "<rev> missing" (or "ambiguous").
+    const lines = out.toString().split('\n');
+    return new Set(wanted.filter((_, i) => / commit \d+$/.test(lines[i] ?? '')));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find the commit's choices without the commits this checkout doesn't have: the good one falls to
+ * the newest one here where the runs didn't all fail, and the bad one to HEAD when the failure's own
+ * commit isn't here.
+ */
+export function choicesHere(c: BisectChoices, here: ReadonlySet<string>): BisectChoices {
+  const revisions = c.revisions.filter((r) => here.has(r.rev));
+  const bad = c.bad && here.has(c.bad) ? c.bad : null;
+  const good = c.good && here.has(c.good) ? c.good : c.failed ? (revisions.find((r) => r.failed < r.runs)?.rev ?? null) : null;
+  const ref = c.target.kind === 'golden' ? c.target.golden : c.target.runId;
+  return { ...c, revisions, good, bad, args: good && !c.unavailable ? ['bisect', ref, '--good', good, ...(bad ? ['--bad', bad] : []), ...(c.fork ? ['--fork'] : [])] : null };
+}
 
 const asRangeError = (err: unknown): never => {
   if (err instanceof RangeError) throw new HttpError(400, err.message);
@@ -85,8 +118,11 @@ export function register(router: Router, ctx: RouteContext): void {
     // Newest first: the first failure is the last.
     const first = matchingRuns(store, { from: o.from, to: o.to, types: [...new Set([...(o.types ?? []), 'failed' as const])], ...(o.q ? { q: o.q } : {}) }).at(-1);
     if (!first) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
-    const choices = bisectChoices(store, first.runId, { goldens: goldensOf(ctx), before: o.from });
-    if (!choices) return r.json({ runId: null, reason: 'that run is gone' } satisfies DaysBisect);
+    const all = bisectChoices(store, first.runId, { goldens: goldensOf(ctx), before: o.from });
+    if (!all) return r.json({ runId: null, reason: 'that run is gone' } satisfies DaysBisect);
+    // Only commits this checkout has: a teammate's pulled runs name commits of theirs.
+    const here = ctx.project ? commitsHere(ctx.project.path, [all.good, all.bad, ...all.revisions.map((x) => x.rev)]) : null;
+    const choices = here ? choicesHere(all, here) : all;
     r.json({ runId: first.runId, label: first.label, command: first.source ?? first.argv.join(' '), startedAt: first.startedAt, choices } satisfies DaysBisect);
   });
 
