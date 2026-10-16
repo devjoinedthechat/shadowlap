@@ -13,6 +13,7 @@ that comes from data goes there, everything else is a class.
 | Component | File | Use it for |
 |---|---|---|
 | `Page` | `Page.tsx` | Every scrolling page. Gives back the scrollbar's width (`--sbw`) so the content's right edge stays under the top bar's. |
+| `useActiveTabInView` | `hooks.ts` | A ref for a strip of tabs that scrolls sideways on a phone (Settings' tabs, a run's views): it shows the active tab on mount and when the tab shown changes, scrolling the strip alone (`stripScroll` in `place.ts`). |
 | `PageHeader` | `bits.tsx` | The eyebrow, the title, one line under it, and the page's actions on the right (`.ph`). |
 | `Eyebrow` | `bits.tsx` | The small capitals above a title; `tone="fork"` or `"err"`. |
 | `EmptyState` | `bits.tsx` | Nothing here yet: what it is, and the command that makes it (`.panel.stepempty`). |
