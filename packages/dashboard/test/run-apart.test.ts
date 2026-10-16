@@ -101,6 +101,9 @@ describe('what a copy of a run would mask, on its Provenance', () => {
     const d = await serve([EMAIL, CARD]);
     const p = (await (await api(d, `runs/${run.runId}/provenance`)).json()) as { mask: { rules: number; values: number | null; unmasked?: number } };
     expect(p.mask).toEqual({ rules: 2, values: 1, unmasked: 2 });
+    // A path rule on the card the tool returned: a pack keeps it, export html and dataset mask it.
+    const READ: Normalizer = { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' };
+    expect(await maskCount({ store, dbPath, run, rules: [EMAIL, CARD, READ] })).toEqual({ rules: 3, values: 1, returned: 1, unmasked: 2 });
   });
 
   it('leaves it uncounted, saying why, when a rule takes too long, and answers everything else meanwhile', async () => {

@@ -39,7 +39,10 @@ describe('what a copy made now applies', () => {
     expect(copyRules(1, 1)).toBe('1 redaction rule and would mask 1 value in this run');
     // What the rules match that a copy leaves as it is (numbers), apart.
     expect(copyRules(3, 7, false, false, 1)).toBe('3 redaction rules and would mask 7 values in this run; 1 more they match stays as it is');
-    expect(copyRules(1, 0, false, false, 40)).toBe('1 redaction rule and would mask 0 values in this run; 40 more it matches stay as they are');
+    // Nothing masked: no "more" after it.
+    expect(copyRules(1, 0, false, false, 40)).toBe('1 redaction rule and would mask no values in this run; 40 it matches stay as they are');
+    // A path rule on what calls got back: the copies that are only read mask more than a pack.
+    expect(copyRules(4, 13, false, false, 2, 1)).toBe('4 redaction rules and would mask 13 values in this run (14 in export html or dataset, which are only read); 2 more they match stay as they are in a pack');
     expect(copyRules(2, null, true, false, 4)).toBe('2 redaction rules; what they would mask in this run wasn’t counted');
     expect(copyRules(2, null)).toBe('2 redaction rules');
     // Not counted, and why on hover; or still to be, while the previews are busy.

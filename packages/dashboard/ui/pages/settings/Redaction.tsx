@@ -1,19 +1,22 @@
 import { Fragment, useEffect, useState } from 'react';
 import { ApiError } from '../../api.js';
+import { CopyButton } from '../../components/bits.js';
 import { tipCard, tipText } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { num } from '../../format.js';
 import type { RedactionPreviewView, RedactionSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useSettingsData } from './common.js';
-import { maskedLine, partialLine, previewChip, unmaskedLine } from './logic.js';
+import { maskedLine, partialLine, previewChip, returnedLine, unmaskedLine } from './logic.js';
 import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
 
 /**
  * Redaction: the rules applied to every copy of a run that leaves this machine, where each kind of
  * copy applies them, and a preview of what they would mask in a run you pick (path rules too),
- * counted per rule with up to two samples before and after, and under a rule what it matches that a
- * copy leaves as it is (a number), with the path rule that masks it.
+ * counted per rule with up to two samples before and after. Under a rule, quiet lines: what a path
+ * rule masks only in HTML, HAR and dataset copies (in what calls got back, which a pack keeps for its
+ * replay), and what it matches that a pack leaves as it is (a number), with the path rule that masks
+ * it ready to copy, or why none can.
  */
 
 /** The run the preview shows, kept while the dashboard is open. */
@@ -162,7 +165,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
           </select>
           <Icon name="caret" className="caret" />
         </label>
-        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked) : ''}</span>
+        <span className="muted">{!data.rules.length ? 'no rules, so nothing would be masked' : !can ? '' : p.loading && !view ? 'reading the run…' : view ? maskedLine(view.preview.total, view.preview.unmasked, view.preview.returned) : ''}</span>
       </div>
       {data.config.error ? null : broken ? (
         <p className="fieldnote err">
@@ -175,7 +178,9 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
       ) : view ? (
         <>
           {view.preview.rules.map((r) => {
-            // What it matches that a copy leaves as it is: the line says why its count is 0, when it is.
+            // What only HTML, HAR and dataset copies mask, and what a pack leaves as it is: either
+            // line says why the count is 0, when it is.
+            const read = returnedLine(r.returned);
             const left = unmaskedLine(r.unmasked, r.count);
             return (
               <div className="pvrule" key={r.n}>
@@ -190,23 +195,45 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
                       <span className="add">{s.after}</span>
                     </div>
                   ))
-                ) : left ? null : (
+                ) : left || read ? null : (
                   <span className="muted">{r.note ?? 'no matches in this run'}</span>
                 )}
+                {read ? (
+                  <span className="muted pvd">
+                    <span className="tipped" tabIndex={0} data-tip={tipCard('In HTML, HAR and dataset copies', read.rows)}>
+                      {read.text}
+                    </span>
+                  </span>
+                ) : null}
                 {left ? (
                   <span className="muted pvd pvleft">
                     <span className="tipped" tabIndex={0} data-tip={tipCard(r.unmasked.count === 1 ? 'Left as it is' : 'Left as they are', left.rows)}>
                       {left.text}
                     </span>
+                    {left.path ? (
+                      <>
+                        {' at '}
+                        <code>{left.path}</code>
+                      </>
+                    ) : null}
                     {left.command ? (
                       <>
                         {' '}
-                        <code>{left.command}</code>
-                        {left.more ? ` and ${left.more} more ${left.more === 1 ? 'place' : 'places'}: ` : null}
-                        {left.more ? <code>{view.command}</code> : null}
-                        {left.more ? ` lists ${left.more === 1 ? 'it' : 'them'}.` : null}
+                        <span className="pvcopy" title={left.command}>
+                          <CopyButton text={left.command} label="the path rule" />
+                        </span>
                       </>
                     ) : null}
+                    {left.more > 0 ? (
+                      <>
+                        {' · '}
+                        {num(left.more)} more {left.more === 1 ? 'place' : 'places'} in{' '}
+                        <span className="tipped" tabIndex={0} data-tip={tipText(view.command)}>
+                          redact preview
+                        </span>
+                      </>
+                    ) : null}
+                    {left.after ? ` · ${left.after}` : null}
                   </span>
                 ) : null}
               </div>
@@ -236,3 +263,4 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
     </div>
   );
 }
+
