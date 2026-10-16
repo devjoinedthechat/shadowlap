@@ -1610,3 +1610,10 @@ table.daytable tbody tr:hover td { background: none; }
 .calside .linkbtn[disabled]:hover { background: none; color: var(--accent); }
 /* a long command in a line of Needs a look stops at two lines */
 .needs .attn .d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+/* two columns and fewer: the daily chart spans the row as every panel does; its span 2 above would
+   add an empty column beside the one column below 760px, narrowing Activity */
+@media (max-width: 1180px) { .ovlast > :first-child { grid-column: 1 / -1; } }
+/* on a phone the run cell is narrow: the local tag becomes a dot beside the id, saying the same on hover */
+@media (max-width: 640px) {
+  .runcell .tag-local { flex: none; width: 7px; height: 7px; margin-left: 0; padding: 0; border: 0; border-radius: 50%; background: var(--warn); font-size: 0; letter-spacing: 0; }
+}
