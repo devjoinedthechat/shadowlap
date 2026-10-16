@@ -115,8 +115,9 @@ export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind
   return copy;
 }
 
-/** Applies a pattern to every string value in a (JSON-like) value. */
+/** Applies a pattern to every string value in a (JSON-like) value. Bytes (a request sent as a binary body) hold no string, and stay as they are. */
 export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: string, onChange?: (before: string, after: string, count: number) => void): unknown {
+  if (ArrayBuffer.isView(value)) return value;
   if (typeof value === 'string') {
     regex.lastIndex = 0;
     const out = value.replace(regex, replace);
@@ -166,7 +167,7 @@ function rewriteLeaf(leaf: unknown, regex: RegExp | null, replace: string, onCha
 }
 
 function visit(node: unknown, segs: Segment[], depth: number, onLeaf: (parent: object, key: string | number) => void): void {
-  if (node === null || typeof node !== 'object') return;
+  if (node === null || typeof node !== 'object' || ArrayBuffer.isView(node)) return;
   const seg = segs[depth]!;
   const last = depth === segs.length - 1;
   const children: Array<string | number> = [];

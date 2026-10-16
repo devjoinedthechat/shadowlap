@@ -61,6 +61,21 @@ describe('redactRun', () => {
     dst.close();
   });
 
+  it('keeps a model request sent as bytes whole: a rule finds no string in it', () => {
+    const src = Store.open(':memory:');
+    const run = src.createRun({ mode: 'record', command: cmd });
+    const audio = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x31, 0x32, 0x33]);
+    const api = { kind: 'api' as const, name: 'POST /v1/audio/transcriptions', fingerprint: 'c'.repeat(64), occurrence: 1 };
+    src.appendCallStart({ runId: run.runId, callNo: 1, ...api, origin: 'live', effect: null, requestRef: storeApiRequest(src, audio), meta: {}, at: 1 });
+    src.endRun(run.runId, 'completed');
+    const dst = Store.open(':memory:');
+    redactRun(src, run.runId, [EMAIL, { kind: 'api', path: '$["0"]', replace: '<X>' }], dst);
+    const copy = loadApiRequest(dst, dst.getCalls(run.runId)[0]!.requestRef!);
+    expect(Buffer.from(copy as Uint8Array).equals(audio)).toBe(true);
+    src.close();
+    dst.close();
+  });
+
   it('packs a redacted copy whose blobs contain no secret, and round-trips the rules', () => {
     const src = Store.open(':memory:');
     const run = seed(src);
