@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncR
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { startCommand } from './start-command.js';
 
 /**
  * Which sidecar and run a process Shadowlap started belongs to, for a `shadowlap mcp` proxy started
@@ -141,10 +142,12 @@ export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: str
 
 /**
  * `spawn`, for an agent whose calls belong to `target`'s run: its sidecar is published under its
- * process id while it runs, for the MCP proxies its clients start.
+ * process id while it runs, for the MCP proxies its clients start. A batch file (`npm start` on
+ * Windows) runs through cmd.exe, which is then the process registered: the agent is below it.
  */
 export function spawnAgent(command: string, args: readonly string[], options: SpawnOptions, target: SidecarTarget): ChildProcess {
-  const child = spawn(command, args, options);
+  const start = startCommand(command, args, options);
+  const child = spawn(start.command, start.args, start.options);
   if (child.pid !== undefined) {
     const { unregister } = registerAgent(child.pid, target, { cwd: typeof options.cwd === 'string' ? options.cwd : process.cwd() });
     child.once('exit', unregister);

@@ -8,6 +8,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
 import { isLoopbackUrl, lookupRegistration, processAncestors, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
 import { isLoopbackHost } from './loopback.js';
+import { startCommand } from './start-command.js';
 
 export { isLoopbackUrl, type SidecarTarget } from './agent-registry.js';
 
@@ -355,7 +356,9 @@ export interface McpProxyOptions {
 }
 
 export function startMcpProxy(o: McpProxyOptions): { child: ChildProcess; done: Promise<number> } {
-  const child = spawn(o.server.command, o.server.args, { stdio: ['pipe', 'pipe', 'inherit'], env: o.server.env ?? process.env });
+  // `npx -y some-server` runs through cmd.exe on Windows, where npx is a batch file.
+  const start = startCommand(o.server.command, o.server.args, { env: o.server.env ?? process.env });
+  const child = spawn(start.command, start.args, { ...start.options, stdio: ['pipe', 'pipe', 'inherit'] });
   const pending = new Map<string, { method: string; live?: LiveCall }>();
   const calls = new ToolCalls(o.sidecar, o.effects, o.log, { transport: 'stdio', server: stdioServerName(o.server.command, o.server.args) });
   const toServer = (raw: string) => {
