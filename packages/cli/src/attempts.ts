@@ -72,6 +72,15 @@ export interface Attempt {
 export const BYPASSED =
   'the replay made no calls through Shadowlap, so the agent reached its model some other way: point its client at Shadowlap in this environment (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)';
 
+/**
+ * Each attempt's agent gets a process group of its own where there are groups, as `test`'s replays
+ * do: stopping it (at the time limit, on Ctrl-C) stops what it started too (`npm start` runs node,
+ * `sh -c` its command), and whatever it leaves running in the group goes once it exits. It no
+ * longer hears the terminal's Ctrl-C itself, so the signal is passed on. Windows has no groups: there
+ * the agent's whole process tree is ended while it runs (killTree).
+ */
+const GROUP = process.platform !== 'win32';
+
 export class AttemptRunner {
   /** Attempts run and tallied, and what they sent upstream and cost. */
   attempts = 0;
@@ -87,9 +96,18 @@ export class AttemptRunner {
 
   private readonly running = new Set<ChildProcess>();
   private readonly onSignal = (sig: NodeJS.Signals) => {
+    // A second signal doesn't wait for the agents to wind down, and nor does the first for long: an
+    // agent that ignores it is killed before whoever sent it (a dashboard stopping its job, 5 s
+    // later) kills this process, which would leave the agent's group running with nobody to end it.
+    const now = this.interrupted ? 'SIGKILL' : sig;
+    if (!this.interrupted) {
+      const agents = [...this.running];
+      // Only those still running: one that has exited took its group with it (attempt), and its id may be another's by now.
+      setTimeout(() => agents.filter((child) => this.running.has(child)).forEach((child) => killTree(child, 'SIGKILL', { group: GROUP })), 3_000).unref();
+    }
     this.interrupted = true;
     this.stopReason = 'interrupted';
-    for (const child of this.running) child.kill(sig);
+    for (const child of this.running) killTree(child, now, { group: GROUP });
   };
 
   private constructor(
@@ -170,7 +188,7 @@ export class AttemptRunner {
     });
     if (extra.meta) this.store.updateRunMeta(run.runId, extra.meta);
     recordsInput(this.store, run.runId);
-    const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'] }, { url: this.sidecar.url, runId: run.runId });
+    const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
     let output = '';
     child.stdout!.on('data', (d: Buffer) => (output += d.toString()));
@@ -181,9 +199,9 @@ export class AttemptRunner {
         ? null
         : setTimeout(() => {
             timedOut = true;
-            // On Windows its whole process tree, which a signal there can't reach.
-            killTree(child, 'SIGTERM');
-            setTimeout(() => killTree(child, 'SIGKILL'), 5_000).unref();
+            // Its group, or on Windows its whole process tree, which a signal there can't reach.
+            killTree(child, 'SIGTERM', { group: GROUP });
+            setTimeout(() => killTree(child, 'SIGKILL', { group: GROUP }), 5_000).unref();
           }, s.timeoutMs);
     const code = await new Promise<number>((resolveCode) => {
       child.on('error', (err) => {
@@ -194,6 +212,8 @@ export class AttemptRunner {
     });
     if (timer) clearTimeout(timer);
     this.running.delete(child);
+    // Whatever the agent left running in its group goes with it.
+    if (GROUP) killTree(child, 'SIGKILL', { group: true });
     const status: Exclude<RunStatus, 'running'> = timedOut || this.interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
     const ended = this.sidecar.endRun(run.runId, status);
     telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
