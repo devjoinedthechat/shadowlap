@@ -11,8 +11,9 @@ your cloud admin gives access to, which [`shadowlap store policy`](#access) prin
 
 ## Set it up
 
-Four steps, each building on the one before, in the dashboard's Settings → Store (**Set up the
-store**) or in a terminal:
+Four steps, each building on the one before, on the dashboard's setup page (`#/setup/store`:
+Settings → Store's **Set up the store**, or **Set up the team store** in the palette) or in a
+terminal:
 
 ```sh
 shadowlap store set s3://northwind-agent-runs/support-agent --check   # 1. connect your bucket
@@ -24,7 +25,10 @@ git add shadowlap.config.json && git commit -m "Use the team store"   # 4. bring
 `store set --check` checks this machine's access first, as [`store check`](#access) does, and
 writes one line to `shadowlap.config.json` only when that works; committing it is what brings the
 team in: anyone who pulls the commit and can read the bucket runs `shadowlap pull` to get the
-team's runs. Credentials never go in the file.
+team's runs. Credentials never go in the file. A check that fails writes nothing and says what to
+fix, then to run the same `store set … --check` again (in the dashboard, **Check access and
+connect** again); for access, the policy to ask for is `store policy --provider <cloud>`, since no
+store is set yet.
 
 In the dashboard each step shows its command. **Connect your bucket** picks the cloud (Amazon S3,
 Google Cloud, Azure Blob or Cloudflare R2), checks the bucket and folder against its scheme, says
@@ -33,8 +37,11 @@ whose credentials this machine would use, shows the access to ask your cloud adm
 **Push your runs** runs `push --all`. **Push from CI** shows the step for GitHub Actions, GitLab
 CI or any other CI, written for your cloud: **I added it**, or **Skip for now** (Settings →
 Store's **Copy CI step** keeps it, for the CI you picked). **Bring your team** shows the line to
-commit, and **Finish** ends the setup. Until then Settings → Store shows the steps; afterwards,
-the store. A store set in a terminal shows as the store straight away.
+commit, and **Finish** ends the setup. Until then the store works already, and the dashboard leads
+back to the setup: it is first in the Overview's Needs a look, Settings → Store names the step
+that is next with **Continue the setup**, the palette offers **Continue setting up the store**, and
+the status bar says *setting up*. A store set in a terminal has no setup under way: it shows as
+the store straight away, and the setup page shows the steps left.
 
 ## The store
 
@@ -149,11 +156,21 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
 - **Fixes** go with the runs they are about: a push sends a [fix](./cli.md#fix) (its blames,
   repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
   team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
-  copies merge: every blame, repair and verdict either made, the status furthest along, and a title
-  someone gave it (the store's when both did). A repair that came with a pull has its `fix.patch`
-  and reports written to `.shadowlap/repairs/<id>/`, as where it ran, so `shadowlap fix apply` and
-  **Copy git apply** work; the recordings it made of the fixed runs stay on that machine, because a
-  golden runs the command it recorded when it is tested: commit them from there.
+  copies merge: every blame, repair and verdict either made, open turned verified by either, and a
+  title someone gave it (the store's when both did). A push that meets a teammate's newer copy
+  merges it the same way.
+- **Applied is each machine's own.** A fix is applied in a working tree: one applied on one
+  machine is verified on the others, with its patch ready to apply there, and stays in their Needs
+  a look until it is. `shadowlap fix apply` there puts the patch in, or finds it in already once
+  the change came through git, and marks it applied on that machine only.
+- **A teammate's repair** comes with its `fix.patch` and reports, written to
+  `.shadowlap/repairs/<id>/` as where it ran, so **Copy git apply** and `shadowlap fix apply` work.
+  The recordings it made of the fixed runs (its goldens) stay on the machine that ran it, because a
+  golden runs the command it recorded when it is tested: they are committed from there. The Fixes
+  page says so, and applying the fix here puts in the patch alone, with nothing left to finish.
+- **A fix too large to read** (over 16 MB, the size a pull reads of a run's record) stays on the
+  machine that has it, and the push says so; a pull that meets one in the store names it and brings
+  the others.
 - **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it.
 - **A pulled run is someone else's recording.** It is checked as strictly as a
   [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
@@ -183,7 +200,10 @@ many runs are in the store, how many are only here, and the last check. Runs are
 dashboard counts them: attempts (`--repeat`, blame's probes, verify's attempts) are filed under the
 run they came from, and a run is only here while it, or an attempt filed under it, isn't in the
 store, as the Runs page's `local` tag marks it. Settings → Store and the Overview's Needs a look say
-the same numbers.
+the same numbers. Needs a look's row opens Runs, as the design does: the runs only here carry the
+`local` tag, and Push in the bulk bar sends the ones picked, with their attempts; Settings → Store's
+**Push local runs** sends them all. A run in the store whose attempts aren't (a `replay --repeat`
+since the push) has **Push** on its own page, which sends the attempts.
 
 ### Push from CI
 

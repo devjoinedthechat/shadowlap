@@ -199,7 +199,7 @@ A fix is one failure, from the blame that reproduced it to a change that held. A
 - **`fix ls`** lists fixes, the most recently opened first: status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step got (*lost at #5 · prompt fix · 3 of 3 held*). A second line gives the check, where the fix came from (*from CI · PR #138*) and when it was opened, and a third says so when an applied fix doesn't hold.
 - **`fix show`** prints a fix and its three steps: where the run was lost and the probes that found it; the change, the candidates tried and why each was dropped; and every verdict, with each run's role and outcome, and why one doesn't count. It ends with what to do next.
 - **`fix title`** replaces the title derived from the check with one of your own; blames that join the fix later keep it.
-- **`fix apply`** hands a verified fix over. It runs `git apply` on the accepted repair's `fix.patch`, copies the recordings the fixed code made into the goldens folder, runs [`shadowlap test`](#test) on them, and marks the fix applied. A patch already in the tree, applied by hand, committed, or left there by `repair --apply`, is recognised with `git apply --reverse --check` and only marked. When the working tree has changes the patch conflicts with, nothing is changed, and the message says whether to commit or stash them or to apply the patch by hand. A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only marked applied.
+- **`fix apply`** hands a verified fix over. It runs `git apply` on the accepted repair's `fix.patch`, copies the recordings the fixed code made into the goldens folder, runs [`shadowlap test`](#test) on them, and marks the fix applied. A teammate's repair, from the [team store](./team.md), left its recordings on their machine: `fix apply` puts the patch in, says so in one line, and leaves nothing to finish. Applied is marked on this machine only. A patch already in the tree, applied by hand, committed, or left there by `repair --apply`, is recognised with `git apply --reverse --check` and only marked. When the working tree has changes the patch conflicts with, nothing is changed, and the message says whether to commit or stash them or to apply the patch by hand. A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only marked applied.
 
 Run again on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied: it copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and runs the test when it hasn't passed, on goldens copied before where they are. With nothing left, it does nothing; with `--no-test` it says when a test is still to pass. A test that fails leaves the fix applied, marked as not holding, until a run of `fix apply` passes it.
 
@@ -745,8 +745,10 @@ run, as the dashboard does: "45 runs and 69 attempts pushed", where attempts (`-
 probes, verify's attempts) are those filed under their runs, and a run counts as only on this
 machine while it, or an attempt filed under it, isn't in the store. Fixes go with their runs: a
 push sends each [fix](#fix) with its blames, repairs and verdicts once one of its runs is in the
-store, and a pull brings the team's, merged with this machine's (a pulled repair's `fix.patch` and
-reports land in `.shadowlap/repairs/<id>/`). A push names the
+store, and a pull brings the team's, merged with this machine's (a teammate's repair, from a pull
+or from the store's copy a push merges with, has its `fix.patch` and reports written to
+`.shadowlap/repairs/<id>/`). Whether a fix is applied is this machine's own and never goes; a fix
+over 16 MB stays here, and a pull skips one in the store that is, saying which. A push names the
 pusher as the author of a run made here without one, and leaves here, saying why, a run a pull
 would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store that
 fails is skipped with its forks and tried again next time. A run named to `push` that the store has
@@ -783,8 +785,9 @@ shadowlap store push-from-ci on|off                      # whether test --push p
 
 Set up the [team store](./team.md#the-store). `set` checks the URL against the provider's scheme
 (with `--provider`, against that one only) and writes it to the config, keeping everything else;
-with `--check` it first checks the store as `check` does and writes nothing when that fails, as
-Settings → Store's **Check access and connect** runs it. `check` proves this machine's credentials can list, write, read and delete a test object, and
+with `--check` it first checks the store as `check` does and writes nothing when that fails, then
+says what to fix and to run the same `store set … --check` again (run by the dashboard's setup,
+**Check access and connect** again), as the store setup's **Check access and connect** runs it. `check` proves this machine's credentials can list, write, read and delete a test object, and
 reports encryption, versioning and object lock, with a warning when versioning or object lock is
 off; it exits 1 when access fails. `policy` prints two policies scoped to the store's folder, each
 an IAM policy, role bindings, a role assignment or R2 token scopes: one for people and CI on
