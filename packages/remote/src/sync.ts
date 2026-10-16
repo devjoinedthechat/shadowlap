@@ -756,7 +756,8 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
   result.inStore = store.teamRuns(rid).filter(teamRunInStore).length;
   // The fixes the team made, merged with this machine's; a pull request's folder brings none.
   if (!ctx.pullRequest) result.fixes = await pullFixes(ctx);
-  for (const f of [...result.fixes.pulled, ...result.fixes.merged]) ctx.log?.(`fix ${f}`);
+  for (const f of result.fixes.pulled) ctx.log?.(`pulled fix ${f}`);
+  for (const f of result.fixes.merged) ctx.log?.(`merged fix ${f}`);
   store.setTeamSync(rid, { pulledAt: now(ctx) });
   return result;
 }
