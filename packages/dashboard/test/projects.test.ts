@@ -116,14 +116,18 @@ describe('addProjectPage', () => {
       ['~/triage-bot', 'already added', true],
       ['~/Downloads', 'no project files found', false],
     ]);
-    expect(v.button).toEqual({ label: 'Add project', disabled: true, path: null });
+    expect(v.button).toEqual({ label: 'Add project', disabled: true, path: null, title: null });
     expect(v.next.steps.map((s) => s.title)).toEqual(['Inspect', 'Record', 'Calibrate', 'Keep it as a test']);
     expect(v.next.note).toBe('The dashboard runs a command in a project’s folder only when you click, and asks first the first time.');
   });
 
   it('names the picked folder on the button once it can be added, and says why when it can’t', () => {
     const ok = addProjectPage({ query: '~/res', suggestions, picked: { path: `${HOME}/research-agent`, folder: kind('Python · uv') }, home: HOME });
-    expect(ok.button).toEqual({ label: 'Add ~/research-agent', disabled: false, path: `${HOME}/research-agent` });
+    expect(ok.button).toEqual({ label: 'Add research-agent', disabled: false, path: `${HOME}/research-agent`, title: '~/research-agent' });
+    // A folder outside the home folder, deep in a root of its own: the button says its name, the path is its title.
+    const deep = '/Volumes/work/clients/northwind/support/agents/refund-escalations/2026-q4/research-agent-v2';
+    const far = addProjectPage({ query: deep, suggestions, picked: { path: deep, folder: kind('Python · uv') }, home: HOME });
+    expect(far.button).toEqual({ label: 'Add research-agent-v2', disabled: false, path: deep, title: deep });
     expect(ok.folders[0]!.selected).toBe(true);
     expect(ok.error).toBeNull();
 

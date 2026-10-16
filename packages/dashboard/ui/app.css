@@ -873,6 +873,13 @@ h1, h2, h3 { text-wrap: balance; }
 .fold b { display: block; font: 500 13px var(--mono); }
 .fold small { display: block; margin-top: 2px; color: var(--faint); font-size: 12px; }
 .fold .tick { margin-left: auto; font-style: normal; color: var(--accent); }
+/* A long folder path wraps in its row; the Add button names the folder and shrinks to its panel, the whole path on hover. */
+.fold > span { min-width: 0; }
+.fold b, .fold small { overflow-wrap: anywhere; }
+.addfoot .btn { flex: none; }
+.addfoot .btn.lime { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.addfoot .btn.lime > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.newgrid .fieldnote { overflow-wrap: anywhere; }
 .fieldnote { margin: 12px 0 0; font-size: 12.5px; }
 .fieldnote.err { color: var(--err); } .fieldnote.warn { color: var(--warn); }
 .pfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }

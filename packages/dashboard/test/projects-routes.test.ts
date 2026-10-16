@@ -456,14 +456,14 @@ describe('adding a project', () => {
     // Hidden folders never show, and a typed path into one lists nothing.
     expect(page.body.folders.some((f) => f.display.includes('.ssh'))).toBe(false);
     expect((await w.api<{ folders: unknown[]; empty: string }>('projects/folders?q=~/.ssh/')).body).toMatchObject({ folders: [], empty: 'Hidden folders aren’t listed.' });
-    expect(page.body.button).toEqual({ label: 'Add project', disabled: true, path: null });
+    expect(page.body.button).toEqual({ label: 'Add project', disabled: true, path: null, title: null });
     expect(page.body.next.steps.map((s) => s.title)).toEqual(['Inspect', 'Record', 'Calibrate', 'Keep it as a test']);
 
     // Typing filters; picking names the folder on the button.
     const typed = await w.api<{ folders: Array<{ display: string }> }>('projects/folders?q=~/re');
     expect(typed.body.folders.map((f) => f.display)).toEqual(['~/research-agent']);
-    const picked = await w.api<{ button: { label: string; disabled: boolean; path: string }; error: string | null }>(`projects/folders?q=&pick=${encodeURIComponent(w.research)}`);
-    expect(picked.body.button).toEqual({ label: 'Add ~/research-agent', disabled: false, path: w.research });
+    const picked = await w.api<{ button: { label: string; disabled: boolean; path: string; title: string | null }; error: string | null }>(`projects/folders?q=&pick=${encodeURIComponent(w.research)}`);
+    expect(picked.body.button).toEqual({ label: 'Add research-agent', disabled: false, path: w.research, title: '~/research-agent' });
     expect(picked.body.error).toBeNull();
     const none = await w.api<{ button: { disabled: boolean }; error: string }>(`projects/folders?pick=${encodeURIComponent('~/Downloads')}`);
     expect(none.body.button.disabled).toBe(true);

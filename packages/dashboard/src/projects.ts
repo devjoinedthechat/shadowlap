@@ -177,11 +177,17 @@ export interface AddProjectView {
   truncated: boolean;
   /** Why the picked folder can't be added. */
   error: string | null;
-  /** Names the folder once one that can be added is picked; disabled until then. */
-  button: { label: string; disabled: boolean; path: string | null };
+  /**
+   * Names the folder once one that can be added is picked, by its name (`Add research-agent`), with
+   * the whole path as its `title`: a long path never widens the button. Disabled until then.
+   */
+  button: { label: string; disabled: boolean; path: string | null; title: string | null };
   cancel: { label: string; href: string };
   next: { title: string; steps: Array<{ title: string; text: string }>; note: string };
 }
+
+/** A folder's own name, the last part of its path (either separator): `research-agent`. */
+const folderName = (path: string): string => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
 
 /** The folder picked on the page, as the server checked it. */
 export interface PickedFolder {
@@ -222,7 +228,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
     empty: folders.length ? null : (input.suggestions.note ?? (query ? `No folder matches “${query}”.` : 'No folders here.')),
     truncated: input.suggestions.truncated,
     error,
-    button: addable ? { label: `Add ${pickedDisplay}`, disabled: false, path: picked!.path } : { label: 'Add project', disabled: true, path: null },
+    button: addable ? { label: `Add ${folderName(picked!.path) || pickedDisplay}`, disabled: false, path: picked!.path, title: pickedDisplay } : { label: 'Add project', disabled: true, path: null, title: null },
     cancel: { label: 'Cancel', href: '#/' },
     next: {
       title: 'What happens next',

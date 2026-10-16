@@ -165,12 +165,12 @@ export function NewProjectPage() {
               </p>
             ) : null}
           </div>
-          <footer className="pfoot">
+          <footer className="pfoot addfoot">
             <a className="btn quiet" href={view?.cancel.href ?? href.overview()}>
               {view?.cancel.label ?? 'Cancel'}
             </a>
-            <button className="btn lime" type="button" disabled={!view || view.button.disabled || busy || !!actionsOff} title={actionsOff ?? undefined} onClick={add}>
-              {view?.button.label ?? 'Add project'}
+            <button className="btn lime" type="button" disabled={!view || view.button.disabled || busy || !!actionsOff} title={actionsOff ?? view?.button.title ?? undefined} onClick={add}>
+              <span>{view?.button.label ?? 'Add project'}</span>
             </button>
           </footer>
         </section>
