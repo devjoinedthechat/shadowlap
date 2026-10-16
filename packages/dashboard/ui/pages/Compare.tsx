@@ -3,13 +3,13 @@ import type { CallRow, CompareView, RunDetail, RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import { changeCards, comparingLive, pickable, prefixLine, samePlaces } from '../compare/model.js';
+import { changeCards, comparingLive, pickable, pickerLabel, prefixLine, samePlaces } from '../compare/model.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { defaultComparePair, isAttempt, kindWord, runTag, type RunLike } from '../runs.js';
+import { defaultComparePair, isAttempt, runTag, type RunLike } from '../runs.js';
 import { useApp } from '../state.js';
 
 /**
@@ -91,7 +91,7 @@ function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[
           {options.some((r) => r.runId === full) ? null : <option value={full}>{shortId(value)}</option>}
           {options.map((r) => (
             <option key={r.runId} value={r.runId}>
-              {shortId(r.runId)} · {kindWord(r)}
+              {pickerLabel(r)}
             </option>
           ))}
         </select>

@@ -1,4 +1,5 @@
-import { num, plural } from '../format.js';
+import { num, plural, shortId } from '../format.js';
+import { kindWord, runType, type RunLike } from '../runs.js';
 import type { CallRow, CodeChange, CompareView, LiveRun } from '../types.js';
 
 /**
@@ -116,4 +117,9 @@ export function pickable<R extends { runId: string; startedAt: number }>(runs: r
   if (!compareWith) return newest;
   const otherIsHub = other === compareWith || compareWith.startsWith(other);
   return otherIsHub ? newest : newest.filter((r) => r.runId === compareWith);
+}
+
+/** A run as the pickers list it, as the mock words it: `01K5CQ4N7G · recording`, `01K5CQ4P2R · fork @17`, `01K5CQ4N9A · clean`. */
+export function pickerLabel(r: RunLike): string {
+  return `${shortId(r.runId)} · ${runType(r) === 'clean' ? 'clean' : kindWord(r)}`;
 }
