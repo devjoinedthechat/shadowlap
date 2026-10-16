@@ -203,7 +203,7 @@ export type CallDetail = Omit<ServerCallDetail, 'call' | 'actions'> & {
   forkTitle?: string;
 };
 
-export type LineageNode = ServerLineageNode & { origins?: string | string[] | null };
+export type LineageNode = ServerLineageNode & { probe?: unknown; verify?: unknown; origins?: string | string[] | null };
 
 /**
  * What the run page offers for a run beyond its record (`/api/runs/:id/offers`): how many redaction

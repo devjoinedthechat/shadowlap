@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { DATASET_FORMATS, REDACTION_EXPORTS, type Normalizer, type RedactionExport, type Store } from '@shadowlap/engine';
+import { lstatSync, mkdirSync, readdirSync, realpathSync, type Stats } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { DATASET_FORMATS, REDACTION_EXPORTS, type Normalizer, type RedactionExport, type RunRecord, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, ProjectInfo } from './jobs.js';
 
@@ -9,7 +9,8 @@ import type { JobBuildResult, ProjectInfo } from './jobs.js';
  * OpenTelemetry trace and a HAR. Each builder checks what the browser sent and returns the CLI's
  * arguments; nothing it sent becomes an argument as it is. What a job writes goes into the project
  * folder, under `.shadowlap/exports/` unless a pack names another folder there (decision 5): the
- * drawer names the file, and HTML and HAR also download.
+ * drawer names the file, and HTML and HAR also download. A run still recording is copied once it has
+ * ended, and a file a copy would write through a link (or over a folder) is refused.
  */
 
 /** The job kinds this module builds, by what they make. */
@@ -28,9 +29,14 @@ const short = (runId: string) => runId.slice(0, 10).toLowerCase();
 
 type Built = JobBuildResult;
 
+/** Why a run can't be copied yet: it is still recording, and a copy of it would never end. */
+export const stillRecording = (run: Pick<RunRecord, 'runId'>) => `${run.runId.slice(0, 10)} is still recording: copy it once it has ended`;
+
 function runOf(store: Store, raw: unknown): { runId: string } | { error: string; status?: number } {
   const run = typeof raw === 'string' && raw ? lookupRun(store, raw) : null;
-  return run ? { runId: run.runId } : { error: typeof raw === 'string' && raw ? `no run ${raw.slice(0, 40)}` : 'runId is required', status: typeof raw === 'string' && raw ? 404 : 400 };
+  if (!run) return { error: typeof raw === 'string' && raw ? `no run ${raw.slice(0, 40)}` : 'runId is required', status: typeof raw === 'string' && raw ? 404 : 400 };
+  if (run.status === 'running') return { error: stillRecording(run), status: 409 };
+  return { runId: run.runId };
 }
 
 /** The project folder resolved through links, or why exports can't be written. */
@@ -43,25 +49,94 @@ function projectRoot(project: ProjectInfo | null): string | { error: string; sta
   }
 }
 
-/**
- * Whether a path is inside the project folder, following links on the part of it that exists: a
- * folder that is a link out of the project is outside, however the path reads.
- */
-export function insideProject(root: string, path: string): boolean {
-  let at = resolve(root, path);
-  while (!existsSync(at)) {
-    const up = dirname(at);
-    if (up === at) return false;
-    at = up;
-  }
-  let real: string;
+/** Whether something is at a path, a link that leads nowhere included. */
+function present(path: string): boolean {
   try {
-    real = realpathSync(at);
+    lstatSync(path);
+    return true;
   } catch {
     return false;
   }
-  const rel = relative(root, real);
-  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+}
+
+/**
+ * A path inside the project as it really is, relative to the project folder and `/`-separated: the
+ * part of it that exists resolved through links, and to the case its names have on disk; the rest
+ * as typed. Null when the part that exists can't be resolved (a link that leads nowhere).
+ */
+export function realRelative(root: string, path: string): string | null {
+  let at = resolve(root, path);
+  const rest: string[] = [];
+  while (!present(at)) {
+    const up = dirname(at);
+    if (up === at) return null;
+    rest.unshift(basename(at));
+    at = up;
+  }
+  try {
+    return relative(realpathSync.native(root), join(realpathSync.native(at), ...rest)).split(sep).join('/');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a path is inside the project folder, following links on the part of it that exists: a
+ * folder that is a link out of the project is outside, however the path reads, and so is a link
+ * that leads nowhere.
+ */
+export function insideProject(root: string, path: string): boolean {
+  const rel = realRelative(root, path);
+  return rel !== null && (rel === '' || (rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel)));
+}
+
+/** macOS and Windows file systems take `.Shadowlap` for `.shadowlap`. */
+const FOLD_CASE = process.platform === 'darwin' || process.platform === 'win32';
+const folded = (p: string) => (FOLD_CASE ? p.toLowerCase() : p);
+
+/** Whether a project-relative path (`/`-separated) is the store's own folder or inside it, its exports folder aside. */
+export function inStoreFolder(rel: string): boolean {
+  const p = folded(rel);
+  const store = folded(dirname(EXPORTS_DIR));
+  return p === store || (p.startsWith(`${store}/`) && !p.startsWith(`${folded(EXPORTS_DIR)}/`));
+}
+
+/**
+ * Why a copy can't write a file where it would: something is there already that is a link, which
+ * the CLI would write through to wherever it leads, or not a file. Null when nothing is there or a
+ * file is, which the copy replaces.
+ */
+export function unsafeFile(root: string, rel: string): string | null {
+  let st: Stats;
+  try {
+    st = lstatSync(join(root, rel));
+  } catch {
+    return null;
+  }
+  if (st.isSymbolicLink()) return `${rel} is a link, and a copy is never written through one: remove it, or use another name`;
+  if (!st.isFile()) return `${rel} is there already, and it is not a file`;
+  return null;
+}
+
+/** Why a pack can't be written into a folder: a file it would write (run.json, calls.jsonl, a blob) is a link or not a file. */
+export function unsafePack(root: string, folder: string): string | null {
+  for (const name of ['run.json', 'calls.jsonl']) {
+    const why = unsafeFile(root, `${folder}/${name}`);
+    if (why) return why;
+  }
+  const blobs = `${folder}/blobs`;
+  let st: Stats;
+  try {
+    st = lstatSync(join(root, blobs));
+  } catch {
+    return null;
+  }
+  if (st.isSymbolicLink() || !st.isDirectory()) return `${blobs} is there already, and it is not a folder of its own`;
+  for (const name of readdirSync(join(root, blobs))) {
+    const why = unsafeFile(root, `${blobs}/${name}`);
+    if (why) return why;
+  }
+  return null;
 }
 
 /** Makes `.shadowlap/exports/` in the project, so the CLI can write a file into it. */
@@ -76,15 +151,24 @@ function exportsDir(root: string): string | { error: string; status: number } {
   return dir;
 }
 
+/** The exports folder made, and the file a copy writes into it checked: its path from the project folder, or why not. */
+function exportTarget(root: string, file: string): string | { error: string; status: number } {
+  const dir = exportsDir(root);
+  if (typeof dir !== 'string') return dir;
+  const rel = `${EXPORTS_DIR}/${file}`;
+  const why = unsafeFile(root, rel);
+  return why ? { error: why, status: 409 } : rel;
+}
+
 /** `export html <run> .shadowlap/exports/shadowlap-<id>.html --lineage`: the views in one file, with the runs it came from. */
 export function exportHtmlJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   const run = runOf(store, req.runId);
   if ('error' in run) return run;
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
-  const dir = exportsDir(root);
-  if (typeof dir !== 'string') return dir;
-  return { args: ['export', 'html', run.runId, `${EXPORTS_DIR}/shadowlap-${short(run.runId)}.html`, '--lineage'], runId: run.runId, title: 'Exporting HTML' };
+  const target = exportTarget(root, `shadowlap-${short(run.runId)}.html`);
+  if (typeof target !== 'string') return target;
+  return { args: ['export', 'html', run.runId, target, '--lineage'], runId: run.runId, title: 'Exporting HTML' };
 }
 
 /** `export har <run> .shadowlap/exports/<id>.har`: the model calls, with every redaction rule applied. */
@@ -93,14 +177,15 @@ export function exportHarJob(store: Store, project: ProjectInfo | null, req: Rec
   if ('error' in run) return run;
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
-  const dir = exportsDir(root);
-  if (typeof dir !== 'string') return dir;
-  return { args: ['export', 'har', run.runId, `${EXPORTS_DIR}/${short(run.runId)}.har`], runId: run.runId, title: 'Exporting HAR' };
+  const target = exportTarget(root, `${short(run.runId)}.har`);
+  if (typeof target !== 'string') return target;
+  return { args: ['export', 'har', run.runId, target], runId: run.runId, title: 'Exporting HAR' };
 }
 
 /**
- * A folder for a pack, as typed: relative to the project folder and inside it. Returned as `./…`
- * so the CLI can never read it as an option.
+ * A folder for a pack, as typed: relative to the project folder and inside it, and not the store's
+ * own folder, however its name is cased or whatever link leads there. Returned as `./…` so the CLI
+ * can never read it as an option.
  */
 export function packFolder(root: string, raw: unknown): string | { error: string } {
   if (typeof raw !== 'string' || !raw.trim()) return { error: 'name a folder for the pack' };
@@ -109,7 +194,8 @@ export function packFolder(root: string, raw: unknown): string | { error: string
   if (isAbsolute(dir) || /^[A-Za-z]:/.test(dir)) return { error: 'name a folder inside the project, such as share/run or goldens/refund' };
   const rel = relative(root, resolve(root, dir)).split(sep).join('/');
   if (!rel || rel === '..' || rel.startsWith('../')) return { error: 'name a folder inside the project, such as share/run or goldens/refund' };
-  if (rel === '.shadowlap' || (rel.startsWith('.shadowlap/') && !rel.startsWith(`${EXPORTS_DIR}/`))) return { error: `the store's own folder takes no packs: use ${EXPORTS_DIR}/ or a folder of your own` };
+  const real = realRelative(root, rel);
+  if (inStoreFolder(rel) || (real !== null && inStoreFolder(real))) return { error: `the store's own folder takes no packs: use ${EXPORTS_DIR}/ or a folder of your own` };
   if (!insideProject(root, rel)) return { error: 'that folder leads outside the project' };
   return `./${rel}`;
 }
@@ -126,6 +212,8 @@ export function packJob(store: Store, project: ProjectInfo | null, req: Record<s
     const dir = exportsDir(root);
     if (typeof dir !== 'string') return dir;
   }
+  const unsafe = unsafePack(root, folder.slice(2));
+  if (unsafe) return { error: unsafe, status: 409 };
   return { args: ['pack', run.runId, folder], runId: run.runId, title: 'Packing' };
 }
 
@@ -149,6 +237,7 @@ export function exportDatasetJob(store: Store, project: ProjectInfo | null, req:
     if (typeof r !== 'string' || !RUN_ID.test(r)) return { error: 'a run id is not one' };
     const run = lookupRun(store, r);
     if (!run) return { error: `no run ${r}`, status: 404 };
+    if (run.status === 'running') return { error: stillRecording(run), status: 409 };
     if (!runIds.includes(run.runId)) runIds.push(run.runId);
   }
   const format = req.format ?? 'jsonl';
@@ -157,9 +246,9 @@ export function exportDatasetJob(store: Store, project: ProjectInfo | null, req:
   if (calls !== 'final' && calls !== 'model') return { error: 'calls is final (each run’s last model call) or model (every model call)' };
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
-  const dir = exportsDir(root);
-  if (typeof dir !== 'string') return dir;
-  return { args: ['export', 'dataset', ...runIds, '--calls', calls, '--format', format, '--out', `${EXPORTS_DIR}/${datasetName(runIds, now)}`], runId: runIds.length === 1 ? runIds[0]! : null, title: 'Exporting a dataset' };
+  const target = exportTarget(root, datasetName(runIds, now));
+  if (typeof target !== 'string') return target;
+  return { args: ['export', 'dataset', ...runIds, '--calls', calls, '--format', format, '--out', target], runId: runIds.length === 1 ? runIds[0]! : null, title: 'Exporting a dataset' };
 }
 
 /** A collector's address: http or https, nothing the CLI could take for an option. */
@@ -184,7 +273,10 @@ export function traceFile(raw: unknown, runId: string): string | null {
   return /^[A-Za-z0-9_][\w.-]{0,99}$/.test(name) ? name : null;
 }
 
-/** `export otel <run> --endpoint <url>` to a collector, or `--out .shadowlap/exports/<file>`. */
+/**
+ * `export otel <run> --endpoint <url>` to a collector, or `--out .shadowlap/exports/<file>`, which
+ * sends nothing: the CLI sends to `$OTEL_EXPORTER_OTLP_ENDPOINT` only when no file is asked for.
+ */
 export function exportOtelJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   const run = runOf(store, req.runId);
   if ('error' in run) return run;
@@ -197,9 +289,9 @@ export function exportOtelJob(store: Store, project: ProjectInfo | null, req: Re
   if (!file) return { error: 'a file name is letters, digits, dots, dashes and underscores, such as trace.json' };
   const root = projectRoot(project);
   if (typeof root !== 'string') return root;
-  const dir = exportsDir(root);
-  if (typeof dir !== 'string') return dir;
-  return { args: ['export', 'otel', run.runId, '--out', `${EXPORTS_DIR}/${file}`], runId: run.runId, title: 'Exporting a trace' };
+  const target = exportTarget(root, file);
+  if (typeof target !== 'string') return target;
+  return { args: ['export', 'otel', run.runId, '--out', target], runId: run.runId, title: 'Exporting a trace' };
 }
 
 // ---- what each copy applies (decision 6) -----------------------------------------------------------

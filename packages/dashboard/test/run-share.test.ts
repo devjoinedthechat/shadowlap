@@ -4,17 +4,16 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store, type Normalizer } from '@shadowlap/engine';
-import { lineage } from '../src/api.js';
 import { cliSpawner, runDetail, showRunJson, startDashboard, type Dashboard, type JobView } from '../src/index.js';
-import { collectorUrl, copyRules, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, insideProject, packFolder, packJob, traceFile } from '../src/run-exports.js';
-import { blameOffer, goldenExpect, runOffers } from '../src/run-offers.js';
+import { collectorUrl, copyRules, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtelJob, inStoreFolder, insideProject, packFolder, packJob, traceFile } from '../src/run-exports.js';
+import { blameOffer, goldenExpect, runOffers, testOffer } from '../src/run-offers.js';
 import { addRun, blameOf } from './read-model-store.js';
 import { RunBuilder } from '../../engine/test/run-fixtures.js';
 
 /**
  * The run page's Share menu and what it offers: the export jobs (each builds its command from checked
  * fields and writes into the project folder), how many redaction rules each copy applies, whether a
- * run is only on this machine, the check Run blame would use, and the Forks view's marks.
+ * run is only on this machine, and whether Run blame applies with the check it would likely use.
  */
 
 const FAKE = fileURLToPath(new URL('./fake-cli.mjs', import.meta.url));
@@ -101,6 +100,85 @@ describe('the Share menu’s jobs', () => {
     expect(Object.fromEntries(c.formats.map((f) => [f.id, [f.applies, f.rules]]))).toEqual({ html: ['all', 3], pack: ['all', 3], dataset: ['messages', 3], otel: ['attributes', 2], har: ['all', 3] });
     expect(copyRules([]).formats.every((f) => f.rules === 0)).toBe(true);
   });
+
+  it('copies a run once it has ended: a copy of one still recording would never end', () => {
+    const live = addRun(store, { startedAt: T0 + 5, calls: 'll', status: 'running' });
+    const refused = { error: `${live.slice(0, 10)} is still recording: copy it once it has ended`, status: 409 };
+    expect(exportHtmlJob(store, proj(), { runId: live })).toEqual(refused);
+    expect(exportHarJob(store, proj(), { runId: live })).toEqual(refused);
+    expect(packJob(store, proj(), { runId: live })).toEqual(refused);
+    expect(exportOtelJob(store, proj(), { runId: live, out: 'trace.json' })).toEqual(refused);
+    expect(exportOtelJob(store, proj(), { runId: live, endpoint: 'http://localhost:4318' })).toEqual(refused);
+    // One recording among the runs of a dataset stops it, naming that run.
+    const ended = addRun(store, { startedAt: T0 + 6, calls: 'l' });
+    expect(exportDatasetJob(store, proj(), { runIds: [ended, live] })).toEqual(refused);
+  });
+
+  it('never packs into the store’s own folder, however its name is cased or whatever link leads there', () => {
+    mkdirSync(join(project, '.shadowlap'), { recursive: true });
+    expect(inStoreFolder('.shadowlap')).toBe(true);
+    expect(inStoreFolder('.shadowlap/blobs')).toBe(true);
+    expect(inStoreFolder('.shadowlap/exports')).toBe(true);
+    expect(inStoreFolder('.shadowlap/exports/run')).toBe(false);
+    expect(inStoreFolder('share/.shadowlap')).toBe(false);
+    // macOS and Windows take another case for the same folder.
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      for (const dir of ['.SHADOWLAP', '.Shadowlap/packs', '.shadowLAP/blobs']) expect(packFolder(project, dir), dir).toEqual({ error: "the store's own folder takes no packs: use .shadowlap/exports/ or a folder of your own" });
+      expect(packFolder(project, '.Shadowlap/Exports/run')).toBe('./.Shadowlap/Exports/run');
+    }
+    // A folder of the project that is a link to the store's.
+    symlinkSync(join(project, '.shadowlap'), join(project, 'store-link'));
+    expect(packFolder(project, 'store-link/run')).toHaveProperty('error', "the store's own folder takes no packs: use .shadowlap/exports/ or a folder of your own");
+    // A link that leads nowhere leads outside.
+    symlinkSync(join(outside, 'missing'), join(project, 'dangling'));
+    expect(packFolder(project, 'dangling/run')).toEqual({ error: 'that folder leads outside the project' });
+    expect(insideProject(project, 'dangling')).toBe(false);
+  });
+
+  it('never writes a copy through a link, or over something that is not a file', () => {
+    const id = addRun(store, { startedAt: T0 + 7, calls: 'l' });
+    const low = id.slice(0, 10).toLowerCase();
+    const exportsDir = join(project, '.shadowlap', 'exports');
+    mkdirSync(exportsDir, { recursive: true });
+    const target = join(outside, 'authorized_keys');
+    writeFileSync(target, 'keep me\n');
+    // A trace's name, and the HTML and HAR names, which follow from the run id.
+    symlinkSync(target, join(exportsDir, 'trace.json'));
+    symlinkSync(target, join(exportsDir, `shadowlap-${low}.html`));
+    symlinkSync(target, join(exportsDir, `${low}.har`));
+    symlinkSync(target, join(exportsDir, `dataset-${low}.jsonl`));
+    const link = (rel: string) => ({ error: `${rel} is a link, and a copy is never written through one: remove it, or use another name`, status: 409 });
+    expect(exportOtelJob(store, proj(), { runId: id, out: 'trace.json' })).toEqual(link('.shadowlap/exports/trace.json'));
+    expect(exportHtmlJob(store, proj(), { runId: id })).toEqual(link(`.shadowlap/exports/shadowlap-${low}.html`));
+    expect(exportHarJob(store, proj(), { runId: id })).toEqual(link(`.shadowlap/exports/${low}.har`));
+    expect(exportDatasetJob(store, proj(), { runIds: [id] })).toEqual(link(`.shadowlap/exports/dataset-${low}.jsonl`));
+    // A folder where the file would go.
+    mkdirSync(join(exportsDir, 'folder.json'));
+    expect(exportOtelJob(store, proj(), { runId: id, out: 'folder.json' })).toEqual({ error: '.shadowlap/exports/folder.json is there already, and it is not a file', status: 409 });
+    // A plain file is replaced, as the CLI replaces it.
+    writeFileSync(join(exportsDir, 'plain.json'), '{}');
+    expect(exportOtelJob(store, proj(), { runId: id, out: 'plain.json' })).toMatchObject({ args: ['export', 'otel', id, '--out', '.shadowlap/exports/plain.json'] });
+    // A pack's own files: run.json, calls.jsonl and each blob.
+    for (const [name, make] of [
+      ['run.json', (dir: string) => symlinkSync(target, join(dir, 'run.json'))],
+      ['calls.jsonl', (dir: string) => symlinkSync(target, join(dir, 'calls.jsonl'))],
+      ['blobs', (dir: string) => symlinkSync(outside, join(dir, 'blobs'))],
+      ['blobs/ab12', (dir: string) => (mkdirSync(join(dir, 'blobs')), symlinkSync(target, join(dir, 'blobs', 'ab12')))],
+    ] as const) {
+      const dir = join(project, 'packs', name.replace('/', '-'));
+      mkdirSync(dir, { recursive: true });
+      make(dir);
+      const out = packJob(store, proj(), { runId: id, dir: `packs/${name.replace('/', '-')}` });
+      expect(out, name).toMatchObject({ status: 409 });
+      expect((out as { error: string }).error, name).toContain(`packs/${name.replace('/', '-')}/${name === 'blobs/ab12' ? 'blobs/ab12' : name}`);
+    }
+    expect(readFileSync(target, 'utf8')).toBe('keep me\n');
+    // An existing pack of plain files is packed over.
+    mkdirSync(join(project, 'packs', 'again', 'blobs'), { recursive: true });
+    writeFileSync(join(project, 'packs', 'again', 'run.json'), '{}');
+    writeFileSync(join(project, 'packs', 'again', 'blobs', 'cd34'), 'x');
+    expect(packJob(store, proj(), { runId: id, dir: 'packs/again' })).toMatchObject({ args: ['pack', id, './packs/again'] });
+  });
 });
 
 describe('what the run page offers', () => {
@@ -146,6 +224,36 @@ describe('what the run page offers', () => {
     for (const id of [passed, blamed, cap, probe]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
   });
 
+  it('offers Run blame only where a model call can be blamed, and asks for an interrupted run’s check', () => {
+    // Exited before its first model call, or made only tool calls: no answer of the model's to blame.
+    const early = addRun(store, { startedAt: T0 + 28, status: 'failed' });
+    const tools = addRun(store, { startedAt: T0 + 29, calls: 'bs', status: 'failed', meta: { checks: [{ ok: false, label: 'x', detail: null }] } });
+    for (const id of [early, tools]) expect(blameOffer(store, store.getRun(id)!, null)).toBeNull();
+    // Interrupted: its exit says nothing about what a passing run does.
+    const stopped = addRun(store, { startedAt: T0 + 33, calls: 'll', status: 'crashed' });
+    expect(blameOffer(store, store.getRun(stopped)!, null)).toEqual({ from: 'ask', failed: [] });
+  });
+
+  it('says the diverged test’s normalizer was added, and links the replay of its golden that passed since', () => {
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/research'] });
+    const replay = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js'], cwd: '/p' }, startedAt: T0 + 100, meta: { test: { golden: 'goldens/research', session: s.sessionId } } });
+    store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, diff: [{ path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' }] });
+    store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/research', ok: false, failure: 'diverged', runId: replay.runId, at: T0 + 110 });
+    const run = store.getRun(replay.runId)!;
+    const rule = { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+    expect(testOffer(store, run, undefined)).toMatchObject({ golden: 'goldens/research', normalized: false, passingRun: null });
+    expect(testOffer(store, run, [{ ...rule, replace: '<ID>' }])).toMatchObject({ normalized: false });
+    // Written in another order, it is the same rule: added, and nothing has passed since.
+    expect(testOffer(store, run, [{ replace: '<UUID>', pattern: 'uuid', path: '$.metadata.user_id', kind: 'api' }])).toMatchObject({ normalized: true, passingRun: null });
+    // The golden ran again and passed.
+    const again = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/research'] });
+    const passing = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js'], cwd: '/p' }, startedAt: T0 + 200, meta: { test: { golden: 'goldens/research', session: again.sessionId } } });
+    store.addTestResult({ sessionId: again.sessionId, golden: 'goldens/research', ok: true, runId: passing.runId, at: T0 + 210 });
+    expect(testOffer(store, run, [rule])).toMatchObject({ normalized: true, passingRun: passing.runId });
+    expect(runOffers(store, run.runId, { redact: [], config: { normalize: [rule] } })!.test).toMatchObject({ normalized: true, passingRun: passing.runId });
+    expect(testOffer(store, store.getRun(passing.runId)!, [rule])).toBeNull();
+  });
+
   it('offers Find the commit and the diverged test’s actions, from the tests read model', () => {
     const id = addRun(store, { startedAt: T0 + 30, calls: 'l' });
     const o = runOffers(store, id, { redact: [{ pattern: 'email', replace: '<e>' }], config: null })!;
@@ -168,18 +276,7 @@ describe('what the run page offers', () => {
   });
 });
 
-describe('the Forks view’s marks and the Calls view’s values', () => {
-  it('marks blame probes and verify attempts, and where the blamed run was lost', () => {
-    const failing = addRun(store, { startedAt: T0 + 40, calls: 'llll', meta: { blame: blameOf(3, null, T0) } });
-    const probe = addRun(store, { startedAt: T0 + 41, parent: failing, divergence: 3, calls: 'rrll', meta: { repeat: { group: 'g1', attempt: 1, of: 2 }, probe: { of: failing, callNo: 3, passed: true } } });
-    const verify = addRun(store, { startedAt: T0 + 42, parent: failing, calls: 'rrrr', meta: { verify: { role: 'target', passed: false } } });
-    const nodes = lineage(store, failing)!;
-    const at = (id: string) => nodes.find((n) => n.runId === id)!;
-    expect(at(failing)).toMatchObject({ blamedAt: 3, probe: null, verify: null });
-    expect(at(probe)).toMatchObject({ probe: { of: failing, callNo: 3, passed: true }, blamedAt: null });
-    expect(at(verify)).toMatchObject({ verify: { role: 'target', passed: false } });
-  });
-
+describe('the Calls view’s values', () => {
   it('shows a clock read’s and a random value’s value beside the call', () => {
     const b = RunBuilder.start(store, { startedAt: T0 + 50 });
     const id = b.run.runId;

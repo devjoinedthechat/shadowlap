@@ -107,6 +107,9 @@ describe('the run’s banner', () => {
     expect(fixCheckShort('send_email called at least 1 time', [])).toBe('check failed: send_email called 0 times');
     expect(fixCheckShort('the agent exits 0', calls)).toBe('check failed: “the agent exits 0”');
     expect(failureText({ status: 'crashed', checks: [], blame: null })).toBe('the run was interrupted');
+    // A run that made no model call has nothing for blame to ask again.
+    expect(bannerFor({ ...base, status: 'failed', modelCalls: 0 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · no model call to blame' });
+    expect(bannerFor({ ...base, status: 'failed', modelCalls: 3 })).toMatchObject({ kind: 'failed', why: 'the agent exited with an error · not blamed yet' });
     expect(failureText({ status: 'completed', checks: [{ label: 'x', ok: true }], blame: null })).toBeNull();
   });
 

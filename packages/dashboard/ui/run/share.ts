@@ -58,3 +58,45 @@ export function shareNote(offers: Pick<RunOffers, 'copies'> | null | undefined, 
 export function defaultPackFolder(runId: string): string {
   return `.shadowlap/exports/${runId.slice(0, 10).toLowerCase()}`;
 }
+
+/** Why a run can't be copied yet, on each copy's hover. */
+export const STILL_RECORDING = 'Still recording: copy it once it has ended';
+
+/** What decides how a copy is made: whether the page can run jobs, the job kinds the server lists, the run. */
+export interface ShareContext {
+  /** Why actions can't run here (a read-only dashboard, an expired link), or null when they can. */
+  actionsOff: string | null;
+  /** The server lists this copy's job kind. */
+  hasJob: boolean;
+  /** The run is still recording. */
+  live: boolean;
+}
+
+/**
+ * How the HTML file is made: as a job, which writes it into `.shadowlap/exports/` and then downloads
+ * it, where the page runs jobs and the server has the kind; else straight from the server
+ * (`GET /api/runs/:id/export`), which a read-only dashboard still answers, since reading and copying
+ * never stop.
+ */
+export function htmlCopyVia(o: Pick<ShareContext, 'actionsOff' | 'hasJob'>): 'job' | 'download' {
+  return o.hasJob && !o.actionsOff ? 'job' : 'download';
+}
+
+/**
+ * Why a copy in the menu is off, for its hover; null when it can be made. Nothing is copied while
+ * the run records. The HTML file downloads where jobs can't run; every other copy is a job.
+ */
+export function shareItemOff(key: ShareKey, o: Pick<ShareContext, 'actionsOff' | 'live'>): string | null {
+  if (o.live) return STILL_RECORDING;
+  if (key === 'html') return null;
+  return o.actionsOff;
+}
+
+/**
+ * Push, in the header: a run that is only on this machine goes to the team store the config names,
+ * with the runs it came from. Never on an exported copy or a run still recording, and only where
+ * the server has the team store's `push` job.
+ */
+export function canPush(o: { exported: boolean; live: boolean; team: RunOffers['team'] | null | undefined; hasPush: boolean }): boolean {
+  return !o.exported && !o.live && o.team?.state === 'only-here' && o.hasPush;
+}

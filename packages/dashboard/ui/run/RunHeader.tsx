@@ -13,6 +13,7 @@ import { useApp } from '../state.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
 import { checksOf, runLikeOf } from './model.js';
+import { canPush } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
 /**
@@ -71,7 +72,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   );
   const off = actionsOff ?? undefined;
   // Push: a run only on this machine goes to the team store the config names.
-  const pushable = !exported && !live && offers?.team?.state === 'only-here' && hasKind(JOB_KINDS.push);
+  const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
   return (
     <section className="rhead">
       <div className="rmain">

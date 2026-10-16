@@ -42,6 +42,8 @@ export interface BannerInput {
   upstreamRequests: number;
   /** A test replay whose golden diverged on a value made anew on every run: what it looks like. */
   volatile?: { looks: string } | null;
+  /** How many model calls the run made: one that made none has no answer of the model's to blame. */
+  modelCalls?: number;
 }
 
 export type Banner =
@@ -208,6 +210,6 @@ export function bannerFor(i: BannerInput): Banner | null {
   if (!failure) return null;
   // Blame ran but placed the failure on no call: no answer asked again saved the run, or it stopped first.
   const unplaced = b ? (b.outcome === 'stopped' ? 'blame stopped before it found the call' : 'blame found no call whose answer, asked again, saves the run') : null;
-  const state = i.fix ? (i.fix.status === 'open' ? `no fix yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? 'not blamed yet');
+  const state = i.fix ? (i.fix.status === 'open' ? `no fix yet for “${i.fix.title}”` : `fixed: “${i.fix.title}”, ${i.fix.status}`) : (unplaced ?? (i.modelCalls === 0 ? 'no model call to blame' : 'not blamed yet'));
   return { kind: 'failed', why: `${failure} · ${state}`, fix: i.fix, blamed: !!b };
 }

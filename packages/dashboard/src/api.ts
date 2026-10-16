@@ -4,7 +4,7 @@ import { kindFacts, modelResolver, runLabel } from '@shadowlap/tui/data';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { captureSource } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analyseRun, conversationSource, lineageMarks, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type LineageMarks, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { analyseRun, conversationSource, NO_FACTS, ownFacts, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunPageFacts, type RunProvenance } from './run-page.js';
 
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
 
@@ -392,11 +392,6 @@ export interface LineageNode {
   startedAt: number;
   repeat: { group: string; attempt: number; of: number } | null;
   checks: { passed: number; total: number } | null;
-  // ---- the Forks view's bundles (run-page.ts) ----
-  probe: LineageMarks['probe'];
-  verify: LineageMarks['verify'];
-  blamedAt: LineageMarks['blamedAt'];
-  fix: LineageMarks['fix'];
 }
 
 /** Every run in the family of a run: its root recording and all that descends from it, depth first, oldest first. */
@@ -431,7 +426,6 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       startedAt: r.startedAt,
       repeat: r.meta?.repeat ?? null,
       checks: checksOf(r),
-      ...lineageMarks(store, r),
     });
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };

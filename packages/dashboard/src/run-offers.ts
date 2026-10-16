@@ -8,24 +8,37 @@ import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, ty
 /**
  * What the run page offers to do with a run beyond its own record, worked out from the project's
  * config: how many redaction rules each copy in the Share menu applies, whether the run is only on
- * this machine (Push), the check Run blame would use, Find the commit's revisions, and what the
- * banner of a test that diverged can do. A plain function, like the other read models.
+ * this machine (Push), whether Run blame applies and the check it would likely use, Find the commit's
+ * revisions, and what the banner of a test that diverged can do. A plain function, like the other
+ * read models.
  */
 
 /** Where the run stands with the team store named in the config. */
 export type TeamState = 'only-here' | 'queued' | 'in-store' | 'recording' | 'pull-request';
 
 /**
- * Run blame on a failed run: the check a passing run must meet, and where it came from — the run's
- * own `--expect` (`run`), its golden's checks in the config (`golden`), the fix its labels point to
- * (`fix`) — or none, to blame on the exit status alone (`exit`), or none known, so the page asks
- * (`ask`). `failed` names the checks the run failed.
+ * Run blame on a failed run, which the fixes' `blame` job runs: the job finds the check itself (and
+ * answers 422 when nothing names it, so the page asks). This says the check it would likely use, for
+ * the button's hover and for the command to run where the dashboard can't: the run's own `--expect`
+ * (`run`), its golden's checks in the config (`golden`), the fix its labels point to (`fix`), none,
+ * to blame on the exit status alone (`exit`), or none known (`ask`). `failed` names the checks the
+ * run failed.
  */
 export interface BlameOffer {
   from: 'run' | 'golden' | 'fix' | 'exit' | 'ask';
   /** The check, as `--expect` takes it; null to blame on the exit status; absent when it must be asked. */
   expect?: unknown;
   failed: string[];
+}
+
+/**
+ * A replay made by `shadowlap test` whose golden diverged (the tests' read model), and what has
+ * happened since: whether every rule Add normalizer adds is in shadowlap.config.json now, and the
+ * newest replay of the same golden since this one that passed, which the banner links.
+ */
+export interface TestOffer extends TestRunBanner {
+  normalized: boolean;
+  passingRun: string | null;
 }
 
 export interface RunOffers {
@@ -38,15 +51,15 @@ export interface RunOffers {
   blame: BlameOffer | null;
   /** Find the commit: the revisions to start from, or why it can't start from this run. */
   bisect: BisectChoices | null;
-  /** A replay made by `shadowlap test` whose golden diverged: Add normalizer and Update golden. */
-  test: TestRunBanner | null;
+  /** A replay made by `shadowlap test` whose golden diverged: Add normalizer and Update golden, or that the normalizer was added. */
+  test: TestOffer | null;
 }
 
 export interface RunOffersInput {
   /** The project's redaction rules, as a copy made now applies them. */
   redact: readonly Normalizer[];
-  /** shadowlap.config.json as written: `store` (the team store) and `tests` (each golden's checks). */
-  config: { store?: unknown; tests?: unknown } | null;
+  /** shadowlap.config.json as written: `store` (the team store), `tests` (each golden's checks) and `normalize` (its normalizers). */
+  config: { store?: unknown; tests?: unknown; normalize?: unknown } | null;
   /** The goldens on disk, for Find the commit on a test replay; none when the dashboard was given none. */
   goldens?: readonly GoldenSource[];
 }
@@ -87,9 +100,25 @@ export function goldenExpect(tests: unknown, golden: string): unknown {
   return isObject(entry) && isObject(entry.expect) ? entry.expect : undefined;
 }
 
+const modelCalls = new WeakMap<Store, Map<string, boolean>>();
+
+/** Whether a run that has ended made a model call: blame asks model calls again, so it needs one. */
+function madeModelCall(store: Store, run: RunRecord): boolean {
+  let seen = modelCalls.get(store);
+  if (!seen) modelCalls.set(store, (seen = new Map()));
+  const known = seen.get(run.runId);
+  if (known !== undefined) return known;
+  const made = store.getCalls(run.runId).some((c) => c.kind === 'api');
+  if (seen.size > 2000) seen.clear();
+  seen.set(run.runId, made);
+  return made;
+}
+
 /**
  * Run blame for a run that failed and was never blamed: a check it failed, or the agent's exit. A
- * capture has no command to run again, and a run still recording has not failed yet.
+ * capture has no command to run again, a run still recording has not failed yet, and a run that made
+ * no model call has no answer of the model's to blame. An interrupted run's exit says nothing, so
+ * its check is asked for, as the blame job asks.
  */
 export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameOffer | null {
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
@@ -98,6 +127,7 @@ export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameO
   const failed = (run.meta?.checks ?? []).filter((c) => isObject(c) && c.ok === false && typeof c.label === 'string').map((c) => c.label);
   const exited = run.status === 'failed' || run.status === 'crashed';
   if (!failed.length && !exited) return null;
+  if (!madeModelCall(store, run)) return null;
   if (failed.length) {
     const own = run.meta?.expect;
     if (isObject(own)) return { from: 'run', expect: own, failed };
@@ -107,7 +137,40 @@ export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameO
   }
   const suggested = fixForRun(store, run.runId);
   if (suggested?.role === 'unblamed' && suggested.expect !== undefined && suggested.expect !== null) return { from: 'fix', expect: suggested.expect, failed };
-  return failed.length ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
+  return failed.length || run.status === 'crashed' ? { from: 'ask', failed } : { from: 'exit', expect: null, failed };
+}
+
+const RULE_FIELDS = ['kind', 'name', 'path', 'pattern', 'replace'] as const;
+
+/** Whether a rule as written in the config is the same rule as one Add normalizer adds. */
+function sameRule(written: unknown, rule: Normalizer): boolean {
+  return isObject(written) && RULE_FIELDS.every((k) => (written[k] ?? undefined) === rule[k]);
+}
+
+/**
+ * The diverged test's banner, and what has happened since: every rule Add normalizer adds is in the
+ * config's `normalize` (it was added, here or by hand), and the newest replay of the golden that
+ * passed since this one, which shows the rule worked.
+ */
+export function testOffer(store: Store, run: RunRecord, normalize: unknown): TestOffer | null {
+  const banner = testRunBanner(store, run.runId);
+  if (!banner) return null;
+  const rules = Array.isArray(normalize) ? normalize : [];
+  const wanted = banner.values.values.map((v) => v.normalizer);
+  const normalized = wanted.length > 0 && wanted.every((w) => rules.some((r) => sameRule(r, w)));
+  let passingRun: string | null = null;
+  if (normalized) {
+    // Newest first: the first that passed, made after this run and still in the store.
+    for (const r of store.listTestResults({ golden: banner.golden, since: run.startedAt, limit: 50 })) {
+      if (!r.ok || !r.runId || r.runId === run.runId) continue;
+      const passed = store.getRun(r.runId);
+      if (passed && passed.startedAt >= run.startedAt) {
+        passingRun = passed.runId;
+        break;
+      }
+    }
+  }
+  return { ...banner, normalized, passingRun };
 }
 
 /**
@@ -140,6 +203,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     team: teamOf(store, run, input.config?.store),
     blame: blameOffer(store, run, input.config?.tests),
     bisect: blamedBisect(run, bisectChoices(store, run.runId, { goldens: input.goldens ?? [] })),
-    test: testRunBanner(store, run.runId),
+    test: testOffer(store, run, input.config?.normalize),
   };
 }

@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
-import { attemptBundle, type BundleAttempt } from '../ui/run/forks.js';
-import { bisectBlocked, bisectCopy, blameCommand, blameSource, readExpect } from '../ui/run/offers.js';
-import { defaultPackFolder, shareItems, shareNote } from '../ui/run/share.js';
-import type { BisectOffer, RunOffers } from '../ui/types.js';
+import { bisectBlocked, bisectCopy, blameCommand, blameHover, blameOfferFor, blameReply, blameRequest, blameSource, divergedActions, failedChecksText, readExpect, type BlameFacts } from '../ui/run/offers.js';
+import { canPush, defaultPackFolder, htmlCopyVia, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
+import type { BisectOffer, RunOffers, TestBannerOffer } from '../ui/types.js';
 
-// The run page's Share menu, Run blame, Find the commit, the Calls view's detail and the Forks view's
-// bundles, as the page words them from what the server offers.
+// The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
+// them from what the server offers.
 
 const RUN = '01M50J6C69T0S34ZZX4WBXJKD1';
 
@@ -33,18 +32,94 @@ describe('the Share menu', () => {
     expect(shareNote(null, null).text).toBe('The redaction rules in shadowlap.config.json apply to every copy.');
     expect(defaultPackFolder(RUN)).toBe('.shadowlap/exports/01m50j6c69');
   });
+
+  const readOnly = 'This dashboard is read-only: it was started with --read-only.';
+
+  it('makes the HTML file as a job where jobs run, and downloads it straight from the server where they don’t', () => {
+    expect(htmlCopyVia({ actionsOff: null, hasJob: true })).toBe('job');
+    // Read-only: the job would be refused, and reading and copying never stop.
+    expect(htmlCopyVia({ actionsOff: readOnly, hasJob: true })).toBe('download');
+    // A server without the job.
+    expect(htmlCopyVia({ actionsOff: null, hasJob: false })).toBe('download');
+    expect(htmlCopyVia({ actionsOff: 'This link has expired.', hasJob: false })).toBe('download');
+  });
+
+  it('turns off each copy where it can’t be made, saying why', () => {
+    expect(shareItemOff('html', { actionsOff: readOnly, live: false })).toBeNull();
+    for (const key of ['link', 'pack', 'dataset', 'otel', 'har'] as const) expect(shareItemOff(key, { actionsOff: readOnly, live: false }), key).toBe(readOnly);
+    for (const key of ['link', 'html', 'pack', 'dataset', 'otel', 'har'] as const) {
+      expect(shareItemOff(key, { actionsOff: null, live: false }), key).toBeNull();
+      // A run still recording: a copy of it would never end.
+      expect(shareItemOff(key, { actionsOff: null, live: true }), key).toBe(STILL_RECORDING);
+      expect(shareItemOff(key, { actionsOff: readOnly, live: true }), key).toBe(STILL_RECORDING);
+    }
+  });
+
+  it('offers Push for a run only on this machine, where the server can push', () => {
+    const ok = { exported: false, live: false, team, hasPush: true };
+    expect(canPush(ok)).toBe(true);
+    expect(canPush({ ...ok, hasPush: false })).toBe(false);
+    expect(canPush({ ...ok, live: true })).toBe(false);
+    expect(canPush({ ...ok, exported: true })).toBe(false);
+    expect(canPush({ ...ok, team: null })).toBe(false);
+    for (const state of ['queued', 'in-store', 'recording', 'pull-request'] as const) expect(canPush({ ...ok, team: { store: 'bucket/team', state } }), state).toBe(false);
+  });
 });
 
 describe('Run blame and Find the commit', () => {
   it('shows the blame it runs, with the check, and reads a check typed in', () => {
     expect(blameCommand(RUN, { tools: { send_email: 0 } })).toBe(`shadowlap blame 01M50J6C69 --expect '{"tools":{"send_email":0}}'`);
     expect(blameCommand(RUN, null)).toBe('shadowlap blame 01M50J6C69');
+    // A check still to give: a placeholder, never a quoted string.
+    expect(blameCommand(RUN, undefined)).toBe(`shadowlap blame 01M50J6C69 --expect '<check>'`);
     expect(readExpect('{"tools":{"send_email":0}}')).toEqual({ expect: { tools: { send_email: 0 } } });
     expect(readExpect('')).toHaveProperty('error');
     expect(readExpect('[1]')).toHaveProperty('error');
     expect(readExpect('{oops')).toHaveProperty('error');
     expect(blameSource({ from: 'golden', expect: {}, failed: [] })).toBe('its golden’s checks in shadowlap.config.json');
     expect(blameSource({ from: 'exit', expect: null, failed: [] })).toBe('the exit status: a passing run exits 0');
+  });
+
+  it('sends the run alone, so the job finds its check, and a check only once one is typed', () => {
+    expect(blameRequest(RUN)).toEqual({ runId: RUN });
+    expect(blameRequest(RUN, { expect: { tools: { send_email: 0 } } })).toEqual({ runId: RUN, expect: { tools: { send_email: 0 } } });
+    expect(blameRequest(RUN, { expect: null, yes: true })).toEqual({ runId: RUN, yes: true });
+  });
+
+  it('asks for the check when the job finds none, and for a consent when the run came from an imported pack', () => {
+    expect(blameReply({ status: 422, message: 'say what a passing run must do' })).toBe('check');
+    expect(blameReply({ status: 409, message: '01M50J6C69 came from an imported pack: this runs the command it was recorded with (python agent.py). Confirm it to run it' })).toBe('consent');
+    // Anything else is the drawer's to show.
+    expect(blameReply({ status: 409, message: '01M50J6C69 is still recording: blame it once it has ended' })).toBeNull();
+    expect(blameReply({ status: 403, message: 'read-only' })).toBeNull();
+    expect(blameReply(null)).toBeNull();
+  });
+
+  it('says on its hover what it does, why it can’t run, or the command to run instead', () => {
+    const golden = { from: 'golden' as const, expect: { tools: { send_email: 1 } }, failed: ['send_email called 1 time'] };
+    expect(blameHover(RUN, golden, { canBlame: true, actionsOff: null })).toBe('Find the model call where this run was lost, with its golden’s checks in shadowlap.config.json');
+    expect(blameHover(RUN, { from: 'ask', failed: ['at most 3 model calls'] }, { canBlame: true, actionsOff: null })).toBe('Find the model call where this run was lost, once you give the check a passing run meets');
+    expect(blameHover(RUN, golden, { canBlame: true, actionsOff: 'This dashboard is read-only: it was started with --read-only.' })).toBe('This dashboard is read-only: it was started with --read-only.');
+    expect(blameHover(RUN, golden, { canBlame: false, actionsOff: null })).toBe(`This dashboard can’t run blame: shadowlap blame 01M50J6C69 --expect '{"tools":{"send_email":1}}'`);
+    expect(blameHover(RUN, { from: 'ask', failed: [] }, { canBlame: false, actionsOff: null })).toBe(`This dashboard can’t run blame: shadowlap blame 01M50J6C69 --expect '<check>'`);
+    expect(failedChecksText(['at most 3 model calls'])).toBe('“at most 3 model calls”');
+    expect(failedChecksText(['at most 3 model calls', 'send_email called 0 times', 'x'])).toBe('“at most 3 model calls” and 2 more');
+    expect(failedChecksText([])).toBeNull();
+  });
+
+  it('works Run blame out from the run where the server offers nothing', () => {
+    const facts = (over: Partial<BlameFacts> = {}): BlameFacts => ({ blamed: false, capture: false, argv: ['node', 'agent.js'], status: 'failed', failed: [], fixExpect: undefined, ownExpect: undefined, modelCalls: 4, ...over });
+    // The server's offer, whatever the run says.
+    expect(blameOfferFor({ blame: null }, facts())).toBeNull();
+    expect(blameOfferFor({ blame: { from: 'ask', failed: ['x'] } }, facts({ blamed: true }))).toEqual({ from: 'ask', failed: ['x'] });
+    // An older server.
+    expect(blameOfferFor(null, facts())).toEqual({ from: 'exit', expect: null, failed: [] });
+    expect(blameOfferFor(null, facts({ status: 'crashed' }))).toEqual({ from: 'ask', failed: [] });
+    expect(blameOfferFor(null, facts({ status: 'completed', failed: ['at most 3 model calls'] }))).toEqual({ from: 'ask', failed: ['at most 3 model calls'] });
+    expect(blameOfferFor(null, facts({ status: 'completed', failed: ['x'], ownExpect: { tools: { a: 1 } } }))).toEqual({ from: 'run', expect: { tools: { a: 1 } }, failed: ['x'] });
+    expect(blameOfferFor(null, facts({ fixExpect: { tools: { b: 0 } } }))).toEqual({ from: 'fix', expect: { tools: { b: 0 } }, failed: [] });
+    // Nothing to blame: blamed already, a capture, no command, still recording, no model call, or it passed.
+    for (const over of [{ blamed: true }, { capture: true }, { argv: [] }, { status: 'running' }, { modelCalls: 0 }, { status: 'completed' }]) expect(blameOfferFor(null, facts(over)), JSON.stringify(over)).toBeNull();
   });
 
   const offer = (over: Partial<BisectOffer> = {}): BisectOffer => ({ target: { kind: 'run', runId: RUN }, failed: true, good: 'c91d0f4', bad: 'd2e8a1f', revisions: [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0 }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }], fork: false, live: false, unavailable: null, args: null, ...over });
@@ -117,24 +192,40 @@ describe('the Calls view’s detail', () => {
   });
 });
 
-describe('the Forks view’s bundles', () => {
-  const attempt = (n: number, over: Partial<BundleAttempt> = {}): BundleAttempt => ({ runId: `01M50J6F6${n}AAAAAAAAAAAAAAAA`, status: 'completed', divergence: { callNo: 28 }, spent: 0.01, startedAt: n, repeat: { group: 'g', attempt: n, of: 2 }, checks: { passed: 1, total: 1 }, ...over });
+describe('the diverged test’s actions', () => {
+  const test = (over: Partial<TestBannerOffer> = {}): TestBannerOffer =>
+    ({
+      golden: 'goldens/research',
+      session: 's1',
+      volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true, normalizer: { path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, args: [], command: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
+      normalizerFixes: true,
+      maybeReal: false,
+      values: { values: [], explainsAll: true, coversAll: true },
+      rerun: [],
+      update: [],
+      normalizeAndTest: [['normalize', 'add'], ['test', 'goldens/research']],
+      normalized: false,
+      passingRun: null,
+      ...over,
+    }) as TestBannerOffer;
+  const all = { hasNormalizeJob: true, hasUpdateJob: true, action: true, actionsOff: null };
 
-  it('bundles a blame probe’s attempts, links them to the fix’s blame step, and marks the probe blame settled on', () => {
-    const probe = (n: number, passed: boolean) => attempt(n, { probe: { of: RUN, callNo: 28, passed }, checks: { passed: passed ? 1 : 0, total: 1 } });
-    const b = attemptBundle([probe(2, false), probe(1, true)], { blamedAt: 28, fix: { href: '#/fixes/fx-1/blame' } });
-    expect(b).toMatchObject({ kind: 'blame', title: 'blame · probe #28', line: '2 attempts, 1 passed · ≈$0.020', blamed: true, glyph: 'blame', href: '#/fixes/fx-1/blame' });
-    expect(b.attempts.map((a) => [a.text, a.ok])).toEqual([
-      ['01M50J6F61 · passed', true],
-      ['01M50J6F62 · check failed', false],
-    ]);
-    expect(attemptBundle([probe(1, true)], { blamedAt: 30, fix: null })).toMatchObject({ blamed: false, href: null });
+  it('adds the normalizer and re-runs the golden as a job, leading when a value made anew is all that changed', () => {
+    expect(divergedActions({ ...all, test: test() })).toEqual({ normalizer: { kind: 'job', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" }, update: true });
+    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', lead: false });
   });
 
-  it('bundles a verify’s attempts with its verdict, and a --repeat as before', () => {
-    const v = (n: number, passed: boolean, verdict: string | null) => attempt(n, { verify: { role: 'holdout', passed }, fix: verdict ? { href: '#/fixes/fx-1/verify/v-1', verdict } : null, status: passed ? 'completed' : 'failed', checks: null });
-    expect(attemptBundle([v(1, true, 'rejected'), v(2, false, null)], null)).toMatchObject({ kind: 'verify', title: 'verify · held-out', glyph: 'fixbad', href: '#/fixes/fx-1/verify/v-1', line: '2 attempts, 1 passed · ≈$0.020' });
-    expect(attemptBundle([v(1, true, null)], null)).toMatchObject({ glyph: 'fixok' });
-    expect(attemptBundle([attempt(1), attempt(2)], null)).toMatchObject({ kind: 'repeat', title: 'replay --repeat 2', glyph: 'fork' });
+  it('says the normalizer was added once it is in the config, with the replay that passed since', () => {
+    expect(divergedActions({ ...all, test: test({ normalized: true, passingRun: '01M510PASS' }) })).toEqual({ normalizer: { kind: 'added', passingRun: '01M510PASS' }, update: false });
+    expect(divergedActions({ ...all, test: test({ normalized: true }) })).toEqual({ normalizer: { kind: 'added', passingRun: null }, update: false });
+  });
+
+  it('falls back to the run’s own action without the tests’ job, and shows the job off on a read-only dashboard', () => {
+    expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: test() })).toEqual({ normalizer: { kind: 'action' }, update: false });
+    const readOnly = 'This dashboard is read-only: it was started with --read-only.';
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', lead: true, off: readOnly, title: readOnly });
+    expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
+    // A server that says nothing of the test.
+    expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });
   });
 });

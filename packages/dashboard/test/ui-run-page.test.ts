@@ -153,7 +153,7 @@ describe('a tool call’s own conversation', () => {
     expect(conversationLink({ callNo: 5, kind: 'tool', requestedBy: 4, conversation: 1 }, { fromCallNo: 4, n: 1 }, [{ conversation: 1 }])).toEqual({ callNo: 4, text: 'Asked for by #4' });
   });
   it('names the request it feeds or follows when no model call asked for it', () => {
-    expect(conversationLink({ callNo: 61, kind: 'clock', conversation: 3 }, { fromCallNo: 63, n: 3 }, batch)).toEqual({ callNo: 63, text: 'Before #63, which reads it · conversation 3 of 4' });
+    expect(conversationLink({ callNo: 61, kind: 'clock', conversation: 3 }, { fromCallNo: 63, n: 3 }, batch)).toEqual({ callNo: 63, text: 'Before #63, its conversation’s first model call · conversation 3 of 4' });
     expect(conversationLink({ callNo: 80, kind: 'tool', requestedBy: null, conversation: 3 }, { fromCallNo: 77, n: 3 }, batch)).toEqual({ callNo: 77, text: 'After #77 · conversation 3 of 4' });
   });
   it('says nothing for a model call, or when the server names no conversation', () => {

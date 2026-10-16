@@ -228,6 +228,7 @@ export function conversationLink(
   const all = calls.reduce((n, x) => Math.max(n, x.conversation ?? 0), 0);
   const n = conv?.n ?? call.conversation ?? null;
   const which = n && all > 1 ? ` · conversation ${n.toLocaleString('en-US')} of ${all.toLocaleString('en-US')}` : '';
-  const how = by !== null ? `Asked for by #${by}` : at > call.callNo ? `Before #${at}, which reads it` : `After #${at}`;
+  // Made before its conversation's first model call: the server knows the order, not that the call reads it.
+  const how = by !== null ? `Asked for by #${by}` : at > call.callNo ? `Before #${at}, its conversation’s first model call` : `After #${at}`;
   return { callNo: at, text: `${how}${which}` };
 }

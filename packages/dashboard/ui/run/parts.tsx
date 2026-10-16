@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { JOB_KINDS, type BlameOffer, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
+import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
@@ -12,8 +12,9 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
-import { blameCommand, blameSource } from './offers.js';
-import { BlameDialog, UpdateGoldenDialog } from './RunDialogs.js';
+import { blameOfferFor, divergedActions } from './offers.js';
+import { RunBlame } from './RunBlame.js';
+import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
 export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
@@ -79,7 +80,7 @@ export interface BannerProps {
   blame: BlameView | null;
   rescued: { callNo: number | null } | null;
   checks: CheckView[];
-  /** What the page offers beyond the run's record: Run blame's check, the diverged test's actions. */
+  /** What the page offers beyond the run's record: Run blame, the diverged test's actions. */
   offers: RunOffers | null;
   showDiff: boolean;
   onToggleDiff: () => void;
@@ -90,7 +91,7 @@ export interface BannerProps {
 /** The run's one banner: recording now, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
 export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
   const app = useApp();
-  const [dialog, setDialog] = useState<'blame' | 'update' | null>(null);
+  const [dialog, setDialog] = useState<'update' | null>(null);
   const r = run.run;
   const iv = run.intervention ?? null;
   const flagRow = iv?.callNo ? run.calls.find((c) => c.callNo === iv.callNo) : undefined;
@@ -109,6 +110,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     fix: run.fix ?? null,
     upstreamRequests: run.summary.upstreamRequests,
     volatile: test?.volatile ?? null,
+    modelCalls: run.summary.byKind.api,
   });
   if (!b) return null;
   const job = (kind: string, fields: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(kind, fields)));
@@ -150,11 +152,11 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
     case 'diverged': {
       // A test replay: Add normalizer adds the rule and runs its golden again, Update golden re-records
       // it; each is the tests' job. A server without them falls back to the run's own normalizer action.
+      // Once the rule is in the config, the banner says so and links the replay that passed.
       const normalizer = run.actions.find((a) => a.key === 'n');
-      const canNormalize = !!test?.normalizeAndTest && app.hasKind(JOB_KINDS.normalizeAndTest);
-      const canUpdate = !!test && app.hasKind(JOB_KINDS.testUpdate);
-      // An id that may be a real change: neither button leads.
-      const lead = test ? test.normalizerFixes && !test.maybeReal : true;
+      const acts = divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: !!normalizer, actionsOff: off });
+      const add = acts.normalizer;
+      const canNormalize = add?.kind === 'job';
       return (
         <section className="banner blame">
           <span className="bk">diverged at</span>
@@ -163,16 +165,28 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           <Why>{b.why}</Why>
           {b.path ? <span className="path">~ {test?.volatile?.path ?? b.path}</span> : null}
           <span className="end">
-            {canNormalize ? (
-              <button className={`btn sm${lead ? ' lime' : ''}`} type="button" disabled={!!off} title={off ?? test!.volatile?.command} onClick={() => job(JOB_KINDS.normalizeAndTest, { runId: r.runId })}>
+            {add?.kind === 'added' ? (
+              <>
+                <span className="st ok">
+                  <i />
+                  normalizer added
+                </span>
+                {add.passingRun ? (
+                  <a className="more" href={href.run(add.passingRun)}>
+                    Passing run →
+                  </a>
+                ) : null}
+              </>
+            ) : add?.kind === 'job' ? (
+              <button className={`btn sm${add.lead ? ' lime' : ''}`} type="button" disabled={!!add.off} title={add.title ?? undefined} onClick={() => job(JOB_KINDS.normalizeAndTest, { runId: r.runId })}>
                 Add normalizer
               </button>
-            ) : normalizer && !off ? (
+            ) : add?.kind === 'action' && normalizer ? (
               <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
                 Add normalizer
               </button>
             ) : null}
-            {canUpdate ? (
+            {acts.update ? (
               <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => setDialog('update')}>
                 Update golden
               </button>
@@ -260,63 +274,35 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
         </section>
       );
     case 'failed': {
-      // Run blame: with the check the run failed, or on the exit status; asking for the check when
-      // nothing names it. The fixes' blame job runs it and ends with a link to the fix.
-      const offer = offers?.blame ?? (offers ? null : legacyBlameOffer(run, b.blamed));
-      const canBlame = app.hasKind(JOB_KINDS.blame);
-      const blameIt = () => {
-        if (!offer) return;
-        if (offer.from === 'ask') return setDialog('blame');
-        job(JOB_KINDS.blame, { runId: r.runId, expect: offer.expect ?? null });
-      };
+      // Run blame: the fixes' blame job, which finds the check the run failed (asking when nothing
+      // names it) and ends with a link to the fix. Not for a run blame has been run on already.
+      const offer = b.blamed
+        ? null
+        : blameOfferFor(offers, {
+            blamed: b.blamed,
+            capture: !!run.source,
+            argv: r.command.argv,
+            status: r.status,
+            failed: checks.filter((c) => !c.ok).map((c) => c.label),
+            fixExpect: run.blameExpect,
+            ownExpect: r.meta?.expect,
+            modelCalls: run.summary.byKind.api,
+          });
       return (
         <section className="banner blame">
           <span className="bk">failed</span>
           <Why>{b.why}</Why>
           {b.fix ? (
             <span className="end">{fixLink()}</span>
-          ) : !b.blamed && offer && !app.exported ? (
+          ) : offer && !app.exported ? (
             <span className="end">
-              <button
-                className="linkbtn"
-                type="button"
-                disabled={!canBlame || !!off}
-                title={off ?? (canBlame ? `${blameCommand(r.runId, offer.from === 'ask' ? '…' : offer.expect)} · ${blameSource(offer)}` : `This dashboard can’t run blame: ${blameCommand(r.runId, offer.from === 'ask' ? '…' : offer.expect)}`)}
-                onClick={() => app.guard(blameIt)}
-              >
-                Run blame
-              </button>
+              <RunBlame runId={r.runId} offer={offer} />
             </span>
-          ) : null}
-          {dialog === 'blame' && offer ? (
-            <BlameDialog
-              runId={r.runId}
-              offer={offer}
-              onClose={() => setDialog(null)}
-              onRun={(expect) => {
-                setDialog(null);
-                job(JOB_KINDS.blame, { runId: r.runId, expect });
-              }}
-            />
           ) : null}
         </section>
       );
     }
   }
-}
-
-/**
- * Run blame on a server that says nothing of it: the check the fix's labels suggest, else blame on the
- * exit status when the agent failed, else ask.
- */
-function legacyBlameOffer(run: RunDetail, blamed: boolean): BlameOffer | null {
-  if (blamed || !run.run.command.argv.length) return null;
-  const failed = (run.checks ?? []).filter((c) => !c.ok).map((c) => c.label);
-  if (run.blameExpect !== undefined && run.blameExpect !== null) return { from: 'fix', expect: run.blameExpect, failed };
-  const own = run.run.meta?.expect;
-  if (failed.length && own && typeof own === 'object') return { from: 'run', expect: own, failed };
-  if (failed.length) return { from: 'ask', failed };
-  return run.run.status === 'failed' || run.run.status === 'crashed' ? { from: 'exit', expect: null, failed } : null;
 }
 
 /** The request that changed at the fork: what the recording sent, and what this run sent. */
