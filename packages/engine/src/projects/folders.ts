@@ -1,7 +1,7 @@
 import { lstatSync, opendirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
-import { displayPath, expandHome, isWithin, realpathOrNull } from './paths.js';
+import { displayPath, expandHome, isWithin, realpathOrNull, tildePath } from './paths.js';
 
 /**
  * Folders for the dashboard's Add a project page: what kind of project a folder holds, and the
@@ -97,9 +97,11 @@ const LOCKFILES: ReadonlyArray<readonly [string, ProjectLanguage, string]> = [
 
 const NO_PROJECT_FILES = 'No project files';
 
+// A path that isn't there is the common answer here (most folders have few of the files looked
+// for), so it is asked without an exception for it: suggestions look at thousands.
 function isFile(path: string): boolean {
   try {
-    return statSync(path).isFile();
+    return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
   } catch {
     return false;
   }
@@ -107,10 +109,22 @@ function isFile(path: string): boolean {
 
 function isDirectory(path: string): boolean {
   try {
-    return statSync(path).isDirectory();
+    return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
   } catch {
     return false;
   }
+}
+
+/** Folder names in a list's order, as people read them: case and accents aside. One collator for every comparison, which is what keeps a sort of thousands fast. */
+const BY_NAME = new Intl.Collator('en', { sensitivity: 'base' });
+
+/** Paths as people read them under `home` (`~/code/agent`), with the home folder's real path found once rather than for every path. */
+function displayer(home: string): (path: string) => string {
+  const bases = [...new Set([resolve(home), realpathOrNull(home) ?? resolve(home)])];
+  return (path) => {
+    for (const base of bases) if (isWithin(path, base)) return tildePath(path, base);
+    return path;
+  };
 }
 
 /** A small text file's contents, or '' (a manifest is never this large; a huge one isn't read). */
@@ -151,9 +165,9 @@ function defaultManager(folder: string, language: ProjectLanguage, has: (name: s
  * nothing below the folder; it only checks for a fixed set of names, so a folder of any size costs
  * the same.
  */
-export function describeFolder(folder: string, options: { home?: string } = {}): FolderKind {
+export function describeFolder(folder: string, options: { home?: string; display?: (path: string) => string } = {}): FolderKind {
   const home = options.home ?? homedir();
-  const shown = displayPath(folder, home);
+  const shown = options.display ? options.display(folder) : displayPath(folder, home);
   const none = (why: string): FolderKind => ({ kind: null, label: NO_PROJECT_FILES, languages: [], managers: [], files: [], why });
   if (!isDirectory(folder)) {
     try {
@@ -566,7 +580,7 @@ function projectsInside(parents: readonly Ranked[], prefix: string, depth: numbe
     } finally {
       handle.closeSync();
     }
-    children.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+    children.sort((a, b) => BY_NAME.compare(a.name, b.name));
     const found: Array<Ranked & { suggestion: FolderSuggestion }> = [];
     for (const c of children.slice(0, SUGGEST_LIMITS.insideEach)) {
       if (described >= SUGGEST_LIMITS.insideDescribed) break;
@@ -669,12 +683,13 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
     matches.push({ ...link, path: target });
   }
 
-  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+  const byName = (a: { name: string }, b: { name: string }) => BY_NAME.compare(a.name, b.name);
   matches.sort((a, b) => a.rank - b.rank || byName(a, b));
   if (matches.length > SUGGEST_LIMITS.described) truncated = true;
+  const display = displayer(home);
   const suggest = (m: { name: string; path: string }): FolderSuggestion => {
     const id = opened.get(m.path) ?? null;
-    return { path: m.path, display: displayPath(m.path, home), name: m.name, folder: describeFolder(m.path, { home }), added: id !== null, projectId: id };
+    return { path: m.path, display: display(m.path), name: m.name, folder: describeFolder(m.path, { home, display }), added: id !== null, projectId: id };
   };
   const described = matches.slice(0, SUGGEST_LIMITS.described).map((m) => ({ ...m, suggestion: suggest(m) }));
 
@@ -690,7 +705,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
   });
   for (const o of others) listedHere.push(...(inside.get(o.path) ?? []));
   // The best match first, then folders with project files before those without, by what they show as.
-  listedHere.sort((a, b) => a.rank - b.rank || Number(!a.suggestion.folder.kind) - Number(!b.suggestion.folder.kind) || a.suggestion.display.localeCompare(b.suggestion.display, 'en', { sensitivity: 'base' }));
+  listedHere.sort((a, b) => a.rank - b.rank || Number(!a.suggestion.folder.kind) - Number(!b.suggestion.folder.kind) || BY_NAME.compare(a.suggestion.display, b.suggestion.display));
   let folders = listedHere.map((d) => d.suggestion);
 
   // With nothing typed, the configured roots themselves are offered too, so they can be opened.
@@ -698,7 +713,7 @@ export function suggestFolders(query: string, options: SuggestOptions = {}): Fol
     const realHome = realpathOrNull(home) ?? resolve(home);
     for (const r of roots.filter((x) => x !== realHome)) {
       const id = opened.get(r) ?? null;
-      folders.push({ path: r, display: displayPath(r, home), name: basename(r), folder: describeFolder(r, { home }), added: id !== null, projectId: id });
+      folders.push({ path: r, display: display(r), name: basename(r), folder: describeFolder(r, { home, display }), added: id !== null, projectId: id });
     }
   }
   if (folders.length > limit) {
