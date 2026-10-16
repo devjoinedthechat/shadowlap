@@ -90,55 +90,55 @@ export function UpdateGoldensDialog({ view, paths, has, onUpdate, onInstead, onC
   );
 }
 
-/** The select's option that turns it into a field for any commit, tag or branch. */
+/** The select's option that opens a field for any commit, tag or branch. */
 const ANOTHER = '\u0000another';
 
 /**
  * Find the commit for a golden when it can't just start: no revision where it passed under today's
  * checks is known, or a search from it (`tried`) named no first bad commit, so it asks for a commit
  * where it still worked, offering the commits the golden was tested at with their subjects (as the
- * mock's select does), starting on an older one than `tried`, or any other; or the golden may fork,
- * so each replay runs live from where it forks and the search costs tokens, which it says first.
+ * mock's select does), starting on an older one than `tried`, or on Another commit… with its field
+ * when none is older; or the golden may fork, so each replay runs live from where it forks and the
+ * search costs tokens, which it says first. The select stays, so a commit typed can be traded back
+ * for one listed.
  */
 export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (good: string, bad: string | null) => void; onClose: () => void }) {
   const choices = revisionChoices(revisions, tried);
-  const [picked, setPicked] = useState(choices.initial);
-  const [own, setOwn] = useState(!choices.initial);
+  const listed = choices.options.length > 0;
+  const [picked, setPicked] = useState(choices.initial || ANOTHER);
   const [typed, setTyped] = useState('');
+  const own = !listed || picked === ANOTHER;
   const rev = range ? range.good : own ? typed.trim() : picked;
   const ok = /^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,199}$/.test(rev);
   const args = ['bisect', golden, '--good', rev || '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])];
   const between = range ? `between ${range.good} and ${range.bad ?? 'HEAD'}` : 'between a good one and HEAD';
   const cost = live ? 'It may fork, so each replay runs live from where it forks: this costs tokens.' : 'Replays are free, so this costs no tokens.';
   const run = () => ok && onRun(rev, range?.bad ?? null);
+  const field = (
+    <input
+      type="text"
+      value={typed}
+      placeholder="a sha, a tag or a branch"
+      spellCheck={false}
+      aria-label={listed ? 'Another commit' : undefined}
+      autoFocus={listed}
+      onChange={(e) => setTyped(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          run();
+        }
+      }}
+    />
+  );
   return (
     <Dialog title={`Find the commit that broke ${name}`} text={`Replays ${name} at commits ${between}, halving each time, and names the first where it fails. ${cost}`} ok="Find the commit" okDisabled={!ok} onOk={run} onClose={onClose}>
       {range ? null : (
         <div className="form one">
           <label>
             A commit where it still worked
-            {own ? (
-              <input
-                type="text"
-                value={typed}
-                placeholder="a sha, a tag or a branch"
-                spellCheck={false}
-                onChange={(e) => setTyped(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    run();
-                  }
-                }}
-              />
-            ) : (
-              <select
-                value={picked}
-                onChange={(e) => {
-                  if (e.target.value === ANOTHER) setOwn(true);
-                  else setPicked(e.target.value);
-                }}
-              >
+            {listed ? (
+              <select value={picked} onChange={(e) => setPicked(e.target.value)}>
                 {choices.options.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
@@ -146,8 +146,11 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
                 ))}
                 <option value={ANOTHER}>Another commit…</option>
               </select>
+            ) : (
+              field
             )}
           </label>
+          {listed && own ? field : null}
         </div>
       )}
       <CmdLine>{commandText(args)}</CmdLine>

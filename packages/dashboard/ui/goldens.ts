@@ -52,23 +52,39 @@ export function sessionLine(view: TestsView, running = false): { command: string
 /**
  * The jobs that replay or rewrite the goldens on disk, by what each is doing, as the server tells
  * them apart: while one runs in a project, another is refused there (409), so its button waits.
+ * Find the commit counts when it searches a golden; on a run, it touches no golden.
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
   ['test-update', 'an update of goldens'],
   ['normalize-and-test', 'a normalizer and its re-run'],
   ['pack-test', 'a new golden being packed and tested'],
+  ['bisect', 'find the commit'],
 ]);
+
+type FamilyJob = { kind?: string | undefined; args?: readonly string[] | undefined; done: boolean; project?: { id: string } | undefined };
+
+const inFamily = (x: FamilyJob): boolean => (x.kind === 'bisect' ? !!x.args?.[1] && !/^[0-9A-Z]{26}$/.test(x.args[1]) : !!x.kind && TEST_FAMILY.has(x.kind));
 
 /**
  * Why a Tests action that replays or rewrites goldens waits, as the server would refuse it: one of
  * those jobs is running in this project (`projectId`, null on a dashboard serving one store). `verb`
  * is what to do once it is done. Null when it can start.
  */
-export function testsBusy(jobs: ReadonlyArray<{ kind?: string | undefined; done: boolean; project?: { id: string } | undefined }>, verb: string, projectId: string | null = null): string | null {
-  const j = jobs.find((x) => !x.done && !!x.kind && TEST_FAMILY.has(x.kind) && (x.project?.id ?? null) === projectId);
+export function testsBusy(jobs: ReadonlyArray<FamilyJob>, verb: string, projectId: string | null = null): string | null {
+  const j = jobs.find((x) => !x.done && inFamily(x) && (x.project?.id ?? null) === projectId);
   const doing = j?.kind ? TEST_FAMILY.get(j.kind)! : null;
   return doing ? `${doing.charAt(0).toUpperCase()}${doing.slice(1)} is running: ${verb} once it is done.` : null;
+}
+
+/**
+ * Why a Tests action waits for a test session started outside this dashboard's jobs (a terminal,
+ * another dashboard), as the server says it: by its command. Null when none runs.
+ */
+export function sessionWait(view: Pick<TestsView, 'running'> | null, verb: string): string | null {
+  const live = view?.running;
+  if (!live) return null;
+  return `${live.command.length > 60 ? `${live.command.slice(0, 59)}…` : live.command} is running: ${verb} once it is done.`;
 }
 
 /** The running test job among these, for the palette's Run the tests to open rather than start another. */
@@ -247,12 +263,13 @@ export function divergenceButtons(d: DivergenceView, has: (kind: string) => bool
 
 /**
  * Find the commit under a failure (a divergence, or a check, an exit, no calls): none while what it
- * found stands (the card says it), for a pack that can't be read, or where the server runs no bisect.
- * It starts from the range the page knows, or asks for a good commit when there is none, or when a
- * search over that range already named none.
+ * found stands (the card says it), while a search found it passing at the commit it fails at (no
+ * other good commit helps: the failure isn't in a commit), for a pack that can't be read, or where
+ * the server runs no bisect. It starts from the range the page knows, or asks for a good commit when
+ * there is none, or when a search over that range already named none.
  */
 export function findCommitButton(f: Pick<DivergenceView, 'found' | 'missed' | 'bisect' | 'unreadable'>, has: (kind: string) => boolean): { range: boolean; live: boolean } | null {
-  if (f.found || f.unreadable || !has('bisect')) return null;
+  if (f.found || f.unreadable || !has('bisect') || f.missed?.outcome === 'passes-at-bad') return null;
   return { range: !!f.bisect && !f.missed, live: !!f.bisect?.live };
 }
 
@@ -261,8 +278,13 @@ export function foundLine(f: FoundCommit): { rev: string; subject: string; meta:
   return { rev: f.rev, subject: f.subject, meta: [f.author, f.date ? shortDate(f.date) : null, n(f.tokens, 'token')].filter(Boolean).join(' · ') };
 }
 
-/** When Find the commit named no first bad commit: where it looked, and why, for the line above the buttons. */
+/**
+ * When Find the commit named no first bad commit: where it looked, and why, for the line above the
+ * buttons. Passing at the commit it fails at, the failure is in no commit: it is in changes not
+ * committed there, or it doesn't happen every time.
+ */
 export function missedLine(m: BisectMiss): string {
+  if (m.outcome === 'passes-at-bad') return `No first bad commit: it passes at ${m.bad ? revLabel(m.bad) : 'HEAD'} as committed, so the failure is in changes not committed there, or doesn’t happen every time`;
   const between = m.good ? ` between ${revLabel(m.good)} and ${m.bad ? revLabel(m.bad) : 'HEAD'}` : '';
   return `No first bad commit${between}: ${m.why}`;
 }

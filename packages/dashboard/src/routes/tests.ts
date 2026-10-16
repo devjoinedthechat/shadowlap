@@ -1,4 +1,4 @@
-import type { Normalizer } from '@shadowlap/engine';
+import type { Normalizer, Store } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { ciWorkflows, fixPreview, gitFacts, parseCiOptions } from '../ci-workflows.js';
 import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
@@ -6,7 +6,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import type { Router } from '../router.js';
-import { bisectChoices, bisectJob, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { bisectChoices, bisectJob, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
@@ -21,8 +21,9 @@ import { bisectChoices, bisectJob, normalizeAndTestJob, runTestsJob, testPattern
  *   normalize-and-test   { golden | runId, path? }       `normalize add` for each value made anew on every run, then `test` on the golden
  *
  * The goldens are the packs on disk, as the CLI lists them (`DashboardOptions.goldens`); a request
- * naming any other is refused. Jobs that replay or rewrite those packs run one at a time in a
- * project (`testsBusy`): a second is refused with a 409 that names the one running.
+ * naming any other is refused. Jobs that replay or rewrite those packs (Find the commit on a golden
+ * among them) run one at a time in a project (`testsBusy`), and none starts while a test session
+ * started elsewhere runs (`sessionBusy`): a second is refused with a 409 that names the one running.
  */
 
 /** The folder the project keeps its goldens in. */
@@ -34,24 +35,43 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
  * would replay a pack the other is rewriting, or report a session the other's results land in. A
- * setup's Keep it as a test packs a new golden and tests it. Bisect replays in worktrees of its own.
+ * setup's Keep it as a test packs a new golden and tests it. Find the commit on a golden reads its
+ * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
   ['test-update', 'an update of goldens'],
   ['normalize-and-test', 'a normalizer and its re-run'],
   ['pack-test', 'a new golden being packed and tested'],
+  ['bisect', 'find the commit'],
 ]);
+
+/** Whether a job is one of those: a bisect counts when it searches a golden rather than a run (by its id). */
+export function inTestFamily(job: { kind: string; args?: readonly string[] }): boolean {
+  if (job.kind === 'bisect') return !!job.args?.[1] && !/^[0-9A-Z]{26}$/.test(job.args[1]);
+  return TEST_FAMILY.has(job.kind);
+}
 
 /**
  * Why a job that replays or rewrites the goldens can't start now in this project (`projectId`, null
  * on a dashboard that serves one store): another such job is running there. `verb` is what to do
  * once it is done. Null when it can start.
  */
-export function testsBusy(jobs: ReadonlyArray<{ kind: string; done: boolean; project?: { id: string } }>, projectId: string | null, verb: string): string | null {
-  const j = jobs.find((x) => !x.done && TEST_FAMILY.has(x.kind) && (x.project?.id ?? null) === projectId);
+export function testsBusy(jobs: ReadonlyArray<{ kind: string; args?: readonly string[]; done: boolean; project?: { id: string } }>, projectId: string | null, verb: string): string | null {
+  const j = jobs.find((x) => !x.done && inTestFamily(x) && (x.project?.id ?? null) === projectId);
   const doing = j ? TEST_FAMILY.get(j.kind)! : null;
   return doing ? `${doing.charAt(0).toUpperCase()}${doing.slice(1)} is running: ${verb} once it is done` : null;
+}
+
+/**
+ * Why such a job waits for a test session running outside this dashboard's jobs (a terminal, another
+ * dashboard), named by its command; null when none runs. The store keeps each session's process.
+ */
+export function sessionBusy(store: Store, verb: string): string | null {
+  const live = liveTestSession(store);
+  if (!live) return null;
+  const command = live.command.join(' ');
+  return `${command.length > 60 ? `${command.slice(0, 59)}…` : command} is running: ${verb} once it is done`;
 }
 
 /** A tests job as the job runner takes it: `steps` become the first command and the ones `then` runs. */
@@ -83,8 +103,9 @@ function rangesInCheckout(view: TestsView, root: string | null | undefined): Tes
   return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
 }
 
-// Find the commit that named no first bad commit, in the activity feed: why, so the next search starts elsewhere.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? 'Find the commit'}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: '#/tests' }));
+// Find the commit that named no first bad commit, in the activity feed: why, so the next search
+// starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
+describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? 'Find the commit'}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? `#/run/${e.runId}` : '#/tests' }));
 
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];
@@ -97,7 +118,8 @@ export function register(router: Router, ctx: RouteContext): void {
       return [];
     }
   };
-  const busy = (projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb);
+  // Another job replaying or rewriting the goldens, then a session from a terminal: the job is named first.
+  const busy = (store: Store, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
   router.get('/tests', (r) => {
     r.tagged(rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
@@ -136,18 +158,22 @@ export function register(router: Router, ctx: RouteContext): void {
   // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that failed.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.test, {
     title: () => 'Running the tests',
-    build: (req, { projectId }) => testsBuild(runTestsJob(goldens(), req, { folder: FOLDER }), busy(projectId, req.golden === undefined ? 'run the tests' : 'run it again')),
+    build: (req, { store, projectId }) => testsBuild(runTestsJob(goldens(), req, { folder: FOLDER }), busy(store, projectId, req.golden === undefined ? 'run the tests' : 'run it again')),
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
     title: () => 'Updating goldens',
-    build: (req, { projectId }) => testsBuild(updateGoldensJob(goldens(), req), busy(projectId, 'update it')),
+    build: (req, { store, projectId }) => testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
   });
+  // A golden's search waits for the tests, and they for it; a run's searches nothing on disk.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {
     title: () => 'Finding the commit',
-    build: (req, { store, project }) => testsBuild(bisectJob(store, goldens(), req, project ? { here: (revs) => commitsHere(project.path, revs) } : {})),
+    build: (req, { store, project, projectId }) => {
+      const job = bisectJob(store, goldens(), req, project ? { here: (revs) => commitsHere(project.path, revs) } : {});
+      return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the commit') : null);
+    },
   });
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.normalize, {
     title: () => 'Adding a normalizer',
-    build: (req, { store, projectId }) => testsBuild(normalizeAndTestJob(store, goldens(), req), busy(projectId, 'add the normalizer')),
+    build: (req, { store, projectId }) => testsBuild(normalizeAndTestJob(store, goldens(), req), busy(store, projectId, 'add the normalizer')),
   });
 }

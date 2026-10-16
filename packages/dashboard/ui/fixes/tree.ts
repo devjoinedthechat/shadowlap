@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { testsBusy } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import type { JobListItem } from '../types.js';
@@ -25,4 +26,15 @@ export function useTreeBusy(use: 'reads' | 'writes', verb: string): string | nul
   const { meta } = useApp();
   const tree = useServerJobs();
   return treeBusy(tree, use, verb, meta?.project?.path ?? null);
+}
+
+/**
+ * Why a Tests job started from another page (the run page's diverged-test banner) can't start now,
+ * as the server would refuse it, or null: a job replaying or rewriting the goldens (`testsBusy`), or
+ * a repair holding the working tree (`treeBusy`).
+ */
+export function useTestsWait(verb: string): string | null {
+  const { meta } = useApp();
+  const jobs = useServerJobs();
+  return testsBusy(jobs, verb, meta?.project?.id ?? null) ?? treeBusy(jobs, 'reads', verb, meta?.project?.path ?? null);
 }

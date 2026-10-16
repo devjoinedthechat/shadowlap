@@ -224,6 +224,33 @@ console.log(JSON.stringify((await res.json()).content));
     expect((await shadowlap(['test', 'goldens/ids'], { WITH_REQUEST_ID: '1' })).code).toBe(0);
   });
 
+  it('gives no hint for a value a rule in the config masks, and keeps the change that made it diverge', async () => {
+    // A UUID made anew on every run, which a rule masks, and a prompt that changed: the report lists both.
+    writeFileSync(
+      join(work, 'agent.mjs'),
+      `import { randomUUID } from 'node:crypto';
+const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 32, metadata: { user_id: randomUUID() }, system: process.env.PROMPT ?? 'Escalate refunds above the limit.', messages: [{ role: 'user', content: 'triage' }] }) });
+if (!res.ok) process.exit(1);
+console.log(JSON.stringify((await res.json()).content));
+`,
+    );
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/prompt'])).code).toBe(0);
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] }));
+    const r = await shadowlap(['test', 'goldens/prompt'], { PROMPT: 'Refund whatever is asked.' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('~ $.system');
+    // The masked UUID is listed, as the request carried it, but no hint asks for the rule the config has.
+    expect(r.out).toContain('~ $.metadata.user_id');
+    expect(r.out).not.toContain('hint: this looks like a UUID');
+    const s = store();
+    const divergence = s.listTestResults({ golden: 'goldens/prompt' })[0]!.data!.divergence!;
+    s.close();
+    expect(divergence.cause).toBe('$.system');
+    expect(divergence.hints ?? []).toEqual([]);
+  });
+
   it('says a changed customer id may be a real change, and offers the update as well as the normalizer', async () => {
     await golden();
     const r = await shadowlap(['test', 'goldens/ids'], { CUSTOMER: 'A-1043' });

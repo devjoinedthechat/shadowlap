@@ -23,8 +23,10 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   One event per run an import keeps; the feed tells the events of one import (same actor and
  *   source, moments apart) as one entry. An event may instead list its runs in `runIds`.
  * - `test.session`: ref the session; data { passed, failed, goldens, interrupted?, notRun? }
- * - `bisect.found`: ref the golden or run bisected; data { commit, subject, first, why, untested, … };
- *   `bisect.none`: ref as for found; data { outcome, why, good, bad }: no first bad commit between them
+ * - `bisect.found`: ref the golden or run bisected (runId too, for a run); data { commit, subject, first,
+ *   why, untested, answered?, … }; `bisect.none`: ref as for found; data { outcome, why, good, bad,
+ *   answered? }: no first bad commit between them. `answered` is the golden's newest result as the
+ *   search started { session, at, ok, revision }: the failure the answer is about
  * - `blame.done`: runId the blamed run, ref the fix (`fx-…`); data { outcome ('blamed',
  *   'unrescuable' or 'stopped'), callNo, confidence, title }
  * - `repair.accepted`, `repair.empty`: ref the fix; data { repairId, title (accepted), why (empty) }

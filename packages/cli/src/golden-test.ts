@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, unpackRun, volatileValues, type CallRecord, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, maskedChange, unpackRun, volatileValues, type CallRecord, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -235,6 +235,8 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
       ...(d.diff ? { diff: d.diff.slice(0, 12).map((e) => ({ ...e, ...('before' in e ? { before: clipValue(e.before) } : {}), ...('after' in e ? { after: clipValue(e.after) } : {}) })), entries: d.diff.length } : {}),
       ...(d.hints ? { hints: d.hints } : {}),
       volatile: volatileValues(d, o.normalizers),
+      // What made it diverge: the report lists every change, those the rules in force mask too.
+      cause: (d.type === 'request_changed' ? (d.diff ?? []) : []).find((e) => !maskedChange(e, o.normalizers, d))?.path ?? null,
       text: formatDivergence(d),
     };
   }

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type TestResultData } from '@shadowlap/engine';
-import { startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
+import { inTestFamily, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource, type JobView, type SpawnCli, type TestsView } from '../src/index.js';
 
 /**
  * The Tests screen's API: `GET /api/tests` over the goldens the CLI lists, `GET /api/ci/workflows`
@@ -159,38 +159,88 @@ describe('GET /api/tests/runs/:id', () => {
 });
 
 describe('one job at a time on the goldens', () => {
-  it('refuses a test, an update or a normalizer while a test job runs in the project, naming it, and starts Find the commit', async () => {
+  /** Holds the stand-in's `test` and `bisect` while `fn` runs, then waits for `started` to end. */
+  async function holding(fn: () => Promise<JobView | null>): Promise<void> {
     const hold = join(project, 'hold-tests');
     writeFileSync(hold, '');
     process.env.FAKE_TESTS_HOLD = hold;
-    let first: JobView | null = null;
+    let started: JobView | null = null;
     try {
+      started = await fn();
+    } finally {
+      rmSync(hold, { force: true });
+      delete process.env.FAKE_TESTS_HOLD;
+      for (let i = 0; i < 400 && started; i++) {
+        if ((await getJson<JobView>(dash, `jobs/${started.id}`)).done) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+  }
+
+  const refused = async (cases: ReadonlyArray<readonly [Record<string, unknown>, string]>) => {
+    for (const [body, why] of cases) {
+      const res = await post(body);
+      expect(res.status, JSON.stringify(body)).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toBe(why);
+    }
+  };
+
+  it('refuses a test, an update, a normalizer or Find the commit on a golden while a test job runs in the project, naming it', async () => {
+    await holding(async () => {
       const started = await post({ kind: 'test' });
       expect(started.status, await started.clone().text()).toBe(202);
-      first = (await started.json()) as JobView;
-      for (const [body, why] of [
+      await refused([
         [{ kind: 'test' }, 'A test session is running: run the tests once it is done'],
         [{ kind: 'test', golden: 'goldens/refund-flow' }, 'A test session is running: run it again once it is done'],
         [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'A test session is running: update it once it is done'],
         [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'A test session is running: add the normalizer once it is done'],
-      ] as const) {
-        const res = await post(body);
-        expect(res.status, JSON.stringify(body)).toBe(409);
-        expect(((await res.json()) as { error: string }).error).toBe(why);
-      }
-      // Find the commit replays in worktrees of its own: it doesn't wait.
-      const bisect = await post({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' });
-      expect(bisect.status).toBe(202);
-    } finally {
-      rmSync(hold, { force: true });
-      delete process.env.FAKE_TESTS_HOLD;
-    }
-    for (let i = 0; i < 400 && first; i++) {
-      if ((await getJson<JobView>(dash, `jobs/${first.id}`)).done) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
+        // A pass during the search would leave its answer about a failure that is over.
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'A test session is running: find the commit once it is done'],
+      ]);
+      return (await started.json()) as JobView;
+    });
     // Once it is done, the next one starts.
     expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
+  });
+
+  it('refuses the tests while Find the commit searches a golden, whose pack it reads', async () => {
+    await holding(async () => {
+      const started = await post({ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' });
+      expect(started.status, await started.clone().text()).toBe(202);
+      await refused([
+        [{ kind: 'test' }, 'Find the commit is running: run the tests once it is done'],
+        [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'Find the commit is running: update it once it is done'],
+        [{ kind: 'normalize-and-test', golden: 'goldens/refund-in-limit' }, 'Find the commit is running: add the normalizer once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-flow', good: 'c91d0f4' }, 'Find the commit is running: find the commit once it is done'],
+      ]);
+      return (await started.json()) as JobView;
+    });
+    expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
+  });
+
+  it('refuses them while a test session started in a terminal runs, naming its command', async () => {
+    // A session this very process runs, as one started in a terminal: its process is alive.
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f' });
+    try {
+      await refused([
+        [{ kind: 'test' }, 'shadowlap test goldens/* is running: run the tests once it is done'],
+        [{ kind: 'test-update', golden: 'goldens/refund-in-limit' }, 'shadowlap test goldens/* is running: update it once it is done'],
+        [{ kind: 'bisect', golden: 'goldens/refund-in-limit', good: 'c91d0f4' }, 'shadowlap test goldens/* is running: find the commit once it is done'],
+      ]);
+      // The page shows it, so its buttons wait too.
+      expect((await getJson<TestsView>(dash, 'tests')).running).toMatchObject({ id: s.sessionId, command: 'shadowlap test goldens/*', live: true });
+    } finally {
+      store.finishTestSession(s.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
+    }
+    expect((await getJson<TestsView>(dash, 'tests')).running).toBeNull();
+    expect((await job({ kind: 'test', golden: 'goldens/refund-flow' })).code).toBe(0);
+  });
+
+  it('counts a search of a golden among them, and one of a run not', () => {
+    expect(inTestFamily({ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'] })).toBe(true);
+    expect(inTestFamily({ kind: 'bisect', args: ['bisect', '01K5CQ4V5K0000000000000002', '--good', 'c91d0f4', '--fork'] })).toBe(false);
+    expect(inTestFamily({ kind: 'pack-test' })).toBe(true);
+    expect(inTestFamily({ kind: 'blame', args: ['blame', '01K5CQ4V5K0000000000000002'] })).toBe(false);
   });
 });
 

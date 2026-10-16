@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksUpdate, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
+import { asksUpdate, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revisionChoices, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH, updatePlan } from '../ui/goldens.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { DivergenceView, FailureView, GoldenRow, TestsView } from '../ui/types.js';
 
@@ -256,14 +256,20 @@ describe('the buttons under a divergence', () => {
   });
 
   it('ask for an older good commit once a search over the known range named none, and offer none for a pack that can’t be read', () => {
-    const missed = divergence('a', { missed: { why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'd2e8a1f', at: T } });
+    const missed = divergence('a', { missed: { why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'd2e8a1f', outcome: 'fails-at-good', at: T } });
     expect(divergenceButtons(missed, all).bisect).toEqual({ range: false, live: false });
     expect(missedLine(missed.missed!)).toBe('No first bad commit between c91d0f4 and d2e8a1f: it already fails at c91d0f4');
-    expect(missedLine({ why: 'interrupted', good: null, bad: null, at: T })).toBe('No first bad commit: interrupted');
+    expect(missedLine({ why: 'interrupted', good: null, bad: null, outcome: null, at: T })).toBe('No first bad commit: interrupted');
     const failure = { found: null, missed: null, bisect: null, unreadable: "run.json can't be read" };
     expect(findCommitButton(failure, all)).toBeNull();
     expect(findCommitButton({ ...failure, unreadable: null }, all)).toEqual({ range: false, live: false });
     expect(findCommitButton({ ...failure, unreadable: null }, (k) => k !== 'bisect')).toBeNull();
+  });
+
+  it('offer no other good commit once a search found it passing where it fails: the failure is in no commit', () => {
+    const passes = { why: 'it passes at dd06624, so there is nothing to find', good: 'bff4146', bad: 'dd06624', outcome: 'passes-at-bad' as const, at: T };
+    expect(divergenceButtons(divergence('a', { missed: passes }), all).bisect).toBeNull();
+    expect(missedLine(passes)).toBe('No first bad commit: it passes at dd06624 as committed, so the failure is in changes not committed there, or doesn’t happen every time');
   });
 });
 
@@ -301,14 +307,25 @@ describe('Find the commit’s dialog', () => {
 
 describe('waiting for a test job', () => {
   it('waits while a job that replays or rewrites the goldens runs in this project, and names it', () => {
-    const jobs = [{ kind: 'bisect', done: false }, { kind: 'test', done: true }];
+    // A search of a run touches no golden; one of a golden does.
+    const jobs = [{ kind: 'bisect', args: ['bisect', '01K5CQ4V5K0000000000000002', '--good', 'c91d0f4', '--fork'], done: false }, { kind: 'test', done: true }];
     expect(testsBusy(jobs, 'run the tests')).toBeNull();
+    expect(testsBusy([{ kind: 'bisect', args: ['bisect', 'goldens/refund-in-limit', '--good', 'c91d0f4'], done: false }], 'run the tests')).toBe('Find the commit is running: run the tests once it is done.');
     expect(testsBusy([...jobs, { kind: 'test-update', done: false }], 'run the tests')).toBe('An update of goldens is running: run the tests once it is done.');
     expect(testsBusy([{ kind: 'normalize-and-test', done: false }], 'update it')).toBe('A normalizer and its re-run is running: update it once it is done.');
     // Another project's job doesn't hold this one's goldens.
     expect(testsBusy([{ kind: 'test', done: false, project: { id: 'other' } }], 'run the tests', 'this')).toBeNull();
     expect(testsBusy([{ kind: 'test', done: false, project: { id: 'this' } }], 'run the tests', 'this')).toBe('A test session is running: run the tests once it is done.');
     expect(runningTests([{ kind: 'test', done: true }, { kind: 'test', done: false }])).toEqual({ kind: 'test', done: false });
+  });
+
+  it('waits while a test session started in a terminal runs, naming its command', () => {
+    expect(sessionWait(null, 'run the tests')).toBeNull();
+    expect(sessionWait({ running: null }, 'run the tests')).toBeNull();
+    const running = { id: 's', command: 'shadowlap test goldens/*', revision: 'abc1234', startedAt: T, endedAt: null, passed: 1, failed: 0, upstreamRequests: 0, actor: null, interrupted: false, live: true };
+    expect(sessionWait({ running }, 'update it')).toBe('shadowlap test goldens/* is running: update it once it is done.');
+    // A long one is cut short.
+    expect(sessionWait({ running: { ...running, command: `shadowlap test ${'goldens/very-long-name '.repeat(5)}` } }, 'update it')).toBe('shadowlap test goldens/very-long-name goldens/very-long-nam… is running: update it once it is done.');
   });
 });
 

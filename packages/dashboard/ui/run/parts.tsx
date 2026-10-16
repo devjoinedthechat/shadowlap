@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
+import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -178,18 +179,18 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
                 ) : null}
               </>
             ) : add?.kind === 'job' ? (
-              <button className={`btn sm${add.lead ? ' lime' : ''}`} type="button" disabled={!!add.off} title={add.title ?? undefined} onClick={() => job(JOB_KINDS.normalizeAndTest, { runId: r.runId })}>
+              <TestsJobButton className={`btn sm${add.lead ? ' lime' : ''}`} verb="add the normalizer" off={add.off} title={add.title} onClick={() => job(JOB_KINDS.normalizeAndTest, { runId: r.runId })}>
                 Add normalizer
-              </button>
+              </TestsJobButton>
             ) : add?.kind === 'action' && normalizer ? (
               <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
                 Add normalizer
               </button>
             ) : null}
             {acts.update ? (
-              <button className="btn sm" type="button" disabled={!!off} title={off ?? undefined} onClick={() => setDialog('update')}>
+              <TestsJobButton className="btn sm" verb="update it" off={off} onClick={() => setDialog('update')}>
                 Update golden
-              </button>
+              </TestsJobButton>
             ) : null}
             {b.diff ? diffToggle : null}
           </span>

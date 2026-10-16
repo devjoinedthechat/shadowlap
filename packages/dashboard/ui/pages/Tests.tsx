@@ -8,7 +8,7 @@ import { rowOpen } from '../components/Table.js';
 import { copyText } from '../dom.js';
 import { treeBusy } from '../fixes/model.js';
 import { useServerJobs } from '../fixes/tree.js';
-import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revLabel, sessionLine, sourceText, testsBusy, type ReportLine } from '../goldens.js';
+import { asksUpdate, checkWords, commandText, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, historyTip, missedLine, reportLines, revLabel, sessionLine, sessionWait, sourceText, testsBusy, type ReportLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { addPaletteSource, paletteSourcesChanged } from '../palette-sources.js';
 import { href } from '../route.js';
@@ -42,10 +42,11 @@ export function TestsPage() {
   const view = loaded.data;
   const [open, setOpen] = useState<Open | null>(null);
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
-  // What the server is running, from every tab and terminal dashboard: a test job, or a repair
-  // holding the working tree, makes it refuse an action that replays or rewrites the goldens.
+  // What the server is running, from every tab and terminal dashboard: a test job (Find the commit
+  // on a golden among them), a test session started in a terminal, or a repair holding the working
+  // tree makes it refuse an action that replays or rewrites the goldens.
   const serverJobs = useServerJobs();
-  const wait = (verb: string): string | null => actionsOff ?? testsBusy(serverJobs, verb, meta?.project?.id ?? null) ?? treeBusy(serverJobs, 'reads', verb, meta?.project?.path ?? null);
+  const wait = (verb: string): string | null => actionsOff ?? testsBusy(serverJobs, verb, meta?.project?.id ?? null) ?? sessionWait(view, verb) ?? treeBusy(serverJobs, 'reads', verb, meta?.project?.path ?? null);
 
   useEffect(() => {
     if (view) keepTests(view);
@@ -99,6 +100,7 @@ export function TestsPage() {
 
   const runWait = wait('run the tests');
   const updateWait = wait('update them');
+  const findWait = wait('find the commit');
   const actions = (
     <>
       <a className="btn" href={href.settings('alerts')}>
@@ -194,7 +196,7 @@ export function TestsPage() {
                 </button>
               ) : null}
               {b.bisect ? (
-                <button className="btn" type="button" disabled={!!actionsOff} title={actionsOff ?? undefined} onClick={() => guard(() => findCommit(d))}>
+                <button className="btn" type="button" disabled={!!findWait} title={findWait ?? undefined} onClick={() => guard(() => findCommit(d))}>
                   {b.bisect.range && !b.bisect.live ? 'Find the commit' : 'Find the commit…'}
                 </button>
               ) : null}
@@ -204,7 +206,7 @@ export function TestsPage() {
         );
       })}
       {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={actionsOff ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
+        <FailurePanel key={f.golden} f={f} off={findWait ?? undefined} button={findCommitButton(f, hasKind)} onBisect={() => guard(() => findCommit(f))} />
       ))}
       <div className="grid2 gpanel">
         <section className="panel">

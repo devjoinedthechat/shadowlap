@@ -3,7 +3,7 @@ import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, 
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, maskedChange, parseToolFailure, valueHints, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -139,6 +139,20 @@ export interface TestAttempt {
   interrupted: NodeJS.Signals | null;
 }
 
+/**
+ * The engine's hints about a divergence without those for a change the rules in force already mask:
+ * the report lists every change in the request as sent, but a masked one didn't make it diverge, and
+ * "add a normalizer" for a rule in the config is advice already taken.
+ */
+export function unmaskedHints(d: DivergenceReport, rules: readonly Normalizer[]): NonNullable<DivergenceReport['hints']> {
+  return (d.hints ?? []).filter((h) => {
+    const path = h.normalizer?.path;
+    if (path === undefined) return true;
+    const at = (d.diff ?? []).filter((e) => e.path === path);
+    return !at.length || !at.every((e) => maskedChange(e, rules, d));
+  });
+}
+
 /** One replay of a packed recording under `shadowlap test`, judged by its checks. */
 export async function testAttempt(
   store: Store,
@@ -240,8 +254,12 @@ export async function testAttempt(
   }
   const failedChecks = checks?.filter((c) => !c.ok) ?? [];
   // Every value the report lists that changes every run gets its normalizer, not only the dates and
-  // UUIDs the engine hints at: a request id too, and an id that may be a real change says so.
-  if (summary.divergence) summary.divergence.hints = [...(summary.divergence.hints ?? []), ...valueHints(summary.divergence, [...o.normalizers, ...(parent.meta?.redactions ?? [])])];
+  // UUIDs the engine hints at: a request id too, and an id that may be a real change says so. A
+  // value a rule in force masks already gets none: the report lists it, but it didn't diverge.
+  if (summary.divergence) {
+    const rules = [...o.normalizers, ...(parent.meta?.redactions ?? [])];
+    summary.divergence.hints = [...unmaskedHints(summary.divergence, rules), ...valueHints(summary.divergence, rules)];
+  }
   const divergence = summary.divergence ? formatDivergence(summary.divergence) + '\n' : '';
   let failure: JunitCase['failure'];
   let kind: TestAttempt['kind'] = null;

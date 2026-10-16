@@ -182,6 +182,18 @@ describe('shadowlap bisect', () => {
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
   });
 
+  it('names the failure each answer is about: the golden’s newest result as the search started', async () => {
+    const tested = await shadowlap(['test', 'goldens/summary']);
+    expect(tested.code, tested.out).toBe(1);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!]);
+    expect(r.code, r.out).toBe(0);
+    const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+    const result = store.listTestResults({ golden: 'goldens/summary', limit: 1 })[0]!;
+    const found = store.listEvents({ kinds: ['bisect.found'] })[0]!;
+    store.close();
+    expect(found.data).toMatchObject({ commit: rev['Ask for brevity'], answered: { session: result.sessionId, at: result.at, ok: false, revision: result.revision } });
+  });
+
   it('refuses a run that is still recording, whose recording is not whole yet', async () => {
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
     const recording = store.createRun({ mode: 'record', command: { argv: [process.execPath, 'agent.mjs'], cwd: project } });

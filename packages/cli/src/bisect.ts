@@ -268,6 +268,9 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     store.close();
     throw new BisectError(`${target.name} was imported from a capture and has no command to run at each commit. Replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
   }
+  // The failure this search answers: the golden's newest result now. Tests shows the answer only
+  // while that failure is the golden's latest run of failures, not over a later, unrelated one.
+  const answered = target.kind === 'golden' && target.golden ? newestResult(input, target.golden) : null;
   const fromConfig = target.golden ? specFor(loadTests(projectDir), resolve(projectDir, target.golden), projectDir) : null;
   // Checks given on the command line judge the replay as it is: offline, so a divergence fails it,
   // unless --fork lets it go live from the fork and leaves the verdict to the checks.
@@ -407,33 +410,51 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     report.seconds = (Date.now() - started) / 1000;
     if (stopped && report.outcome === 'stopped') report.why = 'interrupted';
     // An answer either way, but not a search cut short: the Tests screen shows it above the golden's buttons.
-    if (report.outcome !== 'stopped') record(input, projectDir, report);
+    if (report.outcome !== 'stopped') record(input, projectDir, report, answered);
+  }
+}
+
+/** A golden's newest result in the project's test history, or null: the failure a search of it answers. */
+type Answered = { session: string; at: number; ok: boolean; revision: string | null };
+
+function newestResult(input: BisectInput, golden: string): Answered | null {
+  let store: Store | null = null;
+  try {
+    store = openStore(input.opts);
+    const r = store.listTestResults({ golden, limit: 1 })[0];
+    return r ? { session: r.sessionId, at: r.at, ok: r.ok, revision: r.revision } : null;
+  } catch {
+    return null;
+  } finally {
+    store?.close();
   }
 }
 
 /**
  * Logs the answer in the project's activity: the first bad commit (`bisect.found`), or why there is
  * none between the commits given (`bisect.none`: it passes at the bad one, it already fails at the
- * good one, or one of them can't be tested), so the next search can start from another commit.
+ * good one, or one of them can't be tested), so the next search can start from another commit. A
+ * golden's answer names the result it answered (`answered`, its newest as the search started).
  */
-function record(input: BisectInput, projectDir: string, report: BisectReport): void {
+function record(input: BisectInput, projectDir: string, report: BisectReport, answered: Answered | null): void {
   let store: Store | null = null;
   try {
     store = openStore(input.opts);
     const where = { actor: resolveAuthor({ cwd: projectDir }), ...(report.target.kind === 'run' ? { runId: report.target.runId } : {}), ref: report.target.name };
+    const about = answered ? { answered } : {};
     const first = report.first;
     if (report.outcome === 'found' && first) {
       recordEvent(store, {
         kind: 'bisect.found',
         ...where,
         // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
-        data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests },
+        data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests, ...about },
       });
     } else {
       // Why, without the advice for the command line: Tests offers an older commit itself.
       const atGood = report.steps.find((s) => s.rev === report.good.rev);
       const why = report.outcome === 'fails-at-good' && atGood ? `it already fails at ${report.good.short}: ${atGood.result}` : (report.why ?? report.outcome);
-      recordEvent(store, { kind: 'bisect.none', ...where, data: { outcome: report.outcome, why, good: report.good.short, bad: report.bad.short, replays: report.replays, tokens: report.tokens } });
+      recordEvent(store, { kind: 'bisect.none', ...where, data: { outcome: report.outcome, why, good: report.good.short, bad: report.bad.short, replays: report.replays, tokens: report.tokens, ...about } });
     }
   } catch {
     // the answer is printed either way

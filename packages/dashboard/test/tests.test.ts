@@ -512,13 +512,90 @@ describe('the Tests screen', () => {
     recordEvent(store, { kind: 'bisect.none', ref, at: T0 + DAY + 60_000, data: { outcome: 'fails-at-good', why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'e3f9b20' } });
     const d = report();
     expect(d.found).toBeNull();
-    expect(d.missed).toEqual({ why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'e3f9b20', at: T0 + DAY + 60_000 });
+    expect(d.missed).toEqual({ why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'e3f9b20', outcome: 'fails-at-good', at: T0 + DAY + 60_000 });
     // Once it passes, the answers are about a failure that is over.
     session(store, 'f00ba47', T0 + 2 * DAY, [{ golden: ref, ok: true, runId: 'R_F_LIMIT' }], ['shadowlap', 'test', ref]);
     session(store, 'f00ba48', T0 + 3 * DAY, [{ golden: ref, ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R_G_LIMIT' }], ['shadowlap', 'test', ref]);
     const again = report();
     expect(again.found).toBeNull();
     expect(again.missed).toBeNull();
+    store.close();
+  });
+
+  it('keeps an answer to the failure it answered, never to a later one', () => {
+    const store = sampleStore();
+    const ref = 'goldens/refund-in-limit';
+    const report = () => {
+      const view = testsView(store, goldens);
+      return [...view.divergences, ...view.failures].find((x) => x.golden === ref)!;
+    };
+    const found = (at: number, answered?: { at: number; ok: boolean }) =>
+      recordEvent(store, { kind: 'bisect.found', ref, at, data: { first: { rev: 'a7cfd69', subject: 'Apply the email fix', author: 'Ravi', date: '2026-09-30' }, why: 'diverged at call 1', replays: 3, tokens: 0, ...(answered ? { answered: { session: 'S', revision: 'x', ...answered } } : {}) } });
+    // It passes again at e3f9b20, and only then does a search from an old replay's page, or one
+    // still running, answer: it is about the failure that is over.
+    session(store, 'e3f9b20', T0 + DAY, [{ golden: ref, ok: true, runId: 'R_E_LIMIT' }], ['shadowlap', 'test', ref]);
+    found(T0 + DAY + 60_000);
+    // A later commit changes the prompt, and the golden fails on that.
+    const prompt: TestResultData = { mode: 'replay', divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.system', op: 'changed', before: 'Escalate refunds above the limit.', after: 'Refund whatever is asked.' }], text: '✗ Diverged at call 3' } };
+    session(store, '99be4bb', T0 + 2 * DAY, [
+      { golden: 'goldens/refund-flow', ok: true, runId: 'R_F_FLOW' },
+      { golden: ref, ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', runId: 'R_F_LIMIT', data: prompt },
+      { golden: 'goldens/refund-over-limit', ok: true, runId: 'R_F_OVER' },
+    ]);
+    // No card from before, and the search is offered from where it last passed.
+    expect(report()).toMatchObject({ found: null, missed: null, bisect: { good: 'e3f9b20', bad: '99be4bb' } });
+    // An answer recorded during this failure stands, unless it answered a result from before it.
+    found(T0 + 2 * DAY + 60_000, { at: T0 + 1, ok: false });
+    expect(report().found).toBeNull();
+    found(T0 + 2 * DAY + 70_000, { at: T0 + DAY + 1, ok: true });
+    expect(report().found).toBeNull();
+    found(T0 + 2 * DAY + 80_000, { at: T0 + 2 * DAY + 2, ok: false });
+    expect(report().found).toMatchObject({ rev: 'a7cfd69', at: T0 + 2 * DAY + 80_000 });
+    // A newer answer about a failure that is over doesn't hide the one that stands.
+    found(T0 + 2 * DAY + 90_000, { at: T0 + DAY + 1, ok: true });
+    expect(report().found).toMatchObject({ at: T0 + 2 * DAY + 80_000 });
+    store.close();
+  });
+
+  it('says a failure is in no commit while it fails where a search found it passing, and searches again once it fails elsewhere', () => {
+    const store = sampleStore();
+    const ref = 'goldens/refund-in-limit';
+    const report = () => {
+      const view = testsView(store, goldens);
+      return [...view.divergences, ...view.failures].find((x) => x.golden === ref)!;
+    };
+    // It failed at d2e8a1f with changes on top; at d2e8a1f as committed it passes.
+    const failed = store.listTestResults({ golden: ref, limit: 1 })[0]!;
+    session(store, 'd2e8a1f+dirty', T0 + DAY, [{ golden: ref, ok: false, failure: 'diverged', reason: failed.reason!, runId: 'R_D_LIMIT', data: failed.data! }], ['shadowlap', 'test', ref]);
+    recordEvent(store, { kind: 'bisect.none', ref, at: T0 + DAY + 60_000, data: { outcome: 'passes-at-bad', why: 'it passes at d2e8a1f, so there is nothing to find', good: 'c91d0f4', bad: 'd2e8a1f', answered: { session: 'S', at: T0 + DAY + 1, ok: false, revision: 'd2e8a1f+dirty' } } });
+    expect(report().missed).toMatchObject({ outcome: 'passes-at-bad', bad: 'd2e8a1f' });
+    // Committed, it fails at the new commit: there is a commit to find again.
+    session(store, 'e3f9b20', T0 + 2 * DAY, [{ golden: ref, ok: false, failure: 'diverged', reason: failed.reason!, runId: 'R_E_LIMIT', data: failed.data! }], ['shadowlap', 'test', ref]);
+    expect(report()).toMatchObject({ missed: null, found: null, bisect: { good: 'c91d0f4', bad: 'e3f9b20' } });
+    store.close();
+  });
+
+  it('names the change that made a replay diverge, not one a rule in force masks', () => {
+    const store = Store.open(':memory:');
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/x'], revision: 'dd06624' });
+    // The report lists the masked user id first; the prompt changed too.
+    const diff = [
+      { path: '$.metadata.user_id', op: 'changed', before: UUID_A, after: UUID_B },
+      { path: '$.system', op: 'changed', before: 'Escalate refunds above the limit.', after: 'Refund whatever is asked.' },
+    ];
+    const data = (cause?: string | null): TestResultData => ({ divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff, volatile: { values: [], explainsAll: false, coversAll: false }, ...(cause !== undefined ? { cause } : {}), text: '✗ Diverged at call 3' } });
+    const result = (cause?: string | null) => ({ sessionId: s.sessionId, golden: 'goldens/x', at: 1, revision: 'dd06624', ok: false, failure: 'diverged' as const, reason: 'diverged at call 3 (api POST /v1/messages)', runId: null, goldenRunId: null, data: data(cause) });
+    const rule = { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+    // As the CLI kept it, under the rules in force when it ran.
+    expect(resultLine(result('$.system'), [])).toBe('diverged at call 3 · $.system');
+    // Kept before the CLI said: the config's rules tell.
+    expect(resultLine(result(), [], [rule])).toBe('diverged at call 3 · $.system');
+    expect(resultLine(result(), [])).toBe('diverged at call 3 · $.metadata.user_id');
+    store.addTestResult({ ...result(), data: data() });
+    store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
+    const x: GoldenSource = { path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] };
+    expect(testsView(store, [x], { normalizers: [rule] }).rows[0]!.last.line).toBe('diverged at call 3 · $.system');
+    expect(failingTests(store, { goldens: [x], normalizers: [rule] })[0]!.line).toBe('diverged at call 3 · $.system');
     store.close();
   });
 

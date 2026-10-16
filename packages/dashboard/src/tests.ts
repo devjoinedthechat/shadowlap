@@ -1,4 +1,4 @@
-import { fixOfRun, hasRecordedCommand, normalizeAddArgs, normalizeAddCommand, recorderGone, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { fixOfRun, hasRecordedCommand, maskedChange, normalizeAddArgs, normalizeAddCommand, recorderGone, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -142,11 +142,18 @@ export interface FoundCommit {
   at: number;
 }
 
-/** What Find the commit said when it named no first bad commit: why, and between which commits it looked. */
+/** What Find the commit said when it named no first bad commit: why, between which commits it looked, and how it came out. */
 export interface BisectMiss {
   why: string;
   good: string | null;
   bad: string | null;
+  /**
+   * `fails-at-good`: it already failed at the good commit, so an older one is asked for.
+   * `passes-at-bad`: it passed at the commit it fails at, as committed, so the failure is in changes
+   * not committed there, or doesn't happen every time; no other good commit helps. `untestable`: a
+   * commit could not be checked out or built. Null for an answer kept before outcomes were.
+   */
+  outcome: 'fails-at-good' | 'passes-at-bad' | 'untestable' | null;
   at: number;
 }
 
@@ -265,6 +272,11 @@ export interface TestsView {
   failures: FailureView[];
   /** Goldens whose last result diverged: Update goldens… lists them. */
   diverged: string[];
+  /**
+   * A test session running now, wherever it was started: a terminal, another dashboard, or a job of
+   * this one. The actions that replay or rewrite the goldens wait for it, as the server does.
+   */
+  running: TestsSessionView | null;
   commands: {
     /** Copy CI command. */
     ci: string;
@@ -343,6 +355,15 @@ function sessionLive(store: Store, s: TestSession): boolean {
   return owner !== null && !recorderGone(owner, lastActive(store, s));
 }
 
+/**
+ * The newest test session running now, wherever it was started (a terminal, another dashboard, a
+ * job), or null: while one runs, the jobs that replay or rewrite the goldens wait for it.
+ */
+export function liveTestSession(store: Store): TestSession | null {
+  for (const s of store.listTestSessions({ limit: 20 })) if (s.endedAt === null && sessionLive(store, s)) return s;
+  return null;
+}
+
 /** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
 function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
   const kept = r.data?.divergence?.volatile;
@@ -388,8 +409,19 @@ export function shortReason(r: TestResult): string {
   return `couldn't run: ${reason}`;
 }
 
-/** The line under a golden's last result: what it did, or why it failed. */
-export function resultLine(r: TestResult, checks: readonly string[]): string {
+/**
+ * The change that made a stored divergence diverge: the first one the normalizers in force did not
+ * mask, as the CLI kept it (`cause`); for a result kept before it did, the first one `normalizers`
+ * (the config's now) leave unmasked. The report lists the masked changes too.
+ */
+function causeOf(r: TestResult, d: DivergenceReport, normalizers: readonly Normalizer[]): string | null {
+  const kept = r.data?.divergence?.cause;
+  if (kept !== undefined) return kept;
+  return (d.diff ?? []).find((e) => !maskedChange(e, normalizers, d))?.path ?? null;
+}
+
+/** The line under a golden's last result: what it did, or why it failed; `normalizers` are the config's now. */
+export function resultLine(r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const data = r.data ?? {};
   if (!r.ok) {
     if (r.failure === 'diverged') {
@@ -397,7 +429,7 @@ export function resultLine(r: TestResult, checks: readonly string[]): string {
       if (!d) return r.reason ?? 'diverged';
       const v = volatileOf(r, d).values[0];
       if (v) return `diverged at call ${d.callNo} · ${v.path} ${v.certain ? `looks like ${v.looks}` : 'changed, an id that may be a real change'}`;
-      const path = d.diff?.[0]?.path;
+      const path = causeOf(r, d, normalizers);
       return path ? `diverged at call ${d.callNo} · ${path}` : `diverged at call ${d.callNo} (${d.type === 'new_call' ? `new call ${d.name}` : d.type === 'beyond_recording' ? 'more calls than recorded' : `${d.kind} ${d.name}`})`;
     }
     return r.reason ?? 'failed';
@@ -451,15 +483,15 @@ function blockedTargets(store: Store, r: TestResult): string[] {
 const blockedWords = (blocked: readonly string[]) => `blocked connection to ${blocked.join(', ')}`;
 
 /** A result's line, saying first when the guard blocked a connection the replay made past Shadowlap. */
-function lineOf(store: Store, r: TestResult, checks: readonly string[]): string {
+function lineOf(store: Store, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const blocked = blockedTargets(store, r);
-  const line = resultLine(r, checks);
+  const line = resultLine(r, checks, normalizers);
   return blocked.length ? `${blockedWords(blocked)} · ${line}` : line;
 }
 
 /** A history cell's hover note: why it failed, or a connection the guard blocked in a replay that passed. */
-function cellNote(store: Store, r: TestResult, checks: readonly string[]): string | null {
-  if (!r.ok) return lineOf(store, r, checks);
+function cellNote(store: Store, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string | null {
+  if (!r.ok) return lineOf(store, r, checks, normalizers);
   const blocked = blockedTargets(store, r);
   return blocked.length ? blockedWords(blocked) : null;
 }
@@ -531,35 +563,71 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
     .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', sameChecks: underChecks(r, checks) }));
 }
 
-/** What Find the commit last said about each golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
+/** What Find the commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
 type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
 
-function bisectAnswers(store: Store): Map<string, BisectAnswer> {
-  const out = new Map<string, BisectAnswer>();
-  // Newest first: the first answer for a golden is its latest.
+/**
+ * One answer, with the failure it answered: the golden's newest result when the search started, as
+ * `shadowlap bisect` records it (`answered`), or null for an answer kept before it did.
+ */
+interface AnswerEvent {
+  answer: BisectAnswer;
+  at: number;
+  answered: { at: number; ok: boolean } | null;
+}
+
+const MISS_OUTCOMES = new Set(['fails-at-good', 'passes-at-bad', 'untestable']);
+
+/** Every answer Find the commit gave, by golden, newest first. */
+function bisectAnswers(store: Store): Map<string, AnswerEvent[]> {
+  const out = new Map<string, AnswerEvent[]>();
   for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
-    if (!e.ref || out.has(e.ref)) continue;
+    if (!e.ref) continue;
+    const raw = (e.data ?? {}) as { answered?: { at?: unknown; ok?: unknown } | null };
+    const answered = raw.answered && typeof raw.answered.at === 'number' && typeof raw.answered.ok === 'boolean' ? { at: raw.answered.at, ok: raw.answered.ok } : null;
+    let answer: BisectAnswer;
     if (e.kind === 'bisect.none') {
-      const d = (e.data ?? {}) as { why?: unknown; good?: unknown; bad?: unknown };
-      out.set(e.ref, { found: null, missed: { why: String(d.why ?? 'no first bad commit'), good: typeof d.good === 'string' ? d.good : null, bad: typeof d.bad === 'string' ? d.bad : null, at: e.at } });
-      continue;
+      const d = (e.data ?? {}) as { why?: unknown; good?: unknown; bad?: unknown; outcome?: unknown };
+      const outcome = typeof d.outcome === 'string' && MISS_OUTCOMES.has(d.outcome) ? (d.outcome as BisectMiss['outcome']) : null;
+      answer = { found: null, missed: { why: String(d.why ?? 'no first bad commit'), good: typeof d.good === 'string' ? d.good : null, bad: typeof d.bad === 'string' ? d.bad : null, outcome, at: e.at } };
+    } else {
+      const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; untested?: unknown; replays?: unknown; tokens?: unknown } | null;
+      if (typeof d?.first?.rev !== 'string') continue;
+      const untested = Array.isArray(d.untested) ? d.untested.filter((x): x is string => typeof x === 'string') : [];
+      answer = { found: { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), untested, replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at }, missed: null };
     }
-    const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; untested?: unknown; replays?: unknown; tokens?: unknown } | null;
-    if (typeof d?.first?.rev !== 'string') continue;
-    const untested = Array.isArray(d.untested) ? d.untested.filter((x): x is string => typeof x === 'string') : [];
-    out.set(e.ref, { found: { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), untested, replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at }, missed: null });
+    const list = out.get(e.ref);
+    if (list) list.push({ answer, at: e.at, answered });
+    else out.set(e.ref, [{ answer, at: e.at, answered }]);
   }
   return out;
 }
 
+/** Two names of one commit: a short sha and a longer one, or the same. */
+const sameCommit = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
+
 /**
- * What Find the commit said about a failing golden, while it still stands: until the golden passes
- * again (a pass since means the failure it answered is over), or a newer search answers instead.
+ * What Find the commit said about the failure a golden shows, newest first: an answer stands only
+ * for the failures since the golden last passed, and only when it answered one of them. One given
+ * while the golden passed (a search from an old replay's page, or one still running when a session
+ * passed it) is about a failure that is over, however it fails next. A search that found it passing
+ * at the commit it fails at (`passes-at-bad`) stands only while it fails at that commit: once the
+ * failure is committed, there is a commit to find again.
  */
-function standingAnswer(answer: BisectAnswer | undefined, history: readonly TestResult[]): BisectAnswer | null {
-  if (!answer) return null;
-  const at = answer.found?.at ?? answer.missed!.at;
-  return history.some((r) => r.ok && r.at > at) ? null : answer;
+function standingAnswer(answers: readonly AnswerEvent[] | undefined, history: readonly TestResult[], latest: TestResult): BisectAnswer | null {
+  if (!answers?.length) return null;
+  // Newest first: the failures since the newest pass, the oldest of them where this streak began.
+  const pass = history.findIndex((r) => r.ok);
+  const began = (pass < 0 ? history : history.slice(0, pass)).at(-1)?.at;
+  if (began === undefined) return null;
+  const failsAt = committed(latest.revision);
+  for (const a of answers) {
+    if (a.answered ? a.answered.ok || a.answered.at < began : a.at < began) continue;
+    const m = a.answer.missed;
+    if (m?.outcome === 'passes-at-bad' && m.bad && failsAt && !sameCommit(m.bad, failsAt)) continue;
+    return a.answer;
+  }
+  return null;
 }
 
 /** How many of the newest sessions the history and the verdict's line are read from. */
@@ -584,7 +652,7 @@ export function asksForAll(command: readonly string[], need: readonly string[]):
 }
 
 /** Where a result shows in the history: a column of its own revision, or, run again with changes on top, the column of the commit under them. */
-const columnOf = (revision: string | null, columns: ReadonlySet<string | null>): string | null | undefined => (columns.has(revision) ? revision : columns.has(committed(revision)) ? committed(revision) : undefined);
+const columnOfRevision = (revision: string | null, columns: ReadonlySet<string | null>): string | null | undefined => (columns.has(revision) ? revision : columns.has(committed(revision)) ? committed(revision) : undefined);
 
 /** The sessions the screen reads: the history's columns, the results they show, and the session the verdict's line names. */
 interface SessionsRead {
@@ -609,13 +677,8 @@ interface SessionsRead {
  */
 function testSessions(store: Store, goldens: readonly GoldenSource[], max: number): SessionsRead {
   const all = store.listTestSessions({ limit: SESSION_WINDOW });
-  const results = store.listTestResults({ sessionIds: all.map((s) => s.sessionId), limit: 100_000 });
-  const ran = new Map<string, Set<string>>();
-  for (const r of results) {
-    let set = ran.get(r.sessionId);
-    if (!set) ran.set(r.sessionId, (set = new Set()));
-    set.add(r.golden);
-  }
+  // Which goldens each session ran, without reading their results: only the shown columns' are read.
+  const ran = store.testSessionGoldens(all.map((s) => s.sessionId));
   // A session counts once it has a result, or while it runs: one stopped before its first golden ended says nothing.
   const sessions = all.filter((s) => ran.has(s.sessionId) || sessionLive(store, s));
   const firstAt = store.firstTestResultAt();
@@ -635,6 +698,11 @@ function testSessions(store: Store, goldens: readonly GoldenSource[], max: numbe
   }
   revisions.reverse();
   const columnOf = new Map(whole.filter((s) => revisions.includes(s.revision)).map((s) => [s.sessionId, s.revision] as const));
+  // The results the history shows: those of the sessions that fill its columns, and of sessions that
+  // ran some goldens at a column's revision (or on its commit with changes on top).
+  const columns = new Set(revisions);
+  const shownIn = sessions.filter((s) => columnOf.has(s.sessionId) || columnOfRevision(s.revision, columns) !== undefined);
+  const results = store.listTestResults({ sessionIds: shownIn.map((s) => s.sessionId), limit: 100_000 });
   return { revisions, results, columnOf, shown: whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null };
 }
 
@@ -656,6 +724,7 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
  */
 export function testsView(store: Store, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
+  const rules = options.normalizers ?? [];
   const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
   const { revisions } = sessionsView;
   // Only what the page shows is read: each golden's newest result, and the results of the sessions
@@ -682,13 +751,13 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
       history: revisions.map((rev) => {
         // Its own column's sessions, and a session that ran only some goldens there, or on that
         // commit with changes on top (Add normalizer and re-run), where no column is its own.
-        const here = list.filter((x) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOf(x.revision, columns)) === rev);
+        const here = list.filter((x) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns)) === rev);
         // The newest result there, ringed when any session there updated it: a run after the update keeps the ring.
         const r = here[0] ?? null;
-        return { revision: rev, tested: r?.revision ?? null, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
+        return { revision: rev, tested: r?.revision ?? null, result: r ? (r.ok ? 'pass' : 'fail') : null, note: r ? cellNote(store, r, g.checks, rules) : null, updated: here.some((x) => !!x.data?.updated), runId: r ? runIfKept(store, r.runId) : null, at: r?.at ?? null };
       }),
       last: latest
-        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks)}`, at: latest.at, updated: !!latest.data?.updated }
+        ? { result: latest.ok ? 'pass' : 'fail', failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated }
         : { result: null, failure: null, line: error ? `can't be read: ${error}` : 'not run yet', at: null, updated: false },
       runId: runIfKept(store, latest?.runId ?? null) ?? sourceRun,
       error,
@@ -704,7 +773,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     const past = store.listTestResults({ golden: row.path, limit: 1000 });
     // A pack that can't be read can't be bisected either.
     const bisect = row.error ? null : bisectFor(row.path, past, latest, row.mode === 'fork', row.checks);
-    const answer = standingAnswer(answers.get(row.path), past);
+    const answer = standingAnswer(answers.get(row.path), past, latest);
     const found = answer?.found ?? null;
     const missed = answer?.missed ?? null;
     const revisionsToOffer = row.error ? [] : bisectRevisions(past, latest, row.checks);
@@ -765,6 +834,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
 
   const diverged = divergences.map((d) => d.golden);
   const patterns = testPatterns(goldens, folder);
+  const live = liveTestSession(store);
   return {
     empty: goldens.length === 0,
     goldens: goldens.length,
@@ -774,6 +844,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     divergences,
     failures,
     diverged,
+    running: live ? sessionView(store, live) : null,
     commands: {
       ci: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml`,
       inCi: `shadowlap test ${patterns.map(shellWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY"`,
@@ -866,7 +937,7 @@ export interface FailingTest {
 }
 
 /** Goldens on disk failing now, newest failure first: Needs a look's failing tests. */
-export function failingTests(store: Store, options: { goldens: GoldenList; folder?: string }): FailingTest[] {
+export function failingTests(store: Store, options: { goldens: GoldenList; folder?: string; normalizers?: readonly Normalizer[] }): FailingTest[] {
   const folder = options.folder ?? 'goldens';
   const checksOf = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g.checks]));
   return [...latestResults(store, options.goldens).values()]
@@ -874,7 +945,7 @@ export function failingTests(store: Store, options: { goldens: GoldenList; folde
     .sort((a, b) => b.at - a.at)
     .map((r) => {
       const runId = runIfKept(store, r.runId);
-      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: lineOf(store, r, checksOf.get(r.golden) ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
+      return { golden: r.golden, title: `A test failed: ${nameOf(r.golden, folder)}`, line: lineOf(store, r, checksOf.get(r.golden) ?? [], options.normalizers ?? []), failure: r.failure ?? 'error', runId, href: runId ? `#/run/${runId}` : '#/tests', at: r.at };
     });
 }
 

@@ -388,6 +388,8 @@ export interface TestResultData {
     entries?: number;
     hints?: Array<{ message: string; normalizer?: Normalizer }>;
     volatile?: { values: Array<{ path: string; looks: string; op: 'changed' | 'added'; certain?: boolean; normalizer: Normalizer }>; explainsAll: boolean; coversAll?: boolean };
+    /** The first change the normalizers in force did not mask: what made it diverge (the report lists the masked ones too). */
+    cause?: string | null;
     text: string;
   };
   /** The failure as the CLI printed it under the golden's line. */
@@ -1120,6 +1122,20 @@ export class Store {
   firstTestResultAt(): Map<string, number> {
     const rows = this.db.prepare(`SELECT golden, MIN(at) AS first FROM test_results GROUP BY golden`).all();
     return new Map(rows.map((r) => [String(r.golden), Number(r.first)]));
+  }
+
+  /** The goldens each of these sessions has a result for, by session, without reading the results themselves. */
+  testSessionGoldens(sessionIds: readonly string[]): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    if (!sessionIds.length) return out;
+    const rows = this.db.prepare(`SELECT session_id, golden FROM test_results WHERE session_id IN (${sessionIds.map(() => '?').join(', ')})`).all(...sessionIds);
+    for (const r of rows) {
+      const id = String(r.session_id);
+      let set = out.get(id);
+      if (!set) out.set(id, (set = new Set()));
+      set.add(String(r.golden));
+    }
+    return out;
   }
 
   /** The runs `shadowlap test` made for these goldens (`meta.test.golden`), newest first. */
