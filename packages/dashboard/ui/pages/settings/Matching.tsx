@@ -85,8 +85,9 @@ export function MatchingTab() {
           version={version}
           onClose={() => setAdding(false)}
           onStale={reload}
-          onAdded={(n, added) => {
+          onAdded={(n, added, written) => {
             setAdding(false);
+            editor.landed(written);
             reload();
             app.toast(addedText('normalize', n, added));
           }}

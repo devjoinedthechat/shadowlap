@@ -65,8 +65,9 @@ export function RedactionTab() {
           version={version}
           onClose={() => setAdding(false)}
           onStale={reload}
-          onAdded={(n, added) => {
+          onAdded={(n, added, written) => {
             setAdding(false);
+            editor.landed(written);
             reload();
             app.toast(addedText('redact', n, added));
           }}

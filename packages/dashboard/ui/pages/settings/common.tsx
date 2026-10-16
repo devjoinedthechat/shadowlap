@@ -67,7 +67,15 @@ export const SAVING = 'Saving the last change…';
  * is true and another edit is not sent, so a double click removes one rule rather than sending a
  * second edit against the file the first one just changed. Never longer than a few seconds.
  */
-export function useEditor(version: string | null, reload: () => void): { busy: boolean; run: <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string) => Promise<T | null> } {
+export function useEditor(
+  version: string | null,
+  reload: () => void,
+): {
+  busy: boolean;
+  run: <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string) => Promise<T | null>;
+  /** An edit made elsewhere on the tab (the Add dialog) wrote the file's version `to`: wait for the tab to show it. */
+  landed: (to: string) => void;
+} {
   const app = useApp();
   const [waiting, setWaiting] = useState<{ from: string | null } | null>(null);
   const sending = useRef(false);
@@ -94,7 +102,10 @@ export function useEditor(version: string | null, reload: () => void): { busy: b
       sending.current = false;
     }
   };
-  return { busy: waiting !== null, run };
+  const landed = (to: string) => {
+    if (to !== version) setWaiting({ from: version });
+  };
+  return { busy: waiting !== null, run, landed };
 }
 
 /** An edit's refusal in the page's words. */

@@ -108,7 +108,8 @@ export function RuleDialog({
   patterns: readonly string[];
   version: string;
   onClose: () => void;
-  onAdded: (n: number, added: boolean) => void;
+  /** The rule is in the file: its number, whether this added it, and the file's version now. */
+  onAdded: (n: number, added: boolean, version: string) => void;
   /** The file changed on disk since the tab read it: read it again. */
   onStale: () => void;
 }) {
@@ -134,7 +135,7 @@ export function RuleDialog({
     setBusy(true);
     try {
       const r = await app.client.settings.addRule(list, ruleInput(f), version);
-      onAdded(r.n, r.added);
+      onAdded(r.n, r.added, r.version);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         onStale();
