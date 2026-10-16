@@ -204,7 +204,7 @@ function HandedOver({ r }: { r: RepairStep }) {
       <div className="pbody fxfoot">
         <span>
           {/* A teammate's repair, from the team store: what it did, it did on their machine. */}
-          {r.pulled ? 'It ran on a teammate’s machine and came with a pull: its patch and reports are here. ' : ''}
+          {r.pulled ? 'It ran on a teammate’s machine and came with a pull: its patch and reports are here, and its goldens stay there, to be committed from it. ' : ''}
           {out.applied ? `repair --apply left the change in ${r.pulled ? 'their' : 'the'} working tree. ` : ''}
           {out.branch ? `Committed to the branch ${out.branch}. ` : ''}
           {out.pr ? `Pull request: ${out.pr}. ` : ''}

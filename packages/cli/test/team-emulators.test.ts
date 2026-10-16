@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { recordBlame, recordRepair, Store, unpackRun, type RunMeta } from '@shadowlap/engine';
+import { markFixApplied, recordBlame, recordRepair, Store, unpackRun, type RunMeta } from '@shadowlap/engine';
 import { blameReport, EXPECT, repairReport } from '../../engine/test/fix-fixtures.js';
 import { storeCheck, storeSetChecked, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
 
@@ -101,10 +101,25 @@ async function story(url: string, creds: NodeJS.ProcessEnv): Promise<{ link: str
   try {
     expect(store.getRun(runId)!.meta?.author).toBe('dana@northwind.example');
     expect(store.getFix(fixId)!.status).toBe('verified');
+    // Dana's repair, marked as made on another machine: its recordings stayed there.
+    expect(store.repairPulled('repair-e2e')).not.toBeNull();
+    // Maya applies it in her working tree: that stays on her machine.
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-e2e', goldens: [], tests: 'skipped', by: 'maya@northwind.example', via: 'fix apply' });
   } finally {
     store.close();
   }
   expect(existsSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-e2e', 'fix.patch'))).toBe(true);
+  expect(await teamPush(maya, [], { all: true })).toBe(0);
+  expect(maya.take().out).not.toMatch(/fix sent/);
+  expect(await teamPull(dana, [])).toBe(0);
+  dana.take();
+  const back = Store.open(dana.dbPath);
+  try {
+    expect(back.getFix(fixId)).toMatchObject({ status: 'verified', appliedAt: null });
+    expect(back.repairPulled('repair-e2e')).toBeNull();
+  } finally {
+    back.close();
+  }
   expect(await storeCheck(maya)).toBe(0);
   return { link: share.url };
 }

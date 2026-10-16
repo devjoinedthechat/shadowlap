@@ -567,9 +567,10 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .cand .cnum { font: 600 12px var(--mono); color: var(--faint); padding-top: 2px; }
 .cand q { quotes: none; font-size: 13.5px; }
 .cand .why { display: block; margin-top: 3px; color: var(--faint); font-size: 12.5px; }
-.files a, .files div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; font: 12.5px var(--mono); }
+.files a, .files div { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; font: 12.5px var(--mono); }
 .files div:first-child { border-top: 0; }
-.files span { color: var(--faint); font-family: var(--body); font-size: 12.5px; }
+/* A longer note (a teammate's repair) wraps beside the name rather than over it. */
+.files span { color: var(--faint); font-family: var(--body); font-size: 12.5px; text-align: right; }
 .prbody { padding: 16px 18px; font-size: 13.5px; color: var(--dim); }
 .prbody h3 { margin: 0 0 8px; font: 600 15px var(--body); color: var(--ink); }
 .prbody ul { margin: 8px 0 0; padding-left: 18px; }

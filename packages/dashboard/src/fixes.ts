@@ -635,7 +635,7 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
       { name: 'report.md', note: 'the pull request body' },
       { name: 'report.json', note: 'for agents and CI' },
       // A teammate's repair: its recordings stayed on the machine that ran it, and are committed from there.
-      ...(goldens ? [{ name: 'goldens/', note: pulled ? `${goldens} recording${s(goldens)} made by the fixed code, kept on the machine that ran the repair: commit them from there` : `${goldens} recording${s(goldens)} made by the fixed code` }] : []),
+      ...(goldens ? [{ name: 'goldens/', note: pulled ? `${goldens} recording${s(goldens)} made by the fixed code, kept where it ran` : `${goldens} recording${s(goldens)} made by the fixed code` }] : []),
     ],
     prBody: repairMarkdown(rep),
     command: r.command,

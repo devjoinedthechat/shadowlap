@@ -232,7 +232,7 @@ describe('a fix', () => {
     store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-munzln2i', NOW);
     let d = fixDetail(store, fixId)!;
     expect(d.repair).toMatchObject({ pulled: true });
-    expect(d.repair!.files.find((f) => f.name === 'goldens/')!.note).toBe('1 recording made by the fixed code, kept on the machine that ran the repair: commit them from there');
+    expect(d.repair!.files.find((f) => f.name === 'goldens/')!.note).toBe('1 recording made by the fixed code, kept where it ran');
     expect(d.actions.apply).toMatchObject({ kind: 'patch', pulled: true, pending: null });
     // fix apply here put in the patch and copied nothing: applied, with nothing left to finish.
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', via: 'fix apply' });
