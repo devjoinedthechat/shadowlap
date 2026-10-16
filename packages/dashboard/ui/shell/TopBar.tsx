@@ -3,6 +3,7 @@ import { Brand, Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
 import { href, type Route } from '../route.js';
 import { useApp } from '../state.js';
+import { useFixCrumb } from '../fixes/data.js';
 
 /** The names of Settings' tabs, for the breadcrumb. */
 export const SETTINGS_TABS: Readonly<Record<string, string>> = {
@@ -17,7 +18,7 @@ export const SETTINGS_TABS: Readonly<Record<string, string>> = {
 
 type Crumb = { label: string; href?: string; mono?: boolean };
 
-function crumbsFor(route: Route, parentOf: (id: string) => string | null): Crumb[] {
+function crumbsFor(route: Route, parentOf: (id: string) => string | null, fixName: string | null = null): Crumb[] {
   switch (route.page) {
     case 'runs':
       return [{ label: 'Runs' }];
@@ -28,7 +29,7 @@ function crumbsFor(route: Route, parentOf: (id: string) => string | null): Crumb
     case 'compare':
       return [{ label: 'Compare' }];
     case 'fixes':
-      return route.id ? [{ label: 'Fixes', href: href.fixes() }, { label: route.id, mono: true }] : [{ label: 'Fixes' }];
+      return route.id ? [{ label: 'Fixes', href: href.fixes() }, { label: fixName ?? route.id, mono: true }] : [{ label: 'Fixes' }];
     case 'tests':
       return [{ label: 'Tests' }];
     case 'training':
@@ -49,7 +50,9 @@ function crumbsFor(route: Route, parentOf: (id: string) => string | null): Crumb
 export function TopBar({ route }: { route: Route }) {
   const { runs, live, sideOpen, setSideOpen, setHelp, conn, exported } = useApp();
   const parentOf = (id: string) => runs?.find((r) => r.runId === id || r.runId.startsWith(id))?.parentRunId ?? null;
-  const crumbs = crumbsFor(route, parentOf);
+  // A fix goes by its label (Fixes / refund-bug), once the fixes read model has named it.
+  const fixName = useFixCrumb(route.page === 'fixes' ? route.id : null);
+  const crumbs = crumbsFor(route, parentOf, fixName);
   const recording = live[0]?.runId ?? runs?.find((r) => r.status === 'running')?.runId ?? null;
   return (
     <header className="top">

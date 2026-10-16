@@ -81,7 +81,9 @@ describe('the Fixes list', () => {
       ['no', 'rejected', 'Rejected'],
     ]);
     expect(x!.steps[0]!.meta).toBe('the budget of $0.05 is spent');
-    expect(y!.steps[0]).toMatchObject({ state: 'done', short: 'not rescued', title: 'Not rescued from any model call' });
+    // It ran to the end, but no model call rescued the run: no call is blamed yet, so it is still to do.
+    expect(y!.steps[0]).toMatchObject({ state: 'todo', short: 'not rescued', title: 'Not rescued from any model call' });
+    expect(fixDetail(store, y!.fixId)!.defaultStep).toBe('blame');
   });
 
   it('says where a fix came from', () => {
@@ -132,7 +134,8 @@ describe('a fix', () => {
       [7, 'lost', '0 of 4'],
     ]);
     expect(b.bundles[1]).toMatchObject({ title: 'blame · probe #5', blamed: true, passes: 2 });
-    expect(b.bundles[1]!.attempts.map((a) => a.note)).toEqual(['passed', 'issue_refund called', 'passed', 'issue_refund called']);
+    // The rescued fork says what asking again did.
+    expect(b.bundles[1]!.attempts.map((a) => a.note)).toEqual(['passed · called escalate', 'issue_refund called', 'passed', 'issue_refund called']);
     expect(b.callRow.map((c) => [c.callNo, c.kind, c.verdict, c.inScope])).toEqual([
       [1, 'api', 'rescued', true],
       [2, 'tool', null, true],
@@ -373,5 +376,14 @@ describe('fixes for the other views', () => {
     const c = makeRun(store, { labels: ['refund-bug'] });
     blame(c);
     expect(repairArgv(store, fixRecords(store, store.getFix(refunds.fixId)!))).toEqual(['repair', '--fixes', 'label:refund-bug', '--expect', JSON.stringify(EXPECT)]);
+  });
+
+  it('offers no repair once none of the failing runs is left, though its label still names the fix', () => {
+    const run = makeRun(store, { labels: ['escalation'] });
+    const { fix } = blame(run);
+    expect(repairArgv(store, fixRecords(store, fix))).toEqual(['repair', '--fixes', 'label:escalation', '--expect', JSON.stringify(EXPECT)]);
+    store.deleteRun(run);
+    expect(repairArgv(store, fixRecords(store, store.getFix(fix.fixId)!))).toEqual([]);
+    expect(fixDetail(store, fix.fixId)!.actions.repair).toBeNull();
   });
 });

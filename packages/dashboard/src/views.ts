@@ -41,6 +41,13 @@ export interface JobView {
   title: string;
   /** The CLI arguments the server built (never sent by the browser), without the `--db` it adds. */
   args: string[];
+  /**
+   * How it uses its project's working tree, the agent's files: `writes` (repair, fix apply) runs
+   * alone in it, `reads` (an agent run from them) never alongside one that writes; `doing` says what
+   * it is doing there, and `folder` is the folder it runs in (null: the dashboard's own). Null when
+   * it runs no agent. See worktree.ts.
+   */
+  worktree: { use: 'reads' | 'writes'; doing: string; folder: string | null } | null;
   /** The run the job is about (full id), or null when it is about none (an import, the tests). */
   runId: string | null;
   /** Whether the job makes a run to open when it ends. */

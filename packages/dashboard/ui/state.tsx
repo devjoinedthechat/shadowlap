@@ -50,6 +50,12 @@ export interface AppState {
   retryNow: () => void;
   /** Goes up whenever runs or calls may have changed: an open run reloads on it. */
   tick: number;
+  /**
+   * How often each other part of the change feed has moved since the page loaded: `jobs` (a job
+   * started, ended or reported something) and each table a feature counts (`fixes`, …). A page that
+   * shows one reloads on its count, as an open run does on `tick`.
+   */
+  feeds: Readonly<Record<string, number>>;
   live: LiveRun[];
   refresh: () => void;
   /** Why actions cannot run here, shown on the disabled control; null when they can. */
@@ -115,6 +121,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [now, setNow] = useState(() => Date.now());
   const [retrying, setRetrying] = useState(false);
   const [tick, setTick] = useState(0);
+  const [feeds, setFeeds] = useState<Readonly<Record<string, number>>>({});
   const [live, setLive] = useState<LiveRun[]>([]);
   const [toastText, setToastText] = useState<{ id: number; text: string } | null>(null);
   const [jobs, setJobs] = useState<WatchedJob[]>([]);
@@ -188,6 +195,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
           if (ch.live) setLive(ch.live);
           setSyncedAt(Date.now());
           if (reloadFor(ch, first)) await loadRuns();
+          const moved = first ? [] : [...(ch.jobs ? ['jobs'] : []), ...(ch.other ?? [])];
+          if (moved.length) setFeeds((f) => Object.fromEntries([...Object.entries(f), ...moved.map((k) => [k, (f[k] ?? 0) + 1] as const)]));
           // The counts in the status bar and the nav are the server's: they move with the runs.
           if (!first && ch.runs) void client.meta().then((m) => alive && setMeta(m), () => undefined);
         }
@@ -371,6 +380,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       retrying,
       retryNow,
       tick,
+      feeds,
       live,
       refresh,
       actionsOff,
@@ -395,7 +405,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, live, refresh, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, feeds, live, refresh, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

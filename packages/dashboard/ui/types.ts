@@ -1,6 +1,9 @@
 import type { ActionItem as ServerAction, CallDetail as ServerCallDetail, CallRow as ServerCallRow, LineageNode as ServerLineageNode, RunDetail as ServerRunDetail, RunListItem as ServerRunListItem } from '../src/api.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 
+// Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
+export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyRow, VerifyStep } from '../src/fixes.js';
+
 /**
  * The shapes the dashboard's API answers with, as the views read them: the server's types
  * (`src/api.ts`), widened with the fields other parts of the API add. Each added field is optional,
@@ -269,6 +272,12 @@ export interface JobFile {
 export interface JobView {
   id: string;
   args: string[];
+  /**
+   * How it uses its project's working tree: a job that `writes` it (repair, fix apply) runs alone in
+   * it, one that `reads` it (runs the agent from it) never alongside one that writes. `doing` says
+   * what it is doing there, `folder` the folder it runs in. Null when it runs no agent.
+   */
+  worktree?: { use: 'reads' | 'writes'; doing: string; folder?: string | null } | null;
   runId: string | null;
   opensRun: boolean;
   startedAt: number;
@@ -286,6 +295,9 @@ export interface JobView {
   result?: unknown;
 }
 
+/** A job in `GET /api/jobs`: everything but its output and its result. */
+export type JobListItem = Omit<JobView, 'lines' | 'result'>;
+
 /** `/api/changes`: whether anything shown changed since the cursor. */
 export interface Changes {
   cursor?: string;
@@ -295,6 +307,8 @@ export interface Changes {
   calls?: boolean;
   events?: boolean;
   jobs?: boolean;
+  /** Other counted tables that changed, by name (`fixes`, …). */
+  other?: string[];
   live?: LiveRun[];
 }
 

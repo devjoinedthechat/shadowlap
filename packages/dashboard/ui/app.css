@@ -1628,3 +1628,75 @@ table.daytable tbody tr:hover td { background: none; }
 /* on a narrow window the status bar's team store gives way once the store path has, before the
    counts and the version, cut with an ellipsis (whole on hover) */
 @media (max-width: 860px) { .status > span.storeat { flex: 0 .02 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+/* ============ fixes ============
+   What the Fixes screens add to the mock's classes: the spacing the mock set inline, links in the
+   lists of attempts and runs, a verdict that did not settle, notes, and report.md drawn as blocks. */
+.fxgap { margin-top: 16px; }
+.callrow.fxrow { margin-top: 6px; }
+.callrow li.dim { opacity: .4; }
+.callrow li.gap .nr { font: 11px var(--mono); color: var(--faint); }
+.callrow a.cn:hover { box-shadow: 0 0 0 4px var(--hover); }
+.fxlegend { margin-top: 16px; }
+.ans.one { grid-template-columns: minmax(0, 1fr); }
+.fxbundle + .fxbundle { margin-top: 12px; }
+.attempts a { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--dim); text-decoration: none; white-space: nowrap; }
+.attempts a:hover { color: var(--ink); }
+.attempts a i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--o-rep); }
+.attempts a i.no { background: var(--o-block); }
+/* an attempt's line ends in an ellipsis rather than past its panel; the whole line is on hover */
+.attempts > a, .attempts > span { min-width: 0; }
+.attempts > span > i { flex: none; }
+.attempts .t { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode > .attempts.fxwide { grid-column: 2 / -1; margin-top: -2px; }
+.fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
+.fxcmd { margin-top: 14px; }
+.fxlost { margin: 6px 0 14px; }
+.fxlost .at { color: var(--faint); }
+.fxdiag { margin: 6px 0 0; }
+.pbody.fxfoot { border-top: 1px solid var(--line); }
+.fxfoot span { color: var(--faint); font-size: 12.5px; }
+table.t .fxrole { font-weight: 500; }
+.fxof { font: 12px var(--mono); color: var(--faint); }
+table.t td.fxwhere { color: var(--faint); }
+a.fxcall { color: inherit; text-decoration: none; }
+a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
+.fxreceipt { margin: 16px 0 8px; color: var(--faint); font-size: 12.5px; }
+.fxbad { color: var(--err); }
+.fxdim { color: var(--faint); }
+.ph p.fxbad { margin-top: 6px; font-size: 12.5px; }
+.verdict p.fxbad, .verdict p.fxdim { margin-top: 4px; }
+.verdict.n { background: var(--raise); box-shadow: inset 0 0 0 1px var(--line2); }
+.fxwarn { margin: 14px 0 0; padding-left: 18px; color: var(--warn); font-size: 12.5px; }
+.fxwarn.bad { margin: -4px 0 16px; color: var(--err); }
+.fxlist { margin: 6px 0 14px; padding-left: 18px; color: var(--dim); font-size: 13px; }
+.fxlist.bad { color: var(--del); }
+.ph .fxrename { margin-left: 4px; vertical-align: 1px; }
+/* a link button that can't run here (Rename, Run blame) looks off, and says why on hover */
+.linkbtn[disabled], .linkbtn[disabled]:hover { opacity: .45; cursor: not-allowed; color: var(--dim); background: none; }
+.fxsource { color: var(--accent); }
+.dialog p.fxdlg { margin: 0; color: var(--dim); font-size: 13px; }
+.prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }
+.prbody.clamp::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: linear-gradient(color-mix(in srgb, var(--panel) 0%, transparent), var(--panel)); }
+.prbody p { margin: 0 0 10px; }
+.prbody h4 { margin: 16px 0 6px; font: 600 13px var(--body); color: var(--ink); }
+.prbody code { font-size: 12px; }
+.prbody pre.fxcode { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.fxcode .add { color: var(--add); }
+.fxcode .del { color: var(--del); }
+.fxtable { overflow-x: auto; margin: 0 0 12px; }
+.fxtable table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fxtable th { text-align: left; vertical-align: bottom; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+/* a long cell (an answer, a candidate) wraps anywhere, so the table fits its panel; a run id or a role stays whole */
+.fxtable td.nw { white-space: nowrap; overflow-wrap: normal; }
+/* report.md in a narrow panel (beside Handed over on a laptop, or on a phone): each row as its headers
+   and values, one under the other, so no column is ever out of view */
+.prbody { container: report / inline-size; }
+@container report (max-width: 420px) {
+  .fxtable table, .fxtable tbody, .fxtable tr, .fxtable td { display: block; }
+  .fxtable thead { display: none; }
+  .fxtable tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .fxtable td { padding: 2px 0; border: 0; }
+  .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+}
+.fxmore { padding: 0 18px 14px; }

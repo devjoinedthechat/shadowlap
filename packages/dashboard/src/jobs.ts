@@ -6,6 +6,7 @@ import type { Readable } from 'node:stream';
 import type { Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
+import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './worktree.js';
 
 /**
  * Jobs: the CLI runs the dashboard starts. The browser never sends a command line. It names a job
@@ -35,6 +36,9 @@ import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './view
  *
  * A CLI that sends no events still works: a "recording run <id>" or "replaying run <id>" line in
  * its output names the run, as it always did.
+ *
+ * A project's working tree is one: a job whose command changes the agent's files (repair, fix
+ * apply) runs alone in it, and one that runs the agent from them is refused meanwhile (worktree.ts).
  */
 
 export interface SpawnCliOptions {
@@ -175,6 +179,9 @@ interface Job {
   kind: string;
   title: string;
   args: string[];
+  /** How it uses its working tree (worktree.ts), while it runs, and that tree's folder through links. */
+  worktree: JobTree | null;
+  treeAt: string | null;
   runId: string | null;
   opensRun: boolean;
   cwd: string | null;
@@ -296,6 +303,11 @@ export class JobManager {
     return n;
   }
 
+  /** The working trees running jobs hold. */
+  private *heldTrees(): Iterable<{ tree: JobTree | null; at: string | null }> {
+    for (const j of this.jobs.values()) if (!j.done) yield { tree: j.worktree, at: j.treeAt };
+  }
+
   /** Builds and starts a job of `kind`. Throws an HttpError the client should see when it cannot. */
   async start(kind: unknown, req: JobRequest): Promise<JobView> {
     if (typeof kind !== 'string' || !kind) throw new HttpError(400, 'kind is required');
@@ -326,6 +338,8 @@ export class JobManager {
     }
     let cwd: string | null;
     let title: string;
+    let tree: JobTree | null = null;
+    let treeAt: string | null = null;
     try {
       // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
       if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
@@ -333,6 +347,14 @@ export class JobManager {
       cwd = this.jobCwd(built.cwd);
       title = clean(built.title ?? def.title(req), 120) || kind;
       if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
+      // A project's working tree is one: no job runs the agent from it while another changes it.
+      const use = treeUse(jobCommands(built));
+      if (use) {
+        treeAt = treeFolder(cwd);
+        const clash = treeClash(this.heldTrees(), use.use, treeAt);
+        if (clash) throw new HttpError(409, `${clash.doing}: ${use.verb} once it is done`);
+        tree = { use: use.use, doing: use.doing, folder: cwd };
+      }
     } catch (err) {
       uploads?.release(id);
       throw err instanceof HttpError ? err : new HttpError(500, err instanceof Error ? err.message : String(err));
@@ -345,6 +367,8 @@ export class JobManager {
       kind,
       title,
       args: [...built.args],
+      worktree: tree,
+      treeAt,
       runId: built.runId ?? null,
       opensRun: built.opensRun ?? false,
       cwd,
@@ -646,6 +670,7 @@ export class JobManager {
       kind: job.kind,
       title: job.title,
       args: [...job.args],
+      worktree: job.worktree,
       runId: job.runId,
       opensRun: job.opensRun,
       startedAt: job.startedAt,

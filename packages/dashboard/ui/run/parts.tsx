@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type BlameView, type CheckView, type RunDetail, type RunOffers } from '../api.js';
 import { CmdLine } from '../components/bits.js';
+import { RunBlameButton } from '../fixes/RunBlame.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -13,7 +14,6 @@ import { refusedOffline } from './calls.js';
 import { metricItems } from './metrics.js';
 import { originOf, runLikeOf } from './model.js';
 import { blameOfferFor, divergedActions } from './offers.js';
-import { RunBlame } from './RunBlame.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
@@ -296,7 +296,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
             <span className="end">{fixLink()}</span>
           ) : offer && !app.exported ? (
             <span className="end">
-              <RunBlame runId={r.runId} offer={offer} />
+              {/* The server picks the check, as the CLI judges the run; disabled with why on a read-only dashboard or while a repair holds the tree. */}
+              <RunBlameButton runId={r.runId} failed={offer.failed} />
             </span>
           ) : null}
         </section>

@@ -460,3 +460,24 @@ describe('Fixes: reading them back', () => {
     }
   });
 });
+
+describe('Fixes: the change feed', () => {
+  it('moves the fixes counter on every write to a fix or a report behind it, and nothing else does', () => {
+    const fixes = () => store.changeCounts().fixes;
+    const run = makeRun(store, { labels: ['refund-over-limit'] });
+    const start = fixes();
+    expect(start).toBe(0);
+    const { fix } = blame(run);
+    const blamed = fixes()!;
+    expect(blamed).toBeGreaterThan(start!);
+    setFixTitle(store, fix.fixId, 'Refunds above the limit');
+    expect(fixes()).toBeGreaterThan(blamed);
+    const titled = fixes();
+    recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: EXPECT, command: 'shadowlap verify --fixes label:refund-over-limit' });
+    expect(fixes()).toBeGreaterThan(titled!);
+    const verified = fixes();
+    // A label on a run is a change to runs only.
+    label(run, 'refund-over-limit', 'seen');
+    expect(fixes()).toBe(verified);
+  });
+});

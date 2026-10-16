@@ -14,9 +14,11 @@ import {
   formatUsd,
   GOOD_LABEL,
   outcomeOf,
+  recordingsOfRun,
   repairMarkdown,
   repairToApply,
   resolveFix,
+  testsEntryFor,
   verdictCounts,
   type FixData,
   type FixRecords,
@@ -46,6 +48,10 @@ import {
  */
 
 export type StepKey = 'blame' | 'repair' | 'verify';
+/**
+ * Done, to do, or (Verify only) rejected. A blame no model call rescued is still to do: it found no
+ * call to blame, and its line says so ("not rescued").
+ */
 export type StepState = 'done' | 'todo' | 'no';
 
 /** One of a fix's three steps, as the list (`short`) and the stepper (`title`, `meta`) show it. */
@@ -233,7 +239,10 @@ export interface VerifyStep {
 }
 
 export interface FixActions {
-  /** An open fix: repair from here. Argv after `shadowlap`, without `--db` or `--repairer`, which the caller adds. */
+  /**
+   * An open fix: repair from here. Argv after `shadowlap`, without `--db` or `--repairer`, which the
+   * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included.
+   */
   repair: { argv: string[]; command: string } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
@@ -267,6 +276,11 @@ export interface FixDetail extends FixRow {
   defaultVerify: string | null;
   /** Commands that run each step again, as the empty steps show them. */
   commands: { blame: string; repair: string; verify: string };
+  /**
+   * Who a repair from here asks for candidates: the repairer shadowlap.config.json names
+   * (`repair.repairer`, which the CLI reads by itself), or else the user's own Claude Code.
+   */
+  repairer: { name: string; configured: boolean };
   applied: FixData['applied'] | null;
 }
 
@@ -362,7 +376,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
-    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'done', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'todo', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
     else blame = { key: 'blame', n: '01', state: 'todo', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
@@ -495,6 +509,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
       })
     : [];
   const contrast = r.contrast;
+  const rescuedNote = contrast ? `passed · ${askedAgain(contrast.rescued)}` : 'passed';
   return {
     blameId: b.blameId,
     runId: b.runId,
@@ -522,7 +537,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
       title: `blame · probe #${x.callNo}`,
       blamed: x.callNo === blamedCall,
       passes: x.passes,
-      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed ? 'passed' : shortFailure(a.failures[0]), spent: a.spent, href: runHref(a.runId) })),
+      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : shortFailure(a.failures[0]), spent: a.spent, href: runHref(a.runId) })),
     })),
     callRow,
     cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels },
@@ -720,13 +735,26 @@ function labelSelectsFix(store: Store, label: string, rec: FixRecords): boolean 
  * good runs, its check. Empty when none of its failing runs is left in the store.
  */
 export function repairArgv(store: Store, rec: FixRecords): string[] {
+  // Without a failing run left, a label would select nothing, and repair would refuse it.
+  const left = rec.failing.filter((id) => store.getRun(id) !== null);
+  if (!left.length) return [];
   const { label } = fixLabelInfo(store, rec.fix);
-  const fixes = label && labelSelectsFix(store, label, rec) ? [`label:${label}`] : rec.failing.filter((id) => store.getRun(id) !== null);
-  if (!fixes.length) return [];
+  const fixes = label && labelSelectsFix(store, label, rec) ? [`label:${label}`] : left;
   const anyGood = store.allRuns().some((r) => r.meta?.labels?.includes(GOOD_LABEL));
   const keeps = anyGood ? [`label:${GOOD_LABEL}`] : rec.good.filter((id) => store.getRun(id) !== null);
   const expect = rec.fix.check.expect;
   return ['repair', '--fixes', ...fixes, ...(keeps.length ? ['--keeps', ...keeps] : []), ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
+}
+
+/** The repairer a repair from the dashboard (or `fix show`'s next step) uses when the config names none. */
+export const DEFAULT_REPAIRER = 'claude-code';
+
+/**
+ * `shadowlap repair` as the dashboard runs it: a repairer set in shadowlap.config.json applies by
+ * itself, as the CLI reads it; otherwise the user's own Claude Code, named on the command line.
+ */
+export function repairJobArgv(argv: readonly string[], configured: string | null | undefined): string[] {
+  return [...argv, ...(configured ? [] : ['--repairer', DEFAULT_REPAIRER])];
 }
 
 /** What applying a fix left undone, in words, or null. */
@@ -736,8 +764,11 @@ function pendingText(left: { goldens: boolean; test: boolean } | null): string |
   return 'run shadowlap test on its goldens';
 }
 
-/** One fix, every step as its page shows it. Null for an id that matches no fix, or several. */
-export function fixDetail(store: Store, idOrPrefix: string): FixDetail | null {
+/**
+ * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
+ * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
+ */
+export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -760,6 +791,7 @@ export function fixDetail(store: Store, idOrPrefix: string): FixDetail | null {
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
   const shortIds = (argv: string[]) => argv.map((a) => (/^[0-9A-Z]{26}$/.test(a) ? short(a) : a));
+  const configured = options.repairer?.trim() || null;
   return {
     ...row,
     expect,
@@ -770,7 +802,7 @@ export function fixDetail(store: Store, idOrPrefix: string): FixDetail | null {
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions: {
-      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine([...repairArgs, '--repairer', 'claude-code']) } : null,
+      repair: fix.status === 'open' && repairArgs.length ? { argv: repairArgs, command: commandLine(repairJobArgv(repairArgs, configured)) } : null,
       apply:
         fix.status === 'open'
           ? null
@@ -788,9 +820,10 @@ export function fixDetail(store: Store, idOrPrefix: string): FixDetail | null {
     defaultVerify: accepted?.verifyId ?? verify[0]?.verifyId ?? null,
     commands: {
       blame: commandLine(['blame', blameRun ? short(blameRun) : '<run>', ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])]),
-      repair: repairArgs.length ? commandLine([...shortIds(repairArgs), '--repairer', 'claude-code']) : commandLine(['repair', '--fixes', '<runs>', '--repairer', 'claude-code']),
+      repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
       verify: commandLine(['verify', ...(repairArgs.length ? shortIds(repairArgs.slice(1)) : ['--fixes', '<runs>'])]),
     },
+    repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null },
     applied: fix.data.applied ?? null,
   };
 }
@@ -1009,10 +1042,19 @@ function fixRef(store: Store, fix: StoredFix): FixRef {
   return { fixId: fix.fixId, href: fixHref(fix.fixId), title: fix.title, status: fix.status, label: fixLabelInfo(store, fix).label, check: fix.check.text };
 }
 
+/** The tools a model's answer called, each once, in order. */
+const toolsCalled = (blocks: ReadonlyArray<{ type: string; name?: string }>): string[] => [...new Set(blocks.flatMap((x) => (x.type === 'tool_call' && x.name ? [x.name] : [])))];
+
+/** What the model did at the blamed call when asked again, in a few words: "called escalate". */
+function askedAgain(blocks: ReadonlyArray<{ type: string; name?: string }>): string {
+  const tools = toolsCalled(blocks);
+  return tools.length ? `called ${tools.join(' and ')}` : blocks.length ? 'answered without a tool call' : 'the run passed';
+}
+
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
   const rescued = r.contrast?.rescued ?? [];
-  const tools = [...new Set(rescued.flatMap((x) => (x.type === 'tool_call' ? [x.name] : [])))];
+  const tools = toolsCalled(rescued);
   const what = b.outcome === 'blamed' ? (tools.length ? `asked again, it calls ${tools.join(' and ')} instead` : rescued.length ? 'asked again, it answers without a tool call' : 'asked again, the run passes') : b.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
   return { blameId: b.blameId, at: b.at, outcome: b.outcome, lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
@@ -1059,5 +1101,328 @@ export function fixForRun(store: Store, runId: string): FixForRun | null {
     const suggested = checkSuggestion(run, fixLabels(run).length ? labelledFixes(store) : []);
     return { role: 'unblamed', fix: null, blame: null, probe: null, verify: null, ...(suggested ? { expect: suggested.expect } : {}) };
   }
+  return null;
+}
+
+// ---- The Forks view: the attempts blame and verify made, bundled under the run they replayed ----
+
+export interface FixBundleAttempt {
+  runId: string;
+  passed: boolean;
+  /** "passed", "issue_refund called", "passed · called escalate". */
+  note: string;
+  href: string;
+  /** The fork blame rescued its run with: it shows as a fork of its own as well. */
+  rescued: boolean;
+}
+
+export interface FixBundle {
+  /** Blame's attempts at one probed call, or verify's attempts at one run under one change. */
+  kind: 'blame' | 'verify';
+  /** Stays the same from one load to the next. */
+  key: string;
+  /** The run the attempts replayed: the bundle sits under it in the family. */
+  parentRunId: string;
+  /** `blame · probe #5`, `verify · target`; under a run several fixes share, with the fix's name: `verify · good · refund-bug`. */
+  title: string;
+  /** For a probe: the model call asked again; the one blame named is where the run was lost. */
+  callNo: number | null;
+  blamed: boolean;
+  /** For verify: the change it checked (`repair candidate 3`, a code version), how it came out, and the run's role. */
+  change: string | null;
+  verdict: VerifyOutcome | null;
+  role: VerifyRow['role'] | null;
+  passes: number;
+  attempts: FixBundleAttempt[];
+  spent: number;
+  at: number;
+  /**
+   * Where it leads: the fix's Blame step for a probe, the verdict on the fix's Verify step, the
+   * Repair step for a candidate a repair tried and dropped; the run itself when no fix holds it.
+   */
+  href: string;
+  fixId: string | null;
+}
+
+/** Runs the dashboard reads in one family at most, as the lineage endpoint does. */
+const FAMILY_LIMIT = 5000;
+
+/** A run's family: its root recording and every run that descends from it. */
+function familyOf(store: Store, run: RunRecord): Map<string, RunRecord> {
+  let root = run;
+  const up = new Set([root.runId]);
+  while (root.parentRunId) {
+    const parent = store.getRun(root.parentRunId);
+    if (!parent || up.has(parent.runId)) break;
+    up.add(parent.runId);
+    root = parent;
+  }
+  const family = new Map<string, RunRecord>();
+  const queue = [root];
+  while (queue.length && family.size < FAMILY_LIMIT) {
+    const r = queue.shift()!;
+    if (family.has(r.runId)) continue;
+    family.set(r.runId, r);
+    queue.push(...store.childRuns(r.runId));
+  }
+  return family;
+}
+
+/**
+ * Every verdict and repair report, read once for each change to fixes: the store's `fixes` counter
+ * moves whenever one is written, so a Forks view polled while nothing changes parses none again.
+ */
+const reportsRead = new WeakMap<Store, { n: number; verdicts: StoredVerdict[]; repairs: StoredRepair[] }>();
+function storedReports(store: Store): { verdicts: StoredVerdict[]; repairs: StoredRepair[] } {
+  const n = store.changeCounts().fixes;
+  const kept = reportsRead.get(store);
+  if (kept && n !== undefined && kept.n === n) return kept;
+  const read = { n: n ?? -1, verdicts: store.listVerdicts(), repairs: store.listRepairs() };
+  if (n !== undefined) reportsRead.set(store, read);
+  return read;
+}
+
+/** A failed attempt's first failure, from its run when the report kept none. */
+function attemptNote(passed: boolean, failure: string | undefined, run: RunRecord | undefined): string {
+  if (passed) return 'passed';
+  if (failure) return shortFailure(failure);
+  const check = run?.meta?.checks?.find((c) => !c.ok);
+  return check ? shortFailure(check.label) : run?.status === 'crashed' ? 'interrupted' : 'failed';
+}
+
+/**
+ * The attempts blame and verify made in a run's family, bundled per probe and per verified run, for
+ * the Forks view: each bundle sits under the run its attempts replayed, says which probe blame named
+ * (`blamed`) and how the change a verify checked came out, and links to the step of the fix it
+ * belongs to. Attempts no stored report names (a blame made before fixes kept blames) are bundled
+ * from the marks on the runs themselves. Null for a run that isn't in the store.
+ */
+export function fixBundles(store: Store, runId: string): FixBundle[] | null {
+  const run = store.getRun(runId);
+  if (!run) return null;
+  const family = familyOf(store, run);
+  // Only attempts are bundled, so a family without one has no bundle and costs no more than its walk.
+  const probed = new Set<string>();
+  let checked = false;
+  for (const r of family.values()) {
+    if (r.meta?.probe && r.parentRunId) probed.add(r.parentRunId);
+    if (r.meta?.verify) checked = true;
+  }
+  if (!probed.size && !checked) return [];
+  const out: FixBundle[] = [];
+  const bundled = new Set<string>();
+  const exists = (id: string) => family.has(id);
+  const startedAt = (ids: readonly string[], fallback: number) => Math.min(...ids.map((id) => family.get(id)?.startedAt ?? fallback), fallback);
+  const linkedFix = (ref: string, kind: 'blame' | 'repair' | 'verify', runOf: string): StoredFix | null => {
+    const fixes = store.linksTo(ref, kind).map((l) => store.getFix(l.fixId)).filter((f): f is StoredFix => f !== null);
+    // A verdict shared by several fixes leads to the one the run takes part in.
+    const own = fixes.find((f) => store.linksTo(runOf).some((l) => l.fixId === f.fixId && (l.kind === 'failing' || l.kind === 'good')));
+    return own ?? fixes[0] ?? null;
+  };
+
+  // Blame: each blame of a run in the family whose probes are here (they fork from the run blamed), a
+  // bundle per probed call.
+  for (const id of probed) {
+    const r = family.get(id);
+    if (!r || r.meta?.probe || r.meta?.verify) continue;
+    for (const b of store.blamesOfRun(r.runId)) {
+      const fix = linkedFix(b.blameId, 'blame', r.runId) ?? fixOfRun(store, r.runId);
+      const rescuedRunId = b.report.contrast?.rescuedRunId ?? null;
+      const rescuedNote = b.report.contrast ? `passed · ${askedAgain(b.report.contrast.rescued)}` : 'passed';
+      const blamedCall = b.outcome === 'blamed' ? (b.report.blamed?.callNo ?? null) : null;
+      for (const p of b.report.probes) {
+        const attempts = p.attempts.filter((a) => exists(a.runId));
+        if (!attempts.length) continue;
+        for (const a of attempts) bundled.add(a.runId);
+        out.push({
+          kind: 'blame',
+          key: `${b.blameId}:${p.callNo}`,
+          parentRunId: r.runId,
+          title: `blame · probe #${p.callNo}`,
+          callNo: p.callNo,
+          blamed: p.callNo === blamedCall,
+          change: null,
+          verdict: null,
+          role: null,
+          passes: attempts.filter((a) => a.passed).length,
+          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
+          spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
+          at: startedAt(attempts.map((a) => a.runId), b.at),
+          href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
+          fixId: fix?.fixId ?? null,
+        });
+      }
+    }
+  }
+
+  // Verify: each verdict on a run in the family, and each candidate a repair tried and dropped (its
+  // check is kept in the repair's report, not as a verdict), a bundle per run it replayed.
+  const verified = (key: string, x: VerifiedRun, change: string, verdict: VerifyOutcome, fix: StoredFix | null, href: string, at: number) => {
+    const attempts = x.attempts.filter((a) => exists(a.runId) && !bundled.has(a.runId));
+    if (!attempts.length) return;
+    for (const a of attempts) bundled.add(a.runId);
+    out.push({
+      kind: 'verify',
+      key,
+      parentRunId: x.runId,
+      title: `verify · ${ROLE[x.role]}`,
+      callNo: null,
+      blamed: false,
+      change,
+      verdict,
+      role: ROLE[x.role],
+      passes: attempts.filter((a) => a.passed).length,
+      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, note: attemptNote(a.passed, a.failures[0], family.get(a.runId)), href: runHref(a.runId), rescued: false })),
+      spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
+      at: startedAt(attempts.map((a) => a.runId), at),
+      href,
+      fixId: fix?.fixId ?? null,
+    });
+  };
+  const inFamily = (runs: readonly VerifiedRun[]) => runs.filter((x) => exists(x.runId));
+  const { verdicts, repairs } = checked ? storedReports(store) : { verdicts: [], repairs: [] };
+  for (const v of verdicts) {
+    for (const x of inFamily(v.report.runs)) {
+      const fix = linkedFix(v.verifyId, 'verify', x.runId);
+      const change = v.candidate !== null ? `repair candidate ${v.candidate}` : (v.report.codeVersion ?? 'working tree');
+      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at);
+    }
+  }
+  const kept = new Set(verdicts.flatMap((v) => (v.repairId !== null && v.candidate !== null ? [`${v.repairId}#${v.candidate}`] : [])));
+  for (const r of repairs) {
+    for (const c of r.report.candidates) {
+      if (!c.verify || kept.has(`${r.repairId}#${c.id}`)) continue;
+      for (const x of inFamily(c.verify.runs)) {
+        const fix = linkedFix(r.repairId, 'repair', x.runId);
+        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at);
+      }
+    }
+  }
+
+  // Attempts that carry blame's or verify's mark but that no stored report names.
+  const loose = new Map<string, { parent: RunRecord; kind: 'blame' | 'verify'; callNo: number | null; role: VerifyRow['role'] | null; runs: RunRecord[] }>();
+  for (const r of family.values()) {
+    if (bundled.has(r.runId) || !r.parentRunId || !family.has(r.parentRunId)) continue;
+    const parent = family.get(r.parentRunId)!;
+    const probe = r.meta?.probe;
+    const check = r.meta?.verify;
+    if (probe && typeof probe.callNo === 'number' && probe.of === parent.runId) {
+      const key = `probe:${parent.runId}:${probe.callNo}`;
+      const group = loose.get(key) ?? { parent, kind: 'blame' as const, callNo: probe.callNo, role: null, runs: [] };
+      group.runs.push(r);
+      loose.set(key, group);
+    } else if (check && (check.role === 'target' || check.role === 'holdout' || check.role === 'good')) {
+      const key = `verify:${parent.runId}:${check.role}`;
+      const group = loose.get(key) ?? { parent, kind: 'verify' as const, callNo: null, role: ROLE[check.role], runs: [] };
+      group.runs.push(r);
+      loose.set(key, group);
+    }
+  }
+  for (const [key, g] of loose) {
+    const lost = g.parent.meta?.blame;
+    const blamed = g.kind === 'blame' && lost?.outcome === 'blamed' && lost.callNo === g.callNo;
+    const rescuedRunId = lost?.rescuedRunId ?? null;
+    const fix = g.kind === 'blame' ? fixOfRun(store, g.parent.runId) : null;
+    const passed = (r: RunRecord) => (g.kind === 'blame' ? r.meta?.probe?.passed === true : r.meta?.verify?.passed === true);
+    out.push({
+      kind: g.kind,
+      key,
+      parentRunId: g.parent.runId,
+      title: g.kind === 'blame' ? `blame · probe #${g.callNo}` : `verify · ${g.role}`,
+      callNo: g.callNo,
+      blamed,
+      change: null,
+      verdict: null,
+      role: g.role,
+      passes: g.runs.filter(passed).length,
+      attempts: g.runs.map((r) => ({ runId: r.runId, passed: passed(r), note: attemptNote(passed(r), undefined, r), href: runHref(r.runId), rescued: r.runId === rescuedRunId })),
+      spent: 0,
+      at: Math.min(...g.runs.map((r) => r.startedAt)),
+      href: fix ? fixHref(fix.fixId, 'blame') : runHref(g.parent.runId, blamed ? g.callNo : null),
+      fixId: fix?.fixId ?? null,
+    });
+  }
+  nameSharedBundles(store, out);
+  return out.sort((a, b) => a.at - b.at || a.key.localeCompare(b.key));
+}
+
+/**
+ * A run several fixes blamed or verified carries bundles from each, which would read the same
+ * ("verify · good" under a good run three fixes kept): there, each title names its fix, by its label
+ * or its short id ("verify · good · refund-bug").
+ */
+function nameSharedBundles(store: Store, bundles: FixBundle[]): void {
+  const fixesUnder = new Map<string, Set<string>>();
+  for (const b of bundles) if (b.fixId) fixesUnder.set(b.parentRunId, (fixesUnder.get(b.parentRunId) ?? new Set()).add(b.fixId));
+  const names = new Map<string, string>();
+  const nameOf = (fixId: string): string => {
+    let name = names.get(fixId);
+    if (name === undefined) {
+      const fix = store.getFix(fixId);
+      name = (fix ? fixLabelInfo(store, fix).label : null) ?? fixId.slice(0, 13);
+      names.set(fixId, name);
+    }
+    return name;
+  };
+  for (const b of bundles) if (b.fixId && (fixesUnder.get(b.parentRunId)?.size ?? 0) > 1) b.title = `${b.title} · ${nameOf(b.fixId)}`;
+}
+
+// ---- What a blame from the dashboard checks ------------------------------------------------------
+
+export interface BlameCheck {
+  /** The check as `--expect` takes it; null to blame on the exit code alone. */
+  expect: unknown;
+  /**
+   * Where it came from: the run was judged by it with `--expect` (`replay`); shadowlap.config.json's
+   * `tests` give it for the recording the run replays, found through its ancestors as the CLI finds
+   * it (`config`); the fix the run fails in has it (`fix`); a fix the run's labels point to has it
+   * (`labels`); or the agent exited with an error, which every blame checks (`exit`).
+   */
+  from: 'replay' | 'config' | 'fix' | 'labels' | 'exit';
+}
+
+const plainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The checks a run failed, as it recorded them (`meta.checks`). */
+export function failedChecks(run: RunRecord): string[] {
+  const checks: unknown = run.meta?.checks;
+  if (!Array.isArray(checks)) return [];
+  return checks.flatMap((c) => (plainObject(c) && c.ok === false && typeof c.label === 'string' ? [c.label] : []));
+}
+
+/**
+ * The `expect` shadowlap.config.json's `tests` give the recording a run replays (the golden a test
+ * replayed, or the pack it was unpacked from, through its ancestors), or undefined when no entry
+ * names one. `tests` is the config's `tests` as written; `configDir` the folder it is in.
+ */
+export function configExpect(store: Store, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
+  if (!plainObject(tests)) return undefined;
+  const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
+  for (const dir of recordingsOfRun(store, run)) {
+    const entry = testsEntryFor(entries, dir, configDir);
+    if (entry) return plainObject(entry.spec) && plainObject(entry.spec.expect) ? entry.spec.expect : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * The check a blame of a run can use when nobody named one, or null when nothing says what a
+ * passing run must do: then the dashboard asks for it. In order: the run's own `--expect`; the
+ * config's, for the recording it replays (`tests`, the config's `tests`, and `configDir`, its
+ * folder); the fix it fails in; a fix its labels point to; the agent's exit, for a run that exited
+ * with an error. A run that failed a check none of these name gets null rather than the exit code:
+ * blaming on the exit alone would look for another failure than the one it had.
+ */
+export function blameCheckFor(store: Store, run: RunRecord, options: { tests?: unknown; configDir?: string | null } = {}): BlameCheck | null {
+  const judged = run.meta?.expect;
+  if (plainObject(judged)) return { expect: judged, from: 'replay' };
+  const configured = options.configDir ? configExpect(store, run, options.tests, options.configDir) : undefined;
+  if (configured) return { expect: configured, from: 'config' };
+  const failing = fixOfRun(store, run.runId);
+  if (failing) return { expect: failing.check.expect ?? null, from: 'fix' };
+  const suggested = fixLabels(run).length ? checkSuggestion(run, labelledFixes(store)) : null;
+  if (suggested) return { expect: suggested.expect ?? null, from: 'labels' };
+  if (failedChecks(run).length) return null;
+  if (run.status === 'failed') return { expect: null, from: 'exit' };
   return null;
 }

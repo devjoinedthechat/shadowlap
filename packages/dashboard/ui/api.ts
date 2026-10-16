@@ -1,9 +1,10 @@
 import type { RunComparison } from '../../engine/src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
+import { bundleSource } from './fixes/model.js';
 import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { readTokenLink } from './route.js';
-import type { CallDetail, Changes, JobFile, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload } from './types.js';
+import type { CallDetail, Changes, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -30,6 +31,8 @@ export const JOB_KINDS = {
   otel: 'export-otel',
   har: 'export-har',
   blame: 'blame',
+  repair: 'repair',
+  applyFix: 'apply',
   tests: 'test',
   importCapture: 'import',
   calibrate: 'calibrate',
@@ -113,6 +116,8 @@ export interface Client {
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
+  /** The jobs the server remembers, newest first, running ones included, without their output. */
+  jobs(): Promise<JobListItem[]>;
   remove(id: string): Promise<{ deleted: string }>;
   /** Saves a run, with the runs it came from, as one HTML file. */
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
@@ -144,6 +149,15 @@ export interface Client {
   upload(file: Blob, name: string): Promise<UploadView>;
   /** The newest entries of the activity feed. */
   activity(limit: number): Promise<ActivityPage>;
+
+  // ---- Fixes (`/api/fixes`)
+  /** Every fix, newest first, with the counts the filter chips show. */
+  fixes(): Promise<FixList>;
+  /** One fix, by its id or a unique prefix, with its three steps. */
+  fix(id: string): Promise<FixDetail>;
+  renameFix(id: string, title: string): Promise<FixDetail>;
+  /** The attempts blame and verify made in a run's family, for the Forks view; null when the server does not bundle them. */
+  fixBundles(runId: string): Promise<FixBundle[] | null>;
 }
 
 const etags = new Map<string, { etag: string; body: unknown }>();
@@ -273,6 +287,7 @@ export function createClient(token: string): Client {
     action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
+    jobs: async () => (await request<{ jobs: JobListItem[] }>('jobs')).jobs,
     remove: (runId) => request<{ deleted: string }>(`runs/${id(runId)}`, { method: 'DELETE' }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
     // end up in history and logs: so a file is fetched here and handed to the browser to save.
@@ -323,6 +338,11 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
+    fixes: () => request<FixList>('fixes'),
+    fix: (fixId) => request<FixDetail>(`fixes/${id(fixId)}`),
+    renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
+    // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
+    fixBundles: bundleSource((runId) => request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`).then((out) => out.bundles)),
   };
 }
 
@@ -364,6 +384,7 @@ export function createExportedClient(data: StaticPayload): Client {
     action: readOnly,
     startJob: readOnly,
     job: readOnly,
+    jobs: () => Promise.resolve([]),
     remove: readOnly,
     exportHtml: readOnly,
     downloadFile: readOnly,
@@ -380,5 +401,10 @@ export function createExportedClient(data: StaticPayload): Client {
     importSources: () => Promise.resolve(null),
     upload: readOnly,
     activity: () => Promise.resolve({ items: [], next: null }),
+    // Fixes are not part of an exported copy.
+    fixes: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
+    fix: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
+    renameFix: readOnly,
+    fixBundles: () => Promise.resolve(null),
   };
 }

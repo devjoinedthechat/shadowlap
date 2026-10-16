@@ -1,0 +1,136 @@
+import { Badge, CmdLine, EmptyState, Pips } from '../components/bits.js';
+import { rowOpen } from '../components/Table.js';
+import { copyText } from '../dom.js';
+import { approx, money, num, shortId } from '../format.js';
+import { navigate } from '../router.js';
+import { useApp } from '../state.js';
+import type { FixDetail, VerifyStep } from '../types.js';
+import { outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
+
+/**
+ * The Verify step: one change verified at a time (a switch between them, each with its own URL), its
+ * verdict and oracle, each run's role and outcome, what the change does to tokens and cost per run,
+ * and what finding out took.
+ */
+export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
+  const v = verifyFor(fix, sub);
+  if (!v)
+    return (
+      <EmptyState
+        title="Not verified yet"
+        text="verify checks a change on the failing runs, on failures it was not written against, and on runs that worked, before it ships. A repair runs it for you."
+        command={fix.commands.verify}
+      />
+    );
+  return (
+    <>
+      {fix.verify.length > 1 ? (
+        <div className="vpick seg" role="group" aria-label="Changes verified">
+          {fix.verify.map((x) => (
+            <a key={x.verifyId} href={x.href} aria-pressed={x.verifyId === v.verifyId}>
+              {x.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+      <Verdict v={v} />
+      {v.verdict !== 'accepted' && v.reasons.length ? (
+        <ul className="fxwarn bad">
+          {v.reasons.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+      ) : null}
+      <section className="panel tscroll">
+        <table className="t">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Run</th>
+              <th>Attempts</th>
+              <th>Outcome</th>
+              <th>Where it went</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.rows.map((x) => (
+              <tr key={`${x.role}:${x.runId}`} onClick={rowOpen(() => navigate(x.href))}>
+                <td>
+                  <b className="fxrole">{x.role}</b>
+                </td>
+                <td>
+                  <a className="fxcall" href={x.href}>
+                    <code>{shortId(x.runId)}</code>
+                  </a>
+                </td>
+                <td>
+                  <Pips ok={x.passes} no={x.attempts - x.passes} />{' '}
+                  <span className="fxof">
+                    {x.passes} of {x.attempts}
+                  </span>
+                </td>
+                <td>
+                  <Badge tone={outcomeTone(x.outcome)}>{x.outcome}</Badge>
+                </td>
+                <td className="fxwhere">{x.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <Deltas v={v} />
+      <p className="fxreceipt">
+        {num(v.attempts)} attempt{v.attempts === 1 ? '' : 's'} · {num(v.upstreamRequests)} upstream request{v.upstreamRequests === 1 ? '' : 's'} · {approx(v.spent)} spent to find out before it shipped. A run whose replay doesn’t fork settles in one free attempt.
+        {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
+      </p>
+      <CmdLine>{v.command}</CmdLine>
+      {v.warnings.length ? (
+        <ul className="fxwarn">
+          {v.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+function Verdict({ v }: { v: VerifyStep }) {
+  const { toast } = useApp();
+  const tone = verdictTone(v.verdict);
+  return (
+    <div className={`verdict ${tone}`}>
+      <Badge tone={tone}>{v.verdict}</Badge>
+      <div>
+        <h2>{v.headline}</h2>
+        <p>
+          {v.code} · {v.oracle}
+        </p>
+        {v.note ? <p className={v.counts ? 'fxbad' : 'fxdim'}>{v.note}</p> : null}
+      </div>
+      <div className="actions">
+        <button className="btn sm" type="button" onClick={() => void copyText(v.command).then((ok) => toast(ok ? 'Copied the command' : 'Copying was refused by the browser'))}>
+          Copy command
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Deltas({ v }: { v: VerifyStep }) {
+  if (!v.tokens && !v.cost) return null;
+  return (
+    <div className="deltas fxgap">
+      <div className="panel">
+        <span className="k">input tokens per run, as it would run live</span>
+        <b>{v.tokens ? v.tokens.change : '—'}</b>
+        <span className="n">{v.tokens ? `${tokens(v.tokens.before)} → ${tokens(v.tokens.after)}` : 'no attempt ran live'}</span>
+      </div>
+      <div className="panel">
+        <span className="k">cost per run</span>
+        <b>{v.cost ? v.cost.change : '—'}</b>
+        <span className="n">{v.cost ? `${money(v.cost.before)} → ${money(v.cost.after)}` : 'no price for the model'}</span>
+      </div>
+    </div>
+  );
+}
