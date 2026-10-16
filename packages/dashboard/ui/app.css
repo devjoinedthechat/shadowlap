@@ -578,11 +578,13 @@ table.probes tr.hot td { background: color-mix(in srgb, var(--warn) 7%, transpar
 .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 11px var(--mono); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
 .status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,4,.55); backdrop-filter: blur(2px); display: grid; place-items: center; padding: 24px; }
-.dialog { width: min(520px, 100%); background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
+/* A dialog never outgrows the window: its body scrolls, so its title and buttons stay in view. */
+.dialog { width: min(520px, 100%); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); display: flex; flex-direction: column; background: var(--raise); border-radius: 16px; box-shadow: var(--shadow-pop); overflow: hidden; }
+.dialog > header, .dialog > footer { flex: none; }
 .dialog header { padding: 18px 20px 6px; }
 .dialog header h3 { margin: 0; font: 600 17px var(--disp); letter-spacing: -.02em; }
 .dialog header p { margin: 6px 0 0; color: var(--faint); font-size: 13px; }
-.dialog .db { padding: 12px 20px; }
+.dialog .db { padding: 12px 20px; min-height: 0; overflow: auto; }
 .dialog textarea, .dialog input[type="text"] { width: 100%; border-radius: 10px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 10px 12px; outline: none; }
 .dialog textarea { min-height: 84px; resize: vertical; }
 .dialog textarea:focus, .dialog input:focus { border-color: var(--accent-line); }
@@ -1795,9 +1797,12 @@ details.foundsum > summary > .sumtext { min-width: 0; }
 .recline > .ic, .recline > .dotlive { flex: none; }
 .recline > .rtext { flex: 1 1 16em; min-width: 0; }
 /* every field you type exact characters into, and every code you read them in, shows them as typed:
-   a regex's (?<= is not ≤, != is not ≠. Important, because a rule's own `font:` shorthand resets both
-   properties to normal, as `.form input` and `.cilist code` do. */
-input, textarea, select, code, pre, kbd, .cmdline, .codebox { font-variant-ligatures: none !important; font-feature-settings: "liga" 0, "calt" 0 !important; }
+   a regex's (?<= is not ≤, != is not ≠, a replacement's -> is not an arrow. Important, because a
+   rule's own `font:` shorthand resets both properties to normal, as `.form input` and `.cilist code`
+   do. So do the other places that show a rule, a value, a path or a file name in the same font:
+   chips, the redaction preview's samples, a code block's file, the PR preview, the Project tab's
+   values and Add a project's folders. */
+input, textarea, select, code, pre, kbd, .cmdline, .codebox, .chip, .pvs, .codehead > span, .prl li, .kvs dd, .folders .fold b { font-variant-ligatures: none !important; font-feature-settings: "liga" 0, "calt" 0 !important; }
 /* a note under an MCP server's name wraps rather than widening the Server column past the mock's */
 .egrp.mcp td small.mnote { max-width: 240px; }
 .egrp.mcp .mcptable th:first-child { width: 22%; }
