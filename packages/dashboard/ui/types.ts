@@ -366,6 +366,7 @@ export interface LabelRunsResult {
   done: Array<{ runId: string; labels: string[] }>;
   skipped: Array<{ runId: string; reason: string }>;
 }
+
 // ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
@@ -377,3 +378,6 @@ export interface TestRunView {
 }
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
 export type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
+
+// ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
+export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TrainingView } from '../src/training.js';

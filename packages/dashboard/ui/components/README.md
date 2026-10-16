@@ -73,10 +73,11 @@ says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
-`run/metrics.ts`, `run/model.ts` and `run/calls.ts`. Tests has `goldens.ts`: the verdict's line,
-a check's name in the table, the reports as the CLI prints them, which buttons a failure gets and
-what the Update golden dialog says; `tests-palette.ts` lists the goldens in the palette from any
-page.
+`run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Training, `training.ts` (what a pairs filter
+shows, what Score a model sends, and the palette's Training actions). Tests has `goldens.ts`: the
+verdict's line, a check's name in the table, the reports as the CLI prints them, which buttons a
+failure gets and what the Update golden dialog says; `tests-palette.ts` lists the goldens in the
+palette from any page.
 
 A page adds palette entries (its Fixes, its goldens, its actions) with `addPaletteSource` from
 `palette-sources.ts`. A source runs when the palette opens; one that loads what it lists answers

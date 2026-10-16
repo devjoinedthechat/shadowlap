@@ -50,8 +50,8 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ex
 const TASKS = [
   task('goldens/refund-over-limit', 'ready', 'escalate above the limit'),
   task('goldens/escalate-over-limit', 'ready', 'escalate above the limit'),
-  task('goldens/refund-in-limit', 'blocked', 'refund within the limit'),
   task('goldens/refund-flow-budget', 'not-a-task', null),
+  task('goldens/refund-in-limit', 'blocked', 'refund within the limit'),
 ];
 
 const score = (model: string, baseUrl: string | null, golden: string, attempt: number, value: number, at: number, spent = 0): TaskScoreRow => ({ model, baseUrl, golden, attempt, runId: `${model}-${golden}-${attempt}`, score: value, checks: [], spent, via: baseUrl ? 'Ollama, on this machine' : 'the recorded model', session: 's', at });
@@ -109,6 +109,8 @@ describe('the Training read model', () => {
       runId: lost.runId,
       callNo: 5,
       href: `#/run/${lost.runId}/5`,
+      about: lost.runId,
+      attemptOf: null,
       fix: { label: 'refund-bug', href: '#/fixes/fx-refund-limit/blame' },
       source: { kind: 'blame', label: 'blame · refund-bug', href: '#/fixes/fx-refund-limit/blame' },
       from: 'from blame',
@@ -118,8 +120,13 @@ describe('the Training read model', () => {
     });
     expect(blame!.chosen.map((c) => c.text)).toEqual(['"Above the limit.", escalate({"reason":"refund of $240 is above $100"})', '"$240 is over the $100 limit, so this needs approval.", escalate({"reason":"above the refund limit"})']);
     expect(blame!.context).toContain('read_policy returned');
-    expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
+    expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, about: target.runId, attemptOf: null, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
     expect(verify!.source.href).toBe(`#/run/${target.runId}/5/forks`);
+    // The group opens the run verify replayed, at the call; the rejected answer opens its own attempt.
+    expect(verify!.href).toBe(`#/run/${target.runId}/5`);
+    expect(verify!.rejected).toMatchObject({ what: 'verify attempt, failed', callNo: 5 });
+    expect(verify!.rejected.runId).not.toBe(target.runId);
+    expect(verify!.rejected.href).toBe(`#/run/${verify!.rejected.runId}/5`);
     expect(view.pairs.madeBy).toEqual({ [`blame:${lost.runId}`]: 2, [verify!.source.key]: 1 });
 
     expect(view.pairs.sources.map((x) => [x.label, x.made, x.confidence])).toEqual([
@@ -127,7 +134,8 @@ describe('the Training read model', () => {
       ['verify · c91d0f4', 1, 'medium'],
       [`replay --repeat 2 · ${rec.runId.slice(0, 10)}`, 0, null],
     ]);
-    expect(view.pairs.sources[2]).toMatchObject({ href: `#/run/${rec.runId}/1/forks`, why: 'All 2 attempts exited 0, so there is nothing to contrast.' });
+    // A source that made no pairs has no call to open its run's forks at.
+    expect(view.pairs.sources[2]).toMatchObject({ href: `#/run/${rec.runId}/forks`, why: 'All 2 attempts exited 0, so there is nothing to contrast.' });
     expect(view.pairs.confidence.map((c) => c.level)).toEqual(['high', 'medium']);
     expect(view.pairs.footnote).toBe('Identical answers count once.');
 
@@ -138,6 +146,53 @@ describe('the Training read model', () => {
       { value: 'high', label: 'High confidence only (2)' },
       { value: 'medium', label: 'High and medium (3)' },
     ]);
+    s.close();
+  });
+
+  it('heads a verify group with the run it replayed at the same point, or with the attempt when that run never got there', () => {
+    const s = Store.open(':memory:');
+    const attempt = (target: string, group: string, steps: Step[], passed: boolean, user: string) => recordRun(s, steps, { parentRunId: target, status: passed ? 'completed' : 'failed', codeVersion: group, user, meta: { verify: { role: 'target', passed }, repeat: { group: `${group}-${target}`, attempt: passed ? 2 : 1, of: 2 } } }).run;
+    // Recorded with a model list first, which the change dropped: the same decision is #6 in the recording, #5 in the attempts.
+    const listed = recordRun(s, LOST, { status: 'failed', user: 'Refund order A-2001.', before: [{ name: 'GET /v1/models', kind: 'api', result: { data: [] } }] }).run;
+    attempt(listed.runId, 'v1', LOST, false, 'Refund order A-2001.');
+    attempt(listed.runId, 'v1', [LOOKUP, POLICY, ESCALATE, DONE], true, 'Refund order A-2001.');
+    // The change reads a template before deciding: the attempts decide at #7, where the recording had refunded already.
+    const TEMPLATE: Step = { tools: [{ name: 'get_template', input: { kind: 'refund' } }] };
+    const added = recordRun(s, LOST, { status: 'failed', user: 'Refund order A-2002.' }).run;
+    const failing = attempt(added.runId, 'v2', [LOOKUP, POLICY, TEMPLATE, REFUND, DONE], false, 'Refund order A-2002.');
+    attempt(added.runId, 'v2', [LOOKUP, POLICY, TEMPLATE, ESCALATE, DONE], true, 'Refund order A-2002.');
+
+    const view = trainingView(readTraining(s, { tasks: [] }));
+    const group = (about: string) => view.pairs.groups.find((g) => g.about === about)!;
+    expect(group(listed.runId)).toMatchObject({ runId: listed.runId, callNo: 6, href: `#/run/${listed.runId}/6`, attemptOf: null, rejected: { callNo: 5 } });
+    expect(group(added.runId)).toMatchObject({
+      runId: failing.runId,
+      callNo: 7,
+      href: `#/run/${failing.runId}/7`,
+      attemptOf: { runId: added.runId, href: `#/run/${added.runId}` },
+      rejected: { runId: failing.runId, callNo: 7 },
+      context: expect.stringContaining('get_template returned'),
+    });
+    // Without a fix, a source opens its run's forks at the call its pairs are about, and with none there, the forks alone.
+    expect(Object.fromEntries(view.pairs.sources.map((x) => [x.label, x.href]))).toEqual({ 'verify · v1': `#/run/${listed.runId}/6/forks`, 'verify · v2': `#/run/${added.runId}/forks` });
+    s.close();
+  });
+
+  it('compares means over the same tasks: the best is among the models scored on every ready task', () => {
+    const s = Store.open(':memory:');
+    const ready = [task('goldens/a', 'ready', null), task('goldens/b', 'ready', null)];
+    // qwen was scored before b was a task, on a alone, where it did better than sonnet did on both.
+    const scores = [score('claude-sonnet-5', null, 'goldens/a', 1, 0.5, 100), score('claude-sonnet-5', null, 'goldens/b', 1, 1, 100), score('qwen2.5:7b', 'http://127.0.0.1:11434/v1', 'goldens/a', 1, 1, 200)];
+    const view = trainingView({ ...readTraining(s, { tasks: ready }), scores });
+    expect(view.scores.cards.map((c) => [c.model, c.mean, c.coverage])).toEqual([
+      ['claude-sonnet-5', 0.75, null],
+      ['qwen2.5:7b', 1, 'on 1 of 2 tasks'],
+    ]);
+    expect(view.strip.best).toMatchObject({ value: '0.75', model: 'claude-sonnet-5', sub: 'claude-sonnet-5 · 2 models scored' });
+    // When no model was scored on every ready task, the best of the rest says what it covers.
+    const later = trainingView({ ...readTraining(s, { tasks: [...ready, task('goldens/c', 'ready', null)] }), scores });
+    expect(later.scores.cards.map((c) => c.coverage)).toEqual(['on 2 of 3 tasks', 'on 1 of 3 tasks']);
+    expect(later.strip.best).toMatchObject({ value: '1.00', model: 'qwen2.5:7b', sub: 'qwen2.5:7b · on 1 of 3 tasks' });
     s.close();
   });
 
@@ -159,16 +214,17 @@ describe('the Training read model', () => {
       ['refund-flow-budget', 'not a task', 'n', null],
     ]);
     expect(view.tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating', checks: ['the agent exits 0', 'issue_refund called 0 times'], after: { live: ['queue_status'], stubbed: ['send_email'] } });
-    expect(view.tasks.rows[3]).toMatchObject({ checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
+    // Checks that only cap spending score nothing, so no model takes over: no call, no tools after it.
+    expect(view.tasks.rows[3]).toMatchObject({ sub: 'no call to take over', takeover: null, after: null, checks: ['at most 60000 input tokens'], status: { short: 'its checks only cap tokens and cost' } });
     expect(view.tasks.weak).toBe('refund-flow-budget');
     // A golden with a simulated user: the row says which scope the model plays, and why it can't be scored yet.
-    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
+    const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and scoring can't yet send only agent's to the model under test" });
     expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
 
-    // Means count the ready tasks only: qwen's zeros on the blocked task don't.
-    expect(view.scores.cards.map((c) => [c.model, c.via, c.mean, c.cost])).toEqual([
-      ['claude-sonnet-5', 'the recorded model', 1, '≈$0.330 spent'],
-      ['qwen2.5:7b', 'Ollama, on this machine', 0.8, '$0, not a paid API'],
+    // Means count the ready tasks only: qwen's zeros on the blocked task don't, and its card says it was scored on one of the two.
+    expect(view.scores.cards.map((c) => [c.model, c.via, c.mean, c.cost, c.tasks, c.coverage])).toEqual([
+      ['claude-sonnet-5', 'the recorded model', 1, '≈$0.330 spent', 2, null],
+      ['qwen2.5:7b', 'Ollama, on this machine', 0.8, '$0, not a paid API', 1, 'on 1 of 2 tasks'],
     ]);
     expect(view.strip.best).toMatchObject({ value: '1.00', sub: 'claude-sonnet-5 · 2 models scored' });
     expect(view.scores.sub).toBe('mean share of checks passed, 2 tasks');
@@ -222,7 +278,8 @@ describe('the Training read model', () => {
     expect(scoreModelJob({ model: 'm; rm -rf /' }, TASKS)).toEqual({ error: 'model must be a model name, such as qwen2.5:7b' });
     expect(scoreModelJob({ model: 'm', baseUrl: 'file:///etc/passwd' }, TASKS)).toEqual({ error: 'baseUrl must be an http or https URL' });
     expect(scoreModelJob({ model: 'm', baseUrl: 'http://user:pw@127.0.0.1:8000/v1' }, TASKS)).toMatchObject({ error: expect.stringContaining('must not carry credentials') });
-    expect(scoreModelJob({ model: 'm', attempts: 0 }, TASKS)).toEqual({ error: 'attempts must be a whole number from 1 to 100' });
+    expect(scoreModelJob({ model: 'm', attempts: 0 }, TASKS)).toEqual({ error: 'attempts must be 5 or 10' });
+    expect(scoreModelJob({ model: 'm', attempts: 3 }, TASKS)).toEqual({ error: 'attempts must be 5 or 10' });
     expect(scoreModelJob({ model: 'm' }, TASKS.filter((t) => t.status !== 'ready'))).toEqual({ error: 'no task is ready to score' });
   });
 

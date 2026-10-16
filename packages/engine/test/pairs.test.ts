@@ -30,7 +30,7 @@ describe('pairs from blame', () => {
     const { run, attempts } = blamed(store);
     const { pairs, sources } = findPairs(store);
     expect(pairs).toHaveLength(2);
-    expect(pairs.every((p) => p.confidence === 'high' && p.callNo === 5 && p.runId === run.runId && p.sourceKind === 'blame')).toBe(true);
+    expect(pairs.every((p) => p.confidence === 'high' && p.callNo === 5 && p.aboutCallNo === 5 && p.runId === run.runId && p.sourceKind === 'blame')).toBe(true);
     expect(pairs[0]).toMatchObject({
       rejected: { runId: run.runId, callNo: 5, what: 'the recording', text: '"Issuing the refund.", issue_refund({"order_id":"A-1042","amount":240})' },
       chosen: { runId: attempts[0]!.runId, callNo: 5, what: 'blame attempt, passed', text: '"Above the limit.", escalate({"reason":"refund of $240 is above $100"})' },
@@ -79,7 +79,7 @@ describe('pairs from verify and --repeat', () => {
 
     const { pairs, sources } = findPairs(store);
     expect(pairs).toHaveLength(1);
-    expect(pairs[0]).toMatchObject({ confidence: 'medium', sourceKind: 'verify', runId: target.runId, callNo: 5, rejected: { runId: failed.runId, what: 'verify attempt, failed' }, chosen: { runId: passed.runId, what: 'verify attempt, passed' } });
+    expect(pairs[0]).toMatchObject({ confidence: 'medium', sourceKind: 'verify', runId: target.runId, callNo: 5, aboutCallNo: 5, rejected: { runId: failed.runId, what: 'verify attempt, failed' }, chosen: { runId: passed.runId, what: 'verify attempt, passed' } });
     const verify = sources.filter((s) => s.kind === 'verify');
     expect(verify.map((s) => [s.label, s.made])).toEqual([
       ['verify · b7e40c2', 0],
@@ -89,6 +89,36 @@ describe('pairs from verify and --repeat', () => {
     expect(verify[1]!.why).toContain(`Target ${target.runId.slice(0, 10)} failed 1 of 3.`);
     expect(verify[1]!.why).toContain('1 answer left out: the same answer, from the same point, also passed (or failed) elsewhere.');
     expect(countPairs(pairs)).toEqual({ all: 1, high: 0, medium: 1 });
+    store.close();
+  });
+
+  it('finds the call a verify pair is about in the run it replayed, at the same point of the same path, and none when that run never got there', () => {
+    const store = Store.open(':memory:');
+    // Each recording is its own order, so no pair is another's; its verify's attempts are asked about that order too.
+    const verify = (target: RunRecord, user: string, group: string, steps: Step[], passed: boolean, n: number, o: { system?: string } = {}) =>
+      recordRun(store, steps, { parentRunId: target.runId, status: passed ? 'completed' : 'failed', codeVersion: group, user, ...o, meta: { verify: { role: 'target', passed }, repeat: { group: `${group}-${target.runId}`, attempt: n, of: 2 } } }).run;
+    // The change verified is the prompt: no request is the recording's, but the attempts decide where it did, at #5.
+    const prompt = recordRun(store, LOST, { status: 'failed', user: 'Refund order A-2000.' }).run;
+    const system = 'You are a support agent. Escalate every refund above the limit the policy sets.';
+    verify(prompt, 'Refund order A-2000.', 'v1', LOST, false, 1, { system });
+    verify(prompt, 'Refund order A-2000.', 'v1', SAVED, true, 2, { system });
+    // Recorded with a model list first, which the change verified dropped: the same decision is #6 there and #5 in the attempts.
+    const listed = recordRun(store, LOST, { status: 'failed', user: 'Refund order A-2001.', before: [{ name: 'GET /v1/models', kind: 'api', result: { data: [] } }] }).run;
+    verify(listed, 'Refund order A-2001.', 'v2', LOST, false, 1);
+    verify(listed, 'Refund order A-2001.', 'v2', SAVED, true, 2);
+    // The change verified reads a template before deciding: the attempts decide at #7, after a call the recording never made.
+    const TEMPLATE: Step = { tools: [{ name: 'get_template', input: { kind: 'refund' } }] };
+    const plain = recordRun(store, LOST, { status: 'failed', user: 'Refund order A-2002.' }).run;
+    const failing = verify(plain, 'Refund order A-2002.', 'v3', [LOOKUP, POLICY, TEMPLATE, REFUND, DONE], false, 1);
+    verify(plain, 'Refund order A-2002.', 'v3', [LOOKUP, POLICY, TEMPLATE, ESCALATE, DONE], true, 2);
+
+    const { pairs } = findPairs(store);
+    const about = (runId: string) => pairs.find((p) => p.runId === runId);
+    expect(pairs).toHaveLength(3);
+    expect(about(prompt.runId)).toMatchObject({ callNo: 5, aboutCallNo: 5 });
+    expect(about(listed.runId)).toMatchObject({ callNo: 5, aboutCallNo: 6 });
+    // The pair is still the attempts' own: their conversation at #7, with the template it read.
+    expect(about(plain.runId)).toMatchObject({ callNo: 7, aboutCallNo: null, rejected: { runId: failing.runId, callNo: 7 }, context: expect.stringContaining('get_template returned') });
     store.close();
   });
 
@@ -335,10 +365,11 @@ describe('reading pairs', () => {
     const ms = performance.now() - started;
     const manifests = read.mock.results.filter((x) => (x.value as { kind?: unknown } | null)?.kind === 'chunked').length;
     expect(pairs).toHaveLength(1);
-    expect(pairs[0]).toMatchObject({ callNo: N, rejected: { text: '"Gave up."' }, chosen: { text: '"All done."' } });
+    // The attempts' prompt changed, not their path: the pair is about the recording's last call too.
+    expect(pairs[0]).toMatchObject({ callNo: N, aboutCallNo: N, rejected: { text: '"Gave up."' }, chosen: { text: '"All done."' } });
     // Reading every call of five 400-call runs would read 2,000 requests, each the whole conversation so far:
-    // halving reads each attempt's first and last call, and the context line one more.
-    expect(manifests).toBeLessThanOrEqual(9);
+    // halving reads each attempt's first and last call, the context line one more, and the recording's call it is about one more.
+    expect(manifests).toBeLessThanOrEqual(10);
     expect(ms).toBeLessThan(5_000);
     // Read again, nothing changed: nothing is read.
     read.mockClear();

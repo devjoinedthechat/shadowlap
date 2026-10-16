@@ -204,7 +204,6 @@ describe('shadowlap export pairs', () => {
       expect(rows[0]!.non_preferred_output[0]!.tool_calls[0]!.function).toEqual({ name: 'issue_refund', arguments: '{"order_id":"<ORDER>","amount":240}' });
       expect(r.events).toEqual([
         { type: 'file', path: realpathSync(join(work, 'pairs.jsonl')), label: 'pairs.jsonl' },
-        { type: 'link', label: 'Open Training', href: '#/training' },
         { type: 'result', data: expect.objectContaining({ pairs: 1, file: 'pairs.jsonl', format: 'openai-preference', minConfidence: 'high', leftOut: 0, redaction: 1 }) },
       ]);
       withStore(db, (s) => {
@@ -240,7 +239,6 @@ describe('shadowlap export pairs, with nothing to export', () => {
       expect(r.stdout).toContain('! nothing exported · pairs.jsonl left as it was');
       expect(readFileSync(join(work, 'pairs.jsonl'), 'utf8')).toBe('{"earlier":true}\n');
       expect(r.events).toEqual([
-        { type: 'link', label: 'Open Training', href: '#/training' },
         { type: 'result', data: expect.objectContaining({ exportId: null, pairs: 0, file: null, minConfidence: 'high' }) },
       ]);
       withStore(db, (s) => {
@@ -305,6 +303,7 @@ describe('shadowlap tasks', () => {
     const asked = anthropic.requests.slice(before);
     expect(asked.map((x) => x.body.model)).toEqual(['weak-model', 'weak-model', 'weak-model', 'weak-model']);
     expect(r.events.filter((e) => e.type === 'run')).toHaveLength(2);
+    expect(r.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open the scores', href: '#/training/tasks' }]);
     expect(r.events.at(-1)).toMatchObject({ type: 'result', data: { model: 'weak-model', baseUrl: null, via: 'Anthropic API', mean: 1 / 3, attempts: 2 } });
     withStore(db, (s) => {
       const rows = s.listTaskScores();
@@ -391,6 +390,10 @@ describe('shadowlap tasks', () => {
     expect(down.code).toBe(1);
     expect(down.out).toContain("my-finetune didn't answer #5");
     expect(down.out).toContain("isn't reachable");
+    expect(down.out).toContain('✗ no attempt was scored');
+    // Nothing new to see on the scores, so a dashboard job ends on its reason, with no link there.
+    expect(down.events.filter((e) => e.type === 'link')).toEqual([]);
+    expect(down.events.at(-1)).toMatchObject({ type: 'result', data: { model: 'my-finetune', mean: null } });
     withStore(db, (s) => {
       const stopped = s.allRuns().filter((x) => x.meta?.task?.baseUrl === 'http://127.0.0.1:9/v1');
       expect(stopped).toHaveLength(1);
@@ -672,4 +675,101 @@ describe('an OpenAI recording taken over by an Anthropic model', () => {
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }, 120_000);
+});
+
+describe('Training in the dashboard', () => {
+  /** `shadowlap dashboard` in the project, asking the mocks, as a person starts it there. */
+  function startDashboardCommand(work: string): Promise<{ child: ChildProcess; url: string; token: string }> {
+    const env = { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, SHADOWLAP_UPSTREAM_OPENAI: openai.url, ANTHROPIC_API_KEY: 'test-key', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', AGENT_OUTBOX: join(work, 'outbox.jsonl') };
+    const child = spawn(process.execPath, [CLI, 'dashboard', '--no-open', '--port', String(40_000 + Math.floor(Math.random() * 20_000))], { cwd: work, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    return new Promise((resolve, reject) => {
+      let text = '';
+      const timer = setTimeout(() => reject(new Error(`no link printed: ${text}`)), 20_000);
+      const on = (c: Buffer) => {
+        text += c.toString();
+        const m = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(text);
+        if (!m) return;
+        clearTimeout(timer);
+        resolve({ child, url: m[1]!, token: m[2]! });
+      };
+      child.stderr!.on('data', on);
+      child.stdout!.on('data', on);
+    });
+  }
+
+  interface Job {
+    id: string;
+    title: string;
+    done: boolean;
+    code: number | null;
+    links: Array<{ label: string; href: string }>;
+    files: Array<{ fileId: string; name: string; path: string }>;
+    result: Record<string, unknown> | null;
+  }
+
+  it('exports pairs and scores a model as jobs: the file downloads, and the page shows the new scores', async () => {
+    policy = 'alternate';
+    decisions = 0;
+    const { work } = workdir('sl-dash-training-');
+    let dash: Awaited<ReturnType<typeof startDashboardCommand>> | null = null;
+    try {
+      // A failure blame rescues, for a pair; then a golden that escalates, for a task.
+      const lost = await record(work, [AGENT]);
+      expect((await shadowlap(work, ['blame', lost, '--expect', ORACLE, '--attempts', '3', '--passes', '1'])).code).toBe(0);
+      policy = 'models';
+      const good = await record(work, [AGENT]);
+      expect((await shadowlap(work, ['pack', good, 'goldens/refund-over-limit'])).code).toBe(0);
+      writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-over-limit': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: 5, rewards: 'escalate above the limit' } } } }));
+
+      dash = await startDashboardCommand(work);
+      const { url, token } = dash;
+      const api = (path: string, init: RequestInit = {}) => fetch(`${url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': token, 'content-type': 'application/json' } });
+      const runJob = async (body: Record<string, unknown>): Promise<Job> => {
+        const res = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
+        expect(res.status, await res.clone().text()).toBe(202);
+        let job = (await res.json()) as Job;
+        for (let i = 0; i < 1200 && !job.done; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          job = (await (await api(`jobs/${job.id}`)).json()) as Job;
+        }
+        return job;
+      };
+
+      // Export pairs: written into the project's exports folder, and offered for download.
+      const exported = await runJob({ kind: 'pairs', format: 'openai-preference', minConfidence: 'high' });
+      expect(exported).toMatchObject({ done: true, code: 0, title: 'Exporting pairs', links: [], result: expect.objectContaining({ pairs: 1, file: '.shadowlap/exports/pairs.jsonl' }) });
+      expect(exported.files).toMatchObject([{ name: 'pairs.jsonl', path: '.shadowlap/exports/pairs.jsonl' }]);
+      const download = await api(`files/${exported.files[0]!.fileId}`);
+      expect(download.status).toBe(200);
+      expect(download.headers.get('content-disposition')).toContain('pairs.jsonl');
+      expect(await download.text()).toBe(readFileSync(join(work, '.shadowlap', 'exports', 'pairs.jsonl'), 'utf8'));
+
+      // Score a model: every ready task, 5 attempts, against the mock; the drawer links to the scores.
+      const scored = await runJob({ kind: 'score', model: 'claude-good', attempts: 5 });
+      expect(scored).toMatchObject({ done: true, code: 0, title: 'Scoring a model', links: [{ label: 'Open the scores', href: '#/training/tasks' }] });
+
+      const view = (await (await api('training')).json()) as {
+        strip: { left: { value: string; file: string | null }; best: { value: string } };
+        tasks: { rows: Array<{ name: string; status: { key: string }; takeover: number | null }> };
+        scores: { cards: Array<{ model: string; mean: number | null }>; rows: Array<{ cells: Array<{ pips: Array<{ href: string | null }> } | null> }> };
+      };
+      expect(view.strip.left).toMatchObject({ value: '1', file: '.shadowlap/exports/pairs.jsonl' });
+      expect(view.tasks.rows.map((r) => [r.name, r.status.key, r.takeover])).toEqual([['refund-over-limit', 'ready', 5]]);
+      expect(view.scores.cards.map((c) => [c.model, c.mean])).toEqual([['claude-good', 1]]);
+      expect(view.strip.best.value).toBe('1.00');
+      // Each pip opens its attempt's run.
+      const pips = view.scores.rows[0]!.cells[0]!.pips;
+      expect(pips).toHaveLength(5);
+      expect(pips.every((p) => /^#\/run\/\w{26}$/.test(p.href ?? ''))).toBe(true);
+      const activity = (await (await api('activity')).json()) as { items: Array<{ kind: string; text: string }> };
+      expect(activity.items.filter((i) => i.kind === 'train').map((i) => i.text)).toEqual(['Scored claude-good on 1 task · mean 1.00', 'Exported 1 preference pair']);
+    } finally {
+      if (dash) {
+        const exited = new Promise((r) => dash!.child.once('exit', r));
+        dash.child.kill('SIGTERM');
+        await exited;
+      }
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  }, 180_000);
 });

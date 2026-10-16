@@ -73,6 +73,17 @@ describe('models to score', () => {
     expect(asked.some((u) => u.includes('anthropic'))).toBe(false);
   });
 
+  it('asks no provider when told not to, and lists only the recorded models and those scored before', async () => {
+    const { fetch, asked } = fakeFetch({ 'https://api.anthropic.com/v1/models?limit=100': { body: { data: [{ id: 'claude-haiku-4-5' }] } } });
+    const listing = await listModelChoices({ recorded: [{ model: 'claude-sonnet-5', provider: 'anthropic' }], scored: [{ model: 'my-finetune', baseUrl: 'http://127.0.0.1:8000/v1', via: 'on this machine' }], tokens: TOKENS, env: { ANTHROPIC_API_KEY: 'sk-ant' }, fetch, ask: false });
+    expect(asked).toEqual([]);
+    expect(listing.notes).toEqual([]);
+    expect(listing.choices.map((c) => [c.group, c.id])).toEqual([
+      ['Recorded with', 'claude-sonnet-5'],
+      ['Endpoints scored before', 'my-finetune'],
+    ]);
+  });
+
   it('asks the servers the environment points at, and names an OpenAI-compatible one by its host', async () => {
     const { fetch } = fakeFetch({
       'http://127.0.0.1:9001/v1/models?limit=100': { body: { data: [{ id: 'claude-haiku-4-5' }] } },
@@ -107,10 +118,16 @@ describe('models to score', () => {
     expect(isLoopback('http://localhost:8000/v1')).toBe(true);
     expect(isLoopback('http://[::1]:8000/v1')).toBe(true);
     expect(isLoopback('https://api.openai.com/v1')).toBe(false);
-    expect(endpointVia('http://127.0.0.1:11434/v1')).toBe('Ollama, on this machine');
-    expect(endpointVia('http://127.0.0.1:8000/v1')).toBe('on this machine');
-    expect(endpointVia('https://api.openai.com/v1')).toBe('OpenAI API');
-    expect(endpointVia('https://gpu.example.com/v1')).toBe('gpu.example.com');
+    expect(endpointVia('http://127.0.0.1:11434/v1', {})).toBe('Ollama, on this machine');
+    expect(endpointVia('http://127.0.0.1:8000/v1', {})).toBe('on this machine');
+    expect(endpointVia('https://api.openai.com/v1', {})).toBe('OpenAI API');
+    expect(endpointVia('https://gpu.example.com/v1', {})).toBe('gpu.example.com');
+    // Ollama where OLLAMA_HOST puts it is named as its model list is, so a model listed there keeps the name once scored.
+    expect(endpointVia('http://127.0.0.1:11500/v1', { OLLAMA_HOST: '0.0.0.0:11500' })).toBe('Ollama, on this machine');
+    expect(endpointVia('http://localhost:11500/v1', { OLLAMA_HOST: '127.0.0.1:11500' })).toBe('Ollama, on this machine');
+    expect(endpointVia('http://gpu-box:11434/v1', { OLLAMA_HOST: 'gpu-box' })).toBe('Ollama, gpu-box:11434');
+    expect(endpointVia('http://gpu-box:11434/v1', {})).toBe('gpu-box:11434');
+    expect(endpointVia('http://127.0.0.1:11434/v1', { OLLAMA_HOST: '127.0.0.1:11500' })).toBe('Ollama, on this machine');
     expect(openAIBase({ OPENAI_BASE_URL: 'http://localhost:11434/v1/' })).toBe('http://localhost:11434/v1');
     expect(openAIBase({})).toBe('https://api.openai.com/v1');
     expect(anthropicBase({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:5555/t/0123456789abcdef0123456789abcdef/anthropic' })).toBe('https://api.anthropic.com');

@@ -85,6 +85,8 @@ export function lineTone(line: string): LineTone {
   if (/^(✓|●)/.test(t)) return 'ok';
   if (/^(✗|error\b|Error\b)/.test(t)) return 'no';
   if (/^(⑂|⚠|!|warning\b)/.test(t)) return 'y';
+  // Training: a `tasks score` attempt that missed a check ("3 · ✓ … · ✗ … · 0.33"), as the mock marks it.
+  if (/^\d+ · /.test(t) && t.includes('✗')) return 'y';
   return '';
 }
 

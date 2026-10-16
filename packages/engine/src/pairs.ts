@@ -64,6 +64,14 @@ export interface Pair {
   runId: string;
   /** The model call the answers answer, in the rejected answer's run. */
   callNo: number;
+  /**
+   * The same call in the run the pair is about: its model call that answered the same conversation.
+   * Its number can differ from `callNo` when the attempts made more or fewer calls before it (a model
+   * list the change dropped). Null when that run never saw the conversation: the attempts took another
+   * path first, as when the change verify checked adds a step before the call. A blame's pair is about
+   * the recording its rejected answer came from, so it is `callNo`.
+   */
+  aboutCallNo: number | null;
   /** The conversation at that call in one line: what was asked, and the last thing the model saw. */
   context: string;
   model: string | null;
@@ -193,6 +201,8 @@ interface KeyCache {
   answers: Map<string, string>;
   /** A pair's conversation in one line, by its request's hash. */
   contexts: Map<string, string | null>;
+  /** Where a pair's conversation got to (pathKey), and the call it is about's, by their request's hash. */
+  paths: Map<string, string | null>;
   /** The turn keys of the requests halving read last, by their hash: a long run's are long, so only TURN_LISTS of them are kept. */
   turns: Map<string, string[] | null>;
 }
@@ -202,9 +212,31 @@ const keyCaches = new WeakMap<Store, KeyCache>();
 
 function keyCache(store: Store): KeyCache {
   let cache = keyCaches.get(store);
-  if (!cache) keyCaches.set(store, (cache = { conversations: new Map(), messages: new Map(), parts: new Map(), answers: new Map(), contexts: new Map(), turns: new Map() }));
-  for (const map of [cache.conversations, cache.messages, cache.parts, cache.answers, cache.contexts]) if (map.size > KEY_LIMIT) map.clear();
+  if (!cache) keyCaches.set(store, (cache = { conversations: new Map(), messages: new Map(), parts: new Map(), answers: new Map(), contexts: new Map(), paths: new Map(), turns: new Map() }));
+  for (const map of [cache.conversations, cache.messages, cache.parts, cache.answers, cache.contexts, cache.paths]) if (map.size > KEY_LIMIT) map.clear();
   return cache;
+}
+
+/**
+ * Where a conversation got to, whatever the system prompt, the tools offered and the model's words:
+ * what the user said, each tool the model called with its input, and what each returned, in order. A
+ * changed prompt leaves it as it was; a step more or less doesn't.
+ */
+function pathKey(turns: readonly Turn[]): string {
+  const h = createHash('sha256');
+  for (const t of turns) {
+    if (t.role === 'system') continue;
+    const said = t.role !== 'assistant';
+    const blocks = t.blocks.flatMap((b: TurnBlock): unknown[] => {
+      if (b.type === 'tool_call') return [{ c: b.name, i: b.input ?? {} }];
+      if (b.type === 'tool_result') return [{ res: squash(b.content), e: b.isError === true }];
+      if (b.type === 'text') return said && squash(b.text) ? [{ t: squash(b.text) }] : [];
+      if (b.type === 'other') return said ? [{ o: b.label }] : [];
+      return [];
+    });
+    if (blocks.length) h.update(`${canonicalize({ r: t.role, b: blocks })}\n`);
+  }
+  return h.digest('hex');
 }
 
 /**
@@ -351,20 +383,26 @@ class Reader {
     return v;
   }
 
-  /** The conversation a model call answered, in one line (contextLine): read only for the calls pairs come from, and kept for the store. */
+  /**
+   * What only the calls pairs come from (and the calls they are about) are read for: the conversation
+   * in one line (contextLine) and where it got to (pathKey). One read gives both, kept for the store.
+   */
+  private readTurns(ref: string): void {
+    let turns: Turn[] | undefined;
+    try {
+      turns = normalizeConversation(loadApiRequest(this.store, ref))?.turns;
+    } catch {
+      turns = undefined;
+    }
+    this.keys.contexts.set(ref, turns ? contextLine(turns) : null);
+    this.keys.paths.set(ref, turns ? pathKey(turns) : null);
+  }
+
+  /** The conversation a model call answered, in one line (contextLine). */
   context(call: ModelCall): string | null {
     const ref = call.requestRef!;
-    let line = this.keys.contexts.get(ref);
-    if (line === undefined) {
-      try {
-        const turns = normalizeConversation(loadApiRequest(this.store, ref))?.turns;
-        line = turns ? contextLine(turns) : null;
-      } catch {
-        line = null;
-      }
-      this.keys.contexts.set(ref, line);
-    }
-    return line;
+    if (!this.keys.contexts.has(ref)) this.readTurns(ref);
+    return this.keys.contexts.get(ref) ?? null;
   }
 
   /** Whether two model calls answered the same conversation: the same stored request, or the same key. */
@@ -372,6 +410,14 @@ class Reader {
     if (a.requestRef === b.requestRef) return true;
     const k = this.key(a);
     return k !== null && k === this.key(b);
+  }
+
+  /** Whether two model calls were made at the same point of the same path (pathKey), whatever their prompts said. */
+  samePath(a: ModelCall, b: ModelCall): boolean {
+    if (a.requestRef === b.requestRef) return true;
+    for (const ref of [a.requestRef!, b.requestRef!]) if (!this.keys.paths.has(ref)) this.readTurns(ref);
+    const k = this.keys.paths.get(a.requestRef!) ?? null;
+    return k !== null && k === (this.keys.paths.get(b.requestRef!) ?? null);
   }
 
   answer(call: ModelCall): Block[] {
@@ -480,7 +526,22 @@ function answerOf(r: Reader, run: RunRecord, call: ModelCall, what: string): Pai
   return { runId: run.runId, callNo: call.callNo, what, text: describeBlocks(blocks, 160), blocks };
 }
 
-function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate): Pair | null {
+/**
+ * The call of the run a pair is about at the same point as the attempt's call the pair was found at:
+ * that run's model call in the same place among them (in the agent's scope), or with the same number,
+ * when the path up to it is the same (pathKey), whatever the prompts said. A model list or a tool the
+ * agent called by itself moves the numbers but not the place; a step more or less moves both, and
+ * then the run never got there. A blame's pair is about the run its rejected answer was recorded in.
+ */
+function aboutCall(r: Reader, about: RunRecord, run: RunRecord, call: ModelCall, scope: string | null): number | null {
+  if (about.runId === run.runId) return call.callNo;
+  const theirs = r.modelCalls(about.runId, scope);
+  const place = theirs[r.modelCalls(run.runId, scope).indexOf(call)];
+  for (const c of [place, theirs.find((x) => x.callNo === call.callNo)]) if (c && r.samePath(c, call)) return c.callNo;
+  return null;
+}
+
+function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate, scope: string | null): Pair | null {
   const key = r.key(c.rejected.call);
   const context = key === null ? null : r.context(c.rejected.call);
   if (key === null || context === null) return null;
@@ -494,6 +555,7 @@ function makePair(r: Reader, source: PairSource, about: RunRecord, c: Candidate)
     sourceKind: source.kind,
     runId: about.runId,
     callNo: c.rejected.call.callNo,
+    aboutCallNo: aboutCall(r, about, c.rejected.run, c.rejected.call, scope),
     context,
     model: r.modelOf(c.rejected.call),
     rejected,
@@ -546,11 +608,11 @@ function contrast(r: Reader, failing: RunRecord[], passing: RunRecord[], scope: 
  * find a pair keeps it (blame before verify before --repeat, so a pair blame proved stays high).
  * Returns how many were new, and how many another source had already made.
  */
-function addPairs(r: Reader, pairs: Pair[], seen: Map<string, PairSource>, source: PairSource, about: RunRecord, candidates: Candidate[]): { made: number; elsewhere: number } {
+function addPairs(r: Reader, pairs: Pair[], seen: Map<string, PairSource>, source: PairSource, about: RunRecord, candidates: Candidate[], scope: string | null = null): { made: number; elsewhere: number } {
   let made = 0;
   const elsewhere = new Set<string>();
   for (const c of candidates) {
-    const pair = makePair(r, source, about, c);
+    const pair = makePair(r, source, about, c, scope);
     if (!pair) continue;
     const owner = seen.get(pair.id);
     if (owner) {
@@ -760,7 +822,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
       const about = byId.get(runId) ?? store.getRun(runId);
       if (!about) continue;
       const before = pairs.length;
-      const added = addPairs(r, pairs, seen, source, about, c.candidates);
+      const added = addPairs(r, pairs, seen, source, about, c.candidates, scope.scope);
       source.made += added.made;
       n.elsewhere += added.elsewhere;
       if (source.callNo === null && pairs.length > before) source.callNo = pairs[before]!.callNo;
@@ -800,7 +862,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     const c = contrast(r, failing, passing, scope.scope, (a) => `attempt, ${a.status === 'failed' ? 'exited with an error' : 'failed'}`, () => 'attempt, exited 0');
     const about = byId.get(parentId) ?? store.getRun(parentId) ?? first;
     const before = pairs.length;
-    const added = addPairs(r, pairs, seen, source, about, c.candidates);
+    const added = addPairs(r, pairs, seen, source, about, c.candidates, scope.scope);
     source.made = added.made;
     if (pairs.length > before) source.callNo = pairs[before]!.callNo;
     source.why = whyContrast(mixed, { same: c.same, paths: c.paths, ambiguous: c.ambiguous, elsewhere: added.elsewhere, scoped: 0 }, [], source.made, '');

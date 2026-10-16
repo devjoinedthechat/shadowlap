@@ -14,6 +14,7 @@ import * as runPage from './run-page.js';
 import * as search from './search.js';
 import * as settings from './settings.js';
 import * as tests from './tests.js';
+import * as training from './training.js';
 import * as uploads from './uploads.js';
 // overview-runs: the Overview, the Runs page, imports and the team store.
 import * as imports from './imports.js';
@@ -51,6 +52,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   settings,
   // Several projects behind one dashboard: the switcher, Add a project, the setup, removing one.
   projects,
+  // Training: pairs, tasks, scores and the models to score (#/training).
+  training,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

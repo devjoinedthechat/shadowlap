@@ -138,6 +138,11 @@ export function loadTasks(root: string, store: Store | null): TaskList {
   return { tasks, oneSided: oneSided(tasks) };
 }
 
+/** The tasks the dashboard's Training screen lists: what `shadowlap tasks --json` prints, without what only scoring needs. */
+export function dashboardTasks(root: string, store: Store): Task[] {
+  return loadTasks(root, store).tasks.map(({ pack: _pack, spec: _spec, dir: _dir, ...task }) => task);
+}
+
 // ---- scoring ----
 
 export interface ScoreSettings {

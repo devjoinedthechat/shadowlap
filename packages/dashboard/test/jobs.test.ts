@@ -172,7 +172,7 @@ describe('job kinds', () => {
       expect(((await res.json()) as { error: string }).error).toMatch(message);
     };
     await refused({}, 400, /kind is required/);
-    await refused({ kind: 'nope', args: ['rm', '-rf', '/'] }, 400, /no job kind "nope" \(this dashboard runs: action, (?:[a-z-]+, )*fake(?:, [a-z-]+)*\)/);
+    await refused({ kind: 'nope', args: ['rm', '-rf', '/'] }, 400, /no job kind "nope" \(this dashboard runs: (?:[a-z-]+, )*action, (?:[a-z-]+, )*fake(?:, [a-z-]+)*\)/);
     await refused({ kind: 'fake', mode: 'refuse' }, 400, /the fake refuses/);
     await refused({ kind: 'fake', mode: 'throw' }, 400, /the builder broke/);
     await refused({ kind: 'fake', mode: 'empty' }, 500, /built no command/);

@@ -11,6 +11,7 @@ import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli 
 import { Router, routeRequest } from './router.js';
 import { ROUTE_MODULES, type RouteModule } from './routes/index.js';
 import type { GoldenSource } from './tests.js';
+import type { TrainingOptions } from './training.js';
 import { UploadStore } from './uploads.js';
 import type { ProjectView } from './views.js';
 
@@ -87,6 +88,8 @@ export interface DashboardOptions {
    * over the rest, so each project's routes read their own. `id` is null with one store.
    */
   projectOptions?: (project: { id: string | null; name: string; path: string }) => Partial<DashboardOptions>;
+  /** Training (#/training): the CLI's tasks loader, and how Score a model lists models (training.ts). */
+  training?: TrainingOptions;
 }
 
 export interface Dashboard {

@@ -171,7 +171,6 @@ export function register(program: Command): void {
         if (!rows.length) {
           // Nothing to write: a file already there keeps what an earlier export put in it, and nothing left the machine.
           say(`${p.yellow('!')} nothing exported${flags.out ? ` · ${flags.out} left as it was` : ''}`);
-          emitJobEvent({ type: 'link', label: 'Open Training', href: '#/training' });
           emitJobEvent({ type: 'result', data: { exportId: null, pairs: 0, file: null, ...data } });
           return;
         }
@@ -184,8 +183,8 @@ export function register(program: Command): void {
         say(`${p.green('✓')} ${flags.out ? `wrote ${flags.out}` : 'wrote to stdout'} · ${plural(rows.length, 'pair')}`);
         const record = store.addPairsExport({ pairs: rows.length, file, format: flags.format, minConfidence: flags.minConfidence, leftOut, actor: author(), data: { redaction: data.redaction, sources: data.sources } });
         recordEvent(store, { kind: 'pairs.exported', actor: record.actor, ref: file, data: { count: rows.length, ...data } });
+        // A dashboard job offers the file; it is started from Training, so it links nowhere else.
         if (flags.out) emitJobEvent({ type: 'file', path: resolve(flags.out), label: flags.out });
-        emitJobEvent({ type: 'link', label: 'Open Training', href: '#/training' });
         emitJobEvent({ type: 'result', data: { exportId: record.exportId, pairs: rows.length, file, ...data } });
       });
     });
@@ -325,7 +324,8 @@ export function register(program: Command): void {
         if (flags.json) log(line);
         else process.stdout.write(`${line}\n`);
       } else log(`${p.red('✗')} no attempt was scored`);
-      emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
+      // The scores show something new only when an attempt was scored: a job that scored none ends on its reason.
+      if (done.length) emitJobEvent({ type: 'link', label: 'Open the scores', href: '#/training/tasks' });
       emitJobEvent({ type: 'result', data: report });
       if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
       process.exitCode = report.mean !== null && !skipped.length && scores.every((s) => !s.stopped) ? 0 : 1;

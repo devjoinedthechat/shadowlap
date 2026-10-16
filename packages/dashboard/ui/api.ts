@@ -7,7 +7,7 @@ import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns }
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
-import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView } from './types.js';
+import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, RunsByDay, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -54,6 +54,9 @@ export const JOB_KINDS = {
   inspect: 'init',
   record: 'record',
   keepGolden: 'pack-test',
+  // Training: export preference pairs, and score a model on the tasks.
+  pairs: 'pairs',
+  score: 'score',
 } as const;
 
 export class ApiError extends Error {
@@ -185,6 +188,12 @@ export interface Client {
   // ---- Projects
   /** Projects: the switcher, Add a project, removing one, and the setup (`projects-api.ts`). */
   projects: ProjectsApi;
+
+  // ---- Training
+  /** Training (`/api/training`): the strip, the pairs, the tasks and the scores. */
+  training(): Promise<TrainingView>;
+  /** The models Score a model offers, each priced (`/api/models`). It asks providers, so it can take a second. */
+  models(): Promise<ModelsView>;
 }
 
 
@@ -384,6 +393,8 @@ export function createClient(token: string): Client {
     ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
     settings: settingsApi(request),
     projects: projectsApi(request),
+    training: () => request<TrainingView>('training'),
+    models: () => request<ModelsView>('models'),
   };
 }
 
@@ -452,5 +463,7 @@ export function createExportedClient(data: StaticPayload): Client {
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
     projects: noProjects(readOnly),
+    training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
+    models: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
   };
 }

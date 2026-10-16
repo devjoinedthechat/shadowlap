@@ -35,8 +35,8 @@ export { TEST_JOB_KINDS, testsBuild } from './routes/tests.js';
 export { CLEANUP_DAYS, agentsSection, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, readShippedDoc, redactionSettings, splitCommandLine, stdioServerName, toolsSettings } from './settings.js';
 export type { AgentFile, CodingAgentsSettings, ConfigInfo, HttpHostRow, MatchingSettings, McpRecordedServer, McpServerRow, ProjectSettings, RedactionSettings, RuleForm, RuleRow, SettingsContext, ToolRow, ToolsSettings } from './settings.js';
 // Training: pairs, tasks and the model picker.
-export { approx, exportPairsJob, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, trainingView } from './training.js';
-export type { ModelOptionView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingView } from './training.js';
+export { approx, exportPairsJob, modelsView, money, PAIRS_EXPORT_FILE, readTraining, scoreDialogView, scoreModelJob, scoreNote, sourceFixes, trainingView } from './training.js';
+export type { ModelOptionView, ModelsView, PairFilter, ScoreDialogView, SourceFix, TrainingInput, TrainingOptions, TrainingView } from './training.js';
 // The team store's status: the bucket, the last push and pull, runs in the store and only here, the last check.
 export { readTeamStoreInput, teamStoreStatus } from './team-store.js';
 export type { ReadTeamStoreOptions, TeamStoreInput, TeamStoreStatus } from './team-store.js';
