@@ -5,6 +5,7 @@ import { shortId } from '../format.js';
 import { href, type Route } from '../route.js';
 import { useApp } from '../state.js';
 import { useFixCrumb } from '../fixes/data.js';
+import { useTeamStore } from '../teamstore.js';
 
 type Crumb = { label: string; href?: string; mono?: boolean };
 
@@ -42,6 +43,8 @@ export function TopBar({ route }: { route: Route }) {
   const fixName = useFixCrumb(route.page === 'fixes' ? route.id : null);
   const crumbs = crumbsFor(route, parentOf, fixName);
   const recording = live[0]?.runId ?? runs?.find((r) => r.status === 'running')?.runId ?? null;
+  // A project with a team store reads "team", as the design labels it: its runs are the team's.
+  const store = useTeamStore();
   return (
     <header className="top">
       <button className="ibtn menu-toggle" type="button" aria-label="Menu" aria-expanded={sideOpen} aria-controls="side" onClick={() => setSideOpen(!sideOpen)}>
@@ -50,7 +53,9 @@ export function TopBar({ route }: { route: Route }) {
       <a className="brand" href={exported ? href.runs() : href.overview()} aria-label={exported ? 'Shadowlap, runs' : 'Shadowlap dashboard, overview'}>
         <Brand />
       </a>
-      <span className="pill">{exported ? 'exported' : 'dashboard'}</span>
+      <span className="pill" title={!exported && store ? `team store ${store.url}` : undefined}>
+        {exported ? 'exported' : store ? 'team' : 'dashboard'}
+      </span>
       <nav className="crumbs" aria-label="Breadcrumb">
         {crumbs.map((c, i) => {
           const inner = c.mono ? <b>{c.label}</b> : c.label;

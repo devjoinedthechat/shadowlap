@@ -91,7 +91,9 @@ bytes for the engine's `guessImportFormat`), Find the commit (`find-commit.ts`, 
 for) and authors; `runspage/query.ts` builds the page's requests and reads the
 filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
 list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
-screen that changes with one.
+screen that changes with one (the top bar's *team* label among them). Settings → Store's setup of a
+store is `pages/settings/StoreSetup.tsx`, with what it shows worked out in `store-logic.ts` and its
+requests in `store-api.ts` (`client.storeSetup`).
 
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check

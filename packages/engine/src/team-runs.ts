@@ -22,6 +22,8 @@ export interface TeamRunCounts {
   localAttempts: number;
   /** Runs queued while they recorded: they go to the store when they end. */
   queued: number;
+  /** Runs here that this machine pushed (rather than pulled), in the store's index. */
+  pushedHere: number;
 }
 
 /** The run columns and the few fields of `meta` that say whether a run is an attempt, for every run. */
@@ -76,7 +78,7 @@ function runRows(store: Store): Row[] {
  */
 export function teamRunCounts(store: Store, remote: string, limit = 500): TeamRunCounts {
   const runs = runRows(store);
-  const team = new Map(store.query(TEAM_SQL, remote).map((t) => [String(t.id), { queued: t.state === 'queued', listed: Number(t.listed) === 1, under: typeof t.attempt_of === 'string' ? t.attempt_of : null }]));
+  const team = new Map(store.query(TEAM_SQL, remote).map((t) => [String(t.id), { state: String(t.state), queued: t.state === 'queued', listed: Number(t.listed) === 1, under: typeof t.attempt_of === 'string' ? t.attempt_of : null }]));
   const listed = (id: string) => team.get(id)?.listed === true;
   const byId = new Map(runs.map((r) => [r.id, r]));
 
@@ -101,12 +103,15 @@ export function teamRunCounts(store: Store, remote: string, limit = 500): TeamRu
   // A run that isn't here is an attempt when the push that listed it said so.
   let inStore = 0;
   let queued = 0;
+  let pushedHere = 0;
   for (const [id, t] of team) {
     const run = byId.get(id);
     const under = run ? run.under : t.under !== null && (byId.has(t.under) || listed(t.under)) ? t.under : null;
     if (under) continue;
-    if (t.listed) inStore++;
-    else if (t.queued) queued++;
+    if (t.listed) {
+      inStore++;
+      if (run && t.state === 'pushed') pushedHere++;
+    } else if (t.queued) queued++;
   }
-  return { inStore, onlyLocal, localRuns, localAttempts, queued };
+  return { inStore, onlyLocal, localRuns, localAttempts, queued, pushedHere };
 }

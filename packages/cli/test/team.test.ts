@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, unpackRun, type RunMeta } from '@shadowlap/engine';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
-import { prepareTestPush, pushIfQueued, storeCheck, storePolicy, storePushFromCi, storeSet, storeShow, TeamError, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
+import { prepareTestPush, pushIfQueued, storeCheck, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, TeamError, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
 import { loadConfig } from '../src/config.js';
 import { testReport } from '../src/test-report.js';
 
@@ -425,6 +425,32 @@ describe('store setup', () => {
     expect(storePushFromCi(m, 'off')).toBe(0);
     // Four spaces and CRLF as written, every key in its place, the new ones after them.
     expect(readFileSync(file, 'utf8')).toBe('{\r\n    "clock": "exact",\r\n    "keyFromANewerVersion": 1,\r\n    "store": "r2://0123456789abcdef/agent-runs/support-agent",\r\n    "ciPush": false\r\n}\r\n');
+  });
+
+  it('with --check, writes the store only once the check passes', async () => {
+    const m = machine('setup-set-check', 'dana@northwind.example');
+    const file = join(m.cwd, 'shadowlap.config.json');
+    // A bucket these credentials can't find: nothing is written.
+    expect(await storeSetChecked(m, `s3://no-such-bucket/x?endpoint=${s3.url}`, { provider: 's3' })).toBe(1);
+    let { out, err } = m.take();
+    expect(out).toContain('Checking s3://no-such-bucket/x');
+    expect(err).toMatch(/names a bucket these credentials can't find.*Nothing was written to shadowlap\.config\.json\./);
+    expect(existsSync(file)).toBe(false);
+    // Credentials the store refuses: nothing either.
+    const wrong = machine('setup-set-check', 'dana@northwind.example', { env: { AWS_SECRET_ACCESS_KEY: 'not/the/secret' } });
+    expect(await storeSetChecked(wrong, storeUrl('set-check'))).toBe(1);
+    wrong.take();
+    expect(existsSync(file)).toBe(false);
+    // One that works is checked, then written, and its check kept as the store's last.
+    expect(await storeSetChecked(m, storeUrl('set-check'), { provider: 's3' })).toBe(0);
+    ({ out, err } = m.take());
+    expect(out).toContain('✓ list');
+    expect(out).toContain(`✓ Store set: ${storeUrl('set-check')}`);
+    expect(out).toContain('Next: shadowlap push --all, then commit shadowlap.config.json');
+    expect(loadConfig(m.cwd).store).toBe(storeUrl('set-check'));
+    expect(storeShow(m, { json: true })).toBe(0);
+    expect(JSON.parse(m.take().out).check).toMatchObject({ ok: true, versioning: 'on' });
+    expect(keysUnder('set-check')).toEqual([]);
   });
 
   it('checks list, write, read and delete, and reports encryption, versioning and object lock', async () => {

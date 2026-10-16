@@ -11,19 +11,30 @@ your cloud admin gives access to, which [`shadowlap store policy`](#access) prin
 
 ## Set it up
 
-Four steps, each building on the one before:
+Four steps, each building on the one before, in the dashboard's Settings → Store (**Set up the
+store**) or in a terminal:
 
 ```sh
-shadowlap store set s3://northwind-agent-runs/support-agent     # 1. connect your bucket…
-shadowlap store check                                           #    …and check this machine's access
-shadowlap push --all                                            # 2. every run on this machine
-shadowlap store ci --provider github                            # 3. a CI step that pushes test runs
+shadowlap store set s3://northwind-agent-runs/support-agent --check   # 1. connect your bucket
+shadowlap push --all                                                  # 2. every run on this machine
+shadowlap store ci --provider github                                  # 3. a CI step that pushes test runs
 git add shadowlap.config.json && git commit -m "Use the team store"   # 4. bring your team
 ```
 
-`store set` writes one line to `shadowlap.config.json`, and committing it is what brings the team
-in: anyone who pulls the commit and can read the bucket runs `shadowlap pull` to get the team's
-runs. Credentials never go in the file.
+`store set --check` checks this machine's access first, as [`store check`](#access) does, and
+writes one line to `shadowlap.config.json` only when that works; committing it is what brings the
+team in: anyone who pulls the commit and can read the bucket runs `shadowlap pull` to get the
+team's runs. Credentials never go in the file.
+
+In the dashboard each step shows its command. **Connect your bucket** picks the cloud (Amazon S3,
+Google Cloud, Azure Blob or Cloudflare R2), checks the bucket and folder against its scheme, says
+whose credentials this machine would use, shows the access to ask your cloud admin for (what
+`store policy` prints, with Copy), and **Check access and connect** runs `store set --check`.
+**Push your runs** runs `push --all`. **Push from CI** shows the step for GitHub Actions, GitLab
+CI or any other CI, written for your cloud: **I added it**, or **Skip for now** (Settings →
+Store's **Copy CI step** keeps it, for the CI you picked). **Bring your team** shows the line to
+commit, and **Finish** ends the setup. Until then Settings → Store shows the steps; afterwards,
+the store. A store set in a terminal shows as the store straight away.
 
 ## The store
 
@@ -41,6 +52,11 @@ A query adds what the name can't say: `?region=eu-central-1` and `?profile=<name
 Backblaze B2; path-style unless `&path-style=false`), `?auth=hmac` to reach Cloud Storage through
 its S3-compatible API with `GCS_HMAC_ACCESS_KEY_ID` and `GCS_HMAC_SECRET_ACCESS_KEY`. Requests go
 straight to the cloud; no cloud SDK is involved.
+
+What this machine knows of a store (what it pushed, pulled and checked) is kept per store: its
+bucket and folder, and the server an `?endpoint=` names. A region, a profile or another way of
+signing in reaches the same store; another endpoint is another server, so pointing the project at
+one starts afresh, and its first push sends everything.
 
 The URL is in a committed file, so it never decides where your credentials go. Google and Azure
 credentials (an access token, a SAS, or an account key, whose signature doesn't name the host) are
@@ -152,7 +168,11 @@ removes an old blob takes it from every newer run that uses it. `shares/` and `p
 exceptions; see [Share links](#share-links) and [Pull requests](#pull-requests).
 
 `shadowlap store show` says what this machine knows, without a request: the last push and pull, how
-many runs are in the store, how many are only here, and the last check.
+many runs are in the store, how many are only here, and the last check. Runs are counted as the
+dashboard counts them: attempts (`--repeat`, blame's probes, verify's attempts) are filed under the
+run they came from, and a run is only here while it, or an attempt filed under it, isn't in the
+store, as the Runs page's `local` tag marks it. Settings → Store and the Overview's Needs a look say
+the same numbers.
 
 ### Push from CI
 

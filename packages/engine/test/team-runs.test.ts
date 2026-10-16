@@ -26,14 +26,14 @@ describe('teamRunCounts', () => {
     const store = Store.open(':memory:');
     const rec = run(store);
     const attempts = [1, 2, 3].map((n) => run(store, { parent: rec, meta: { repeat: { group: 'g1', attempt: n, of: 3 } } }));
-    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 0, onlyLocal: 1, localRuns: [rec], localAttempts: 3, queued: 0 });
+    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 0, onlyLocal: 1, localRuns: [rec], localAttempts: 3, queued: 0, pushedHere: 0 });
 
     // The run went up alone (shadowlap push <run>): it is still only here, through its attempts.
     listed(store, rec);
     expect(teamRunCounts(store, KEY)).toMatchObject({ inStore: 1, onlyLocal: 1, localRuns: [rec], localAttempts: 3 });
     // With its attempts, nothing is left; the store still holds one run.
     for (const id of attempts) listed(store, id);
-    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 1, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0 });
+    expect(teamRunCounts(store, KEY)).toEqual({ inStore: 1, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0, pushedHere: 1 });
     store.close();
   });
 

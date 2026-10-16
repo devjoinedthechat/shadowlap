@@ -740,7 +740,10 @@ shadowlap pull --include-pr      # and the runs pull requests' CI jobs pushed to
 Copy runs between this machine and the [team store](./team.md) named by `store` in
 `shadowlap.config.json`, with this machine's own credentials. Blobs shared between runs go up once;
 a run still recording goes when it ends; labels and notes merge both ways, and a run's results come
-from the machine that made it; a run deleted here isn't pulled again unless named. A push names the
+from the machine that made it; a run deleted here isn't pulled again unless named. Both count by
+run, as the dashboard does: "45 runs and 69 attempts pushed", where attempts (`--repeat`, blame's
+probes, verify's attempts) are those filed under their runs, and a run counts as only on this
+machine while it, or an attempt filed under it, isn't in the store. A push names the
 pusher as the author of a run made here without one, and leaves here, saying why, a run a pull
 would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store that
 fails is skipped with its forks and tried again next time. A run named to `push` that the store has
@@ -767,6 +770,7 @@ with the link can open it, without an account. `--lineage` includes the run's an
 
 ```sh
 shadowlap store set <url> [--provider s3|gcs|azure|r2]   # write "store" to shadowlap.config.json
+shadowlap store set <url> --check                        # check access first; write it only if that works
 shadowlap store check                                    # list, write, read and delete; encryption, versioning, object lock
 shadowlap store show                                     # last push and pull, runs in the store and only here, last check (offline)
 shadowlap store policy [--provider s3|gcs|azure|r2]      # the access to ask your cloud admin for: two policies
@@ -775,8 +779,9 @@ shadowlap store push-from-ci on|off                      # whether test --push p
 ```
 
 Set up the [team store](./team.md#the-store). `set` checks the URL against the provider's scheme
-(with `--provider`, against that one only) and writes it to the config, keeping everything else.
-`check` proves this machine's credentials can list, write, read and delete a test object, and
+(with `--provider`, against that one only) and writes it to the config, keeping everything else;
+with `--check` it first checks the store as `check` does and writes nothing when that fails, as
+Settings → Store's **Check access and connect** runs it. `check` proves this machine's credentials can list, write, read and delete a test object, and
 reports encryption, versioning and object lock, with a warning when versioning or object lock is
 off; it exits 1 when access fails. `policy` prints two policies scoped to the store's folder, each
 an IAM policy, role bindings, a role assignment or R2 token scopes: one for people and CI on

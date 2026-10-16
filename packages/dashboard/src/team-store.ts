@@ -74,7 +74,7 @@ const VERSION_SQL = `SELECT (SELECT data_version FROM pragma_data_version()) AS 
 const kept = new WeakMap<Store, { key: string; version: string; counts: TeamRunCounts }>();
 
 /** The by-run counts, read again only when the store changed: the status bar and the Overview ask on every reload. */
-function countsOf(store: Store, key: string): TeamRunCounts {
+export function countsOf(store: Store, key: string): TeamRunCounts {
   const v = store.query(VERSION_SQL)[0];
   const version = `${String(v?.dv)}|${String(v?.tc)}`;
   const hit = kept.get(store);

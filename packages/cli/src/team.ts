@@ -194,18 +194,21 @@ function pullRequestLine(target: WriteTarget): string {
 
 // ---------------------------------------------------------------------------------------------- store setup
 
-export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): number {
-  let loc: StoreLocation;
+function setLocation(url: string, provider: Provider | undefined): StoreLocation {
   try {
-    loc = parseStoreUrl(url, flags.provider);
+    return parseStoreUrl(url, provider);
   } catch (err) {
     throw new TeamError((err as Error).message);
   }
+}
+
+/** Writes the store to the config and says so; `check` is the check that went before, with --check. */
+function writeStore(t: TeamEnv, loc: StoreLocation, flags: { json?: boolean }, check: StoreCheck | null): number {
   const value = formatStoreUrl(loc);
   const previous = config(t).store ?? null;
   setConfigKey(t.cwd, 'store', value);
   withStore(t, (store) => recordEvent(store, { kind: 'store.set', actor: actor(t), ref: loc.url, data: { provider: loc.provider, previous } }));
-  const result = { store: value, url: loc.url, provider: loc.provider, bucket: loc.bucket, prefix: loc.prefix, account: loc.account ?? null, region: loc.region ?? null, previous, config: configPath(t.cwd) };
+  const result = { store: value, url: loc.url, provider: loc.provider, bucket: loc.bucket, prefix: loc.prefix, account: loc.account ?? null, region: loc.region ?? null, previous, config: configPath(t.cwd), set: true, ...(check ? { check } : {}) };
   emitJobEvent({ type: 'result', data: result }, t.env);
   if (flags.json) {
     line(t, JSON.stringify(result, null, 2));
@@ -213,9 +216,30 @@ export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; 
   }
   line(t, `${p.green('✓')} Store set: ${value} ${p.dim(`(${storeKindName(loc)}${loc.region ? `, ${loc.region}` : ''})`)}`);
   line(t, p.dim(`  wrote "store" to ${CONFIG_FILE}${previous && previous !== value ? `, replacing ${previous}` : ''}. Credentials never go there: each machine uses its own.`));
-  line(t, p.dim(`  Next: shadowlap store check, then commit ${CONFIG_FILE} so the team uses the same store:`));
+  line(t, p.dim(`  Next: ${check ? 'shadowlap push --all' : 'shadowlap store check'}, then commit ${CONFIG_FILE} so the team uses the same store:`));
   line(t, p.dim(`    git add ${CONFIG_FILE} && git commit -m "Use the team store"`));
   return 0;
+}
+
+export function storeSet(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): number {
+  return writeStore(t, setLocation(url, flags.provider), flags, null);
+}
+
+/**
+ * `store set <url> --check`: checks the store with this machine's credentials first (list, write,
+ * read and delete a test object; encryption, versioning and object lock), and writes it to the
+ * config only when that works, so a store that can't be used never reaches the commit that brings
+ * the team in. Settings → Store's "Check access and connect" runs it.
+ */
+export async function storeSetChecked(t: TeamEnv, url: string, flags: { provider?: Provider; json?: boolean } = {}): Promise<number> {
+  const loc = setLocation(url, flags.provider);
+  const { check, target } = await checkAt(t, loc, flags);
+  if (check.ok) return writeStore(t, loc, flags, check);
+  const result = { store: formatStoreUrl(loc), url: loc.url, provider: loc.provider, set: false, check: { ...check, pullRequest: target.pr } };
+  emitJobEvent({ type: 'result', data: result }, t.env);
+  if (flags.json) line(t, JSON.stringify(result, null, 2));
+  else note(t, p.red(`✗ ${checkFailure(target.loc, check.failure)} Nothing was written to ${CONFIG_FILE}.`));
+  return 1;
 }
 
 /**
@@ -246,8 +270,12 @@ export function storePushFromCi(t: TeamEnv, value: 'on' | 'off', flags: { json?:
 
 const STEP_WORDS: Record<string, string> = { list: 'list', write: 'write', read: 'read', delete: 'delete' };
 
-export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Promise<number> {
-  const loc = requireStore(t);
+/**
+ * Checks a store with this machine's credentials: where it writes (in a pull request's job, its own
+ * folder), the steps and what the bucket keeps, recorded as the store's last check and in Activity.
+ * Prints the steps unless asked for JSON.
+ */
+async function checkAt(t: TeamEnv, loc: StoreLocation, flags: { json?: boolean }): Promise<{ check: StoreCheck; target: WriteTarget }> {
   const target = writeTarget(t, loc);
   const remote = openRemote(t, target.loc);
   if (!flags.json) {
@@ -260,19 +288,27 @@ export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Pr
     recordCheck(store, storeKey(target.loc), last);
     recordEvent(store, { kind: 'store.checked', actor: actor(t), ref: target.loc.url, data: { ok: check.ok, versioning: check.versioning, objectLock: check.objectLock.state, encryption: check.encryption } });
   });
+  if (!flags.json) {
+    line(t, p.dim(`  credentials: ${check.credentials ?? 'none found'}`));
+    for (const s of check.steps) line(t, `  ${s.ok ? p.green('✓') : p.red('✗')} ${STEP_WORDS[s.name]}${s.detail ? p.dim(`  ${safe(s.detail)}`) : ''}`);
+    line(t, `  Encryption   ${check.encryption ?? p.yellow('not reported')}`);
+    line(t, `  Versioning   ${check.versioning}`);
+    line(t, `  Object lock  ${check.objectLock.state}${check.objectLock.detail ? p.dim(` (${safe(check.objectLock.detail)})`) : ''}`);
+    for (const w of check.warnings) note(t, p.yellow(`! ${w}`));
+    for (const n of check.notes) note(t, p.dim(`  ${n}`));
+  }
+  return { check, target };
+}
+
+export async function storeCheck(t: TeamEnv, flags: { json?: boolean } = {}): Promise<number> {
+  const loc = requireStore(t);
+  const { check, target } = await checkAt(t, loc, flags);
   const result = { ...check, pullRequest: target.pr };
   emitJobEvent({ type: 'result', data: result }, t.env);
   if (flags.json) {
     line(t, JSON.stringify(result, null, 2));
     return check.ok ? 0 : 1;
   }
-  line(t, p.dim(`  credentials: ${check.credentials ?? 'none found'}`));
-  for (const s of check.steps) line(t, `  ${s.ok ? p.green('✓') : p.red('✗')} ${STEP_WORDS[s.name]}${s.detail ? p.dim(`  ${safe(s.detail)}`) : ''}`);
-  line(t, `  Encryption   ${check.encryption ?? p.yellow('not reported')}`);
-  line(t, `  Versioning   ${check.versioning}`);
-  line(t, `  Object lock  ${check.objectLock.state}${check.objectLock.detail ? p.dim(` (${safe(check.objectLock.detail)})`) : ''}`);
-  for (const w of check.warnings) note(t, p.yellow(`! ${w}`));
-  for (const n of check.notes) note(t, p.dim(`  ${n}`));
   if (!check.ok) {
     note(t, p.red(`✗ ${checkFailure(target.loc, check.failure)}`));
     return 1;

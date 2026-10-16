@@ -1,8 +1,11 @@
 import { resolveAuthor, type Store } from '@shadowlap/engine';
+import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
+import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
+import { checkSetupUrl, isProvider, recordSetup, storeSetupView } from '../store-setup.js';
 import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../team-store.js';
 
 /**
@@ -78,6 +81,75 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/store', (r) => {
     const store = teamStoreFor(ctx);
     r.tagged({ store, you: store ? whoAmI() : null });
+  });
+
+  // Settings → Store's setup: where it stands, each provider with the credentials this machine
+  // would use, the CI steps and the commit that brings the team in. Read from the config and this
+  // machine; nothing is asked of a bucket.
+  router.get('/store/setup', (r) => {
+    if (!ctx.project) throw new HttpError(501, 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard');
+    r.tagged(storeSetupView(ctx.store, readTeamStoreInput({ cwd: ctx.project.path })));
+  });
+
+  // A URL typed in Connect your bucket, checked against the provider picked as store set checks
+  // it, with the access to ask the cloud admin for and whose credentials would open it.
+  router.get('/store/setup/url', (r) => {
+    const provider = r.query.get('provider');
+    if (!isProvider(provider)) throw new HttpError(400, 'provider is s3, gcs, azure or r2');
+    const url = r.query.get('url') ?? '';
+    if (url.length > 2048) throw new HttpError(400, 'url: at most 2,048 characters');
+    r.json(checkSetupUrl(provider, url));
+  });
+
+  // The steps the CLI leaves no trace of: Push from CI added or skipped (and for which CI), and the
+  // setup finished. Kept with what this machine knows of the store the config names.
+  router.post('/store/setup', async (r) => {
+    const body = await r.body();
+    const team = teamStoreFor(ctx);
+    if (!team) throw new HttpError(409, 'no team store yet: connect a bucket first');
+    const patch: Parameters<typeof recordSetup>[2] = {};
+    if (body.ci !== undefined) {
+      if (body.ci !== 'added' && body.ci !== 'skipped') throw new HttpError(400, 'ci is added or skipped');
+      patch.ci = body.ci;
+    }
+    if (body.ciProvider !== undefined) {
+      if (typeof body.ciProvider !== 'string' || !(CI_PROVIDERS as readonly string[]).includes(body.ciProvider)) throw new HttpError(400, 'ciProvider is github, gitlab or other');
+      patch.ciProvider = body.ciProvider as CiProvider;
+    }
+    if (body.finished !== undefined) {
+      if (body.finished !== true) throw new HttpError(400, 'finished is true');
+      patch.finishedAt = Date.now();
+    }
+    if (!Object.keys(patch).length) throw new HttpError(400, 'say what was done: ci, ciProvider or finished');
+    r.json({ setup: recordSetup(ctx.store, team.key, patch) });
+  });
+
+  // Check access and connect: `store set <url> --provider <p> --check`, which checks the bucket with
+  // this machine's credentials and writes the store to the config only when that works. Once it
+  // starts, the setup of that store is under way, so the tab goes on to the next steps.
+  ctx.jobs.registerJobKind('store-set', {
+    title: () => 'Connecting the store',
+    build: (req, { store }) => {
+      if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
+      if (!isProvider(req.provider)) return { error: 'provider is s3, gcs, azure or r2' };
+      if (typeof req.url !== 'string' || !req.url.trim() || req.url.length > 2048) return { error: 'url: the bucket and folder, such as s3://my-bucket/agent-runs' };
+      let configured: string;
+      let key: string;
+      try {
+        const loc = parseStoreUrl(req.url, req.provider);
+        configured = formatStoreUrl(loc);
+        key = storeKey(loc);
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+      const provider = req.provider;
+      return {
+        args: ['store', 'set', configured, '--provider', provider, '--check'],
+        started: () => {
+          recordSetup(store, key, { startedAt: Date.now(), finishedAt: null });
+        },
+      };
+    },
   });
 
   // Push: the runs picked with the attempts bundled under them (their ancestors go too, as the CLI
