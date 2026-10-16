@@ -79,6 +79,31 @@ export const other = new Anthropic({ baseURL: process.env.ANTHROPIC_BASE_URL ?? 
     expect(text).toContain('npx shadowlap run -- pnpm agent');
   });
 
+  it('finds AI SDK tools kept in constants, named by the key that gives them to the model', () => {
+    const dir = project({
+      'package.json': JSON.stringify({ name: 'docs-agent', dependencies: { ai: '^7.0.0', '@ai-sdk/openai': '^3.0.0', '@shadowlap/adapters': '^0.1.0' } }),
+      'src/agent.ts': `import { generateText, tool } from 'ai';
+import { withEffects } from '@shadowlap/adapters/ai-sdk';
+
+const searchDocs = tool({ description: 'Search the docs', inputSchema, execute: async ({ q }) => search(q) });
+export const sendReply: Tool = tool({ description: 'Reply to the customer', inputSchema, execute: async ({ text }) => reply(text) });
+const lookupOrder = tool({ description: 'Look an order up', inputSchema, execute: async ({ id }) => orders.get(id) });
+// const draftNote = tool({ is a thought, not a tool
+await generateText({ model, tools: { searchDocs, reply_to_customer: sendReply, ...withEffects({ lookupOrder }, { lookupOrder: 'read' }) } });
+`,
+    });
+    const r = inspectProject(dir, {});
+    // Shorthand keeps the constant's name; a key names the tool the model sees.
+    expect(r.tools.map((t) => [t.name, t.line, t.effect, t.suggested])).toEqual([
+      ['searchDocs', 4, null, 'read'],
+      ['reply_to_customer', 5, null, 'write'],
+      ['lookupOrder', 6, 'read', 'read'],
+    ]);
+    const text = formatInit(r, palette, true);
+    expect(text).toContain('Tools: 3 found, 1 with an effect');
+    expect(text).toContain("withEffects({ searchDocs: tool({ … }) }, { searchDocs: 'read' })");
+  });
+
   it('writes an empty configuration once and never overwrites one', () => {
     const r = inspectProject(ts, {});
     expect(writeInitialConfig(r)).toBe(true);

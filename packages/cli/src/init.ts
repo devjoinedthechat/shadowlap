@@ -230,6 +230,9 @@ export function suggestEffect(name: string): { effect: Effect; why: string } {
   return { effect: 'write', why: 'no hint in the name; write is the safe guess, it never re-runs after a fork' };
 }
 
+/** Keys that hold an AI SDK tool without naming it: `tools: weather` is no tool called "tools". */
+const NOT_TOOL_KEYS = new Set(['tools', 'tool', 'execute', 'description', 'inputSchema', 'parameters', 'outputSchema']);
+
 /** Tool definitions in one file, by the patterns each framework uses. */
 function scanTools(text: string, file: string): FoundTool[] {
   const found: FoundTool[] = [];
@@ -294,6 +297,15 @@ function scanTools(text: string, file: string): FoundTool[] {
   };
   if (/from\s+['"]ai['"]/.test(text)) {
     for (const m of text.matchAll(/(?:^|[\s,{])['"]?([A-Za-z_][\w-]*)['"]?\s*:\s*tool\(\s*\{/gm)) if (!inComment(m.index! + m[0].indexOf('tool('))) push(m[1]!, m.index! + m[0].indexOf(m[1]!), 'ai-sdk', wrappedEffect(m.index!, m.index! + m[0].length, m.index! + m[0].length, m[1]!));
+    // A tool kept in a constant, `const searchDocs = tool({ … })`, then given as `tools: { searchDocs }`
+    // or `tools: { search_docs: searchDocs }`: the model knows it by the key that names it there.
+    for (const m of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*tool\(\s*\{/g)) {
+      if (inComment(m.index! + m[0].lastIndexOf('tool('))) continue;
+      const variable = m[1]!;
+      const keys = [...text.matchAll(new RegExp(`(?:^|[\\s,{])['"]?([A-Za-z_][\\w-]*)['"]?\\s*:\\s*${variable.replace(/\$/g, '\\$')}(?![\\w$(])`, 'gm'))].map((k) => k[1]!);
+      const name = keys.find((k) => k !== variable && !NOT_TOOL_KEYS.has(k)) ?? variable;
+      push(name, m.index! + m[0].indexOf(variable), 'ai-sdk', wrappedEffect(m.index!, m.index! + m[0].length, m.index! + m[0].length, name));
+    }
   }
   const byName = (call: RegExp, key: 'name' | 'id', via: string) => {
     for (const m of text.matchAll(call)) {
