@@ -68,6 +68,11 @@ export function plural(n: number, word: string, many = `${word}s`): string {
 /** The id the CLI prints and accepts: the first ten characters of a run's ULID. */
 export const shortId = (id: string): string => id.slice(0, 10);
 
+/** Whether a run id as typed or linked (the full id, or its first characters in either case) names this run. */
+export function sameRun(asked: string, runId: string): boolean {
+  return asked.length > 0 && runId.toUpperCase().startsWith(asked.toUpperCase());
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const pad = (n: number) => String(n).padStart(2, '0');
 

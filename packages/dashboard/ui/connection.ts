@@ -79,3 +79,14 @@ export function reloadFor(ch: { changed?: boolean; runs?: boolean; calls?: boole
   if (ch.runs !== undefined || ch.calls !== undefined) return !!ch.runs || !!ch.calls;
   return ch.changed !== false;
 }
+
+/**
+ * Where the change feed stands, to ask from next time: its cursor, or a version from a server that
+ * keeps one. The page asks for it before it loads the run list (at the start, after reconnecting,
+ * after switching projects), so the first poll after a load reloads only for what moved since,
+ * rather than everything the page has just loaded and is still loading.
+ */
+export function feedCursor(ch: { cursor?: string; version?: string | number } | null): string | null {
+  if (!ch) return null;
+  return ch.cursor ?? (ch.version !== undefined ? String(ch.version) : null);
+}

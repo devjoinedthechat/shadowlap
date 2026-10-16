@@ -1,5 +1,9 @@
+import { Store } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
-import { connStart, connStep, onTick, reloadFor, secondsLeft, type ConnState } from '../ui/connection.js';
+import { changesView } from '../src/changes.js';
+import { connStart, connStep, feedCursor, onTick, reloadFor, secondsLeft, type ConnState } from '../ui/connection.js';
+import { sameRun } from '../ui/format.js';
+import { addRun } from './read-model-store.js';
 import { afterPollError, jobStatus } from '../ui/jobs.js';
 import { followNewest, recordingEnded } from '../ui/live.js';
 
@@ -68,6 +72,37 @@ describe('the connection to the dashboard server', () => {
     expect(reloadFor({ changed: true }, false)).toBe(true);
     expect(reloadFor({ changed: false }, false)).toBe(false);
     expect(reloadFor({}, false)).toBe(true);
+  });
+
+  it('takes the feed’s cursor before the first load, so the first poll reloads only for what moved since', () => {
+    const store = Store.open(':memory:');
+    try {
+      addRun(store, { startedAt: Date.UTC(2026, 9, 1), calls: 'll' });
+      const feed = (since: string | null) => changesView(store, { boot: 'b1', jobsVersion: 0, since });
+      // The page asks where the feed stands, then loads the runs; nothing changes meanwhile.
+      const at = feedCursor(feed(null));
+      expect(at).toEqual(expect.any(String));
+      const poll = feed(at);
+      expect(reloadFor(poll, false)).toBe(false);
+      expect(poll.jobs).toBe(false);
+      // A run that starts after it is reloaded for, wherever the load had got to.
+      addRun(store, { startedAt: Date.UTC(2026, 9, 1, 1), calls: 'l' });
+      expect(reloadFor(feed(feedCursor(poll)), false)).toBe(true);
+      // A cursor from before a restart of the server counts as everything changed.
+      expect(reloadFor(changesView(store, { boot: 'b2', jobsVersion: 0, since: at }), false)).toBe(true);
+    } finally {
+      store.close();
+    }
+    expect(feedCursor({ version: 7 })).toBe('7');
+    expect(feedCursor(null)).toBeNull();
+  });
+
+  it('knows a run opened by its short id when the page settles on the full one', () => {
+    expect(sameRun('01K5CQ4N7G', '01K5CQ4N7GZ8B1M4Q2XW3RTY6P')).toBe(true);
+    expect(sameRun('01k5cq4n7g', '01K5CQ4N7GZ8B1M4Q2XW3RTY6P')).toBe(true);
+    expect(sameRun('01K5CQ4N7GZ8B1M4Q2XW3RTY6P', '01K5CQ4N7GZ8B1M4Q2XW3RTY6P')).toBe(true);
+    expect(sameRun('01K5CQ4P2R', '01K5CQ4N7GZ8B1M4Q2XW3RTY6P')).toBe(false);
+    expect(sameRun('', '01K5CQ4N7GZ8B1M4Q2XW3RTY6P')).toBe(false);
   });
 });
 

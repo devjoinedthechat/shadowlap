@@ -92,7 +92,9 @@ function PageFor({ route }: { route: Route }) {
     case 'runs':
       return <RunsPage />;
     case 'run':
-      return <RunPage key={route.id} id={route.id} call={route.call} view={route.view} />;
+      // Not keyed on the id: a short id settling on the full one is the run already loaded, which
+      // RunPage keeps; another run starts the page empty there.
+      return <RunPage id={route.id} call={route.call} view={route.view} />;
     case 'compare':
       return <ComparePage a={route.a} b={route.b} />;
     case 'fixes':

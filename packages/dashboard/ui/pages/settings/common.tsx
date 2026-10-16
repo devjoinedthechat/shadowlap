@@ -37,7 +37,10 @@ export function useSettingsData<T>(load: () => Promise<T>, key: string): Loaded<
       off();
     };
   }, []);
-  return useLoad(load, key, `${runsKey}:${seen}`);
+  // The first read waits for the run list and the project, which its reloads are keyed on: read
+  // before them, a tab opened by its link was read twice as the page opened.
+  const ready = runs !== null && meta !== null;
+  return useLoad(() => (ready ? load() : null), ready ? key : `${key}:waiting`, `${runsKey}:${seen}`);
 }
 
 /**

@@ -261,8 +261,10 @@ export function createClient(token: string): Client {
       // The project the page shows: a change asked for while another is current is refused (projects-api.ts).
       headers: { 'x-shadowlap-token': token, ...projectHeader(), ...(init.body ? { 'content-type': 'application/json' } : {}), ...(cached ? { 'if-none-match': cached.etag } : {}) },
     });
-    if (res.status === 304 && cached) return cached.body as T;
+    // A 304 has no body, but it is read all the same: one left unread is cancelled once the page
+    // drops it, and shows as (canceled) among the page's requests.
     const text = await res.text();
+    if (res.status === 304 && cached) return cached.body as T;
     let body: unknown = null;
     try {
       body = text ? JSON.parse(text) : null;

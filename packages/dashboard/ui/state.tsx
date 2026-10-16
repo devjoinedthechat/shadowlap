@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
-import { connStart, connStep, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
+import { connStart, connStep, feedCursor, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
 import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
 import type { PaletteGroup } from './palette.js';
@@ -152,13 +152,37 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     [goOffline],
   );
 
-  const loadRuns = useCallback(async () => {
-    const list = await client.runs();
-    setRuns(list);
-    setLoadedAt(Date.now());
-    setSyncedAt(Date.now());
-    setTick((n) => n + 1);
+  // A later list means runs or calls moved: `tick` goes up and every open run and panel loads again.
+  // The page's first list (`first`) doesn't: what the page loads beside it is as new.
+  const loadRuns = useCallback(
+    async (o: { first?: boolean } = {}) => {
+      const list = await client.runs();
+      setRuns(list);
+      setLoadedAt(Date.now());
+      setSyncedAt(Date.now());
+      if (!o.first) setTick((n) => n + 1);
+    },
+    [client],
+  );
+
+  // Where the change feed stands now, asked before a load of the run list so the poll after it
+  // reloads only for what moved since (`feedCursor`). Without it the first poll would load the runs,
+  // and every run, call and panel keyed on them, again, cancelling what was still on its way.
+  const cursorNow = useCallback(async () => {
+    if (client.exported) return null;
+    try {
+      return feedCursor(await client.changes(null));
+    } catch {
+      return null;
+    }
   }, [client]);
+  // The page's first cursor is asked for before anything the page shows: a layout effect runs before
+  // the pages' own loads, which start in effects. A change that lands while they load is then after
+  // the cursor, and the first poll reports it.
+  const firstCursor = useRef<{ client: Client; at: Promise<string | null> } | null>(null);
+  useLayoutEffect(() => {
+    if (firstCursor.current?.client !== client) firstCursor.current = { client, at: cursorNow() };
+  }, [client, cursorNow]);
 
   // The first load: meta, then the runs. An exported copy loads once and never polls. The
   // ?state=expired preview loads too, so its card covers a page, as an expiry does.
@@ -172,19 +196,24 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       },
       (err: unknown) => alive && fail(err),
     );
-    loadRuns().then(
-      () => {
-        if (!alive || !previewOffline.current) return;
-        // ?state=offline: show the page as loaded, then the server as gone.
-        previewOffline.current = false;
-        goOffline();
-      },
-      (err: unknown) => alive && fail(err),
-    );
+    void (firstCursor.current?.client === client ? firstCursor.current.at : cursorNow()).then((at) => {
+      if (!alive) return;
+      // A poll that already ran has a newer cursor.
+      if (at !== null && cursor.current === null) cursor.current = at;
+      loadRuns({ first: true }).then(
+        () => {
+          if (!alive || !previewOffline.current) return;
+          // ?state=offline: show the page as loaded, then the server as gone.
+          previewOffline.current = false;
+          goOffline();
+        },
+        (err: unknown) => alive && fail(err),
+      );
+    });
     return () => {
       alive = false;
     };
-  }, [client, fail, loadRuns, preview, goOffline]);
+  }, [client, fail, loadRuns, cursorNow, preview, goOffline]);
 
   // Live updates: /api/changes when the server has it, else the run list itself (an ETag makes it cheap).
   useEffect(() => {
@@ -202,7 +231,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         if (ch === null) await loadRuns();
         else {
           const first = cursor.current === null;
-          cursor.current = ch.cursor ?? (ch.version !== undefined ? String(ch.version) : null);
+          cursor.current = feedCursor(ch);
           if (ch.live) setLive(ch.live);
           setSyncedAt(Date.now());
           if (reloadFor(ch, first)) await loadRuns();
@@ -240,8 +269,9 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     try {
       const m = await client.meta();
       setMeta(m);
+      const at = await cursorNow();
       await loadRuns();
-      cursor.current = null;
+      cursor.current = at;
       dispatch({ type: 'reconnected' });
       if (/[?&]state=offline/.test(location.search)) history.replaceState(history.state, '', `${location.pathname}${location.hash}`);
       toast(`Reconnected to ${m.address ?? location.host}`);
@@ -251,7 +281,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     } finally {
       setRetrying(false);
     }
-  }, [client, loadRuns, toast]);
+  }, [client, loadRuns, cursorNow, toast]);
 
   // Offline: a clock for the countdown, and the next try when it is due. The ?state=offline preview
   // moves through the same waits without reconnecting: only Retry now does.
@@ -283,11 +313,13 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       const m = await client.meta();
       setMeta(m);
       setLive(m.live ?? []);
+      const at = await cursorNow();
       await loadRuns();
+      cursor.current = at;
     } catch (err) {
       fail(err);
     }
-  }, [client, loadRuns, fail]);
+  }, [client, loadRuns, cursorNow, fail]);
 
   const readOnly = !!meta && !meta.static && (meta.readOnly === true || !meta.actions);
   const actionsOff = client.exported

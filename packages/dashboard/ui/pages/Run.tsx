@@ -4,7 +4,7 @@ import { Legend } from '../components/bits.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
-import { callName, shortId } from '../format.js';
+import { callName, sameRun, shortId } from '../format.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
 import { followNewest, recordingEnded } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
@@ -38,8 +38,14 @@ let lastTab: InspectorTab = 'conversation';
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, tick } = useApp();
-  const loaded = useLoad(() => client.run(id), id, tick);
+  // Opened by a short id, the page settles on the full one (the workspace rewrites the URL). That is
+  // the run already loaded: the load keeps the id the page opened with, and asks by the full id from
+  // then on, so the run and everything on its page aren't loaded a second time.
+  const opened = useRef<{ key: string; runId: string | null }>({ key: id, runId: null });
+  if (id !== opened.current.key && id !== opened.current.runId) opened.current = { key: id, runId: null };
+  const loaded = useLoad(() => client.run(opened.current.runId ?? opened.current.key), opened.current.key, tick);
   const run = loaded.data;
+  if (run && opened.current.runId === null && sameRun(opened.current.key, run.run.runId)) opened.current.runId = run.run.runId;
   if (!run) {
     if (loaded.error)
       return (
