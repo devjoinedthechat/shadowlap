@@ -606,7 +606,7 @@ shadowlap diff <a> <b> [--json]
 
 Two runs call by call, aligned by position. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response, the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently, or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
 
-`--json` prints the comparison: `a` and `b` (each `runId` and `calls`), `identicalPrefix` and the `prefix` calls it counts, `firstRequestDifference` (`callNo`, `kind`, `name` and the structural `diff`, or `null`), `responseDifferences`, `after` (each run's course from the first difference on), `onlyInA`, `onlyInB`, and `changes` (`systemPrompt`, `tools`, `models`, `code`).
+`--json` prints the comparison: `a` and `b` (each `runId` and `calls`), `identicalPrefix` and those calls (`prefix`, the first 500), `firstRequestDifference` (`callNo`, `kind`, `name` and the structural `diff`, or `null`), `responseDifferences`, `after` (each run's course from the first difference on), `onlyInA`, `onlyInB`, and `changes` (`systemPrompt`, `tools`, `models`, `code`).
 
 ## dashboard
 
