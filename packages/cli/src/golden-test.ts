@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { formatDivergence, hasRecordedCommand, maskedChange, unpackRun, volatileValues, type CallRecord, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
+import { formatDivergence, hasRecordedCommand, maskedChange, unpackRun, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResultData, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
@@ -207,6 +207,16 @@ export function outputTail(output: string, lines = 20): string | null {
   return t ? t.split('\n').slice(-lines).join('\n') : null;
 }
 
+/**
+ * The change that made a request diverge: its first change the rules in force (`rules`: the
+ * config's normalizers and the pack's redaction rules) don't mask. The report lists every change in
+ * the request as sent, the masked ones too. Null for a divergence that is no changed request.
+ */
+export function divergenceCause(d: DivergenceReport, rules: readonly Normalizer[]): string | null {
+  if (d.type !== 'request_changed') return null;
+  return (d.diff ?? []).find((e) => !maskedChange(e, rules, d))?.path ?? null;
+}
+
 /** What the store keeps about a golden's result besides its verdict. */
 export function resultData(store: Store, o: GoldenOutcome): TestResultData {
   const data: TestResultData = { mode: o.spec?.fork ? 'fork' : 'replay' };
@@ -235,8 +245,7 @@ export function resultData(store: Store, o: GoldenOutcome): TestResultData {
       ...(d.diff ? { diff: d.diff.slice(0, 12).map((e) => ({ ...e, ...('before' in e ? { before: clipValue(e.before) } : {}), ...('after' in e ? { after: clipValue(e.after) } : {}) })), entries: d.diff.length } : {}),
       ...(d.hints ? { hints: d.hints } : {}),
       volatile: volatileValues(d, o.normalizers),
-      // What made it diverge: the report lists every change, those the rules in force mask too.
-      cause: (d.type === 'request_changed' ? (d.diff ?? []) : []).find((e) => !maskedChange(e, o.normalizers, d))?.path ?? null,
+      cause: divergenceCause(d, o.normalizers),
       text: formatDivergence(d),
     };
   }

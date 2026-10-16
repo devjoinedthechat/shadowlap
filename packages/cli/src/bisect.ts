@@ -2,10 +2,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Palette, type RunRecord } from '@shadowlap/engine';
+import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
-import { importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
+import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
 import { goldenName, scratchDir } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
 import { physicalPath, realPath } from './real-path.js';
@@ -208,15 +208,19 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
   }
 }
 
-/** What a replay did, in one line. */
-function describeResult(o: Awaited<ReturnType<typeof testRecording>>): string {
+/**
+ * What a replay did, in one line. A divergence is named by its first change the rules in force
+ * (`rules`: the config's normalizers and the pack's redaction rules) don't mask: the report lists
+ * the masked ones too, but they didn't make it diverge.
+ */
+function describeResult(o: Awaited<ReturnType<typeof testRecording>>, rules: readonly Normalizer[]): string {
   const s = o.shown.ended.summary;
   if (!o.failure) {
     const checks = o.shown.checks?.length ?? 0;
     return s.divergence ? `forked at call ${s.divergence.callNo}, ${checks} check${checks === 1 ? '' : 's'} passed` : checks ? `replayed clean · ${checks} check${checks === 1 ? '' : 's'} passed` : 'replayed clean';
   }
   const d = s.divergence;
-  const path = d?.diff?.[0]?.path;
+  const path = d ? (divergenceCause(d, rules) ?? d.diff?.[0]?.path) : undefined;
   return o.kind === 'diverged' && path ? `${o.failure.message} · ${path}` : o.failure.message;
 }
 
@@ -343,7 +347,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       }
       // A replay a signal cut short says nothing about the commit.
       if (outcome.interrupted) return done(false, true, 'interrupted');
-      return done(!outcome.failure, false, describeResult(outcome));
+      return done(!outcome.failure, false, describeResult(outcome, [...config.normalize, ...(target.run.meta?.redactions ?? [])]));
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {
         rmSync(worktree, { recursive: true, force: true });

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, type DivergenceReport } from '@shadowlap/engine';
+import { divergenceCause } from '../src/golden-test.js';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 
@@ -222,6 +223,13 @@ console.log(JSON.stringify((await res.json()).content));
     // As printed, it fixes it.
     expect((await shadowlap(command.split(' ').slice(1).map((a) => a.replace(/^'|'$/g, '')))).code).toBe(0);
     expect((await shadowlap(['test', 'goldens/ids'], { WITH_REQUEST_ID: '1' })).code).toBe(0);
+  });
+
+  it('names a divergence by its first change the rules in force leave, as test and bisect say it', () => {
+    const d: DivergenceReport = { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' }, { path: '$.system', op: 'changed', before: 'Escalate.', after: 'Refund.' }] };
+    expect(divergenceCause(d, [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }])).toBe('$.system');
+    expect(divergenceCause(d, [])).toBe('$.metadata.user_id');
+    expect(divergenceCause({ ...d, type: 'new_call' }, [])).toBeNull();
   });
 
   it('gives no hint for a value a rule in the config masks, and keeps the change that made it diverge', async () => {
