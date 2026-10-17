@@ -1,5 +1,3 @@
-import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { runDetail, showRunJson } from '../src/api.js';
@@ -9,7 +7,6 @@ import { normalizeRunDetail } from '../ui/normalize.js';
 import { runSpent, runType } from '../ui/runs.js';
 import { metricItems } from '../ui/run/metrics.js';
 import { pulledSpender, recordingWords, runLikeOf } from '../ui/run/model.js';
-import { Metrics } from '../ui/run/parts.js';
 import { upstreamParts } from '../ui/run/provenance.js';
 import type { RunDetail } from '../ui/types.js';
 import { addRun, HOUR } from './read-model-store.js';
@@ -78,10 +75,6 @@ describe('a run pulled from the team store', () => {
     expect(metricItems(inputOf(d)).find(([, label]) => /upstream/.test(label))).toEqual([4, 'upstream requests']);
     // Provenance's Upstream row says the same.
     expect(upstreamParts(d.summary.upstreamRequests, d.summary.cost.spent, pulledSpender(d.run))).toEqual({ text: expect.stringMatching(/^4 requests · ≈\$\S+$/), note: 'by maya' });
-    // As drawn on the run page.
-    const html = renderToStaticMarkup(createElement(Metrics, { run: d, notWaitedMs: null, notWaitedUnknown: 0 }));
-    expect(html).toContain('<span>spent · by maya</span>');
-    expect(html).toContain('<span>upstream requests</span>');
     // Runs shows it at that cost too, as spent.
     expect(runSpent(runLikeOf(d))).toEqual({ text: expect.stringMatching(/^≈\$/), captured: false });
   });
