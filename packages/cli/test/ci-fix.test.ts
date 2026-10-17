@@ -352,6 +352,16 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*'])).toBe('');
   });
 
+  it('says why there is no fix when the repairer can’t be asked, as when claude isn’t on the runner', async () => {
+    await setUp({ expect: EXPECT });
+    const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', REPAIRER: 'claude-code', FAIL_ON_DIVERGENCE: 'false' }, { SHADOWLAP_CLAUDE: '/nonexistent/claude' });
+    expect(r.code, r.out).toBe(0);
+    expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '0', 'fix-prs': '' });
+    // Not "there was no candidate to try": what kept the repairer from proposing one.
+    expect(r.out).toContain('refund-over-limit: no fix pull request: the repairer could not be asked: /nonexistent/claude was not found');
+    expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the repairer could not be asked: \/nonexistent\/claude was not found \|/);
+  });
+
   it('opens nothing from a detached HEAD, and says how to check out the branch', async () => {
     await setUp({ expect: EXPECT });
     sh(project, 'git', ['checkout', '-q', '--detach']);
