@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, noRepairerOf, unifiedDiff, type Anchor } from '../src/repair.js';
+import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, noRepairerOf, repairMarkdown, unifiedDiff, type Anchor } from '../src/repair.js';
+import { repairReport } from './fix-fixtures.js';
 
 const AGENT = `const system = process.env.AGENT_SYSTEM ?? 'You are a support agent. Follow the refund policy.';
 const tools = [
@@ -156,5 +157,15 @@ describe('noRepairerOf', () => {
     expect(noRepairerOf({ repairer: null, warnings: ["none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files, so the repairer had nothing it could rewrite"] })!.text).toBe('the repairer had nothing it could rewrite');
     expect(noRepairerOf({ repairer: null, warnings: ['no repairer is configured, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json'] })!.text).toBe('no repairer is configured');
     expect(noRepairerOf({ repairer: null, warnings: ['big-model rescued the runs, but the model name small-model appears nowhere in the source as a string, so no model switch was proposed'] })).toBeNull();
+  });
+});
+
+describe('repairMarkdown', () => {
+  it('says in words where each failing run was lost, or that it was not, or that it passed', () => {
+    const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB', '01M540RWR1MGKZC97YKV0T4DB6', '01M540RZZZ0000000000000000'], accepted: false });
+    report.targets[1] = { ...report.targets[1]!, outcome: 'unrescuable', callNo: null, step: null, recorded: null, rescued: null };
+    report.targets[2] = { ...report.targets[2]!, outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: '01M540RZZZ passes its oracle when replayed' };
+    const rows = repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540'));
+    expect(rows.map((l) => l.split(' | ')[1])).toEqual(['model call #5 (3 of 4)', 'not rescued from any model call', 'passes when replayed']);
   });
 });
