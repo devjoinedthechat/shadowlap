@@ -19,6 +19,12 @@ export interface Shape {
   section: string;
   fields: readonly string[];
   grows?: true;
+  /**
+   * Where the section lists this shape's fields, when it lists several shapes' (show lists the run's
+   * and each call's): the words just before the parentheses that hold the list. Its fields must be
+   * named in that list, not merely somewhere in the section.
+   */
+  list?: string;
 }
 
 export const SHAPES = {
@@ -29,8 +35,8 @@ export const SHAPES = {
   repeat: { section: 'replay', fields: ['attempts', 'report'] },
   repeatReport: { section: 'replay', fields: ['parentRunId', 'attempts', 'forkedAt', 'paths', 'tools', 'distinctFinalResponses', 'succeeded', 'spent', 'saved', 'tokensNotRespent'] },
   show: { section: 'show', fields: ['run', 'summary', 'calls'] },
-  showRun: { section: 'show', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
-  showCall: { section: 'show', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
+  showRun: { section: 'show', list: 'the run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
+  showCall: { section: 'show', list: 'every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
   ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
   label: { section: 'label', fields: ['runId', 'labels'] },
   search: { section: 'search', fields: ['runId', 'callNo', 'kind', 'name', 'field', 'snippet', 'runStartedAt'] },
@@ -144,8 +150,22 @@ export const keys = (o: unknown) => Object.keys(o as object).sort();
 export const fields = (shape: ShapeName) => [...SHAPES[shape].fields].sort();
 export const docsOf = (shape: ShapeName) => {
   const s: Shape = SHAPES[shape];
-  return sectionText(s.section, s.page);
+  const section = sectionText(s.section, s.page);
+  return s.list === undefined ? section : listText(section, s.list);
 };
+
+/** The parenthesized list that follows `words` in a section, nested parentheses and all. */
+export function listText(section: string, words: string): string {
+  const at = section.indexOf(words);
+  const open = at < 0 ? -1 : section.indexOf('(', at + words.length);
+  if (open < 0) throw new Error(`the section has no list after "${words}"`);
+  let depth = 0;
+  for (let i = open; i < section.length; i++) {
+    if (section[i] === '(') depth++;
+    else if (section[i] === ')' && --depth === 0) return section.slice(open, i + 1);
+  }
+  throw new Error(`the list after "${words}" is never closed`);
+}
 
 /**
  * How a printed value departs from its shape: fields the shape lists that it doesn't print, and,

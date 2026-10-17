@@ -280,7 +280,7 @@ shadowlap show <run> [--json] [--request <call>] [--response <call>]
 
 The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. Above it, the run's duration, upstream requests and what it spent; a teammate's run pulled from the [team store](./team.md) says who spent it where it was recorded (`≈$0.0030 spent by maya`), and a run from a pack or a capture what its traffic cost where it ran (`of traffic captured`). `--request n` and `--response n` print the stored payloads.
 
-`--json` prints `{ "run", "summary", "calls" }`: the run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`), its summary as [`run --summary-json`](#run) writes it, and every call as stored (`callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`). The dashboard's Provenance tab copies the same object.
+`--json` prints `{ "run", "summary", "calls" }`: the run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`), its summary as [`run --summary-json`](#run) writes it, and every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`). The dashboard's Provenance tab copies the same object.
 
 ## ls
 
