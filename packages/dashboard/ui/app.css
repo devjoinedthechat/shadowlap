@@ -1589,6 +1589,11 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* the run header's eyebrow wraps a golden's long path onto a line of its own rather than running under the actions */
 .rhead .eyebrow { flex-wrap: wrap; row-gap: 4px; }
 .rhead .eyebrow code { overflow-wrap: anywhere; }
+/* a page header's too, such as a project's path on its setup page: its column may shrink to the
+   window, so a long path wraps instead of pushing the header and its line past a phone's edge */
+.ph > div { min-width: 0; }
+.ph .eyebrow { flex-wrap: wrap; row-gap: 4px; }
+.ph .eyebrow code { overflow-wrap: anywhere; }
 /* a run that was interrupted (stopped before it ended, failing nothing else): its page, Runs, the
    sidebar, the Overview and a --repeat's attempts in Forks say so in grey, never as a failure */
 .eyebrow.n { color: var(--dim); }
