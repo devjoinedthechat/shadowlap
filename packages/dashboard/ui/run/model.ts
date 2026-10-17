@@ -1,4 +1,6 @@
+import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
+import { personName } from '../overview/model.js';
 import type { BlameView, CallRow, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
 import type { RunLike } from '../runs.js';
 import { modelCallOf, originOf } from './calls.js';
@@ -39,6 +41,26 @@ export function runLikeOf(d: RunDetail): RunLike {
     checks,
     ...(state ? { kind: state.kind, outcome: state.outcome, failed: state.failed } : {}),
   };
+}
+
+/**
+ * What the eyebrow calls a recording that neither failed nor stopped: one unpacked from a pack
+ * someone sent says so; a teammate's pulled from the team store is a recording like any other.
+ */
+export function recordingWords(r: Pick<RunDetail['run'], 'meta'>): string {
+  return r.meta?.imported && !pulledRun(r) ? 'recording · from a pack' : 'recording';
+}
+
+/**
+ * Who spent what a run pulled from the team store spent, where it was recorded: its author by name
+ * ("maya", as Runs' By column names them). Undefined for a run made here, for a capture (whose calls
+ * were paid for where that traffic ran), and for a run that names no one, such as one in an HTML
+ * copy, which leaves authors out.
+ */
+export function pulledSpender(r: Pick<RunDetail['run'], 'mode' | 'meta'>): string | undefined {
+  if (!pulledRun(r) || importedRecording(r)) return undefined;
+  const author = r.meta?.author;
+  return typeof author === 'string' && author ? personName(author) : undefined;
 }
 
 /**

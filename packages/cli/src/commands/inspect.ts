@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { kindFacts } from '@shadowlap/tui/data';
-import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
+import { checksOf, cleanLabel, compareRuns, formatComparison, formatDivergence, formatDuration, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, withLabels, withNote, type RunRecord } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
@@ -153,11 +153,14 @@ export function register(program: Command): void {
       }
       const config = loadConfig(process.cwd());
       const s = summarizeRun(run, calls, [], [], { ...(config.prices ? { prices: config.prices } : {}), modelOf: storedModelResolver(store) });
+      // A run pulled from the team store spent what it spent where it was recorded, by its author.
+      const author = pulledRun(run) && typeof run.meta?.author === 'string' && run.meta.author ? run.meta.author : null;
+      const by = author ? ` by ${safe(author.includes('@') ? author.split('@')[0]! : author)}` : '';
       const facts = [
         s.durationMs !== null ? formatDuration(s.durationMs) : '',
-        s.upstreamRequests ? `${s.upstreamRequests} upstream requests` : '',
+        s.upstreamRequests ? `${s.upstreamRequests} upstream ${s.upstreamRequests === 1 ? 'request' : 'requests'}` : '',
         s.injected ? `${s.injected} injected` : '',
-        s.cost.spent ? `≈${formatUsd(s.cost.spent)} spent` : '',
+        s.cost.spent ? `≈${formatUsd(s.cost.spent)} spent${by}` : '',
         // An imported run's calls were paid for wherever the traffic happened, not here.
         s.cost.captured ? `≈${formatUsd(s.cost.captured)} of traffic captured` : '',
         s.cost.saved ? `${formatUsd(s.cost.saved)} saved by replay` : '',

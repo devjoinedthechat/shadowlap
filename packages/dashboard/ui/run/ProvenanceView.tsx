@@ -4,7 +4,7 @@ import { CopyButton, Org } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { copyText } from '../dom.js';
 import { RunIcon } from '../components/RunIcon.js';
-import { approx, callName, num, shortFingerprint, shortHash, shortId, stamp, utcStamp } from '../format.js';
+import { callName, num, shortFingerprint, shortHash, shortId, stamp, utcStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { countOrigins, ORIGIN_NAME, presentOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -13,8 +13,8 @@ import { kindWord } from '../runs.js';
 import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
-import { lineageRunLike, modelLabel, originOf, runLikeOf } from './model.js';
-import { copyRules, endpointSamples, lineageWords, tallyProviders } from './provenance.js';
+import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
+import { copyRules, endpointSamples, lineageWords, tallyProviders, upstreamParts } from './provenance.js';
 
 /**
  * The providers a run's model calls went to, with how many calls each: the server's count when it
@@ -38,6 +38,21 @@ function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ 
     };
   }, [client, runId, sig, known]);
   return known ?? found;
+}
+
+/** The requests and what they cost, kept on one line, then who spent it for a run pulled from the team store. */
+function UpstreamValue({ text, note }: { text: string; note: string | null }) {
+  return (
+    <>
+      <span className="nw">{text}</span>
+      {note ? (
+        <>
+          {' '}
+          <small className="nw">{note}</small>
+        </>
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -146,7 +161,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       ),
     ],
     ['Calls', `${num(s.byKind.api)} model · ${num(s.byKind.tool)} tool${s.byKind.clock + s.byKind.random ? ` · ${num(s.byKind.clock + s.byKind.random)} clock and random` : ''}${scopes.length ? ` · ${scopes.length} scopes` : ''}`],
-    ['Upstream', `${num(s.upstreamRequests)} ${s.upstreamRequests === 1 ? 'request' : 'requests'} · ${approx(s.cost.spent)}`],
+    ['Upstream', <UpstreamValue key="u" {...upstreamParts(s.upstreamRequests, s.cost.spent, pulledSpender(r))} />],
     ['Origins', presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'],
   ];
   return (

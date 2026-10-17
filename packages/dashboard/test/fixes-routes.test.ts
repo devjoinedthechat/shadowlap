@@ -402,6 +402,16 @@ describe('the blame job', () => {
     expect(refused.status).toBe(409);
     expect((await json(refused)).error).toMatch(/no command to re-run/);
   });
+
+  it('asks the same before running the command of a teammate’s run pulled from the team store, naming the store', async () => {
+    const pulled = makeRun(store, { meta: { imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' }, author: 'maya@example.com' } });
+    await start();
+    const res = await job({ kind: 'blame', runId: pulled, expect: null });
+    expect(res.status).toBe(409);
+    expect((await json(res)).error).toMatch(new RegExp(`^${pulled.slice(0, 10)} came from the team store: this runs the command it was recorded with \\(`));
+    await started({ kind: 'blame', runId: pulled, expect: null, yes: true });
+    expect(spawned.at(-1)).toEqual(['blame', pulled, '--yes']);
+  });
 });
 
 describe('the repair job', () => {

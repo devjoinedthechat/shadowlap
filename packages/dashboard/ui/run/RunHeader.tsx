@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
 import { failureText, fixCheckShort } from './banner.js';
-import { checksOf, runLikeOf } from './model.js';
+import { checksOf, recordingWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 
@@ -80,7 +80,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   ) : type === 'capture' ? (
     <Eyebrow>imported from a capture</Eyebrow>
   ) : (
-    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>{failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : cut ? 'recording · interrupted' : r.meta?.imported ? 'recording · from a pack' : 'recording'}</Eyebrow>
+    <Eyebrow tone={failed ? 'err' : cut ? 'n' : undefined}>{failed ? (checkFailed ? 'recording · check failed' : 'recording · failed') : cut ? 'recording · interrupted' : recordingWords(r)}</Eyebrow>
   );
   const off = actionsOff ?? undefined;
   // Push: a run only on this machine goes to the team store the config names.

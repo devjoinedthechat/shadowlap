@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { asksConsent, consentTitle } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { ConfirmDialog, Dialog } from '../components/Dialog.js';
@@ -39,7 +40,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           return 'expect' in fields ? err.message : null;
         }
         if (err instanceof ApiError && err.status === 400 && 'expect' in fields) return err.message;
-        if (err instanceof ApiError && err.status === 409 && /imported pack/.test(err.message)) setAsking({ kind: 'consent', why: err.message, fields });
+        if (err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setAsking({ kind: 'consent', why: err.message, fields });
         else {
           setAsking(null);
           app.watchJob(Promise.reject(err));
@@ -63,7 +64,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
       ) : null}
       {asking?.kind === 'consent' ? (
         <ConfirmDialog
-          title="Run a command from an imported pack?"
+          title={consentTitle(asking.why)}
           text={`${asking.why}.`}
           ok="Run blame"
           onClose={() => setAsking(null)}

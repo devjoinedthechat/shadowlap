@@ -55,7 +55,7 @@ The header line summarizes the run: calls, how many replayed, ran live, were blo
 
 ## Cost, model and stop reason
 
-Every model call stores the model it was made with, the provider's stop reason and the response size; the meta tab shows them with the usage split into uncached input, output, cache reads and cache writes, and an approximate cost at list price. Replayed calls show what they *would* have cost: that money was not re-spent. The runs list has a cost column, and its detail line shows wall time, what a run spent and what its replay saved. A run imported from a pack or a capture shows its cost as captured: that traffic was paid for where it ran.
+Every model call stores the model it was made with, the provider's stop reason and the response size; the meta tab shows them with the usage split into uncached input, output, cache reads and cache writes, and an approximate cost at list price. Replayed calls show what they *would* have cost: that money was not re-spent. The runs list has a cost column, and its detail line shows wall time, what a run spent and what its replay saved. A run imported from a pack or a capture shows its cost as captured: that traffic was paid for where it ran. A teammate's run pulled from the [team store](./team.md) shows what it spent, as the team's.
 
 Prices are USD per million tokens for the current Claude, OpenAI and Gemini models, matched by the longest model-name prefix. They are estimates: list prices change, partner platforms and batch tiers differ, and a model that is not in the table shows `unknown` with no number. Add or override prices in `shadowlap.config.json`:
 

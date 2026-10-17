@@ -8,12 +8,14 @@ import {
   classifyRun,
   countOrigins,
   displayOrigin,
+  importedRecording,
   isFailedOutcome,
   kindLabel,
   lostAt,
   notableOrigin,
   originCells,
   outcomeLabel,
+  pulledRun,
   runKind,
   runOutcome,
   type ClassifiableRun,
@@ -83,6 +85,36 @@ describe('classifyRun: the kind of a run', () => {
     // A fork that came in a pack with its lineage is still a fork.
     expect(classifyRun(run({ mode: 'replay', parentRunId: 'P', divergence: { callNo: 4 }, meta: { imported: { at: 1, from: 'golden' } } })).kind).toBe('fork');
     expect(classifyRun(run({ mode: 'replay', parentRunId: 'G', divergence: { callNo: 1 }, meta: { test: { golden: 'goldens/refund', session: 's1' } } })).kind).toBe('test');
+  });
+
+  it('reads a run pulled from the team store as what it is, and a pack someone sent as a pack', () => {
+    const pulled = { imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' }, author: 'maya@example.com' };
+    expect(classifyRun(run({ meta: pulled })).kind).toBe('recording');
+    expect(kindLabel(runKind(run({ meta: pulled })), null)).toBe('recording');
+    // From a pull request's folder too, and from every kind of store.
+    expect(classifyRun(run({ meta: { imported: { at: 1, from: 's3://northwind-agent-runs/prs', pr: '42' } } })).kind).toBe('recording');
+    for (const from of ['gs://runs/team', 'az://northwind/runs', 'r2://0123abc/runs/team']) expect(pulledRun({ meta: { imported: { at: 1, from } } }), from).toBe(true);
+    // An unpack names the pack's folder, an import its file or trace: neither is a store.
+    for (const from of ['triage-from-maya', 'goldens/refund', '/tmp/otel-genai.json', 'langfuse:7f3a9c2e', 's3:', 'http://collector:4318/v1/traces', '']) expect(pulledRun({ meta: { imported: { at: 1, from } } }), from).toBe(false);
+    expect(pulledRun({ meta: { imported: 's3://x/y' } })).toBe(false);
+    expect(pulledRun({ meta: {} })).toBe(false);
+    expect(pulledRun({})).toBe(false);
+    expect(classifyRun(run({ meta: { imported: { at: 1, from: 'triage-from-maya' } } })).kind).toBe('pack');
+    // A capture a teammate pushed is still a capture.
+    expect(classifyRun(run({ meta: { imported: { at: 1, from: 'gs://runs/team' }, covers: ['api'] } })).kind).toBe('capture');
+  });
+
+  it('counts what a pulled recording spent, and what a pack or a capture holds as captured', () => {
+    const rec = (meta: Record<string, unknown>, mode: 'record' | 'replay' = 'record') => ({ mode, meta });
+    // A teammate's recording is the team's: its calls were spent.
+    expect(importedRecording(rec({ imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' } }))).toBe(false);
+    // A pack someone sent, and a capture (pulled or not), were paid for where that traffic ran.
+    expect(importedRecording(rec({ imported: { at: 1, from: 'triage-from-maya' } }))).toBe(true);
+    expect(importedRecording(rec({ imported: { at: 1, from: 'cap.har' }, covers: ['api'] }))).toBe(true);
+    expect(importedRecording(rec({ imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' }, covers: ['api'] }))).toBe(true);
+    // Replays spend what they spend, wherever they came from; a run made here is no import.
+    expect(importedRecording(rec({ imported: { at: 1, from: 'triage-from-maya' } }, 'replay'))).toBe(false);
+    expect(importedRecording(rec({}))).toBe(false);
   });
 
   it('bundles --repeat, blame and verify attempts under the run they replayed', () => {

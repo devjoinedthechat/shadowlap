@@ -50,12 +50,12 @@ export { formatDivergence, formatSummary, formatTokens, plain, storedModelResolv
 export type { ModelResolver, SummaryOptions } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
-export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, asTheyStand, commandIsImported, hasRecordedCommand, packRun, unpackRun } from './pack.js';
+export { NO_COMMAND, PACK_FORMAT, PACK_VERSION, asTheyStand, commandIsImported, hasRecordedCommand, importedCommandSource, packRun, unpackRun } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { quoteArgv, safeLine, safeText } from './text.js';
 export { shortCallName } from './labels.js';
-export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, runKind, runOutcome } from './classify.js';
+export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, pulledRun, runKind, runOutcome } from './classify.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';

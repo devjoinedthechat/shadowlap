@@ -136,7 +136,7 @@ export function register(program: Command): void {
       const argv = command.length ? command : parent.command.argv;
       // A run imported from a pack carries a command someone else chose; running it needs consent.
       const commandFromImport = !command.length && commandIsImported(parent);
-      if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent.runId, argv))) {
+      if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent, argv))) {
         process.exitCode = 1;
         return;
       }
@@ -261,7 +261,7 @@ export function register(program: Command): void {
         if (!target) throw new Error(recordFirst);
         const parent = target.run;
         requireEnded(store, parent, 'calibrate');
-        if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent.runId, parent.command.argv))) {
+        if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent, parent.command.argv))) {
           process.exitCode = 1;
           return;
         }

@@ -190,6 +190,17 @@ describe('actions on a run imported from a pack', () => {
     expect(actions.find((a) => a.key === 'p')!.prompt!.build('./out')).toEqual(['pack', ID, './out']);
   });
 
+  it('ask the same of a teammate’s run pulled from the team store, naming where it came from', () => {
+    const pulled = run({ imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' }, author: 'maya@example.com' }, { codeVersion: 'a1b2c3d' });
+    const actions = buildActions(pulled, call);
+    const replay = actions.find((a) => a.key === 'r')!;
+    expect(replay.args).toBeUndefined();
+    expect(replay.prompt!.label).toBe('This run came from the team store; replaying it runs: node agent.js. Type yes to run it:');
+    expect(replay.prompt!.build('yes')).toEqual(['replay', ID, '--yes']);
+    expect(actions.find((a) => a.key === 'i')!.prompt!.label).toMatch(/^This run came from the team store; replaying it runs: node agent\.js\. /);
+    expect(terminalActions(pulled, call).find((a) => a.key === 'b')!.disabled).toMatch(/^This run came from the team store: bisect would run its command at every commit/);
+  });
+
   it('put --yes among the flags, never after a --', () => {
     // A fork of an imported run made again from it with a command of its own.
     const fork = run({ commandFromImport: true, interventions: [{ kind: 'command', at: null, flag: '-- node b.js' }] }, { mode: 'replay', parentRunId: 'PARENT', command: { argv: ['node', 'b.js'], cwd: '/' } });

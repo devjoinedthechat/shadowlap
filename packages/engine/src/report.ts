@@ -1,3 +1,4 @@
+import { importedRecording } from './classify.js';
 import { firstDifference } from './diff.js';
 import { normalizeAddCommand } from './volatile.js';
 import { loadApiRequest } from './manifest.js';
@@ -40,8 +41,10 @@ export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: No
   const tokens: Usage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
   const cost = { spent: 0, saved: 0, captured: 0, unknownModels: [] as string[] };
   // A run from a pack or a capture holds calls someone else's process made. Counting them as this
-  // store's spend is how importing ten production captures would claim ten times the real cost.
-  const imported = !!run.meta?.imported && run.mode === 'record';
+  // store's spend is how importing ten production captures would claim ten times the real cost. A
+  // teammate's run pulled from the team store is the team's own: its requests and spend count, as
+  // its author made them.
+  const imported = importedRecording(run);
   let upstreamRequests = 0;
   let injected = 0;
   let refused = 0;

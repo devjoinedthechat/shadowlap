@@ -140,8 +140,9 @@ export interface RunMeta {
   normalizersHash?: string;
   /**
    * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
-   * is someone else's. `pr`: it came from a pull request's folder in the store, so it never goes
-   * back into the store's own runs.
+   * is someone else's. `from`: the pack's folder, or the store's URL (`s3://…`, `gs://…`, `az://…`,
+   * `r2://…`), which marks a run pulled from it (`pulledRun`). `pr`: it came from a pull request's
+   * folder in the store, so it never goes back into the store's own runs.
    */
   imported?: { at: number; from: string; pr?: string };
   /**
@@ -300,6 +301,8 @@ export interface RunSummary {
   /**
    * The run came from elsewhere — a pack someone recorded, or a capture — so the calls it holds were
    * made by someone else's process. Its cost is `captured`, not `spent`, and it made no upstream requests.
+   * A teammate's recording pulled from the team store is not: its requests and spend count as its
+   * author made them (`run.meta.author`; `run.meta.imported.from` names the store).
    */
   imported: boolean;
   /** Usage recorded on replayed API calls: tokens that did not have to be spent again. */

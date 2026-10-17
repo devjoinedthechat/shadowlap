@@ -1,4 +1,4 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
+import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, repairJobArgv } from '../fixes.js';
@@ -81,11 +81,11 @@ function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
   return { expect: value };
 }
 
-/** A run whose command came from someone else's pack runs only once the user said yes to it. */
+/** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it. */
 function importedCommand(runs: RunRecord[], yes: unknown): JobBuildResult | null {
   const imported = runs.find((r) => commandIsImported(r));
   if (!imported || yes === true) return null;
-  return { error: `${imported.runId.slice(0, 10)} came from an imported pack: this runs the command it was recorded with (${imported.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
+  return { error: `${imported.runId.slice(0, 10)} came from ${importedCommandSource(imported)}: this runs the command it was recorded with (${imported.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
 }
 
 /**
