@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findPairs, fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
+import { findPairs, fixRecords, markFixApplied, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type Block } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
@@ -84,6 +84,36 @@ describe('the Fixes list', () => {
     // It ran to the end, but no model call rescued the run: no call is blamed yet, so it is still to do.
     expect(y!.steps[0]).toMatchObject({ state: 'todo', short: 'not rescued', title: 'Not rescued from any model call' });
     expect(fixDetail(store, y!.fixId)!.defaultStep).toBe('blame');
+    expect(fixDetail(store, y!.fixId)!.blame).toMatchObject({ boundary: 'Resampling from the first model call, #1, passed 1 of 4 attempts, fewer than the 2 a rescue needs.', look: null });
+  });
+
+  it('says what asking the blamed call again did only as far as it differs, and why a blame blamed no call', () => {
+    const keep = (report: BlameReport, labels: string[]) => {
+      const runId = makeRun(store, { labels });
+      return recordBlame(store, { runId, report: { ...report, runId }, expect: null, scope: null, command: 'shadowlap blame x', title: 'The agent exited with code 1', checkText: 'the agent exits 0', at: NOW });
+    };
+    const post = (text: string) => [{ type: 'tool_call' as const, name: 'post_digest', input: { channel: '#refunds', text } }];
+    const said = (text: string) => [{ type: 'text' as const, text }];
+    const asked = (recorded: Block[], rescued: Block[], label: string) => {
+      const base = blameReport('X');
+      const { blame } = keep({ ...base, contrast: { callNo: 5, recorded, rescued, rescuedRunId: base.blamed!.attempts[0]!.runId } }, [label]);
+      return fixForRun(store, blame.runId)!.blame!.short;
+    };
+    expect(asked(post('3 refunds this week.'), post('Three refunds this week.'), 'a')).toBe('asked again, it calls post_digest with other arguments');
+    expect(asked(post('3 refunds this week.'), [...said('Checking the channel first.'), { type: 'tool_call', name: 'list_channels', input: {} }], 'b')).toBe('asked again, it calls list_channels instead');
+    expect(asked(post('3 refunds this week.'), said('#refunds is not a channel I can post to.'), 'c')).toBe('asked again, it answers without a tool call');
+    expect(asked(said('Done.'), said('I could not post it.'), 'd')).toBe('asked again, it answers differently');
+    expect(asked([...said('Posting.'), ...post('3 refunds this week.')], [...said('Posting the digest now.'), ...post('3 refunds this week.')], 'g')).toBe('asked again, it answers differently');
+    const both = (a: string, b: string): Block[] => [{ type: 'tool_call', name: a, input: {} }, { type: 'tool_call', name: b, input: {} }];
+    expect(asked(both('lookup_order', 'read_policy'), both('read_policy', 'lookup_order'), 'h')).toBe('asked again, it answers differently');
+
+    // The attempts that passed answered as the recording did, or every attempt met a write's recorded error.
+    const why = "Every attempt that passed at #7 answered it as the recording did. They passed because post_digest was stubbed after the fork, and the recording failed on post_digest's error: channel_not_found: #refunds.";
+    const same = keep({ ...blameReport('X', 'unrescuable'), sameAnswer: { callNo: 7, runId: 'R', why } }, ['e']);
+    expect(fixDetail(store, same.fix.fixId)!.blame).toMatchObject({ outcome: 'unrescuable', lostAt: null, boundary: why, look: "No answer of the model's lost this run: look at the tools, the harness or the command." });
+    expect(fixForRun(store, same.blame.runId)!.blame!.short).toBe('not rescued from any model call');
+    const met = keep({ ...blameReport('X', 'unrescuable'), failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } }, ['f']);
+    expect(fixDetail(store, met.fix.fixId)!.blame).toMatchObject({ boundary: "Every attempt from the first model call, #1, made post_digest's recorded call again and failed on its error, as the recording did: channel_not_found: #refunds.", look: "No answer of the model's lost this run: look at the tools, the harness or the command." });
   });
 
   it('says where a fix came from', () => {

@@ -1,5 +1,6 @@
 import {
   applyLeft,
+  canonicalize,
   commitTitle,
   describeBlocks,
   describeRescue,
@@ -20,7 +21,9 @@ import {
   repairToApply,
   resolveFix,
   testsEntryFor,
+  unrescuedWhy,
   verdictCounts,
+  type Block,
   type FixData,
   type FixRecords,
   type FixStatus,
@@ -149,6 +152,12 @@ export interface BlameStep {
   oracle: string[];
   recordedFailures: string[];
   stopReason: string | null;
+  /**
+   * For a blame that placed the failure on no call and knows no answer of the model's lost the run
+   * (its passing attempts answered as the recording did, or every attempt met a write's recorded
+   * error again): where to look instead. Null otherwise.
+   */
+  look: string | null;
   warnings: string[];
   command: string;
   hrefs: { run: string; lostAt: string | null; rescued: string | null };
@@ -505,8 +514,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     boundary = `Resampling #${r.blamed.callNo} rescued ${rate(r.blamed)} attempts; ${r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${rate(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
   } else if (b.outcome === 'unrescuable') {
     title = 'Not rescued from any model call';
-    const first = r.probes[0];
-    boundary = first ? `Resampling from the first model call, #${first.callNo}, passed ${rate(first)} attempts, fewer than the ${r.needed} a rescue needs.` : 'No probe rescued the run.';
+    boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
   } else {
     title = 'Stopped before the search finished';
     boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${r.lost ? `, lost from #${r.lost.callNo}` : ''}.` : 'No probe had settled.'}`;
@@ -563,6 +571,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
     stopReason: r.stopReason,
+    look: b.outcome === 'unrescuable' && (r.sameAnswer || r.failedWrite) ? unrescuedWhy(r).look : null,
     warnings: r.warnings,
     command: b.command,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
@@ -1080,6 +1089,21 @@ function fixRef(store: Store, fix: StoredFix): FixRef {
 /** The tools a model's answer called, each once, in order. */
 const toolsCalled = (blocks: ReadonlyArray<{ type: string; name?: string }>): string[] => [...new Set(blocks.flatMap((x) => (x.type === 'tool_call' && x.name ? [x.name] : [])))];
 
+/**
+ * What asking the blamed call again did, against what the recording answered there, in a few words:
+ * "it calls escalate instead" only when it calls other tools; the same tools with other arguments,
+ * an answer without a tool call, or the same calls in other words or order say so.
+ */
+function askedInstead(recorded: readonly Block[], rescued: readonly Block[]): string {
+  const was = toolsCalled(recorded);
+  const now = toolsCalled(rescued);
+  const calls = (blocks: readonly Block[]) => blocks.flatMap((x) => (x.type === 'tool_call' ? [`${x.name} ${canonicalize(x.input ?? null)}`] : [])).sort().join('\n');
+  if (!rescued.length) return 'the run passes';
+  if (!now.length) return was.length ? 'it answers without a tool call' : 'it answers differently';
+  if (now.length !== was.length || now.some((t) => !was.includes(t))) return `it calls ${now.join(' and ')} instead`;
+  return calls(rescued) !== calls(recorded) ? `it calls ${now.join(' and ')} with other arguments` : 'it answers differently';
+}
+
 /** What the model did at the blamed call when asked again, in a few words: "called escalate". */
 function askedAgain(blocks: ReadonlyArray<{ type: string; name?: string }>): string {
   const tools = toolsCalled(blocks);
@@ -1088,9 +1112,7 @@ function askedAgain(blocks: ReadonlyArray<{ type: string; name?: string }>): str
 
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
-  const rescued = r.contrast?.rescued ?? [];
-  const tools = toolsCalled(rescued);
-  const what = b.outcome === 'blamed' ? (tools.length ? `asked again, it calls ${tools.join(' and ')} instead` : rescued.length ? 'asked again, it answers without a tool call' : 'asked again, the run passes') : b.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
+  const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
   return { blameId: b.blameId, at: b.at, outcome: b.outcome, lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 

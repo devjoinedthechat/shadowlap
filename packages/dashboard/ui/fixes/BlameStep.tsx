@@ -303,7 +303,7 @@ function Checked({ b }: { b: BlameStep }) {
             </ul>
           </>
         ) : null}
-        <p className="fxnote">{b.outcome === 'unrescuable' ? 'Asking any model call again did not let the run pass often enough: the cause may be before the first model call, in a tool, or in the check itself.' : `The search stopped: ${b.stopReason ?? 'before it was done'}. Blame it again to finish.`}</p>
+        <p className="fxnote">{b.outcome === 'unrescuable' ? (b.look ?? 'Asking any model call again did not let the run pass often enough: the cause may be before the first model call, in a tool, or in the check itself.') : `The search stopped: ${b.stopReason ?? 'before it was done'}. Blame it again to finish.`}</p>
       </div>
     </section>
   );
