@@ -145,6 +145,15 @@ const json = <T = Record<string, any>>(r: Result): T => {
   return JSON.parse(r.stdout) as T;
 };
 const store = () => Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+/** Who each run says ran it, as the Runs page's By column shows it. */
+function authors(runIds: string[]): Array<string | null> {
+  const s = store();
+  try {
+    return runIds.map((id) => s.getRun(id)?.meta?.author ?? null);
+  } finally {
+    s.close();
+  }
+}
 /** The model calls of a run, by call number: the agent's decision is the third. */
 function modelCalls(runId: string): number[] {
   const s = store();
@@ -170,6 +179,12 @@ describe('shadowlap fix', () => {
     expect(first.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}/blame` });
     expect(first.events).toContainEqual({ type: 'run', runId: blamed.contrast.rescuedRunId, role: 'passing' });
     expect(first.events.at(-1)).toMatchObject({ type: 'result', data: { runId: failed[0], outcome: 'blamed' } });
+    // Every run the blame made says who ran it, as a fork or a test replay does: its probes, and the
+    // fork that rescued the run, which Runs lists on its own.
+    const probes = blamed.probes.flatMap((x: { runs: Array<{ runId: string }> }) => x.runs.map((a) => a.runId)) as string[];
+    expect(probes.length).toBeGreaterThan(1);
+    expect(probes).toContain(blamed.contrast.rescuedRunId);
+    expect(new Set(authors(probes))).toEqual(new Set(['dana']));
 
     // A title of one's own stays when the next blame joins.
     const titled = await shadowlap(['fix', 'title', fixId.slice(0, 13), 'Refunds', 'above', 'the', 'limit', 'issued', 'without', 'approval']);
@@ -194,6 +209,10 @@ describe('shadowlap fix', () => {
     expect(no).toMatchObject({ verdict: 'rejected', fixes: [{ fixId, status: 'open' }] });
     expect(no.verifyId).toMatch(/^vf-[0-9A-Z]{26}$/);
     expect(rejected.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}/verify/${no.verifyId}` });
+    // Its attempts say who ran them too.
+    const attempts = no.runs.flatMap((x: { runs: Array<{ runId: string }> }) => x.runs.map((a) => a.runId)) as string[];
+    expect(attempts.length).toBeGreaterThan(1);
+    expect(new Set(authors(attempts))).toEqual(new Set(['dana']));
 
     // A fix made by hand, verified: the fix turns verified.
     writeFileSync(join(project, 'agent.mjs'), agentText().replace(ORIGINAL, FIX));
