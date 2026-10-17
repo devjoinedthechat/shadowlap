@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, inlineParts, laterStamp, mergeTreeJobs, outcomeTone, outdatedOf, parseCheck, parseMarkdown, plainCell, probeBadge, repairAsk, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, plainCell, probeBadge, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
-import type { BlameStep, FixBundle, FixDetail, VerifyStep } from '../ui/types.js';
+import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
 // How the Fixes pages read a fix: the chips, the step and verdict a URL opens, the main action, the
 // Blame step's row of calls, the change cut to what changed, the Forks view's bundles and report.md.
@@ -68,8 +68,8 @@ describe('a fix', () => {
     const fix = (repairer: FixDetail['repairer'], o: Partial<FixDetail> = {}) =>
       ({ status: 'open', repairer, actions: actions({ repair: { argv: ['repair'], command: `shadowlap repair${repairer.configured ? '' : ' --repairer claude-code'}` } }), ...o }) as FixDetail;
     // The page loaded before the config named a repairer; the dialog reads it again as it opens.
-    const page = fix({ name: 'claude-code', configured: false });
-    const now = fix({ name: 'anthropic', configured: true });
+    const page = fix({ name: 'claude-code', configured: false, problem: null });
+    const now = fix({ name: 'anthropic', configured: true, problem: null });
     expect(repairAsk(page, null)).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: null });
     expect(repairAsk(page, { fix: now })).toEqual({ ready: true, who: 'anthropic (from shadowlap.config.json)', repairer: 'anthropic', command: 'shadowlap repair', why: null });
     expect(repairAsk(now, { fix: page })).toMatchObject({ ready: true, who: 'your own Claude Code', repairer: 'claude-code', command: 'shadowlap repair --repairer claude-code' });
@@ -78,6 +78,46 @@ describe('a fix', () => {
     // Repaired meanwhile, or its runs deleted: nothing to confirm.
     expect(repairAsk(page, { fix: fix(page.repairer, { status: 'verified' }) })).toMatchObject({ ready: false, why: 'It was verified meanwhile, so there is nothing left to repair.' });
     expect(repairAsk(page, { fix: fix(page.repairer, { actions: actions({}) }) })).toMatchObject({ ready: false, why: expect.stringMatching(/nothing to repair from here/) });
+  });
+
+  it('keeps Repair off, saying why, when the repairer it would ask can’t be asked from here', () => {
+    const page = { status: 'open', repairer: { name: 'claude-code', configured: false, problem: null }, actions: actions({ repair: { argv: ['repair'], command: 'shadowlap repair --repairer claude-code' } }) } as FixDetail;
+    const problem = 'This repair asks your own Claude Code, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or name another repairer in shadowlap.config.json (repair.repairer).';
+    // claude went missing since the page loaded: the dialog reads the fix again as it opens.
+    expect(repairAsk(page, { fix: { ...page, repairer: { ...page.repairer, problem } } })).toEqual({ ready: false, who: null, repairer: null, command: 'shadowlap repair --repairer claude-code', why: problem });
+    expect(repairAsk(page, { fix: page })).toMatchObject({ ready: true, why: null });
+  });
+});
+
+describe('the Repair step', () => {
+  const step = (o: Partial<RepairStep>): RepairStep => ({ repairer: null, served: null, noRepairer: null, accepted: false, candidates: [], why: null, warnings: [], ...o }) as RepairStep;
+  const unasked = { text: 'the repairer could not be asked: claude was not found', warning: 'the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path' };
+
+  it('says who proposed the candidates, or why no repairer did, and “no repairer needed” only when none was', () => {
+    expect(repairBy(step({ repairer: 'anthropic:claude-opus-5-5', served: 'claude-fable-5-1', accepted: true }))).toEqual({ repairer: 'anthropic:claude-opus-5-5', served: 'claude-fable-5-1' });
+    // claude wasn't found: the header says so, with what to do, never that no repairer was needed.
+    expect(repairBy(step({ noRepairer: unasked, why: unasked.text }))).toEqual({ text: unasked.warning });
+    expect(repairBy(step({ noRepairer: { text: 'the repairer had nothing it could rewrite', warning: null } }))).toEqual({ text: 'the repairer had nothing it could rewrite' });
+    // A switch to the model that rescued the runs needs no repairer.
+    expect(repairBy(step({ accepted: true }))).toEqual({ text: 'no repairer needed' });
+    // No failing run rescued, or stopped before: its why says it all.
+    expect(repairBy(step({ why: 'resampling rescued no failing run' }))).toBeNull();
+  });
+
+  it('follows with what a repair that accepted nothing tried, unless that is only the repairer’s silence again', () => {
+    const tried = (verdict: RepairStep['candidates'][number]['verdict']) => ({ verdict }) as RepairStep['candidates'][number];
+    expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: unasked.text }))).toBeNull();
+    // A report kept before it said why in a few words: its why adds nothing either.
+    expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: 'there was no candidate to try' }))).toBeNull();
+    expect(nothingAcceptedWhy(step({ why: 'interrupted' }))).toBe('interrupted');
+    expect(nothingAcceptedWhy(step({}))).toBe('nothing was accepted');
+    expect(nothingAcceptedWhy(step({ candidates: [tried('set aside'), tried('rejected')], noRepairer: unasked }))).toBe('1 candidate tried, none accepted');
+  });
+
+  it('lists every warning at its foot but the one its header says', () => {
+    const other = 'agent.mjs changed while candidate 2 was verified, so it was left as it is: check it for the candidate’s edit';
+    expect(footWarnings(step({ noRepairer: unasked, warnings: [unasked.warning, other] }))).toEqual([other]);
+    expect(footWarnings(step({ warnings: [unasked.warning, other] }))).toEqual([unasked.warning, other]);
   });
 });
 

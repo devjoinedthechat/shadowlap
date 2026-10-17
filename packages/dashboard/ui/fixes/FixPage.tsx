@@ -226,7 +226,8 @@ export function FixActions({ fix }: { fix: FixDetail }) {
 /**
  * Asks before a repair, naming who is asked for candidates: the repairer shadowlap.config.json names,
  * read again as the dialog opens (the config can change while the page stays open), and sent with
- * the job, which the server refuses if the config names another by then.
+ * the job, which the server refuses if the config names another by then. One that can't be asked
+ * from here (claude isn't on the PATH) is said instead, with what to do, and nothing can start.
  */
 function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string) => void }) {
   const { client } = useApp();
@@ -262,7 +263,7 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
         onRun(ask.repairer);
       }}
     >
-      <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>
+      {ask.why ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>}
       {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
     </Dialog>
   );

@@ -22,6 +22,9 @@ const unpriced = (models: readonly string[]) => (models.length ? ` (no price for
 
 const mark = (x: FixStep, p: Palette) => (x.state === 'done' ? p.green('✓') : x.state === 'no' ? p.red('✗') : p.dim('·'));
 
+/** A repair's outcome in words, as `shadowlap repair` prints it. */
+const OUTCOME: Record<NonNullable<FixDetail['repair']>['outcome'], string> = { fixed: 'fixed', 'not-fixed': 'not fixed', 'no-diagnosis': 'no fix to try', stopped: 'stopped' };
+
 export function formatFixList(list: FixList, p: Palette): string {
   if (!list.fixes.length) return p.dim(`No fixes here. A fix starts from a blame: shadowlap blame <run> --expect '<check>'`);
   const rows = list.fixes.map((f) => [f.status, shortFixId(f.fixId), one(f.title, 60), `${f.label ? `${one(f.label, 30)} · ` : ''}${f.failing} failing`, f.steps.map((x) => x.short).join(' · ')]);
@@ -80,13 +83,15 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
 
   const r = d.repair;
   if (r) {
-    out.push('', p.bold(`Repair · ${r.repairId}, ${r.accepted ? `accepted ${ago(r.at)}` : `${r.outcome} ${ago(r.at)}`}${r.repairer ? ` · proposed by ${r.repairer}` : ''}`));
+    // Who proposed its candidates, or why no repairer did ("the repairer could not be asked: claude was not found").
+    const by = r.repairer ? ` · proposed by ${r.repairer}` : r.noRepairer ? ` · ${one(r.noRepairer.text, 300)}` : '';
+    out.push('', p.bold(`Repair · ${r.repairId}, ${r.accepted ? 'accepted' : OUTCOME[r.outcome]} ${ago(r.at)}${by}`));
     if (r.change) {
       out.push(`  ${p.dim(`${one(r.change.file, 80)} · ${one(r.change.anchor, 60)}`)}`);
       out.push(`  ${p.red(`- ${one(r.change.before, 200)}`)}`, `  ${p.green(`+ ${one(r.change.after, 200)}`)}`);
       if (r.roles.length) out.push(`  ${r.roles.map((x) => `${x.role} ${x.held} of ${x.of}`).join(' · ')}${r.needed !== null ? `, each on ${r.needed} of ${r.attemptsPerRun} attempts` : ''}`);
       if (r.verify && !r.verify.counts) out.push(`  ${p.yellow('!')} verified under another check than this fix's, so it doesn't count for it`);
-    } else if (r.why) out.push(`  ${one(r.why, 200)}`);
+    } else if (r.why && (r.candidates.length || !r.noRepairer)) out.push(`  ${one(r.why, 200)}`);
     if (r.diagnosis) out.push(`  ${p.dim('diagnosis:')} ${one(r.diagnosis, 200)}`);
     if (r.candidates.length) {
       out.push(`  ${p.dim('candidates, smallest first:')}`);
@@ -98,6 +103,8 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     }
     out.push(p.dim(`  files: ${r.dir}/ (${r.files.map((f) => f.name).join(', ')})`));
     out.push(p.dim(`  $ ${r.command}`));
+    // What the evidence lacks, as the Repair step lists it: why no repairer proposed candidates, with what to do, among them.
+    for (const w of r.warnings) out.push(`  ${p.yellow('!')} ${one(w, 400)}`);
   }
 
   if (d.verify.length) {
@@ -116,7 +123,11 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
 
   out.push('', p.dim(`  ${d.attempts} attempt${s(d.attempts)} behind this fix · ≈${formatUsd(d.spent)} spent live; everything before each fork replayed free`));
   const apply = d.actions.apply;
-  if (d.actions.repair) out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
+  if (d.actions.repair) {
+    out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
+    // Its repairer can't be asked from here: it would blame the runs and find no one to propose a fix.
+    if (d.repairer.problem) out.push(`  ${p.yellow('!')} ${one(d.repairer.problem, 600)}`);
+  }
   else if (apply && !d.actions.applied) {
     if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);

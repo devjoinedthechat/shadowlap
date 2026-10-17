@@ -1,13 +1,15 @@
 import { Badge, CmdLine, EmptyState } from '../components/bits.js';
 import { approx, shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
-import { candidateTone, changeParts, fixStamp, roleBadges } from './model.js';
+import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, roleBadges } from './model.js';
 import { Markdown, StepHead } from './parts.js';
 
 /**
  * The Repair step: the change a repair proposed and what it held on, why it was needed, every
  * candidate it tried with why each was dropped, what it handed over, and the pull request body. A
- * repair that accepted nothing shows the candidates it tried; the fix stays open.
+ * repair that accepted nothing shows the candidates it tried; the fix stays open. Its header says
+ * who proposed them, or why no repairer did, with what to do (`the repairer could not be asked:
+ * claude was not found: install Claude Code, …`); the rest of its warnings are at the foot.
  */
 export function RepairStepView({ fix }: { fix: FixDetail }) {
   const r = fix.repair;
@@ -19,15 +21,18 @@ export function RepairStepView({ fix }: { fix: FixDetail }) {
         command={fix.commands.repair}
       />
     );
-  return r.accepted && r.change ? <Accepted r={r} /> : <NothingAccepted r={r} tried={fix.steps.find((x) => x.key === 'repair')?.meta ?? null} />;
+  return r.accepted && r.change ? <Accepted r={r} /> : <NothingAccepted r={r} />;
 }
 
+/** Who proposed the candidates, or why no repairer did; nothing when nothing called for one. */
 function by(r: RepairStep) {
-  if (!r.repairer) return <>no repairer needed</>;
+  const b = repairBy(r);
+  if (!b) return null;
+  if ('text' in b) return <>{b.text}</>;
   return (
     <>
-      proposed by <code>{r.repairer}</code>
-      {r.served ? ` (answered by ${r.served})` : ''}
+      proposed by <code>{b.repairer}</code>
+      {b.served ? ` (answered by ${b.served})` : ''}
     </>
   );
 }
@@ -98,16 +103,25 @@ function Accepted({ r }: { r: RepairStep }) {
   );
 }
 
-/** A repair that accepted nothing: `tried` is the step's own line, "1 candidate tried, none accepted". */
-function NothingAccepted({ r, tried }: { r: RepairStep; tried: string | null }) {
+/** A repair that accepted nothing: what it tried ("1 candidate tried, none accepted"), or why it found nothing to try. */
+function NothingAccepted({ r }: { r: RepairStep }) {
   const n = r.candidates.length;
+  const who = by(r);
+  const why = nothingAcceptedWhy(r);
+  const head = (
+    <>
+      Repaired {fixStamp(r.at)}
+      {who ? <> · {who}</> : null}
+      {why ? ` · ${why}` : ''}
+    </>
+  );
   return (
     <>
       <StepHead
         title="No fix yet"
         text={
           <>
-            Repaired {fixStamp(r.at)} · {by(r)} · {(n ? tried : r.why) ?? 'nothing was accepted'}
+            {head}
             <span className="pline">{n ? 'The fix stays open, with each candidate and why it was dropped. Repair again, or verify a fix of your own.' : 'The fix stays open. Repair again, or verify a fix of your own.'}</span>
           </>
         }
@@ -237,10 +251,11 @@ function Report({ r }: { r: RepairStep }) {
 }
 
 function Warnings({ r }: { r: RepairStep }) {
-  if (!r.warnings.length) return null;
+  const warnings = footWarnings(r);
+  if (!warnings.length) return null;
   return (
     <ul className="fxwarn">
-      {r.warnings.map((w) => (
+      {warnings.map((w) => (
         <li key={w}>{w}</li>
       ))}
     </ul>

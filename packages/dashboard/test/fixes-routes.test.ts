@@ -19,6 +19,11 @@ let store: Store;
 let project: string;
 let dash: Dashboard | null = null;
 const spawned: string[][] = [];
+/**
+ * A repair from here asks the user's own Claude Code unless the config names another repairer, and
+ * claude must be found first: here it is this test's node, wherever claude is installed or not.
+ */
+const claudeWas = process.env.SHADOWLAP_CLAUDE;
 /** Commands the stand-in keeps running (for 20 s, or until stopped): a repair, unless a test says otherwise. */
 const slow = new Set<string>();
 
@@ -28,12 +33,15 @@ beforeEach(() => {
   spawned.length = 0;
   slow.clear();
   slow.add('repair');
+  process.env.SHADOWLAP_CLAUDE = process.execPath;
 });
 afterEach(async () => {
   await dash?.close();
   dash = null;
   store.close();
   rmSync(project, { recursive: true, force: true });
+  if (claudeWas === undefined) delete process.env.SHADOWLAP_CLAUDE;
+  else process.env.SHADOWLAP_CLAUDE = claudeWas;
 });
 
 async function start(o: Partial<DashboardOptions> = {}): Promise<Dashboard> {
@@ -134,7 +142,7 @@ describe('GET /api/fixes/:id', () => {
     const { fixId } = story();
     await start();
     const d = await json(await api(`fixes/${fixId.slice(0, 12).toLowerCase()}`));
-    expect(d).toMatchObject({ fixId, status: 'verified', defaultStep: 'verify', repairer: { name: 'claude-code', configured: false } });
+    expect(d).toMatchObject({ fixId, status: 'verified', defaultStep: 'verify', repairer: { name: 'claude-code', configured: false, problem: null } });
     expect(d.blame).toMatchObject({ lostAt: 5, title: 'Lost at model call #5' });
     expect(d.repair).toMatchObject({ repairId: 'repair-munzln2i', accepted: true });
     expect(d.verify).toHaveLength(2);
@@ -148,8 +156,20 @@ describe('GET /api/fixes/:id', () => {
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
     await start({ loadConfig: (): ProjectConfig => ({ normalize: [], redact: [], repair: { repairer: 'anthropic:claude-opus-5-5' } }) });
     const d = await json(await api(`fixes/${fix.fixId}`));
-    expect(d.repairer).toEqual({ name: 'anthropic:claude-opus-5-5', configured: true });
+    expect(d.repairer).toEqual({ name: 'anthropic:claude-opus-5-5', configured: true, problem: null });
     expect(d.actions.repair.command).toBe(`shadowlap repair --fixes label:double-email --expect '{"tools":{"send_email":1}}'`);
+  });
+
+  it('says when the repairer a repair from here asks can’t be asked: claude isn’t where the jobs would look', async () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    process.env.SHADOWLAP_CLAUDE = join(project, 'no-claude-here');
+    await start();
+    const d = await json(await api(`fixes/${fix.fixId}`));
+    expect(d.repairer).toEqual({ name: 'claude-code', configured: false, problem: `This repair asks your own Claude Code, and ${join(project, 'no-claude-here')}, which SHADOWLAP_CLAUDE names, was not found: point SHADOWLAP_CLAUDE at Claude Code, or name another repairer in shadowlap.config.json (repair.repairer).` });
+    // A fix that isn't open has nothing to repair, so nothing to say about its repairer.
+    const { fixId } = story();
+    expect((await json(await api(`fixes/${fixId}`))).repairer.problem).toBeNull();
   });
 });
 
@@ -462,7 +482,35 @@ describe('the repair job', () => {
     await api(`jobs/${own.id}/stop`, { method: 'POST' });
     // The dialog reads the fix again as it opens: the repairer it names is the config's, as it reads now.
     configured = 'openai:gpt-5';
-    expect((await json(await api(`fixes/${fix.fixId}`))).repairer).toEqual({ name: 'openai:gpt-5', configured: true });
+    expect((await json(await api(`fixes/${fix.fixId}`))).repairer).toEqual({ name: 'openai:gpt-5', configured: true, problem: null });
+  });
+
+  it('runs nothing when the repairer can’t be asked from here: it would blame every run and find no one to propose a fix', async () => {
+    const run = makeRun(store, { labels: ['double-email'] });
+    const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
+    let configured: string | undefined;
+    await start({ loadConfig: (): ProjectConfig => ({ normalize: [], redact: [], ...(configured ? { repair: { repairer: configured } } : {}) }), jobStopGraceMs: 200 });
+    // No claude on the PATH the jobs get, and SHADOWLAP_CLAUDE names none.
+    delete process.env.SHADOWLAP_CLAUDE;
+    const path = process.env.PATH;
+    process.env.PATH = project;
+    try {
+      const refused = await job({ kind: 'repair', fixId: fix.fixId, repairer: 'claude-code' });
+      expect(refused.status).toBe(409);
+      expect((await json(refused)).error).toBe('This repair asks your own Claude Code, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or name another repairer in shadowlap.config.json (repair.repairer). Nothing ran');
+      // The config names Claude Code itself: it says so.
+      configured = 'claude-code:claude-opus-5-5';
+      expect((await json(await api(`fixes/${fix.fixId}`))).repairer.problem).toBe('shadowlap.config.json names Claude Code as the repairer, and claude was not found on this machine: install Claude Code, or set SHADOWLAP_CLAUDE to its path, or have the config name another repairer.');
+      expect((await job({ kind: 'repair', fixId: fix.fixId, repairer: 'claude-code:claude-opus-5-5' })).status).toBe(409);
+      expect(spawned).toEqual([]);
+      // An API repairer can't be checked without asking it: the repair says why, if it must.
+      configured = 'anthropic';
+      const asked = await started({ kind: 'repair', fixId: fix.fixId, repairer: 'anthropic' });
+      expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--expect', '{"tools":{"send_email":1}}']);
+      await api(`jobs/${asked.id}/stop`, { method: 'POST' });
+    } finally {
+      process.env.PATH = path;
+    }
   });
 });
 

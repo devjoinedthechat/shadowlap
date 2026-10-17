@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, normalizeConversation, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -247,6 +247,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     heldOutAutomatically: input.heldOutAutomatically,
     oracle,
     repairer: null,
+    noRepairer: null,
     diagnosis: null,
     anchors: 0,
     candidates: [],
@@ -333,10 +334,13 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
 
     // 3b. The repairer, when nothing cheaper worked.
     if (!accepted && !interrupted && !outOfBudget()) {
+      // Why it proposed nothing, when it doesn't: in a few words for the fix's Repair step, and at length, with what to do, as a warning.
       if (s.repairerConfigured === false) {
-        warnings.push('no repairer is configured, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json');
+        report.noRepairer = NO_REPAIRER.unconfigured;
+        warnings.push(`${NO_REPAIRER.unconfigured}, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json`);
       } else if (!anchors.length) {
-        warnings.push('none of the system prompt or tool descriptions appears verbatim, exactly once, in the project\'s files, so the repairer had nothing it could rewrite');
+        report.noRepairer = NO_REPAIRER.nothingToRewrite;
+        warnings.push(`${NO_REPAIRER.nothingToRewrite}: none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files`);
       } else {
         const request = buildRepairPrompt({ oracle, system: prompt?.system ?? '', tools: prompt?.tools ?? [], cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
@@ -358,7 +362,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
           await tryAll(fresh);
         } catch (err) {
           if (!(err instanceof RepairerError)) throw err;
-          warnings.push(`the repairer could not be asked: ${err.message}`);
+          report.noRepairer = `${NO_REPAIRER.notAsked}: ${err.what}`;
+          warnings.push(`${NO_REPAIRER.notAsked}: ${err.message}`);
         }
       }
     }
@@ -369,7 +374,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       if (outOfBudget()) return stopped(`the budget of $${s.budget!.toFixed(2)} is spent`);
       report.outcome = 'not-fixed';
       const tried = candidates.filter((x) => x.c.state !== 'invalid' && x.c.state !== 'untried').length;
-      report.why = !candidates.length ? 'there was no candidate to try' : tried ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried` : 'no candidate could be tried';
+      // With nothing to try, the repairer's silence is why: "the repairer could not be asked: claude was not found".
+      report.why = !candidates.length ? (report.noRepairer ?? 'there was no candidate to try') : tried ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried` : 'no candidate could be tried';
       return report;
     }
 

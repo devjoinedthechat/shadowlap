@@ -250,7 +250,17 @@ export interface RepairReport {
   /** Held-out runs were taken from the failing runs given, because none were named. */
   heldOutAutomatically: boolean;
   oracle: string[];
+  /** Who proposed the candidates: null when no repairer answered. */
   repairer: { provider: string; model: string; served: string | null; cost: number | null } | null;
+  /**
+   * Why no repairer proposed candidates when nothing cheaper was accepted, in a few words
+   * ({@link NO_REPAIRER}): none is configured, it had nothing it could rewrite, or it could not be
+   * asked (`the repairer could not be asked: claude was not found`). One of `warnings` says it at
+   * length, with what to do. Null when the repairer answered, or when nothing called for it: a fix
+   * that needs no model was accepted, no failing run was rescued, or the repair stopped first.
+   * Reports written before it was added lack it: read it with {@link noRepairerOf}.
+   */
+  noRepairer?: string | null;
   diagnosis: string | null;
   anchors: number;
   candidates: RepairCandidate[];
@@ -260,6 +270,35 @@ export interface RepairReport {
   cost: { blame: number; repairer: number | null; verify: number };
   output: { dir: string | null; patch: string | null; report: string | null; goldens: string[]; applied: boolean; branch: string | null; pr: string | null };
   warnings: string[];
+}
+
+/** What `noRepairer` says. The warning that says it at length, with what to do, starts with it. */
+export const NO_REPAIRER = {
+  unconfigured: 'no repairer is configured',
+  nothingToRewrite: 'the repairer had nothing it could rewrite',
+  /** Followed by what went wrong, in a few words: `the repairer could not be asked: claude was not found`. */
+  notAsked: 'the repairer could not be asked',
+} as const;
+
+/**
+ * Why no repairer proposed candidates for a repair, or null: in a few words (its `noRepairer`, or,
+ * in a report kept before there was one, what its warnings say), and the warning that says it at
+ * length, with what to do. A repair whose repairer answered, and one that needed none (a fix that
+ * needs no model was accepted), give null.
+ */
+export function noRepairerOf(r: Pick<RepairReport, 'noRepairer' | 'repairer' | 'warnings'>): { text: string; warning: string | null } | null {
+  const warnings = Array.isArray(r.warnings) ? r.warnings.filter((w): w is string => typeof w === 'string') : [];
+  // The warning starts with it; in an older report, one about nothing to rewrite ends with it.
+  const said = (text: string) => ({ text, warning: warnings.find((w) => w.startsWith(text) || w.endsWith(text)) ?? null });
+  if (typeof r.noRepairer === 'string' && r.noRepairer.trim()) return said(r.noRepairer);
+  if (r.noRepairer !== undefined || r.repairer) return null;
+  for (const w of warnings) {
+    // `the repairer could not be asked: <what went wrong>: <what to do>`, kept to what went wrong.
+    if (w.startsWith(`${NO_REPAIRER.notAsked}: `)) return { text: `${NO_REPAIRER.notAsked}: ${w.slice(NO_REPAIRER.notAsked.length + 2).split(': ')[0]}`, warning: w };
+    if (w.startsWith(NO_REPAIRER.unconfigured)) return { text: NO_REPAIRER.unconfigured, warning: w };
+    if (w.endsWith(NO_REPAIRER.nothingToRewrite)) return { text: NO_REPAIRER.nothingToRewrite, warning: w };
+  }
+  return null;
 }
 
 const short = (id: string) => id.slice(0, 10);

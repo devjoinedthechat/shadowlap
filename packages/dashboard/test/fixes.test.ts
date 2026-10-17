@@ -186,6 +186,49 @@ describe('a fix', () => {
     expect(r.verify).toMatchObject({ verifyId: expect.stringMatching(/^vf-/), counts: true });
   });
 
+  it('says why no repairer proposed candidates, in the step and its header, and that none was needed only for a fix that needed none', () => {
+    const run = makeRun(store, { labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    const keep = (repairId: string, report: ReturnType<typeof repairReport>, at: number) => recordRepair(store, { repairId, dir: `.shadowlap/repairs/${repairId}`, report, expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug --repairer claude-code', at });
+    const nothing = (o: Partial<ReturnType<typeof repairReport>>) => ({ ...repairReport({ targets: [run], accepted: false }), repairer: null, candidates: [], diagnosis: null, cost: { blame: 0.1, repairer: null, verify: 0 }, ...o });
+    const warning = 'the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path';
+
+    // claude wasn't found: the step says so, never "no repairer needed", and its header has the warning that says what to do.
+    keep('repair-claudegone', nothing({ why: 'the repairer could not be asked: claude was not found', noRepairer: 'the repairer could not be asked: claude was not found', warnings: [warning] }), NOW);
+    let d = fixDetail(store, fix.fixId)!;
+    expect(d.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: 'the repairer could not be asked: claude was not found' });
+    expect(d.repair).toMatchObject({ repairer: null, why: 'the repairer could not be asked: claude was not found', noRepairer: { text: 'the repairer could not be asked: claude was not found', warning } });
+
+    // Kept before repair said it in a few words: read from its warning.
+    keep('repair-olderone', nothing({ why: 'there was no candidate to try', warnings: ['the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found: install it, or set SHADOWLAP_CLAUDE to its path'] }), NOW + 1);
+    d = fixDetail(store, fix.fixId)!;
+    expect(d.steps[1]!.meta).toBe('the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found');
+    expect(d.repair!.noRepairer!.warning).toMatch(/^the repairer could not be asked: the claude-code repairer runs Claude Code/);
+
+    // Nothing in the project it could rewrite, as an older report says it.
+    keep('repair-noanchors', nothing({ why: 'there was no candidate to try', warnings: ["none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files, so the repairer had nothing it could rewrite"] }), NOW + 2);
+    expect(fixDetail(store, fix.fixId)!.steps[1]!.meta).toBe('the repairer had nothing it could rewrite');
+
+    // A switch to the model that rescued the runs tried and rejected first: what it tried, and why the repairer added nothing.
+    const rejected = repairReport({ targets: [run], accepted: false }).candidates[1]!;
+    keep('repair-modelfirst', nothing({ why: 'the gate accepted none of the 1 candidate tried', noRepairer: 'no repairer is configured', candidates: [{ ...rejected, source: 'model', surface: 'model' }], warnings: ['no repairer is configured, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json'] }), NOW + 3);
+    expect(fixDetail(store, fix.fixId)!.steps[1]!.meta).toBe('1 candidate tried, none accepted · no repairer is configured');
+
+    // No failing run rescued: nothing called for a repairer, and the step says why there was nothing to learn from.
+    keep('repair-nopath', nothing({ outcome: 'no-diagnosis', why: 'resampling rescued no failing run, so there is no passing path to learn from' }), NOW + 4);
+    d = fixDetail(store, fix.fixId)!;
+    expect(d.steps[1]!.meta).toBe('resampling rescued no failing run, so there is no passing path to learn from');
+    expect(d.repair!.noRepairer).toBeNull();
+
+    // A model switch accepted needs no repairer, and says so.
+    const accepted = repairReport({ targets: [run] });
+    const won = accepted.candidates.find((c) => c.state === 'accepted')!;
+    keep('repair-modelwins', { ...accepted, repairer: null, candidates: [{ ...won, id: 1, source: 'model', surface: 'model', before: 'small-model', after: 'big-model' }], accepted: 1 }, NOW + 5);
+    d = fixDetail(store, fix.fixId)!;
+    expect(d.steps[1]).toMatchObject({ state: 'done', short: 'model switch', meta: 'candidate 1 of 1 · no repairer needed' });
+    expect(d.repair).toMatchObject({ accepted: true, repairer: null, noRepairer: null });
+  });
+
   it('shows the Verify step: one change per verdict, its runs, and what it cost to find out', () => {
     const { fixId, good } = story();
     const d = fixDetail(store, fixId)!;

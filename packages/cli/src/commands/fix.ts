@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { applyLeft, commandIsImported, describeRescue, FIX_STATUSES, FixIdError, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, prNumber, resolveFix, setFixTitle, type BlameReport, type FixStatus, type ReadPolicy, type RunRecord, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
-import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, type PrRead } from '@shadowlap/dashboard';
+import { fixDetail, fixHref, fixList, ghReader, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
@@ -472,7 +472,8 @@ export function register(program: Command): void {
         const json = { ...report, repairId: kept?.repair.repairId ?? null, verifyId: kept?.verdict?.verifyId ?? null, fixes: keptFixes(kept?.fixes ?? []), ...(handOverFailed ? { error: { message: handOverFailed.message } } : {}) };
         if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
         else {
-          const what = (f: StoredFix, standing: VerdictStanding | null) => (!kept!.repair.accepted ? 'still open, with the candidates tried' : standing ? standingWords('accepted', standing, f.status) : f.status);
+          // Open still, with the candidates it tried, or with none when no repairer proposed any (the report says why).
+          const what = (f: StoredFix, standing: VerdictStanding | null) => (!kept!.repair.accepted ? (report.candidates.length ? 'still open, with the candidates tried' : 'still open') : standing ? standingWords('accepted', standing, f.status) : f.status);
           process.stdout.write('\n' + formatRepair(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, what(f, standing))).join(''));
           if (handOverFailed) process.stderr.write(`\n${p.red('✗')} ${handOverFailed.message}\n`);
         }
@@ -548,7 +549,8 @@ function registerFixes(program: Command): void {
       const store = openStore(program.opts<GlobalOpts>());
       try {
         const repairer = configuredRepairer();
-        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer })!;
+        // The repair it suggests next, and whether its repairer can be asked from here (claude on the PATH).
+        const detail = fixDetail(store, requireFix(store, arg).fixId, { repairer, checkRepairer: repairerProblem })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);
