@@ -23,6 +23,13 @@ cd sdks/python && uv run --no-project --with pytest --with-editable . python -m 
 
 Without uv, the Python tests run with `pip install pytest -e sdks/python` and `python -m pytest -q sdks/python`.
 
+`npx vitest run` runs the Python reference agent end to end only with a Python ≥ 3.9 that can import `anthropic`, which CI installs. Without one, those four tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
+
+```sh
+uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropic
+SHADOWLAP_PYTHON="$PWD/.venv/bin/python" npx vitest run
+```
+
 CI runs all of it on Linux, macOS and Windows with Node 22 and 24. There the test run also writes `vitest-junit.xml`, uploaded as an artifact whether the job passed or not: test files run in parallel workers, so a failure that won't reproduce locally is only identifiable from the report of the run that saw it. Nothing retries; a flake CI swallows is one nobody fixes.
 
 `npm run golden` re-records `testing/golden/reference-agent`. Only do that when the reference scenario changes on purpose: the golden is what proves replay fidelity in CI.
