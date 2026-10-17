@@ -205,7 +205,7 @@ many runs are in the store, how many are only here, and the last check. Runs are
 dashboard counts them: attempts (`--repeat`, blame's probes, verify's attempts) are filed under the
 run they came from, and a run is only here while it, or an attempt filed under it, isn't in the
 store, as the Runs page's `local` tag marks it. Settings → Store and the Overview's Needs a look say
-the same numbers. Needs a look's row opens Runs, as the design does: the runs only here carry the
+the same numbers. Needs a look's row opens Runs: the runs only here carry the
 `local` tag, and Push in the bulk bar sends the ones picked, with their attempts; Settings → Store's
 **Push local runs** sends them all. A run in the store whose attempts aren't (a `replay --repeat`
 since the push) has **Push** on its own page, which sends the attempts.
