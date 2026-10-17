@@ -11,22 +11,49 @@ const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/',
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 // Frames carry ANSI style codes between adjacent <Text> nodes; assertions look at the plain text.
 const plain = (frame: string | undefined) => (frame ?? '').replace(/\x1b\[[0-9;]*m/g, '');
+type LastFrame = () => string | undefined;
+
 /**
- * Waits for a frame to show something, rather than guessing how long the render takes. A key that
- * starts async work reaches the frame one resolved promise and one re-render later, which is
- * microseconds on an idle machine and longer than a fixed delay on a loaded CI runner. Failing
- * asserts on the last frame seen, so the message is the frame, not a timeout.
+ * Waits for a frame `ok` accepts, rather than guessing how long the render takes. A key reaches the
+ * frame one re-render later (one resolved promise more when it starts async work), which is
+ * microseconds on an idle machine and longer than any fixed delay on a loaded one; and a key typed
+ * before the frame shows a screen the last one opened goes to the screen as it was. So a key waits
+ * for the frame that shows it before an assertion, or before a key meant for what it opens. Returns
+ * the last frame seen, for the assertion after it to show when none was accepted in time.
  */
-async function frameWith(lastFrame: () => string | undefined, text: string, timeoutMs = 5000): Promise<string> {
+async function frameWhere(lastFrame: LastFrame, ok: (frame: string) => boolean, timeoutMs = 5000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let frame = plain(lastFrame());
-  while (!frame.includes(text) && Date.now() < deadline) {
+  while (!ok(frame) && Date.now() < deadline) {
     await tick(10);
     frame = plain(lastFrame());
   }
+  return frame;
+}
+
+/** Waits for a frame that shows `text`. Failing asserts on the last frame seen, so the message is the frame, not a timeout. */
+async function frameWith(lastFrame: LastFrame, text: string, timeoutMs = 5000): Promise<string> {
+  const frame = await frameWhere(lastFrame, (f) => f.includes(text), timeoutMs);
   expect(frame).toContain(text);
   return frame;
 }
+
+/** Waits for a frame that matches `pattern`, as frameWith waits for text. */
+async function frameMatching(lastFrame: LastFrame, pattern: RegExp, timeoutMs = 5000): Promise<string> {
+  const frame = await frameWhere(lastFrame, (f) => pattern.test(f), timeoutMs);
+  expect(frame).toMatch(pattern);
+  return frame;
+}
+
+/** Waits for a frame no longer showing `text`: what a key that clears or closes something leaves. */
+async function frameWithout(lastFrame: LastFrame, text: string, timeoutMs = 5000): Promise<string> {
+  const frame = await frameWhere(lastFrame, (f) => !f.includes(text), timeoutMs);
+  expect(frame).not.toContain(text);
+  return frame;
+}
+
+/** What the runs view asks while its search is open. */
+const RUN_SEARCH = 'run id, command, revision or label contains';
 
 function goldenStore(): { store: Store; runId: string } {
   const store = Store.open(':memory:');
@@ -42,38 +69,30 @@ describe('TUI', () => {
     store.endRun(fork.runId, 'completed');
 
     const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
-    await tick();
-    const frame = plain(lastFrame());
-    expect(frame).toContain('2 runs');
+    const frame = await frameWith(lastFrame, '2 runs');
     expect(frame).toContain(runId.slice(0, 10));
     expect(frame).toContain('recording');
     expect(frame).toContain('fork @3');
     expect(frame).toContain('30 calls');
 
     stdin.write('k'); // up to the recording
-    await tick();
+    await frameWith(lastFrame, `> ${runId.slice(0, 10)}`);
     stdin.write('\r');
-    await tick(60);
-    let timeline = plain(lastFrame());
+    let timeline = await frameWith(lastFrame, 'no model request before this call'); // #1 is the clock read
     expect(timeline).toContain('#1');
     expect(timeline).toContain('now');
     expect(timeline).toMatch(/api\s+messages/); // the endpoint without its method and version
     expect(timeline).toContain('conversation');
-    expect(timeline).toContain('no model request before this call'); // #1 is the clock read
 
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
-    await tick(60);
-    timeline = plain(lastFrame());
-    expect(timeline).toContain('conversation as sent in call #3');
+    timeline = await frameWith(lastFrame, 'conversation as sent in call #3');
     expect(timeline).toContain('You are a research agent');
 
-    stdin.write('\t'); // request tab
-    await tick(60);
-    expect(plain(lastFrame())).toContain('request');
+    stdin.write('\t'); // request tab: the request as sent
+    await frameWith(lastFrame, '"max_tokens": 1024');
     stdin.write('4'); // meta tab
-    await tick(60);
-    expect(plain(lastFrame())).toContain('origin');
+    await frameMatching(lastFrame, /origin\s+live/);
     store.close();
   });
 
@@ -99,12 +118,9 @@ describe('TUI', () => {
     store.endRun(fork.runId, 'completed');
 
     const { lastFrame, stdin } = render(<App store={store} runId={fork.runId} columns={100} rows={30} />);
-    await tick(60);
-    expect(plain(lastFrame())).toContain('>!#3'); // divergence row marked and selected
+    await frameWith(lastFrame, '>!#3'); // divergence row marked and selected
     stdin.write('d');
-    await tick(60);
-    const diff = plain(lastFrame());
-    expect(diff).toContain('Diverged at call 3');
+    const diff = await frameWith(lastFrame, 'Diverged at call 3');
     expect(diff).toContain('~ $.system');
     expect(diff).toContain('- "Today is 2026-09-15."');
     expect(diff).toContain('shadowlap normalize add --kind api');
@@ -114,20 +130,15 @@ describe('TUI', () => {
   it('plays a streamed response instantly', async () => {
     const { store, runId } = goldenStore();
     const { lastFrame, stdin } = render(<App store={store} runId={runId} columns={100} rows={30} />);
-    await tick(60);
+    await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
-    await tick(60);
+    await frameMatching(lastFrame, /> #3\s/);
     stdin.write('+');
     stdin.write('+');
     stdin.write('+'); // ×1 → ×2 → ×4 → instant
     stdin.write(' ');
-    // CI runners can be slow to re-render; poll instead of assuming a fixed delay.
-    let frame = '';
-    for (let i = 0; i < 40 && !frame.includes('⚙ search_web'); i++) {
-      await tick(50);
-      frame = plain(lastFrame());
-    }
+    const frame = await frameWith(lastFrame, '⚙ search_web');
     expect(frame).toContain('response');
     expect(frame).toContain('Starting research.');
     expect(frame).toContain('⚙ search_web');
@@ -152,42 +163,31 @@ describe('ease of use', () => {
     store.endRun(fork.runId, 'completed');
 
     const { lastFrame, stdin } = render(<App store={store} runId={fork.runId} columns={100} rows={30} />);
-    await tick(60);
-    let frame = plain(lastFrame());
+    let frame = await frameWith(lastFrame, '>!#17'); // opened at the divergence
     expect(frame).toContain(`fork @17 of ${runId.slice(0, 10)}`);
     expect(frame).toContain('16 replayed');
     expect(frame).toContain('13 live'); // 14 calls after the fork, one of them blocked
     expect(frame).toContain('1 blocked');
-    expect(frame).toContain('>!#17'); // opened at the divergence
 
     stdin.write(']'); // next notable call after #17: #18 ran live
-    await tick(60);
-    expect(plain(lastFrame())).toContain('> #18');
+    await frameWith(lastFrame, '> #18');
     stdin.write('['); // and back
-    await tick(60);
-    expect(plain(lastFrame())).toContain('>!#17');
+    await frameWith(lastFrame, '>!#17');
 
     stdin.write('/');
-    await tick(60);
-    expect(plain(lastFrame())).toContain('Filter calls');
+    await frameWith(lastFrame, 'Filter calls');
     stdin.write('send_email');
     stdin.write('\r');
-    await tick(60);
-    frame = plain(lastFrame());
-    expect(frame).toContain('filter: /send_email (1/30)');
+    frame = await frameWith(lastFrame, 'filter: /send_email (1/30)');
     expect(frame).toContain('tool send_email'); // the list row
     expect(frame).not.toContain('tool search_web'); // filtered out of the list (the inspector may still mention it)
     stdin.write('\x1b'); // Esc clears the filter
-    await tick(60);
-    expect(plain(lastFrame())).not.toContain('filter:');
+    await frameWithout(lastFrame, 'filter:');
 
     stdin.write('l'); // focus the inspector
-    await tick(60);
-    frame = plain(lastFrame());
-    expect(frame).toContain('inspector: j/k scroll');
+    await frameWith(lastFrame, 'inspector: j/k scroll');
     stdin.write('h');
-    await tick(60);
-    expect(plain(lastFrame())).toContain(': actions');
+    await frameWith(lastFrame, ': actions');
     store.close();
   });
 
@@ -196,29 +196,22 @@ describe('ease of use', () => {
     const other = store.createRun({ mode: 'record', command: { argv: ['python', 'triage.py'], cwd: '.' } });
     store.endRun(other.runId, 'completed');
     const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
-    await tick(60);
-    expect(plain(lastFrame())).toContain('2 runs');
+    await frameWith(lastFrame, '2 runs');
     stdin.write('/');
-    await tick(60);
-    expect(plain(lastFrame())).toContain('run id, command, revision or label contains');
+    await frameWith(lastFrame, RUN_SEARCH);
     stdin.write('triage');
     stdin.write('\r'); // same tick as the text: the editor must not submit a stale value
-    await tick(60);
-    let frame = plain(lastFrame());
-    expect(frame).toContain('1/2 runs');
+    let frame = await frameWith(lastFrame, '1/2 runs');
     expect(frame).toContain('triage.py');
     expect(frame).not.toContain(runId.slice(0, 10));
     stdin.write('x');
-    await tick(60);
-    expect(plain(lastFrame())).toContain('delete run');
+    await frameWith(lastFrame, 'delete run');
     stdin.write('y');
-    await tick(60);
+    await frameWithout(lastFrame, 'delete run');
     expect(store.getRun(other.runId)).toBeNull();
     stdin.write('\x1b'); // clear the search
-    await tick(60);
-    frame = plain(lastFrame());
+    frame = await frameWith(lastFrame, runId.slice(0, 10));
     expect(frame).toContain('1 run');
-    expect(frame).toContain(runId.slice(0, 10));
     store.close();
   });
 
@@ -227,14 +220,14 @@ describe('ease of use', () => {
     // Recorded by this process, which is still running.
     const live = store.createRun({ mode: 'record', command: { argv: ['python', 'chat.py'], cwd: '.' } });
     const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
-    await tick(60);
+    await frameWith(lastFrame, live.runId.slice(0, 10));
     stdin.write('/');
-    await tick(60);
+    await frameWith(lastFrame, RUN_SEARCH);
     stdin.write('chat');
     stdin.write('\r');
-    await tick(60);
+    await frameWith(lastFrame, '1/2 runs');
     stdin.write('x');
-    await tick(60);
+    await frameWith(lastFrame, 'delete run');
     stdin.write('y');
     await frameWith(lastFrame, `${live.runId.slice(0, 10)} was not deleted: still recording; delete it once that has ended`);
     expect(store.getRun(live.runId)).not.toBeNull();
@@ -254,10 +247,10 @@ describe('a recording whose process was killed', () => {
     const list = await frameWith(lastFrame, left.runId.slice(0, 10));
     expect(list.split('\n').find((l) => l.includes(left.runId.slice(0, 10)))).toContain('interrupted');
     stdin.write('/');
-    await tick(60);
+    await frameWith(lastFrame, RUN_SEARCH);
     stdin.write('01M4Y6TKZZLEFT');
     stdin.write('\r');
-    await tick(60);
+    await frameWith(lastFrame, '1/2 runs');
     stdin.write('\r');
     // The timeline's header says so where it would say recording….
     const header = (await frameWith(lastFrame, 'interrupted · 2d ago')).split('\n')[0]!;
@@ -292,21 +285,17 @@ describe('scopes, labels and the dashboard', () => {
     };
 
     const { lastFrame, stdin } = render(<App store={store} runId={scoped.runId} callNo={4} openDashboard={openDashboard} columns={100} rows={30} />);
-    await tick(60);
-    const frame = plain(lastFrame());
-    expect(frame).toMatch(/> #4\s+tool\s+researcher\s+search_web/); // opened at #4, with its scope before the name
+    const frame = await frameMatching(lastFrame, /> #4\s+tool\s+researcher\s+search_web/); // opened at #4, with its scope before the name
     expect(frame).toMatch(/#3\s+api\s+planner/);
     stdin.write('/');
-    await tick(60);
+    await frameWith(lastFrame, 'Filter calls');
     stdin.write('planner');
     stdin.write('\r');
-    await tick(60);
-    expect(plain(lastFrame())).toContain('(3/6)'); // the filter matches scopes too
+    await frameWith(lastFrame, '(3/6)'); // the filter matches scopes too
     stdin.write('j'); // #3, the second planner call
-    await tick(60);
+    await frameMatching(lastFrame, /> #3\s/);
     stdin.write('4'); // meta tab
-    await tick(60);
-    expect(plain(lastFrame())).toMatch(/scope\s+planner/);
+    await frameMatching(lastFrame, /scope\s+planner/);
     stdin.write('o');
     await frameWith(lastFrame, 'opened #3 in the dashboard');
     expect(asked).toEqual([[scoped.runId, 3]]);
@@ -322,16 +311,12 @@ describe('scopes, labels and the dashboard', () => {
     const openDashboard = async (id: string) => ({ url: (url = `http://127.0.0.1:4777/#token=t&open=/run/${id}`), opened: false });
 
     const { lastFrame, stdin } = render(<App store={store} openDashboard={openDashboard} columns={100} rows={30} />);
-    await tick(60);
-    let frame = plain(lastFrame());
-    expect(frame).toContain('✗ 1/2 refund eu');
+    await frameWith(lastFrame, '✗ 1/2 refund eu');
     stdin.write('/');
-    await tick(60);
+    await frameWith(lastFrame, RUN_SEARCH);
     stdin.write('refund');
     stdin.write('\r');
-    await tick(60);
-    frame = plain(lastFrame());
-    expect(frame).toContain('1/2 runs');
+    const frame = await frameWith(lastFrame, '1/2 runs');
     expect(frame).not.toContain('triage.py');
     expect(frame).toContain('checks 1/2 passed');
     stdin.write('o');
@@ -356,15 +341,13 @@ describe('actions palette', () => {
     };
 
     const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli} columns={100} rows={30} />);
-    await tick(60);
+    await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
-    await tick(60);
+    await frameMatching(lastFrame, /> #3\s/);
     stdin.write(':');
-    await tick(60);
-    let frame = plain(lastFrame());
+    let frame = await frameWith(lastFrame, 'At #3 · model call');
     expect(frame).toContain('Actions');
-    expect(frame).toContain('At #3 · model call');
     expect(frame).toContain('Inject an instruction');
     expect(frame).toContain('--inject 3=… --inject-as user'); // each line carries its flag
     expect(frame).toContain('Switch the model from here');
@@ -372,27 +355,19 @@ describe('actions palette', () => {
     expect(frame).not.toContain('--live-tool'); // not a tool call
 
     stdin.write('i'); // inject → prompt
-    await tick(60);
-    frame = plain(lastFrame());
-    expect(frame).toContain('Instruction to add at #3:');
+    await frameWith(lastFrame, 'Instruction to add at #3:');
     stdin.write('Be brief.');
-    await tick(30);
+    await frameWith(lastFrame, '› Be brief.');
     stdin.write('\r');
-    let opened = '';
-    for (let i = 0; i < 60 && !opened; i++) {
-      await tick(50);
-      frame = plain(lastFrame());
-      if (frame.includes('Enter opens run')) opened = frame;
-    }
+    const opened = await frameWith(lastFrame, 'Enter opens run');
     // The golden is imported with unpack; submitting the prompt is the consent, passed on as --yes.
     expect(spawned).toEqual([['replay', runId, '--inject', '3=Be brief.', '--inject-as', 'user', '--yes']]);
     expect(opened).toContain('args: ["replay"');
     expect(opened).toContain('done');
 
-    stdin.write('\r'); // open the created run
-    await tick(80);
-    frame = plain(lastFrame());
-    expect(frame).toContain(fork.runId.slice(0, 10));
+    stdin.write('\r'); // open the created run: its timeline, whose header names it and its parent
+    frame = await frameWith(lastFrame, `${fork.runId.slice(0, 10)} replay of ${runId.slice(0, 10)}`);
+    expect(frame).toContain('0 calls');
     store.close();
   });
 
@@ -403,10 +378,10 @@ describe('actions palette', () => {
       throw new Error('nothing is run here');
     };
     const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli as never} columns={100} rows={30} />);
-    await tick(60);
+    await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
-    await tick(60);
+    await frameMatching(lastFrame, /> #3\s/);
     stdin.write(':');
     await frameWith(lastFrame, 'Inject an instruction');
     stdin.write('i');
