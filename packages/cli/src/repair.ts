@@ -258,6 +258,12 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
 
   const oracle = oracleLabels(s.spec);
   const warnings: string[] = [];
+  // A run that passes the check as recorded is no failing run: held out, it would join the fix as one.
+  const holdout = input.holdout.filter((t) => {
+    if (judgeRecording(store, t.parent, store.getCalls(t.parent.runId), s.spec, config.prices).passed !== true) return true;
+    warnings.push(`${shortId(t.parent.runId)} passes the check as recorded, so it is not held out as a failing run`);
+    return false;
+  });
   const cost = { blame: 0, repairer: null as number | null, verify: 0 };
   const spent = () => cost.blame + (cost.repairer ?? 0) + cost.verify;
   const budgetLeft = () => (s.budget === null ? null : s.budget - spent());
@@ -269,7 +275,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     outcome: 'not-fixed',
     why: null,
     targets: [],
-    holdout: input.holdout.map((t) => t.parent.runId),
+    holdout: holdout.map((t) => t.parent.runId),
     good: input.good.map((t) => t.parent.runId),
     heldOutAutomatically: input.heldOutAutomatically,
     oracle,
@@ -509,7 +515,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       const role = (list: AttemptTarget[], r: VerifyRole) => list.map((t) => ({ ...t, role: r }));
       const v = await runVerify({
         opts: input.opts,
-        runs: [...role(input.targets, 'target'), ...role(input.holdout, 'holdout'), ...role(input.good, 'good')],
+        runs: [...role(input.targets, 'target'), ...role(holdout, 'holdout'), ...role(input.good, 'good')],
         settings: { attempts: s.attempts, needed: s.needed, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard },
         log: (line) => log(`  ${line}`),
       });

@@ -165,6 +165,7 @@ describe('shadowlap repair on a run that failed on a tool', () => {
     why: string;
     targets: Array<{ runId: string; outcome: string; reused: boolean; note: string | null }>;
     holdout: string[];
+    warnings: string[];
     fixes: Array<{ fixId: string }>;
   }
   // Repair edits the agent's source, so it runs in a git repository.
@@ -177,18 +178,28 @@ describe('shadowlap repair on a run that failed on a tool', () => {
     return JSON.parse(r.stdout) as Repaired;
   };
 
-  it("says what blame found instead of suggesting a stronger model, from a blame of its own", async () => {
+  const recordPassing = async () => {
+    const posted = await shadowlap(['run', '--', process.execPath, AGENT]);
+    expect(posted.code, posted.out).toBe(0);
+    return /recording run (\w{26})/.exec(posted.out)![1]!;
+  };
+  const fixShow = async (fixId: string) => JSON.parse((await shadowlap(['fix', 'show', fixId, '--json'])).stdout) as { failing: number; failingRuns: Array<{ runId: string }> };
+
+  it("says what blame found instead of suggesting a stronger model, from a blame of its own, and holds out no run that passed", async () => {
+    // label:digest brings a digest that failed and a later one that passed: the second would be held out as failing.
     const runId = await recordFailing(['--channel', '#refunds']);
-    const report = await repair(runId);
-    expect(report).toMatchObject({ outcome: 'no-diagnosis', why: NOT_THE_ANSWER, targets: [{ runId, outcome: 'unrescuable', reused: false }] });
+    const passed = await recordPassing();
+    for (const id of [runId, passed]) expect((await shadowlap(['label', id, 'digest'])).code).toBe(0);
+    const report = await repair('label:digest');
+    expect(report).toMatchObject({ outcome: 'no-diagnosis', why: NOT_THE_ANSWER, targets: [{ runId, outcome: 'unrescuable', reused: false }], holdout: [] });
     expect(report.why).not.toContain('--stronger');
+    expect(report.warnings).toContain(`${passed.slice(0, 10)} passes the check as recorded, so it is not held out as a failing run`);
+    expect((await fixShow(report.fixes[0]!.fixId)).failingRuns.map((r) => r.runId)).toEqual([runId]);
   });
 
   it('says the same from the blame kept on the run, and leaves a run that passed out of the fix', async () => {
     // A digest that passed and one that failed, both labelled digest, and the failed one blamed: it opens the fix.
-    const posted = await shadowlap(['run', '--', process.execPath, AGENT]);
-    expect(posted.code, posted.out).toBe(0);
-    const passed = /recording run (\w{26})/.exec(posted.out)![1]!;
+    const passed = await recordPassing();
     const failed = await recordFailing(['--channel', '#refunds']);
     for (const id of [passed, failed]) expect((await shadowlap(['label', id, 'digest'])).code).toBe(0);
     const blamed = JSON.parse((await shadowlap(['blame', failed, '--json'])).stdout) as Report & { fix: { fixId: string } };
@@ -200,7 +211,7 @@ describe('shadowlap repair on a run that failed on a tool', () => {
     expect(labelled.why).toBe(`no failing run could be blamed: ${labelled.targets[0]!.note}`);
     expect(labelled.why).toContain(`${passed.slice(0, 10)} passes its oracle when replayed`);
     // The fix's failing runs are as they were: the one that passed is not one of them.
-    const shown = JSON.parse((await shadowlap(['fix', 'show', fixId, '--json'])).stdout) as { failing: number; failingRuns: Array<{ runId: string }> };
+    const shown = await fixShow(fixId);
     expect(shown.failingRuns.map((r) => r.runId)).toEqual([failed]);
     expect(shown.failing).toBe(1);
 
