@@ -164,8 +164,9 @@ export class AttemptRunner {
    * judges what came out. `tally: false` leaves it out of the counts, for a replay that only confirms
    * what the recording holds. `extra.meta` marks the run before its agent starts (`probe`, `verify`,
    * `repeat`), so run lists bundle it as an attempt while it runs, not only once it is done.
+   * `extra.recordedWrites` answers a write the recording made with what it got then (see `ReplayOptions`).
    */
-  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta> } = {}, tally = true): Promise<Attempt> {
+  async attempt(target: AttemptTarget, extra: { divergeAt?: number; interventions?: Interventions; meta?: Partial<RunMeta>; recordedWrites?: boolean } = {}, tally = true): Promise<Attempt> {
     const s = this.settings;
     const cwd = process.cwd();
     const { parent, argv } = target;
@@ -177,6 +178,7 @@ export class AttemptRunner {
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}),
       ...(extra.divergeAt !== undefined ? { divergeAt: extra.divergeAt } : {}),
+      ...(extra.recordedWrites ? { recordedWrites: true } : {}),
     };
     const run = this.sidecar.startRun({
       mode: 'replay',

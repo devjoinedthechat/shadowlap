@@ -122,7 +122,7 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | `--set <key=value>` | Set a request field from the probed call on, such as `temperature=1` (repeatable) |
 | `--scope <name>` | Probe only model calls made in this [scope](./sdk.md#scopes): the agent's, and not a simulated user's |
 | `--scan <n>` | Model calls past the boundary to probe too, in case rescue works again after it. Default 2 |
-| `--writes stub\|block` | What write tools do after the fork. Default `stub`; `allow` is not accepted |
+| `--writes stub\|block` | What write tools do after the fork. Default `stub`; `allow` is not accepted. A write the recording made, with the same arguments, gets what it got then, an error included |
 | `--reads live\|replay` | What read tools do after the fork. Default `live` |
 | `--concurrency <n>` | Attempts of one probe running at once. Default 1 |
 | `--budget <usd>` | Start no attempt once this much is spent on live model calls |

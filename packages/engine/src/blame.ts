@@ -182,6 +182,19 @@ export interface BlameReport extends BlameSearchResult {
   /** How the recording itself fails the oracle. */
   recordedFailures: string[];
   contrast: BlameContrast | null;
+  /**
+   * Probes rescued the run, yet every attempt that passed at the call the search ended on answered
+   * it as the recording did: no answer of the model's made the difference, so no call is blamed and
+   * the outcome is `unrescuable`. The call, an attempt that passed, and why it passed, in a sentence
+   * or two. Absent from reports made before blame looked.
+   */
+  sameAnswer?: { callNo: number; runId: string; why: string } | null;
+  /**
+   * No probe rescued the run, and every attempt from the first model call (`callNo`) made a write
+   * that failed when the run was recorded, the same call again, and met its error: the likely cause.
+   * The tool and the recorded error's message. Absent from reports made before blame looked.
+   */
+  failedWrite?: { name: string; message: string; callNo: number } | null;
   /** Every attempt run, including those of a probe the search stopped before it settled. */
   attempts: number;
   spent: number;
@@ -202,6 +215,22 @@ export function describeRescue(fields: Record<string, unknown>): string {
   return `resample from the probed call on with ${entries.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ')}`;
 }
 
+/**
+ * Why a blame placed the failure on no call (`unrescuable`), as its report and the dashboard's Blame
+ * step say it: the evidence, then where to look. Passing attempts that answered as the recording did,
+ * or a write's recorded error every attempt met again, mean no answer of the model's lost the run.
+ */
+export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAnswer' | 'failedWrite'>): { evidence: string | null; look: string } {
+  const notTheAnswer = "No answer of the model's lost this run: look at the tools, the harness or the command.";
+  if (r.sameAnswer) return { evidence: r.sameAnswer.why, look: notTheAnswer };
+  const first = r.probes[0];
+  if (r.failedWrite) return { evidence: `Every attempt from the first model call, #${r.failedWrite.callNo}, made ${r.failedWrite.name}'s recorded call again and failed on its error, as the recording did: ${r.failedWrite.message}.`, look: notTheAnswer };
+  return {
+    evidence: first ? `Resampling from the first model call, #${first.callNo}, passed ${first.passes} of ${first.attempts.length} attempts, fewer than the ${r.needed} a rescue needs.` : null,
+    look: 'The failure is not one unlucky answer: look at the prompt, the tools or the harness, or rescue with a stronger model (--model).',
+  };
+}
+
 export function formatBlame(r: BlameReport, p: Palette = plain): string {
   const lines: string[] = [];
   const call = (x: BlameProbe) => `#${x.callNo}`;
@@ -216,10 +245,10 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
       : `it is the last model call, and the recording, which kept its answer, fails.`;
     lines.push(`  Resampling ${call(b)} rescued ${rate(b)} attempts; ${after}`);
   } else if (r.outcome === 'unrescuable') {
-    const first = r.probes[0];
+    const why = unrescuedWhy(r);
     lines.push(`${p.red('✗')} ${p.bold('Not rescued from any model call')}`);
-    if (first) lines.push(`  Resampling from the first model call, ${call(first)}, passed ${rate(first)} attempts, fewer than the ${r.needed} a rescue needs.`);
-    lines.push(`  The failure is not one unlucky answer: look at the prompt, the tools or the harness, or rescue with a stronger model (--model).`);
+    if (why.evidence) lines.push(`  ${safeLine(why.evidence)}`);
+    lines.push(`  ${why.look}`);
   } else {
     lines.push(`${p.yellow('!')} ${p.bold('Stopped before the search finished')}${r.stopReason ? `: ${r.stopReason}` : ''}`);
     lines.push(r.blamed ? `  So far: rescued up to ${call(r.blamed)}${r.lost ? `, lost from ${call(r.lost)}` : ''}.` : '  So far no probe had settled.');
@@ -261,5 +290,6 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   lines.push('', p.dim(`  ${attempts} attempt${attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced} · every call before a probe replayed from the recording`));
   lines.push(p.dim(`  oracle: ${r.oracle.map(safeLine).join('; ')}`));
   if (r.contrast) lines.push(p.dim(`  rescued fork: shadowlap diff ${short(r.runId)} ${short(r.contrast.rescuedRunId)}    shadowlap ui ${short(r.contrast.rescuedRunId)} --call ${r.contrast.callNo}`));
+  else if (r.outcome === 'unrescuable' && r.sameAnswer) lines.push(p.dim(`  an attempt that passed: shadowlap diff ${short(r.runId)} ${short(r.sameAnswer.runId)}    shadowlap ui ${short(r.sameAnswer.runId)} --call ${r.sameAnswer.callNo}`));
   return lines.join('\n');
 }

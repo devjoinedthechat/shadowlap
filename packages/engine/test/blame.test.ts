@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBlocks, formatBlame, maxProbes, probeVerdict, searchBlame, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { describeBlocks, formatBlame, maxProbes, probeVerdict, searchBlame, unrescuedWhy, type BlameProbe, type BlameReport } from '../src/blame.js';
 
 /** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
 function probes(steps: number[], rate: (i: number) => number, n = 5, needed = 2) {
@@ -202,6 +202,22 @@ describe('formatBlame', () => {
     expect(text).toContain('passed 0 of 4 attempts, fewer than the 2 a rescue needs');
     expect(text).toContain('--model');
     expect(text).not.toContain('Confidence');
+  });
+
+  it('says no answer lost a run whose attempts met its recorded write error again, or passed answering as it did', () => {
+    const met = formatBlame(base({ outcome: 'unrescuable', probes: [probe(1, 1, 0, 4, false)], failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } }));
+    expect(met).toContain('Not rescued from any model call');
+    expect(met).toContain("Every attempt from the first model call, #1, made post_digest's recorded call again and failed on its error, as the recording did: channel_not_found: #refunds.");
+    expect(met).toContain("No answer of the model's lost this run: look at the tools, the harness or the command.");
+    expect(met).not.toContain('--model');
+
+    const why = "Every attempt that passed at #7 answered it as the recording did. They passed because post_digest was stubbed after the fork, and the recording failed on post_digest's error: channel_not_found: #refunds.";
+    const same = formatBlame(base({ outcome: 'unrescuable', probes: [probe(1, 1, 2, 2, true), probe(7, 3, 2, 2, true)], sameAnswer: { callNo: 7, runId: '01K5CR7000000000000000000', why } }));
+    expect(same).toContain(why);
+    expect(same).not.toContain('Resampling from the first model call');
+    expect(same).not.toContain('◂ blamed');
+    expect(same).toContain('an attempt that passed: shadowlap diff 01K5CQ4N7G 01K5CR7000    shadowlap ui 01K5CR7000 --call 7');
+    expect(unrescuedWhy({ probes: [], needed: 2 })).toEqual({ evidence: null, look: expect.stringContaining('--model') });
   });
 
   it('describes a rescue that changes the request', () => {

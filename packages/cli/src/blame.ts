@@ -1,4 +1,4 @@
-import { formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { canonicalize, formatDivergence, formatDuration, formatUsd, normalizeResponse, probeVerdict, searchBlame, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -8,7 +8,9 @@ import { palette as p, shortId } from './ui.js';
 /**
  * `shadowlap blame`: runs the probes the engine's search asks for (`searchBlame` in @shadowlap/engine
  * says what they mean). Each attempt replays the failed run up to the probed model call, forces that
- * call live, and runs the rest live with writes fenced; the oracle then judges what came out.
+ * call live, and runs the rest live with writes fenced; the oracle then judges what came out. A write
+ * the recording made, with the same arguments, gets what it got then, an error included: a stub never
+ * fails, so a run that failed on a write's error would pass every probe for no reason of the model's.
  */
 
 export interface BlameSettings extends AttemptSettings {
@@ -107,7 +109,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
         while (!prefixBroken && launched < s.attempts && probeVerdict(passes, attempts.length, s.attempts, s.needed) === 'open' && runner.canStart()) {
           const n = ++launched;
           const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: s.attempts }, probe: { of: parent.runId, callNo, passed: false } };
-          const a = await runner.attempt(target, { divergeAt: callNo, ...(interventions ? { interventions } : {}), meta: marks });
+          const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
           if (runner.interrupted) break;
           const d = a.summary.divergence;
@@ -133,17 +135,48 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       return { callNo, step, attempts, passes, rescued };
     };
 
-    const result = await searchBlame({ steps, probe, scan: s.scan });
+    const searched = await searchBlame({ steps, probe, scan: s.scan });
 
+    // The fork that rescued the run, and what the model answered there: an attempt that passed and
+    // answered the blamed call otherwise than the recording, and that no stub carried past a write
+    // that failed when the run was recorded, when one did. One that answered as the recording did is
+    // no evidence against that answer: something after it made the difference.
+    let result = searched;
     let contrast: BlameReport['contrast'] = null;
-    if (result.blamed) {
-      const at = result.blamed.callNo;
-      const rescuedRun = result.blamed.attempts.find((a) => a.passed);
-      if (rescuedRun) {
-        const recorded = responseBlocks(store, parentCalls.find((c) => c.callNo === at));
-        const rescued = responseBlocks(store, store.getCalls(rescuedRun.runId).find((c) => c.callNo === at));
-        contrast = { callNo: at, recorded, rescued, rescuedRunId: rescuedRun.runId };
+    let same: NonNullable<BlameReport['sameAnswer']> | null = null;
+    let failedWrite: NonNullable<BlameReport['failedWrite']> | null = null;
+    const warnings: string[] = [];
+    const failed = failedWrites(parentCalls);
+    if (searched.blamed) {
+      const at = searched.blamed.callNo;
+      const recorded = responseBlocks(store, parentCalls.find((c) => c.callNo === at));
+      const passing = searched.blamed.attempts
+        .filter((a) => a.passed)
+        .map((a) => {
+          const calls = store.getCalls(a.runId);
+          return { runId: a.runId, answer: responseBlocks(store, calls.find((c) => c.callNo === at)), stubbed: stubbedPastFailure(calls, failed) };
+        });
+      const answered = passing.filter((x) => !sameAnswer(x.answer, recorded));
+      const rescued = answered.find((x) => !x.stubbed.length) ?? answered[0];
+      if (rescued) {
+        contrast = { callNo: at, recorded, rescued: rescued.answer, rescuedRunId: rescued.runId };
+        const w = rescued.stubbed[0];
+        if (w) warnings.push(`${w.name} failed when the run was recorded (${w.message}), and the fork that rescued it had ${w.name} stubbed: a stub never fails, so the rescue may be the stub's, not the answer's`);
+      } else if (passing[0] && searched.outcome === 'blamed') {
+        const w = passing.flatMap((x) => x.stubbed)[0];
+        const why = w
+          ? `Every attempt that passed at #${at} answered it as the recording did. They passed because ${w.name} was stubbed after the fork, and the recording failed on ${w.name}'s error: ${w.message}.`
+          : `Every attempt that passed at #${at} answered it as the recording did, so what made them pass came after that answer: a read that ran live, or a write that was stubbed.`;
+        same = { callNo: at, runId: passing[0].runId, why };
+        result = { ...searched, outcome: 'unrescuable', blamed: null, lost: null };
       }
+    } else if (searched.outcome === 'unrescuable' && failed.size) {
+      // No probe rescued the run: when every attempt from the first model call made a write that
+      // failed when the run was recorded, the same call again, and met its error, that is likely why.
+      const first = searched.probes[0];
+      const met = first?.attempts.map((a) => metFailedWrite(store.getCalls(a.runId), first.callNo, failed));
+      const name = met?.[0]?.name;
+      if (first && name && met.every((m) => m?.name === name)) failedWrite = { name, message: failed.get(name)!, callNo: first.callNo };
     }
 
     const report: BlameReport = {
@@ -156,12 +189,14 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       oracle,
       recordedFailures: baseline.failures,
       contrast,
+      sameAnswer: same,
+      failedWrite,
       attempts: runner.attempts,
       spent: runner.spent,
       upstreamRequests: runner.upstreamRequests,
       unknownModels: [...runner.unknownModels],
       stopReason: result.outcome === 'stopped' ? runner.stopReason : null,
-      warnings: [...runner.warnings],
+      warnings: [...runner.warnings, ...warnings],
     };
     store.updateRunMeta(parent.runId, {
       blame: {
@@ -192,6 +227,45 @@ export function describeAttempt(a: Attempt): string {
   const cost = a.summary.cost.spent ? ` · ≈${formatUsd(a.summary.cost.spent)}` : '';
   const verdict = a.passed ? p.green('✓ passed') : `${p.red('✗')} ${a.failures[0] ?? 'failed'}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
   return `${verdict}${p.dim(` · ${a.summary.byOrigin.live} live${cost} · ${formatDuration(a.ms)} · ${shortId(a.run.runId)}`)}`;
+}
+
+/**
+ * Whether two model answers say and do the same: the same text and the same tool calls with the same
+ * arguments, in order. Reasoning and tool call ids are left out: they differ between samples of one
+ * answer.
+ */
+export function sameAnswer(a: readonly Block[], b: readonly Block[]): boolean {
+  const said = (blocks: readonly Block[]) => blocks.flatMap((x) => (x.type === 'text' ? (x.text.trim() ? [`text ${x.text.trim()}`] : []) : x.type === 'tool_call' ? [`tool ${x.name} ${canonicalize(x.input ?? null)}`] : []));
+  const [x, y] = [said(a), said(b)];
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+/** The write tools whose call failed when the run was recorded, each with its first failure's message. */
+export function failedWrites(calls: readonly CallRecord[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of calls) {
+    if (c.kind !== 'tool' || c.effect !== 'write' || c.end?.outcome !== 'error' || out.has(c.name)) continue;
+    const error = c.end.meta.error as { name?: unknown; message?: unknown } | undefined;
+    out.set(c.name, typeof error?.message === 'string' && error.message ? error.message : 'an error');
+  }
+  return out;
+}
+
+/**
+ * The writes an attempt got past only by a stub: calls to a tool whose recorded call failed, stubbed
+ * here. A stub never fails, so whether the write would have failed again is not known.
+ */
+export function stubbedPastFailure(calls: readonly CallRecord[], failed: ReadonlyMap<string, string>): Array<{ name: string; message: string }> {
+  return calls.filter((c) => c.kind === 'tool' && c.origin === 'stubbed' && failed.has(c.name)).map((c) => ({ name: c.name, message: failed.get(c.name)! }));
+}
+
+/**
+ * The first write after the fork at `forkedAt` that was answered from the recording with the error
+ * it got then: the same call the recording failed on, made again.
+ */
+export function metFailedWrite(calls: readonly CallRecord[], forkedAt: number, failed: ReadonlyMap<string, string>): { name: string } | null {
+  const c = calls.find((x) => x.callNo > forkedAt && x.kind === 'tool' && x.effect === 'write' && x.origin === 'replayed' && x.end?.outcome === 'error' && failed.has(x.name));
+  return c ? { name: c.name } : null;
 }
 
 /** A model call's response as blocks (text, tool calls, reasoning), whatever the provider. */

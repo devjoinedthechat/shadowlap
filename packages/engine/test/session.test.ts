@@ -115,6 +115,34 @@ describe('Session in replay mode', () => {
     expect(mk({ writes: 'allow' }).resolve({ callNo: 2, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' }).origin).toBe('live');
   });
 
+  it('answers a write the recording made with what it got then, when asked, and fences every other', () => {
+    for (const writes of ['stub', 'block'] as const) {
+      const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { writes, recordedWrites: true, divergeAt: 1 } });
+      expect(s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} }).origin).toBe('live');
+      // The same tool with the same arguments, the first time: the recorded call #6, whatever its outcome was.
+      const same = s.resolve({ callNo: 2, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' });
+      expect(same).toMatchObject({ origin: 'replayed', record: { callNo: 6 } });
+      // Other arguments, or the same call a second time, are no call the recording made.
+      expect(s.resolve({ callNo: 3, kind: 'tool', name: 'send_email', fingerprint: 'E2', effect: 'write' }).origin).toBe(writes === 'stub' ? 'stubbed' : 'blocked');
+      expect(s.resolve({ callNo: 4, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' }).origin).toBe(writes === 'stub' ? 'stubbed' : 'blocked');
+    }
+    // Not asked, a write is fenced even when the recording made it.
+    const fenced = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { writes: 'stub', divergeAt: 1 } });
+    fenced.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
+    expect(fenced.resolve({ callNo: 2, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' }).origin).toBe('stubbed');
+    // A recording that is itself a fork holds writes no one answered: a stub, a block or an injected failure.
+    for (const fence of [{ origin: 'stubbed' }, { origin: 'blocked' }, { origin: 'live', injected: true }] as const) {
+      const calls = parent().map((c) => (c.callNo === 6 ? { ...c, origin: fence.origin, end: { ...c.end!, meta: 'injected' in fence ? { injected: true } : {} } } : c));
+      const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest, replay: { writes: 'stub', recordedWrites: true, divergeAt: 1 } });
+      s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
+      expect(s.resolve({ callNo: 2, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' }).origin).toBe('stubbed');
+    }
+    // A write --live-tool names is one whose code changed: what it got then is no answer for it.
+    const fixed = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { writes: 'stub', recordedWrites: true, divergeAt: 1, liveTools: new Set(['send_email']) } });
+    fixed.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} });
+    expect(fixed.resolve({ callNo: 2, kind: 'tool', name: 'send_email', fingerprint: 'E1', effect: 'write' }).origin).toBe('stubbed');
+  });
+
   it('forces the first call of a --live-tool live and marks the divergence as forced', () => {
     const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { liveTools: new Set(['search_web']) } });
     expect(s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} }).origin).toBe('replayed');

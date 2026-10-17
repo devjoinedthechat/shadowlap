@@ -58,7 +58,7 @@ describe('pairs from blame', () => {
     expect(pairs).toEqual([]);
     expect(sources.map((s) => [s.label.startsWith('blame · '), s.made, s.why])).toEqual([
       [true, 0, 'No attempt that passed at #5 is in the store any more.'],
-      [true, 0, 'Not rescued from any model call: no answer made the run pass, so there is none to prefer.'],
+      [true, 0, 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.'],
     ]);
     store.close();
   });

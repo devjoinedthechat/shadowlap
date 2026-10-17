@@ -93,6 +93,8 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
     contrast: r.contrast,
+    sameAnswer: r.sameAnswer ?? null,
+    failedWrite: r.failedWrite ?? null,
     probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, runs: x.attempts })),
     nonMonotone: r.nonMonotone,
     cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
@@ -196,7 +198,7 @@ export function register(program: Command): void {
     .option('--set <key=value>', 'set a request field from the probed call on, e.g. temperature=1 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--scope <name>', 'probe only model calls made in this scope, such as the agent\'s and not a simulated user\'s (see scope() in the SDKs)')
     .option('--scan <n>', 'model calls past the boundary to probe as well, in case rescue works again after it', parseCount, 2)
-    .option('--writes <policy>', 'what write tools do after the fork: stub (the agent carries on as if the write succeeded) or block', parseChoice(['stub', 'block'] as const), 'stub')
+    .option('--writes <policy>', 'what write tools do after the fork: stub (the agent carries on as if the write succeeded) or block; a write the recording made, with the same arguments, gets what it got then', parseChoice(['stub', 'block'] as const), 'stub')
     .option('--reads <policy>', 'what read tools do after the fork: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
     .option('--concurrency <n>', 'attempts of one probe running at once', parseIntArg, 1)
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)

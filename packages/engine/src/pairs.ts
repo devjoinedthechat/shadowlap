@@ -786,7 +786,7 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     const source: PairSource = { key: `blame:${run.runId}`, kind: 'blame', runId: run.runId, runIds: [run.runId], label: `blame · ${runName(run)}`, confidence: 'high', made: 0, attempts: attempts.length, callNo: blame.callNo, why: '', at: blame.at };
     sources.push(source);
     if (blame.outcome !== 'blamed' || blame.callNo === null) {
-      source.why = blame.outcome === 'unrescuable' ? 'Not rescued from any model call: no answer made the run pass, so there is none to prefer.' : 'The search stopped before it settled, so no call was blamed.';
+      source.why = blame.outcome === 'unrescuable' ? 'Not rescued from any model call: no other answer made the run pass, so there is none to prefer.' : 'The search stopped before it settled, so no call was blamed.';
       continue;
     }
     const k = blame.callNo;

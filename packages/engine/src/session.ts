@@ -49,6 +49,13 @@ export interface ReplayOptions {
    * type there, so recorded input is served in the order it was given.
    */
   liveInput?: boolean;
+  /**
+   * After the fork, answer a write the recording made (the same tool, with the same arguments, the
+   * same time it was called) with what it got then, an error included, instead of `writes`. Nothing
+   * runs either way, and a stub never fails: a write that failed when it was recorded would pass
+   * after a fork for no reason of the model's. Blame's probes ask for it.
+   */
+  recordedWrites?: boolean;
 }
 
 export const DEFAULT_REPLAY_OPTIONS: ReplayOptions = { writes: 'block', reads: 'live', liveTools: new Set() };
@@ -196,10 +203,13 @@ export class Session {
         record && !this.consumed.has(record.callNo) && input.changedBy
           ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
           : this.explain(input, forced, occurrence);
-    } else if (input.kind === 'tool' && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay'))) {
-      // After divergence only declared-pure results (and reads, on request) may come from the recording.
+    } else if (input.kind === 'tool' && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites && !forced))) {
+      // After divergence only declared-pure results (and reads, on request) may come from the
+      // recording, and the writes it made, when asked: what the world answered them, never a fence
+      // or a failure a flag made, and never for a write `--live-tool` names.
       const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
-      if (record && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
+      const answered = effect !== 'write' || (record && (record.origin === 'live' || record.origin === 'replayed') && !record.end?.meta.injected);
+      if (record && answered && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
     }
     // A tool asked to fail that the run reaches after its fork: the same tool with the same arguments
     // (and occurrence) is the recorded call, wherever it now falls.

@@ -24,7 +24,7 @@ shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
   rescued fork: shadowlap diff 01M3R1YKHF 01M3R1YMHF    shadowlap ui 01M3R1YMHF --call 5
 ```
 
-It found the call by forking the run, not by reading it: every call before a probe came from the recording for free, and only the rest ran live, with writes stubbed.
+It found the call by forking the run, not by reading it: every call before a probe came from the recording for free, and only the rest ran live, with writes fenced.
 
 ## How it works
 
@@ -50,6 +50,8 @@ shadowlap blame <run> --expect @checks.json --model claude-opus-5-5
 
 When no probe rescues the run, even from the first model call, the report says **Not rescued from any model call**. That is a finding, not an error: the failure is not one unlucky answer. It comes from the prompt, the tools, the harness, or a task the model cannot do. Blame with a stronger model tells the last two apart. If `--model` finds a call and resampling did not, the model's capability is the problem; if neither finds one, look at the code and the tools.
 
+Two findings say outright that no answer of the model's lost the run. When every attempt from the first model call makes the write that failed in the recording again and meets its error, the report names the tool and the error. And when probes do rescue the run, yet every attempt that passed answered the call the search ended on as the recording did, the answer is not what lost it: something after it made the difference, such as a read that ran live or a write that was stubbed. Blame then blames no call and says why.
+
 `--set key=value` changes any other request field from the probed call on, like `--set` on [`replay`](./interventions.md#patch-parameters), where the provider keeps it.
 
 ## Blaming one part of the agent
@@ -59,6 +61,8 @@ An agent is often more than one model: a planner and an executor, or, in a bench
 ## Side effects
 
 Blame never lets a probe act on the world. After the fork, `write` tools are stubbed (`--writes stub`, the default): the agent receives the tool's `onFork` value and carries on as if the write had succeeded, which is closest to what happened in the recording. `--writes block` makes each write throw instead. That is safer for a tool with no `onFork`, but an agent that stops on the error fails the probe for a reason the recording never had. `--writes allow` is not accepted.
+
+A write the recording made, the same tool with the same arguments, gets what it got then instead, an error included. Nothing runs either way, and a stub never fails: a run that failed because a write did, a digest posted to a channel that doesn't exist, would otherwise pass every probe whatever the model answered. A write that failed when it was recorded and was stubbed in the fork that rescued the run, because the model called it with other arguments, is named in a warning: whether it would have failed again is not known.
 
 `read` tools run live after the fork, as in a replay; `--reads replay` serves them from the recording when their arguments match.
 
@@ -121,6 +125,8 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 | `blamed`, `lost` | `{ callNo, step, passes, attempts }` for the blamed call and the one after it, or `null` |
 | `confidence` | `high`, `medium` or `low` |
 | `contrast` | `{ callNo, recorded, rescued, rescuedRunId }`: the model's answer at the blamed call in the recording and in the rescued fork, as blocks (`text`, `thinking`, `tool_call` with `name` and `input`) |
+| `sameAnswer` | `{ callNo, runId, why }` when probes rescued the run but every attempt that passed answered the call the search ended on as the recording did, so `outcome` is `unrescuable`: that call, an attempt that passed, and why it passed. Otherwise `null` |
+| `failedWrite` | `{ name, message, callNo }` when no probe rescued the run and every attempt from the first model call (`callNo`) met the error a write got when the run was recorded: the tool and the error. Otherwise `null` |
 | `probes` | Per probe: `callNo`, `step`, `passes`, `attempts`, `rescued`, and `runs`, each with `runId`, `passed`, `exitCode`, `failures`, `spent` and `upstreamRequests` |
 | `oracle`, `recordedFailures` | What a passing run must do, and how the recording fails it |
 | `rescue` | `{ fields }`: the request fields a probe changed; empty when it resampled |
@@ -141,5 +147,6 @@ Stopping early, by budget or by Ctrl-C, still prints what the search found so fa
 ## Limits
 
 - Blame points at a model call, because a model answer is the one thing a probe can ask for again. A failure caused by a tool returning bad data shows up as *not rescued*, or as blame on a call that read the bad data; an [override](./interventions.md#override-a-tool-result) tests that directly.
+- A write that failed, such as a post to a channel that doesn't exist, shows up as *not rescued* with the write and its error when every attempt makes it again, since a write a probe repeats gets its recorded error. One a probe makes with other arguments is stubbed, so a rescue that went through it comes with a warning.
 - The verdict is statistical. With 5 attempts and 2 needed, a call the model gets right a fifth of the time can look lost. Raise `--attempts` for an agent that rarely succeeds.
 - The binary search finds *a* boundary. The scan checks the calls just past it, but a dip further along goes unprobed, so read a low-confidence result together with its probes.
