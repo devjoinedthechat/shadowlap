@@ -3,7 +3,7 @@ import { JOB_KINDS } from '../api.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { jobFooter } from '../job-actions.js';
-import { calibrationTarget, jobCommand, jobStatus, jobTitle, lineTone, replayDivergence } from '../jobs.js';
+import { calibrationTarget, forkDivergedEarly, jobCommand, jobStatus, jobTitle, lineTone, replayDivergence } from '../jobs.js';
 import { href } from '../route.js';
 import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, useLayer, type WatchedJob } from '../state.js';
@@ -55,9 +55,10 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   // What the job's own feature adds: calibrate's "Add it (--write)", a clean-up's "Delete N runs".
   // Only where the job ran: from another project's page it would act on the wrong one.
   const Footer = elsewhere ? null : jobFooter(job.kind);
-  // A Replay whose request differed from its recording: Calibrate finds the normalizer when the
-  // difference is a value made anew on every run. Only where the job ran, as above.
-  const calibrate = !elsewhere && !lost && replayDivergence(job, lines) && app.hasKind(JOB_KINDS.calibrate) ? calibrationTarget(job.runId, app.runs ?? []) : null;
+  // A Replay whose request differed from its recording, or a fork that left it before the call its
+  // flag acts on: Calibrate finds the normalizer when the difference is a value made anew on every
+  // run. Only where the job ran, as above.
+  const calibrate = !elsewhere && !lost && (replayDivergence(job, lines) || forkDivergedEarly(job, lines)) && app.hasKind(JOB_KINDS.calibrate) ? calibrationTarget(job.runId, app.runs ?? []) : null;
   return (
     <div className="drawer" role="dialog" aria-label={title} aria-live="polite">
       <header>
@@ -142,10 +143,11 @@ function Drawer({ watched }: { watched: WatchedJob }) {
 }
 
 /**
- * Calibrate, after a Replay diverged: the calibrate job on the recording, which replays it offline
- * until it is clean and proposes a normalizer for each value that changes every run (a user id, a
- * temporary path); its own drawer then offers to add them. It runs the agent from the working tree,
- * so it waits while a repair or an apply changes it, as Settings → Matching's Calibrate does.
+ * Calibrate, after a Replay diverged, or a fork before its flag acted: the calibrate job on the
+ * recording, which replays it offline until it is clean and proposes a normalizer for each value
+ * that changes every run (a user id, a temporary path); its own drawer then offers to add them. It
+ * runs the agent from the working tree, so it waits while a repair or an apply changes it, as
+ * Settings → Matching's Calibrate does.
  */
 function CalibrateButton({ runId }: { runId: string }) {
   const { client, actionsOff, guard, watchJob } = useApp();

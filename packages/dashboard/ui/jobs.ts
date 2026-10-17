@@ -121,10 +121,61 @@ export function lineTone(line: string): LineTone {
  */
 export function replayDivergence(job: JobLike, lines: readonly string[]): { callNo: number; live: boolean } | null {
   if (!job.done || !isPlainReplay(job)) return null;
+  return divergedAt(lines);
+}
+
+/** Where a replay's report says it left the recording, and whether it went on live from there. */
+function divergedAt(lines: readonly string[]): { callNo: number; live: boolean } | null {
   const all = lines.join('\n');
   const at = [...all.matchAll(/^\s*(?:✗\s*)?Diverged at call (\d+)/gm)].at(-1) ?? [...all.matchAll(/^\s*(?:⑂\s*)?Forked at call (\d+)/gm)].at(-1);
   if (!at) return null;
   return { callNo: Number(at[1]), live: /^\s*(?:⑂\s*)?Forked at call \d+/m.test(all) };
+}
+
+/** What a fork's flag changes, in the drawer's words. */
+const FORK_WORDS: Record<string, string> = {
+  '--inject': 'the inject',
+  '--override': 'the override',
+  '--fail-at': 'the failure',
+  '--inject-result': 'the planted instruction',
+  '--model': 'the model switch',
+  '--set': 'the setting',
+  '--prompt-from': 'the changed prompt',
+  '--diverge-at': 'the fork',
+};
+
+/**
+ * The first call a fork's flags act on, as the run it forks numbers it, and that flag: `--inject
+ * 17=…` acts on #17, `--model 15:claude-opus-5` from #15, `--fail-at=19=529` on #19. Null when no
+ * flag names a call: `--live-tool`, `--live-input`, a `--model` or `--set` for every call.
+ */
+export function forkTarget(args: readonly string[]): { callNo: number; flag: string } | null {
+  const own = ownArgs(args);
+  let first: { callNo: number; flag: string } | null = null;
+  for (let i = 0; i < own.length; i++) {
+    const arg = own[i]!;
+    const eq = arg.indexOf('=');
+    const flag = eq < 0 ? arg : arg.slice(0, eq);
+    if (!(flag in FORK_WORDS)) continue;
+    const m = /^(\d+)(?:[=:]|$)/.exec((eq < 0 ? own[i + 1] : arg.slice(eq + 1)) ?? '');
+    if (m && (!first || Number(m[1]) < first.callNo)) first = { callNo: Number(m[1]), flag };
+  }
+  return first;
+}
+
+/**
+ * A fork that left the recording before the call its flag acts on: the calls before that one didn't
+ * replay (a value made anew on every run, a change in the code), so the run went live early and
+ * what the flag changed is not the only difference. The drawer says so, as it does for a Replay,
+ * instead of "forked". Null while it runs, for a fork that left the recording where its flag acted
+ * (or after, for a tool result the next model call reads), and for every other job.
+ */
+export function forkDivergedEarly(job: JobLike, lines: readonly string[]): { callNo: number; live: boolean; target: { callNo: number; flag: string } } | null {
+  const own = ownArgs(job.args);
+  if (!job.done || own[0] !== 'replay' || own.includes('--repeat') || isPlainReplay(job)) return null;
+  const target = forkTarget(job.args);
+  const at = target ? divergedAt(lines) : null;
+  return target && at && at.callNo < target.callNo ? { ...at, target } : null;
 }
 
 /** A run as the run list has it: enough to walk from a replay to the recording it came from. */
@@ -165,6 +216,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   // did once it went live, so that leads: amber when the agent ended well, red when it didn't.
   const diverged = replayDivergence(job, lines);
   if (diverged) return { text: `diverged at #${diverged.callNo}${diverged.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
+  // So did a fork that left the recording before the call its flag acts on.
+  const early = forkDivergedEarly(job, lines);
+  if (early) return { text: `diverged at #${early.callNo}, before ${FORK_WORDS[early.target.flag]} at #${early.target.callNo}${early.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
   // Find the commit: whether bisect named the first bad commit.
   if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
   if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
