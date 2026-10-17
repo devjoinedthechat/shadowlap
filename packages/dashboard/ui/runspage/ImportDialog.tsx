@@ -6,14 +6,14 @@ import { Icon } from '../components/Icon.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { FILE_FORMATS, fileHead, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, pickedFormat, TRACE_COPY, TRACE_ID, type ImportFileFormat, type TraceSource } from './imports.js';
+import { FILE_FORMATS, fileHead, HEAD_BYTES, IMPORT_ACCEPT, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, sampleTrace, TRACE_COPY, TRACE_ID, type ImportFileFormat, type TraceSource } from './imports.js';
 
 /**
  * Import a capture or a trace: a file (dropped or picked; its format guessed from its name and its
- * first bytes, and changeable; YAML refused with the reason), or a Langfuse or LangSmith trace by
- * its host and id, read with the keys already on this machine. The file goes up first
- * (`POST /api/uploads`), then the import job runs the CLI; the drawer ends with a link to each run
- * it made.
+ * first bytes, and changeable; YAML refused with the reason; or the sample trace the dashboard
+ * ships), or a Langfuse or LangSmith trace by its host and id, read with the keys already on this
+ * machine. The file goes up first (`POST /api/uploads`), then the import job runs the CLI; the
+ * drawer ends with a link to each run it made.
  */
 
 type Source = 'file' | TraceSource;
@@ -44,6 +44,13 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     void fileHead(file).then((head) => {
       if (n === picking.current) setPicked({ file, ...pickedFormat(file.name, file.size, head, limit) });
     });
+  };
+  // The sample: picked as a file would be, so it goes up and is imported the same way.
+  const pickSample = () => {
+    ++picking.current;
+    const sample = sampleTrace();
+    const file = new File([sample.text], sample.name, { type: 'application/json' });
+    setPicked({ file, ...pickedFormat(file.name, file.size, sample.text.slice(0, HEAD_BYTES), limit) });
   };
   const drop = (e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
@@ -138,7 +145,15 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               </label>
             </div>
           ) : null}
-          {limit === null ? <p className="fieldnote warn">This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import.</p> : null}
+          {limit === null ? (
+            <p className="fieldnote warn">This dashboard takes no files: start it in your project with shadowlap dashboard, or import in a terminal with shadowlap import.</p>
+          ) : (
+            <div className="impsamples">
+              <button className="linkbtn" type="button" onClick={pickSample}>
+                Use a sample: {OTEL_SAMPLE_NAME}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="impbody">

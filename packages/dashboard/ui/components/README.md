@@ -101,7 +101,7 @@ The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `o
 and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logic in
 `calendar-model.ts`), the table, the bulk bar (`bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command),
 the import dialog (`imports.ts` reads a file's first
-bytes for the engine's `guessImportFormat`), Find the commit (`find-commit.ts`, what it asks bisect
+bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
 for) and authors; `runspage/query.ts` builds the page's requests and reads the
 filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
 list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
