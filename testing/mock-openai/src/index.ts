@@ -5,7 +5,8 @@ import type { AddressInfo } from 'node:net';
  * A scripted fake of the OpenAI Chat Completions API, close enough to the real wire format for the
  * official SDK's streaming client: `data:` chunks, a final usage chunk when `stream_options.include_usage`
  * is set, and `data: [DONE]`. It also answers the Responses API (JSON) and embeddings, so an agent that
- * mixes them can be recorded. It knows nothing about Shadowlap.
+ * mixes them can be recorded, and lists its models as the Models API does. It knows nothing about
+ * Shadowlap.
  */
 
 export interface ToolCall {
@@ -84,13 +85,38 @@ function split(s: string, parts: number): string[] {
   return out;
 }
 
-export async function startMockOpenAI(opts: { script: Script; responses?: ResponsesScript }): Promise<MockServer> {
+export const DEFAULT_MODELS = ['gpt-5', 'gpt-5-mini'];
+
+/** A model as `GET /v1/models` lists it. */
+export interface ModelInfo {
+  id: string;
+  object: 'model';
+  created: number;
+  owned_by: string;
+}
+
+/**
+ * `models`: what `GET /v1/models` lists, in this order (default: gpt-5 and gpt-5-mini); `GET
+ * /v1/models/<id>` answers one of them.
+ */
+export async function startMockOpenAI(opts: { script: Script; responses?: ResponsesScript; models?: string[] }): Promise<MockServer> {
   const requests: MockServer['requests'] = [];
   const otherRequests: MockServer['otherRequests'] = [];
   let requestNo = 0;
+  const listed = (opts.models ?? DEFAULT_MODELS).map((id, i): ModelInfo => ({ id, object: 'model', created: 1_788_220_800 - i * 86_400, owned_by: 'system' }));
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://mock');
+      // ---- The Models API ----
+      if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname.startsWith('/v1/models/'))) {
+        const id = url.pathname.startsWith('/v1/models/') ? decodeURIComponent(url.pathname.slice('/v1/models/'.length)) : null;
+        const found = id === null ? null : listed.find((m) => m.id === id);
+        const [status, body] = id === null ? [200, { object: 'list', data: listed }] : found ? [200, found] : [404, { error: { message: `The model '${id}' does not exist`, type: 'invalid_request_error', param: 'model', code: 'model_not_found' } }];
+        const bytes = Buffer.from(JSON.stringify(body));
+        res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length) });
+        res.end(bytes);
+        return;
+      }
       // ---- Embeddings and the Responses API ----
       if (req.method === 'POST' && (url.pathname === '/v1/embeddings' || url.pathname === '/v1/responses')) {
         const body = JSON.parse((await readBody(req)).toString('utf8')) as Record<string, unknown>;

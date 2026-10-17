@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net';
 /**
  * A scripted fake of the Anthropic Messages API. It speaks the real wire format (JSON and the
  * streaming SSE event sequence) closely enough for the official SDK's stream accumulator, and it
- * lets tests inject failures. It knows nothing about Shadowlap.
+ * lets tests inject failures. It lists its models as the Models API does, so a model picker that
+ * asks it has something to offer. It knows nothing about Shadowlap.
  */
 
 export interface TextBlock {
@@ -62,6 +63,47 @@ export interface MockOptions {
   script: Script;
   /** Delay before each streamed event, ms. Defaults to a small random jitter to exercise concurrency. */
   eventDelayMs?: () => number;
+  /** The models `GET /v1/models` lists, in this order. Default: claude-sonnet-5 and claude-haiku-4-5. */
+  models?: string[];
+}
+
+export const DEFAULT_MODELS = ['claude-sonnet-5', 'claude-haiku-4-5'];
+
+/** A model as `GET /v1/models` lists it. */
+export interface ModelInfo {
+  type: 'model';
+  id: string;
+  display_name: string;
+  created_at: string;
+}
+
+/** `claude-haiku-4-5` as the API names it: "Claude Haiku 4.5". */
+function displayName(id: string): string {
+  const words = id.split('-');
+  const name = words.filter((w) => !/^\d+$/.test(w)).map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+  // A dated snapshot's date is no part of its name.
+  const version = words.filter((w) => /^\d{1,2}$/.test(w)).join('.');
+  return [...name, ...(version ? [version] : [])].join(' ');
+}
+
+/** What the Models API answers for a path under `/v1/models`, paged as it pages: `limit`, `after_id`, `before_id`. */
+function modelsAnswer(ids: readonly string[], url: URL): { status: number; body: unknown } {
+  const info = ids.map((id, i): ModelInfo => ({ type: 'model', id, display_name: displayName(id), created_at: new Date(Date.UTC(2026, 8, 1) - i * 86_400_000).toISOString().replace('.000Z', 'Z') }));
+  const one = /^\/v1\/models\/(.+)$/.exec(url.pathname);
+  if (one) {
+    const found = info.find((m) => m.id === decodeURIComponent(one[1]!));
+    return found ? { status: 200, body: found } : { status: 404, body: { type: 'error', error: { type: 'not_found_error', message: `model: ${decodeURIComponent(one[1]!)}` } } };
+  }
+  const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit') ?? 20) || 20));
+  const after = url.searchParams.get('after_id');
+  const before = url.searchParams.get('before_id');
+  let start = 0;
+  let end = info.length;
+  if (after !== null) start = info.findIndex((m) => m.id === after) + 1;
+  if (before !== null) end = Math.max(0, info.findIndex((m) => m.id === before));
+  const page = before !== null && after === null ? info.slice(Math.max(start, end - limit), end) : info.slice(start, Math.min(end, start + limit));
+  const more = before !== null && after === null ? end - limit > start : start + limit < end;
+  return { status: 200, body: { data: page, has_more: more, first_id: page[0]?.id ?? null, last_id: page.at(-1)?.id ?? null } };
 }
 
 export interface RecordedRequest {
@@ -148,6 +190,13 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://mock');
+      if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname.startsWith('/v1/models/'))) {
+        const { status, body } = modelsAnswer(opts.models ?? DEFAULT_MODELS, url);
+        const bytes = Buffer.from(JSON.stringify(body));
+        res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length) });
+        res.end(bytes);
+        return;
+      }
       if (req.method !== 'POST' || url.pathname !== '/v1/messages') {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: `mock: no route ${req.method} ${url.pathname}` } }));
