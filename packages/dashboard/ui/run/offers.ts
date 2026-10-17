@@ -63,13 +63,33 @@ export function blameTitle(offer: BlameOffer): string {
 }
 
 /**
+ * Whether the rules alone can't make the diverged test's replay match (the request carries a field
+ * the recording never had, or more changed), so adding them updates the golden after them: the steps
+ * end in `test <golden> --update`, as the Tests screen reads them.
+ */
+export function updatesAfterRules(t: Pick<TestBannerOffer, 'normalizeAndTest'>): boolean {
+  return !!t.normalizeAndTest && (t.normalizeAndTest.at(-1) ?? []).includes('--update');
+}
+
+/** A golden as the Tests screen names it: its path without the goldens folder. */
+export const goldenName = (golden: string): string => golden.replace(/^goldens\//, '');
+
+/**
  * The diverged test's actions. Once every rule Add normalizer adds is in the config, the banner says
  * "normalizer added", with the passing replay that followed when there is one. Before that, Add
- * normalizer is the tests' `normalize-and-test` job (adds the rule and runs the golden again; shown
- * disabled with why where jobs can't run), or, on a server without it, the run's own normalizer
- * action; Update golden is the tests' `test-update` job.
+ * normalizer is the tests' `normalize-and-test` job (shown disabled with why where jobs can't run),
+ * or, on a server without it, the run's own normalizer action (the rule alone). When the rule alone
+ * makes the replay match, the job adds it and runs the golden again, in one click. When it can't,
+ * the job re-records the golden live after it: the button reads "Add normalizer and update…", and
+ * `asks` holds the commands the Tests screen's dialog lists before the job starts. Update golden is
+ * the tests' `test-update` job, offered until the rule is in, and after that while the rule alone
+ * can't make the replay match and no replay has passed since.
  */
-export type NormalizerChoice = { kind: 'added'; passingRun: string | null } | { kind: 'job'; lead: boolean; off: string | null; title: string | null } | { kind: 'action' } | null;
+export type NormalizerChoice =
+  | { kind: 'added'; passingRun: string | null }
+  | { kind: 'job'; label: 'Add normalizer' | 'Add normalizer and update…'; lead: boolean; off: string | null; title: string | null; asks: string[][] | null }
+  | { kind: 'action' }
+  | null;
 
 export function divergedActions(o: {
   test: TestBannerOffer | null;
@@ -80,12 +100,65 @@ export function divergedActions(o: {
   actionsOff: string | null;
 }): { normalizer: NormalizerChoice; update: boolean } {
   const t = o.test;
-  if (t?.normalized) return { normalizer: { kind: 'added', passingRun: t.passingRun }, update: false };
+  const updates = !!t && updatesAfterRules(t);
+  if (t?.normalized) return { normalizer: { kind: 'added', passingRun: t.passingRun }, update: o.hasUpdateJob && updates && !t.passingRun };
   // An id that may be a real change: neither button leads.
   const lead = t ? t.normalizerFixes && !t.maybeReal : true;
   const normalizer: NormalizerChoice =
-    t?.normalizeAndTest && o.hasNormalizeJob ? { kind: 'job', lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null } : o.action && !o.actionsOff ? { kind: 'action' } : null;
+    t?.normalizeAndTest && o.hasNormalizeJob
+      ? { kind: 'job', label: updates ? 'Add normalizer and update…' : 'Add normalizer', lead, off: o.actionsOff, title: o.actionsOff ?? t.volatile?.command ?? null, asks: updates ? t.normalizeAndTest : null }
+      : o.action && !o.actionsOff
+        ? { kind: 'action' }
+        : null;
   return { normalizer, update: !!t && o.hasUpdateJob };
+}
+
+/**
+ * The run page's Update golden dialog in the Tests screen's words for one golden: where it diverged;
+ * the checks the update runs (the golden's now, or its exit status when it has none); when what
+ * diverged is a value that changes every run and no rule masks it yet, the amber note that a
+ * normalizer is the lasting fix, with its button named for what it runs (`instead`: the rule and a
+ * re-run, or the rule and this update when the rule alone can't make the replay match; null where
+ * the server can't add it); or, once the rule is in the config, the line saying the run after this
+ * update matches.
+ */
+export interface UpdateGoldenCopy {
+  name: string;
+  at: string;
+  /** What "Its checks run" says: `2 checks`, `exit status`. */
+  checks: string;
+  advise: { path: string; text: string; instead: string | null } | null;
+  /** The plain line above the command, its path set in code. */
+  note: { path: string | null } | null;
+  ok: 'Update' | 'Update anyway';
+}
+
+const checkCount = (n: number) => `${num(n)} ${n === 1 ? 'check' : 'checks'}`;
+
+/**
+ * `replayChecks`, how many checks this replay was judged by, stands in for the golden's own from a
+ * server that doesn't send them (or for a golden no longer on disk, which an update refuses).
+ */
+export function updateGoldenCopy(t: TestBannerOffer, callNo: number, canNormalize: boolean, replayChecks = 0): UpdateGoldenCopy {
+  const v = t.volatile;
+  const own = Array.isArray(t.checks) ? t.checks.length : null;
+  const checks = own !== null ? (own ? checkCount(own) : 'exit status') : replayChecks ? checkCount(replayChecks) : 'from shadowlap.config.json';
+  const advise =
+    v?.certain && !t.normalized
+      ? {
+          path: v.path,
+          text: `${v.op === 'added' ? 'is new in every request and ' : ''}looks like ${v.looks}, which changes every run. Updating re-records it, and the next run diverges again.`,
+          instead: canNormalize ? (updatesAfterRules(t) ? 'Add the normalizer and update' : 'Add the normalizer instead') : null,
+        }
+      : null;
+  return {
+    name: goldenName(t.golden),
+    at: `diverged at call ${callNo}`,
+    checks,
+    advise,
+    note: t.normalized && updatesAfterRules(t) ? { path: v?.path ?? null } : null,
+    ok: advise ? 'Update anyway' : 'Update',
+  };
 }
 
 /** What Run blame says before it runs: where its check came from. */

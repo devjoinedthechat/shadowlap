@@ -272,6 +272,27 @@ describe('what the run page offers', () => {
     expect(testOffer(store, store.getRun(passing.runId)!, [rule])).toBeNull();
   });
 
+  it('adds the normalizer and re-runs when the rule alone makes the replay match, and updates the golden after it when it can’t', () => {
+    const golden = { path: 'goldens/refund-in-limit', runId: null, packedAt: null, mode: 'replay' as const, repeat: 1, passes: 1, checks: ['issue_refund called 1 time', 'send_email called 1 time'] };
+    const diverged = (startedAt: number, diff: Array<{ path: string; op: 'changed' | 'added'; before?: unknown; after?: unknown }>) => {
+      const s = store.startTestSession({ command: ['shadowlap', 'test', golden.path] });
+      const replay = store.createRun({ mode: 'replay', command: { argv: ['node', 'refund_agent.mjs', 'T-8830'], cwd: '/p' }, startedAt, meta: { test: { golden: golden.path, session: s.sessionId } } });
+      store.setDivergence(replay.runId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff });
+      store.addTestResult({ sessionId: s.sessionId, golden: golden.path, ok: false, failure: 'diverged', runId: replay.runId, at: startedAt + 10 });
+      return store.getRun(replay.runId)!;
+    };
+    const add = ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'];
+    // A per-run id the recording had too: the rule alone makes the replay match.
+    const changed = diverged(T0 + 300, [{ path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' }]);
+    expect(testOffer(store, changed, [], [golden])).toMatchObject({ normalizerFixes: true, normalizeAndTest: [add, ['test', golden.path]], checks: golden.checks });
+    // A field the recording never had (the demo's refund-in-limit): the golden is updated after the rule.
+    const added = diverged(T0 + 400, [{ path: '$.metadata', op: 'added', after: { user_id: '67b47cab-d067-4923-93f8-0006dd89ba21' } }]);
+    expect(testOffer(store, added, [], [golden])).toMatchObject({ normalizerFixes: false, volatile: { path: '$.metadata.user_id', op: 'added' }, normalizeAndTest: [add, ['test', golden.path, '--update']] });
+    // The checks an update runs are the golden's now; unknown for a golden that isn't on disk.
+    expect(runOffers(store, added.runId, { redact: [], config: null, goldens: [golden] })!.test!.checks).toEqual(golden.checks);
+    expect(testOffer(store, added, [])!.checks).toBeNull();
+  });
+
   it('offers Find the commit and the diverged test’s actions, from the tests read model', () => {
     const id = addRun(store, { startedAt: T0 + 30, calls: 'l' });
     const o = runOffers(store, id, { redact: [{ pattern: 'email', replace: '<e>' }], config: null })!;
