@@ -231,6 +231,17 @@ export function unrescuedWhy(r: Pick<BlameReport, 'probes' | 'needed' | 'sameAns
   };
 }
 
+/**
+ * What blame found that says no answer of the model's lost a run it placed on no call, as a clause
+ * for a repair's reason (`every attempt failed on post_digest's recorded error (channel_not_found:
+ * #refunds)`), or null when it found nothing that says so: then the cause may still be the prompt.
+ */
+export function notTheAnswer(r: Pick<BlameReport, 'sameAnswer' | 'failedWrite'>): string | null {
+  if (r.sameAnswer) return `every attempt that passed at #${r.sameAnswer.callNo} answered it as the recording did`;
+  if (r.failedWrite) return `every attempt failed on ${r.failedWrite.name}'s recorded error (${r.failedWrite.message})`;
+  return null;
+}
+
 export function formatBlame(r: BlameReport, p: Palette = plain): string {
   const lines: string[] = [];
   const call = (x: BlameProbe) => `#${x.callNo}`;

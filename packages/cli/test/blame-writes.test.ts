@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -155,5 +155,59 @@ describe('shadowlap blame on a run that failed on a tool', () => {
     expect(report.contrast!.recorded.find((b) => b.name === 'post_digest')!.input!.text).not.toBe(report.contrast!.rescued.find((b) => b.name === 'post_digest')!.input!.text);
     expect(report.warnings).toContain("post_digest failed when the run was recorded (channel_not_found: #refunds), and the fork that rescued it had post_digest stubbed: a stub never fails, so the rescue may be the stub's, not the answer's");
     expect(outbox()).toHaveLength(1);
+  });
+});
+
+describe('shadowlap repair on a run that failed on a tool', () => {
+  const NOT_THE_ANSWER = "every attempt failed on post_digest's recorded error (channel_not_found: #refunds): no answer of the model's lost the run; look at the tools, the harness or the command";
+  interface Repaired {
+    outcome: string;
+    why: string;
+    targets: Array<{ runId: string; outcome: string; reused: boolean; note: string | null }>;
+    holdout: string[];
+    fixes: Array<{ fixId: string }>;
+  }
+  // Repair edits the agent's source, so it runs in a git repository.
+  beforeEach(() => {
+    execFileSync('git', ['init', '-q'], { cwd: work });
+  });
+  const repair = async (...fixes: string[]) => {
+    const r = await shadowlap(['repair', '--fixes', ...fixes, '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(1);
+    return JSON.parse(r.stdout) as Repaired;
+  };
+
+  it("says what blame found instead of suggesting a stronger model, from a blame of its own", async () => {
+    const runId = await recordFailing(['--channel', '#refunds']);
+    const report = await repair(runId);
+    expect(report).toMatchObject({ outcome: 'no-diagnosis', why: NOT_THE_ANSWER, targets: [{ runId, outcome: 'unrescuable', reused: false }] });
+    expect(report.why).not.toContain('--stronger');
+  });
+
+  it('says the same from the blame kept on the run, and leaves a run that passed out of the fix', async () => {
+    // A digest that passed and one that failed, both labelled digest, and the failed one blamed: it opens the fix.
+    const posted = await shadowlap(['run', '--', process.execPath, AGENT]);
+    expect(posted.code, posted.out).toBe(0);
+    const passed = /recording run (\w{26})/.exec(posted.out)![1]!;
+    const failed = await recordFailing(['--channel', '#refunds']);
+    for (const id of [passed, failed]) expect((await shadowlap(['label', id, 'digest'])).code).toBe(0);
+    const blamed = JSON.parse((await shadowlap(['blame', failed, '--json'])).stdout) as Report & { fix: { fixId: string } };
+    const fixId = blamed.fix.fixId;
+
+    // label:digest brings the run that passed in; the older one is repaired, the other held out.
+    const labelled = await repair('label:digest');
+    expect(labelled).toMatchObject({ outcome: 'no-diagnosis', targets: [{ runId: passed, outcome: 'passes' }], holdout: [failed], fixes: [{ fixId }] });
+    expect(labelled.why).toBe(`no failing run could be blamed: ${labelled.targets[0]!.note}`);
+    expect(labelled.why).toContain(`${passed.slice(0, 10)} passes its oracle when replayed`);
+    // The fix's failing runs are as they were: the one that passed is not one of them.
+    const shown = JSON.parse((await shadowlap(['fix', 'show', fixId, '--json'])).stdout) as { failing: number; failingRuns: Array<{ runId: string }> };
+    expect(shown.failingRuns.map((r) => r.runId)).toEqual([failed]);
+    expect(shown.failing).toBe(1);
+
+    // Its own failing run: the blame kept on it is used, with what it found.
+    const before = mock.requests.length;
+    const own = await repair(failed);
+    expect(own).toMatchObject({ outcome: 'no-diagnosis', why: NOT_THE_ANSWER, targets: [{ runId: failed, outcome: 'unrescuable', reused: true }] });
+    expect(mock.requests.length).toBe(before);
   });
 });

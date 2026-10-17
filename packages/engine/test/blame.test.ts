@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeBlocks, formatBlame, maxProbes, probeVerdict, searchBlame, unrescuedWhy, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { describeBlocks, formatBlame, maxProbes, notTheAnswer, probeVerdict, searchBlame, unrescuedWhy, type BlameProbe, type BlameReport } from '../src/blame.js';
 
 /** A probe that passes `rate(i)` of `n` attempts at model call `steps[i]`. */
 function probes(steps: number[], rate: (i: number) => number, n = 5, needed = 2) {
@@ -218,6 +218,11 @@ describe('formatBlame', () => {
     expect(same).not.toContain('◂ blamed');
     expect(same).toContain('an attempt that passed: shadowlap diff 01K5CQ4N7G 01K5CR7000    shadowlap ui 01K5CR7000 --call 7');
     expect(unrescuedWhy({ probes: [], needed: 2 })).toEqual({ evidence: null, look: expect.stringContaining('--model') });
+    // The same findings, as a clause for a repair's reason; none when blame found nothing that says so.
+    expect(notTheAnswer({ failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } })).toBe("every attempt failed on post_digest's recorded error (channel_not_found: #refunds)");
+    expect(notTheAnswer({ sameAnswer: { callNo: 7, runId: '01K5CR7000000000000000000', why } })).toBe('every attempt that passed at #7 answered it as the recording did');
+    expect(notTheAnswer({ sameAnswer: null, failedWrite: null })).toBeNull();
+    expect(notTheAnswer({})).toBeNull();
   });
 
   it('describes a rescue that changes the request', () => {

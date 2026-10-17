@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -209,6 +209,33 @@ interface Blamed {
   request: unknown;
   /** The model the recording asked at the blamed call. */
   model: string | null;
+  /**
+   * For a run no model call rescued: what its blame found that says no answer of the model's lost
+   * it (`notTheAnswer`), or null when it found nothing that says so.
+   */
+  notTheAnswer: string | null;
+}
+
+/**
+ * Why a repair had no rescue to learn from. When blame found, for every run it searched, that no
+ * answer of the model's lost it (every attempt met a write's recorded error again, or the attempts
+ * that passed answered as the recording did), it says that, as the fix's Blame step does: neither
+ * a prompt fix nor a stronger model can help. When no run could be searched at all (each passed its
+ * check when replayed, say), why not. Otherwise, that nothing rescued a run, and what to try.
+ */
+export function noDiagnosisWhy(blamed: ReadonlyArray<Pick<Blamed, 'target' | 'notTheAnswer'>>, stronger: string | null): string {
+  const unrescued = blamed.filter((b) => b.target.outcome === 'unrescuable');
+  const found = unrescued.map((b) => b.notTheAnswer);
+  if (unrescued.length && found.every((f): f is string => f !== null)) {
+    const said = new Set(found).size === 1 ? found[0]! : unrescued.map((b, i) => `${shortId(b.target.runId)}: ${found[i]}`).join('; ');
+    return `${said}: no answer of the model's lost ${unrescued.length === 1 ? 'the run' : 'these runs'}; look at the tools, the harness or the command`;
+  }
+  const searched = blamed.some((b) => b.target.outcome === 'unrescuable' || b.target.outcome === 'stopped');
+  const note = blamed.find((b) => b.target.note)?.target.note;
+  if (!searched && note) return `no failing run could be blamed: ${note}`;
+  return stronger
+    ? `neither resampling nor ${stronger} rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools`
+    : 'resampling rescued no failing run, so there is no passing path to learn from; try a stronger model with --stronger <model>, or look at the code and the tools';
 }
 
 export async function runRepair(input: RepairInput): Promise<RepairReport> {
@@ -280,9 +307,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     const learned = blamed.filter((b) => b.repairCase);
     if (!learned.length) {
       report.outcome = 'no-diagnosis';
-      report.why = s.stronger
-        ? `neither resampling nor ${s.stronger} rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools`
-        : 'resampling rescued no failing run, so there is no passing path to learn from; try a stronger model with --stronger <model>, or look at the code and the tools';
+      report.why = noDiagnosisWhy(blamed, s.stronger);
       return report;
     }
 
@@ -408,7 +433,9 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     // A search already made under the same oracle, rescue and scope is not made again, whatever it found.
     if (sameSearch && stored.outcome === 'unrescuable') {
       log(`  ${shortId(runId)}: not rescued from any model call, from the blame already stored on it`);
-      return { target: { ...base, outcome: 'unrescuable', reused: true }, repairCase: null, request: null, model: null };
+      // What it found is kept whole with its fix: the same search, when the kept blame is the one on the run.
+      const found = kept.outcome === 'unrescuable' && JSON.stringify(kept.report.oracle) === JSON.stringify(oracle) && JSON.stringify(kept.report.rescue?.fields ?? {}) === JSON.stringify(fields) ? notTheAnswer(kept.report) : null;
+      return { target: { ...base, outcome: 'unrescuable', reused: true }, repairCase: null, request: null, model: null, notTheAnswer: found };
     }
     const same = sameSearch && stored.outcome === 'blamed' && stored.callNo !== null && stored.rescuedRunId && store.getRun(stored.rescuedRunId);
     if (same) {
@@ -430,13 +457,13 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         });
         cost.blame += r.spent;
         failures = r.recordedFailures;
-        if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable' }, repairCase: null, request: null, model: null };
+        if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable' }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r) };
         callNo = r.blamed.callNo;
         rescuedRunId = r.contrast.rescuedRunId;
       } catch (err) {
         if (!(err instanceof BlameError)) throw err;
         // A run that passes its check when replayed is no failure: it isn't linked to the fix as one.
-        return { target: { ...base, outcome: err.reason === 'passes' ? 'passes' : 'error', note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null };
+        return { target: { ...base, outcome: err.reason === 'passes' ? 'passes' : 'error', note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null, notTheAnswer: null };
       }
     }
     const parentCall = parentCalls.find((c) => c.callNo === callNo);
@@ -451,6 +478,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, conversation, recorded, rescued, failures, rescuedBy: typeof fields.model === 'string' ? fields.model : null },
       request,
       model: conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
+      notTheAnswer: null,
     };
   }
 

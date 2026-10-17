@@ -121,7 +121,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 |---|---|---|
 | **Fixed** | 0 | A candidate passed the gate. 1 when the hand-over asked for (`--apply`, `--branch`, `--pr`) failed part way |
 | **Not fixed** | 1 | No candidate passed; the report lists each and why |
-| **No fix to try** | 1 | No failing run was rescued, so there is no passing path to learn from. With `--stronger`, not even a stronger model rescued them: look at the code and the tools |
+| **No fix to try** | 1 | No failing run was rescued, so there is no passing path to learn from. With `--stronger`, not even a stronger model rescued them: look at the code and the tools. When blame found that no answer of the model's lost the runs (every attempt failed on a write's recorded error again, or the attempts that passed answered as the recording did), the reason says that instead, as the fix's Blame step does, and suggests no stronger model; when no run could be blamed at all (each passed its check when replayed, say), it says why |
 | **Stopped** | 1 | Ctrl-C or `--budget`; what was found so far is reported |
 
 ## JSON
