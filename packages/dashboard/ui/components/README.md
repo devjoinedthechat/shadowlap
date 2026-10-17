@@ -79,7 +79,7 @@ how it ended, the Forks view's lines, the run an exported copy opens on), `recor
 call's recorded duration), `cache.ts` (where the cache stopped hitting, and what the Context view
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
-recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
+recording, and which ended between two loads of the run list, for the shell's toast), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
 `focus.ts` (what a dialog focuses first), `shell/top.ts` (the top bar's pill, a run's parent in its
 crumbs, the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),

@@ -4,6 +4,7 @@ import { isUnreachable } from './backoff.js';
 import { connStart, connStep, feedCursor, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
 import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
+import { endedRecordings, recordingToast } from './live.js';
 import type { PaletteGroup } from './palette.js';
 import { previewState } from './router.js';
 import { errorText, type ToastKind } from './toast.js';
@@ -153,16 +154,27 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   );
 
   // A later list means runs or calls moved: `tick` goes up and every open run and panel loads again.
-  // The page's first list (`first`) doesn't: what the page loads beside it is as new.
+  // The page's first list (`first`) doesn't: what the page loads beside it is as new. A recording
+  // that ended since the list before says so, on whatever page is open, once (two lists can arrive
+  // out of order), unless a job this page follows made it: its drawer, or its own toast, says how.
+  const jobsNow = useLatest(jobs);
+  const listed = useRef<RunListItem[] | null>(null);
+  const announced = useRef(new Set<string>());
   const loadRuns = useCallback(
     async (o: { first?: boolean } = {}) => {
       const list = await client.runs();
+      const quiet = new Set([...announced.current, ...jobsNow.current.flatMap((w) => [...(w.job.runs ?? []), ...(w.job.newRunId ? [w.job.newRunId] : [])])]);
+      const ended = endedRecordings(o.first ? null : listed.current, list, quiet);
+      for (const e of ended) announced.current.add(e.runId);
+      listed.current = list;
       setRuns(list);
       setLoadedAt(Date.now());
       setSyncedAt(Date.now());
       if (!o.first) setTick((n) => n + 1);
+      const said = recordingToast(ended);
+      if (said) toast(said);
     },
-    [client],
+    [client, jobsNow, toast],
   );
 
   // Where the change feed stands now, asked before a load of the run list so the poll after it
@@ -308,6 +320,8 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const reload = useCallback(async () => {
     if (client.exported) return;
     cursor.current = null;
+    // Another project's runs: none of them ends here.
+    listed.current = null;
     setRuns(null);
     try {
       const m = await client.meta();
@@ -341,7 +355,6 @@ export function AppProvider({ client, children }: { client: Client; children: Re
 
   // ---- jobs: each is followed to its end, whether or not its drawer is open. While the server is
   // unreachable the polls wait, and pick up once it is back; a job the server no longer has is lost.
-  const jobsNow = useLatest(jobs);
   const following = useRef(new Map<string, string[]>());
   const follow = useCallback(
     (first: JobView) => {

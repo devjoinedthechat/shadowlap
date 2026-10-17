@@ -6,7 +6,7 @@ import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
 import { callName, sameRun, shortId } from '../format.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
-import { followNewest, recordingEnded } from '../live.js';
+import { followNewest } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { CYCLE_VIEWS, href, nextView, type View } from '../route.js';
@@ -117,7 +117,7 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
 
 function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
-  const { client, toast, exported, actionsOff, setRunCommands, runKeys, setPalette, tick } = app;
+  const { client, exported, actionsOff, setRunCommands, runKeys, setPalette, tick } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   // Each model named as the page names it everywhere: claude-opus-5, not opus-5 here and the full id there.
@@ -139,18 +139,15 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   }, [runId, id, call, selected, view]);
 
   // Recording: the selection follows the newest call if it was on the newest (also when the last calls
-  // and the end of the recording arrive together); a toast when it ends.
+  // and the end of the recording arrive together). The shell says when it ends, on any page (state.tsx).
   const prevLast = useRef(last);
   const prevStatus = useRef(run.run.status);
   useEffect(() => {
-    const step = { wasStatus: prevStatus.current, status: run.run.status, prevLast: prevLast.current, last, selected };
-    const next = followNewest(step);
+    const next = followNewest({ wasStatus: prevStatus.current, status: run.run.status, prevLast: prevLast.current, last, selected });
     if (next !== null) navigate(href.run(runId, next, view), true);
-    const ended = recordingEnded(step);
-    if (ended) toast(`Recording ${ended} · ${shortId(runId)} · ${calls.length} ${calls.length === 1 ? 'call' : 'calls'}`);
     prevLast.current = last;
     prevStatus.current = run.run.status;
-  }, [last, selected, runId, view, run.run.status, calls.length, toast]);
+  }, [last, selected, runId, view, run.run.status]);
 
   const [scope, setScope] = useState('all');
   const scopes = useMemo(() => scopesOf(calls), [calls]);
