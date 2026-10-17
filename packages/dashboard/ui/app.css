@@ -843,6 +843,8 @@ p, .setrow span, .stepper .m { text-wrap: pretty; }
 .attn .d, .inote, .fnode .f2, .checks span { text-wrap: balance; }
 p code, .ph p code { white-space: nowrap; }
 @media (max-width: 640px) { .page-in p { text-wrap: balance; } }
+/* A dialog opened from a page sits inside it here (the design keeps dialogs in a layer of their own): its prose wraps as the design's. */
+@media (max-width: 640px) { .page-in .dialog p { text-wrap: pretty; } }
 h1, h2, h3 { text-wrap: balance; }
 .kvs dd small { word-break: normal; }
 .egrp { padding: 12px 18px 14px; border-top: 1px solid var(--line); }

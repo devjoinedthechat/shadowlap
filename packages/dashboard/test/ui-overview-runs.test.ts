@@ -1,11 +1,14 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
 import { activityGlyph, activityLine, blameWords, chartScale, dayText, kindGlyph, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, localTitle } from '../ui/runspage/bulk.js';
 import { bisectCommand, bisectRequest } from '../ui/runspage/find-commit.js';
 import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, keyPick, monthLabels, moveDay, pickedOf, pickedRange, rangeTimes, shownRange, spanText } from '../ui/runspage/calendar-model.js';
-import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, pickedFormat, tooLargeNote } from '../ui/runspage/imports.js';
+import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, redateTrace, sampleTrace, tooLargeNote } from '../ui/runspage/imports.js';
+import { OTEL_SAMPLE, type OtlpTrace } from '../ui/runspage/sample-otel.js';
 import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
 import type { DayCount, NeedsLookRow } from '../ui/types.js';
 
@@ -225,6 +228,39 @@ describe('importing a file', () => {
     expect(tooLargeNote(100 * MB, null, 'har')).toBeNull();
     expect(keyList(['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'])).toBe('LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY');
     expect(keyList(['LANGSMITH_API_KEY'])).toBe('LANGSMITH_API_KEY');
+  });
+
+  it('offers a sample trace that the CLI imports as one run, dated to end now', () => {
+    // The trace the CLI's own import tests read, which the demo store imports as captures/otel-traces.json.
+    const fixture = JSON.parse(readFileSync(new URL('../../cli/test/fixtures/traces/otel-genai.json', import.meta.url), 'utf8')) as unknown;
+    expect(OTEL_SAMPLE).toEqual(fixture);
+    const now = Date.UTC(2026, 9, 17, 14, 5, 0);
+    const sample = sampleTrace(now);
+    expect(sample.name).toBe(OTEL_SAMPLE_NAME);
+    expect(sample.name).toBe('otel-traces.json');
+    // Picked as a file would be: OpenTelemetry, from its name and its first bytes.
+    expect(pickedFormat(sample.name, sample.text.length, sample.text.slice(0, HEAD_BYTES), 64 * 1024 * 1024)).toEqual({ format: 'otel', error: null });
+    const [trace, ...more] = readOtel(parseOtlpFile(sample.text)).traces;
+    expect(more).toEqual([]);
+    expect(trace!.calls.map((c) => (c.kind === 'model' ? `model ${c.model}` : `tool ${c.name}`))).toEqual(['model claude-haiku-4-5', 'tool lookup_order', 'model claude-haiku-4-5']);
+    // Its own pacing kept: the agent span's 2.6 s end at the moment given.
+    const spans = (JSON.parse(sample.text) as OtlpTrace).resourceSpans.flatMap((r) => r.scopeSpans.flatMap((sc) => sc.spans));
+    const ms = (v: string | undefined) => Number(BigInt(v!) / 1_000_000n);
+    expect(Math.max(...spans.map((sp) => ms(sp.endTimeUnixNano)))).toBe(now);
+    expect(Math.min(...spans.map((sp) => ms(sp.startTimeUnixNano)))).toBe(now - 2600);
+    // The shipped sample itself is left as it is.
+    expect(OTEL_SAMPLE).toEqual(fixture);
+  });
+
+  it('moves a trace in time by whole nanoseconds, and leaves what isn’t a time alone', () => {
+    const trace: OtlpTrace = { resourceSpans: [{ scopeSpans: [{ spans: [{ startTimeUnixNano: '1000000000', endTimeUnixNano: '3000000000', events: [{ timeUnixNano: '2500000000', name: 'x' }, { name: 'no time' }] }, { startTimeUnixNano: 'soon' }] }] }] };
+    const moved = redateTrace(trace, 10_000);
+    expect(moved.resourceSpans[0]!.scopeSpans[0]!.spans).toEqual([
+      { startTimeUnixNano: '8000000000', endTimeUnixNano: '10000000000', events: [{ timeUnixNano: '9500000000', name: 'x' }, { name: 'no time' }] },
+      { startTimeUnixNano: 'soon' },
+    ]);
+    const timeless: OtlpTrace = { resourceSpans: [{ scopeSpans: [{ spans: [{ name: 'a' }] }] }] };
+    expect(redateTrace(timeless, 10_000)).toBe(timeless);
   });
 });
 

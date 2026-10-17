@@ -1,13 +1,14 @@
 import { guessImportFormat, IMPORT_FILE_FORMATS, type ImportFileFormat } from '../../../engine/src/import-format.js';
+import { OTEL_SAMPLE, OTEL_SAMPLE_NAME, type OtlpSpan, type OtlpTrace } from './sample-otel.js';
 
 /**
- * Import a capture or a trace: which format a file is, and what each trace store keeps. The format
- * is the engine's `guessImportFormat` (the file's name, then its first bytes when the name says
- * nothing); the CLI detects nothing (the format is its subcommand), so the dialog says which it
- * will run and lets the person change it. No DOM here: the tests import it.
+ * Import a capture or a trace: which format a file is, what each trace store keeps, and the sample
+ * the dialog offers. The format is the engine's `guessImportFormat` (the file's name, then its first
+ * bytes when the name says nothing); the CLI detects nothing (the format is its subcommand), so the
+ * dialog says which it will run and lets the person change it. No DOM here: the tests import it.
  */
 
-export { IMPORT_FILE_FORMATS, type ImportFileFormat };
+export { IMPORT_FILE_FORMATS, OTEL_SAMPLE_NAME, type ImportFileFormat };
 
 /** The formats the select offers, in the CLI's order; `IMPORT_FILE_FORMATS` names each. */
 export const FILE_FORMATS = Object.keys(IMPORT_FILE_FORMATS) as ImportFileFormat[];
@@ -63,4 +64,38 @@ export const TRACE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/;
 /** `LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY`. */
 export function keyList(names: readonly string[]): string {
   return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * A trace moved in time: every span's start and end, and each event's time, shifted by the same
+ * amount so the trace ends at `endMs` and keeps its own pacing. Times that are no whole number of
+ * nanoseconds are left as they are; the import reads them as it would have.
+ */
+export function redateTrace(trace: OtlpTrace, endMs: number): OtlpTrace {
+  const nanos = (v: string | undefined) => (v !== undefined && /^\d+$/.test(v) ? BigInt(v) : null);
+  const spans = trace.resourceSpans.flatMap((r) => r.scopeSpans.flatMap((sc) => sc.spans));
+  const times = spans.flatMap((sp) => [sp.startTimeUnixNano, sp.endTimeUnixNano, ...(sp.events ?? []).map((e) => e.timeUnixNano)]).map(nanos).filter((t): t is bigint => t !== null);
+  if (!times.length) return trace;
+  const last = times.reduce((a, b) => (b > a ? b : a));
+  const shift = BigInt(Math.round(endMs)) * 1_000_000n - last;
+  const move = (v: string) => {
+    const t = nanos(v);
+    return t === null ? v : String(t + shift);
+  };
+  const span = (sp: OtlpSpan): OtlpSpan => ({
+    ...sp,
+    ...(sp.startTimeUnixNano !== undefined ? { startTimeUnixNano: move(sp.startTimeUnixNano) } : {}),
+    ...(sp.endTimeUnixNano !== undefined ? { endTimeUnixNano: move(sp.endTimeUnixNano) } : {}),
+    ...(sp.events ? { events: sp.events.map((e) => (e.timeUnixNano !== undefined ? { ...e, timeUnixNano: move(e.timeUnixNano) } : e)) } : {}),
+  });
+  return { ...trace, resourceSpans: trace.resourceSpans.map((r) => ({ ...r, scopeSpans: r.scopeSpans.map((sc) => ({ ...sc, spans: sc.spans.map(span) })) })) };
+}
+
+/**
+ * "Use a sample: otel-traces.json": the trace the dashboard ships (`sample-otel.ts`), as the file
+ * the dialog picks. It is dated to end now, so the run it makes is today's, as a capture just
+ * exported would be; it goes up and is imported like any file picked.
+ */
+export function sampleTrace(now = Date.now()): { name: string; text: string } {
+  return { name: OTEL_SAMPLE_NAME, text: `${JSON.stringify(redateTrace(OTEL_SAMPLE, now), null, 1)}\n` };
 }

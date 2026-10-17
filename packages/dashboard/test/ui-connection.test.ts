@@ -5,7 +5,7 @@ import { connStart, connStep, feedCursor, onTick, reloadFor, secondsLeft, type C
 import { sameRun } from '../ui/format.js';
 import { addRun } from './read-model-store.js';
 import { afterPollError, jobStatus } from '../ui/jobs.js';
-import { followNewest, recordingEnded } from '../ui/live.js';
+import { endedRecordings, followNewest, recordingEnded, recordingToast, type ListedRun } from '../ui/live.js';
 
 describe('the connection to the dashboard server', () => {
   it('goes offline when nothing answers, and counts down 5, 10, 20, then 30 seconds between tries', () => {
@@ -147,5 +147,48 @@ describe('a recording followed live', () => {
     expect(recordingEnded(step())).toBeNull();
     expect(recordingEnded(step({ wasStatus: 'completed', status: 'completed' }))).toBeNull();
     expect(followNewest(step({ prevLast: null, last: 1, selected: null }))).toBeNull();
+  });
+
+  // The run list the shell loads every 2 s: what was recording at the last load, and what it says now.
+  const listed = (runId: string, status: string, calls: number, over: Partial<ListedRun> = {}): ListedRun => ({ runId, status, calls, ...over });
+
+  it('says on any page that a recording finished, from two loads of the run list', () => {
+    const before = [listed('01M53JE2Q0AAAAAAAAAAAAAAAA', 'running', 14), listed('01M53HB064AAAAAAAAAAAAAAAA', 'completed', 30)];
+    // running → completed (the agent exited 0) or failed (it exited 1): finished either way.
+    for (const status of ['completed', 'failed']) {
+      const ended = endedRecordings(before, [listed('01M53JE2Q0AAAAAAAAAAAAAAAA', status, 32), before[1]!]);
+      expect(ended).toEqual([{ runId: '01M53JE2Q0AAAAAAAAAAAAAAAA', calls: 32, how: 'finished' }]);
+      expect(recordingToast(ended)).toBe('Recording finished · 01M53JE2Q0 · 32 calls');
+    }
+    // Still recording, or a run that had already ended: nothing to say.
+    expect(endedRecordings(before, [listed('01M53JE2Q0AAAAAAAAAAAAAAAA', 'running', 20), before[1]!])).toEqual([]);
+    expect(recordingToast([])).toBeNull();
+  });
+
+  it('says a recording stopped before its end was interrupted (Ctrl-C, or its recorder killed)', () => {
+    const ended = endedRecordings([listed('01M53NQRN1AAAAAAAAAAAAAAAA', 'running', 9)], [listed('01M53NQRN1AAAAAAAAAAAAAAAA', 'crashed', 14)]);
+    expect(ended).toEqual([{ runId: '01M53NQRN1AAAAAAAAAAAAAAAA', calls: 14, how: 'interrupted' }]);
+    expect(recordingToast(ended)).toBe('Recording interrupted · 01M53NQRN1 · 14 calls');
+    expect(recordingToast([{ runId: '01M53NQRN1AAAAAAAAAAAAAAAA', calls: 1, how: 'finished' }])).toBe('Recording finished · 01M53NQRN1 · 1 call');
+  });
+
+  it('leaves out the first load, a deleted run, attempts, test replays and what a job this page follows made', () => {
+    const was = (runId: string, over: Partial<ListedRun> = {}) => listed(runId, 'running', 5, over);
+    const now = (runId: string, over: Partial<ListedRun> = {}) => listed(runId, 'completed', 9, over);
+    expect(endedRecordings(null, [now('A')])).toEqual([]);
+    expect(endedRecordings([was('A')], [])).toEqual([]);
+    expect(endedRecordings([was('P', { attempt: 'probe', attemptOf: 'R' })], [now('P', { attempt: 'probe', attemptOf: 'R' })])).toEqual([]);
+    expect(endedRecordings([was('T', { test: { golden: 'goldens/a' } })], [now('T', { test: { golden: 'goldens/a' } })])).toEqual([]);
+    // A Replay the dashboard started: its drawer, or its toast when it ends, says how it went.
+    expect(endedRecordings([was('J'), was('K')], [now('J'), now('K')], new Set(['J']))).toEqual([{ runId: 'K', calls: 9, how: 'finished' }]);
+  });
+
+  it('names how many ended when several end between two loads', () => {
+    const before = ['01M53NP35MAAAAAAAAAAAAAAAA', '01M53NPSHFAAAAAAAAAAAAAAAA', '01M53NQ97XAAAAAAAAAAAAAAAA', '01M53NQRN1AAAAAAAAAAAAAAAA'].map((id) => listed(id, 'running', 3));
+    const done = before.map((r) => ({ ...r, status: 'completed' }));
+    expect(recordingToast(endedRecordings(before.slice(0, 2), done.slice(0, 2)))).toBe('2 recordings finished · 01M53NP35M, 01M53NPSHF');
+    expect(recordingToast(endedRecordings(before, done))).toBe('4 recordings finished · 01M53NP35M, 01M53NPSHF, 01M53NQ97X, …');
+    expect(recordingToast(endedRecordings(before.slice(0, 2), [done[0]!, { ...done[1]!, status: 'crashed' }]))).toBe('2 recordings ended · 01M53NP35M, 01M53NPSHF');
+    expect(recordingToast(endedRecordings(before.slice(0, 2), done.slice(0, 2).map((r) => ({ ...r, status: 'crashed' }))))).toBe('2 recordings interrupted · 01M53NP35M, 01M53NPSHF');
   });
 });

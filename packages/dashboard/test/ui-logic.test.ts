@@ -3,7 +3,7 @@ import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '.
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
 import { approx, compactPath, dur, durLong, ktok, money, projectOfStore, shortFingerprint, shortHash, tildePath, whenShort } from '../ui/format.js';
-import { endToast, jobStatus, jobTitle, lastLine, lineTone } from '../ui/jobs.js';
+import { calibrationTarget, endToast, isPlainReplay, jobStatus, jobTitle, lastLine, lineTone, replayDivergence, type RunLink } from '../ui/jobs.js';
 import { displayOrigin, parseOrigins } from '../ui/origins.js';
 import { ACTION_ORDER, highlight, limitRecorded, matchPalette, snippetParts, type PaletteEntry } from '../ui/palette.js';
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
@@ -501,9 +501,9 @@ describe('job drawer', () => {
     const done = (code: number | null) => ({ args: ['replay', 'X'], done: true, code });
     expect(jobStatus({ ...done(0), done: false }, [])).toEqual({ text: 'running', tone: '' });
     expect(jobStatus(done(0), ['✓ Replay clean: 30/30 calls replayed'])).toEqual({ text: 'reproduced · exit 0', tone: 'ok' });
-    expect(jobStatus(done(1), ['✗ Diverged at call 1 (api POST /v1/messages)'])).toEqual({ text: 'diverged · exit 1', tone: 'err' });
+    expect(jobStatus(done(1), ['✗ Diverged at call 1 (api POST /v1/messages)'])).toEqual({ text: 'diverged at #1 · exit 1', tone: 'err' });
     expect(jobStatus(done(1), ['✗ check failed: issue_refund called 1×'])).toEqual({ text: 'check failed · exit 1', tone: 'err' });
-    expect(jobStatus(done(1), ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
+    expect(jobStatus({ ...done(1), args: ['replay', 'X', '--fail-at', '19=529'] }, ['⑂ Forked at call 19', '  the agent process exited with an error'])).toEqual({ text: 'agent exited 1', tone: 'warn' });
     expect(jobStatus(done(null), [])).toEqual({ text: 'stopped', tone: 'err' });
     expect(lastLine(['a', '✓ Forked at call 17 · ran to the end', '  '])).toBe('Forked at call 17 · ran to the end');
   });
@@ -511,9 +511,74 @@ describe('job drawer', () => {
   it('says how a job ended when its drawer was closed: the outcome, or its last line when that is all the exit code says', () => {
     const tests = { args: ['test', 'goldens/a', 'goldens/b'], done: true, code: 1 };
     expect(endToast(tests, ['✗ refund-in-limit diverged at call 3', '5 passed, 1 failed', 'If the change was intended, update it: shadowlap test goldens/refund-in-limit --update'])).toBe('Running the tests finished · 1 failed · exit 1');
-    expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replaying finished · forked · exit 0');
+    expect(endToast({ args: ['replay', 'X'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Replaying finished · diverged at #1 · went live · exit 0');
+    expect(endToast({ args: ['replay', 'X', '--inject', '1=Escalate it'], done: true, code: 0 }, ['⑂ Forked at call 1: 0 calls replayed, then 6 live', '  shadowlap show 01M51XXYH5'])).toBe('Forking finished · forked · exit 0');
     expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 0 }, ['✓ packed share/x · 14 calls'])).toBe('Packing finished · packed share/x · 14 calls');
     expect(endToast({ args: ['pack', 'X', 'share/x'], done: true, code: 2 }, [])).toBe('Packing finished · exit 2');
+  });
+
+  // What `shadowlap replay` printed for a recording made before the agent sent a per-run user id.
+  const DIVERGED = [
+    '[shadowlap] replaying run 01M53NKBCHNWFMBS9RFZHCREE4',
+    'T-8830: Refunded $45 for order A-1131 and emailed the customer.',
+    '',
+    '⑂ Forked at call 3: 2 calls replayed, then 22 live, 3 writes blocked; 14 upstream requests (≈$0.016 spent, $0 saved)',
+    '  24 recorded calls left unused after the fork: #4 get_ticket, #5 POST /v1/messages, #6 lookup_order, …',
+    '✗ Diverged at call 3 (api POST /v1/messages): 2 calls replayed before divergence',
+    '  compared with run 01M53ND946…, call 3',
+    '  + $.metadata',
+    '      + {"user_id":"45198520-6225-4de7-83ef-958d870069fd"}',
+    '  shadowlap show 01M53NKBCH',
+  ];
+
+  it('says a Replay whose request differed diverged and went live, not that it forked', () => {
+    const replay = { args: ['replay', '01M53ND946RMMXD6M1QXJKNK9C'], done: true, code: 0, kind: 'action', title: 'Replaying' };
+    expect(replayDivergence(replay, DIVERGED)).toEqual({ callNo: 3, live: true });
+    expect(jobStatus(replay, DIVERGED)).toEqual({ text: 'diverged at #3 · went live · exit 0', tone: 'warn' });
+    // The agent failed once it went live, or its checks did: red.
+    expect(jobStatus({ ...replay, code: 1 }, [...DIVERGED, '✗ 1 of 2 checks failed (shadowlap.config.json for 01M53ND946)'])).toEqual({ text: 'diverged at #3 · went live · exit 1', tone: 'err' });
+    // Stub the writes is a replay too, and so is a capture replayed with a command of its own, whatever flags that command takes.
+    expect(jobStatus({ ...replay, args: ['replay', 'X', '--writes', 'stub'] }, DIVERGED).text).toBe('diverged at #3 · went live · exit 0');
+    expect(isPlainReplay({ args: ['replay', 'X', '--', 'python', 'agent.py', '--model', 'gpt-5'] })).toBe(true);
+    // A clean replay, and one still running, diverged nowhere.
+    expect(replayDivergence(replay, ['✓ Replay clean: 30/30 calls replayed (10 api, 20 tool), 0 upstream requests'])).toBeNull();
+    expect(jobStatus(replay, ['✓ Replay clean: 30/30 calls replayed'])).toEqual({ text: 'reproduced · exit 0', tone: 'ok' });
+    expect(replayDivergence({ ...replay, done: false, code: null }, DIVERGED)).toBeNull();
+  });
+
+  it('keeps forked for what the fork menu runs: the change it was asked for is where it diverges', () => {
+    const fork = (flags: string[]) => ({ args: ['replay', 'X', ...flags], done: true, code: 0 });
+    for (const flags of [['--override', '16={"limit":100}'], ['--inject', '3=Escalate it'], ['--set', '3:temperature=1'], ['--diverge-at', '5'], ['--live-tool', 'get_policy'], ['--fail-at=19=529']]) {
+      expect(isPlainReplay(fork(flags))).toBe(false);
+      expect(replayDivergence(fork(flags), DIVERGED)).toBeNull();
+      expect(jobStatus(fork(flags), DIVERGED)).toEqual({ text: 'forked · exit 0', tone: 'ok' });
+      expect(jobTitle(fork(flags))).toBe('Forking');
+    }
+    expect(isPlainReplay(fork(['--repeat', '5']))).toBe(false);
+    expect(isPlainReplay({ args: ['test', 'goldens/a'] })).toBe(false);
+  });
+
+  it('calibrates the recording a diverged replay came from, when there is one calibrate takes', () => {
+    const run = (runId: string, over: Partial<RunLink> = {}): RunLink => ({ runId, parentRunId: null, mode: 'record', status: 'completed', imported: false, ...over });
+    const runs = [
+      run('REC'),
+      run('FORK', { mode: 'replay', parentRunId: 'REC' }),
+      run('FORK2', { mode: 'replay', parentRunId: 'FORK' }),
+      run('FAILED', { status: 'failed' }),
+      run('LIVE', { status: 'running' }),
+      run('CUT', { status: 'crashed' }),
+      run('CAPTURE', { imported: true }),
+      run('OFCAPTURE', { mode: 'replay', parentRunId: 'CAPTURE' }),
+      run('ORPHAN', { mode: 'replay', parentRunId: 'GONE' }),
+    ];
+    expect(calibrationTarget('REC', runs)).toBe('REC');
+    expect(calibrationTarget('FORK', runs)).toBe('REC');
+    expect(calibrationTarget('FORK2', runs)).toBe('REC');
+    expect(calibrationTarget('FAILED', runs)).toBe('FAILED');
+    for (const id of ['LIVE', 'CUT', 'CAPTURE', 'OFCAPTURE', 'ORPHAN', 'NOPE']) expect(calibrationTarget(id, runs)).toBeNull();
+    expect(calibrationTarget(null, runs)).toBeNull();
+    // A list whose parents loop ends the walk.
+    expect(calibrationTarget('A', [run('A', { mode: 'replay', parentRunId: 'B' }), run('B', { mode: 'replay', parentRunId: 'A' })])).toBeNull();
   });
 });
 

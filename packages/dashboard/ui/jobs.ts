@@ -31,7 +31,28 @@ export function afterPollError(e: { status: number | null; unreachable: boolean;
   return e.failures >= 5 ? 'lost' : 'retry';
 }
 
-const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result'];
+/** The replay options that change the run at a call: a replay with one of them is a fork. */
+const FORK_FLAGS = ['--inject', '--override', '--fail-at', '--model', '--prompt-from', '--diverge-at', '--live-tool', '--inject-result', '--set', '--live-input'];
+
+/** A command's own options: what follows `--` is the agent's command, with flags of its own. */
+function ownArgs(args: readonly string[]): readonly string[] {
+  const end = args.indexOf('--');
+  return end < 0 ? args : args.slice(0, end);
+}
+
+/** Whether a replay's options fork it at a call (`--inject 17=…`, `--fail-at=19=529`). */
+function forks(args: readonly string[]): boolean {
+  return ownArgs(args).some((a) => FORK_FLAGS.includes(a.split('=')[0]!));
+}
+
+/**
+ * A Replay: `replay <run>` with nothing that forks it and no `--repeat`. A policy for the writes or
+ * the reads keeps it one (Stub the writes), and so does the command a capture is replayed with.
+ */
+export function isPlainReplay(job: Pick<JobLike, 'args'>): boolean {
+  const own = ownArgs(job.args);
+  return own[0] === 'replay' && !own.includes('--repeat') && !forks(job.args);
+}
 
 /** What the drawer calls a job: "Replaying", "Forking", "Packing". */
 export function jobTitle(job: JobLike): string {
@@ -39,8 +60,8 @@ export function jobTitle(job: JobLike): string {
   const [cmd, sub] = job.args;
   switch (cmd) {
     case 'replay':
-      if (job.args.includes('--repeat')) return 'Repeating';
-      return job.args.some((a) => FORK_FLAGS.includes(a)) ? 'Forking' : 'Replaying';
+      if (ownArgs(job.args).includes('--repeat')) return 'Repeating';
+      return forks(job.args) ? 'Forking' : 'Replaying';
     case 'pack':
       return 'Packing';
     case 'normalize':
@@ -92,6 +113,38 @@ export function lineTone(line: string): LineTone {
 }
 
 /**
+ * Where a Replay stopped matching its recording, from the CLI's report: the call it names ("✗
+ * Diverged at call 3 (api POST /v1/messages)…"), and whether the replay went on live from there
+ * ("⑂ Forked at call 3: 2 calls replayed, then 22 live…"), as `replay` does. Null while it runs,
+ * for a replay that stayed clean, and for every other job: a fork diverges where its flag changed
+ * the run, which is what it was asked for.
+ */
+export function replayDivergence(job: JobLike, lines: readonly string[]): { callNo: number; live: boolean } | null {
+  if (!job.done || !isPlainReplay(job)) return null;
+  const all = lines.join('\n');
+  const at = [...all.matchAll(/^\s*(?:✗\s*)?Diverged at call (\d+)/gm)].at(-1) ?? [...all.matchAll(/^\s*(?:⑂\s*)?Forked at call (\d+)/gm)].at(-1);
+  if (!at) return null;
+  return { callNo: Number(at[1]), live: /^\s*(?:⑂\s*)?Forked at call \d+/m.test(all) };
+}
+
+/** A run as the run list has it: enough to walk from a replay to the recording it came from. */
+export type RunLink = { runId: string; parentRunId: string | null; mode: string; status: string; imported: boolean };
+
+/**
+ * The recording Calibrate replays after a Replay diverged: the run replayed when it is a recording,
+ * else the recording its replays came from. Null when there is none Calibrate takes: a capture or a
+ * pack's run (no command recorded here), one that didn't end, or one this list doesn't have. The
+ * server's calibrate job checks again.
+ */
+export function calibrationTarget(runId: string | null | undefined, runs: readonly RunLink[]): string | null {
+  const byId = new Map(runs.map((r) => [r.runId, r]));
+  let r = runId ? byId.get(runId) : undefined;
+  for (let hops = 0; r && r.mode !== 'record' && hops < 100; hops++) r = r.parentRunId ? byId.get(r.parentRunId) : undefined;
+  if (!r || r.mode !== 'record' || r.imported) return null;
+  return r.status === 'completed' || r.status === 'failed' ? r.runId : null;
+}
+
+/**
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
@@ -108,6 +161,10 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
   const code = job.code;
   if (code === null) return { text: 'stopped', tone: 'err' };
   const exit = `exit ${code}`;
+  // A Replay whose request differed from the recording didn't reproduce the run, whatever the agent
+  // did once it went live, so that leads: amber when the agent ended well, red when it didn't.
+  const diverged = replayDivergence(job, lines);
+  if (diverged) return { text: `diverged at #${diverged.callNo}${diverged.live ? ' · went live' : ''} · ${exit}`, tone: code === 0 ? 'warn' : 'err' };
   // Find the commit: whether bisect named the first bad commit.
   if (/^✓ first bad commit /m.test(all)) return { text: `found · ${exit}`, tone: 'ok' };
   if (/^✗ no first bad commit/m.test(all)) return { text: `not found · ${exit}`, tone: 'warn' };
