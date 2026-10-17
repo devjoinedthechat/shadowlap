@@ -684,7 +684,7 @@ shadowlap export html <run> --no-redact        # skip the config's redaction rul
 
 One HTML file with the dashboard's views and the run's data built into it: calls, conversations, responses, the divergence diff, the context and timeline views, and comparison between the runs it holds. It opens from a file, an artifact or a pull request comment, on a machine that has neither Shadowlap nor the recording, and it loads nothing from the network. Actions, live updates and search across runs belong to the dashboard, not to a copy.
 
-It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says how many applied, that there were none, or, with `--no-redact`, how many it skipped. A run still recording is refused, exit status 1 (every export waits for a run to end, or the copy would show it recording for good); with `--lineage`, so is a run whose ancestor is still recording. Like a pack, it leaves out who made each run. A 30-call run is roughly 500 kB.
+It is a copy of recorded data: the redaction rules in `shadowlap.config.json` apply, as they do to `pack`, and the command says how many applied, that there were none, or, with `--no-redact`, how many it skipped. A run still recording is refused, exit status 1 (every export waits for a run to end, or the copy would show it recording for good); with `--lineage`, so is a run whose ancestor is still recording. Like a pack, it leaves out who made each run. A 30-call run comes to about 1.2 MB, most of it the dashboard's own code, styles and fonts, which every copy carries.
 
 ## export dataset
 
