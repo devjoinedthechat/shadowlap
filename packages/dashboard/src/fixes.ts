@@ -620,6 +620,9 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
   }
   const dir = r.dir.replace(/\/+$/, '');
   const goldens = rep.output.goldens.length;
+  const none = noRepairerOf(rep);
+  // A report kept before it said why no repairer proposed anything only says there was nothing to try: that is why.
+  const why = none && !rep.candidates.length && rep.why === 'there was no candidate to try' ? none.text : rep.why;
   return {
     repairId: r.repairId,
     at: r.at,
@@ -627,9 +630,9 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     outcome: r.outcome,
     accepted: r.accepted,
     title: c ? commitTitle(c) : 'No fix yet',
-    why: c ? null : rep.why,
+    why: c ? null : why,
     repairer: repairerLabel(r),
-    noRepairer: noRepairerOf(rep),
+    noRepairer: none,
     served: rep.repairer?.served && rep.repairer.served !== rep.repairer.model ? rep.repairer.served : null,
     verify: v ? { verifyId: verdict?.verifyId ?? null, attempts: v.attempts, spent: v.spent, counts: verdict ? verdictCounts(rec, verdict) : false } : null,
     change: c ? { file: c.file, anchor: c.surface, before: c.before, after: c.after, ...addedText(c.before, c.after) } : null,

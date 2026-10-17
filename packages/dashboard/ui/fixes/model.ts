@@ -273,14 +273,16 @@ export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer
 
 /**
  * What a repair that accepted nothing says after where its candidates came from: how many it tried,
- * or why it found none. Null when that is only the repairer's silence again, which `repairBy` says.
+ * or why it found none (`interrupted`). Null when that is only the repairer's silence again, which
+ * `repairBy` says.
  */
 export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'noRepairer'>): string | null {
   if (r.candidates.length) {
     const tried = r.candidates.filter((c) => c.verdict !== 'set aside' && c.verdict !== 'not tried').length;
     return `${tried} candidate${s(tried)} tried, none accepted`;
   }
-  return r.noRepairer ? null : (r.why ?? 'nothing was accepted');
+  if (r.noRepairer && r.why === r.noRepairer.text) return null;
+  return r.why ?? 'nothing was accepted';
 }
 
 /** The warnings the foot of the Repair step lists: all but the one its header says already (`repairBy`). */

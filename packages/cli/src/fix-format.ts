@@ -91,7 +91,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
       out.push(`  ${p.red(`- ${one(r.change.before, 200)}`)}`, `  ${p.green(`+ ${one(r.change.after, 200)}`)}`);
       if (r.roles.length) out.push(`  ${r.roles.map((x) => `${x.role} ${x.held} of ${x.of}`).join(' · ')}${r.needed !== null ? `, each on ${r.needed} of ${r.attemptsPerRun} attempts` : ''}`);
       if (r.verify && !r.verify.counts) out.push(`  ${p.yellow('!')} verified under another check than this fix's, so it doesn't count for it`);
-    } else if (r.why && (r.candidates.length || !r.noRepairer)) out.push(`  ${one(r.why, 200)}`);
+    } else if (r.why && r.why !== r.noRepairer?.text) out.push(`  ${one(r.why, 200)}`);
     if (r.diagnosis) out.push(`  ${p.dim('diagnosis:')} ${one(r.diagnosis, 200)}`);
     if (r.candidates.length) {
       out.push(`  ${p.dim('candidates, smallest first:')}`);
@@ -127,8 +127,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     out.push(`  next: ${repairLine(d.actions.repair.argv, o.repairer)}`);
     // Its repairer can't be asked from here: it would blame the runs and find no one to propose a fix.
     if (d.repairer.problem) out.push(`  ${p.yellow('!')} ${one(d.repairer.problem, 600)}`);
-  }
-  else if (apply && !d.actions.applied) {
+  } else if (apply && !d.actions.applied) {
     if (apply.kind === 'patch') out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)}${apply.gitApply ? p.dim(`   (or by hand: ${apply.gitApply})`) : ''}`);
     else out.push(`  next: shadowlap fix apply ${shortFixId(d.fixId)} ${p.dim('(verified on your working tree: marks it applied)')}`);
   }

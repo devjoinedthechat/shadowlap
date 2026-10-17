@@ -107,8 +107,8 @@ describe('the Repair step', () => {
   it('follows with what a repair that accepted nothing tried, unless that is only the repairer’s silence again', () => {
     const tried = (verdict: RepairStep['candidates'][number]['verdict']) => ({ verdict }) as RepairStep['candidates'][number];
     expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: unasked.text }))).toBeNull();
-    // A report kept before it said why in a few words: its why adds nothing either.
-    expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: 'there was no candidate to try' }))).toBeNull();
+    // Stopped after the repairer couldn't be asked: that it stopped is news.
+    expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: 'interrupted' }))).toBe('interrupted');
     expect(nothingAcceptedWhy(step({ why: 'interrupted' }))).toBe('interrupted');
     expect(nothingAcceptedWhy(step({}))).toBe('nothing was accepted');
     expect(nothingAcceptedWhy(step({ candidates: [tried('set aside'), tried('rejected')], noRepairer: unasked }))).toBe('1 candidate tried, none accepted');

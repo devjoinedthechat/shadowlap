@@ -204,6 +204,8 @@ describe('a fix', () => {
     d = fixDetail(store, fix.fixId)!;
     expect(d.steps[1]!.meta).toBe('the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found');
     expect(d.repair!.noRepairer!.warning).toMatch(/^the repairer could not be asked: the claude-code repairer runs Claude Code/);
+    // Its why, "there was no candidate to try", reads as what kept the repairer from proposing one.
+    expect(d.repair!.why).toBe('the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found');
 
     // Nothing in the project it could rewrite, as an older report says it.
     keep('repair-noanchors', nothing({ why: 'there was no candidate to try', warnings: ["none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files, so the repairer had nothing it could rewrite"] }), NOW + 2);
