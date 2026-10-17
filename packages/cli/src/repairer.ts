@@ -36,9 +36,17 @@ export function parseRepairer(spec: string): Repairer {
   return { provider, model: model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_REPAIRER : '') };
 }
 
+/**
+ * Why the repairer could not be asked, or its answer could not be used. `what` says it in a few
+ * words (`claude was not found`), as a fix's Repair step shows it; the message adds what to do about
+ * it, or the detail a log needs (`claude was not found: install Claude Code, or set …`).
+ */
 export class RepairerError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(
+    readonly what: string,
+    detail?: string | null,
+  ) {
+    super(detail ? `${what}: ${detail}` : what);
     this.name = 'RepairerError';
   }
 }
@@ -226,7 +234,7 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
     const child = spawn(start.command, start.args, start.options);
     child.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
     child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
-    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`the claude-code repairer runs Claude Code, and ${bin} was not found: install it, or set SHADOWLAP_CLAUDE to its path`) : err));
+    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`${bin} was not found`, 'install Claude Code, or set SHADOWLAP_CLAUDE to its path') : err));
     // On 'close', not 'exit': the last of stdout can arrive after the process exits, through
     // cmd.exe most of all, and the report is read whole.
     child.on('close', (c) => resolveCode(c ?? 1));
@@ -239,9 +247,9 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   try {
     d = JSON.parse(stdout);
   } catch {
-    throw new RepairerError(`Claude Code did not answer with its JSON report (exit ${code})${stderr.trim() ? `: ${safeLine(stderr.trim().split('\n').at(-1)!)}` : ''}`);
+    throw new RepairerError(`Claude Code did not answer with its JSON report (exit ${code})`, stderr.trim() ? safeLine(stderr.trim().split('\n').at(-1)!) : null);
   }
-  if (d.is_error) throw new RepairerError(`Claude Code answered with an error: ${safeLine(String(d.result ?? 'no detail'))}`);
+  if (d.is_error) throw new RepairerError('Claude Code answered with an error', safeLine(String(d.result ?? 'no detail')));
   const out = parsed(d.structured_output ?? jsonIn(d.result ?? ''));
   const served = Object.keys(d.modelUsage ?? {})[0] ?? (r.model || 'claude-code');
   const u = d.usage ?? {};
@@ -258,7 +266,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
     sdk = await import('@anthropic-ai/sdk');
     helpers = await import('@anthropic-ai/sdk/helpers/beta/json-schema');
   } catch {
-    throw new RepairerError('an anthropic repairer needs the Anthropic SDK, which Shadowlap does not install for everyone: npm install @anthropic-ai/sdk');
+    throw new RepairerError('the Anthropic SDK is not installed', 'an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install @anthropic-ai/sdk');
   }
   const Anthropic = sdk.default;
   const { betaJSONSchemaOutputFormat } = helpers;
@@ -276,9 +284,9 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
       ...(FALLBACK.has(r.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
     });
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) throw new RepairerError('the Anthropic API refused the credentials: set ANTHROPIC_API_KEY, or run ant auth login');
+    if (err instanceof Anthropic.AuthenticationError) throw new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
-    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}: ${err.message}`);
+    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}`, err.message);
     throw err;
   }
   if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');
@@ -305,7 +313,7 @@ async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, 
       response_format: { type: 'json_schema', json_schema: { name: 'repair_candidates', strict: true, schema: SCHEMA } },
     }),
   }).catch((err: unknown) => {
-    throw new RepairerError(`could not reach ${base}: ${(err as Error).message}`);
+    throw new RepairerError(`could not reach ${base}`, (err as Error).message);
   });
   const body = (await res.json().catch(() => null)) as {
     model?: string;
@@ -313,7 +321,7 @@ async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, 
     choices?: Array<{ finish_reason?: string; message?: { content?: string | null; refusal?: string | null } }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
   } | null;
-  if (!res.ok) throw new RepairerError(`${base} answered ${res.status}${body?.error?.message ? `: ${body.error.message}` : ''}${res.status === 401 ? ' (set OPENAI_API_KEY)' : ''}`);
+  if (!res.ok) throw new RepairerError(`${base} answered ${res.status}${res.status === 401 ? ' (set OPENAI_API_KEY)' : ''}`, body?.error?.message ?? null);
   const choice = body?.choices?.[0];
   if (choice?.message?.refusal) throw new RepairerError('the repairer declined to answer');
   if (choice?.finish_reason === 'length') throw new RepairerError('the repairer ran out of tokens before it finished its answer');

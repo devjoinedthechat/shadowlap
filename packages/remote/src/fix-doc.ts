@@ -216,6 +216,8 @@ const repairReport = obj({
   heldOutAutomatically: bool,
   oracle: arr(str),
   repairer: nullable(obj({ provider: line, model: line, served: nullable(line), cost: nullable(amount) })),
+  // Why no repairer proposed candidates; a report from before it was kept has none.
+  noRepairer: optional(nullable(line)),
   diagnosis: nullable(str),
   anchors: amount,
   candidates: arr(repairCandidate),

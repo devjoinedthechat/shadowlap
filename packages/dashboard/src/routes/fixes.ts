@@ -5,6 +5,7 @@ import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, f
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { storePrStates } from '../pr-state.js';
+import { repairerProblem } from '../repairer-check.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 
@@ -20,9 +21,10 @@ import type { Router } from '../router.js';
  * the fix it fails in or its labels point to, or the agent's exit; when none of those applies, or
  * the run failed a check none of them names, it answers 422 and the page asks. A repair comes with
  * the repairer its confirm dialog named, and is refused (409) when shadowlap.config.json names
- * another by then. Repair and apply change the working tree, so the job manager runs them alone in
- * their project (worktree.ts). A fix's pull request state is read from GitHub in the background as
- * the pages are read (pr-state.ts).
+ * another by then, or when that repairer can't be asked from here (claude not found on the PATH the
+ * jobs get, which the fix's `repairer.problem` says first). Repair and apply change the working
+ * tree, so the job manager runs them alone in their project (worktree.ts). A fix's pull request
+ * state is read from GitHub in the background as the pages are read (pr-state.ts).
  */
 
 const STATUSES = new Set<string>(['all', ...FIX_STATUSES]);
@@ -159,9 +161,11 @@ function repairJob(req: JobRequest, store: Store, repairer: string | null): JobB
   const configured = repairer?.trim() || null;
   const changed = repairerChanged(req, configured);
   if (changed) return changed;
-  const d = fixDetail(store, fix.fixId, { repairer: configured })!;
+  const d = fixDetail(store, fix.fixId, { repairer: configured, checkRepairer: repairerProblem })!;
   if (fix.status !== 'open') return { error: `${short(fix.fixId)} is ${fix.status} already: a change was verified for it`, status: 409 };
   if (!d.actions.repair) return { error: `none of the failing runs of ${short(fix.fixId)} is left in the store, so there is nothing to repair`, status: 409 };
+  // It would blame every failing run, then find no one to propose a fix: nothing runs.
+  if (d.repairer.problem) return { error: `${d.repairer.problem.replace(/\.$/, '')}. Nothing ran`, status: 409 };
   // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes);
   if (consent) return consent;
@@ -204,7 +208,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/fixes/:id', (r) => {
     const fix = findFix(store, r.params.id);
     prs?.refresh([fix]);
-    r.tagged(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx) }));
+    r.tagged(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem }));
   });
 
   router.put('/fixes/:id/title', async (r) => {
@@ -212,7 +216,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const fix = findFix(store, r.params.id);
     if (typeof body.title !== 'string' || !body.title.trim()) throw new HttpError(400, 'a title needs some text');
     setFixTitle(store, fix.fixId, body.title);
-    r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx) }));
+    r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem }));
   });
 
   // Repair and apply change the working tree, and blame runs the agent from it: the job manager

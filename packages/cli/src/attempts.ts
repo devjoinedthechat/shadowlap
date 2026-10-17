@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { estimateCost, finalAnswer, formatDuration, formatUsd, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
+import { stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
 import { evaluateChecks, type CheckResult, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
@@ -187,6 +188,8 @@ export class AttemptRunner {
       ...(target.commandFromImport ? { commandFromImport: true } : {}),
     });
     if (extra.meta) this.store.updateRunMeta(run.runId, extra.meta);
+    // Who ran it, as every other run says: a blame's probes and the fork that rescued the run, verify's attempts.
+    stampAuthor(this.store, run.runId);
     recordsInput(this.store, run.runId);
     const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);

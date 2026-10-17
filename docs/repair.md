@@ -103,7 +103,7 @@ Any model from any vendor, configured rather than built in:
 
 Claude Code runs in an empty temporary directory, so no project's `CLAUDE.md` reaches the prompt. It runs without the variables of any Claude Code session it was started from, so a repair started inside Claude Code asks a fresh one. Its system prompt is a file (`--system-prompt-file`) and the request goes on stdin, so the command line carries no line break, and on Windows a `claude` npm installed, a batch file, runs through cmd.exe. The cost reported is Claude Code's own estimate.
 
-Without a repairer, repair still tries the fixes that need none (`--stronger`), and says it skipped the rest.
+Without a repairer, repair still tries the fixes that need none (`--stronger`), and says it skipped the rest. When no repairer proposes anything (none is configured, none of the prompt or tool descriptions is in your files to rewrite, or it can't be asked: `claude` not found, a key refused), the report says why in a few words (`noRepairer`, *the repairer could not be asked: claude was not found*), as its reason for not fixing when there was nothing else to try, and a warning says what to do. The fix's Repair step and `shadowlap fix show` say the same; the dashboard's Repair from here checks first that `claude` can be found, when Claude Code is the repairer it would ask.
 
 ## The fix it reports to
 
@@ -134,7 +134,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `targets` | Per failing run shown to the repairer: `runId`, `outcome` (`blamed`, `unrescuable`, `stopped`, `error`), where it was lost (`callNo`, its model call `step` of `steps`), the fork that rescued it (`rescuedRunId`) and the model that did when it wasn't the recorded one (`rescuedBy`), whether a blame already kept was `reused`, what the agent answered there in the recording and in the rescue (`recorded`, `rescued`), and a `note` |
 | `holdout`, `good`, `heldOutAutomatically` | The held-out failing runs and the good runs, and whether the held-out ones were taken from `--fixes` because none were named |
 | `oracle` | What a passing run must do |
-| `repairer`, `diagnosis`, `anchors` | The repairer (`provider`, `model`, the model that `served` the answer, its `cost`), what it said went wrong, and how many places in your code it could rewrite |
+| `repairer`, `noRepairer`, `diagnosis`, `anchors` | The repairer (`provider`, `model`, the model that `served` the answer, its `cost`), or `null` when none answered; why none proposed candidates, in a few words (`no repairer is configured`, `the repairer had nothing it could rewrite`, `the repairer could not be asked: claude was not found`), `null` when one did or none was needed; what it said went wrong; and how many places in your code it could rewrite |
 | `candidates` | Each rewrite tried: `id`, `source` (`repairer`, or `model` for a switch to the model that rescued the runs), `strategy`, `why`, the `surface` and `file` it changes, at `offset`, the text `before` and `after`, its `size`, its `state` (`accepted`, `rejected`, `invalid`, `untried`, `build-failed`, `incomplete`), the `reason` it wasn't kept, and its `verify` report, [as `verify --json` prints one](./verify.md#json) |
 | `accepted`, `patch` | The accepted candidate's `id` and its unified diff, or `null` |
 | `cost` | What `blame`, the `repairer` and `verify` cost, in USD |

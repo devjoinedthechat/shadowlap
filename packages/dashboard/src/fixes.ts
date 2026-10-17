@@ -13,6 +13,7 @@ import {
   footprintDelta,
   formatUsd,
   GOOD_LABEL,
+  noRepairerOf,
   outcomeOf,
   recordingsOfRun,
   repairMarkdown,
@@ -166,8 +167,15 @@ export interface RepairStep {
   title: string;
   /** Why nothing was accepted. */
   why: string | null;
-  /** Who proposed the candidates: `claude-code`, `anthropic:claude-opus-5-5`; null when no repairer was asked. */
+  /** Who proposed the candidates: `claude-code`, `anthropic:claude-opus-5-5`; null when no repairer answered. */
   repairer: string | null;
+  /**
+   * Why no repairer proposed candidates: in a few words (`text`: `the repairer could not be asked:
+   * claude was not found`, `the repairer had nothing it could rewrite`, `no repairer is configured`),
+   * and the one of `warnings` that says it at length, with what to do. Null when one answered, or
+   * when nothing called for it (a fix that needs no model was accepted, no failing run was rescued).
+   */
+  noRepairer: { text: string; warning: string | null } | null;
   /** The model that answered, when it differs from the one asked. */
   served: string | null;
   /** The gate's run on the accepted candidate: its verdict, attempts and spend, and whether it counts for this fix. */
@@ -285,9 +293,11 @@ export interface FixDetail extends FixRow {
   commands: { blame: string; repair: string; verify: string };
   /**
    * Who a repair from here asks for candidates: the repairer shadowlap.config.json names
-   * (`repair.repairer`, which the CLI reads by itself), or else the user's own Claude Code.
+   * (`repair.repairer`, which the CLI reads by itself), or else the user's own Claude Code. On an open
+   * fix, `problem` says why it can't be asked from this machine (claude not found), when the caller
+   * checks (`repairerProblem`); null otherwise.
    */
-  repairer: { name: string; configured: boolean };
+  repairer: { name: string; configured: boolean; problem: string | null };
   applied: FixData['applied'] | null;
 }
 
@@ -392,10 +402,12 @@ function stepsOf(rec: FixRecords): FixStep[] {
   if (p && c) {
     const n = p.report.candidates.length;
     const by = repairerLabel(p);
-    repair = { key: 'repair', n: '02', state: 'done', short: changeKind(c), title: commitTitle(c), meta: `candidate ${p.report.candidates.indexOf(c) + 1} of ${n} · ${by ? `proposed by ${by}` : 'no repairer needed'}${repairCounts(rec, p) ? '' : ' · verified under another check'}` };
+    repair = { key: 'repair', n: '02', state: 'done', short: changeKind(c), title: commitTitle(c), meta: `candidate ${p.report.candidates.indexOf(c) + 1} of ${n} · ${by ? `proposed by ${by}` : (noRepairerOf(p.report)?.text ?? 'no repairer needed')}${repairCounts(rec, p) ? '' : ' · verified under another check'}` };
   } else if (p) {
     const tried = p.report.candidates.filter((x) => x.state !== 'invalid' && x.state !== 'untried').length;
-    repair = { key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted` : (p.report.why ?? 'the repair found nothing to try') };
+    // A repairer that proposed nothing is why, more than "there was no candidate to try".
+    const none = noRepairerOf(p.report)?.text;
+    repair = { key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted${none ? ` · ${none}` : ''}` : (none ?? p.report.why ?? 'the repair found nothing to try') };
   } else repair = { key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: 'repair proposes a prompt fix' };
 
   let verify: FixStep;
@@ -608,6 +620,9 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
   }
   const dir = r.dir.replace(/\/+$/, '');
   const goldens = rep.output.goldens.length;
+  const none = noRepairerOf(rep);
+  // A report kept before it said why no repairer proposed anything only says there was nothing to try: that is why.
+  const why = none && !rep.candidates.length && rep.why === 'there was no candidate to try' ? none.text : rep.why;
   return {
     repairId: r.repairId,
     at: r.at,
@@ -615,8 +630,9 @@ function repairStep(rec: FixRecords, r: StoredRepair, fixId: string, pulled = fa
     outcome: r.outcome,
     accepted: r.accepted,
     title: c ? commitTitle(c) : 'No fix yet',
-    why: c ? null : rep.why,
+    why: c ? null : why,
     repairer: repairerLabel(r),
+    noRepairer: none,
     served: rep.repairer?.served && rep.repairer.served !== rep.repairer.model ? rep.repairer.served : null,
     verify: v ? { verifyId: verdict?.verifyId ?? null, attempts: v.attempts, spent: v.spent, counts: verdict ? verdictCounts(rec, verdict) : false } : null,
     change: c ? { file: c.file, anchor: c.surface, before: c.before, after: c.after, ...addedText(c.before, c.after) } : null,
@@ -776,8 +792,10 @@ function pendingText(left: { goldens: boolean; test: boolean } | null): string |
 /**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
+ * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
+ * (`repairerProblem`, which looks for claude on the PATH): this stays a read of the store without it.
  */
-export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null } = {}): FixDetail | null {
+export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -840,7 +858,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
       repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
       verify: commandLine(['verify', ...(repairArgs.length ? shortIds(repairArgs.slice(1)) : ['--fixes', '<runs>'])]),
     },
-    repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null },
+    repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null, problem: fix.status === 'open' && options.checkRepairer ? options.checkRepairer(configured ?? DEFAULT_REPAIRER, configured !== null) : null },
     applied: fix.data.applied ?? null,
   };
 }

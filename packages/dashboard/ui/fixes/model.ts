@@ -107,7 +107,8 @@ export interface RepairAsk {
  * shadowlap.config.json, which can change while the page stays open, so the dialog reads the fix
  * again as it opens (`fresh`; null while that is out) and names the repairer it read. When the read
  * fails it names the page's, as it loaded: the job is sent with the repairer named, and the server
- * refuses one the config no longer names, so a stale name can't bill another account.
+ * refuses one the config no longer names, so a stale name can't bill another account. A repairer
+ * that can't be asked from here (claude not found) is said instead, and Repair stays off.
  */
 export function repairAsk(page: FixDetail, fresh: { fix: FixDetail | null } | null): RepairAsk {
   if (!fresh) return { ready: false, who: null, repairer: null, command: page.actions.repair?.command ?? null, why: null };
@@ -115,6 +116,8 @@ export function repairAsk(page: FixDetail, fresh: { fix: FixDetail | null } | nu
   if (f.status !== 'open') return { ready: false, who: null, repairer: null, command: null, why: `It was ${f.status} meanwhile, so there is nothing left to repair.` };
   const action = fixAction(f);
   if (action.kind !== 'repair' || !f.actions.repair) return { ready: false, who: null, repairer: null, command: null, why: action.kind === 'none' ? action.why : null };
+  // The repairer can't be asked from here (claude isn't on the PATH): it would blame the runs for nothing.
+  if (f.repairer.problem) return { ready: false, who: null, repairer: null, command: f.actions.repair.command, why: f.repairer.problem };
   const who = f.repairer.configured ? `${f.repairer.name} (from shadowlap.config.json)` : 'your own Claude Code';
   return { ready: true, who, repairer: f.repairer.name, command: f.actions.repair.command, why: null };
 }
@@ -253,6 +256,39 @@ export function blameWhere(b: Pick<BlameStep, 'step' | 'steps' | 'scope'>): stri
 /** A candidate's badge: accepted in lime, rejected in red, anything else plain. */
 export function candidateTone(v: CandidateVerdict): 'ok' | 'no' | 'n' {
   return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'no' : 'n';
+}
+
+/**
+ * Where a repair's candidates came from, as its header says it: the repairer that proposed them;
+ * why none did, when one was wanted, with what to do (`the repairer could not be asked: claude was
+ * not found: install Claude Code, …`); or, for a fix that needed no model, that no repairer was
+ * needed. Null when nothing called for one (no failing run was rescued, the repair stopped first):
+ * its why says so.
+ */
+export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer' | 'accepted'>): { repairer: string; served: string | null } | { text: string } | null {
+  if (r.repairer) return { repairer: r.repairer, served: r.served };
+  if (r.noRepairer) return { text: r.noRepairer.warning ?? r.noRepairer.text };
+  return r.accepted ? { text: 'no repairer needed' } : null;
+}
+
+/**
+ * What a repair that accepted nothing says after where its candidates came from: how many it tried,
+ * or why it found none (`interrupted`). Null when that is only the repairer's silence again, which
+ * `repairBy` says.
+ */
+export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'noRepairer'>): string | null {
+  if (r.candidates.length) {
+    const tried = r.candidates.filter((c) => c.verdict !== 'set aside' && c.verdict !== 'not tried').length;
+    return `${tried} candidate${s(tried)} tried, none accepted`;
+  }
+  if (r.noRepairer && r.why === r.noRepairer.text) return null;
+  return r.why ?? 'nothing was accepted';
+}
+
+/** The warnings the foot of the Repair step lists: all but the one its header says already (`repairBy`). */
+export function footWarnings(r: Pick<RepairStep, 'warnings' | 'noRepairer' | 'repairer'>): string[] {
+  const said = !r.repairer ? r.noRepairer?.warning : null;
+  return said ? r.warnings.filter((w) => w !== said) : r.warnings;
 }
 
 /** The result per role, as a badge: "target 1 of 1", lime when every run held. */

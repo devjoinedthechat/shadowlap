@@ -145,6 +145,15 @@ const json = <T = Record<string, any>>(r: Result): T => {
   return JSON.parse(r.stdout) as T;
 };
 const store = () => Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+/** Who each run says ran it, as the Runs page's By column shows it. */
+function authors(runIds: string[]): Array<string | null> {
+  const s = store();
+  try {
+    return runIds.map((id) => s.getRun(id)?.meta?.author ?? null);
+  } finally {
+    s.close();
+  }
+}
 /** The model calls of a run, by call number: the agent's decision is the third. */
 function modelCalls(runId: string): number[] {
   const s = store();
@@ -170,6 +179,12 @@ describe('shadowlap fix', () => {
     expect(first.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}/blame` });
     expect(first.events).toContainEqual({ type: 'run', runId: blamed.contrast.rescuedRunId, role: 'passing' });
     expect(first.events.at(-1)).toMatchObject({ type: 'result', data: { runId: failed[0], outcome: 'blamed' } });
+    // Every run the blame made says who ran it, as a fork or a test replay does: its probes, and the
+    // fork that rescued the run, which Runs lists on its own.
+    const probes = blamed.probes.flatMap((x: { runs: Array<{ runId: string }> }) => x.runs.map((a) => a.runId)) as string[];
+    expect(probes.length).toBeGreaterThan(1);
+    expect(probes).toContain(blamed.contrast.rescuedRunId);
+    expect(new Set(authors(probes))).toEqual(new Set(['dana']));
 
     // A title of one's own stays when the next blame joins.
     const titled = await shadowlap(['fix', 'title', fixId.slice(0, 13), 'Refunds', 'above', 'the', 'limit', 'issued', 'without', 'approval']);
@@ -194,6 +209,10 @@ describe('shadowlap fix', () => {
     expect(no).toMatchObject({ verdict: 'rejected', fixes: [{ fixId, status: 'open' }] });
     expect(no.verifyId).toMatch(/^vf-[0-9A-Z]{26}$/);
     expect(rejected.events).toContainEqual({ type: 'link', label: 'Open the fix', href: `#/fixes/${fixId}/verify/${no.verifyId}` });
+    // Its attempts say who ran them too.
+    const attempts = no.runs.flatMap((x: { runs: Array<{ runId: string }> }) => x.runs.map((a) => a.runId)) as string[];
+    expect(attempts.length).toBeGreaterThan(1);
+    expect(new Set(authors(attempts))).toEqual(new Set(['dana']));
 
     // A fix made by hand, verified: the fix turns verified.
     writeFileSync(join(project, 'agent.mjs'), agentText().replace(ORIGINAL, FIX));
@@ -386,6 +405,44 @@ describe('shadowlap fix', () => {
     const s = store();
     try {
       expect(s.listEvents({ kinds: ['repair.empty'] })[0]).toMatchObject({ ref: fixId, data: { outcome: 'not-fixed', candidates: 2 } });
+    } finally {
+      s.close();
+    }
+  });
+
+  it('says why no repairer proposed a fix when claude can’t be found, in the repair, the fix’s step and fix show', async () => {
+    const { failed } = await runs('refund-over-limit');
+    mode = 'alternate';
+    // As on a machine without Claude Code: the repair asks it, and it isn't there.
+    const claude = join(project, 'no-claude-here');
+    const r = await shadowlap(['repair', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'claude-code', '--json'], { SHADOWLAP_CLAUDE: claude });
+    expect(r.code, r.out).toBe(1);
+    const report = json(r);
+    const why = `the repairer could not be asked: ${claude} was not found`;
+    const warning = `${why}: install Claude Code, or set SHADOWLAP_CLAUDE to its path`;
+    expect(report).toMatchObject({ outcome: 'not-fixed', why, repairer: null, noRepairer: why, candidates: [] });
+    expect(report.warnings).toContain(warning);
+    const fixId = report.fixes[0].fixId as string;
+
+    const shown = json(await shadowlap(['fix', 'show', fixId, '--json'], { SHADOWLAP_CLAUDE: claude }));
+    expect(shown.steps[1]).toEqual({ key: 'repair', n: '02', state: 'todo', short: 'no fix yet', title: 'No fix yet', meta: why });
+    expect(shown.repair).toMatchObject({ outcome: 'not-fixed', repairer: null, why, noRepairer: { text: why, warning } });
+    // The repair it suggests next would ask the same missing claude: it says so.
+    expect(shown.repairer).toEqual({ name: 'claude-code', configured: false, problem: `This repair asks your own Claude Code, and ${claude}, which SHADOWLAP_CLAUDE names, was not found: point SHADOWLAP_CLAUDE at Claude Code, or name another repairer in shadowlap.config.json (repair.repairer).` });
+
+    const human = (await shadowlap(['fix', 'show', fixId], { SHADOWLAP_CLAUDE: claude })).stdout;
+    expect(human).toMatch(/· +02 repair +No fix yet +the repairer could not be asked: /);
+    expect(human).toMatch(new RegExp(`\\nRepair · ${report.repairId}, not fixed \\d+s ago · the repairer could not be asked: .*no-claude-here was not found\\n`));
+    expect(human).toContain(`  ! ${warning}\n`);
+    expect(human).toContain(`, which SHADOWLAP_CLAUDE names, was not found: point SHADOWLAP_CLAUDE at Claude Code`);
+    expect(human).not.toContain('no repairer needed');
+    expect(human).not.toContain('there was no candidate to try');
+    expect(human).not.toContain('not-fixed');
+
+    // Activity says why too.
+    const s = store();
+    try {
+      expect(s.listEvents({ kinds: ['repair.empty'] })[0]).toMatchObject({ ref: fixId, data: { outcome: 'not-fixed', why, candidates: 0 } });
     } finally {
       s.close();
     }

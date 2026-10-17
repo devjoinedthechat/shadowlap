@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, unifiedDiff, type Anchor } from '../src/repair.js';
+import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, noRepairerOf, unifiedDiff, type Anchor } from '../src/repair.js';
 
 const AGENT = `const system = process.env.AGENT_SYSTEM ?? 'You are a support agent. Follow the refund policy.';
 const tools = [
@@ -128,5 +128,33 @@ describe('unifiedDiff', () => {
     expect(d).toContain("+  { name: 'issue_refund', description: 'Refund an order within policy.' },");
     expect(d).toMatch(/^@@ -1,5 \+1,5 @@$/m);
     expect(unifiedDiff('a', 'same', 'same')).toBe('');
+  });
+});
+
+describe('noRepairerOf', () => {
+  const asked = { provider: 'anthropic', model: 'claude-opus-5-5', served: 'claude-opus-5-5', cost: 0.01 };
+  const missing = 'the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path';
+
+  it('says why no repairer proposed candidates, with the warning that says it at length', () => {
+    expect(noRepairerOf({ noRepairer: 'the repairer could not be asked: claude was not found', repairer: null, warnings: ['agent.mjs changed while candidate 2 was verified', missing] })).toEqual({ text: 'the repairer could not be asked: claude was not found', warning: missing });
+    expect(noRepairerOf({ noRepairer: 'the repairer had nothing it could rewrite', repairer: null, warnings: [] })).toEqual({ text: 'the repairer had nothing it could rewrite', warning: null });
+  });
+
+  it('says nothing when the repairer answered, or nothing called for one', () => {
+    expect(noRepairerOf({ noRepairer: null, repairer: asked, warnings: [] })).toBeNull();
+    // A report that says null means it: its warnings aren't read for it.
+    expect(noRepairerOf({ noRepairer: null, repairer: null, warnings: [missing] })).toBeNull();
+    expect(noRepairerOf({ repairer: asked, warnings: [missing] })).toBeNull();
+  });
+
+  it('reads a report kept before it said so from its warnings, cut to what went wrong', () => {
+    expect(noRepairerOf({ repairer: null, warnings: ['the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found: install it, or set SHADOWLAP_CLAUDE to its path'] })).toEqual({
+      text: 'the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found',
+      warning: 'the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found: install it, or set SHADOWLAP_CLAUDE to its path',
+    });
+    expect(noRepairerOf({ repairer: null, warnings: ['the repairer could not be asked: the repairer declined to answer'] })!.text).toBe('the repairer could not be asked: the repairer declined to answer');
+    expect(noRepairerOf({ repairer: null, warnings: ["none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files, so the repairer had nothing it could rewrite"] })!.text).toBe('the repairer had nothing it could rewrite');
+    expect(noRepairerOf({ repairer: null, warnings: ['no repairer is configured, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json'] })!.text).toBe('no repairer is configured');
+    expect(noRepairerOf({ repairer: null, warnings: ['big-model rescued the runs, but the model name small-model appears nowhere in the source as a string, so no model switch was proposed'] })).toBeNull();
   });
 });
