@@ -5,6 +5,7 @@ import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { callName, clip, jsonText, num, shortId } from '../format.js';
 import { countOrigins } from '../origins.js';
+import { NormalizeUpdateDialog } from '../pages/TestsDialogs.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
 import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
@@ -14,7 +15,7 @@ import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
 import { metricItems, type MetricInput } from './metrics.js';
 import { originOf, pulledSpender, runLikeOf } from './model.js';
-import { blameOfferFor, blameTitle, divergedActions } from './offers.js';
+import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
@@ -99,7 +100,7 @@ export interface BannerProps {
 /** The run's one banner: recording now, how it forked, where it was lost, what was not recorded, its checks, or that it failed. */
 export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggleDiff, onSelect, onAction }: BannerProps) {
   const app = useApp();
-  const [dialog, setDialog] = useState<'update' | null>(null);
+  const [dialog, setDialog] = useState<'update' | 'normalize' | null>(null);
   const r = run.run;
   const iv = run.intervention ?? null;
   const flagRow = iv?.callNo ? run.calls.find((c) => c.callNo === iv.callNo) : undefined;
@@ -163,12 +164,14 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
       );
     case 'diverged': {
       // A test replay: Add normalizer adds the rule and runs its golden again, Update golden re-records
-      // it; each is the tests' job. A server without them falls back to the run's own normalizer action.
-      // Once the rule is in the config, the banner says so and links the replay that passed.
+      // it; each is the tests' job. When the rule alone can't make the replay match, the job updates
+      // the golden after it, live, so it asks first in the Tests screen's dialog. A server without the
+      // jobs falls back to the run's own normalizer action. Once the rule is in the config, the banner
+      // says so and links the replay that passed.
       const normalizer = run.actions.find((a) => a.key === 'n');
       const acts = divergedActions({ test, hasNormalizeJob: app.hasKind(JOB_KINDS.normalizeAndTest), hasUpdateJob: app.hasKind(JOB_KINDS.testUpdate), action: !!normalizer, actionsOff: off });
       const add = acts.normalizer;
-      const canNormalize = add?.kind === 'job';
+      const addNormalizer = () => job(JOB_KINDS.normalizeAndTest, { runId: r.runId });
       return (
         <section className="banner blame">
           <span className="bk">diverged at</span>
@@ -190,8 +193,8 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
                 ) : null}
               </>
             ) : add?.kind === 'job' ? (
-              <TestsJobButton className={`btn sm${add.lead ? ' lime' : ''}`} verb="add the normalizer" off={add.off} title={add.title} onClick={() => job(JOB_KINDS.normalizeAndTest, { runId: r.runId })}>
-                Add normalizer
+              <TestsJobButton className={`btn sm${add.lead ? ' lime' : ''}`} verb="add the normalizer" off={add.off} title={add.title} onClick={() => (add.asks ? app.guard(() => setDialog('normalize')) : addNormalizer())}>
+                {add.label}
               </TestsJobButton>
             ) : add?.kind === 'action' && normalizer ? (
               <button className="btn sm lime" type="button" disabled={!!normalizer.disabled} onClick={() => onAction({ action: normalizer, callNo: null })}>
@@ -199,7 +202,7 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
               </button>
             ) : null}
             {acts.update ? (
-              <TestsJobButton className="btn sm" verb="update it" off={off} onClick={() => setDialog('update')}>
+              <TestsJobButton className="btn sm" verb="update it" off={off} onClick={() => app.guard(() => setDialog('update'))}>
                 Update golden
               </TestsJobButton>
             ) : null}
@@ -208,21 +211,26 @@ export function Banner({ run, blame, rescued, checks, offers, showDiff, onToggle
           {dialog === 'update' && test ? (
             <UpdateGoldenDialog
               golden={test.golden}
-              at={`diverged at #${b.callNo}`}
-              checks={checks.length || null}
-              perRun={test.volatile?.certain ? { path: test.volatile.path, looks: test.volatile.looks } : null}
-              onAddNormalizer={
-                canNormalize
-                  ? () => {
-                      setDialog(null);
-                      job(JOB_KINDS.normalizeAndTest, { runId: r.runId });
-                    }
-                  : null
-              }
+              copy={updateGoldenCopy(test, b.callNo, add?.kind === 'job', checks.length)}
+              onAddNormalizer={() => {
+                setDialog(null);
+                addNormalizer();
+              }}
               onClose={() => setDialog(null)}
               onOk={() => {
                 setDialog(null);
                 job(JOB_KINDS.testUpdate, { golden: test.golden });
+              }}
+            />
+          ) : null}
+          {dialog === 'normalize' && test && add?.kind === 'job' && add.asks ? (
+            <NormalizeUpdateDialog
+              name={goldenName(test.golden)}
+              steps={add.asks}
+              onClose={() => setDialog(null)}
+              onRun={() => {
+                setDialog(null);
+                addNormalizer();
               }}
             />
           ) : null}

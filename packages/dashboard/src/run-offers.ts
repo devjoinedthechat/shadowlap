@@ -41,6 +41,11 @@ export interface BlameOffer {
 export interface TestOffer extends TestRunBanner {
   normalized: boolean;
   passingRun: string | null;
+  /**
+   * The golden's checks now, as the CLI labels them (from the goldens on disk), which an update
+   * runs, as the Tests screen's Update golden dialog counts them; null when the golden isn't on disk.
+   */
+  checks: string[] | null;
 }
 
 export interface RunOffers {
@@ -184,9 +189,10 @@ function sameRule(written: unknown, rule: Normalizer): boolean {
 /**
  * The diverged test's banner, and what has happened since: every rule Add normalizer adds is in the
  * config's `normalize` (it was added, here or by hand), and the newest replay of the golden that
- * passed since this one, which shows the rule worked.
+ * passed since this one, which shows the rule worked (or the update after it did). `goldens`, those
+ * on disk, give the checks an update would run.
  */
-export function testOffer(store: Store, run: RunRecord, normalize: unknown): TestOffer | null {
+export function testOffer(store: Store, run: RunRecord, normalize: unknown, goldens: readonly GoldenSource[] = []): TestOffer | null {
   const banner = testRunBanner(store, run.runId);
   if (!banner) return null;
   const rules = Array.isArray(normalize) ? normalize : [];
@@ -204,7 +210,7 @@ export function testOffer(store: Store, run: RunRecord, normalize: unknown): Tes
       }
     }
   }
-  return { ...banner, normalized, passingRun };
+  return { ...banner, normalized, passingRun, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
 }
 
 /**
@@ -270,6 +276,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     team: teamOf(store, run, input.config?.store),
     blame: blameOffer(store, run, input.config?.tests),
     bisect: passingBisect(blamedBisect(run, bisectChoices(asListed(store, run), run.runId, { goldens: input.goldens ?? [] })), input.head),
-    test: testOffer(store, run, input.config?.normalize),
+    test: testOffer(store, run, input.config?.normalize, input.goldens ?? []),
   };
 }

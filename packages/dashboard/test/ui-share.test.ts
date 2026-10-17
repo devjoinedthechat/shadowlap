@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { divergenceButtons, updatePlan } from '../ui/goldens.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
-import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, type BlameFacts } from '../ui/run/offers.js';
+import { bisectBlocked, bisectCopy, bisectLabel, blameOfferFor, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules, type BlameFacts } from '../ui/run/offers.js';
 import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, sharedLink, shareItemOff, shareItems, shareNote, STILL_RECORDING } from '../ui/run/share.js';
-import type { BisectOffer, RunOffers, TestBannerOffer } from '../ui/types.js';
+import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words
 // them from what the server offers.
@@ -230,24 +231,98 @@ describe('the diverged test’s actions', () => {
       ...over,
     }) as TestBannerOffer;
   const all = { hasNormalizeJob: true, hasUpdateJob: true, action: true, actionsOff: null };
+  // refund-in-limit as the demo has it: the request now carries a per-run user id the recording never
+  // had, so the rule alone can't make the replay match and the golden is updated after it.
+  const ADD = ['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>'];
+  const added = (over: Partial<TestBannerOffer> = {}) =>
+    test({
+      golden: 'goldens/refund-in-limit',
+      volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'added', certain: true, normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }, args: ADD, command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
+      normalizerFixes: false,
+      values: { values: [], explainsAll: false, coversAll: false },
+      normalizeAndTest: [ADD, ['test', 'goldens/refund-in-limit', '--update']],
+      ...over,
+    });
 
-  it('adds the normalizer and re-runs the golden as a job, leading when a value made anew is all that changed', () => {
-    expect(divergedActions({ ...all, test: test() })).toEqual({ normalizer: { kind: 'job', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" }, update: true });
-    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', lead: false });
+  it('adds the normalizer and re-runs the golden in one click when the rule alone makes the replay match, leading when a value made anew is all that changed', () => {
+    expect(updatesAfterRules(test())).toBe(false);
+    expect(divergedActions({ ...all, test: test() })).toEqual({
+      normalizer: { kind: 'job', label: 'Add normalizer', lead: true, off: null, title: "shadowlap normalize add --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: null },
+      update: true,
+    });
+    expect(divergedActions({ ...all, test: test({ maybeReal: true }) }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer', lead: false, asks: null });
   });
 
-  it('says the normalizer was added once it is in the config, with the replay that passed since', () => {
+  it('asks first when the rule alone can’t make the replay match, with the commands the Tests screen’s dialog lists, since the golden is re-recorded live after it', () => {
+    expect(updatesAfterRules(added())).toBe(true);
+    expect(divergedActions({ ...all, test: added() })).toEqual({
+      normalizer: { kind: 'job', label: 'Add normalizer and update…', lead: false, off: null, title: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'", asks: [ADD, ['test', 'goldens/refund-in-limit', '--update']] },
+      update: true,
+    });
+    // The Tests screen's button for the same steps reads the same, and asks too.
+    const d = { normalizeAndTest: added().normalizeAndTest, normalizerFixes: false, maybeReal: false, rulesAdded: false, found: null, missed: null, bisect: null, unreadable: null, volatile: null } as unknown as DivergenceView;
+    expect(divergenceButtons(d, () => true).normalize).toEqual({ label: 'Add normalizer and update…', lead: false, run: 'normalize-update' });
+    // Read-only: the button says why it is off, and never opens the dialog.
+    const readOnly = 'This dashboard is read-only: it was started with --read-only.';
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: added() }).normalizer).toMatchObject({ kind: 'job', label: 'Add normalizer and update…', off: readOnly, title: readOnly });
+  });
+
+  it('says the normalizer was added once it is in the config, with the replay that passed since, and offers the update while the rule alone can’t make it match', () => {
     expect(divergedActions({ ...all, test: test({ normalized: true, passingRun: '01M510PASS' }) })).toEqual({ normalizer: { kind: 'added', passingRun: '01M510PASS' }, update: false });
     expect(divergedActions({ ...all, test: test({ normalized: true }) })).toEqual({ normalizer: { kind: 'added', passingRun: null }, update: false });
+    // The rule masks the value, but the request also carries what the recording never had: update the golden.
+    expect(divergedActions({ ...all, test: added({ normalized: true }) })).toEqual({ normalizer: { kind: 'added', passingRun: null }, update: true });
+    // Updated since: its replay passed.
+    expect(divergedActions({ ...all, test: added({ normalized: true, passingRun: '01M510PASS' }) })).toEqual({ normalizer: { kind: 'added', passingRun: '01M510PASS' }, update: false });
+    expect(divergedActions({ ...all, hasUpdateJob: false, test: added({ normalized: true }) }).update).toBe(false);
   });
 
   it('falls back to the run’s own action without the tests’ job, and shows the job off on a read-only dashboard', () => {
     expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: test() })).toEqual({ normalizer: { kind: 'action' }, update: false });
+    // The run's own action adds the rule alone, records nothing: it needs no asking either way.
+    expect(divergedActions({ ...all, hasNormalizeJob: false, hasUpdateJob: false, test: added() })).toEqual({ normalizer: { kind: 'action' }, update: false });
     const readOnly = 'This dashboard is read-only: it was started with --read-only.';
-    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', lead: true, off: readOnly, title: readOnly });
+    expect(divergedActions({ ...all, actionsOff: readOnly, test: test() }).normalizer).toEqual({ kind: 'job', label: 'Add normalizer', lead: true, off: readOnly, title: readOnly, asks: null });
     expect(divergedActions({ ...all, hasNormalizeJob: false, actionsOff: readOnly, test: test() }).normalizer).toBeNull();
     // A server that says nothing of the test.
     expect(divergedActions({ ...all, test: null })).toEqual({ normalizer: { kind: 'action' }, update: false });
+  });
+
+  it('words Update golden as the Tests screen does for the same golden', () => {
+    const CHECKS = ['issue_refund called 1 time', 'send_email called 1 time'];
+    const tests = (t: TestBannerOffer): TestsView =>
+      ({
+        rows: [{ path: t.golden, name: goldenName(t.golden), checks: t.checks ?? [], last: { line: '' } }],
+        divergences: [{ golden: t.golden, name: goldenName(t.golden), callNo: 3, volatile: t.volatile, normalizerFixes: t.normalizerFixes, maybeReal: t.maybeReal, normalizeAndTest: t.normalizeAndTest, rulesAdded: t.normalized, found: null, missed: null, bisect: null, unreadable: null }],
+      }) as unknown as TestsView;
+    const each = [added({ checks: CHECKS }), test({ golden: 'goldens/refund-in-limit', checks: CHECKS }), added({ normalized: true, checks: CHECKS }), added({ checks: [] }), test({ checks: ['issue_refund called 1 time'], volatile: { ...test().volatile!, certain: false } })];
+    for (const t of each) {
+      const copy = updateGoldenCopy(t, 3, true);
+      const plan = updatePlan(tests(t), [t.golden], () => true);
+      expect(copy.name).toBe(plan.goldens[0]!.name);
+      expect(copy.at).toBe(plan.goldens[0]!.where);
+      expect(copy.checks).toBe(plan.steps[1]![1]);
+      expect(copy.ok).toBe(plan.ok);
+      expect(copy.advise ? `${copy.advise.path} ${copy.advise.text}` : null).toBe(plan.advise ? `${plan.advise.path} ${plan.advise.text}` : null);
+      expect(copy.advise?.instead ?? null).toBe(plan.instead?.label ?? null);
+      expect(copy.note ? `The normalizer for ${copy.note.path} is in shadowlap.config.json already, so the run after this update matches.` : null).toBe(plan.note ? plan.note.map((p) => (typeof p === 'string' ? p : p.code)).join('') : null);
+    }
+    // A field the recording never had: the amber box's button adds the rule and updates.
+    expect(updateGoldenCopy(added({ checks: CHECKS }), 3, true)).toEqual({
+      name: 'refund-in-limit',
+      at: 'diverged at call 3',
+      checks: '2 checks',
+      advise: { path: '$.metadata.user_id', text: 'is new in every request and looks like a UUID, which changes every run. Updating re-records it, and the next run diverges again.', instead: 'Add the normalizer and update' },
+      note: null,
+      ok: 'Update anyway',
+    });
+    expect(updateGoldenCopy(test(), 3, true).advise?.instead).toBe('Add the normalizer instead');
+    // Where the server can't add it, the box says so without a button.
+    expect(updateGoldenCopy(added(), 3, false).advise?.instead).toBeNull();
+    // A golden with no checks is judged on its exit status; a server that doesn't send them, by what the replay ran.
+    expect(updateGoldenCopy(added({ checks: [] }), 3, true).checks).toBe('exit status');
+    expect(updateGoldenCopy(added(), 3, true, 1).checks).toBe('1 check');
+    expect(updateGoldenCopy(added(), 3, true).checks).toBe('from shadowlap.config.json');
   });
 });
 
