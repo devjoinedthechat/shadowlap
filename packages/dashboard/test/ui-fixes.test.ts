@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, plainCell, probeBadge, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
+import { breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, laterStamp, mergeTreeJobs, nothingAcceptedWhy, outcomeTone, outdatedOf, parseCheck, parseMarkdown, plainCell, probeBadge, repairAside, repairAsk, repairBy, roleBadges, sameFolder, statusBadge, stepFor, treeBusy, updateOutdatedAsk, verifyFor, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -62,6 +62,13 @@ describe('a fix', () => {
     expect(fixAction({ status: 'verified', actions: actions({ apply: { ...patch, kind: 'mark', gitApply: null } }) })).toEqual({ kind: 'apply', label: 'Mark applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: patch, applied: true }) })).toEqual({ kind: 'applied' });
     expect(fixAction({ status: 'applied', actions: actions({ apply: { ...patch, pending: 'run shadowlap test on its goldens' }, applied: true }) })).toEqual({ kind: 'apply', label: 'Finish applying' });
+  });
+
+  it("keeps Repair from here but not as the lead when blame found no answer of the model's lost the run", () => {
+    const look = "No answer of the model's lost this run: look at the tools, the harness or the command.";
+    expect(repairAside({ blame: { look } as FixDetail['blame'] })).toBe("Blame found that no answer of the model's lost this run, so a rewrite of the prompt is unlikely to fix it: look at the tools, the harness or the command.");
+    expect(repairAside({ blame: { look: null } as FixDetail['blame'] })).toBeNull();
+    expect(repairAside({ blame: null })).toBeNull();
   });
 
   it('names the repairer Repair from here asks as the fix reads again, and sends that one', () => {
@@ -346,6 +353,27 @@ describe('report.md', () => {
       { code: false, text: ': done' },
     ]);
     expect(inlineParts('<b>not html</b>')).toEqual([{ code: false, text: '<b>not html</b>' }]);
+  });
+
+  it('sets each command-line flag in a sentence apart, with its placeholder, so it keeps to one line', () => {
+    expect(flagParts('try a stronger model with --stronger <model>, or look at the code and the tools')).toEqual([
+      { flag: false, text: 'try a stronger model with ' },
+      { flag: true, text: '--stronger <model>' },
+      { flag: false, text: ', or look at the code and the tools' },
+    ]);
+    expect(flagParts('--branch and --pr hand it over')).toEqual([
+      { flag: true, text: '--branch' },
+      { flag: false, text: ' and ' },
+      { flag: true, text: '--pr' },
+      { flag: false, text: ' hand it over' },
+    ]);
+    expect(flagParts('input tokens per run grow 30%, more than --max-growth 25%')).toEqual([
+      { flag: false, text: 'input tokens per run grow 30%, more than ' },
+      { flag: true, text: '--max-growth' },
+      { flag: false, text: ' 25%' },
+    ]);
+    // Not a flag: a dash in a word, a lone --, an em dash.
+    expect(flagParts('a pre--release run -- <command> — then')).toEqual([{ flag: false, text: 'a pre--release run -- <command> — then' }]);
   });
 });
 

@@ -410,6 +410,22 @@ describe('fixes for the other views', () => {
     expect(needsLookFixes(store, { limit: 2 })).toHaveLength(2);
   });
 
+  it("opens a fix no answer of the model's lost, rather than offering to fix it, and says where to look", () => {
+    const digest = makeRun(store, { labels: ['digest'] });
+    const report = { ...blameReport(digest, 'unrescuable', { oracle: EXIT_ORACLE }), failedWrite: { name: 'post_digest', message: 'channel_not_found: #refunds', callNo: 1 } };
+    const { fix } = recordBlame(store, { runId: digest, report, expect: null, scope: null, command: `shadowlap blame ${digest.slice(0, 10)}`, title: 'The agent exited with code 1', checkText: 'the agent exits 0', at: NOW });
+    // Rescued from no call with nothing to say why: a repair may still find something.
+    const other = blame(makeRun(store, { labels: ['refunds'] }), { outcome: 'unrescuable', at: NOW - 1 }).fix;
+    expect(needsLookFixes(store).map((x) => [x.fixId, x.action, x.detail])).toEqual([
+      [fix.fixId, 'Open', 'not rescued from any model call · look at the tools, the harness or the command'],
+      [other.fixId, 'Fix it', 'not rescued from any model call · no fix yet'],
+    ]);
+    // The fix's page still offers Repair from here, and its Blame step says why the prompt is not the place to look.
+    const d = fixDetail(store, fix.fixId)!;
+    expect(d.actions.repair).not.toBeNull();
+    expect(d.blame?.look).toBe("No answer of the model's lost this run: look at the tools, the harness or the command.");
+  });
+
   it('counts the training pairs a blame made, as export pairs counts them', () => {
     // The support agent refunded $240 at #5; asked again there, two of three probes escalated and passed.
     const { run } = recordRun(store, [LOOKUP, POLICY, REFUND, DONE], { status: 'failed' });

@@ -1729,6 +1729,9 @@ a.fxcall:hover code { text-decoration: underline; text-underline-offset: 3px; }
 .linkbtn[disabled], .linkbtn[disabled]:hover { opacity: .45; cursor: not-allowed; color: var(--dim); background: none; }
 .fxsource { color: var(--accent); }
 .dialog p.fxdlg { margin: 0; color: var(--dim); font-size: 13px; }
+.dialog p.fxdlg + p.fxdlg { margin-top: 8px; }
+/* A command-line flag in running text (`--stronger <model>`): one piece, never broken after its first hyphen. */
+code.flag { white-space: nowrap; font-size: .92em; }
 .prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }
 .prbody.clamp::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: linear-gradient(color-mix(in srgb, var(--panel) 0%, transparent), var(--panel)); }
 .prbody p { margin: 0 0 10px; }

@@ -89,6 +89,15 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   return { kind: 'apply', label: apply.kind === 'mark' ? 'Mark applied' : 'Apply the patch' };
 }
 
+/**
+ * Why Repair from here isn't the page's lead action, or null when it is: the fix's blame found that
+ * no answer of the model's lost the run (its Blame step's `look`), so a rewrite of the prompt is
+ * unlikely to fix it. The button stays, plain, with this on hover, and its dialog says it too.
+ */
+export function repairAside(f: Pick<FixDetail, 'blame'>): string | null {
+  return f.blame?.look ? "Blame found that no answer of the model's lost this run, so a rewrite of the prompt is unlikely to fix it: look at the tools, the harness or the command." : null;
+}
+
 /** What the Repair from here dialog says and sends, once the fix is read again as it opens. */
 export interface RepairAsk {
   /** Whether Repair can be confirmed: the fix was read, and it can still be repaired from here. */
@@ -498,6 +507,25 @@ export function breakPoints(text: string): string[] {
     }
   }
   out.push(cur);
+  return out;
+}
+
+/**
+ * Text cut where it names a command-line flag, with its placeholder when it has one (`--stronger
+ * <model>`, `--repairer`), so each is set as code that keeps to one line: a flag broken after its
+ * first hyphen reads as two.
+ */
+export function flagParts(text: string): Array<{ flag: boolean; text: string }> {
+  const out: Array<{ flag: boolean; text: string }> = [];
+  const re = /(^|[^\w-])(--[a-z][a-z0-9-]*(?: <[a-z][a-z0-9-]*>)?)/g;
+  let at = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const start = m.index + m[1]!.length;
+    if (start > at) out.push({ flag: false, text: text.slice(at, start) });
+    out.push({ flag: true, text: m[2]! });
+    at = start + m[2]!.length;
+  }
+  if (at < text.length) out.push({ flag: false, text: text.slice(at) });
   return out;
 }
 

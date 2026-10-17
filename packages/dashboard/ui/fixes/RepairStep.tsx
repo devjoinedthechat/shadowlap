@@ -2,7 +2,7 @@ import { Badge, CmdLine, EmptyState } from '../components/bits.js';
 import { approx, shortId } from '../format.js';
 import type { FixDetail, RepairStep } from '../types.js';
 import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, roleBadges } from './model.js';
-import { Markdown, StepHead } from './parts.js';
+import { Flagged, Markdown, StepHead } from './parts.js';
 
 /**
  * The Repair step: the change a repair proposed and what it held on, why it was needed, every
@@ -112,7 +112,12 @@ function NothingAccepted({ r }: { r: RepairStep }) {
     <>
       Repaired {fixStamp(r.at)}
       {who ? <> · {who}</> : null}
-      {why ? ` · ${why}` : ''}
+      {why ? (
+        <>
+          {' · '}
+          <Flagged text={why} />
+        </>
+      ) : null}
     </>
   );
   return (
@@ -185,7 +190,7 @@ function Candidates({ r, sub }: { r: RepairStep; sub: string }) {
             <span>
               <q>{c.text}</q>
               <span className="why">
-                {c.surface} · {c.why}
+                {c.surface} · <Flagged text={c.why} />
               </span>
             </span>
             <Badge tone={candidateTone(c.verdict)}>{c.verdict}</Badge>
@@ -256,7 +261,9 @@ function Warnings({ r }: { r: RepairStep }) {
   return (
     <ul className="fxwarn">
       {warnings.map((w) => (
-        <li key={w}>{w}</li>
+        <li key={w}>
+          <Flagged text={w} />
+        </li>
       ))}
     </ul>
   );

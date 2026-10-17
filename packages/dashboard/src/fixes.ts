@@ -328,6 +328,15 @@ function shownBlame(rec: FixRecords): StoredBlame | null {
   return [...rec.blames].reverse().find((b) => b.outcome === 'blamed') ?? rec.blames.at(-1) ?? null;
 }
 
+/**
+ * Whether a blame placed the failure on no call and knows that no answer of the model's lost the
+ * run: its passing attempts answered as the recording did, or every attempt met a write's recorded
+ * error again. A prompt repair is no fix for such a run; the tools, the harness or the command are.
+ */
+function noAnswerLost(b: StoredBlame | null): boolean {
+  return !!b && b.outcome === 'unrescuable' && !!(b.report.sameAnswer || b.report.failedWrite);
+}
+
 /** Whether a repair's accepted candidate was verified in a way that counts for the fix. */
 const repairCounts = (rec: FixRecords, r: StoredRepair) => rec.verdicts.some((v) => v.repairId === r.repairId && verdictCounts(rec, v));
 
@@ -571,7 +580,7 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
     stopReason: r.stopReason,
-    look: b.outcome === 'unrescuable' && (r.sameAnswer || r.failedWrite) ? unrescuedWhy(r).look : null,
+    look: noAnswerLost(b) ? unrescuedWhy(r).look : null,
     warnings: r.warnings,
     command: b.command,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
@@ -1008,7 +1017,9 @@ export function needsLookFixes(store: Store, options: { limit?: number } = {}): 
     if (fix.status === 'open') {
       const b = shownBlame(rec);
       const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? 'not rescued from any model call' : 'blame stopped early';
-      open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${rec.repairs.length ? 'no fix found yet' : 'no fix yet'}`, action: 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
+      // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
+      const elsewhere = noAnswerLost(b);
+      open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : rec.repairs.length ? 'no fix found yet' : 'no fix yet'}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
       const p = shownRepair(rec);
       const c = p && acceptedCandidate(p);

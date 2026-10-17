@@ -15,7 +15,8 @@ import { errorText } from '../toast.js';
 import type { FixDetail } from '../types.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { fixAction, fixName, fixStamp, laterStamp, outdatedOf, repairAsk, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
+import { fixAction, fixName, fixStamp, laterStamp, outdatedOf, repairAsk, repairAside, shortFixId, statusBadge, stepFor, updateOutdatedAsk } from './model.js';
+import { Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
@@ -60,7 +61,9 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
               {x.n} · {x.key}
             </span>
             <b>{x.title}</b>
-            <span className="m">{x.meta}</span>
+            <span className="m">
+              <Flagged text={x.meta} />
+            </span>
           </a>
         ))}
       </nav>
@@ -148,6 +151,8 @@ function FixHeader({ fix, reload }: { fix: FixDetail; reload: () => void }) {
  * Repair from here, or Copy git apply and Apply the patch, each asking first. Disabled, with the
  * reason, where nothing runs, while another job uses the working tree, or when there is nothing to
  * do. A repair whose runs came from someone else's pack asks once more before it runs their command.
+ * Repair from here is the lead action unless blame found that no answer of the model's lost the run:
+ * then it stays, as a plain button that says so on hover (`repairAside`).
  */
 export function FixActions({ fix }: { fix: FixDetail }) {
   const app = useApp();
@@ -189,6 +194,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
       </>
     );
   const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
+  const aside = action.kind === 'repair' ? repairAside(fix) : null;
   const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
   const why = off ?? missing ?? busy;
   const start = (jobKind: string, fields: Record<string, unknown>) =>
@@ -202,7 +208,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
   return (
     <>
       {copy}
-      <button className="btn lime" type="button" disabled={!!why} title={why ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
+      <button className={aside ? 'btn' : 'btn lime'} type="button" disabled={!!why} title={why ?? aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? 'Repair from here' : action.label}
       </button>
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
@@ -248,6 +254,7 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
     };
   }, [client, fix.fixId]);
   const ask = repairAsk(fix, fresh);
+  const aside = repairAside(fresh?.fix ?? fix);
   const text = ask.who
     ? `Asks ${ask.who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is tried in your working tree and put back; the one accepted is kept as a patch for you to apply.`
     : (ask.why ?? 'Reading which repairer shadowlap.config.json names…');
@@ -264,6 +271,7 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
         onRun(ask.repairer);
       }}
     >
+      {aside && !ask.why ? <p className="fxdlg">{aside}</p> : null}
       {ask.why ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>}
       {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
     </Dialog>

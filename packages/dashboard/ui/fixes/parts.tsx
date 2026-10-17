@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { breakPoints, cellKeepsWhole, inlineParts, parseMarkdown, plainCell, type MdBlock } from './model.js';
+import { breakPoints, cellKeepsWhole, flagParts, inlineParts, parseMarkdown, plainCell, type MdBlock } from './model.js';
 
 /** A step's header: its title, a line or two under it, and its actions on the right (`.sh`). */
 export function StepHead({ title, text, actions }: { title: ReactNode; text?: ReactNode; actions?: ReactNode }) {
@@ -11,6 +11,23 @@ export function StepHead({ title, text, actions }: { title: ReactNode; text?: Re
       </div>
       {actions ? <div className="actions">{actions}</div> : null}
     </div>
+  );
+}
+
+/** Text whose command-line flags are set as code, each kept on one line (`--stronger <model>`). */
+export function Flagged({ text }: { text: string }) {
+  return (
+    <>
+      {flagParts(text).map((p, i) =>
+        p.flag ? (
+          <code key={i} className="flag">
+            {p.text}
+          </code>
+        ) : (
+          <Fragment key={i}>{p.text}</Fragment>
+        ),
+      )}
+    </>
   );
 }
 
