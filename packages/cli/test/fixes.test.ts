@@ -388,19 +388,20 @@ describe('shadowlap fix', () => {
     expect(shown.repair.candidates.map((c: { verdict: string; why: string }) => c.verdict)).toEqual(['set aside', 'rejected']);
     expect(shown.repair.files.map((f: { name: string }) => f.name)).toEqual(['report.md', 'report.json']);
     expect(shown.verify).toEqual([]);
-    expect(shown.actions.repair.argv).toEqual(['repair', '--fixes', 'label:refund-over-limit', '--keeps', 'label:good', '--expect', ORACLE]);
-    expect(shown.actions.repair.command).toBe(`shadowlap repair --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}' --repairer claude-code`);
+    // Repaired from its own failing run: the other run labelled refund-over-limit is in no fix, so the label would repair it as failing unseen.
+    expect(shown.actions.repair.argv).toEqual(['repair', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE]);
+    expect(shown.actions.repair.command).toBe(`shadowlap repair --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}' --repairer claude-code`);
 
     // What to run next, with the repairer the config names, else the user's own Claude Code.
-    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}' --repairer claude-code\n`);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}' --repairer claude-code\n`);
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ repair: { repairer: 'anthropic' } }));
-    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}'\n`);
+    expect((await shadowlap(['fix', 'show', fixId])).stdout).toContain(`next: shadowlap repair --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}'\n`);
 
     // Nothing verified, nothing to apply: it says how to get there.
     const refused = await shadowlap(['fix', 'apply', fixId]);
     expect(refused.code).toBe(1);
     expect(refused.out).toContain(`${fixId.slice(0, 13)} is open: no change has been verified for it yet, so there is nothing to apply. Repair it first:`);
-    expect(refused.out).toContain('shadowlap repair --fixes label:refund-over-limit');
+    expect(refused.out).toContain(`shadowlap repair --fixes ${failed[0]}`);
 
     const s = store();
     try {
@@ -520,7 +521,8 @@ describe('shadowlap fix', () => {
     const refused = await shadowlap(['fix', 'apply', fixId]);
     expect(refused.code).toBe(1);
     expect(refused.out).toContain(`${fixId.slice(0, 13)} is open: a change was accepted, but under another check than this fix's (issue_refund never called with {"amount":240}), so it doesn't count. Verify it under this fix's check:`);
-    expect(refused.out).toContain(`shadowlap verify --fixes label:refund-over-limit --keeps label:good --expect '${ORACLE}'`);
+    // The fix's own failing run: the other labelled run was verified only under another check, so it isn't one of the fix's.
+    expect(refused.out).toContain(`shadowlap verify --fixes ${failed[0]} --keeps label:good --expect '${ORACLE}'`);
     const s = store();
     try {
       expect(s.listEvents({ kinds: ['verify.accepted'] }).map((e) => e.data)).toEqual([expect.objectContaining({ fixes: [fixId], counts: [] }), expect.objectContaining({ fixes: [fixId], counts: [] })]);
