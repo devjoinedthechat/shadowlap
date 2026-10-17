@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, hintsFor, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type RunRecord, type RunSummary, type Store, type StoredEvent } from '@shadowlap/engine';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason } from './tests.js';
@@ -369,7 +369,8 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
 function imported(store: Store, runs: RunRecord[], at: number): ActivityItem {
   const first = runs[0]!;
   const from = typeof first.meta?.imported?.from === 'string' ? first.meta.imported.from : '';
-  const name = /^(langfuse|langsmith):/.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || 'a capture';
+  // A capture a teammate pushed: a pull marks it with the store, not the file it came from.
+  const name = pulledRun(first) ? 'a capture' : /^(langfuse|langsmith):/.test(from) ? from : basename(from.replace(/[\\/]+$/, '')) || 'a capture';
   const item = base(first, `r:${first.runId}:import`, at);
   if (first.meta?.covers?.length) {
     const models = runs.reduce((n, run) => n + facts(store, run).summary.byKind.api, 0);
@@ -554,7 +555,9 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
       groups.set(group, list);
       continue;
     }
-    if (m?.imported) {
+    // A teammate's run pulled from the team store is told as what it is, by who made it, as a run made
+    // here is: never as a pack. A capture they pushed is still a capture.
+    if (m?.imported && (m.covers?.length || !pulledRun(run))) {
       if (m.covers?.length) {
         // A capture: told by its import's event when there is one, else grouped with the runs the same import made.
         if (!covered.has(`import:${run.runId}`)) captured.push(run);

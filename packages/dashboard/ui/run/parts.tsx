@@ -12,8 +12,8 @@ import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
 import { bannerFor, DIVERGED } from './banner.js';
 import { refusedOffline } from './calls.js';
-import { metricItems } from './metrics.js';
-import { originOf, runLikeOf } from './model.js';
+import { metricItems, type MetricInput } from './metrics.js';
+import { originOf, pulledSpender, runLikeOf } from './model.js';
 import { blameOfferFor, blameTitle, divergedActions } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
@@ -28,6 +28,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
     tokensNotRespent: s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0),
     counts: countOrigins(run.calls.map(originOf)),
     capture: runType(runLikeOf(run)) === 'capture',
+    ...spentBy(run),
     live: run.run.status === 'running',
     notWaitedMs,
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
@@ -42,6 +43,12 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
       ))}
     </section>
   );
+}
+
+/** Who spent what a run pulled from the team store spent (`pulledSpender`); nothing for a run made here. */
+function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
+  const by = pulledSpender(run.run);
+  return by === undefined ? {} : { spentBy: by };
 }
 
 /**

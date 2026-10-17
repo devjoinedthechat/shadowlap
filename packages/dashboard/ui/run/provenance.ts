@@ -1,4 +1,4 @@
-import { num } from '../format.js';
+import { approx, num } from '../format.js';
 import { failedWord, isFailed, isInterrupted, isLive, runType, type RunLike } from '../runs.js';
 
 /**
@@ -18,6 +18,15 @@ export function lineageWords(r: RunLike, label: string): { err: string | null; t
   if (isFailed(r) && t === 'test') return { err: 'test failed', text: '' };
   if (isFailed(r) && (t === 'recording' || t === 'replay')) return { err: failedWord(r), text: '' };
   return { err: null, text: label };
+}
+
+/**
+ * The Upstream row: the requests the run sent its providers and what they cost, and for a run pulled
+ * from the team store, who spent it there (`pulledSpender`), as a quiet note after it, the way the
+ * Models row counts calls: "by maya".
+ */
+export function upstreamParts(requests: number, spent: number, by?: string): { text: string; note: string | null } {
+  return { text: `${num(requests)} ${requests === 1 ? 'request' : 'requests'} · ${approx(spent)}`, note: by ? `by ${by}` : null };
 }
 
 /** One call per endpoint the model calls used, at most `max`, with how many calls went there: one endpoint means one provider. */

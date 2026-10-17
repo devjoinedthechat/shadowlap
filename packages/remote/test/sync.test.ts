@@ -1,7 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { sha256, storeApiRequest, Store, type BlameRecord, type RunRecord } from '@shadowlap/engine';
-import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
+import { classifyRun, commandIsImported, importedCommandSource, pulledRun, sha256, storeApiRequest, Store, summarizeRun, type BlameRecord, type RunRecord } from '@shadowlap/engine';
+import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 
 /**
@@ -248,6 +248,28 @@ describe('a run queued while it recorded', () => {
 });
 
 describe('pull', () => {
+  it("marks a teammate's run so it reads as their recording, with what it spent, from any kind of store", async () => {
+    const urls: Record<keyof typeof SCHEMES, string> = { s3: 's3://agent-runs/team', gcs: 'gs://agent-runs/team', azure: 'az://northwind/agent-runs/team', r2: 'r2://0123abcd/agent-runs/team' };
+    for (const [provider, url] of Object.entries(urls)) {
+      expect(url.startsWith(SCHEMES[provider as keyof typeof SCHEMES]), provider).toBe(true);
+      const remote = new MemoryStore(parseStoreUrl(url));
+      const a = machine(remote, 'maya@northwind.example');
+      const theirs = record(a.store, 'refund order 7', { author: 'maya@northwind.example' });
+      await push(a, { all: true });
+      const b = machine(remote, 'dana@northwind.example');
+      await pull(b);
+      const got = b.store.getRun(theirs.runId)!;
+      expect(pulledRun(got), url).toBe(true);
+      expect(classifyRun(got).kind, url).toBe('recording');
+      // Its calls were spent where it was recorded, by Maya: the team's, not a pack's captured traffic.
+      const s = summarizeRun(got, b.store.getCalls(got.runId));
+      expect(s, url).toMatchObject({ imported: false, upstreamRequests: 1 });
+      // Its command is still someone else's: a replay asks, naming the store.
+      expect(commandIsImported(got)).toBe(true);
+      expect(importedCommandSource(got)).toBe('the team store');
+    }
+  });
+
   it("brings a teammate's runs with their calls and blobs, marked as from the store", async () => {
     const remote = new MemoryStore(loc);
     const a = machine(remote, 'maya@northwind.example');

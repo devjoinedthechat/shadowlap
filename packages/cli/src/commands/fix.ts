@@ -175,7 +175,7 @@ async function targetsOf(runs: RunRecord[], command: string[], yes: boolean | un
     }
     const argv = command.length ? command : run.command.argv;
     const commandFromImport = !command.length && commandIsImported(run);
-    if (commandFromImport && !yes && !(await confirmImportedCommand(run.runId, argv))) return null;
+    if (commandFromImport && !yes && !(await confirmImportedCommand(run, argv))) return null;
     out.push({ parent: run, argv, commandFromImport });
   }
   return out;
@@ -222,7 +222,7 @@ export function register(program: Command): void {
       }
       const argv = command.length ? command : parent.command.argv;
       const commandFromImport = !command.length && commandIsImported(parent);
-      if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent.runId, argv))) {
+      if (commandFromImport && !flags.yes && !(await confirmImportedCommand(parent, argv))) {
         process.exitCode = 1;
         return;
       }

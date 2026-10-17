@@ -59,7 +59,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--inject <call>=<text>` | Add an instruction at model call *n* and keep it in place in every later request of the conversation ([details](./interventions.md#inject-an-instruction)) |
 | `--inject-as user\|system` | `user` (default): part of the user turn the model answers next, on every provider. `system`: a system message after the conversation; refused on Gemini and Bedrock Converse |
 | `--set <call>:<key>=<value>` | Set a request field from model call *n* on, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini, `inferenceConfig.temperature` on Bedrock Converse); a dotted key is a path (repeatable, [details](./interventions.md#patch-parameters)) |
-| `-y`, `--yes` | Run the recorded command of a run imported from a pack without asking (see below) |
+| `-y`, `--yes` | Run the recorded command of a run imported from a pack, or pulled from the [team store](./team.md), without asking (see below) |
 | `--repeat <n>` | Run the replay *n* times and report how the attempts differ after the fork (see below) |
 | `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
 | `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
@@ -278,7 +278,7 @@ Exit status 0 when every task was scored in full, 1 when a task was skipped or s
 shadowlap show <run> [--json] [--request <call>] [--response <call>]
 ```
 
-The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. `--request n` and `--response n` print the stored payloads.
+The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. Above it, the run's duration, upstream requests and what it spent; a teammate's run pulled from the [team store](./team.md) says who spent it where it was recorded (`≈$0.0030 spent by maya`), and a run from a pack or a capture what its traffic cost where it ran (`of traffic captured`). `--request n` and `--response n` print the stored payloads.
 
 `--json` prints `{ "run", "summary", "calls" }`: the run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`), its summary as [`run --summary-json`](#run) writes it, and every call as stored (`callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`). The dashboard's Provenance tab copies the same object.
 
@@ -296,7 +296,7 @@ Runs, newest first, with their labels; `--tree` nests forks under their parents.
 |---|---|
 | `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null` |
 | `hasCommand` | `false` for a run imported from a capture: it has no command, so replaying it needs yours after `--` |
-| `imported` | `{ at, from }` for a run from a pack or a capture, or `null` |
+| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md) (then `from` is the store's URL, `s3://…`, `gs://…`, `az://…` or `r2://…`), or `null` |
 | `partial` | the kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
 | `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
 | `checks` | `{ passed, total }` for a run from `shadowlap test` with [outcome checks](./ci.md#outcome-checks), or `null` |
@@ -785,7 +785,7 @@ written to `.shadowlap/repairs/<id>/`). Whether a fix is applied is this machine
 goes; a fix over 16 MB stays here, and a pull skips one in the store that is, saying which. A push
 names the pusher as the author of a run made here without one, and leaves here, saying why, a run a
 pull would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store
-that fails is skipped with its forks and tried again next time. A run named to `push` that the store
+that fails is skipped with its forks and tried again next time. A pulled run is marked with the store's URL (`meta.imported.from`): it reads as its author's recording, with what it spent, and replaying it asks before running its command, as an unpacked run's does (`--yes` says yes). A run named to `push` that the store
 has already is checked part by part, and what the bucket lost of it (its calls, a blob) is sent
 again. Either exits 1 when a run it was named can't go or come. `--json` prints the result.
 

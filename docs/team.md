@@ -172,11 +172,16 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   machine that has it, and the push says so; a pull that meets one in the store names it and brings
   the others.
 - **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it.
-- **A pulled run is someone else's recording.** It is checked as strictly as a
+- **A pulled run is someone else's recording.** It reads as what it is (a recording, a fork, a
+  test), by who made it, never as a pack: with the requests it sent and what it spent where it was
+  recorded, as `≈$0.0030 spent · by maya` on its page (Provenance's Upstream row names her too)
+  and `≈$0.0030 spent by maya` in `shadowlap show`. That spend is the team's, so the Overview's
+  spent live counts it; a capture a teammate pushed stays *as captured*, and a pack you unpack
+  still says *from a pack* and isn't counted. A pulled run is checked as strictly as a
   [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
   nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
   (`python -c '…'`), shown escaped. Its replay asks before running the command it was recorded
-  with, as an unpacked run's does.
+  with, as an unpacked run's does, saying it came from the team store and who recorded it.
 - **A run a pull would refuse** never goes up: `push` checks each run with the same rules and
   leaves one that fails here, saying why. A run in the store that can't be read (changed there by
   hand, or written by a newer Shadowlap) is skipped with its forks, and the other runs come; the

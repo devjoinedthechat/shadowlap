@@ -617,8 +617,9 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
   ctx.store.transaction(() => {
     if (ctx.store.getRun(runId)) return;
     // Replaying a pulled run runs a command someone else recorded: it is marked as imported, so replay
-    // asks first. One from a pull request's folder is marked as that pull request's, so no push takes
-    // it into the store's own runs.
+    // asks first. The mark names the store's URL, which is what tells a pulled run from a pack
+    // (`pulledRun`): it reads as its author's recording, with what it spent. One from a pull request's
+    // folder is marked as that pull request's, so no push takes it into the store's own runs.
     const imported = { at: now(ctx), from: ctx.remote.location.url, ...(ctx.pullRequest ? { pr: ctx.pullRequest } : {}) };
     ctx.store.importRun({ ...doc.run, meta: { ...(shared as RunRecord['meta'] & object), imported } });
     for (const call of calls) {

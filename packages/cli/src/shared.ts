@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { Telemetry, type EventInput } from './telemetry.js';
@@ -93,10 +93,16 @@ export function fileSize(path: string): number {
   }
 }
 
-/** Asks before running an imported run's recorded command; refuses outright when nobody can answer. */
-export async function confirmImportedCommand(runId: string, argv: string[]): Promise<boolean> {
+/**
+ * Asks before running an imported run's recorded command (a pack's, or a teammate's pulled from the
+ * team store); refuses outright when nobody can answer.
+ */
+export async function confirmImportedCommand(run: RunRecord, argv: string[]): Promise<boolean> {
+  const runId = run.runId;
   const cmd = quoteArgv(argv);
-  const explain = `Run ${shortId(runId)} was imported from a pack. Replaying it runs the command it was recorded with:\n\n    ${safe(cmd)}\n\n`;
+  const author = typeof run.meta?.author === 'string' && run.meta.author ? run.meta.author : null;
+  const from = pulledRun(run) ? `came from the team store${author ? `, recorded by ${safe(author)}` : ''}` : 'was imported from a pack';
+  const explain = `Run ${shortId(runId)} ${from}. Replaying it runs the command it was recorded with:\n\n    ${safe(cmd)}\n\n`;
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
     process.stderr.write(p.red(explain) + `Pass --yes to run it, or give your own command: shadowlap replay ${shortId(runId)} -- <command>\n`);
     return false;

@@ -74,6 +74,22 @@ describe('summarizeRun: where the calls were answered and paid for', () => {
     expect(local.upstreamRequests).toBe(1);
   });
 
+  it('counts a teammate’s recording pulled from the team store as spent, with its upstream requests', () => {
+    const pulled: RunRecord = { ...run(null), mode: 'record', parentRunId: null, meta: { imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' }, author: 'maya@example.com' } };
+    const s = summarizeRun(pulled, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });
+    expect(s.imported).toBe(false);
+    expect(s.cost).toMatchObject({ spent: 3, captured: 0 });
+    expect(s.upstreamRequests).toBe(1);
+    // The same run unpacked from a pack someone sent: captured, as before.
+    const packed = summarizeRun({ ...pulled, meta: { imported: { at: 1, from: 'chat-from-maya' } } }, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });
+    expect(packed.cost).toMatchObject({ spent: 0, captured: 3 });
+    expect(packed.upstreamRequests).toBe(0);
+    // And a capture a teammate pushed: its traffic was paid for where it ran.
+    const capture = summarizeRun({ ...pulled, meta: { ...pulled.meta, covers: ['api'] } }, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });
+    expect(capture.imported).toBe(true);
+    expect(capture.cost).toMatchObject({ spent: 0, captured: 3 });
+  });
+
   it('keeps a replay of an imported recording as spend: that replay ran here', () => {
     const replay: RunRecord = { ...run(null), meta: { imported: { at: 1, from: 'pack' } } };
     const s = summarizeRun(replay, [priced(call(1, 'api', 'POST /v1/messages', 'live'))], [], [], { prices });

@@ -152,6 +152,28 @@ describe('push and pull through the bucket', () => {
     dstore.close();
   });
 
+  it("shows a teammate's pulled run as their recording, with what it spent, and asks before replaying its command", async () => {
+    const dana = machine('pulled-dana', 'dana@northwind.example');
+    storeSet(dana, storeUrl('pulled'));
+    const runId = goldenInto(dana);
+    expect(await teamPush(dana, [], { all: true })).toBe(0);
+    const jonas = teammate(dana, 'pulled-jonas', 'jonas@northwind.example');
+    expect(await teamPull(jonas, [])).toBe(0);
+    const env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' };
+    // Dana's recording, as she made it: its requests, and what it spent, by her.
+    const shown = spawnSync(process.execPath, [CLI, 'show', runId], { cwd: jonas.cwd, env, encoding: 'utf8' });
+    expect(shown.status).toBe(0);
+    const [head, , facts] = shown.stdout.split('\n');
+    expect(head).toMatch(new RegExp(`^${runId}  recording  completed`));
+    expect(facts).toMatch(/ · 11 upstream requests · ≈\$\S+ spent by dana$/);
+    expect(shown.stdout).not.toContain('captured');
+    // Its command is still Dana's: a replay asks, naming where it came from, and runs nothing unasked.
+    const replay = spawnSync(process.execPath, [CLI, 'replay', runId], { cwd: jonas.cwd, env, encoding: 'utf8' });
+    expect(replay.status).toBe(1);
+    expect(replay.stderr).toContain(`Run ${runId.slice(0, 10)} came from the team store, recorded by dana@northwind.example. Replaying it runs the command it was recorded with:`);
+    expect(replay.stderr).toContain('Pass --yes to run it');
+  });
+
   it("takes a fix with its blame, repair and verdict to a teammate, with the repair's patch beside their project", async () => {
     const dana = machine('fix-dana', 'dana@northwind.example');
     storeSet(dana, storeUrl('fixes'));

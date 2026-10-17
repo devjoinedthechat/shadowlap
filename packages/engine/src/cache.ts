@@ -1,8 +1,9 @@
+import { importedRecording } from './classify.js';
 import { Lru, runConversations, type RunConversations } from './conversations.js';
 import { storedModelResolver, type ModelResolver } from './report.js';
 import { shortModel } from './prices.js';
 import type { Store } from './store.js';
-import type { CallRecord, RunRecord, Usage } from './types.js';
+import type { CallRecord, Usage } from './types.js';
 
 /**
  * Where the prompt cache stopped hitting. One rule, used by the run page's Context view, its
@@ -197,8 +198,8 @@ const finishedUse = new WeakMap<Store, Lru<string, RunCacheUse | null>>();
 /**
  * Live model calls' cache use across the runs started since `since` (ms since the epoch): the
  * share of their input read from the cache, and the largest misses. Runs imported from a pack or a
- * capture are left out: their calls were live somewhere else. A finished run is worked out once
- * per store; a run still recording is read again each time.
+ * capture are left out: their calls were live somewhere else (`importedRecording`). A finished run
+ * is worked out once per store; a run still recording is read again each time.
  */
 export function cacheUse(store: Store, since: number, options: CacheUseOptions = {}): CacheUse {
   const runs = store.allRuns().filter((r) => r.startedAt >= since && (options.until === undefined || r.startedAt < options.until) && !importedRecording(r));
@@ -218,7 +219,9 @@ export function cacheUse(store: Store, since: number, options: CacheUseOptions =
   return sumCacheUse(parts, options.limit ?? 4);
 }
 
-/** A run imported from a pack or a capture: its calls were live somewhere else, so they say nothing about this machine's cache. */
-export function importedRecording(run: { meta?: { imported?: unknown } | null; mode: RunRecord['mode'] }): boolean {
-  return !!run.meta?.imported && run.mode === 'record';
-}
+/**
+ * A recording unpacked from a pack or imported from a capture: its calls were live somewhere else,
+ * so they say nothing about this cache. A teammate's run pulled from the team store counts: the
+ * Overview is the team's then. (Defined with the run kinds, for the dashboard's browser bundle.)
+ */
+export { importedRecording };

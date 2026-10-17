@@ -18,7 +18,11 @@ import { keepingIndex, loadRunIndex, type IndexedRun, type RunIndex } from './ru
 export interface CallTotals {
   /** One character per call, in call order: r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed. */
   codes: string;
-  /** Tokens per model and bucket: `l` spent live, `r` replayed (not re-spent), `c` captured (an imported recording's calls). */
+  /**
+   * Tokens per model and bucket: `l` spent live, `r` replayed (not re-spent), `c` captured (the
+   * calls of a recording unpacked from a pack or imported from a capture). A teammate's recording
+   * pulled from the team store spent live (`l`), where it was recorded.
+   */
   models: Array<[bucket: 'l' | 'r' | 'c', model: string, input: number, output: number, cacheRead: number, cacheWrite: number]>;
   /**
    * Time not waited: for every replayed call, how long it took when it was recorded. A replayed call
@@ -61,8 +65,11 @@ export interface StatsOptions {
   prices?: Record<string, Price>;
 }
 
-/** Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked out again. */
-const FORMAT = 't3';
+/**
+ * Bumped whenever `CallTotals` changes shape or meaning: totals kept under another format are worked
+ * out again. t4: a recording pulled from the team store spends (`l`) rather than captures (`c`).
+ */
+const FORMAT = 't4';
 
 /**
  * How far back the warm-up works out the prompt cache too: the Overview's week starts at most seven

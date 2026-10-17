@@ -374,6 +374,32 @@ describe('a feed polled while things happen', () => {
   });
 });
 
+describe('runs pulled from the team store', () => {
+  it('are told as what they are, by who made them, never as a pack unpacked', () => {
+    const store = Store.open(':memory:');
+    const STORE = 's3://northwind-agent-runs/support-agent';
+    const pulled = (runId: string, over: Partial<Parameters<Store['importRun']>[0]>) =>
+      store.importRun({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'support_chat.mjs'], cwd: '.' }, codeVersion: null, startedAt: 100, endedAt: 200, meta: { author: 'maya@example.com', imported: { at: 900, from: STORE } }, ...over });
+    pulled('01M53HB29T0000000000000001', {});
+    pulled('01M53HB29T0000000000000002', { parentRunId: '01M53HB29T0000000000000001', mode: 'replay', startedAt: 300, endedAt: 400, divergence: { type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 } });
+    // A capture Maya imported and pushed: still a capture, named as one (the pull marks it with the store).
+    pulled('01M53HB29T0000000000000003', { command: { argv: ['<no-recorded-command>'], cwd: '.' }, meta: { author: 'maya@example.com', imported: { at: 900, from: STORE }, covers: ['api'] } });
+    // And a pack someone sent, unpacked here: still told as unpacked.
+    store.importRun({ runId: '01M53HB31G0000000000000001', parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'triage.mjs'], cwd: '.' }, codeVersion: null, startedAt: 500, endedAt: 600, meta: { imported: { at: 950, from: 'triage-from-maya' } } });
+    const items = activity(store).items;
+    const told = (id: string) => items.filter((i) => i.runId === id).map((i) => [i.at, i.text, i.actor ?? null]);
+    expect(told('01M53HB29T0000000000000001')).toEqual([
+      [200, 'Recorded 0 calls · node support_chat.mjs', 'maya@example.com'],
+      [100, 'Recording started · node support_chat.mjs', 'maya@example.com'],
+    ]);
+    expect(told('01M53HB29T0000000000000002')).toEqual([[400, 'Forked at #2 · 0 live', 'maya@example.com']]);
+    expect(told('01M53HB29T0000000000000003')).toEqual([[900, 'Imported a capture · 0 model calls', 'maya@example.com']]);
+    expect(told('01M53HB31G0000000000000001')).toEqual([[950, 'Unpacked triage-from-maya · 0 calls', null]]);
+    expect(items.some((i) => /Unpacked support-agent/.test(i.text))).toBe(false);
+    store.close();
+  });
+});
+
 describe('runs from a pack someone else made', () => {
   it('cannot break the feed with meta it does not expect', () => {
     const store = Store.open(':memory:');

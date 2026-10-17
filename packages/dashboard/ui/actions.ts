@@ -187,8 +187,21 @@ export interface DialogContext {
   capture?: boolean;
 }
 
-/** A run from someone else's pack asks first, and says what replaying it runs: that question is the field's label. */
-const PACK_WARNING = /^This run came from an imported pack/;
+/**
+ * A run from someone else's pack, or a teammate's pulled from the team store, asks first, and says
+ * what replaying it runs: that question is the field's label.
+ */
+const PACK_WARNING = /^This run came from (?:an imported pack|the team store)/;
+
+/** A job the server holds until the command of the run it replays is confirmed (409): a pack's, or a pulled run's. */
+export function asksConsent(message: string): boolean {
+  return /came from (?:an imported pack|the team store): this runs the command/.test(message);
+}
+
+/** The title of the question a job's consent asks, after where the command came from. */
+export function consentTitle(message: string): string {
+  return /came from the team store:/.test(message) ? 'Run a command from the team store?' : 'Run a command from an imported pack?';
+}
 
 /**
  * The words of the dialog an action asks its one thing in. The server's own hint, when it sends one,
@@ -262,7 +275,7 @@ export function dialogCopy(a: ActionLike, ctx: DialogContext): DialogCopy {
     copy = { ...base, title: menuLabel(a), text: a.hint ?? p.label };
   }
   if (p.choices?.length) copy.choices = p.choices;
-  // An imported pack's question carries its warning: it is asked as it is.
+  // An imported pack's question (or a pulled run's) carries its warning: it is asked as it is.
   if (PACK_WARNING.test(p.label)) {
     copy.label = p.label;
     if (copy.text === p.label) copy.text = '';

@@ -57,7 +57,8 @@ with stable names, so it is diffable and committable.
 ```ts
 packRun(source: Store, runId: string, dir: string, opts?: { lineage?: boolean; redact?: Normalizer[] }): PackResult
 unpackRun(store: Store, dir: string): { imported: string[]; skipped: string[]; commands: Array<{ runId: string; argv: string[] }> }
-commandIsImported(run): boolean     // its command came from a pack: replaying it needs consent
+commandIsImported(run): boolean     // its command came from a pack or the team store: replaying it needs consent
+importedCommandSource(run)          // 'the team store' for a pulled run (pulledRun), else 'an imported pack'
 hasRecordedCommand(run): boolean    // false for a run built from a capture, whose command is NO_COMMAND
 ```
 

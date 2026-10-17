@@ -15,7 +15,8 @@ import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
  *   reproducing its recording.
  * - `test`: made by `shadowlap test` (`meta.test`).
  * - `capture`: imported from a capture or a trace: a partial recording with no command (`meta.covers`).
- * - `pack`: a recording that came from a pack someone else recorded (`meta.imported`).
+ * - `pack`: a recording unpacked here from a pack someone else recorded (`meta.imported`). One pulled
+ *   from the team store is a `recording`: a teammate's, or CI's (`pulledRun`).
  */
 export type RunKind = 'recording' | 'fork' | 'clean' | 'replay' | 'test' | 'capture' | 'pack';
 
@@ -79,12 +80,41 @@ export interface ClassifyContext extends KindFacts {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/**
+ * A team store's URL, as a pull marks the runs it brings (`meta.imported.from`): `s3://`, `gs://`,
+ * `az://` or `r2://`, as `@shadowlap/remote` reads them. An unpack names the pack's folder there,
+ * and an import its file or trace source, so none of them reads as a store.
+ */
+const STORE_URL = /^(?:s3|gs|az|r2):\/\/\S/;
+
+/**
+ * A run pulled from the team store: made by a teammate or by CI, on their machine, and kept there
+ * with the team's runs. It reads as what it is (a recording, a fork), by its author, with what it
+ * spent; a pack someone sent is the kind `pack`. Its command is still someone else's, so a replay
+ * asks before running it (`commandIsImported`).
+ */
+export function pulledRun(run: { meta?: { imported?: unknown } | null | undefined }): boolean {
+  const imported = run.meta?.imported;
+  return isObject(imported) && typeof imported.from === 'string' && STORE_URL.test(imported.from);
+}
+
+/**
+ * A recording whose calls were made outside the team's own runs: unpacked from a pack, or imported
+ * from a capture or a trace (one a teammate pushed included). What its calls cost was paid where that
+ * traffic ran: it counts as captured, not spent, and says nothing about the prompt cache. A
+ * teammate's recording pulled from the team store is the team's: what it spent was spent.
+ */
+export function importedRecording(run: { mode: RunMode; meta?: { imported?: unknown; covers?: readonly unknown[] | null | undefined } | null | undefined }): boolean {
+  if (run.mode !== 'record' || !run.meta?.imported) return false;
+  return !pulledRun(run) || (Array.isArray(run.meta.covers) && run.meta.covers.length > 0);
+}
+
 /** The kind of a run, from its mode, divergence, metadata and, for a replay that failed, the run it replayed. */
 export function runKind(run: Pick<ClassifiableRun, 'mode' | 'status' | 'divergence' | 'meta'>, facts: KindFacts = {}): RunKind {
   const m = run.meta;
   if (m?.test) return 'test';
   if (run.mode !== 'replay' && Array.isArray(m?.covers) && m.covers.length > 0) return 'capture';
-  if (run.mode !== 'replay') return m?.imported ? 'pack' : 'recording';
+  if (run.mode !== 'replay') return m?.imported && !pulledRun(run) ? 'pack' : 'recording';
   if (run.divergence) return 'fork';
   const { calls, parent } = facts;
   if (calls === 0) return 'replay';

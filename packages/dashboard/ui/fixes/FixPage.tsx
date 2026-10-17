@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { asksConsent, consentTitle } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
 import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
@@ -194,7 +195,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
     app.client.startJob(jobKind, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),
       (err: unknown) => {
-        if (err instanceof ApiError && err.status === 409 && /imported pack/.test(err.message)) setConsent({ why: err.message, kind: jobKind, fields });
+        if (err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ why: err.message, kind: jobKind, fields });
         else app.watchJob(Promise.reject(err));
       },
     );
@@ -208,7 +209,7 @@ export function FixActions({ fix }: { fix: FixDetail }) {
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
       {consent ? (
         <ConfirmDialog
-          title="Run a command from an imported pack?"
+          title={consentTitle(consent.why)}
           text={`${consent.why}.`}
           ok={consent.kind === JOB_KINDS.repair ? 'Repair' : 'Run'}
           onClose={() => setConsent(null)}

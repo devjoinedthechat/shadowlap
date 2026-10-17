@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
 import { loadApiRequest, manifestRefs } from './manifest.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
@@ -253,9 +254,17 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   return { imported, skipped, commands };
 }
 
-/** Whether replaying this run would execute a command that came from an imported pack. */
+/** Whether replaying this run would execute a command that came from an imported pack, or from the team store. */
 export function commandIsImported(run: RunRecord): boolean {
   return Boolean(run.meta?.imported || run.meta?.commandFromImport);
+}
+
+/**
+ * Where an imported run's command came from, as the question before replaying it says:
+ * "the team store" for a run pulled from it (a teammate's or CI's recording), else "an imported pack".
+ */
+export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team store' | 'an imported pack' {
+  return pulledRun(run) ? 'the team store' : 'an imported pack';
 }
 
 /**

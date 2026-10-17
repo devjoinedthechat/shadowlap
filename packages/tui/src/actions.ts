@@ -1,4 +1,4 @@
-import { commandIsImported, hasRecordedCommand, literalValue, noLateSystemMessage, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, importedCommandSource, literalValue, noLateSystemMessage, normalizeAddArgs, type CallRecord, type RunIntervention, type RunRecord, type Store } from '@shadowlap/engine';
 
 /**
  * The actions palette and the dashboard's fork menu: everything the CLI can do from the selected
@@ -126,7 +126,7 @@ export function bisectAction(run: RunRecord): Action | null {
   const failed = run.status === 'failed' || (run.meta?.checks ?? []).some((c) => !c.ok);
   const own = run.codeVersion?.replace(/\+dirty$/, '') || null;
   const disabled = commandIsImported(run)
-    ? 'This run came from an imported pack: bisect would run its command at every commit. Replay it with your own command first, and bisect that run'
+    ? `This run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first, and bisect that run`
     : !own
       ? 'Recorded outside a git repository: there are no commits to search'
       : null;
@@ -500,14 +500,15 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
 }
 
 /**
- * A run imported from a pack replays a command someone else recorded. Replay actions on it ask for
- * an explicit "yes" (or carry a warning into their prompt) and pass --yes to the CLI only then.
+ * A run imported from a pack, or pulled from the team store, replays a command someone else recorded.
+ * Replay actions on it ask for an explicit "yes" (or carry a warning into their prompt) and pass
+ * --yes to the CLI only then.
  */
 function guardImported(run: RunRecord, actions: Action[]): Action[] {
   if (!commandIsImported(run)) return actions;
-  // Only a pack carries someone else's command; a capture has none, and is handled above.
+  // Only a pack or a pulled run carries someone else's command; a capture has none, and is handled above.
   const cmd = run.command.argv.join(' ');
-  const warning = `This run came from an imported pack; replaying it runs: ${cmd}`;
+  const warning = `This run came from ${importedCommandSource(run)}; replaying it runs: ${cmd}`;
   return actions.map((a): Action => {
     const replays = (a.args?.[0] ?? '') === 'replay' || (a.prompt && a.prompt.build('x')[0] === 'replay');
     if (!replays) return a;
