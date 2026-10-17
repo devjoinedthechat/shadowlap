@@ -223,7 +223,13 @@ export interface RepairCandidate {
 
 export interface RepairTarget {
   runId: string;
-  outcome: 'blamed' | 'unrescuable' | 'stopped' | 'error';
+  /**
+   * What its blame found: where the run was lost (`blamed`), that no model call rescued it, that the
+   * search stopped, that the run passed the check when replayed so there was no failure to blame
+   * (`passes`: it is not a failing run, whatever `--fixes` said), or that blame couldn't run (`note`
+   * says why).
+   */
+  outcome: 'blamed' | 'unrescuable' | 'stopped' | 'passes' | 'error';
   callNo: number | null;
   step: number | null;
   steps: number;
@@ -393,7 +399,7 @@ export function repairMarkdown(r: RepairReport): string {
   out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
   out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
   for (const t of r.targets) {
-    const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome;
+    const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
     out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
   }
   if (r.diagnosis) out.push('', `The repairer's diagnosis: ${one(r.diagnosis, 600)}`);

@@ -467,6 +467,24 @@ describe('fixes for the other views', () => {
     expect(repairArgv(store, fixRecords(store, store.getFix(refunds.fixId)!))).toEqual(['repair', '--fixes', 'label:refund-bug', '--expect', JSON.stringify(EXPECT)]);
   });
 
+  it('repairs a fix by its runs when its label also names a run that passed, or leaves one of its runs out', () => {
+    // A run that failed and one that passed, both labelled digest: label:digest would repair the one that passed as failing.
+    const failed = makeRun(store, { labels: ['digest'] });
+    const passed = makeRun(store, { labels: ['digest'], status: 'completed' });
+    const { fix } = blame(failed);
+    const argv = () => repairArgv(store, fixRecords(store, store.getFix(fix.fixId)!));
+    expect(argv()).toEqual(['repair', '--fixes', failed, '--expect', JSON.stringify(EXPECT)]);
+    expect(fixDetail(store, fix.fixId)!.commands.verify).toContain(`shadowlap verify --fixes ${failed.slice(0, 10)} --expect`);
+    // With only the fix's runs left to carry it, the label stands for them.
+    store.deleteRun(passed);
+    expect(argv()).toEqual(['repair', '--fixes', 'label:digest', '--expect', JSON.stringify(EXPECT)]);
+    // A failing run with no label joins the fix by its check: the label would leave it out.
+    const unlabelled = makeRun(store);
+    blame(unlabelled);
+    expect(fixRecords(store, store.getFix(fix.fixId)!).failing).toEqual([failed, unlabelled]);
+    expect(argv()).toEqual(['repair', '--fixes', failed, unlabelled, '--expect', JSON.stringify(EXPECT)]);
+  });
+
   it('offers no repair once none of the failing runs is left, though its label still names the fix', () => {
     const run = makeRun(store, { labels: ['escalation'] });
     const { fix } = blame(run);

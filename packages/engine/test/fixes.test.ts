@@ -285,6 +285,20 @@ describe('Fixes: verdicts and repairs', () => {
     expect(store.listVerdicts()).toEqual([]);
   });
 
+  it('leaves a run given as failing that passed when its blame replayed it out of the fix’s failing runs', () => {
+    // label:digest gave repair a run that failed and one that passed; blame found nothing to blame in the second.
+    const failed = makeRun(store, { labels: ['digest'] });
+    const passed = makeRun(store, { labels: ['digest'], status: 'completed' });
+    const fix = blame(failed).fix;
+    const report = repairReport({ targets: [passed], holdout: [failed], accepted: false });
+    report.outcome = 'no-diagnosis';
+    report.candidates = [];
+    report.targets = [{ ...report.targets[0]!, outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: `${passed.slice(0, 10)} passes its oracle when replayed (the agent exits 0), so there is no failure to blame. Say what it should have done with --expect.` }];
+    const kept = recordRepair(store, { repairId: 'repair-digest', dir: '.shadowlap/repairs/repair-digest', report, expect: EXPECT, command: 'shadowlap repair --fixes label:digest' });
+    expect(kept.fixes.map((x) => x.fix.fixId)).toEqual([fix.fixId]);
+    expect(fixRecords(store, store.getFix(fix.fixId)!)).toMatchObject({ failing: [failed], repairs: [expect.objectContaining({ repairId: 'repair-digest' })] });
+  });
+
   it('keeps a run failing in one fix out of another', () => {
     const a = makeRun(store, { labels: ['refund-over-limit'] });
     const b = makeRun(store, { labels: ['double-email'] });

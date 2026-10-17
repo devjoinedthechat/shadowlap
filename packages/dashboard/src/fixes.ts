@@ -754,26 +754,26 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
 }
 
 /**
- * Whether `label:<label>` selects only this fix's runs: every run with the label fails in this fix,
- * or in none yet. A label its runs share with another fix's (a customer, say) would pull those in.
+ * Whether `label:<label>` selects exactly the fix's failing runs that are left: none of another
+ * fix's (a customer's label, say), no run in no fix (a run that passed, labelled with the failure
+ * it was recorded for), and every one of the fix's. Anything else would be repaired as failing.
  */
-function labelSelectsFix(store: Store, label: string, rec: FixRecords): boolean {
-  return store
-    .allRuns()
-    .filter((r) => r.meta?.labels?.includes(label))
-    .every((r) => store.linksTo(r.runId, 'failing').every((l) => l.fixId === rec.fix.fixId));
+function labelSelectsFix(store: Store, label: string, left: readonly string[]): boolean {
+  const failing = new Set(left);
+  const labelled = store.allRuns().filter((r) => r.meta?.labels?.includes(label));
+  return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
 }
 
 /**
- * `shadowlap repair` from a fix: its failing runs (by its label when that selects only them), the
- * good runs, its check. Empty when none of its failing runs is left in the store.
+ * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
+ * the good runs, its check. Empty when none of its failing runs is left in the store.
  */
 export function repairArgv(store: Store, rec: FixRecords): string[] {
   // Without a failing run left, a label would select nothing, and repair would refuse it.
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
   if (!left.length) return [];
   const { label } = fixLabelInfo(store, rec.fix);
-  const fixes = label && labelSelectsFix(store, label, rec) ? [`label:${label}`] : left;
+  const fixes = label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left;
   const anyGood = store.allRuns().some((r) => r.meta?.labels?.includes(GOOD_LABEL));
   const keeps = anyGood ? [`label:${GOOD_LABEL}`] : rec.good.filter((id) => store.getRun(id) !== null);
   const expect = rec.fix.check.expect;

@@ -435,7 +435,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         rescuedRunId = r.contrast.rescuedRunId;
       } catch (err) {
         if (!(err instanceof BlameError)) throw err;
-        return { target: { ...base, note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null };
+        // A run that passes its check when replayed is no failure: it isn't linked to the fix as one.
+        return { target: { ...base, outcome: err.reason === 'passes' ? 'passes' : 'error', note: err.message.split('\n')[0]! }, repairCase: null, request: null, model: null };
       }
     }
     const parentCall = parentCalls.find((c) => c.callNo === callNo);

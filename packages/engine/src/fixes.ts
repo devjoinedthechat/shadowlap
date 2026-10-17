@@ -353,7 +353,9 @@ export interface RecordedRepair {
  * opened or joined. A repair that accepted a candidate also keeps that candidate's verification as
  * a verdict, so a fix it counts for turns verified, or applied when `--apply` left the change in
  * the working tree; one that accepted none leaves the fix open, with every candidate it tried and
- * why each was dropped. A pull request it opened becomes where the fix came from.
+ * why each was dropped. A pull request it opened becomes where the fix came from. Its failing runs
+ * join the fix, but for one that passed the check as recorded, as its blame or a candidate's
+ * verification replayed it.
  */
 export function recordRepair(store: Store, input: RepairToRecord): RecordedRepair {
   const at = input.at ?? Date.now();
@@ -368,6 +370,8 @@ export function recordRepair(store: Store, input: RepairToRecord): RecordedRepai
     // How each recording fares against the repair's oracle, from any candidate it verified: the recording is the same for all.
     const recorded = new Map<string, boolean | null>();
     for (const c of r.candidates) for (const x of c.verify?.runs ?? []) if (!recorded.has(x.runId)) recorded.set(x.runId, x.recorded.passed);
+    // Or from its blame, which replays each run as recorded first: one that passed was no failure, whatever --fixes said.
+    for (const t of r.targets) if (t.outcome === 'passes' && !recorded.has(t.runId)) recorded.set(t.runId, true);
     for (const fix of fixes) {
       store.addFixLink(fix.fixId, 'repair', repair.repairId, at);
       if (coversCheck(fix, r.oracle, expect).covers) {
