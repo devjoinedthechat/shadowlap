@@ -1,4 +1,4 @@
-import { fixOfRun, hasRecordedCommand, maskedChange, normalizeAddArgs, normalizeAddCommand, recorderGone, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { fixOfRun, hasRecordedCommand, maskedChange, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type RunRecord, type Store, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -112,7 +112,10 @@ export interface GoldenRow {
   path: string;
   /** The path without the goldens folder: `refund-flow`. */
   name: string;
-  /** Where it came from: a run in this store, or a pack made elsewhere. */
+  /**
+   * Where it came from: a run in this store (one recorded here, or a teammate's pulled from the team
+   * store, which reads as their recording), or a pack made elsewhere.
+   */
   source: { kind: 'run'; runId: string } | { kind: 'pack'; packedAt: number | null };
   mode: 'replay' | 'fork';
   /** `replay`, or `fork ×5`. */
@@ -743,7 +746,7 @@ export function testsView(store: Store, goldens: readonly GoldenSource[], option
     return {
       path: g.path,
       name: nameOf(g.path, folder),
-      source: recorded && !recorded.meta?.imported ? { kind: 'run', runId: recorded.runId } : { kind: 'pack', packedAt: g.packedAt },
+      source: recorded && (!recorded.meta?.imported || pulledRun(recorded)) ? { kind: 'run', runId: recorded.runId } : { kind: 'pack', packedAt: g.packedAt },
       mode: g.mode,
       modeLabel: mode.label,
       modeHint: mode.hint,

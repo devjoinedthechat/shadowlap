@@ -3,6 +3,7 @@ import { Store } from '@shadowlap/engine';
 import { runDetail, showRunJson } from '../src/api.js';
 import { overviewSummary } from '../src/overview.js';
 import { listRunsPage } from '../src/runs-list.js';
+import { testsView, type GoldenSource } from '../src/tests.js';
 import { normalizeRunDetail } from '../ui/normalize.js';
 import { runSpent, runType } from '../ui/runs.js';
 import { metricItems } from '../ui/run/metrics.js';
@@ -107,6 +108,16 @@ describe('a run pulled from the team store', () => {
     const o = overviewSummary(store, { tz: 'UTC', now: NOW });
     const spent = (runId: string) => listRunsPage(store, { limit: 50 }).runs.find((r) => r.runId === runId)!.spent;
     expect(o.outcomes.spent.value).toBeCloseTo(spent(id.mine) + spent(id.pulled) + spent(id.nobody) + spent(id.fork), 10);
+  });
+
+  it('is the run a golden came from on Tests, as one recorded here is: a pack’s golden says when it was packed', () => {
+    const golden = (name: string, runId: string): GoldenSource => ({ path: `goldens/${name}`, runId, packedAt: NOW - HOUR, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const rows = testsView(store, [golden('mine', id.mine), golden('from-maya', id.pulled), golden('triage', id.pack)]).rows;
+    expect(rows.map((r) => r.source)).toEqual([
+      { kind: 'run', runId: id.mine },
+      { kind: 'run', runId: id.pulled },
+      { kind: 'pack', packedAt: NOW - HOUR },
+    ]);
   });
 
   it('gives show --json the same summary, with the store and the author on the run', () => {
