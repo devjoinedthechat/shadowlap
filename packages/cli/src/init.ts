@@ -341,7 +341,8 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
 /**
  * Agent frameworks that bring an OpenAI client of their own, which reads OPENAI_BASE_URL: the OpenAI
  * Agents SDK, CrewAI (OpenAI is its default model), Mastra's model router, and Pydantic AI as a whole
- * (`pydantic-ai`, not `pydantic-ai-slim`, which has it only with its `[openai]` extra). LangChain and
+ * (`pydantic-ai`, not `pydantic-ai-slim`, which has it only with its `[openai]` extra), unless every
+ * model its code names is another provider's (pydanticModelsElsewhere). LangChain and
  * the AI SDK reach OpenAI only through a package of their own for it (`langchain-openai`,
  * `@ai-sdk/openai`), which counts as an OpenAI SDK.
  */
@@ -377,17 +378,51 @@ function openaiInstalled(cwd: string): boolean {
 }
 
 /**
+ * Pydantic AI's model names with a provider (`'anthropic:claude-sonnet-4-5'`), and which providers'
+ * clients read OPENAI_BASE_URL: OpenAI's (and Azure's, counted with it to be safe). The others read
+ * an address of their own, or have a fixed one.
+ */
+const PYDANTIC_MODEL = /(['"])(openai-chat|openai-responses|openai|azure|anthropic|bedrock|cerebras|cohere|deepseek|fireworks|gemini|google-gla|google-vertex|grok|groq|heroku|huggingface|mistral|ollama|openrouter|together|xai):[^'"\s]+\1/g;
+const PYDANTIC_OPENAI = new Set(['openai', 'openai-chat', 'openai-responses', 'azure']);
+/** An OpenAI model named without its provider (`'gpt-5'`, `'o3-mini'`), or an OpenAI model or provider built in code. */
+const PYDANTIC_OPENAI_CODE = /(['"])(?:gpt-|chatgpt-|o[1-9](?:-|['"]))|\bOpenAI(?:Chat|Responses)?Model\b|\bOpenAIProvider\b|\bAzureProvider\b/;
+
+/**
+ * Whether the Python sources name Pydantic AI models, every one of them another provider's than
+ * OpenAI's (`Agent("anthropic:claude-sonnet-4-5")`), and build no OpenAI model or provider: Pydantic
+ * AI then makes no OpenAI client, though Pydantic AI as a whole installs one. False when they name
+ * none (a model read from the environment, say), since nothing can be told then.
+ */
+function pydanticModelsElsewhere(texts: ReadonlyArray<readonly [string, string]>): boolean {
+  let named = 0;
+  for (const [file, text] of texts) {
+    if (!file.endsWith('.py')) continue;
+    if (PYDANTIC_OPENAI_CODE.test(text)) return false;
+    for (const m of text.matchAll(PYDANTIC_MODEL)) {
+      if (PYDANTIC_OPENAI.has(m[2]!)) return false;
+      named++;
+    }
+  }
+  return named > 0;
+}
+
+/**
  * An OpenAI-compatible server the project already uses: from the environment, a .env file or a base
  * URL fallback in code. OPENAI_BASE_URL reaches only an OpenAI client, so it is this project's
  * server unless every model client found is another provider's (Anthropic's, Gemini's): an OpenAI
  * SDK, a framework that brings one (OPENAI_FRAMEWORKS, Pydantic AI as a whole), an OpenAI client
- * installed for another package, or SDKs that can't be told all count.
+ * installed for another package, or SDKs that can't be told all count. Pydantic AI makes a client
+ * for the provider of each model the code names, so when every one is another provider's it brings
+ * none, and the openai a lockfile lists is the one Pydantic AI as a whole installed.
  */
 function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[string, string]>, providers: readonly Provider[], frameworks: readonly Framework[]): InitReport['modelServer'] {
   const toUpstream = (url: string) => url.replace(/\/+$/, '').replace(/\/v1$/, '');
   const local = (url: string) => /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?/.test(url) && !url.includes('/openai');
-  const framework = frameworks.some((f) => OPENAI_FRAMEWORKS.has(f.id) || (f.id === 'pydantic-ai' && f.package === 'pydantic-ai'));
-  const openaiClient = providers.length === 0 || providers.some((p) => p.id === 'openai') || framework || openaiInstalled(cwd);
+  const pydantic = frameworks.find((f) => f.id === 'pydantic-ai') ?? null;
+  const elsewhere = pydantic !== null && pydanticModelsElsewhere(texts);
+  const framework = frameworks.some((f) => OPENAI_FRAMEWORKS.has(f.id) || (f.id === 'pydantic-ai' && f.package === 'pydantic-ai' && !elsewhere));
+  const lockfile = !(elsewhere && pydantic?.package === 'pydantic-ai') && openaiInstalled(cwd);
+  const openaiClient = (providers.length === 0 && !elsewhere) || providers.some((p) => p.id === 'openai') || framework || lockfile;
   if (openaiClient && env.OPENAI_BASE_URL && !env.SHADOWLAP_URL) return { url: env.OPENAI_BASE_URL, upstream: toUpstream(env.OPENAI_BASE_URL), from: 'OPENAI_BASE_URL in your environment' };
   for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);

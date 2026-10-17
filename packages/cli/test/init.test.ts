@@ -233,6 +233,30 @@ def send_page(to: str) -> dict:
     expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["anthropic"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "anthropic"\n', 'agent.py': 'import anthropic\n' })).toBeNull();
   });
 
+  it('leaves OPENAI_BASE_URL alone for Pydantic AI when every model its code names is another provider’s', () => {
+    const env = { OPENAI_BASE_URL: 'http://127.0.0.1:60506' };
+    // The demo's research agent: Pydantic AI as a whole beside Anthropic's SDK, and Agent("anthropic:claude-sonnet-4-5").
+    const demo = fileURLToPath(new URL('../../../scripts/demo-store/folders/research-agent', import.meta.url));
+    const report = inspectProject(demo, env);
+    expect(report.providers).toEqual([{ id: 'anthropic', via: 'anthropic' }]);
+    expect(report.modelServer).toBeNull();
+    expect(formatInit(report, palette, false)).not.toContain('SHADOWLAP_UPSTREAM_OPENAI');
+
+    const server = (files: Record<string, string>, given: Record<string, string> = env) => inspectProject(project(files), given).modelServer?.url ?? null;
+    const whole = { 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["pydantic-ai>=1"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "openai"\n\n[[package]]\nname = "pydantic-ai"\n' };
+    // Other providers' models alone: no OpenAI client, though Pydantic AI as a whole put openai in the lockfile; nor is a .env's address read.
+    expect(server({ ...whole, 'agent.py': "from pydantic_ai import Agent\nagent = Agent('google-gla:gemini-2.5-flash')\nhelper = Agent(model='anthropic:claude-haiku-4-5')\n" })).toBeNull();
+    expect(server({ ...whole, '.env': 'OPENAI_BASE_URL=http://127.0.0.1:60506\n', 'agent.py': "from pydantic_ai import Agent\nagent = Agent('anthropic:claude-sonnet-4-5')\n" }, {})).toBeNull();
+    // An OpenAI model among them, named with its provider or without, or built in code: the server is the project's.
+    expect(server({ ...whole, 'agent.py': "from pydantic_ai import Agent\nagent = Agent('anthropic:claude-sonnet-4-5')\nlocal = Agent('openai:llama3.2')\n" })).toBe('http://127.0.0.1:60506');
+    expect(server({ ...whole, 'agent.py': "from pydantic_ai import Agent\nagent = Agent('anthropic:claude-sonnet-4-5')\nfast = Agent('gpt-5-mini')\n" })).toBe('http://127.0.0.1:60506');
+    expect(server({ ...whole, 'agent.py': "from pydantic_ai import Agent\nfrom pydantic_ai.models.openai import OpenAIChatModel\nagent = Agent('anthropic:claude-sonnet-4-5')\nlocal = Agent(OpenAIChatModel('llama3.2'))\n" })).toBe('http://127.0.0.1:60506');
+    // A model the code doesn't name (read from the environment) can't be told, so the server counts.
+    expect(server({ ...whole, 'agent.py': "import os\nfrom pydantic_ai import Agent\nagent = Agent(os.environ['MODEL'])\n" })).toBe('http://127.0.0.1:60506');
+    // The slim package doesn't install openai: in the lockfile, another package brought it, and it counts.
+    expect(server({ 'pyproject.toml': '[project]\nname = "x"\ndependencies = ["pydantic-ai-slim[anthropic]", "some-agent-kit"]\n', 'uv.lock': 'version = 1\n\n[[package]]\nname = "openai"\n', 'agent.py': "from pydantic_ai import Agent\nagent = Agent('anthropic:claude-sonnet-4-5')\n" })).toBe('http://127.0.0.1:60506');
+  });
+
   it('counts Python tools wrapped with the framework adapters as declared', () => {
     const py = project({
       'requirements.txt': 'openai-agents==0.20.0\nlanggraph\ncrewai\n',
