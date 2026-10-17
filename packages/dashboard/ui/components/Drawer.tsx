@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
+import { JOB_KINDS } from '../api.js';
+import { useTreeBusy } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { jobFooter } from '../job-actions.js';
-import { jobCommand, jobStatus, jobTitle, lineTone } from '../jobs.js';
+import { calibrationTarget, jobCommand, jobStatus, jobTitle, lineTone, replayDivergence } from '../jobs.js';
 import { href } from '../route.js';
 import { switchProject } from '../shell/ProjectBlock.js';
 import { useApp, useLayer, type WatchedJob } from '../state.js';
@@ -12,7 +14,7 @@ import { Icon } from './Icon.js';
 /**
  * The job drawer: a CLI run the dashboard started. Its title names the job, its output streams in,
  * it ends on the outcome and the exit code, and links to what the job made. Closed early, a toast
- * says when the job finishes.
+ * says when the job finishes. A Replay that diverged offers Calibrate beside the run it made.
  */
 export function JobDrawer() {
   const { jobs } = useApp();
@@ -53,6 +55,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
   // What the job's own feature adds: calibrate's "Add it (--write)", a clean-up's "Delete N runs".
   // Only where the job ran: from another project's page it would act on the wrong one.
   const Footer = elsewhere ? null : jobFooter(job.kind);
+  // A Replay whose request differed from its recording: Calibrate finds the normalizer when the
+  // difference is a value made anew on every run. Only where the job ran, as above.
+  const calibrate = !elsewhere && !lost && replayDivergence(job, lines) && app.hasKind(JOB_KINDS.calibrate) ? calibrationTarget(job.runId, app.runs ?? []) : null;
   return (
     <div className="drawer" role="dialog" aria-label={title} aria-live="polite">
       <header>
@@ -120,6 +125,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           Close
         </button>
         {Footer && !lost ? <Footer job={job} /> : null}
+        {calibrate ? <CalibrateButton runId={calibrate} /> : null}
         {primary.map((l) => (
           <a key={l.href + l.label} className="btn lime" href={l.href} title={there} onClick={follow(l.href)}>
             {l.label}
@@ -132,5 +138,29 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         ) : null}
       </footer>
     </div>
+  );
+}
+
+/**
+ * Calibrate, after a Replay diverged: the calibrate job on the recording, which replays it offline
+ * until it is clean and proposes a normalizer for each value that changes every run (a user id, a
+ * temporary path); its own drawer then offers to add them. It runs the agent from the working tree,
+ * so it waits while a repair or an apply changes it, as Settings → Matching's Calibrate does.
+ */
+function CalibrateButton({ runId }: { runId: string }) {
+  const { client, actionsOff, guard, watchJob } = useApp();
+  const tree = useTreeBusy('reads', 'calibrate');
+  const off = actionsOff ?? tree;
+  const id = shortId(runId);
+  return (
+    <button
+      className="btn"
+      type="button"
+      disabled={!!off}
+      title={off ?? `Replays ${id} offline until it is clean and proposes a normalizer for each value that changes every run: shadowlap calibrate ${id}`}
+      onClick={() => guard(() => watchJob(client.startJob(JOB_KINDS.calibrate, { runId })))}
+    >
+      Calibrate
+    </button>
   );
 }

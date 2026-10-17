@@ -27,7 +27,7 @@ that comes from data goes there, everything else is a class.
 | `PromptDialog`, `ConfirmDialog` | `Dialog.tsx` | One field before an action runs (or one of a few `choices`, with "Something else…"; a choice with `text` asks for a few words more, as "error, with a message" does), with the command it runs, which can follow the answer; a yes or no with the command it runs. |
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`) and placed again as it or the window changes size (`keepPlaced`), its first item focused once it shows, ↑ ↓ between items (passing over buttons hidden until hovered), closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
-| `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. It ends on one primary action: a link the command marks `secondary` (each failing golden's run, beside Tests) shows as a plain link above the buttons. A job of another project than the page shows says which, and its links switch to that project first. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
+| `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. A Replay that diverged adds **Calibrate** (the calibrate job on its recording) beside Open run. It ends on one primary action: a link the command marks `secondary` (each failing golden's run, beside Tests) shows as a plain link above the buttons. A job of another project than the page shows says which, and its links switch to that project first. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
 | `ToastHost` | `Toast.tsx` | One toast at a time: `useApp().toast(text)`, gone after 2.6 seconds. A refusal or a failure is `toast(errorText(err), 'error')` (`toast.ts`): a red dot, read out at once (`role=alert`), and it stays until dismissed or for 8 seconds. |
 | `HoverCardLayer`, `tipText`, `tipCard` | `HoverCard.tsx` | Hover cards in one style, a title and coloured rows. Put `data-tip={tipCard(title, rows)}` on any element; one layer follows the pointer. |
 
@@ -79,7 +79,7 @@ how it ended, the Forks view's lines, the run an exported copy opens on), `recor
 call's recorded duration), `cache.ts` (where the cache stopped hitting, and what the Context view
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
-recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts`, `place.ts`,
+recording), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
 `focus.ts` (what a dialog focuses first), `shell/top.ts` (the top bar's pill, a run's parent in its
 crumbs, the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),
