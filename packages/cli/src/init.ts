@@ -97,9 +97,18 @@ const JS_PROVIDERS: Record<string, Provider['id']> = {
 };
 const PY_PROVIDERS: Record<string, Provider['id']> = { anthropic: 'anthropic', openai: 'openai', 'google-genai': 'gemini', 'langchain-anthropic': 'anthropic', 'langchain-openai': 'openai', 'google-cloud-aiplatform': 'vertex', 'langchain-google-vertexai': 'vertex', 'langchain-aws': 'bedrock' };
 
+/**
+ * A text file as Node and npm read it: a leading byte order mark, which Windows editors write, is
+ * no part of the text (`require('./package.json')` drops it, and JSON.parse would refuse it).
+ */
+function readUtf8(path: string): string {
+  const text = readFileSync(path, 'utf8');
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 function readJson(path: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    return JSON.parse(readUtf8(path)) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -132,16 +141,16 @@ function pythonDependencies(cwd: string): Set<string> {
   };
   const pyproject = join(cwd, 'pyproject.toml');
   if (existsSync(pyproject)) {
-    const text = readFileSync(pyproject, 'utf8');
+    const text = readUtf8(pyproject);
     for (const spec of tomlRequirements(text, ['dependencies', 'requires'])) add(spec);
     for (const section of text.matchAll(/\[tool\.poetry(?:\.group\.\w+)?\.dependencies\]([\s\S]*?)(?=\n\[|$)/g)) for (const line of section[1]!.split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
   }
   for (const f of ['requirements.txt', 'requirements-dev.txt', 'requirements.in']) {
     const p = join(cwd, f);
-    if (existsSync(p)) for (const line of readFileSync(p, 'utf8').split('\n')) if (line.trim() && !line.trim().startsWith('#') && !line.trim().startsWith('-')) add(line);
+    if (existsSync(p)) for (const line of readUtf8(p).split('\n')) if (line.trim() && !line.trim().startsWith('#') && !line.trim().startsWith('-')) add(line);
   }
   const pipfile = join(cwd, 'Pipfile');
-  if (existsSync(pipfile)) for (const line of readFileSync(pipfile, 'utf8').split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
+  if (existsSync(pipfile)) for (const line of readUtf8(pipfile).split('\n')) if (/^\s*[\w.-]+\s*=/.test(line)) add(line);
   return names;
 }
 
@@ -166,7 +175,7 @@ function pythonExtras(cwd: string): Array<{ name: string; extra: string }> {
     const m = /^\s*([\w.-]+)\s*=\s*\{[^}]*\bextras\s*=\s*\[([^\]]*)\]/.exec(line);
     if (m) add(m[1]!, m[2]!);
   };
-  const read = (f: string) => (existsSync(join(cwd, f)) ? readFileSync(join(cwd, f), 'utf8') : '');
+  const read = (f: string) => (existsSync(join(cwd, f)) ? readUtf8(join(cwd, f)) : '');
   const pyproject = read('pyproject.toml');
   for (const s of tomlRequirements(pyproject, ['dependencies', 'requires'])) spec(s);
   for (const line of pyproject.split('\n')) table(line);
@@ -359,7 +368,7 @@ function openaiInstalled(cwd: string): boolean {
   const read = (name: string) => {
     try {
       const p = join(cwd, name);
-      return statSync(p).size <= MAX_LOCKFILE_BYTES ? readFileSync(p, 'utf8') : '';
+      return statSync(p).size <= MAX_LOCKFILE_BYTES ? readUtf8(p) : '';
     } catch {
       return '';
     }
@@ -427,7 +436,7 @@ function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[stri
   for (const f of openaiClient ? ['.env', '.env.local'] : []) {
     const p = join(cwd, f);
     if (!existsSync(p)) continue;
-    const m = /^\s*OPENAI_BASE_URL\s*=\s*["']?([^"'\s#]+)/m.exec(readFileSync(p, 'utf8'));
+    const m = /^\s*OPENAI_BASE_URL\s*=\s*["']?([^"'\s#]+)/m.exec(readUtf8(p));
     if (m) return { url: m[1]!, upstream: toUpstream(m[1]!), from: `OPENAI_BASE_URL in ${f}` };
   }
   for (const [file, text] of texts) {
@@ -441,7 +450,7 @@ function findModelServer(cwd: string, env: NodeJS.ProcessEnv, texts: Array<[stri
 function pythonScript(cwd: string): { name: string; table: string } | null {
   let text: string;
   try {
-    text = readFileSync(join(cwd, 'pyproject.toml'), 'utf8');
+    text = readUtf8(join(cwd, 'pyproject.toml'));
   } catch {
     return null;
   }
@@ -550,7 +559,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   const deps = { ...((pkg?.dependencies ?? {}) as Record<string, string>), ...((pkg?.devDependencies ?? {}) as Record<string, string>) };
   const py = pythonDependencies(cwd);
   const files = sourceFiles(cwd);
-  const texts: Array<[string, string]> = files.map((f) => [f, readFileSync(f, 'utf8')]);
+  const texts: Array<[string, string]> = files.map((f) => [f, readUtf8(f)]);
 
   const languages: Language[] = [];
   if (pkg || texts.some(([f]) => /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(f))) languages.push(existsSync(join(cwd, 'tsconfig.json')) || texts.some(([f]) => /\.(ts|tsx|mts|cts)$/.test(f)) ? 'typescript' : 'javascript');
@@ -825,7 +834,7 @@ export interface InitJson extends Omit<InitReport, 'tools' | 'config' | 'modelSe
 function readText(path: string, limit = 2 * 1024 * 1024): string {
   try {
     if (statSync(path).size > limit) return '';
-    return readFileSync(path, 'utf8');
+    return readUtf8(path);
   } catch {
     return '';
   }

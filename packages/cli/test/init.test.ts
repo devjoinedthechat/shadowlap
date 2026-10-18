@@ -297,6 +297,20 @@ tools = [with_effect(lookup, "read")]
     expect(text).toContain('@function_tool(effect="write") on def refund');
   });
 
+  it('reads files that start with a byte order mark, as Node and npm do', () => {
+    // Windows editors save UTF-8 with a BOM; Node's require('./package.json') reads such a file as if it had none.
+    const BOM = '﻿';
+    const node = inspectProject(project({ 'package.json': BOM + JSON.stringify({ scripts: { start: 'node agent.js' }, dependencies: { openai: '^5.0.0' } }), 'agent.js': "const OpenAI = require('openai');\n" }), {});
+    expect(node.packageManager).toBe('npm');
+    expect(node.providers).toEqual([{ id: 'openai', via: 'openai' }]);
+    expect(node.command).toEqual({ argv: ['npm', 'start'], from: 'package.json scripts.start: node agent.js' });
+    const declared = inspectProject(project({ 'pyproject.toml': BOM + '[project.scripts]\ntriage = "triage.main:run"\n', 'requirements.txt': BOM + 'anthropic>=0.40\n' }), {});
+    expect(declared.providers).toEqual([{ id: 'anthropic', via: 'anthropic' }]);
+    expect(declared.command).toEqual({ argv: ['triage'], from: '[project.scripts] in pyproject.toml' });
+    // A source file too: the one file that imports a model SDK is still found by its first line.
+    expect(inspectProject(project({ 'bot.py': BOM + 'from anthropic import Anthropic\n' }), {}).command).toEqual({ argv: ['python', 'bot.py'], from: 'the entry file bot.py' });
+  });
+
   it('says so in a directory with no project, and writes nothing', () => {
     const empty = project({});
     const r = inspectProject(empty, {});
