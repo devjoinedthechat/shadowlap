@@ -2,7 +2,6 @@ import {
   cacheMisses,
   canonicalModel,
   Lru,
-  conversationRequestFor,
   hasRecordedCommand,
   previewRedaction,
   recordedDurations,
@@ -67,6 +66,14 @@ export interface RunAnalysis {
   cache: RunCache;
   recorded: Map<number, number>;
   facts(callNo: number): CallFacts;
+  /** The run's calls by number. */
+  byNo: ReadonlyMap<number, CallRecord>;
+  /**
+   * The model call whose request shows a call's conversation, as the engine's
+   * `conversationRequestFor` finds it: its own request, else its conversation's latest before it,
+   * else the first after it. Looked up rather than searched for, so a whole run's calls cost one pass.
+   */
+  requestFor(callNo: number): CallRecord | null;
 }
 
 /** Analyses of the runs read lately, per store: the run page asks for a run and then its calls, one by one. */
@@ -86,10 +93,38 @@ export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRec
   // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
   const asks = new Map<number, string[]>();
   for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, responseInfo(store, c).tools.map((t) => t.name));
+  const byNo = new Map(calls.map((c) => [c.callNo, c]));
+  // Each conversation's requests in call order, for requestFor.
+  const requests = new Map<number, CallRecord[]>();
+  for (const c of calls) {
+    const n = conversations.requests.has(c.callNo) ? conversations.byCall.get(c.callNo)?.conversation : undefined;
+    if (n === undefined || n === null) continue;
+    const list = requests.get(n);
+    if (list) list.push(c);
+    else requests.set(n, [c]);
+  }
   const analysis: RunAnalysis = {
     conversations,
     cache,
     recorded,
+    byNo,
+    requestFor(callNo) {
+      const self = byNo.get(callNo);
+      if (!self) return null;
+      if (self.kind === 'api' && self.requestRef) return self;
+      const n = conversations.byCall.get(callNo)?.conversation ?? null;
+      const members = n === null ? undefined : requests.get(n);
+      if (!members?.length) return null;
+      // The last request before the call, by halving; else the first after it.
+      let lo = 0;
+      let hi = members.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (members[mid]!.callNo < callNo) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo > 0 ? members[lo - 1]! : (members.find((c) => c.callNo > callNo) ?? null);
+    },
     facts(callNo) {
       const c = conversations.byCall.get(callNo);
       const miss = misses.get(callNo);
@@ -168,10 +203,9 @@ export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; re
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
-export function conversationSource(store: Store, run: RunRecord, calls: readonly CallRecord[], callNo: number): { call: CallRecord; n: number | null } | null {
-  const a = analyseRun(store, run, calls);
-  const from = conversationRequestFor(calls, a.conversations, callNo);
-  return from ? { call: from, n: a.conversations.byCall.get(from.callNo)?.conversation ?? null } : null;
+export function conversationSource(store: Store, run: RunRecord, calls: readonly CallRecord[], callNo: number, analysis: RunAnalysis = analyseRun(store, run, calls)): { call: CallRecord; n: number | null } | null {
+  const from = analysis.requestFor(callNo);
+  return from ? { call: from, n: analysis.conversations.byCall.get(from.callNo)?.conversation ?? null } : null;
 }
 
 // ---- per run ---------------------------------------------------------------------------------------

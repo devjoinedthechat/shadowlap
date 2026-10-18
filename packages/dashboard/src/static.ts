@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
-import { callDetail, compare, lineage, listRuns, runDetail } from './api.js';
+import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { runCalls } from './run-calls.js';
+import { analyseRun } from './run-page.js';
 import { isAttempt } from './run-cache.js';
 import type { MetaView } from './views.js';
 
@@ -104,12 +106,18 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   let calls = 0;
   for (const runId of runIds) {
     const detail = runDetail(store, runId, read);
-    if (!detail) continue;
+    const record = store.getRun(runId);
+    if (!detail || !record) continue;
     // Only runs in the file are linked from it: a Compare or parent link to a run left out would dead-end.
     responses[`runs/${runId}`] = { ...detail, run: keep ? detail.run : withoutAuthor(detail.run), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
-    for (const call of detail.calls) {
-      const one = callDetail(store, runId, call.callNo, read);
+    // Every call's details from one read of the run and one analysis of it: asking for each call on
+    // its own read the whole run again, so a run's export took time with the square of its length.
+    const all = runCalls(store, runId);
+    const analysis = analyseRun(store, record, all);
+    const memo: ConversationMemo = {};
+    for (const call of all) {
+      const one = callDetailFrom(store, record, all, analysis, call.callNo, read, memo);
       if (one) responses[`runs/${runId}/calls/${call.callNo}`] = { ...one, actions: [] };
       calls++;
     }
