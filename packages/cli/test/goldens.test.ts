@@ -171,4 +171,46 @@ describe('a golden whose run id the store already holds as another recording', (
     store.close();
     other.close();
   });
+
+  it('replays an older pack of the run over a copy unpacked from a newer pack with more rules', () => {
+    const TICKET = { pattern: '/A-\\d+/', replace: '<TICKET>' };
+    const EMAIL = { pattern: 'email', replace: '<EMAIL>' };
+    /** The golden as an older checkout holds it (packed with `before`), and as packed again into its folder with `after`. */
+    const packedTwice = (name: string, ticket: string, before: Array<typeof EMAIL>, after: Array<typeof EMAIL>) => {
+      const source = Store.open(':memory:');
+      const run = recordTicket(source, ticket);
+      const golden = join(project, 'goldens', name);
+      packRun(source, run.runId, golden, { redact: before });
+      const older = mkdtempSync(join(tmpdir(), 'sl-older-'));
+      cpSync(golden, older, { recursive: true });
+      packRun(source, run.runId, golden, { redact: after });
+      source.close();
+      return { run, golden, older };
+    };
+    const store = Store.open(':memory:');
+    const dirs: string[] = [];
+    // A teammate tests the newer pack first, which keeps its redacted copy in the store, then the older one.
+    for (const [name, ticket, before] of [['ticket-older', 'A-1042', []], ['ticket-older-ruled', 'A-2001', [TICKET]]] as const) {
+      const { run, golden, older } = packedTwice(name, ticket, [...before], [...before, EMAIL]);
+      dirs.push(older);
+      expect(importGolden(store, golden).meta?.redactions).toEqual([...before, EMAIL]);
+      expect(importGolden(store, older)).toMatchObject({ runId: run.runId, command: { argv: ['node', 'agent.mjs', ticket] } });
+    }
+
+    // An older pack whose calls are another recording is still refused.
+    const { run, golden } = packedTwice('ticket-older-other', 'A-3003', [], [EMAIL]);
+    importGolden(store, golden);
+    const elsewhere = Store.open(':memory:');
+    elsewhere.importRun({ ...run, meta: {} });
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), occurrence: 1 };
+    elsewhere.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: storeApiRequest(elsewhere, { model: 'm', system: 'Support agent. Escalate to ops@northwind.example.', messages: [{ role: 'user', content: 'ticket A-3003' }] }), meta: { provider: 'anthropic' }, at: 1 });
+    elsewhere.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: elsewhere.putBlob(Buffer.from('event: message_start\ndata: {"text":"all good"}\n\n')), outcome: 'ok', meta: { status: 200 }, at: 2 });
+    const another = mkdtempSync(join(tmpdir(), 'sl-another-'));
+    dirs.push(another);
+    packRun(elsewhere, run.runId, another);
+    elsewhere.close();
+    expect(() => importGolden(store, another)).toThrow("and its calls differ from the pack's");
+    store.close();
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
 });

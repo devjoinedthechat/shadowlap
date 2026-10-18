@@ -245,38 +245,74 @@ export interface RecordingMismatch {
   calls: boolean;
 }
 
+/** Writes a run's calls into a store, each call's attempts and end after its start. */
+function appendCalls(store: Store, calls: readonly CallRecord[]): void {
+  for (const call of calls) {
+    const { end, attempts, ...start } = call;
+    store.appendCallStart(start);
+    const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
+    for (const a of attempts) store.appendCallEnd(identity, a);
+    if (end) store.appendCallEnd(identity, end);
+  }
+}
+
 /**
- * Whether the store's run holds the calls a pack holds under the same id. The pack may hold them
- * redacted with rules the store's copy doesn't carry (the golden packed from the run recorded here):
- * then the store's run is redacted the same way, as `pack` did, and compared with that.
+ * Whether the store's run holds the calls a pack holds under the same id. Either may carry more
+ * redaction rules than the other, after the ones both carry: the pack, when it is the golden packed
+ * from the run recorded here; the store's copy, when it came from a newer pack of the run (packed
+ * again after a rule was added) and the pack is an older one, as an older checkout holds it. Then
+ * the one with fewer is redacted with the rest, as `pack` did, and compared with the other.
  */
-function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[]): boolean {
+function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): boolean {
   const ours = store.getCalls(held.runId);
   const theirs = [...packedCalls].sort((a, b) => a.callNo - b.callNo);
   if (ours.length !== theirs.length) return false;
   const identity = (c: CallRecord) => JSON.stringify([c.callNo, c.kind, c.name, c.fingerprint, c.occurrence]);
   if (ours.some((c, i) => identity(c) !== identity(theirs[i]!))) return false;
   const refs = (c: CallRecord) => JSON.stringify(callRefs(c));
-  const same = (calls: readonly CallRecord[]) => calls.every((c, i) => refs(c) === refs(theirs[i]!));
-  const mine = JSON.stringify(held.meta?.redactions ?? []);
+  const same = (a: readonly CallRecord[], b: readonly CallRecord[]) => a.length === b.length && a.every((c, i) => refs(c) === refs(b[i]!));
+  const mine = held.meta?.redactions ?? [];
   const rules = packed.meta?.redactions ?? [];
-  if (JSON.stringify(rules) === mine) return same(ours);
-  // Packed with more rules than this copy carries, after the ones it does.
-  const carried = held.meta?.redactions?.length ?? 0;
-  if (JSON.stringify(rules.slice(0, carried)) !== mine) return false;
-  const scratch = Store.open(':memory:');
+  const json = (v: unknown) => JSON.stringify(v);
+  if (json(rules) === json(mine)) return same(ours, theirs);
+  const into = Store.open(':memory:');
   try {
-    redactRun(store, held.runId, rules.slice(carried), scratch);
-    return same(scratch.getCalls(held.runId));
+    if (rules.length > mine.length && json(rules.slice(0, mine.length)) === json(mine)) {
+      // Packed with more rules than this copy carries: this copy redacted with the rest.
+      redactRun(store, held.runId, rules.slice(mine.length), into);
+      return same(into.getCalls(held.runId), theirs);
+    }
+    if (mine.length > rules.length && json(mine.slice(0, rules.length)) === json(rules)) {
+      // This copy carries more rules than the pack: the pack's run, as unpack would bring it in, redacted with the rest.
+      const from = Store.open(':memory:');
+      try {
+        from.transaction(() => {
+          from.importRun(asImportedRun(packed, theirs));
+          for (const c of theirs) {
+            for (const h of callRefs(c)) if (blobs.has(h)) from.putBlob(blobs.get(h)!);
+            if (c.kind === 'api' && c.requestRef) for (const h of manifestRefs(from, c.requestRef)) if (blobs.has(h)) from.putBlob(blobs.get(h)!);
+          }
+          appendCalls(from, theirs);
+        });
+        redactRun(from, packed.runId, mine.slice(rules.length), into);
+      } catch {
+        // A blob the pack's calls need is missing or unreadable: not a recording to compare with.
+        return false;
+      } finally {
+        from.close();
+      }
+      return same(ours, into.getCalls(held.runId));
+    }
+    return false;
   } finally {
-    scratch.close();
+    into.close();
   }
 }
 
 /** How the store's run under a pack run's id differs from it, or null when it is that recording. */
-function mismatch(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[]): RecordingMismatch | null {
+function mismatch(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): RecordingMismatch | null {
   const sameCommand = JSON.stringify(held.command.argv) === JSON.stringify(packed.command.argv) && held.command.cwd === packed.command.cwd;
-  const calls = !sameCalls(store, held, packed, packedCalls);
+  const calls = !sameCalls(store, held, packed, packedCalls, blobs);
   return sameCommand && !calls ? null : { runId: packed.runId, command: sameCommand ? null : { argv: packed.command.argv, cwd: packed.command.cwd }, calls };
 }
 
@@ -394,13 +430,7 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
       const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
       const own = calls.filter((c) => c.runId === run.runId);
       store.importRun({ ...asImportedRun(run, own), meta: { ...rest, imported: { at, from } } });
-      for (const call of own) {
-        const { end, attempts, ...start } = call;
-        store.appendCallStart(start);
-        const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
-        for (const a of attempts) store.appendCallEnd(identity, a);
-        if (end) store.appendCallEnd(identity, end);
-      }
+      appendCalls(store, own);
       imported.push(run.runId);
       commands.push({ runId: run.runId, argv: run.command.argv });
     }
@@ -411,7 +441,7 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   for (const run of runs) {
     if (!skipped.includes(run.runId)) continue;
     const held = store.getRun(run.runId);
-    const m = held && mismatch(store, held, run, calls.filter((c) => c.runId === run.runId));
+    const m = held && mismatch(store, held, run, calls.filter((c) => c.runId === run.runId), packed);
     if (m) mismatched.push(m);
   }
   return { imported, skipped, commands, mismatched };
