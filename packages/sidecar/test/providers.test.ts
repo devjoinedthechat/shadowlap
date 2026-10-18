@@ -64,6 +64,17 @@ describe('gemini usage', () => {
     ]);
     expect(gemini.extractUsage(body, SSE)).toEqual({ inputTokens: 12, outputTokens: 4 });
   });
+
+  it('reads the OpenAI-compatible endpoint\'s answers in OpenAI\'s format', () => {
+    const body = sse([
+      [null, { choices: [{ index: 0, delta: { content: 'a' } }] }],
+      [null, { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 4 } }],
+      [null, '[DONE]'],
+    ]);
+    expect(gemini.extractUsage(body, SSE)).toEqual({ inputTokens: 12, outputTokens: 4 });
+    expect(gemini.extractStopReason(body, SSE)).toBe('stop');
+    expect(gemini.extractUsage(Buffer.from(JSON.stringify({ choices: [{ finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 2 } })), JSON_CT)).toEqual({ inputTokens: 3, outputTokens: 2 });
+  });
 });
 
 describe('cloud providers', () => {

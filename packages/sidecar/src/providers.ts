@@ -226,17 +226,18 @@ export const gemini: Provider = {
     if (contentType?.includes('text/event-stream')) {
       let usage: Usage | null = null;
       for (const obj of sseDataObjects(body.toString('utf8'))) usage = geminiUsage(obj.usageMetadata) ?? usage;
-      return usage;
+      // Gemini's OpenAI-compatible endpoint (/v1beta/openai/…) answers in OpenAI's format.
+      return usage ?? openai.extractUsage(body, contentType);
     }
-    return geminiUsage(parseJson(body)?.usageMetadata);
+    return geminiUsage(parseJson(body)?.usageMetadata) ?? openai.extractUsage(body, contentType);
   },
   extractStopReason(body, contentType) {
     if (contentType?.includes('text/event-stream')) {
       let reason: string | null = null;
       for (const obj of sseDataObjects(body.toString('utf8'))) reason = geminiStopReason(obj) ?? reason;
-      return reason;
+      return reason ?? openai.extractStopReason(body, contentType);
     }
-    return geminiStopReason(parseJson(body));
+    return geminiStopReason(parseJson(body)) ?? openai.extractStopReason(body, contentType);
   },
   extractModel: (subpath, body) => modelInPath(subpath) ?? modelInBody(body),
   hosts: /^generativelanguage\.googleapis\.com$/,
