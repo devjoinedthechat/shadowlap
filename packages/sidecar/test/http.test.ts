@@ -1,8 +1,8 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { redactRun, Store, type Normalizer } from '@shadowlap/engine';
-import { credentialParam, credentialValue, matchHttpRule, validHttpHost, withoutCredentials } from '../src/http.js';
+import { fingerprintTool, normalizersHash, redactRun, Store, type Normalizer } from '@shadowlap/engine';
+import { credentialParam, credentialValue, matchHttpRule, storedRequestBody, validHttpHost, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
 import { Sidecar } from '../src/index.js';
 
 let server: Server;
@@ -91,6 +91,93 @@ describe('credentials in a captured call', () => {
     const masked = withoutCredentials('?key=AIzaSyD%2Dlive%2Dkey%2D0123&token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln&q=refund');
     expect(masked).toBe('?key=<CREDENTIAL>&token=<CREDENTIAL>&q=refund');
     expect(withoutCredentials(masked)).toBe(masked);
+  });
+
+  it('stored as sent by an earlier version still match, with the same key and with a rotated one', async () => {
+    const seen: string[] = [];
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        seen.push(req.url ?? '');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ items: [{ title: 'Refund policy' }] }));
+      });
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const calls = async (base: string, runId: string, key: string, secret: string) => {
+      const search = await fetch(`${base}/r/${runId}/http/customsearch/v1?key=${key}&q=refund`, { headers: { 'x-shadowlap-upstream': `http://${host}` } });
+      await search.text();
+      const token = await fetch(`${base}/r/${runId}/http/oauth/token`, { method: 'POST', headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/x-www-form-urlencoded' }, body: `grant_type=client_credentials&client_secret=${secret}` });
+      await token.text();
+      return [search.status, token.status];
+    };
+    const sidecars: Sidecar[] = [];
+    try {
+      // Recorded, then copied into a run as an earlier version stored it: the URL and form body as
+      // sent, and fingerprinted so.
+      const recording = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact' });
+      sidecars.push(recording);
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      await calls(recording.url, run.runId, 'AIzaSyD-live-key-0123', 'live-secret-456');
+      recording.endRun(run.runId, 'completed');
+      const sent = [
+        { method: 'GET', url: `http://${host}/customsearch/v1?key=AIzaSyD-live-key-0123&q=refund` },
+        { method: 'POST', url: `http://${host}/oauth/token`, body: 'grant_type=client_credentials&client_secret=live-secret-456', encoding: 'text' },
+      ];
+      const old = store.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' }, meta: { normalizersHash: normalizersHash([], 'exact', false) } });
+      store.getCalls(run.runId).forEach((call, i) => {
+        const fingerprint = fingerprintTool(call.name, sent[i], []).fingerprint;
+        store.appendCallStart({ ...call, runId: old.runId, fingerprint, requestRef: store.putJson({ args: sent[i] }) });
+        store.appendCallEnd({ kind: call.kind, name: call.name, fingerprint, occurrence: call.occurrence }, { ...call.end!, runId: old.runId });
+      });
+      store.endRun(old.runId, 'completed');
+      expect(seen).toHaveLength(2);
+
+      // Its stored fingerprints reused (no normalizers), and fingerprinted again (one that changes nothing here).
+      for (const normalizers of [[], [{ kind: 'api', pattern: 'uuid' }] as Normalizer[]]) {
+        const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact', normalizers });
+        sidecars.push(sidecar);
+        for (const [key, secret] of [['AIzaSyD-live-key-0123', 'live-secret-456'], ['AIzaSyD-rotated-key-999', 'rotated-secret-789']] as const) {
+          const replay = sidecar.startRun({ mode: 'replay', parentRunId: old.runId, command: { argv: ['x'], cwd: '.' } });
+          expect(await calls(sidecar.url, replay.runId, key, secret)).toEqual([200, 200]);
+          expect(sidecar.endRun(replay.runId, 'completed').summary.divergence, `${normalizers.length} ${key}`).toBeNull();
+          expect(store.getCalls(replay.runId).map((c) => c.origin)).toEqual(['replayed', 'replayed']);
+        }
+      }
+      expect(seen).toHaveLength(2);
+
+      // A replay that changes the query diverges, and its report shows no credential as sent.
+      const sidecar = sidecars[1]!;
+      const changed = sidecar.startRun({ mode: 'replay', parentRunId: old.runId, command: { argv: ['x'], cwd: '.' } });
+      await fetch(`${sidecar.url}/r/${changed.runId}/http/customsearch/v1?key=AIzaSyD-live-key-0123&q=refunds`, { headers: { 'x-shadowlap-upstream': `http://${host}` } }).then((r) => r.text());
+      const { divergence } = sidecar.endRun(changed.runId, 'completed').summary;
+      expect(divergence?.diff).toEqual([{ op: 'changed', path: '$.args.url', before: `http://${host}/customsearch/v1?key=<CREDENTIAL>&q=refund`, after: `http://${host}/customsearch/v1?key=<CREDENTIAL>&q=refunds` }]);
+    } finally {
+      for (const s of sidecars) await s.close();
+      store.close();
+      upstream.close();
+    }
+  });
+
+  it('read from stored arguments as a call is stored now, which change nothing that already reads so', () => {
+    const url = 'http://h/customsearch/v1?key=AIzaSyD-live-key-0123&q=refund';
+    expect(withoutStoredCredentials({ method: 'GET', url })).toEqual({ method: 'GET', url: 'http://h/customsearch/v1?key=<CREDENTIAL>&q=refund' });
+    expect(withoutStoredCredentials({ method: 'POST', url: 'http://h/t', body: 'client_id=app&client_secret=s', encoding: 'text' })).toEqual({ method: 'POST', url: 'http://h/t', body: 'client_id=app&client_secret=<CREDENTIAL>', encoding: 'text' });
+    for (const args of [
+      { method: 'GET', url: 'http://h/customsearch/v1?key=<CREDENTIAL>&q=refund' },
+      { method: 'GET', url: 'http://h/flags?key=checkout_v2' },
+      { method: 'POST', url: 'http://h/q', body: { client_secret: 's' }, encoding: 'json' },
+      { method: 'POST', url: 'http://h/q', body: 'note: client_secret=s is a secret', encoding: 'text' },
+      null,
+      'x',
+    ]) {
+      expect(withoutStoredCredentials(args)).toBe(args);
+    }
+    // A text body written as a form is stored as one, whatever its content type says.
+    expect(storedRequestBody(Buffer.from('client_id=app&client_secret=s'), 'text/plain')).toEqual({ body: 'client_id=app&client_secret=<CREDENTIAL>', encoding: 'text' });
+    expect(storedRequestBody(Buffer.from('client_secret=s is a secret'), 'text/plain')).toEqual({ body: 'client_secret=s is a secret', encoding: 'text' });
   });
 
   it('leave a lookup by a bare key as recorded, so lookups replayed in another order get their own answers', async () => {

@@ -117,15 +117,46 @@ export function withoutCredentials(encoded: string): string {
   });
 }
 
+/** A text body written as URL-encoded parameters, as a form body is (`a=1&b=2`): a `=`, and no space, quote or brace. */
+function formShaped(text: string): boolean {
+  return text.includes('=') && /^[^\s"{}<>\\^`|]+$/.test(text);
+}
+
 /**
  * A request body as stored: decodeBody's, with the credentials of a form body
- * (`application/x-www-form-urlencoded`, an OAuth token request's `client_secret`) masked as a query
- * string's are (withoutCredentials). The call is forwarded with the body as it was sent.
+ * (`application/x-www-form-urlencoded`, an OAuth token request's `client_secret`, or a text body
+ * written as one) masked as a query string's are (withoutCredentials). The call is forwarded with
+ * the body as it was sent.
  */
 export function storedRequestBody(bytes: Buffer, contentType: string | undefined): StoredBody {
   const body = decodeBody(bytes, contentType);
-  if (body.encoding !== 'text' || !/^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '')) return body;
-  return { ...body, body: withoutCredentials(body.body as string) };
+  if (body.encoding !== 'text') return body;
+  const text = body.body as string;
+  if (!/^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(text)) return body;
+  return { ...body, body: withoutCredentials(text) };
+}
+
+/**
+ * A captured call's stored arguments (`{ method, url, body?, encoding? }`) as they are matched on
+ * replay: with the credentials in the URL's query and in a text body written as URL-encoded
+ * parameters masked (withoutCredentials), as a call is stored now. A recording made by an earlier
+ * version holds them as sent, and so still matches a live call with the same key or a rotated one;
+ * a stored call that already reads so comes back as it is.
+ */
+export function withoutStoredCredentials(args: unknown): unknown {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return args;
+  const stored = args as Record<string, unknown>;
+  let out = stored;
+  if (typeof stored.url === 'string' && stored.url.includes('?')) {
+    const at = stored.url.indexOf('?');
+    const url = stored.url.slice(0, at) + withoutCredentials(stored.url.slice(at));
+    if (url !== stored.url) out = { ...out, url };
+  }
+  if (stored.encoding === 'text' && typeof stored.body === 'string' && formShaped(stored.body)) {
+    const body = withoutCredentials(stored.body);
+    if (body !== stored.body) out = { ...out, body };
+  }
+  return out;
 }
 
 /** A body as stored: parsed JSON, text, or base64 for anything else. */

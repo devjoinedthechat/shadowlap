@@ -44,7 +44,7 @@ import {
 } from '@shadowlap/engine';
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
-import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, withoutCredentials, type HttpResult, type HttpRule } from './http.js';
+import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
@@ -405,8 +405,11 @@ export class Sidecar {
         if (!target || target.kind !== 'api') throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}`);
       }
       if (parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
-        parentCalls = stored;
-        this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls)`);
+        // A captured HTTP call is matched with the credentials in its query or form body masked, which
+        // a recording made by an earlier version stored as sent: those calls are fingerprinted again.
+        const http = stored.some(capturedHttp);
+        parentCalls = http ? this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined, redactions, capturedHttp) : stored;
+        this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${http ? ', captured HTTP calls fingerprinted again' : ''})`);
       } else {
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers`);
         parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined, redactions);
@@ -1259,7 +1262,10 @@ export class Sidecar {
 
   private loadRequest(rec: CallRecord): unknown {
     if (!rec.requestRef) return undefined;
-    return rec.kind === 'api' ? loadApiRequest(this.store, rec.requestRef) : this.store.getJson<{ args?: unknown }>(rec.requestRef);
+    if (rec.kind === 'api') return loadApiRequest(this.store, rec.requestRef);
+    const req = this.store.getJson<{ args?: unknown }>(rec.requestRef);
+    // A captured HTTP call is diffed as it is matched: no credential as sent from an older recording.
+    return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
   }
 
   /**
@@ -1268,14 +1274,18 @@ export class Sidecar {
    * its occurrence numbers) are recomputed from the stored requests under the current normalizers.
    * A captured HTTP call is fingerprinted under its name masked by the rules that redacted the
    * parent (`redactions`, matchedAs), as proxyHttp fingerprints a live one; a redacted copy already
-   * holds it so.
+   * holds it so. Its arguments are read with their credentials masked (withoutStoredCredentials),
+   * as proxyHttp stores a live call's. `only` limits the calls fingerprinted again; the others keep
+   * their stored fingerprints, and every call's occurrence is counted again.
    */
-  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false, redactions: Normalizer[] = []): CallRecord[] {
+  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false, redactions: Normalizer[] = [], only?: (rec: CallRecord) => boolean): CallRecord[] {
     const counts = new Map<string, number>();
     return calls.map((rec) => {
       let fingerprint = rec.fingerprint;
       try {
-        if (rec.kind === 'api' && rec.requestRef) {
+        if (only && !only(rec)) {
+          // Valid as stored.
+        } else if (rec.kind === 'api' && rec.requestRef) {
           const provider = this.providers.get(String(rec.meta.provider ?? ''));
           const [method = 'POST', ...pathParts] = rec.name.split(' ');
           const headers = (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {};
@@ -1285,7 +1295,8 @@ export class Sidecar {
         } else if (rec.kind === 'tool' && rec.requestRef) {
           const req = this.store.getJson<{ args?: unknown }>(rec.requestRef);
           const matched = matchedAs(rec, normalizers, redactions);
-          fingerprint = fingerprintTool(matched.name, req?.args ?? null, matched.normalizers, clockRef).fingerprint;
+          const args = capturedHttp(rec) ? withoutStoredCredentials(req?.args) : req?.args;
+          fingerprint = fingerprintTool(matched.name, args ?? null, matched.normalizers, clockRef).fingerprint;
         }
       } catch (err) {
         this.log(`could not re-fingerprint call #${rec.callNo}: ${err instanceof Error ? err.message : String(err)}`);
@@ -1368,6 +1379,10 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   return decision.origin;
 }
 
+/** A call to a host under `http` in the config, recorded as a tool (proxyHttp). */
+function capturedHttp(rec: Pick<CallRecord, 'kind' | 'meta'>): boolean {
+  return rec.kind === 'tool' && typeof rec.meta.http === 'string';
+}
 
 /** The SDKs' `scope()`, from x-shadowlap-scope: printable, at most 200 characters, or none. */
 function scopeOf(req: IncomingMessage): string | undefined {
