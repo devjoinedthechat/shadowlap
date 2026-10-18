@@ -185,6 +185,7 @@ describe('shadowlap repair', () => {
     expect(md).toContain('## Escalate refunds above the policy limit');
     expect(md).toContain(`+ ${FIX}`);
     expect(md).toContain('The held-out runs were never shown to the repairer.');
+    expect(md).toContain('Writes were stubbed in every replay.');
     expect(md).toMatch(/\| good \| `\w{10}` \| kept \| 4 of 4 passed \|/);
     expect(md).toContain(good.slice(0, 10));
   });
@@ -344,13 +345,17 @@ process.stdin.on('end', () => {
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'small-model': { input: 5, output: 25 } } }));
     const failed = await record();
     mode = 'alternate';
-    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.01', '--json']);
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.01', '--writes', 'block', '--json']);
     expect(r.code, r.out).toBe(1);
     const report = JSON.parse(r.stdout) as Report & { cost: { blame: number } };
     expect(report.targets).toEqual([expect.objectContaining({ runId: failed, outcome: 'stopped' })]);
     expect(report.cost.blame).toBeGreaterThan(0.01);
-    expect(report).toMatchObject({ outcome: 'stopped', why: 'the budget of $0.01 is spent', candidates: [] });
-    expect(readFileSync(join(project, report.output.report), 'utf8')).toContain('## Not fixed: the budget of $0.01 is spent');
+    expect(report).toMatchObject({ outcome: 'stopped', why: 'the budget of $0.01 is spent', candidates: [], writes: 'block' });
+    const md = readFileSync(join(project, report.output.report), 'utf8');
+    expect(md).toContain('## Not fixed: the budget of $0.01 is spent');
+    // The pull request body names the write policy the replays ran under.
+    expect(md).toContain('Writes were blocked in every replay.');
+    expect(md).not.toContain('stubbed');
   });
 
   it('keeps the repair, and says why, when the repairer has no credentials or its binary cannot be run', async () => {

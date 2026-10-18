@@ -274,6 +274,11 @@ export interface RepairReport {
   accepted: number | null;
   patch: string | null;
   cost: { blame: number; repairer: number | null; verify: number };
+  /**
+   * What write tools did after a fork, in every replay blame and verify made: stubbed (the agent
+   * carried on as if the write succeeded) or blocked. Reports written before it was kept lack it.
+   */
+  writes?: 'stub' | 'block';
   output: { dir: string | null; patch: string | null; report: string | null; goldens: string[]; applied: boolean; branch: string | null; pr: string | null };
   warnings: string[];
 }
@@ -422,6 +427,8 @@ export function repairMarkdown(r: RepairReport): string {
   }
 
   const repairer = r.repairer ? `, the repairer (${r.repairer.served ?? r.repairer.model}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
-  out.push(`Cost: blame ≈${formatUsd(r.cost.blame)}${repairer}, verification ≈${formatUsd(r.cost.verify)}. Writes were stubbed in every replay.`);
+  // The write policy the replays ran under, when the report kept it: an older report says nothing it can't know.
+  const writes = r.writes === 'block' ? ' Writes were blocked in every replay.' : r.writes === 'stub' ? ' Writes were stubbed in every replay.' : '';
+  out.push(`Cost: blame ≈${formatUsd(r.cost.blame)}${repairer}, verification ≈${formatUsd(r.cost.verify)}.${writes}`);
   return out.join('\n') + '\n';
 }

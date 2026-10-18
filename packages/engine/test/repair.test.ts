@@ -168,4 +168,14 @@ describe('repairMarkdown', () => {
     const rows = repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540'));
     expect(rows.map((l) => l.split(' | ')[1])).toEqual(['model call #5 (3 of 4)', 'not rescued from any model call', 'passes when replayed']);
   });
+
+  it('names the write policy the replays ran under, and none when the report did not keep one', () => {
+    const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB'], accepted: false });
+    const last = (r: typeof report) => repairMarkdown(r).trimEnd().split('\n').at(-1)!;
+    expect(last({ ...report, writes: 'block' })).toMatch(/\. Writes were blocked in every replay\.$/);
+    expect(last({ ...report, writes: 'stub' })).toMatch(/\. Writes were stubbed in every replay\.$/);
+    const { writes: _writes, ...older } = report;
+    expect(last(older)).not.toContain('Writes were');
+    expect(last(older)).toMatch(/^Cost: .*\.$/);
+  });
 });

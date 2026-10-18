@@ -138,6 +138,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `candidates` | Each rewrite tried: `id`, `source` (`repairer`, or `model` for a switch to the model that rescued the runs), `strategy`, `why`, the `surface` and `file` it changes, at `offset`, the text `before` and `after`, its `size`, its `state` (`accepted`, `rejected`, `invalid`, `untried`, `build-failed`, `incomplete`), the `reason` it wasn't kept, and its `verify` report, [as `verify --json` prints one](./verify.md#json) |
 | `accepted`, `patch` | The accepted candidate's `id` and its unified diff, or `null` |
 | `cost` | What `blame`, the `repairer` and `verify` cost, in USD |
+| `writes` | What write tools did after a fork in every replay: `stub` or `block`, as `--writes` set it. `report.md` says the same |
 | `output` | What was handed over: the repair's `dir`, its `patch` and `report` files, the `goldens` recorded under the fix, whether it was `applied`, and the `branch` and `pr` |
 | `warnings` | What the evidence lacks, and where a hand-over stopped |
 | `repairId`, `verifyId` | The directory name the repair is kept under, and the verdict kept for the accepted candidate, or `null` |

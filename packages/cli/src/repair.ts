@@ -321,6 +321,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     accepted: null,
     patch: null,
     cost,
+    writes: s.writes,
     output: { dir: null, patch: null, report: null, goldens: [], applied: false, branch: null, pr: null },
     warnings,
   };
