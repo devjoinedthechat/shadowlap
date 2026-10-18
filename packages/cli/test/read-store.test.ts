@@ -86,4 +86,16 @@ describe('a command that only reads the store', () => {
     expect(r.out).toContain('no run matches "x": there is no store at other.db');
     expect(existsSync(join(dir, 'other.db'))).toBe(false);
   });
+
+  it('reads --db :memory: as the empty store it is, with no file to point at', () => {
+    const dir = fresh();
+    const ls = shadowlap(dir, ['--db', ':memory:', 'ls']);
+    expect(ls.code).toBe(0);
+    expect(ls.out).toContain('no runs yet: shadowlap run -- <command>');
+    const show = shadowlap(dir, ['--db', ':memory:', 'show', 'x']);
+    expect(show.code).toBe(1);
+    expect(show.out).toContain('no run matches "x" (see: shadowlap ls)');
+    expect(show.out).not.toContain('there is no store');
+    expect(readdirSync(dir)).toEqual([]);
+  });
 });

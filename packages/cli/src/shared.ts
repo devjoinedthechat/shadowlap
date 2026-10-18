@@ -49,13 +49,16 @@ export function openStore(opts: GlobalOpts): Store {
   return Store.open(opts.db ?? defaultDbPath(process.cwd()));
 }
 
+/** `--db :memory:`: a store that lives as long as the command, and is no file to look for. */
+const MEMORY = ':memory:';
+
 /**
  * The store, or null when the project has none yet: for commands that only read it or clean it up
  * (`gc`, `redact preview`, `calibrate`), which must not leave an empty store behind.
  */
 export function openStoreIfExists(opts: GlobalOpts): Store | null {
   const dbPath = opts.db ?? defaultDbPath(process.cwd());
-  return existsSync(dbPath) ? Store.open(dbPath) : null;
+  return dbPath === MEMORY || existsSync(dbPath) ? Store.open(dbPath) : null;
 }
 
 /** Stores {@link readStore} stood in for, with what to say about the one that isn't there. */
@@ -70,8 +73,9 @@ const missing = new WeakMap<Store, string>();
  */
 export function readStore(opts: GlobalOpts): Store {
   const dbPath = opts.db ?? defaultDbPath(process.cwd());
-  if (existsSync(dbPath)) return Store.open(dbPath);
-  const store = Store.open(':memory:');
+  // Asked for by name, an empty store in memory is what it is: no missing file to point at.
+  if (dbPath === MEMORY || existsSync(dbPath)) return Store.open(dbPath);
+  const store = Store.open(MEMORY);
   const note = opts.db ? `there is no store at ${opts.db}` : storeAbove(process.cwd());
   if (note) missing.set(store, note);
   return store;
