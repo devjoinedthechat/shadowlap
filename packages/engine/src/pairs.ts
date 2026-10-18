@@ -1078,10 +1078,14 @@ export function pairRows(store: Store, pairs: readonly Pair[], options: PairRows
     if (paths.api.length) body = applyNormalizers(body, paths.api, 'api', call.name);
     const conv = normalizeConversation(body);
     if (!conv) continue;
-    const messages = messagesOf(redactTurns(conv.turns, paths));
-    const tools = openAITools(body);
-    const chosen = answerMessage(pair.chosen, paths);
-    const rejected = answerMessage(pair.rejected, paths);
+    // The rules without a path apply to every string while tool calls' arguments are still objects,
+    // as `export dataset` applies them: on the JSON text a format writes them as, a pattern would
+    // mask a number or a quote and leave text that no longer parses.
+    const mask = <T>(value: T): T => (pathless.length ? (redactDeep(value, pathless) as T) : value);
+    const messages = mask(messagesOf(redactTurns(conv.turns, paths)));
+    const tools = mask(openAITools(body));
+    const chosen = mask(answerMessage(pair.chosen, paths));
+    const rejected = mask(answerMessage(pair.rejected, paths));
     let row: unknown;
     if (options.format === 'trl') {
       const names = new Map<string, string>();
@@ -1090,7 +1094,7 @@ export function pairRows(store: Store, pairs: readonly Pair[], options: PairRows
     } else {
       row = { input: { messages: messages.map(openAIMessage), ...(tools.length ? { tools } : {}) }, preferred_output: [openAIMessage(chosen)], non_preferred_output: [openAIMessage(rejected)] };
     }
-    rows.push(pathless.length ? redactDeep(row, pathless) : row);
+    rows.push(row);
   }
   return rows;
 }
