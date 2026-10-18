@@ -45,6 +45,9 @@ describe('a command that only reads the store', () => {
     [['fix', 'show', 'fx-01'], 1],
     [['fix', 'title', 'fx-01', 'New'], 1],
     [['tasks', 'ls'], 0],
+    // Commands that record look their run up first: one that isn't there leaves no store either.
+    [['replay', 'x'], 1],
+    [['blame', 'x', '--expect', '{"exitCode":0}'], 1],
   ];
   it.each(reads)('%j leaves no store behind in a folder without one', (args, code) => {
     const dir = fresh();

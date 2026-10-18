@@ -9,7 +9,7 @@ import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
-import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -86,7 +86,7 @@ export function register(program: Command): void {
     .option('--summary-json <file>', 'also write the replay\'s summary (or, with --repeat, every attempt and the report) as JSON to <file>')
     .action(async (runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      const store = openStore(opts);
+      const store = readStore(opts);
       const parent = requireRun(store, runArg);
       const parentCalls = store.getCalls(parent.runId);
       let overrides: Map<number, unknown>;

@@ -11,7 +11,7 @@ import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-f
 import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, missingStoreNote, openStore, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, missingStoreNote, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 import { runVerify } from '../verify.js';
 import { HandOverError, handOver, RepairError, runRepair, splitHoldout } from '../repair.js';
@@ -215,7 +215,7 @@ export function register(program: Command): void {
       const spec = expect?.spec ?? null;
       const fields = parseFields(flags.set, flags.model);
 
-      const store = openStore(opts);
+      const store = readStore(opts);
       const parent = requireRun(store, runArg);
       const steps = store.getCalls(parent.runId).filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, flags.scope)).length;
       store.close();
@@ -294,7 +294,7 @@ export function register(program: Command): void {
       const spec = expect?.spec ?? null;
       const fields = parseFields(flags.set, flags.model);
 
-      const store = openStore(opts);
+      const store = readStore(opts);
       const roles: Array<[VerifyRole, string, string[] | undefined]> = [
         ['target', '--fixes', flags.fixes],
         ['holdout', '--holdout', flags.holdout],
@@ -396,7 +396,7 @@ export function register(program: Command): void {
         throw new InvalidArgumentError((err as Error).message);
       }
 
-      const store = openStore(opts);
+      const store = readStore(opts);
       let fixes: RunRecord[];
       let holdout: RunRecord[];
       let keeps: RunRecord[];
