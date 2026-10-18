@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fingerprintApi, packRun, Session, Store, unpackRun } from '@shadowlap/engine';
+import { Sidecar } from '@shadowlap/sidecar';
 import { NO_COMMAND } from '../src/import-capture.js';
 import { importHar } from '../src/import-har.js';
 
@@ -121,6 +122,36 @@ describe('import har', () => {
     const session = new Session({ mode: 'replay', parentRunId: run.runId, parentCalls, replay: { kinds: new Set(['api']) } });
     expect(session.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint }).origin).toBe('replayed');
     store.close();
+  });
+
+  it('replays an imported Vertex AI call under either clock, as the sidecar names it without its project and region', async () => {
+    const vertexPath = '/v1/projects/dev-alice-123/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:rawPredict';
+    const vertexBody = { anthropic_version: 'vertex-2023-10-16', max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] };
+    const vertexEntry = entry({
+      request: {
+        method: 'POST',
+        url: `https://us-east5-aiplatform.googleapis.com${vertexPath}`,
+        headers: [{ name: 'content-type', value: 'application/json' }, { name: 'authorization', value: 'Bearer ya29.secret' }],
+        postData: { mimeType: 'application/json', text: JSON.stringify(vertexBody) },
+      },
+    });
+    for (const clock of ['exact', 'auto'] as const) {
+      const store = open();
+      const { run, imported } = importHar(store, har(vertexEntry), { source: 'vertex.har' });
+      expect(imported[0]).toMatchObject({ provider: 'vertex' });
+      // Nothing listens there: a call that missed the recording would fail, not reach a server.
+      const sidecar = await Sidecar.start({ store, clock, upstreams: { vertex: 'http://127.0.0.1:9' } });
+      try {
+        const rep = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['agent'], cwd: '.' }, offline: true });
+        const res = await fetch(`${sidecar.url}/r/${rep.runId}/vertex${vertexPath}`, { method: 'POST', headers: { authorization: 'Bearer ya29.test', 'content-type': 'application/json' }, body: JSON.stringify(vertexBody) });
+        expect(res.status, clock).toBe(200);
+        expect(await res.text()).toBe(response);
+        expect(sidecar.endRun(rep.runId, 'completed').summary.divergence, clock).toBeNull();
+      } finally {
+        await sidecar.close();
+        store.close();
+      }
+    }
   });
 
   it('runs kinds the recording never saw live, without ending the replay', () => {
