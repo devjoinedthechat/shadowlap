@@ -60,4 +60,17 @@ describe('shadowlap.scope() from Python asyncio tasks', { skip: PYTHON ? false :
     const line = (s) => JSON.parse(s.split('\n').find((l) => l.startsWith('["')));
     assert.deepEqual(line(replay.stdout), line(recorded.stdout));
   });
+
+  it('takes scopes of any name: beyond Latin-1, or with a percent sign', async () => {
+    const names = { NAMES: '東京の天気/Kraków-łódź,50% off' };
+    const recorded = await shadowlap(['run', '--', PYTHON, AGENT], names);
+    assert.equal(recorded.code, 0, recorded.out);
+    const runId = /recording run (\w{26})/.exec(recorded.out)[1];
+    const replay = await shadowlap(['replay', runId, '--strict'], { ...names, ORDER: 'reverse' });
+    assert.equal(replay.code, 0, replay.out);
+    assert.match(replay.out, /Replay clean: 4\/4 calls replayed/);
+    const line = (s) => JSON.parse(s.split('\n').find((l) => l.startsWith('["')));
+    assert.deepEqual(line(replay.stdout), line(recorded.stdout));
+    assert.match(line(recorded.stdout)[0], /^東京の天気\/Kraków-łódź: plan/);
+  });
 });

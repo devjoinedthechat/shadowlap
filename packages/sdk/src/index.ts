@@ -148,6 +148,21 @@ export function currentScope(): string | undefined {
   return scopes().getStore() ?? baseScope();
 }
 
+/**
+ * A scope as `x-shadowlap-scope` carries it. A header holds Latin-1 at most, and a scope can have any
+ * name, so `%` and every character outside printable ASCII is percent-encoded (UTF-8); `/` stays the
+ * separator, and an ASCII name without `%` is sent as it is. The sidecar decodes it.
+ */
+function encodeScope(scope: string): string {
+  return scope.replace(/[^\x20-\x24\x26-\x7e]/gu, (c) => {
+    try {
+      return encodeURIComponent(c);
+    } catch {
+      return '%EF%BF%BD'; // a lone surrogate: U+FFFD, as a UTF-8 encoder writes it
+    }
+  });
+}
+
 type ResolveResponse =
   | { origin: 'replayed'; callNo: number; outcome: 'ok'; result: unknown }
   | { origin: 'replayed'; callNo: number; outcome: 'error'; error: SerializedError; injected?: InjectedFailure }
@@ -159,7 +174,7 @@ async function post<T>(cfg: Config, path: string, body: unknown): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (cfg.runId) headers['x-shadowlap-run'] = cfg.runId;
   const scoped = currentScope();
-  if (scoped) headers['x-shadowlap-scope'] = scoped;
+  if (scoped) headers['x-shadowlap-scope'] = encodeScope(scoped);
   const res = await fetch(`${cfg.url}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
   const text = await res.text();
   if (!res.ok) {

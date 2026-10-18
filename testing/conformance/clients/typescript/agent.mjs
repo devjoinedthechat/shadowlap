@@ -83,6 +83,16 @@ switch (step) {
     out({ a, b });
     break;
   }
+  case 'scope-names-record':
+  case 'scope-names-replay': {
+    // Any name a scope can have outside Shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
+    const names = ['東京の天気', 'Kraków-łódź', '50% off'];
+    const order = step === 'scope-names-replay' ? [...names].reverse() : names;
+    const got = {};
+    for (const name of order) got[name] = await scope(name, () => scope('notes', () => ((currentBranch = name), pick({}))));
+    out({ got, implRuns });
+    break;
+  }
   case 'scope-replay': {
     // Reverse order on purpose: without scopes the two branches swap answers.
     const b = await scope('b', () => ((currentBranch = 'b'), pick({})));

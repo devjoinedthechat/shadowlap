@@ -77,8 +77,20 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   }
 
   const runSegment = runId ? `/r/${encodeURIComponent(runId)}` : '';
-  // The SDK's scope() (see @shadowlap/sdk): the store is shared through a global symbol.
-  const currentScope = () => globalThis[Symbol.for('shadowlap.scope')]?.getStore?.();
+  // The SDK's scope() (see @shadowlap/sdk): the store is shared through a global symbol. Returned as
+  // x-shadowlap-scope carries it, with % and anything outside printable ASCII percent-encoded, as the
+  // SDK sends it: a header holds Latin-1 at most, and a scope can have any name.
+  const currentScope = () => {
+    const scope = globalThis[Symbol.for('shadowlap.scope')]?.getStore?.();
+    if (!scope) return undefined;
+    return scope.replace(/[^\x20-\x24\x26-\x7e]/gu, (c) => {
+      try {
+        return encodeURIComponent(c);
+      } catch {
+        return '%EF%BF%BD';
+      }
+    });
+  };
 
   function sidecarPath(provider, url) {
     return `${sidecar.pathname.replace(/\/$/, '')}${runSegment}/${provider}${url.pathname}${url.search}`;

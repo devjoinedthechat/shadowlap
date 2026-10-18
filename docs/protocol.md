@@ -43,7 +43,7 @@ Every request is `POST` with a JSON body and `content-type: application/json`. R
 |---|---|
 | `content-type: application/json` | Always. |
 | `x-shadowlap-run: <run id>` | Whenever `SHADOWLAP_RUN_ID` is set. |
-| `x-shadowlap-scope: <scope>` | When the calling context is inside a scope. See [Scopes](#scopes). |
+| `x-shadowlap-scope: <scope>` | When the calling context is inside a scope, `%` and anything outside printable ASCII percent-encoded. See [Scopes](#scopes). |
 | `user-agent` | SHOULD name the language, e.g. `shadowlap-go/0.1`. The sidecar buckets clients by this for telemetry only; it never affects behavior. |
 
 There is no authentication header. The token in the path is the whole of it.
@@ -266,6 +266,7 @@ in Node, `contextvars` in Python, a `context.Context` in Go — and sends the cu
 alike.
 
 - Scopes nest by joining with `/`: `researcher` inside `team` is `team/researcher`.
+- A scope can have any name, and a header holds Latin-1 at most, so a client MUST percent-encode `%` and every character outside printable ASCII (as UTF-8 bytes) before sending it: `東京` is sent as `%E6%9D%B1%E4%BA%AC`, `50% off` as `50%25 off`. `/` and the rest of printable ASCII are sent as they are, so an ASCII name without `%` is unchanged. The sidecar decodes the header, and records the name as it was given; a value that doesn't decode is taken as it was sent. The `scope-names` conformance scenario checks it.
 - The sidecar ignores a scope that is empty, longer than 200 characters, or contains control characters. A client SHOULD apply the same limits rather than relying on that.
 - Outside Shadowlap, entering a scope MUST still work — it just sets the variable.
 

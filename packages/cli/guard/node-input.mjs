@@ -56,7 +56,14 @@ if (origin) {
     const headers = { 'content-type': 'application/json', 'user-agent': 'shadowlap-input-node' };
     if (runId) headers['x-shadowlap-run'] = runId;
     const scope = globalThis[Symbol.for('shadowlap.scope')]?.getStore?.() ?? baseScope;
-    if (scope) headers['x-shadowlap-scope'] = scope;
+    // % and anything outside printable ASCII percent-encoded, as the SDK sends it: a header holds Latin-1 at most.
+    if (scope) headers['x-shadowlap-scope'] = scope.replace(/[^\x20-\x24\x26-\x7e]/gu, (c) => {
+      try {
+        return encodeURIComponent(c);
+      } catch {
+        return '%EF%BF%BD';
+      }
+    });
     const res = await send(`${base}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
     const text = await res.text();
     if (!res.ok) {

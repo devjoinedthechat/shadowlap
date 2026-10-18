@@ -134,6 +134,21 @@ export const SCENARIOS = [
     },
   },
   {
+    name: 'scope-names',
+    why: 'a scope can have any name: one beyond Latin-1, or with a percent sign, is sent so it fits a header and recorded as it was given',
+    record: 'scope-names-record',
+    replay: 'scope-names-replay',
+    check({ recordOut, replayOut, recordCalls }) {
+      const names = ['東京の天気', 'Kraków-łódź', '50% off'];
+      const expected = Object.fromEntries(names.map((n) => [n, n]));
+      assert.deepEqual(recordOut.got, expected, 'every call in a scope must work, whatever its name: ' + JSON.stringify(recordOut));
+      const scopes = tools(recordCalls).map((c) => c.meta.scope);
+      assert.deepEqual(scopes, names.map((n) => `${n}/notes`), 'the sidecar must record the names as given (percent-encode each segment, and %); got ' + JSON.stringify(scopes));
+      assert.deepEqual(replayOut.got, expected, 'each branch must replay its own answer');
+      assert.equal(replayOut.implRuns, 0);
+    },
+  },
+  {
     name: 'base-scope',
     why: 'SHADOWLAP_SCOPE names the branch of a process, so separate processes keep their own answers',
     record: 'base-scope',

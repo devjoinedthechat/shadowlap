@@ -330,6 +330,20 @@ describe.skipIf(!PYTHON)('recorded user input: Python', () => {
     expect(inputsOf(latestRecording()).map((i) => i.result)).toEqual([{ result: { text: 'from a person' } }]);
   });
 
+  it('records input read in a scope of any name, and the tools called there', async () => {
+    const script = "import shadowlap\n@shadowlap.tool(effect='read')\ndef notes(topic): return 'notes on ' + topic\nwith shadowlap.scope('東京の天気'), shadowlap.scope('50% off'):\n    print(notes(input('topic? ')))";
+    const rec = await piped(['run', '--', PYTHON!, '-c', script], 'Kraków\n');
+    expect(rec.out).toContain('notes on Kraków');
+    const runId = latestRecording();
+    const store = Store.open(db);
+    const calls = store.getCalls(runId).map((c) => [c.name, c.meta.scope]);
+    store.close();
+    expect(calls).toEqual([['user_input', '東京の天気/50% off'], ['notes', '東京の天気/50% off']]);
+    const replay = await shadowlap(['replay', runId]);
+    expect(replay.out).toContain('notes on Kraków');
+    expect(replay.out).toContain('Replay clean: 2/2 calls replayed');
+  });
+
   it('records the lines of sys.stdin, a last line without a line ending included', async () => {
     const rec = await piped(['run', '--', PYTHON!, '-c', 'import sys\nfor line in sys.stdin: print(repr(line))'], 'one\ntwo');
     expect(rec.out).toContain("'one\\n'\n'two'");

@@ -44,6 +44,15 @@ if _SCOPE is None:
     sys._shadowlap_scope_var = _SCOPE
 
 
+def _scope_header():
+    """The current scope as x-shadowlap-scope carries it, or None: % and anything outside printable
+    ASCII percent-encoded (UTF-8), as the SDK sends it, so a name of any language fits a header."""
+    scope = _SCOPE.get()
+    if not scope:
+        return None
+    return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
+
+
 def _to_sidecar(url):
     parts = urlsplit(url)
     port = parts.port or (443 if parts.scheme == "https" else 80)
@@ -114,7 +123,7 @@ def _patch_httpx(module):
     module._shadowlap_capture = True
 
     def redirect(request):
-        scoped = _SCOPE.get()
+        scoped = _scope_header()
         rewritten = _rewrite(str(request.url))
         if rewritten is not None:
             target, origin, provider = rewritten
@@ -174,8 +183,8 @@ def _patch_botocore(module):
             target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin
             request.url = target
-            if _SCOPE.get():
-                request.headers["x-shadowlap-scope"] = _SCOPE.get()
+            if _scope_header():
+                request.headers["x-shadowlap-scope"] = _scope_header()
             if provider == "http":
                 # Raised by the urllib3 patch underneath, which botocore turns into its own error.
                 request.headers[_FAILURES] = "raise"
@@ -228,7 +237,7 @@ def _patch_urllib3(module):
         else:
             host = self.host if ":" not in self.host or self.host.startswith("[") else "[%s]" % self.host
             full = "%s://%s%s%s" % (self.scheme, host, ":%s" % self.port if self.port else "", url)
-        scoped = _SCOPE.get()
+        scoped = _scope_header()
         rewritten = _rewrite(full)
         if rewritten is None:
             # Already pointed at the sidecar (a base URL, or a request another patch rewrote): only the scope.
@@ -260,7 +269,7 @@ def _patch_requests(module):
 
     def captured_send(self, request, *args, **kwargs):
         rewritten = _rewrite(request.url)
-        scoped = _SCOPE.get()
+        scoped = _scope_header()
         if rewritten is not None:
             target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin

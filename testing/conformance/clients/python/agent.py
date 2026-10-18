@@ -107,6 +107,15 @@ elif step == "scope-record":
         b = branch("b")
     out({"a": a, "b": b})
 
+elif step in ("scope-names-record", "scope-names-replay"):
+    # Any name a scope can have outside Shadowlap: letters beyond Latin-1, a percent sign, a nested scope.
+    names = ["東京の天気", "Kraków-łódź", "50% off"]
+    got = {}
+    for name in reversed(names) if step == "scope-names-replay" else names:
+        with shadowlap.scope(name), shadowlap.scope("notes"):
+            got[name] = branch(name)
+    out({"got": got, "implRuns": state["impl_runs"]})
+
 elif step == "scope-replay":
     # Reverse order on purpose: without scopes the two branches swap answers.
     with shadowlap.scope("b"):

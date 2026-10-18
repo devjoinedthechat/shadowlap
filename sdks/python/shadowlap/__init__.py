@@ -237,6 +237,15 @@ def current_scope() -> Optional[str]:
     return _SCOPE.get() or _base_scope()
 
 
+def _scope_header(scope: str) -> str:
+    """A scope as ``x-shadowlap-scope`` carries it. A header holds Latin-1 at most, and a scope can
+    have any name, so ``%`` and every character outside printable ASCII is percent-encoded (UTF-8);
+    ``/`` stays the separator, and an ASCII name without ``%`` is sent as it is. The sidecar decodes it."""
+    from urllib.parse import quote
+
+    return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
+
+
 def _post(cfg: tuple, path: str, body: dict) -> dict:
     url, run_id = cfg
     # JSON has no NaN or Infinity, and the sidecar refuses a body with them: what reaches here has been
@@ -247,7 +256,7 @@ def _post(cfg: tuple, path: str, body: dict) -> dict:
         headers["x-shadowlap-run"] = run_id
     scope_now = current_scope()
     if scope_now:
-        headers["x-shadowlap-scope"] = scope_now
+        headers["x-shadowlap-scope"] = _scope_header(scope_now)
     req = urllib.request.Request(url + path, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
