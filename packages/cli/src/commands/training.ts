@@ -28,7 +28,7 @@ import { loadConfig } from '../config.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
 import { serveTasks } from '../serve-tasks.js';
-import { openStore, parseChoice, parseIntArg, type GlobalOpts } from '../shared.js';
+import { openStore, parseChoice, parseIntArg, readStore, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
 import { cannotScore, keepScores, loadTasks, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
@@ -65,8 +65,9 @@ function author(): string | null {
   return resolveAuthor({ cwd: process.cwd() });
 }
 
-function withStore<T>(opts: GlobalOpts, fn: (store: Store) => T): T {
-  const store = openStore(opts);
+/** `fn` on the store; `read` for what only reads it, which leaves no store behind where there is none. */
+function withStore<T>(opts: GlobalOpts, fn: (store: Store) => T, read = false): T {
+  const store = read ? readStore(opts) : openStore(opts);
   try {
     return fn(store);
   } finally {
@@ -190,7 +191,8 @@ export function register(program: Command): void {
         // A dashboard job offers the file; it is started from Training, so it links nowhere else.
         if (flags.out) emitJobEvent({ type: 'file', path: resolve(flags.out), label: flags.out });
         emitJobEvent({ type: 'result', data: { exportId: record.exportId, pairs: rows.length, file, ...data } });
-      });
+        // Only reads, unless there are pairs to export: then the store is there to keep the export in.
+      }, true);
     });
 
   // ---- tasks ----
@@ -206,7 +208,7 @@ export function register(program: Command): void {
     .option('--json', 'print them as JSON')
     .action((flags: { json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      const { tasks: list, oneSided } = withStore(opts, (store) => loadTasks(process.cwd(), store));
+      const { tasks: list, oneSided } = withStore(opts, (store) => loadTasks(process.cwd(), store), true);
       if (flags.json) {
         process.stdout.write(JSON.stringify({ tasks: list.map(({ pack: _pack, spec: _spec, dir: _dir, ...t }) => t), oneSided }, null, 2) + '\n');
         return;
@@ -250,7 +252,7 @@ export function register(program: Command): void {
         throw new InvalidArgumentError((err as Error).message);
       }
       const root = process.cwd();
-      const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
+      const { tasks: all } = withStore(opts, (store) => loadTasks(root, store), true);
       const skipped: Array<{ task: string; reason: string }> = [];
       let chosen: LoadedTask[];
       if (goldens.length) {
@@ -349,7 +351,7 @@ export function register(program: Command): void {
     .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; baseUrl?: string; keyEnv?: string; timeout?: number; guard: GuardMode }) => {
       const opts = program.opts<GlobalOpts>();
       const root = process.cwd();
-      const { tasks: all } = withStore(opts, (store) => loadTasks(root, store));
+      const { tasks: all } = withStore(opts, (store) => loadTasks(root, store), true);
       const only = under(root, goldens, all).flatMap((x) => x.tasks.map((t) => t.golden));
       if (goldens.length && !only.length) throw new InvalidArgumentError(`${goldens.join(', ')}: no golden of this project there (see shadowlap tasks)`);
       if (flags.keyEnv !== undefined && !/^[A-Za-z_][A-Za-z0-9_]{0,99}$/.test(flags.keyEnv)) throw new InvalidArgumentError('--key-env takes the name of an environment variable, such as VLLM_API_KEY');
@@ -388,7 +390,7 @@ export function register(program: Command): void {
     .action(async (flags: { json?: boolean; timeout: number }) => {
       const opts = program.opts<GlobalOpts>();
       const config = loadConfig(process.cwd());
-      const { list, scores } = withStore(opts, (store) => ({ list: loadTasks(process.cwd(), store).tasks, scores: store.listTaskScores() }));
+      const { list, scores } = withStore(opts, (store) => ({ list: loadTasks(process.cwd(), store).tasks, scores: store.listTaskScores() }), true);
       const ready = list.filter((t) => t.status === 'ready');
       const listing = await listModelChoices({ ...listingInput(list, scores), ...(config.prices ? { prices: config.prices } : {}), timeoutMs: flags.timeout });
       const readyGoldens = new Set(ready.map((t) => t.golden));

@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
+import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
 import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, type CallRecord, type RecordEventInput, type RunRecord } from '@shadowlap/engine';
@@ -55,6 +56,43 @@ export function openStore(opts: GlobalOpts): Store {
 export function openStoreIfExists(opts: GlobalOpts): Store | null {
   const dbPath = opts.db ?? defaultDbPath(process.cwd());
   return existsSync(dbPath) ? Store.open(dbPath) : null;
+}
+
+/** Stores {@link readStore} stood in for, with what to say about the one that isn't there. */
+const missing = new WeakMap<Store, string>();
+
+/**
+ * The store for a command that only reads it, or changes only what it already holds (a run's
+ * labels, a fix's title): when the project has none yet, an empty one in memory, so that a read
+ * never leaves an empty store behind and a missing store reads as one with nothing in it. When
+ * that is likely the wrong folder (the project's store is in one above it, or `--db` names a file
+ * that isn't there), {@link missingStoreNote} says so.
+ */
+export function readStore(opts: GlobalOpts): Store {
+  const dbPath = opts.db ?? defaultDbPath(process.cwd());
+  if (existsSync(dbPath)) return Store.open(dbPath);
+  const store = Store.open(':memory:');
+  const note = opts.db ? `there is no store at ${opts.db}` : storeAbove(process.cwd());
+  if (note) missing.set(store, note);
+  return store;
+}
+
+/** Why a store from {@link readStore} has nothing in it, when it is likely the wrong one; null otherwise. */
+export function missingStoreNote(store: Store): string | null {
+  return missing.get(store) ?? null;
+}
+
+/** The nearest store in a folder above `cwd`, and how to use it: run from there, or name it with --db. Null for none. */
+function storeAbove(cwd: string): string | null {
+  for (let dir = cwd; dirname(dir) !== dir; ) {
+    dir = dirname(dir);
+    const found = defaultDbPath(dir);
+    if (existsSync(found)) {
+      const shown = relative(cwd, found);
+      return `there is no store in this folder, and the nearest is ${shown}. Run shadowlap from ${dir}, or name that store: shadowlap --db ${shown} <command>`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -128,7 +166,10 @@ export function withoutCommand(run: Pick<RunRecord, 'meta'>): string {
 
 export function requireRun(store: Store, idOrPrefix: string): RunRecord {
   const run = store.findRun(idOrPrefix);
-  if (!run) throw new Error(`no run matches "${idOrPrefix}" (see: shadowlap ls)`);
+  if (!run) {
+    const note = missingStoreNote(store);
+    throw new Error(`no run matches "${idOrPrefix}"${note ? `: ${note}` : ' (see: shadowlap ls)'}`);
+  }
   return run;
 }
 

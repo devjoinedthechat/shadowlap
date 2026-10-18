@@ -8,7 +8,7 @@ import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
 import { projectGoldens } from '../goldens.js';
-import { describeCall, openStore, parseIntArg, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
+import { describeCall, missingStoreNote, openStore, parseIntArg, readStore, requireRun, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { dashboardTasks } from '../tasks.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
@@ -128,7 +128,7 @@ export function register(program: Command): void {
     .option('--request <call>', 'print the stored request of call <call>', parseIntArg)
     .option('--response <call>', 'print the stored response of call <call>', parseIntArg)
     .action((runArg: string, flags: { json?: boolean; request?: number; response?: number }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
       const calls = store.getCalls(run.runId);
       if (flags.request !== undefined || flags.response !== undefined) {
@@ -209,7 +209,7 @@ export function register(program: Command): void {
     .option('--label <label>', 'only runs with this label (repeatable: all of them)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--json', 'machine-readable output')
     .action((flags: { tree?: boolean; limit: number; label: string[]; json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const runs = flags.label.length ? store.allRuns().filter((r) => flags.label.every((l) => r.meta?.labels?.includes(l))).slice(0, flags.limit) : store.listRuns(flags.limit);
       if (flags.json) {
         const out = runs.map((r) => ({
@@ -239,8 +239,10 @@ export function register(program: Command): void {
       if (runs.length === 0) {
         // Runs to show, but none with the labels asked for: say that, not that nothing was recorded.
         const labelled = flags.label.length > 0 && store.listRuns(1).length > 0;
+        // No store here at all, but the project's is in a folder above: say where, not that nothing was recorded.
+        const note = missingStoreNote(store);
         store.close();
-        process.stdout.write(p.dim(labelled ? `no runs labelled ${flags.label.map((l) => safe(l)).join(' and ')}\n` : 'no runs yet: shadowlap run -- <command>\n'));
+        process.stdout.write(p.dim(labelled ? `no runs labelled ${flags.label.map((l) => safe(l)).join(' and ')}\n` : note ? `no runs: ${note}\n` : 'no runs yet: shadowlap run -- <command>\n'));
         return;
       }
       const row = (r: RunRecord, indent: string): string[] => {
@@ -275,7 +277,7 @@ export function register(program: Command): void {
     .option('-n, --limit <n>', 'maximum matches', parseIntArg, 20)
     .option('--json', 'machine-readable output')
     .action((query: string[], flags: { run?: string; limit: number; json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const runId = flags.run ? requireRun(store, flags.run).runId : undefined;
         const hits = searchCalls(store, query.join(' '), { limit: flags.limit, ...(runId ? { runId } : {}) });
@@ -286,7 +288,8 @@ export function register(program: Command): void {
           return;
         }
         if (!hits.length) {
-          process.stdout.write(p.dim('no matches\n'));
+          const note = missingStoreNote(store);
+          process.stdout.write(p.dim(note ? `no matches: ${note}\n` : 'no matches\n'));
           process.exitCode = 1;
           return;
         }
@@ -314,7 +317,7 @@ export function register(program: Command): void {
     .argument('<b>', 'run id or unique prefix')
     .option('--json', 'machine-readable output')
     .action((aArg: string, bArg: string, flags: { json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const a = requireRun(store, aArg);
       const b = requireRun(store, bArg);
       const c = compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));
@@ -331,7 +334,7 @@ export function register(program: Command): void {
     .option('--remove', 'remove these labels instead')
     .option('--json', 'machine-readable output')
     .action((runArg: string, labels: string[], flags: { remove?: boolean; json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
         const cleaned = labels.map((l) => {
@@ -355,7 +358,7 @@ export function register(program: Command): void {
     .argument('<text...>', 'the note')
     .option('--call <n>', 'the call the note is about', parseIntArg)
     .action((runArg: string, text: string[], flags: { call?: number }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const run = requireRun(store, runArg);
         if (flags.call !== undefined && !store.getCalls(run.runId).some((c) => c.callNo === flags.call)) throw new Error(`no call #${flags.call} in run ${run.runId}`);

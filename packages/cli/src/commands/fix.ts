@@ -11,7 +11,7 @@ import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-f
 import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, missingStoreNote, openStore, parseChoice, parseIntArg, readStore, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 import { runVerify } from '../verify.js';
 import { HandOverError, handOver, RepairError, runRepair, splitHoldout } from '../repair.js';
@@ -509,7 +509,10 @@ function configuredRepairer(): string | null {
 /** A fix by its id or a unique prefix, or a FixIdError that says where to find one. */
 function requireFix(store: Store, idOrPrefix: string): StoredFix {
   const fix = resolveFix(store, idOrPrefix);
-  if (!fix) throw new FixIdError(`no fix matches "${idOrPrefix.trim()}" (see: shadowlap fix ls)`, 'unknown');
+  if (!fix) {
+    const note = missingStoreNote(store);
+    throw new FixIdError(`no fix matches "${idOrPrefix.trim()}"${note ? `: ${note}` : ' (see: shadowlap fix ls)'}`, 'unknown');
+  }
   return fix;
 }
 
@@ -533,10 +536,11 @@ function registerFixes(program: Command): void {
     .option('--status <status>', 'only fixes that are open, verified (applied ones too) or applied', parseChoice<FixStatus>(FIX_STATUSES))
     .option('--json', 'print the list as JSON, as the dashboard reads it')
     .action((flags: { status?: FixStatus; json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const list = fixList(store, flags.status ? { status: flags.status } : {});
-        process.stdout.write((flags.json ? JSON.stringify(list, null, 2) : formatFixList(list, p)) + '\n');
+        const note = missingStoreNote(store);
+        process.stdout.write((flags.json ? JSON.stringify(list, null, 2) : note ? p.dim(`No fixes: ${note}`) : formatFixList(list, p)) + '\n');
       } finally {
         store.close();
       }
@@ -548,7 +552,7 @@ function registerFixes(program: Command): void {
     .argument('<fix>', 'a fix id or a unique prefix of it, such as fx-01K5CQ2E8M')
     .option('--json', 'print the fix as JSON, as the dashboard reads it')
     .action((arg: string, flags: { json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const repairer = configuredRepairer();
         // The repair it suggests next, and whether its repairer can be asked from here (claude on the PATH).
@@ -567,7 +571,7 @@ function registerFixes(program: Command): void {
     .argument('<fix>', 'a fix id or a unique prefix of it')
     .argument('<title...>', 'the new title')
     .action((arg: string, words: string[]) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const updated = setFixTitle(store, requireFix(store, arg).fixId, words.join(' '));
         process.stdout.write(`${shortFixId(updated.fixId)} · ${safe(updated.title)}\n`);
@@ -583,7 +587,7 @@ function registerFixes(program: Command): void {
     .argument('[url]', 'the pull request opened for it')
     .option('--json', "print the fix's pull request as JSON")
     .action(async (arg: string, url: string | undefined, flags: { json?: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       try {
         const found = requireFix(store, arg);
         let pr = found.data.source?.pr ?? null;
@@ -626,7 +630,7 @@ function registerFixes(program: Command): void {
     .option('--json', 'print what was done as JSON (progress still goes to stderr)')
     .action(async (arg: string, flags: { goldens: string; test: boolean; build?: string; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
-      const store = openStore(opts);
+      const store = readStore(opts);
       const log = (line: string) => process.stderr.write(`${line}\n`);
       try {
         const found = requireFix(store, arg);

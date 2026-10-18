@@ -17,7 +17,7 @@ import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
-import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { takeoverReader } from '../tasks.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
@@ -424,7 +424,7 @@ export function register(program: Command): void {
     .option('--lineage', 'include the run\'s ancestors')
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
     .action(async (runArg: string, dir: string, flags: { lineage?: boolean; redact: boolean }) => {
-      const store = openStore(program.opts<GlobalOpts>());
+      const store = readStore(program.opts<GlobalOpts>());
       const run = requireRun(store, runArg);
       requireEnded(store, run, 'pack', flags.lineage ? ancestorsOf(store, run) : []);
       const configured = loadConfig(process.cwd()).redact;
