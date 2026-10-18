@@ -110,14 +110,14 @@ export function searchRecorded(store: Store, query: string, limit: number, index
 
 // ---- the index, brought up to date beside the requests ----
 
-/** The runs as the index needs them, from the run index: no other read. */
-function indexRuns(index: RunIndex): SearchIndexRun[] {
-  return index.runs.map((r) => ({ runId: r.runId, status: r.status, calls: r.calls }));
+/** Runs as the index needs them, from the run index: no other read. */
+function indexRuns(runs: RunIndex['runs']): SearchIndexRun[] {
+  return runs.map((r) => ({ runId: r.runId, status: r.status, calls: r.calls }));
 }
 
 /** How many runs the index has yet to cover: runs new or ended since it looked, or with calls it hasn't read. */
 export function searchBehind(store: Store, index: RunIndex = loadRunIndex(store)): number {
-  return searchIndexBehind(store, indexRuns(index));
+  return searchIndexBehind(store, indexRuns(index.runs));
 }
 
 /**
@@ -129,11 +129,25 @@ export function searchBehind(store: Store, index: RunIndex = loadRunIndex(store)
  */
 export function indexSearchSlice(store: Store, budgetMs = SLICE_MS): { behind: number; busy: boolean } {
   const index = loadRunIndex(store);
-  const done = keepingIndex(store, () => indexSearch(store, { budgetMs, runs: indexRuns(index), briefly: true }));
+  const done = keepingIndex(store, () => indexSearch(store, { budgetMs, runs: indexRuns(index.runs), briefly: true }));
   return { behind: done.behind, busy: done.busy === true };
 }
 
+/**
+ * What the runs still recording said since the index last looked, taken in before a search answers,
+ * for about 20 ms at most and waiting for the store's write lock a moment only, as the slices do. A
+ * recording makes a call or two between two searches: an answer without them, saying the index is
+ * behind on the run, would have the palette ask again every second for as long as it records. What
+ * doesn't fit in the time is left to the slices, and the answer says the index is behind.
+ */
+export function indexRecordings(store: Store, index: RunIndex = loadRunIndex(store)): void {
+  const live = index.runs.filter((r) => r.status === 'running');
+  if (!live.length) return;
+  keepingIndex(store, () => indexSearch(store, { budgetMs: RECORDING_MS, runs: indexRuns(live), briefly: true }));
+}
+
 const SLICE_MS = 50;
+const RECORDING_MS = 20;
 /** Between two slices: time for whatever else the server has to do. */
 const GAP_MS = 20;
 /** After a slice found the store busy, or failed: the first wait before the next, doubled each time after, up to the last. */

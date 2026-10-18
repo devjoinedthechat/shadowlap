@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, storeApiRequest } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import type { OverviewSummary } from '../src/overview.js';
 import { choicesHere, commitsHere } from '../src/commits-here.js';
@@ -521,6 +521,29 @@ describe('searching what runs recorded', () => {
       await d.close();
       s.close();
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('answers with what a recording said since the last search, rather than that it has yet to read it', async () => {
+    const s = Store.open(':memory:');
+    const d = await startDashboard({ store: s, dbPath: ':memory:', project: { path: project } });
+    try {
+      const rec = addRun(s, { startedAt: NOW - HOUR, status: 'running', calls: [say('l', 'Where is order A-1042?')] });
+      expect((await settled(d, 'search?q=order&limit=40')).hits.map((h) => [h.runId, h.callNo])).toEqual([[rec, 1]]);
+      // The recording goes on, a call between each search the palette makes: each is in the next
+      // answer, and none says the index is behind, so the palette doesn't ask again every second.
+      for (let n = 2; n <= 4; n++) {
+        const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `fp${n}`, occurrence: 1 };
+        const requestRef = storeApiRequest(s, { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: `Refund order A-104${n}, ticket T-${n}0` }] });
+        s.appendCallStart({ runId: rec, callNo: n, ...identity, origin: 'live', effect: null, requestRef, meta: { scope: `s${n}` }, at: NOW - HOUR + n * 1000 });
+        s.appendCallEnd(identity, { runId: rec, callNo: n, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 900 }, at: NOW - HOUR + n * 1000 + 900 });
+        const a = await get<Answer>(d, `search?q=T-${n}0&limit=40`);
+        expect(a.indexing).toBeUndefined();
+        expect(a.hits.map((h) => [h.runId, h.callNo])).toEqual([[rec, n]]);
+      }
+    } finally {
+      await d.close();
+      s.close();
     }
   });
 

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchExpression, Store, updateSearchIndex } from '@shadowlap/engine';
-import { catchUpSearch, indexSearchSlice, PER_RUN, searchBehind, searchRecorded } from '../src/search-hits.js';
+import { catchUpSearch, indexRecordings, indexSearchSlice, PER_RUN, searchBehind, searchRecorded } from '../src/search-hits.js';
 import { addRun, DAY, HOUR, type CallSpec } from './read-model-store.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC.
@@ -162,5 +162,15 @@ describe('the index behind the search', () => {
     expect(searchBehind(store)).toBe(3);
     for (let i = 0; i < 100 && searchBehind(store) > 0; i++) await new Promise((r) => setTimeout(r, 50));
     expect(new Set(searchRecorded(store, 'refund', 40).map((h) => h.runId))).toEqual(new Set(runs));
+  });
+
+  it('takes in what the runs still recording said, and leaves the rest to the slices', () => {
+    const done = addRun(store, { startedAt: NOW - DAY, calls: [say('l', 'refund order A-1041', 's1')] });
+    const rec = addRun(store, { startedAt: NOW - HOUR, status: 'running', calls: [say('l', 'refund order A-1042', 's1')] });
+    expect(searchBehind(store)).toBe(2);
+    indexRecordings(store);
+    expect(searchRecorded(store, 'refund', 40).map((h) => h.runId)).toEqual([rec]);
+    expect(store.searchState(done)).toBeNull();
+    expect(searchBehind(store)).toBe(1);
   });
 });
