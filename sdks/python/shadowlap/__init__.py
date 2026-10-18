@@ -14,6 +14,7 @@ import functools
 import hashlib
 import inspect
 import json
+import math
 import os
 import random as _random
 import re
@@ -238,7 +239,9 @@ def current_scope() -> Optional[str]:
 
 def _post(cfg: tuple, path: str, body: dict) -> dict:
     url, run_id = cfg
-    data = json.dumps(body).encode("utf-8")
+    # JSON has no NaN or Infinity, and the sidecar refuses a body with them: what reaches here has been
+    # made JSON already (see _json_form), and anything else fails here rather than at the sidecar.
+    data = json.dumps(body, allow_nan=False).encode("utf-8")
     headers = {"content-type": "application/json"}
     if run_id:
         headers["x-shadowlap-run"] = run_id
@@ -314,43 +317,91 @@ def _bind_args(fn: Callable[..., Any], args: tuple, kwargs: dict, exclude: tuple
         return {"args": list(args), "kwargs": {k: v for k, v in kwargs.items() if k not in exclude}}
 
 
-def _check_args(tool_name: str, args: dict) -> None:
-    """Fails before the tool runs, naming the argument, when something can't be recorded."""
+def _is_json(value: Any) -> bool:
     try:
-        json.dumps(args)
-        return
+        json.dumps(value, allow_nan=False)
+        return True
     except (TypeError, ValueError):
-        pass
+        return False
+
+
+def _finite(value: Any, path: Optional[set] = None) -> Any:
+    """``value`` with every NaN and Infinity replaced by None, as JSON (and the TypeScript SDK's
+    ``JSON.stringify``) records them: null. A container inside itself is left for json to refuse."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if not isinstance(value, (dict, list, tuple)):
+        return value
+    path = set() if path is None else path
+    if id(value) in path:
+        return value
+    path.add(id(value))
+    try:
+        if isinstance(value, dict):
+            return {k: _finite(v, path) for k, v in value.items()}
+        return [_finite(v, path) for v in value]
+    finally:
+        path.discard(id(value))
+
+
+def _json_form(value: Any) -> Any:
+    """``value`` as it is recorded. JSON as it is, a NaN or Infinity as None; a Pydantic model or a
+    dataclass as its JSON form. Raises TypeError for anything else."""
+    if _is_json(value):
+        return value
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        converted = dump(mode="json")
+    else:
+        import dataclasses
+
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            converted = dataclasses.asdict(value)
+        elif isinstance(value, tuple):
+            converted = [_json_form(v) for v in value]
+        else:
+            converted = value
+    converted = _finite(converted)
+    if not _is_json(converted):
+        raise TypeError(type(value).__name__)
+    return converted
+
+
+def _check_args(tool_name: str, args: dict) -> dict:
+    """The arguments as they are recorded. Fails before the tool runs, naming the argument, when
+    something can't be recorded."""
+    if _is_json(args):
+        return args
+    out = {}
     for key, value in args.items():
-        try:
-            json.dumps(value)
-        except (TypeError, ValueError):
+        out[key] = _finite(value)
+        if not _is_json(out[key]):
             raise TypeError(
                 f"tool {tool_name}: argument {key!r} ({type(value).__name__}) can't be recorded because it isn't JSON. "
                 f"If a framework passes it in, leave it out with @tool(..., exclude=({key!r},))."
-            ) from None
+            )
+    return out
 
 
 def _recordable(tool_name: str, value: Any) -> Any:
-    """A result as JSON: Pydantic models and dataclasses are converted, anything else must already be JSON.
-    A replay returns this JSON form."""
+    """A result as JSON: Pydantic models and dataclasses are converted, a NaN or Infinity is None, and
+    anything else must already be JSON. A replay returns this JSON form."""
     try:
-        json.dumps(value)
-        return value
-    except (TypeError, ValueError):
-        pass
-    dump = getattr(value, "model_dump", None)
-    if callable(dump):
-        return dump(mode="json")
-    import dataclasses
+        return _json_form(value)
+    except TypeError:
+        raise TypeError(f"tool {tool_name}: its result ({type(value).__name__}) can't be recorded because it isn't JSON; return a str, number, list or dict") from None
 
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        converted = dataclasses.asdict(value)
-        json.dumps(converted)
-        return converted
-    if isinstance(value, tuple):
-        return [_recordable(tool_name, v) for v in value]
-    raise TypeError(f"tool {tool_name}: its result ({type(value).__name__}) can't be recorded because it isn't JSON; return a str, number, list or dict")
+
+def _complete_ok(complete: Callable[..., None], cfg: tuple, call_no: int, tool_name: str, result: Any, latency: int) -> None:
+    """Completes a call that returned. When its result can't be recorded, or the sidecar refuses it, the
+    call is completed as an error before that is raised: a call left pending is a hole in the
+    recording, a tool that ran with no answer for the replay."""
+    try:
+        complete(cfg, call_no, {"outcome": "ok", "result": _recordable(tool_name, result), "latencyMs": latency})
+    except Exception as err:
+        with contextlib.suppress(Exception):
+            complete(cfg, call_no, {"outcome": "error", "error": serialize_error(err), "latencyMs": latency})
+        raise
 
 
 def tool(
@@ -397,8 +448,7 @@ def tool(
                 if cfg is None:
                     return await fn(*args, **kwargs)
                 bound = _bind_args(fn, args, kwargs, exclude)
-                _check_args(tool_name, bound)
-                r = await asyncio.to_thread(resolve, cfg, bound)
+                r = await asyncio.to_thread(resolve, cfg, _check_args(tool_name, bound))
                 origin = r["origin"]
                 if origin == "replayed":
                     if r["outcome"] == "ok":
@@ -414,7 +464,7 @@ def tool(
                     stub = on_fork(**bound) if on_fork else None
                     if inspect.isawaitable(stub):
                         stub = await stub
-                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "ok", "result": _recordable(tool_name, stub), "latencyMs": 0})
+                    await asyncio.to_thread(_complete_ok, complete, cfg, r["callNo"], tool_name, stub, 0)
                     return stub
                 started = time.time()
                 try:
@@ -422,13 +472,7 @@ def tool(
                 except BaseException as err:
                     await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
                     raise
-                latency = int((time.time() - started) * 1000)
-                try:
-                    recorded = _recordable(tool_name, result)
-                except TypeError as err:
-                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": latency})
-                    raise
-                await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "ok", "result": recorded, "latencyMs": latency})
+                await asyncio.to_thread(_complete_ok, complete, cfg, r["callNo"], tool_name, result, int((time.time() - started) * 1000))
                 return result
 
             return async_wrapper  # type: ignore[return-value]
@@ -439,8 +483,7 @@ def tool(
             if cfg is None:
                 return fn(*args, **kwargs)
             bound = _bind_args(fn, args, kwargs, exclude)
-            _check_args(tool_name, bound)
-            r = resolve(cfg, bound)
+            r = resolve(cfg, _check_args(tool_name, bound))
             origin = r["origin"]
             if origin == "replayed":
                 if r["outcome"] == "ok":
@@ -454,7 +497,7 @@ def tool(
                 raise _unknown_origin(tool_name, origin)
             if origin == "stubbed":
                 stub = on_fork(**bound) if on_fork else None
-                complete(cfg, r["callNo"], {"outcome": "ok", "result": _recordable(tool_name, stub), "latencyMs": 0})
+                _complete_ok(complete, cfg, r["callNo"], tool_name, stub, 0)
                 return stub
             started = time.time()
             try:
@@ -462,13 +505,7 @@ def tool(
             except BaseException as err:
                 complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
                 raise
-            latency = int((time.time() - started) * 1000)
-            try:
-                recorded = _recordable(tool_name, result)
-            except TypeError as err:
-                complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": latency})
-                raise
-            complete(cfg, r["callNo"], {"outcome": "ok", "result": recorded, "latencyMs": latency})
+            _complete_ok(complete, cfg, r["callNo"], tool_name, result, int((time.time() - started) * 1000))
             return result
 
         return wrapper  # type: ignore[return-value]

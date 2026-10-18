@@ -83,6 +83,20 @@ elif step == "unserializable":
     except BaseException:
         out({"raised": True, "implRuns": state["impl_runs"]})
 
+elif step == "non-finite":
+
+    @shadowlap.tool(name="stats", effect="read")
+    def stats():
+        state["impl_runs"] += 1
+        return {"mean": 4.0, "std": float("nan")}
+
+    try:
+        got = stats()
+        std = got.get("std")
+        out({"raised": False, "mean": got.get("mean"), "std": "NaN" if isinstance(std, float) and std != std else std, "implRuns": state["impl_runs"]})
+    except BaseException as err:
+        out({"raised": True, "error": str(err), "implRuns": state["impl_runs"]})
+
 elif step == "clock-random":
     out({"now": shadowlap.now(), "random": shadowlap.random(), "uuid": shadowlap.uuid()})
 

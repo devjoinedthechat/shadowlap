@@ -21,7 +21,7 @@ class Sidecar:
         self.sent = []
 
     def __call__(self, cfg, path, body):
-        json.dumps(body)  # what the real client would have to do
+        json.dumps(body, allow_nan=False)  # what the real sidecar accepts: JSON has no NaN
         self.sent.append((path, body))
         return dict(self.decision) if path.endswith("/resolve") else {}
 
@@ -111,6 +111,57 @@ class RecordingRules(unittest.TestCase):
         self.assertEqual(path, "/v1/calls/7/complete")
         self.assertEqual(body["outcome"], "error")
         self.assertIn("can't be recorded", body["error"]["message"])
+
+    def test_a_non_finite_float_is_recorded_as_null_and_the_tool_still_returns_its_result(self):
+        # JSON has no NaN or Infinity: the sidecar refused the body, and the call was left pending
+        # after the tool had run. They are recorded as null, as the TypeScript SDK's JSON does.
+        sidecar = Sidecar({"origin": "live", "callNo": 3})
+        shadowlap._post = sidecar
+        ran = []
+
+        @tool(effect="read")
+        def stats(column: str, cutoff: float = float("inf")):
+            ran.append(column)
+            return {"mean": 4.0, "std": float("nan"), "range": [float("-inf"), 9.5], "pair": (1.0, float("nan"))}
+
+        got = stats("refunds")
+        self.assertEqual(ran, ["refunds"])
+        self.assertTrue(got["std"] != got["std"])  # the live caller still gets its own value
+        resolve, complete = sidecar.sent
+        self.assertEqual(resolve[1]["args"], {"column": "refunds", "cutoff": None})
+        self.assertEqual(complete[0], "/v1/calls/3/complete")
+        self.assertEqual(complete[1]["outcome"], "ok")
+        self.assertEqual(complete[1]["result"], {"mean": 4.0, "std": None, "range": [None, 9.5], "pair": [1.0, None]})
+
+    def test_a_result_the_sidecar_refuses_still_completes_the_call_as_an_error(self):
+        class Refusing(Sidecar):
+            def __call__(self, cfg, path, body):
+                if path.endswith("/complete") and body.get("outcome") == "ok":
+                    self.sent.append((path, body))
+                    raise RuntimeError("shadowlap sidecar %s failed (400): invalid JSON body" % path)
+                return super().__call__(cfg, path, body)
+
+        for is_async in (False, True):
+            sidecar = Refusing({"origin": "live", "callNo": 4})
+            shadowlap._post = sidecar
+
+            def impl(q: str):
+                return {"q": q}
+
+            async def aimpl(q: str):
+                return {"q": q}
+
+            wrapped = tool(name="lookup", effect="read")(aimpl if is_async else impl)
+            with self.assertRaises(RuntimeError):
+                if is_async:
+                    import asyncio
+
+                    asyncio.run(wrapped("x"))
+                else:
+                    wrapped("x")
+            path, body = sidecar.sent[-1]
+            self.assertEqual((path, body["outcome"]), ("/v1/calls/4/complete", "error"))
+            self.assertIn("invalid JSON body", body["error"]["message"])
 
     def test_a_blocked_write_keeps_its_message_and_arguments_apart(self):
         shadowlap._post = Sidecar({"origin": "blocked", "callNo": 1, "error": {"name": "ShadowlapWriteBlocked", "message": "write tool send blocked after divergence"}})

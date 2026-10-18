@@ -134,6 +134,12 @@ The sidecar answers `409` if the call was already completed and `404` if `callNo
 left pending is a hole in the recording: the replay has no answer for it. If the result cannot be
 turned into JSON, the client MUST complete the call with `outcome: "error"` describing that, and
 then raise. Both shipped SDKs do this, and the `unserializable-result` conformance scenario checks it.
+A completion the sidecar refuses (a `400`) is the same hole, so a client that fails to send the `ok`
+completion SHOULD complete the call with an error before raising.
+
+JSON has no NaN or Infinity, and the sidecar refuses a body that has them. Both shipped SDKs record
+them as `null`, in arguments and results, as `JSON.stringify` does; the caller still gets the
+tool's own value while recording, and the `null` on replay (the `non-finite-result` scenario).
 
 ### User input
 

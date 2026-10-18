@@ -60,6 +60,19 @@ switch (step) {
     }
     break;
   }
+  case 'non-finite': {
+    const stats = tool('stats', { effect: 'read' }, () => {
+      implRuns++;
+      return { mean: 4, std: NaN };
+    });
+    try {
+      const got = await stats({});
+      out({ raised: false, mean: got.mean, std: Number.isNaN(got.std) ? 'NaN' : got.std, implRuns });
+    } catch (err) {
+      out({ raised: true, error: String(err), implRuns });
+    }
+    break;
+  }
   case 'clock-random': {
     out({ now: await now(), random: await random(), uuid: await uuid() });
     break;

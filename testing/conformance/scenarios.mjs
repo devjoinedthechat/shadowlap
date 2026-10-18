@@ -88,6 +88,22 @@ export const SCENARIOS = [
     },
   },
   {
+    name: 'non-finite-result',
+    why: 'a NaN or Infinity in a result is recorded as null, as JSON has it: the call completes and the caller gets its result',
+    record: 'non-finite',
+    replay: 'non-finite',
+    check({ recordOut, replayOut, recordCalls, store }) {
+      assert.equal(recordOut.raised, false, 'a result with a NaN in it must reach the caller: ' + recordOut.error);
+      assert.equal(recordOut.std, 'NaN', 'the live caller gets the value the tool returned');
+      assert.equal(recordOut.implRuns, 1);
+      const call = one(recordCalls, 'stats');
+      assert.ok(call.end, 'the call was left pending after the tool ran: a replay would have no answer for it');
+      assert.equal(call.end.outcome, 'ok');
+      assert.deepEqual(resultOf(store, call).result, { mean: 4, std: null }, 'a NaN is recorded as null');
+      assert.deepEqual([replayOut.raised, replayOut.mean, replayOut.std, replayOut.implRuns], [false, 4, null, 0], 'the replay serves the recorded null');
+    },
+  },
+  {
     name: 'clock-random',
     why: 'clock and randomness resolve in one round trip and replay to the same values',
     record: 'clock-random',
