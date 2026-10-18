@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, storeApiRequest, type RequestManifest } from './manifest.js';
-import { applyNormalizers, compilePattern, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
+import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { redactRunFacts } from './run-facts.js';
 import type { Store } from './store.js';
@@ -24,7 +24,10 @@ import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceR
  * (export html, har and dataset), also applies a path rule to what a call got back when the path
  * starts with a key or a position (`$.result.card`): a response or tool result that is one JSON
  * document, and an attempt's error read as a tool stores it (`{ "error": … }`). That is how a number
- * there is masked, which no pattern rewrites (json-doc.ts). A clock or random read is never reached.
+ * there is masked, which no pattern rewrites (json-doc.ts). A clock or random read is never reached,
+ * by a rule with a path or without one: it is the run's own time and randomness, which every copy
+ * keeps as recorded (keptAsRecorded), or a replay of a pack would hand the agent `<REDACTED>` for
+ * the uuid it read.
  *
  * What the run record itself repeats of that content is masked too: the flags that made a fork
  * (an `--override` carries a whole tool result), the divergence report's diff and reason, the
@@ -108,11 +111,21 @@ function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: S
   return call.kind === 'api' ? storeApiRequest(dst, body) : dst.putJson(body);
 }
 
-function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope | undefined): string | null {
+/**
+ * Whether what a call got back is the run's own time or randomness, a clock or random read, which
+ * every copy keeps as recorded whatever the rules: a replay hands it to the agent, which builds on
+ * it (an id cut from the uuid it read, a date from the time), so a masked value would fork it.
+ */
+export function keptAsRecorded(call: Pick<CallScope, 'kind'>): boolean {
+  return call.kind === 'clock' || call.kind === 'random';
+}
+
+/** What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes' `call`). */
+function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope, read: boolean): string | null {
   if (!ref) return null;
   const bytes = src.getBlob(ref);
   if (!bytes) return null;
-  return dst.putBlob(redactBytes(bytes, rules, call));
+  return dst.putBlob(keptAsRecorded(call) ? bytes : redactBytes(bytes, rules, read ? call : undefined));
 }
 
 /** The bytes as a string when they are text (UTF-8 that round-trips), else null. */
@@ -228,12 +241,14 @@ function redactEventStream(frames: EventStreamFrame[], rules: Normalizer[], obse
  *
  * `call` is for a copy that is only read, never replayed (export html, har and dataset): the path
  * rules that reach what that call got back (reachesResultsOf) apply too, to a response that is one
- * JSON document. A pack passes none: its replay hands what calls got back to the agent.
+ * JSON document. A pack passes none: its replay hands what calls got back to the agent. A clock or
+ * random read is never passed here (keptAsRecorded); one that is given comes back as it is.
  *
  * The preview passes an observer and reads this to count exactly what a copy changes, and what the
  * rules match that it leaves as it is (previewRedaction); a copy passes none.
  */
 export function redactBytes(bytes: Buffer, rules: Normalizer[], call?: CallScope, observer?: RewriteObserver): Buffer {
+  if (call && keptAsRecorded(call)) return bytes;
   const pathless = rules.some((n) => n.path === undefined && n.pattern !== undefined);
   const reaching = !!call && rules.some((n) => reachesResultsOf(n, call));
   if (!pathless && !reaching) return bytes;
@@ -357,7 +372,7 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
       dst.appendCallStart({ ...start, requestRef: redactRequest(src, call, rules, dst) });
       const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
       const results = options.read ? call : undefined;
-      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, results) });
+      const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, call, options.read === true) });
       for (const a of attempts) dst.appendCallEnd(identity, redactEnd(a));
       if (end) dst.appendCallEnd(identity, redactEnd(end));
     }
@@ -850,7 +865,8 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       for (const end of [...call.attempts, ...(call.end ? [call.end] : [])]) {
         const response = end.responseRef ? counting.getBlob(end.responseRef) : null;
         here = { call, in: 'response' };
-        if (response) {
+        if (response && keptAsRecorded(call)) reportKept(response, rules, observer);
+        else if (response) {
           redactBytes(response, rules, undefined, observer);
           if (reaches) redactBytes(response, rules, call, reading);
         }
@@ -905,10 +921,50 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
   };
 }
 
-/** What a rule matched that a copy leaves, in words: `a number here, which a copy leaves as it is`, `numbers and keys here, which …`. */
+/**
+ * What a rule without a path matched that a copy leaves, in words: `a number here, which a copy
+ * leaves as it is`, `numbers and keys here, which …`. Such a rule leaves a string only in a clock or
+ * random read (reportKept).
+ */
 function leftWords(u: { numbers: number; keys: number; strings: number }): string {
-  const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : ''].filter(Boolean);
-  return `${parts.join(' and ') || 'values'} here, which a copy leaves as ${u.numbers + u.keys === 1 ? 'it is' : 'they are'}`;
+  const parts = [u.numbers ? (u.numbers === 1 ? 'a number' : 'numbers') : '', u.keys ? (u.keys === 1 ? 'a key' : 'keys') : '', u.strings ? 'what a clock or random read returned' : ''].filter(Boolean);
+  return `${parts.join(' and ') || 'values'} here, which a copy leaves as ${u.numbers + u.keys + u.strings === 1 ? 'it is' : 'they are'}`;
+}
+
+/**
+ * What the rules without a path match in a clock or random read, which every copy keeps as recorded
+ * (keptAsRecorded), told to the observer as left as it is: each string, number and key of the JSON
+ * stored for it, or its text when it isn't JSON. A rule with a path never reaches one.
+ */
+function reportKept(bytes: Buffer, rules: Normalizer[], observer: RewriteObserver): void {
+  const report = observer.unmasked;
+  const text = asText(bytes);
+  if (!report || text === null) return;
+  let value: unknown = text;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    // Its text as a whole.
+  }
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined) return;
+    const regex = compilePattern(rule.pattern);
+    const test = (found: string, path: Array<string | number>, what: UnmaskedAt['what']) => {
+      const count = countMatches(found, regex);
+      if (count) report(i, found, { path: [...path], what }, count);
+    };
+    const walk = (v: unknown, path: Array<string | number>) => {
+      if (typeof v === 'string') test(v, path, 'string');
+      else if (typeof v === 'number') test(JSON.stringify(v), path, 'number');
+      else if (Array.isArray(v)) v.forEach((item, k) => walk(item, [...path, k]));
+      else if (isObject(v))
+        for (const [k, item] of Object.entries(v)) {
+          test(k, [...path, k], 'key');
+          walk(item, [...path, k]);
+        }
+    };
+    walk(value, []);
+  });
 }
 
 /**

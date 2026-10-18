@@ -462,6 +462,34 @@ describe('what calls got back, and why a value gets no rule', () => {
     store.close();
   });
 
+  it('never masks a clock or random read with a rule without a path either, and counts what it matches there as left as it is', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const id = '8e9ff1cc-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+    addCall(store, run.runId, 1, 'random', 'uuid', { label: 'uuid' }, [{ body: JSON.stringify({ result: id }) }]);
+    addCall(store, run.runId, 2, 'tool', 'create_ticket', { args: { ref: `T-${id.slice(0, 8)}`, owner: id } }, [{ body: JSON.stringify({ result: { ok: true, ticket: id } }) }]);
+    store.endRun(run.runId, 'completed');
+    const UUID: Normalizer = { pattern: 'uuid', replace: '<REDACTED>' };
+    // A pack keeps the uuid the agent read, so its replay cuts the same ref from it; so does a copy that is read.
+    for (const read of [false, true]) {
+      const [random, ticket] = copied(store, run.runId, [UUID], { read });
+      expect(random!.ends[0]!.body).toBe(JSON.stringify({ result: id }));
+      expect(ticket!.request).toBe(JSON.stringify({ args: { ref: 'T-8e9ff1cc', owner: '<REDACTED>' } }));
+      expect(ticket!.ends[0]!.body).toBe(JSON.stringify({ result: { ok: true, ticket: '<REDACTED>' } }));
+    }
+    const [r] = previewRedaction(store, run.runId, [UUID]).rules;
+    expect(r!.count).toBe(1);
+    expect(r!.unmasked).toMatchObject({ count: 1, samples: [{ value: id, key: false, callNo: 1, kind: 'random', name: 'uuid', in: 'response', path: '$.result', event: null }], remedies: [], reasons: ['replay'] });
+    // Matched only there: the note says so.
+    const only = Store.open(':memory:');
+    const lone = only.createRun({ mode: 'record', command: cmd });
+    addCall(only, lone.runId, 1, 'random', 'uuid', { label: 'uuid' }, [{ body: JSON.stringify({ result: id }) }]);
+    only.endRun(lone.runId, 'completed');
+    expect(previewRedaction(only, lone.runId, [UUID]).rules[0]).toMatchObject({ count: 0, note: 'it matches only what a clock or random read returned here, which a copy leaves as it is' });
+    only.close();
+    store.close();
+  });
+
   it("proposes the rule's pattern at a string's own place inside an object at its path, and the whole value only for a number", () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: cmd });

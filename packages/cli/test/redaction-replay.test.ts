@@ -15,6 +15,7 @@ import { message, startMockAnthropic, text, toolUse, type MockServer } from '@sh
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./card-agent.mjs', import.meta.url));
+const TICKET_AGENT = fileURLToPath(new URL('./ticket-agent.mjs', import.meta.url));
 const CARD = '/\\b(?:\\d[ -]?){13,16}\\b/';
 
 let mock: MockServer;
@@ -106,5 +107,22 @@ describe('a redacted pack, replayed as CI replays it', () => {
     const html = await shadowlap(['export', 'html', runId, 'run.html']);
     expect(html.code, html.out).toBe(0);
     expect(readFileSync(join(work, 'run.html'), 'utf8')).toContain('"result":{"result":"<HIDDEN>"}');
+  }, 120_000);
+
+  it('passes with a rule that matches the uuid the agent read, which every copy keeps as recorded', async () => {
+    expect((await shadowlap(['redact', 'add', '--pattern', 'uuid'])).code).toBe(0);
+    const recorded = await shadowlap(['run', '--', process.execPath, TICKET_AGENT]);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const preview = await shadowlap(['redact', 'preview', runId]);
+    expect(preview.out).toMatch(/#1 +every call +any string +uuid → <REDACTED> +0 +it matches only what a clock or random read returned here, which a copy leaves as it is/);
+    expect(preview.out).toContain('a clock or random read stays as recorded: a replay needs it');
+    expect((await shadowlap(['pack', runId, 'goldens/ticket'])).code).toBe(0);
+    const blobs = readdirSync(join(work, 'goldens', 'ticket', 'blobs')).map((f) => readFileSync(join(work, 'goldens', 'ticket', 'blobs', f), 'utf8')).join('\n');
+    expect(blobs).not.toContain('<REDACTED>');
+    // Where the pack is all there is, the agent reads the uuid it read when it was recorded, and files the same ticket.
+    const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/ticket']);
+    expect(ci.code, ci.out).toBe(0);
+    expect(ci.out).toMatch(/ticket: 2\/2 replayed/);
   }, 120_000);
 });
