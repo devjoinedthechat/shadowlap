@@ -770,6 +770,13 @@ describe('Find the commit from a run', () => {
     const tested = store.createRun({ mode: 'record', command: { argv: [TEST_COMMAND, 'refunds a delivered order'], cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY });
     store.endRun(tested.runId, 'failed', T0 + 5 * DAY + 1);
     expect(bisectChoices(store, tested.runId, { goldens: [] })!.unavailable).toMatch(/^this run was recorded by a test run, so there is no command to run at each commit/);
+    // A run from someone else's pack: bisect would run that command at every commit, which the CLI asks about first and a job can't.
+    const unpacked = store.createRun({ mode: 'record', command: { argv: ['sh', '-c', 'node main.js'], cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY, meta: { imported: { at: T0, from: 'their-pack' } } });
+    store.endRun(unpacked.runId, 'failed', T0 + 5 * DAY + 1);
+    const imported = bisectChoices(store, unpacked.runId, { goldens: [] })!;
+    expect(imported).toMatchObject({ args: null });
+    expect(imported.unavailable).toBe(`this run came from an imported pack: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${unpacked.runId} -- <command>), and find the commit from that run`);
+    expect(bisectJob(store, [], { runId: unpacked.runId, good: 'aaa1111' })).toEqual({ error: imported.unavailable });
     // A replay that exited 0 but failed a check, of a golden no longer on disk or in the config: no check to judge each commit by.
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/gone'] });
     const checked = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY, meta: { test: { golden: 'goldens/gone', session: s.sessionId }, checks: [{ ok: false, label: 'escalate called 1 time', detail: 'called 0 times' }] } });
