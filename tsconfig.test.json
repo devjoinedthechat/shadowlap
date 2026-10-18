@@ -29,9 +29,11 @@
   },
   "include": ["packages/*/test/**/*.ts", "packages/*/test/**/*.tsx", "testing/**/test/**/*.ts"],
   "exclude": [
-    // This one imports the dashboard's browser modules, which need the DOM library. Adding it here
+    // These import the dashboard's browser modules, which need the DOM library. Adding it here
     // would shadow Node's fetch typings for every source file in the same pass, so the browser code
     // keeps its own type-check: build-ui.mjs runs tsc over ui/tsconfig.json before bundling.
-    "packages/dashboard/test/normalize.test.ts"
+    "packages/dashboard/test/normalize.test.ts",
+    // These render the run page's components, which use the DOM too.
+    "packages/dashboard/test/ui-strip.test.ts"
   ]
 }
