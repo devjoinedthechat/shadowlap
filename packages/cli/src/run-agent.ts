@@ -201,10 +201,11 @@ export async function testAttempt(
         setTimeout(() => kill('SIGKILL'), 5_000).unref();
       }, o.timeoutMs)
     : null;
-  let notFound = false;
+  // The command never started: why, in plain words (it isn't there, or the folder to run it in isn't).
+  let notStarted: ReturnType<typeof startFailure> | null = null;
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') notFound = true;
+      notStarted = startFailure(err, argv[0]!, o.cwd);
       output += `failed to start ${argv[0]}: ${err.message}\n`;
       res(127);
     });
@@ -258,8 +259,9 @@ export async function testAttempt(
   } else if (code !== 0 || timedOut) {
     // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
-    // A command that isn't on PATH never started, whatever its empty summary would suggest about the environment.
-    failure = notFound ? { message: `${argv[0]}: command not found on PATH`, details: output.trim() } : { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
+    // A command that never started did so for its own reason, whatever its empty summary would suggest about the environment.
+    const why = notStarted as ReturnType<typeof startFailure> | null;
+    failure = why ? { message: why.message, details: output.trim() } : { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
     kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
@@ -445,6 +447,29 @@ export function notFoundMessage(argv: readonly string[], again: (argv: string[])
   return lines.join('\n');
 }
 
+/**
+ * Why the agent's command could not start, from spawn's error. Node says ENOENT both when the
+ * program isn't there and when the working directory isn't, so the two are told apart here: a
+ * missing folder is never blamed on PATH. A program that is there and still can't start (a script
+ * whose interpreter is missing) keeps spawn's own words. `notFound`: the program itself isn't there.
+ */
+export function startFailure(err: NodeJS.ErrnoException, argv0: string, cwd: string, has: (name: string) => boolean = (name) => onPath(name)): { notFound: boolean; message: string } {
+  if (err.code === 'ENOENT') {
+    let folder = false;
+    try {
+      folder = statSync(cwd).isDirectory();
+    } catch {
+      // no such folder
+    }
+    if (!folder) return { notFound: false, message: `${cwd}: working directory does not exist` };
+    // A path names the file itself; a bare name is looked up on PATH.
+    if (/[\\/]/.test(argv0)) {
+      if (!existsSync(resolve(cwd, argv0))) return { notFound: true, message: `${argv0}: no such file` };
+    } else if (!has(argv0)) return { notFound: true, message: `${argv0}: command not found on PATH` };
+  }
+  return { notFound: false, message: `failed to start ${argv0}: ${err.message}` };
+}
+
 export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
@@ -487,12 +512,11 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
-  // A command that isn't on PATH never started: nothing ran, so nothing is kept of it.
-  let notFound = false;
+  // A command that never started (it isn't there, or can't be run): nothing ran, so nothing is kept of it.
+  let notStarted: ReturnType<typeof startFailure> | null = null;
   const code = await new Promise<number>((resolve) => {
     child.on('error', (err) => {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') notFound = true;
-      else process.stderr.write(p.red(`failed to start ${argv[0]}: ${err.message}\n`));
+      notStarted = startFailure(err, argv[0]!, process.cwd());
       resolve(127);
     });
     if (extra.capture) onDrained(child, resolve);
@@ -504,14 +528,16 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
   rmSync(activeFile, { force: true });
   const result = sidecar.endRun(run.runId, status);
-  if (notFound) {
+  const why = notStarted as ReturnType<typeof startFailure> | null;
+  if (why) {
     // Not a failed recording, or a replay that made no calls: the agent never ran. The run goes, and
     // so does the paragraph about the environment its empty summary would print.
     store.deleteRun(run.runId);
     await sidecar.close();
     store.close();
     const again = (a: string[]) => (run.mode === 'replay' && run.parentRunId ? `shadowlap replay ${shortId(run.parentRunId)} -- ${quoteArgv(a)}` : `shadowlap run -- ${quoteArgv(a)}`);
-    process.stderr.write(`${notFoundMessage(argv, again)}\n${p.dim(`  nothing ran, so run ${shortId(run.runId)} is not kept`)}\n`);
+    const said = why.notFound && !/[\\/]/.test(argv[0]!) ? notFoundMessage(argv, again) : `${p.red('✗')} ${why.message}`;
+    process.stderr.write(`${said}\n${p.dim(`  nothing ran, so run ${shortId(run.runId)} is not kept`)}\n`);
     emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary, started: false } });
     return { code, run, summary: result.summary, output: output(), started: false };
   }
