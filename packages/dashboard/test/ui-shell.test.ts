@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 import { BULK_MAX } from '../src/runs-list.js';
-import { dialogFocus } from '../ui/focus.js';
+import { dialogFocus, trapTab } from '../ui/focus.js';
 import { jobRunning } from '../ui/jobs.js';
 import { knownParent, noteParent, onParentNoted } from '../ui/parents.js';
 import { stripScroll } from '../ui/place.js';
@@ -94,6 +94,23 @@ describe('dialogs', () => {
   it('start on Cancel whatever they hold when asked to', () => {
     expect(dialogFocus('lime', 'cancel')).toBe('.dlg-cancel');
     expect(dialogFocus('danger', 'cancel')).toBe('.dlg-cancel');
+  });
+
+  // aria-modal says the page behind can't be reached: Tab from Delete run went on to the strip's
+  // cells behind the scrim, and Enter there opened another call with the dialog still open.
+  it('keep Tab among their own controls, round from the last to the first and back', () => {
+    const controls = ['Cancel', 'Delete run'];
+    expect(trapTab(controls, 'Delete run', false)).toBe('Cancel');
+    expect(trapTab(controls, 'Cancel', true)).toBe('Delete run');
+    // Within them, the browser's own step stays inside.
+    expect(trapTab(controls, 'Cancel', false)).toBeNull();
+    expect(trapTab(controls, 'Delete run', true)).toBeNull();
+    // A focus left on the page behind, or on nothing, comes back in.
+    expect(trapTab(controls, null, false)).toBe('Cancel');
+    expect(trapTab(controls, null, true)).toBe('Delete run');
+    // The shortcuts have one control: Tab stays on it.
+    expect(trapTab(['Close'], 'Close', false)).toBe('Close');
+    expect(trapTab([], null, false)).toBe('self');
   });
 });
 
