@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
 import { loadApiRequest, manifestRefs } from './manifest.js';
@@ -106,29 +106,106 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
     runs = runs.map((r) => redactRun(source, r.runId, opts.redact!, store));
   }
 
-  mkdirSync(join(dir, 'blobs'), { recursive: true });
   const lines: string[] = [];
   const blobs = new Set<string>();
-  for (const run of runs) {
-    for (const call of store.getCalls(run.runId)) {
-      lines.push(JSON.stringify(call));
-      for (const ref of blobRefs(call)) {
-        blobs.add(ref);
-        if (call.kind === 'api' && ref === call.requestRef) for (const child of manifestChildren(store, ref)) blobs.add(child);
+  try {
+    for (const run of runs) {
+      for (const call of store.getCalls(run.runId)) {
+        lines.push(JSON.stringify(call));
+        for (const ref of blobRefs(call)) {
+          blobs.add(ref);
+          if (call.kind === 'api' && ref === call.requestRef) for (const child of manifestChildren(store, ref)) blobs.add(child);
+        }
       }
     }
+    // A run its recorder left goes in as interrupted, never as recording: unpacked, it would read running.
+    const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: asTheyStand(source, runs).map((r) => forPack(r, opts.keepAuthor === true)) };
+    writePack(dir, (into) => {
+      mkdirSync(join(into, 'blobs'));
+      for (const hash of blobs) {
+        const bytes = store.getBlob(hash);
+        if (!bytes) throw new Error(`missing blob ${hash}`);
+        writeFileSync(join(into, 'blobs', hash), bytes);
+      }
+      writeFileSync(join(into, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
+      writeFileSync(join(into, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
+    });
+  } finally {
+    if (store !== source) store.close();
   }
-  for (const hash of blobs) {
-    const bytes = store.getBlob(hash);
-    if (!bytes) throw new Error(`missing blob ${hash}`);
-    writeFileSync(join(dir, 'blobs', hash), bytes);
-  }
-  // A run its recorder left goes in as interrupted, never as recording: unpacked, it would read running.
-  const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: asTheyStand(source, runs).map((r) => forPack(r, opts.keepAuthor === true)) };
-  writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
-  writeFileSync(join(dir, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
-  if (store !== source) store.close();
   return { dir, runs: runs.map((r) => r.runId), calls: lines.length, blobs: blobs.size, redacted };
+}
+
+/** What a pack is made of; run.json last, since a folder is taken for a pack by it. */
+const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'] as const;
+
+const present = (path: string) => {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** A rename, or across filesystems (a folder that is a link to another disk) a copy and a removal. */
+function move(from: string, to: string): void {
+  try {
+    renameSync(from, to);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    cpSync(from, to, { recursive: true, verbatimSymlinks: true });
+    rmSync(from, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Writes a pack into `dir` as a whole. A folder that already holds one (the same golden packed again,
+ * the dashboard's export of a run made twice) gets this pack's run.json, calls.jsonl and blobs/ in
+ * place of its own: written beside it first, then swapped in, so the folder never holds an earlier
+ * pack's blobs (one the redaction rules added since would have masked) and an error leaves the old
+ * pack as it was. Anything else in the folder (a README, notes) stays.
+ */
+function writePack(dir: string, write: (into: string) => void): void {
+  const target = resolve(dir);
+  mkdirSync(dirname(target), { recursive: true });
+  const stage = mkdtempSync(join(dirname(target), `.${basename(target)}.pack-`));
+  let keep = false;
+  try {
+    const fresh = join(stage, 'new');
+    mkdirSync(fresh);
+    write(fresh);
+    if (!existsSync(target)) {
+      move(fresh, target);
+      return;
+    }
+    const aside = join(stage, 'old');
+    mkdirSync(aside);
+    const moved: Array<{ name: string; had: boolean }> = [];
+    try {
+      for (const name of PACK_ENTRIES) {
+        const had = present(join(target, name));
+        if (had) move(join(target, name), join(aside, name));
+        moved.push({ name, had });
+        move(join(fresh, name), join(target, name));
+      }
+    } catch (err) {
+      // The old entries go back, so the folder holds the old pack or the new one, never a mix.
+      for (const { name, had } of moved.reverse()) {
+        try {
+          if (had && !present(join(aside, name))) continue;
+          rmSync(join(target, name), { recursive: true, force: true });
+          if (had) move(join(aside, name), join(target, name));
+        } catch {
+          keep = true;
+        }
+      }
+      if (keep) throw new Error(`${(err as Error).message}; the old pack's files are in ${aside}`);
+      throw err;
+    }
+  } finally {
+    if (!keep) rmSync(stage, { recursive: true, force: true });
+  }
 }
 
 export interface UnpackResult {
@@ -218,10 +295,20 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   const from = basename(root);
   // One time for everything one unpack brings in, so the runs of a pack read as one import.
   const at = Date.now();
+  const packed = new Map(blobs.map((b) => [b.name, b.bytes]));
   store.transaction(() => {
-    for (const b of blobs) store.putBlob(b.bytes);
+    const fresh = new Set(runs.filter((r) => !store.getRun(r.runId)).map((r) => r.runId));
+    const needed = calls.filter((c) => fresh.has(c.runId));
+    // Only the blobs the runs it brings in need: a pack's folder may hold others (an earlier pack
+    // written there, a file slipped in), and those never come into the store.
+    const bring = (h: string) => {
+      const bytes = packed.get(h);
+      if (bytes && !store.hasBlob(h)) store.putBlob(bytes);
+    };
+    for (const c of needed) for (const h of callRefs(c)) bring(h);
+    for (const c of needed) if (c.kind === 'api' && c.requestRef) for (const h of manifestRefs(store, c.requestRef)) bring(h);
     // Every blob a call needs must now exist, including the parts of a chunked request.
-    for (const c of calls) {
+    for (const c of needed) {
       for (const h of callRefs(c)) if (!store.getBlob(h)) throw new PackError(`calls.jsonl: call #${c.callNo} of run ${c.runId} needs blob ${h}, which the pack does not contain`);
       if (c.kind === 'api' && c.requestRef) {
         for (const h of manifestRefs(store, c.requestRef)) if (!store.getBlob(h)) throw new PackError(`calls.jsonl: the request of call #${c.callNo} needs blob ${h}, which the pack does not contain`);
