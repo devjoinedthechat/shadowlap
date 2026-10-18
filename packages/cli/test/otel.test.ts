@@ -86,6 +86,20 @@ describe('runToOtlp', () => {
     expect(spans[0]!.attributes.find((a) => a.key === 'process.command_args')!.value.arrayValue!.values.map((v) => v.stringValue)).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>']);
   });
 
+  it('masks the command line before it cuts the run span\'s name to 200 characters, so the cut never keeps part of a value', () => {
+    const address = 'margaret.hamilton@example.com';
+    const long: RunRecord = { ...run, command: { argv: ['node', 'agent.mjs', '--pad', 'x'.repeat(128), '--customer', address], cwd: '/w' } };
+    type Trace = { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }> };
+    const runSpanName = (trace: unknown) => (trace as Trace).resourceSpans[0]!.scopeSpans[0]!.spans[0]!.name;
+    // Unmasked, the cut lands inside the address.
+    const plain = runSpanName(runToOtlp(long, []));
+    expect(plain).toHaveLength(200);
+    expect(plain.endsWith('--customer margaret.hamilton@exam')).toBe(true);
+    const trace = runToOtlp(long, [], { redact: [{ pattern: 'email', replace: '<EMAIL>' }] });
+    expect(JSON.stringify(trace)).not.toContain('margaret');
+    expect(runSpanName(trace).endsWith('--customer <EMAIL>')).toBe(true);
+  });
+
   it('parses OTLP header lists', () => {
     expect(otlpHeaders('authorization=Bearer%20x, x-scope-orgid=team')).toEqual({ authorization: 'Bearer x', 'x-scope-orgid': 'team' });
     expect(otlpHeaders(undefined)).toEqual({});
