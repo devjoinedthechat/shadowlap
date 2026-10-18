@@ -41,6 +41,43 @@ class RecordingRules(unittest.TestCase):
 
         self.assertEqual(context_params(fn), ("ctx", "tc", "run", "config", "state", "call_id", "run_manager"))
 
+    def test_a_description_that_names_a_context_type_does_not_make_an_argument_context(self):
+        # Annotated's description strings are documentation, not types: a parameter whose
+        # description mentions Injected... or ToolContext is still the tool's real input.
+        from typing import Annotated, Optional
+
+        class InjectedToolArg:  # LangChain's marker, as far as the SDK can tell
+            pass
+
+        class InjectedState:
+            def __init__(self, field=None):
+                self.field = field
+
+        class RunContext:
+            def __class_getitem__(cls, item):
+                return cls
+
+        class CallbackManagerForToolRun:
+            pass
+
+        def summarize(
+            text: Annotated[str, "Injected document text to summarize"],
+            style: Annotated[str, "Tone; see ToolContext docs"],
+            call_id: Annotated[str, InjectedToolArg],
+            state: Annotated[dict, InjectedState("messages"), "the graph's state"],
+            ctx: RunContext,
+            run_manager: Optional[CallbackManagerForToolRun],
+            limit: Annotated[int, "Max words"] = 50,
+        ):
+            pass
+
+        self.assertEqual(context_params(summarize), ("call_id", "state", "ctx", "run_manager"))
+
+        def quoted(text: "Annotated[str, 'Injected document text']", note: 'Annotated[str, "see RunContext"]', state: "Annotated[dict, InjectedState]"):
+            pass
+
+        self.assertEqual(context_params(quoted), ("state",))
+
     def test_context_is_left_out_of_the_recording(self):
         sidecar = Sidecar({"origin": "live", "callNo": 1})
         shadowlap._post = sidecar

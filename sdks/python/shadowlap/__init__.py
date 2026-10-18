@@ -320,11 +320,45 @@ def _impl_hash(fn: Callable[..., Any]) -> str:
 
 # Parameters frameworks fill in themselves: run contexts, configs, injected graph state, callback
 # managers. They are neither JSON nor part of what the tool was asked to do, so they are never
-# recorded. Matched by the annotation's text, so no framework needs to be importable here.
-_CONTEXT_ANNOTATION = re.compile(
-    r"\b(RunContext|RunContextWrapper|ToolContext|RunnableConfig|ToolRuntime|Injected[A-Za-z]*|"
-    r"(Async)?CallbackManagerForToolRun)\b"
+# recorded. Matched by the names of the annotation's types, so no framework needs to be importable
+# here; never by its text, which for Annotated includes descriptions that may name these types.
+_CONTEXT_TYPE = re.compile(
+    r"^(RunContext|RunContextWrapper|ToolContext|RunnableConfig|ToolRuntime|Injected[A-Za-z]*|"
+    r"(Async)?CallbackManagerForToolRun)$"
 )
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_QUOTED = re.compile(r"(['\"]).*?\1")
+
+
+def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
+    """The names of the types an annotation is made of: the class, a generic's origin and its type
+    arguments, and the classes of Annotated's metadata. Annotated's strings are descriptions, and a
+    string annotation's quoted literals are left out with them."""
+    import typing
+
+    if depth > 10:
+        return
+    if isinstance(annotation, typing.ForwardRef):
+        annotation = annotation.__forward_arg__
+    if isinstance(annotation, str):
+        for name in _IDENTIFIER.findall(_QUOTED.sub("", annotation)):
+            yield name
+        return
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        yield from _type_names(args[0], depth + 1)
+        for meta in args[1:]:
+            if isinstance(meta, str):
+                continue
+            yield meta.__name__ if isinstance(meta, type) else type(meta).__name__
+        return
+    if isinstance(annotation, type):
+        yield annotation.__name__
+    elif origin is not None:
+        yield from _type_names(origin, depth + 1)
+    for arg in args:
+        yield from _type_names(arg, depth + 1)
 
 
 def context_params(fn: Callable[..., Any]) -> tuple:
@@ -339,9 +373,11 @@ def context_params(fn: Callable[..., Any]) -> tuple:
     for p in params:
         if p.annotation is inspect.Parameter.empty:
             continue
-        text = p.annotation if isinstance(p.annotation, str) else repr(p.annotation)
-        if _CONTEXT_ANNOTATION.search(text):
-            out.append(p.name)
+        try:
+            if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)):
+                out.append(p.name)
+        except Exception:  # an annotation no typing helper understands is no framework's context
+            continue
     return tuple(out)
 
 
