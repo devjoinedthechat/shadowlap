@@ -231,6 +231,8 @@ interface Blamed {
   caseText?: string;
   /** The request at the blamed call, whose prompt a fix rewrites. */
   request: unknown;
+  /** The same request with the redaction rules applied: the instructions the repairer is shown. */
+  shownRequest?: unknown;
   /** The model the recording asked at the blamed call. */
   model: string | null;
   /**
@@ -359,12 +361,14 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
     // 2. What a fix may rewrite, where it lives, and what it must not mention.
     const files = projectFiles(root);
     const surfaces: Surface[] = [];
-    let prompt: ReturnType<typeof surfacesOf> | null = null;
     for (const b of learned) {
       const found = surfacesOf(b.request);
-      prompt ??= found;
       for (const x of found.surfaces) if (!surfaces.some((y) => y.label === x.label && y.text === x.text)) surfaces.push(x);
     }
+    // The agent's instructions as the repairer is shown them: a system prompt can carry a run's own
+    // details (a customer's name filled in), so it is read from the masked copy, while the spans a fix
+    // may rewrite are the project's source.
+    const instructions = surfacesOf(learned[0]!.shownRequest ?? learned[0]!.request);
     const anchors = findAnchors(surfaces, files);
     report.anchors = anchors.length;
     const failingTexts = learned.map((b) => b.caseText ?? '');
@@ -412,7 +416,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
         report.noRepairer = NO_REPAIRER.nothingToRewrite;
         warnings.push(`${NO_REPAIRER.nothingToRewrite}: none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files`);
       } else {
-        const request = buildRepairPrompt({ oracle, system: prompt?.system ?? '', tools: prompt?.tools ?? [], cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
+        const request = buildRepairPrompt({ oracle, system: instructions.system, tools: instructions.tools, cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
         let answer: Awaited<ReturnType<typeof askRepairer>> | null = null;
         try {
@@ -528,7 +532,8 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       };
     };
     const asRecorded = exchange(store);
-    const seen = shown ? exchange(shown.of(runId, rescuedRunId!)) : asRecorded;
+    const view = shown ? shown.of(runId, rescuedRunId!) : store;
+    const seen = view === store ? asRecorded : exchange(view);
     const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(seen.recorded), rescued: describeBlocks(seen.rescued) };
     return {
       target,
@@ -536,6 +541,7 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       // Case details are screened against the run as recorded: the check never leaves the machine.
       caseText: `${conversationText(asRecorded.conversation)}\n${describeBlocks(asRecorded.recorded)}`,
       request,
+      shownRequest: view === store ? request : requestAt(view, runId, callNo!),
       model: asRecorded.conversation?.model ?? (isObject(request) && typeof request.model === 'string' ? request.model : null),
       notTheAnswer: null,
     };

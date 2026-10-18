@@ -328,6 +328,24 @@ process.stdin.on('end', () => {
     expect(readFileSync(join(project, report.output.report), 'utf8')).not.toContain('jane.doe@example.com');
   });
 
+  it("masks a run's own details in the system prompt it shows the repairer", async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
+    // A system prompt with the customer's address filled in at run time, as the agent's replays see it too.
+    const system = { AGENT_SYSTEM: 'You are a support agent for the account of jane.doe@example.com. Follow the refund policy.' };
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], system);
+    expect(recorded.code, recorded.out).toBe(0);
+    const failed = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    mode = 'alternate';
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], system);
+    expect(r.stdout, r.out).toContain('"outcome"');
+    const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
+    expect(asked).toHaveLength(1);
+    const sent = JSON.stringify(asked[0]!.body);
+    expect(sent).toContain('System prompt:\\nYou are a support agent for the account of <EMAIL>. Follow the refund policy.');
+    expect(sent).not.toContain('jane.doe@example.com');
+  });
+
   it('switches to a stronger model when only it rescues the runs, without asking a repairer', async () => {
     const { failed } = await runs();
     mode = 'stubborn';
