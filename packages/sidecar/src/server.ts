@@ -1183,7 +1183,7 @@ export class Sidecar {
       const record = decision.record;
       const end = record.end!;
       const payload = (end.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
-      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash) {
+      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(body.name)) {
         ctx.warnOnce(body.name, `${body.name} changed since the recording; pass --live-tool ${body.name} to run it live`);
       }
       this.store.appendCallEnd(identity, {

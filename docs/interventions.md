@@ -170,7 +170,7 @@ shadowlap replay <run> --live-tool search_web
 shadowlap replay <run> --diverge-at 12
 ```
 
-After you fix a tool, its call key is unchanged (arguments identical), so it would keep replaying its old result. `--live-tool` forces the first call of that tool live; the run forks there. Shadowlap also warns when a tool's source hash differs from the recording, so you don't forget.
+After you fix a tool, its call key is unchanged (arguments identical), so it would keep replaying its old result. `--live-tool` forces the first call of that tool live; the run forks there. After a fork, wherever it happened (a prompt changed in the same edit forks the run before the tool is reached), every call of that tool runs live, even a pure tool's, which a fork otherwise serves from the recording. Shadowlap also warns when a tool's source hash differs from the recording and you didn't name it, so you don't forget.
 
 ## Replay on every save
 

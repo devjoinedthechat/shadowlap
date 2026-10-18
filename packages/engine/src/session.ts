@@ -13,7 +13,10 @@ import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReach
 export interface ReplayOptions {
   writes: WritePolicy;
   reads: ReadPolicy;
-  /** Tools whose first call is forced live: a fixed tool's call key doesn't change with its code, so it must be forced. */
+  /**
+   * Tools whose first call is forced live: a fixed tool's call key doesn't change with its code, so it
+   * must be forced. After the fork, every call of one runs live: none is served from the recording.
+   */
   liveTools: ReadonlySet<string>;
   /**
    * The calls the recording covers, when it is partial (see `RunMeta.covers`): call kinds, and
@@ -203,10 +206,12 @@ export class Session {
         record && !this.consumed.has(record.callNo) && input.changedBy
           ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
           : this.explain(input, forced, occurrence);
-    } else if (input.kind === 'tool' && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites && !forced))) {
+    } else if (input.kind === 'tool' && !forced && !this.options.liveTools.has(input.name) && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) {
       // After divergence only declared-pure results (and reads, on request) may come from the
       // recording, and the writes it made, when asked: what the world answered them, never a fence
-      // or a failure a flag made, and never for a write `--live-tool` names.
+      // or a failure a flag made. Never for a call a flag forces live (`--diverge-at` on it), nor for
+      // a tool `--live-tool` names: its code changed since the recording, so what it returned then is
+      // no answer for it, however the run got here.
       const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       const answered = effect !== 'write' || (record && (record.origin === 'live' || record.origin === 'replayed') && !record.end?.meta.injected);
       if (record && answered && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);

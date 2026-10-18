@@ -150,6 +150,27 @@ describe('Session in replay mode', () => {
     expect(s.divergence).toMatchObject({ type: 'forced', callNo: 2, replayedBefore: 1, reason: 'forced live by --live-tool search_web', counterpart: { runId: 'PARENT', callNo: 2 } });
   });
 
+  it('runs a --live-tool tool live after a fork that came before its first call, and every later call of it', () => {
+    // The tool's code changed along with the prompt, so the run forks at call 1, before the tool is reached.
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { liveTools: new Set(['read_file']), reads: 'replay' } });
+    expect(s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1-changed', request: {} }).origin).toBe('live');
+    expect(s.resolve({ callNo: 2, kind: 'tool', name: 'read_file', fingerprint: 'F1', effect: 'pure' }).origin).toBe('live');
+    expect(s.resolve({ callNo: 3, kind: 'tool', name: 'read_file', fingerprint: 'F1', effect: 'pure' }).origin).toBe('live');
+    // A pure tool it doesn't name, and a read under --reads replay, still come from the recording.
+    expect(s.resolve({ callNo: 4, kind: 'tool', name: 'search_web', fingerprint: 'S1', effect: 'read' }).origin).toBe('replayed');
+  });
+
+  it('runs a tool call --diverge-at names live after an earlier fork, rather than serving it from the recording', () => {
+    for (const [name, fp, effect, origin] of [
+      ['read_file', 'F1', 'pure', 'live'],
+      ['send_email', 'E1', 'write', 'stubbed'],
+    ] as const) {
+      const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { writes: 'stub', recordedWrites: true, divergeAt: 2 } });
+      expect(s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1-changed', request: {} }).origin).toBe('live');
+      expect(s.resolve({ callNo: 2, kind: 'tool', name, fingerprint: fp, effect }).origin, name).toBe(origin);
+    }
+  });
+
   it('forces --diverge-at', () => {
     const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: parent(), loadRequest, replay: { divergeAt: 1 } });
     expect(s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} }).origin).toBe('live');
