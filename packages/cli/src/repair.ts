@@ -623,6 +623,17 @@ export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' |
   out.dir = rel(dir);
   const accepted = report.candidates.find((c) => c.id === report.accepted) ?? null;
 
+  // Verify replayed the working tree; a branch is HEAD with the fix. Tracked changes not committed are
+  // in what was verified and not in what is committed: the report, the commit and the pull request say so.
+  if (accepted && report.patch && input.outputs.branch) {
+    const uncommitted = uncommittedFiles(root);
+    if (uncommitted.length) {
+      report.uncommitted = uncommitted;
+      const named = uncommitted.length > 3 ? `${uncommitted.slice(0, 3).join(', ')} and ${uncommitted.length - 3} more` : uncommitted.join(', ');
+      report.warnings.push(`the working tree has uncommitted changes to ${named}, which verify replayed and the branch ${input.outputs.branch} does not hold: it is HEAD with the fix. Commit them and repair again, or check that the branch passes without them`);
+    }
+  }
+
   if (accepted && report.patch) {
     writeFileSync(join(dir, 'fix.patch'), report.patch);
     out.patch = rel(join(dir, 'fix.patch'));
@@ -697,8 +708,19 @@ function commitMessage(r: RepairReport, c: RepairCandidate): string {
   if (c.why.trim()) lines.push(c.why.trim(), '');
   lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo} of ${shortId(t.runId)}`).join(', ')}.`);
   if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, each at ${v.needed} of ${v.attemptsPerRun} attempts.`);
+  if (r.uncommitted?.length) lines.push('', `The runs were replayed on a working tree with uncommitted changes to ${r.uncommitted.join(', ')}, which this commit does not hold: it is HEAD with the fix alone.`);
   return lines.join('\n') + '\n';
 }
+
+/** Tracked files whose working-tree content differs from HEAD's, staged or not, relative to the repository's root. */
+function uncommittedFiles(root: string): string[] {
+  try {
+    return git(root, ['diff', '--name-only', '-z', 'HEAD', '--']).split('\0').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 
 /** A commit on a new branch with the fix, made without checking anything out: HEAD and the working tree stay as they are. */
 function commitBranch(root: string, name: string, c: RepairCandidate, extra: Array<{ from: string; to: string }>, message: string, scratch: string): string {

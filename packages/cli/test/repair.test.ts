@@ -230,6 +230,27 @@ describe('shadowlap repair', () => {
     }
   });
 
+  it('says when the branch leaves out uncommitted changes that verify replayed', async () => {
+    writeFileSync(join(project, 'notes.txt'), 'committed\n');
+    sh(project, 'git', ['add', 'notes.txt']);
+    sh(project, 'git', ['commit', '-q', '-m', 'notes']);
+    const failed = await record();
+    mode = 'alternate';
+    // A change in the working tree that verify replays with, and that HEAD, so the branch, lacks.
+    writeFileSync(join(project, 'notes.txt'), 'changed, not committed\n');
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--branch', 'fix/escalate', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report & { uncommitted?: string[] };
+    expect(report.outcome).toBe('fixed');
+    expect(report.uncommitted).toEqual(['notes.txt']);
+    expect(report.warnings).toContain('the working tree has uncommitted changes to notes.txt, which verify replayed and the branch fix/escalate does not hold: it is HEAD with the fix. Commit them and repair again, or check that the branch passes without them');
+    expect(sh(project, 'git', ['log', '-1', '--format=%B', 'fix/escalate'])).toContain('uncommitted changes to notes.txt, which this commit does not hold');
+    expect(readFileSync(join(project, report.output.report), 'utf8')).toContain('uncommitted changes to `notes.txt`. The branch holds HEAD with the fix, without them');
+    // The branch is HEAD with the fix; the working tree keeps its change.
+    expect(sh(project, 'git', ['show', 'fix/escalate:notes.txt'])).toBe('committed\n');
+    expect(readFileSync(join(project, 'notes.txt'), 'utf8')).toBe('changed, not committed\n');
+  });
+
   // On Windows the stand-in is a batch file, as an npm-installed claude is there, so it runs through cmd.exe.
   it('asks the user\'s own Claude Code, in print mode, outside the project and outside this session', async () => {
     const { failed } = await runs();

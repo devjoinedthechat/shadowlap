@@ -78,7 +78,7 @@ Before an edit, the original bytes go to `.shadowlap/repair-journal.json`. The f
 |---|---|
 | (always) | `.shadowlap/repairs/<id>/`: `fix.patch`, `report.md` (a pull request body: the change, where each run was lost, the evidence, every candidate and why it was dropped), `report.json`, and `goldens/`, a recording of each fixed run |
 | `--apply` | The fix left in the working tree |
-| `--branch <name>` | A commit with the fix on a new branch, the evidence in its message. Nothing is checked out: HEAD and the working tree stay as they are |
+| `--branch <name>` | A commit with the fix on a new branch, the evidence in its message. Nothing is checked out: HEAD and the working tree stay as they are. The commit is HEAD with the fix, while verify replayed the working tree: when tracked files have uncommitted changes, a warning, `report.md` and the commit message name them (`uncommitted`), so check the branch passes without them, or commit them and repair again |
 | `--pr` | With `--branch`: the branch pushed to `origin` and a pull request opened with `gh`, the report as its body |
 | `--goldens <dir>` | With `--apply` or `--branch`: the recordings also placed in the project, for [`shadowlap test`](./ci.md). The folder is taken from the one repair runs in; with `--branch` it has to be inside the repository, which repair checks before it starts |
 
@@ -139,6 +139,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `accepted`, `patch` | The accepted candidate's `id` and its unified diff, or `null` |
 | `cost` | What `blame`, the `repairer` and `verify` cost, in USD |
 | `writes` | What write tools did after a fork in every replay: `stub` or `block`, as `--writes` set it. `report.md` says the same |
+| `uncommitted` | With `--branch`, only when there were any: the tracked files with uncommitted changes, which verify replayed and the branch does not hold |
 | `output` | What was handed over: the repair's `dir`, its `patch` and `report` files, the `goldens` recorded under the fix, whether it was `applied`, and the `branch` and `pr` |
 | `warnings` | What the evidence lacks, and where a hand-over stopped |
 | `repairId`, `verifyId` | The directory name the repair is kept under, and the verdict kept for the accepted candidate, or `null` |
