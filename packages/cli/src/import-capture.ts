@@ -162,6 +162,8 @@ export class ImportWriter {
   readonly skipped: Skip[] = [];
   private callNo = 1;
   private endedAt: number;
+  /** When the capture started: the run's start once it has ended. */
+  private readonly capturedAt: number;
   private readonly occurrences = new Map<string, number>();
 
   constructor(
@@ -169,10 +171,13 @@ export class ImportWriter {
     opts: ImportOptions & { startedAt: number; covers: NonNullable<RunMeta['covers']> },
   ) {
     const labels = [IMPORTED_LABEL, ...(opts.labels ?? []).filter((l) => l !== IMPORTED_LABEL)];
+    // Started as of now while it is written, and given the capture's start when it ends: a run is
+    // judged live by when the store last heard from it (its start or its latest call), and a capture
+    // a month old would otherwise read as one its importer left while that is still writing it, for
+    // gc to delete and push to send half of.
     this.run = store.createRun({
       mode: 'record',
       command: { argv: [NO_COMMAND], cwd: opts.cwd ?? process.cwd() },
-      startedAt: opts.startedAt,
       meta: {
         imported: { at: Date.now(), from: opts.source },
         normalizersHash: normalizersHash([], 'exact', false),
@@ -181,6 +186,7 @@ export class ImportWriter {
         ...(opts.author ? { author: opts.author } : {}),
       },
     });
+    this.capturedAt = opts.startedAt;
     this.endedAt = opts.startedAt;
   }
 
@@ -222,7 +228,7 @@ export class ImportWriter {
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h];
 
     const callNo = this.callNo++;
-    const at = c.startedAt ?? this.run.startedAt;
+    const at = c.startedAt ?? this.capturedAt;
     const took = c.timeMs !== undefined && c.timeMs >= 0 ? Math.round(c.timeMs) : 0;
     const identity = { kind: 'api' as const, name, fingerprint, occurrence };
     this.store.appendCallStart({
@@ -268,7 +274,7 @@ export class ImportWriter {
     const { fingerprint } = fingerprintTool(name, args, []);
     const occurrence = this.occurrence('tool', fingerprint);
     const callNo = this.callNo++;
-    const at = t.startedAt ?? this.run.startedAt;
+    const at = t.startedAt ?? this.capturedAt;
     const took = t.timeMs !== undefined && t.timeMs >= 0 ? Math.round(t.timeMs) : 0;
     const identity = { kind: 'tool' as const, name, fingerprint, occurrence };
     this.store.appendCallStart({ runId: this.run.runId, callNo, ...identity, origin: 'live', effect: t.effect ?? null, requestRef: this.store.putJson({ args }), meta: {}, at });
@@ -282,7 +288,10 @@ export class ImportWriter {
 
   /** Ends the run and returns what it holds. */
   finish(): ImportResult {
-    this.store.endRun(this.run.runId, 'completed', this.endedAt);
+    this.store.transaction(() => {
+      this.store.setRunStart(this.run.runId, this.capturedAt);
+      this.store.endRun(this.run.runId, 'completed', this.endedAt);
+    });
     return { run: this.store.getRun(this.run.runId)!, imported: this.imported, skipped: this.skipped };
   }
 }

@@ -1341,6 +1341,15 @@ export class Store {
     for (const child of children) link.run(run.runId, child);
   }
 
+  /**
+   * Gives a run another start time. An import writes its run as of the moment it starts, so the
+   * store hears from it now (recordingRuns) however old the capture's times are, and gives it the
+   * capture's start once it has ended.
+   */
+  setRunStart(runId: string, startedAt: number): void {
+    this.db.prepare(`UPDATE runs SET started_at = ? WHERE run_id = ?`).run(startedAt, runId);
+  }
+
   endRun(runId: string, status: Exclude<RunStatus, 'running'>, endedAt: number = Date.now()): void {
     this.stmts.endRun.run(status, endedAt, runId);
     this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);
