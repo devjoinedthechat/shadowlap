@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 /**
  * The Shadowlap SDK for TypeScript: an effect-typed tool wrapper, clock/random helpers, and
@@ -310,4 +310,4 @@ export const now = (label?: string): Promise<number> => misc('clock', 'now', lab
 /** A number in [0, 1), recorded. */
 export const random = (label?: string): Promise<number> => misc('random', 'random', label, () => Math.random());
 /** A UUID v4, recorded. */
-export const uuid = (label?: string): Promise<string> => misc('random', 'uuid', label, () => globalThis.crypto.randomUUID());
+export const uuid = (label?: string): Promise<string> => misc('random', 'uuid', label, () => randomUUID());
