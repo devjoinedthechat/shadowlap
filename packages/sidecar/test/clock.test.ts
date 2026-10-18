@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { proposeNormalizers, Store } from '@shadowlap/engine';
+import { now, tool } from '@shadowlap/sdk';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { Sidecar } from '../src/index.js';
 
@@ -69,5 +70,59 @@ describe('dates near a run start match across days', () => {
     expect((await run(auto, again.runId, 'Today is 2026-06-02.')).divergence).toBeNull();
     await auto.close();
     store.close();
+  });
+
+  it('replays clean days later when the replay serves the recording\'s dates back: a tool result and now()', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    const saved = { ...process.env };
+    Object.assign(process.env, sidecar.envFor());
+    // A ticket created twenty minutes before the call, as most APIs return one.
+    const getTicket = tool('get_ticket', { effect: 'read' }, async ({ id }: { id: string }) => ({ id, created_at: new Date(Date.now() - 20 * 60_000).toISOString() }));
+    const agent = async (runId: string, extra = '') => {
+      process.env.SHADOWLAP_RUN_ID = runId;
+      const today = new Date(await now()).toISOString().slice(0, 10);
+      const ticket = await getTicket({ id: 'T-7' });
+      const client = new Anthropic({ apiKey: 'k', baseURL: sidecar.envFor(runId).ANTHROPIC_BASE_URL, maxRetries: 0 });
+      await client.messages.create({ model: 'claude-opus-5', max_tokens: 16, system: `Today is ${today}.${extra}`, messages: [{ role: 'user', content: JSON.stringify(ticket) }] });
+      return sidecar.endRun(runId, 'completed').summary;
+    };
+    try {
+      day('2026-06-01T09:00:00Z');
+      const recorded = sidecar.startRun({ mode: 'record', command: { argv: ['a'], cwd: '.' } });
+      await agent(recorded.runId);
+      const hits = mock.requests.length;
+      for (const later of ['2026-06-03T09:00:00Z', '2026-09-17T15:00:00Z']) {
+        day(later);
+        const replay = sidecar.startRun({ mode: 'replay', parentRunId: recorded.runId, command: { argv: ['a'], cwd: '.' } });
+        const summary = await agent(replay.runId);
+        expect(summary.divergence, later).toBeNull();
+        expect(summary.byOrigin.replayed).toBe(3);
+      }
+      expect(mock.requests.length).toBe(hits);
+
+      // A real change to the prompt still forks, and the report names only it, not the dates the
+      // replay served back from the recording; calibrate proposes no rule that would hide it.
+      const changed = sidecar.startRun({ mode: 'replay', parentRunId: recorded.runId, command: { argv: ['a'], cwd: '.' } });
+      const forked = await agent(changed.runId, ' Never refund over 50 EUR.');
+      expect(forked.divergence).toMatchObject({ type: 'request_changed', callNo: 3 });
+      expect(forked.divergence!.diff).toEqual([{ path: '$.system', op: 'changed', before: 'Today is <date>.', after: 'Today is <date>. Never refund over 50 EUR.' }]);
+    } finally {
+      process.env = saved;
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('calibrate and dates', () => {
+  it('proposes no rule for a date that reads as "today" on one side only', () => {
+    const d = { type: 'request_changed' as const, callNo: 2, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 1, diff: [{ path: '$.system', op: 'changed' as const, before: 'Today is <date>.', after: 'Today is 2026-10-14.' }] };
+    const step = proposeNormalizers(d);
+    expect(step.proposals).toEqual([]);
+    expect(step.unexplained.map((e) => e.path)).toEqual(['$.system']);
+    // The same placeholders on both sides leave the rest to calibrate as before.
+    const same = proposeNormalizers({ ...d, diff: [{ path: '$.system', op: 'changed', before: 'Today is <date>. Scratch: /tmp/agent-k2J9/', after: 'Today is <date>. Scratch: /tmp/agent-Qm01/' }] });
+    expect(same.proposals.map((p) => p.normalizer.pattern)).toEqual(['/\\/tmp\\/agent-[A-Za-z0-9_]+/']);
   });
 });

@@ -85,7 +85,10 @@ things a replay exercises for free — and the one thing no recording of a healt
 without this there is no way to ask what the agent does when a call fails.
 
 Nothing leaves the machine: Shadowlap writes the response itself, so the run makes no upstream
-request and spends nothing. The body names Shadowlap as the source, the call is stored as
+request and spends nothing. The answer is in the provider's error shape, so its client raises what
+a real failure raises: on Bedrock, the AWS SDK's `ThrottlingException` for a 429,
+`ServiceUnavailableException` for a 503, `InternalServerException` for a 500 and
+`ValidationException` for a 400. The body names Shadowlap as the source, the call is stored as
 `injected`, and `show`, the terminal UI and the dashboard label it that way and count it apart from
 live calls, so neither the agent's error nor the recording can be mistaken for something the
 provider did.
@@ -144,7 +147,7 @@ shadowlap replay <run> --model 15:claude-opus-5
 shadowlap replay <run> --set 15:generationConfig.thinkingConfig.thinkingBudget=0
 ```
 
-Request fields are set from model call 15 on. Each field goes where the provider keeps it: `temperature` is top-level on Anthropic and OpenAI, `generationConfig.temperature` on Gemini and `inferenceConfig.temperature` on Bedrock Converse; `max_tokens` is `max_output_tokens` on the Responses API, `generationConfig.maxOutputTokens` on Gemini and `inferenceConfig.maxTokens` on Converse. A dotted key is a path and goes where it says. A field a provider has no place for is refused with where to put it instead (Converse takes model-specific fields under `additionalModelRequestFields`). Values are JSON, or a string.
+Request fields are set from model call 15 on. Each field goes where the provider keeps it: `temperature` is top-level on Anthropic and OpenAI, `generationConfig.temperature` on Gemini and `inferenceConfig.temperature` on Bedrock Converse; `max_tokens` is `max_output_tokens` on the Responses API, `generationConfig.maxOutputTokens` on Gemini and `inferenceConfig.maxTokens` on Converse. On Chat Completions it goes into `max_completion_tokens` when the request uses that (reasoning models refuse `max_tokens`), and `max_completion_tokens` into `max_tokens` when the request uses that, so the request still carries one limit. A dotted key is a path and goes where it says. A field a provider has no place for is refused with where to put it instead (Converse takes model-specific fields under `additionalModelRequestFields`). Values are JSON, or a string.
 
 `--model` switches the model where the provider names it: the body's `model` on Anthropic and OpenAI, the path on Gemini and Vertex AI (`models/<model>:`), Bedrock (`/model/<id>/`, an inference profile or ARN too) and Azure OpenAI (the deployment). On Gemini and Vertex the model may be given as their SDKs spell it (`models/gemini-2.5-pro`, `publishers/google/models/gemini-2.5-pro`); the path takes its name. A request that names no model, or a name a path segment can't carry, is refused.
 
@@ -157,7 +160,7 @@ Bedrock requests are signed by the AWS SDK for their exact path and body (Signat
 
 ## Which model call is which
 
-A flag that names a model call by its number names its place among the recording's model calls: if call 15 is the recording's sixth model call, the flag applies to the sixth model call the replay makes, whatever tool calls came in between. Both sides count the same way: every model call, whatever it sends (an embeddings call counts), and a retry as the call it retries, never as the next one.
+A flag that names a model call by its number names its place among the recording's model calls: if call 15 is the recording's sixth model call, the flag applies to the sixth model call the replay makes, whatever tool calls came in between. Both sides count the same way: every model call, whatever it sends (an embeddings call counts), and a retry as the call it retries, never as the next one. This holds for every flag that names a model call: `--inject`, `--set`, `--model`, `--prompt-from`, and `--fail-at` and `--diverge-at` on a model call (on a tool call, `--diverge-at` names the call by its number).
 
 In a recording made with scopes (sub-agents, `scope()` in the SDKs), calls are counted per scope, the way a replay matches them: if call 15 is the fourth model call of the `researcher` scope, the flag applies to that scope's fourth request, whatever order sub-agents running at once send theirs in. `--set` and `--model` then apply from that call on in its scope, and in every other scope once it has been reached.
 
@@ -170,7 +173,7 @@ shadowlap replay <run> --live-tool search_web
 shadowlap replay <run> --diverge-at 12
 ```
 
-After you fix a tool, its call key is unchanged (arguments identical), so it would keep replaying its old result. `--live-tool` forces the first call of that tool live; the run forks there. Shadowlap also warns when a tool's source hash differs from the recording, so you don't forget.
+After you fix a tool, its call key is unchanged (arguments identical), so it would keep replaying its old result. `--live-tool` forces the first call of that tool live; the run forks there. After a fork, wherever it happened (a prompt changed in the same edit forks the run before the tool is reached), every call of that tool runs live, even a pure tool's, which a fork otherwise serves from the recording. Shadowlap also warns when a tool's source hash differs from the recording and you didn't name it, so you don't forget.
 
 ## Replay on every save
 

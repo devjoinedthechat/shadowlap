@@ -228,7 +228,8 @@ export class ImportWriter {
     const path = url.pathname;
     const headers = strip(c.requestHeaders);
     const name = apiCallName(method, path);
-    const { fingerprint } = fingerprintApi({ method, path, headers, body: c.requestBody }, [], provider.fingerprintHeaders);
+    // As the sidecar fingerprints the call (Provider.matchPath), so a replay matches the stored fingerprint.
+    const { fingerprint } = fingerprintApi({ method, path, headers, body: c.requestBody }, [], provider.fingerprintHeaders, undefined, { matchPath: provider.matchPath?.(path) });
     const occurrence = this.occurrence('api', fingerprint);
 
     const fingerprintHeaders: Record<string, string> = {};

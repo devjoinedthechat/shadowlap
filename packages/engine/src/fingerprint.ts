@@ -1,5 +1,7 @@
 import { canonicalize } from './canonical.js';
-import { maskClock, type ClockMode } from './clock.js';
+import { maskClock, type ClockMode, type ClockReference } from './clock.js';
+import { matchable } from './json-exact.js';
+import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
 import { applyNormalizers, stripKeysDeep } from './normalize.js';
@@ -14,7 +16,7 @@ import type { CallKind, Normalizer } from './types.js';
 export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 
 /** Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on replay. */
-export const FINGERPRINT_VERSION = 2;
+export const FINGERPRINT_VERSION = 4;
 
 export interface ApiRequestShape {
   method: string;
@@ -22,7 +24,10 @@ export interface ApiRequestShape {
   path: string;
   /** Lower-cased request headers. Only `allowHeaders` take part in the fingerprint. */
   headers: Record<string, string | undefined>;
-  /** Parsed JSON body, or a string for non-JSON bodies. */
+  /**
+   * Parsed JSON body, or a string for non-JSON bodies: the base64 of their bytes, as the proxy
+   * stores them. A multipart/form-data body is matched by its parts (multipart.ts).
+   */
   body: unknown;
 }
 
@@ -37,25 +42,31 @@ export interface Fingerprinted {
 }
 
 /**
- * `clock`: the run's start time, to mask dates and timestamps near it (see clock.ts); undefined
- * matches them exactly.
+ * `clock`: the run's start time, to mask dates and timestamps near it (see clock.ts), or for a replay
+ * its start and its recording's, which both sides of a match must use; undefined matches them exactly.
+ * `opts.matchPath`: the path as it identifies the call, when the provider leaves something out of it
+ * (a Vertex AI path without its project and location); normalizers still find the call by its name.
  */
-export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: number, opts: { withoutPrompt?: boolean } = {}): Fingerprinted {
+export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: ClockReference, opts: { withoutPrompt?: boolean; matchPath?: string | undefined } = {}): Fingerprinted {
   const name = apiCallName(req.method, req.path);
   const headers: Record<string, string> = {};
   for (const h of allowHeaders) {
     const v = req.headers[h.toLowerCase()];
     if (v !== undefined) headers[h.toLowerCase()] = v;
   }
-  const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(req.body) : req.body, BUILTIN_STRIPPED_KEYS);
+  // A form's parts, not its bytes: its client picks a new boundary for every request.
+  const view = multipartView(req.body);
+  const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS);
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
-  const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: req.path, headers, body });
+  const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: opts.matchPath ?? req.path, headers, body });
   return { fingerprint: sha256(canonical), canonical };
 }
 
-export function fingerprintTool(name: string, args: unknown, normalizers: Normalizer[], clock?: number): Fingerprinted {
+/** `args` may hold numbers kept as written (json-exact.ts): an integer past 2^53 matches by its exact digits. */
+export function fingerprintTool(name: string, args: unknown, normalizers: Normalizer[], clock?: ClockReference): Fingerprinted {
+  const exact = matchable(args);
   // Paths are relative to the stored request, `{ args }`, as in redaction rules and divergence reports: `$.args.path`.
-  const normalized = (applyNormalizers({ args: clock === undefined ? args : maskClock(args, clock) }, normalizers, 'tool', name) as { args: unknown }).args;
+  const normalized = (applyNormalizers({ args: clock === undefined ? exact : maskClock(exact, clock) }, normalizers, 'tool', name) as { args: unknown }).args;
   const canonical = canonicalize({ kind: 'tool', name, args: normalized });
   return { fingerprint: sha256(canonical), canonical };
 }

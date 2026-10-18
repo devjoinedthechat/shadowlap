@@ -247,6 +247,24 @@ function geminiJson(body: Record<string, unknown>): { blocks: Block[]; stopReaso
 
 // ----
 
+/**
+ * The wire format of a stream, read from its events. The provider id only breaks a tie: Vertex AI
+ * streams Anthropic's events for Claude and Gemini's for Gemini, and Gemini's OpenAI-compatible
+ * endpoint streams OpenAI's chunks, all under one id each.
+ */
+function streamStyle(events: Array<{ data: unknown }>, provider: string | undefined): 'anthropic' | 'gemini' | 'openai' {
+  for (const { data } of events) {
+    if (!isObject(data)) continue;
+    if (typeof data.type === 'string') {
+      if (data.type.startsWith('message') || data.type.startsWith('content_block')) return 'anthropic';
+      if (data.type.startsWith('response.')) return 'openai';
+    }
+    if (Array.isArray(data.candidates)) return 'gemini';
+    if (Array.isArray(data.choices)) return 'openai';
+  }
+  return provider === 'anthropic' || provider === 'gemini' ? provider : 'openai';
+}
+
 export function normalizeResponse(bytes: Buffer | null, contentType: string | undefined, chunks: Array<[number, number]> = [], provider?: string): NormalizedResponse {
   if (!bytes || bytes.length === 0) return { kind: 'empty', blocks: [], stopReason: null, deltas: [], events: 0, raw: '' };
   const text = bytes.toString('utf8');
@@ -263,8 +281,7 @@ export function normalizeResponse(bytes: Buffer | null, contentType: string | un
   if (contentType?.includes('text/event-stream')) {
     const events = parseSse(bytes);
     const at = (i: number) => chunks[Math.min(i, chunks.length - 1)]?.[1] ?? i * 20;
-    const first = events.find((e) => isObject(e.data))?.data as Record<string, unknown> | undefined;
-    const style = provider ?? (first && typeof first.type === 'string' && (first.type.startsWith('message') || first.type.startsWith('content_block')) ? 'anthropic' : first && Array.isArray(first.candidates) ? 'gemini' : 'openai');
+    const style = streamStyle(events, provider);
     const deltas = style === 'anthropic' ? anthropicDeltas(events, at) : style === 'gemini' ? geminiDeltas(events, at) : openaiDeltas(events, at);
     return { kind: 'sse', ...applyDeltas(deltas), deltas, events: events.length, raw };
   }

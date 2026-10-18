@@ -16,6 +16,9 @@ import {
   refused,
   storeApiRequest,
   normalizersHash,
+  isRawNumber,
+  parseJsonExact,
+  reportable,
   storedModelResolver,
   summarizeRun,
   toolFailureError,
@@ -43,9 +46,9 @@ import {
 } from '@shadowlap/engine';
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
-import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, type HttpResult, type HttpRule } from './http.js';
+import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, storedResult, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
-import { providers as defaultProviders, type Provider } from './providers.js';
+import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
 
@@ -59,6 +62,15 @@ export interface SidecarOptions {
   normalizers?: Normalizer[];
   /** Per-provider upstream overrides, e.g. `{ anthropic: 'http://127.0.0.1:9999' }` for a mock. */
   upstreams?: Record<string, string>;
+  /**
+   * A provider's SDK base URL from before Shadowlap that is no root with the provider's SDK path
+   * under it (`OPENAI_BASE_URL=https://models.github.ai/inference`). While it is also that provider's
+   * upstream, a request is forwarded under it without the SDK path the agent's base URL adds:
+   * `/v1/chat/completions` goes to `<base>/chat/completions`. Calls keep their names (`POST
+   * /v1/chat/completions`), so a recording replays the same wherever its server was. Defaults to the
+   * environment's (`sdkBasesFromEnvironment`).
+   */
+  sdkBases?: Record<string, string>;
   /** Cost estimates in summaries: USD per million tokens by model prefix, on top of the built-in table. */
   prices?: Record<string, Price>;
   /** `auto` (default): dates and timestamps near each run's start match whatever day the run happens on. `exact`: they must be equal. */
@@ -158,8 +170,12 @@ class RunContext {
     readonly normalizers: Normalizer[],
     readonly offline = false,
     readonly slot: string | null = null,
-    /** The reference time dates are masked against, or undefined to match them exactly. */
-    readonly clockRef: number | undefined = undefined,
+    /**
+     * The reference times dates are masked against, or undefined to match them exactly: the run's
+     * start, and for a replay its recording's too, since what the replay serves back from the
+     * recording carries the recording's dates.
+     */
+    readonly clockRef: readonly number[] | undefined = undefined,
     /** `--prompt-from`: model calls are matched without their system prompt and tool definitions. */
     readonly withoutPrompt = false,
   ) {}
@@ -227,6 +243,7 @@ export class Sidecar {
   private readonly providers: Map<string, Provider>;
   private readonly normalizers: Normalizer[];
   private readonly upstreams: Record<string, string>;
+  private readonly sdkBases: Record<string, string>;
   private readonly prices: Record<string, Price> | undefined;
   private readonly clock: ClockMode;
   /** HTTP hosts recorded as tools. */
@@ -259,6 +276,7 @@ export class Sidecar {
     this.providers = new Map((opts.providers ?? defaultProviders).map((p) => [p.id, p]));
     this.normalizers = opts.normalizers ?? [];
     this.upstreams = opts.upstreams ?? {};
+    this.sdkBases = opts.sdkBases ?? sdkBasesFromEnvironment(process.env);
     this.prices = opts.prices;
     this.clock = opts.clock ?? 'auto';
     this.httpRules = opts.http ?? [];
@@ -371,6 +389,8 @@ export class Sidecar {
 
   startRun(input: StartRunInput): RunRecord {
     if (input.slot !== undefined) this.envForSlot(input.slot);
+    // Known before the parent is fingerprinted, which masks dates against it.
+    const startedAt = Date.now();
     let parentCalls: CallRecord[] | undefined;
     let parentStartedAt: number | undefined;
     // Whether the parent was recorded with what a person types (RunMeta.inputs); see the Session.
@@ -394,12 +414,14 @@ export class Sidecar {
         const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
         if (!target || target.kind !== 'api') throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}`);
       }
-      if (parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
+      // Under "clock": "auto" both sides are masked against both runs' starts, and this run's start
+      // is new, so the parent's stored fingerprints (made against its own start) never apply.
+      if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
         parentCalls = stored;
         this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls)`);
       } else {
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers`);
-        parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined);
+        parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, input.replay?.promptFrom !== undefined);
       }
     }
     // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
@@ -414,20 +436,22 @@ export class Sidecar {
       parentRunId: input.parentRunId ?? null,
       command: input.command,
       codeVersion: input.codeVersion ?? null,
+      startedAt,
       meta: {
         normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
         ...(input.commandFromImport ? { commandFromImport: true } : {}),
         ...(described ? { interventions: described } : {}),
       },
     });
-    const clockRef = this.clock === 'auto' ? run.startedAt : undefined;
+    const clockRef = this.clock !== 'auto' ? undefined : parentStartedAt !== undefined ? [parentStartedAt, run.startedAt] : [run.startedAt];
     const session = new Session({
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
       ...(parentCalls ? { parentCalls } : {}),
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
-      ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: clockRef } } : {}),
+      matchName: (rec) => this.matchName(rec),
+      ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
     this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined));
@@ -463,10 +487,8 @@ export class Sidecar {
     const calls = this.store.getCalls(runId);
     // An intervention that never took effect leaves a run that looks like an answer to a question nobody asked.
     warnings.push(...ctx.session.unapplied(), ...(ctx.interventions?.unapplied() ?? []), ...(ctx.interventions?.warnings ?? []));
-    for (const [callNo, status] of ctx.session.options.failAt ?? []) {
-      const call = calls.find((c) => c.callNo === callNo);
-      if (!call?.end?.meta.injected) warnings.push(`--fail-at ${callNo}=${status} changed nothing: ${call ? `call #${callNo} of this replay was ${call.kind === 'api' ? 'a model call answered otherwise' : `${call.kind} ${call.name}, not a model call: the calls before it came in another order than recorded`}` : `the replay made only ${calls.length} call${calls.length === 1 ? '' : 's'}`}`);
-    }
+    // A model call --fail-at named, by its place among the recording's model calls, that the replay never made.
+    warnings.push(...ctx.session.unappliedFailures());
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api')) {
       warnings.push(
         calls.length === 0
@@ -554,7 +576,8 @@ export class Sidecar {
     }
 
     if (rest === 'v1/calls/resolve' && method === 'POST') {
-      const body = (await readJson(req)) as ResolveBody;
+      // Numbers kept as the SDK wrote them: a 64-bit id or a Python 20.0 is stored and served exactly.
+      const body = (await readJson(req, true)) as ResolveBody;
       const ctx = this.contextFor(req, pinned);
       ctx.sdksSeen.add(sdkFamily(req.headers['user-agent']));
       return json(res, 200, this.resolveCall(ctx, body, scopeOf(req)));
@@ -574,7 +597,7 @@ export class Sidecar {
 
     const completeMatch = /^v1\/calls\/(\d+)\/complete$/.exec(rest);
     if (completeMatch && method === 'POST') {
-      const body = (await readJson(req)) as CompleteBody;
+      const body = (await readJson(req, true)) as CompleteBody;
       this.completeCall(this.contextFor(req, pinned), Number(completeMatch[1]), body);
       return json(res, 200, { ok: true });
     }
@@ -652,7 +675,7 @@ export class Sidecar {
       // sends (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
       // recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
       // same rewrite as the attempt it repeats.
-      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt }).fingerprint}`;
+      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath: provider.matchPath?.(subpath) }).fingerprint}`;
       const same = ctx.lastByRequest.get(key);
       const repeats = same !== undefined && ctx.calls.get(same.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
       counted = { key, place: repeats ? same!.place : ctx.interventions.next(scope) };
@@ -680,7 +703,10 @@ export class Sidecar {
     }
 
     const name = apiCallName(method, path);
-    const { fingerprint } = fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt });
+    // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
+    const matchPath = provider.matchPath?.(path);
+    const matchName = matchPath !== undefined && matchPath !== path ? apiCallName(method, matchPath) : undefined;
+    const { fingerprint } = fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
     const fingerprintHeaders: Record<string, string> = {};
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
 
@@ -699,7 +725,7 @@ export class Sidecar {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
       const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: fingerprintHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
@@ -723,8 +749,8 @@ export class Sidecar {
     // Checked after the retry branch and keyed by call number, so every attempt of an injected
     // failure fails. The interesting question is what the agent does when a call cannot succeed;
     // "the retry works" is what an ordinary replay already shows.
-    const injected = ctx.session.options.failAt?.get(callNo);
-    if (injected !== undefined) return this.serveInjectedFailure(ctx, res, provider, callNo, tracked, injected);
+    const injected = ctx.session.injectedFailure(callNo);
+    if (injected !== undefined) return this.serveInjectedFailure(ctx, res, provider, callNo, tracked, injected.status, injected.target);
 
     // Overrides apply to tool results only; for a model call an override decision is served as recorded.
     if (tracked.decision.origin === 'replayed' || tracked.decision.origin === 'overridden') return this.serveReplayed(ctx, res, callNo, tracked);
@@ -796,11 +822,14 @@ export class Sidecar {
    * machine. The body names Shadowlap as the source and the call is stored with `injected`, so
    * neither the agent's error nor the recording can be mistaken for something the provider did.
    */
-  private serveInjectedFailure(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, status: number): void {
-    const message = `injected failure: HTTP ${status} (shadowlap --fail-at ${callNo}=${status})`;
-    const bytes = Buffer.from(JSON.stringify({ type: 'error', error: { type: 'shadowlap_injected', message } }), 'utf8');
+  private serveInjectedFailure(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, status: number, target: number): void {
+    const message = `injected failure: HTTP ${status} (shadowlap --fail-at ${target}=${status})`;
+    // In the provider's own error shape, as a real failure arrives: AWS clients read a top-level
+    // message and the error's type from a header, and branch on that type (ThrottlingException).
+    const aws = provider.id === 'bedrock';
+    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_injected', message } }), 'utf8');
     const retryable = provider.isRetryableStatus(status);
-    res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'injected' });
+    res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'injected', ...(aws ? { 'x-amzn-errortype': awsErrorType(status) } : {}) });
     res.end(bytes);
     const error = { name: 'ShadowlapInjectedFailure', message };
     this.store.appendCallEnd(tracked.identity, {
@@ -856,6 +885,11 @@ export class Sidecar {
       tracked.done = true;
       return;
     }
+    // An upstream that is the SDK's own base URL, with no `/v1` under it: the SDK's path goes straight under it.
+    const sdkBase = this.sdkBases[provider.id];
+    const sdkPath = provider.sdkPath;
+    const sdkRelative = sdkBase !== undefined && sdkPath !== undefined && upstream === sdkBase.replace(/\/+$/, '') && (subpath === sdkPath || subpath.startsWith(`${sdkPath}/`));
+    const upstreamPath = sdkRelative ? subpath.slice(sdkPath!.length) : subpath;
     const forwardHeaders: Record<string, string> = {};
     for (const [k, v] of Object.entries(headers)) {
       if (HOP_BY_HOP.has(k) || k.startsWith(':') || k === 'host' || k === 'content-length' || k.startsWith('x-shadowlap-')) continue;
@@ -870,8 +904,8 @@ export class Sidecar {
     const authority = headers[':authority'];
     try {
       upstreamRes = authority
-        ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${subpath}${search}`, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, authority)
-        : await requestUpstream(upstream + subpath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody);
+        ? await this.fetchOverHttp2(upstream.replace(/(https?:\/\/[^/]+).*/, '$1'), `${upstream.replace(/https?:\/\/[^/]+/, '')}${upstreamPath}${search}`, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody, authority)
+        : await requestUpstream(upstream + upstreamPath + search, method, forwardHeaders, method === 'GET' || method === 'HEAD' ? null : rawBody);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const error: SerializedError = { name: 'UpstreamConnectionError', message };
@@ -1000,8 +1034,7 @@ export class Sidecar {
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef, outcome, meta, at: Date.now() });
       tracked.done = true;
     };
-    const send = (result: HttpResult, from: string) => {
-      const bytes = encodeBody(result);
+    const send = (result: HttpResult, from: string, bytes = encodeBody(result)) => {
       res.writeHead(result.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': from });
       res.end(bytes);
     };
@@ -1014,7 +1047,9 @@ export class Sidecar {
       const recorded = decision.record.end!;
       const payload = (recorded.responseRef ? this.store.getJson<{ result?: HttpResult; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
       end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
-      if (payload.result) return send(payload.result, 'replayed');
+      // The bytes the service sent, not the body written again: an agent that reads the text, or a
+      // number JSON.parse would round, gets what it got then.
+      if (payload.result) return send(payload.result, 'replayed', storedResponseBytes(payload.result, recorded.responseRef ? this.store.getBlob(recorded.responseRef) : null));
       return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
     }
     if (decision.origin === 'injected') {
@@ -1052,7 +1087,7 @@ export class Sidecar {
         ctx.session.declined(decision.record.callNo);
         ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
         end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
-        if (payload.result) return send(payload.result, 'replayed');
+        if (payload.result) return send(payload.result, 'replayed', storedResponseBytes(payload.result, recorded.responseRef ? this.store.getBlob(recorded.responseRef) : null));
         return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
       }
       end(this.store.putJson({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
@@ -1091,7 +1126,7 @@ export class Sidecar {
       return fail(502, { name: 'ShadowlapUpstreamError', message: `${name}: ${err instanceof Error ? err.message : String(err)}` }, 'shadowlap_upstream_error');
     }
     const result: HttpResult = { status: upstream.status, headers: keptResponseHeaders(upstream.headers), ...decodeBody(bytes, upstream.headers.get('content-type') ?? undefined) };
-    end(this.store.putJson({ result }), 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
+    end(this.store.putBlob(storedResult(result, bytes)), 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
     res.writeHead(upstream.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'live' });
     res.end(bytes);
   }
@@ -1110,7 +1145,8 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A person's answer (`user_input`): after a fork it is served from the recording in order.
     const input = kind === 'tool' && body.input === true;
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
+    // The session diffs requests as plain JSON, with an integer past 2^53 as its digits, as loadRequest reads the recorded side.
+    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
     const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
     const stored = storedOrigin(kind, decision);
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
@@ -1150,7 +1186,7 @@ export class Sidecar {
       ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: end.responseRef, outcome: end.outcome, meta: { ...end.meta, replayedFrom: record.callNo, latencyMs: 0 }, at: Date.now() });
       tracked.done = true;
-      if (end.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
+      if (end.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (end.responseRef ? this.getJsonExact<{ result?: unknown }>(end.responseRef) : null)?.result };
       return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
     }
 
@@ -1173,8 +1209,9 @@ export class Sidecar {
     if (decision.origin === 'replayed') {
       const record = decision.record;
       const end = record.end!;
-      const payload = (end.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
-      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash) {
+      // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
+      const payload = (end.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
+      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(body.name)) {
         ctx.warnOnce(body.name, `${body.name} changed since the recording; pass --live-tool ${body.name} to run it live`);
       }
       this.store.appendCallEnd(identity, {
@@ -1216,7 +1253,8 @@ export class Sidecar {
     const outcome = body.outcome === 'error' ? 'error' : 'ok';
     const payload = outcome === 'ok' ? { result: body.result ?? null } : { error: body.error ?? { name: 'Error', message: 'unknown error' } };
     const meta: CallStartRow['meta'] = {};
-    if (typeof body.latencyMs === 'number') meta.latencyMs = body.latencyMs;
+    const latency = isRawNumber(body.latencyMs) ? Number(body.latencyMs.rawJSON) : body.latencyMs;
+    if (typeof latency === 'number') meta.latencyMs = latency;
     if (outcome === 'error' && body.error) meta.error = body.error;
     this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson(payload), outcome, meta, at: Date.now() });
     tracked.done = true;
@@ -1241,9 +1279,23 @@ export class Sidecar {
     }
   }
 
+  /** A stored JSON blob with each number as it was written (parseJsonExact): for what is served back and fingerprinted. */
+  private getJsonExact<T>(ref: string): T | null {
+    const bytes = this.store.getBlob(ref);
+    return bytes ? (parseJsonExact(bytes.toString('utf8')) as T) : null;
+  }
+
+  /** A recorded model call's name as matching reads it (`Provider.matchPath`): a Vertex AI call without its project and region. */
+  private matchName(rec: CallRecord): string {
+    const provider = rec.kind === 'api' && typeof rec.meta.provider === 'string' ? this.providers.get(rec.meta.provider) : undefined;
+    if (!provider?.matchPath) return rec.name;
+    const [method = 'POST', ...pathParts] = rec.name.split(' ');
+    return apiCallName(method, provider.matchPath(pathParts.join(' ')));
+  }
+
   private loadRequest(rec: CallRecord): unknown {
     if (!rec.requestRef) return undefined;
-    return rec.kind === 'api' ? loadApiRequest(this.store, rec.requestRef) : this.store.getJson<{ args?: unknown }>(rec.requestRef);
+    return rec.kind === 'api' ? loadApiRequest(this.store, rec.requestRef) : reportable(this.getJsonExact<{ args?: unknown }>(rec.requestRef));
   }
 
   /**
@@ -1251,7 +1303,7 @@ export class Sidecar {
    * still match under it. So a parent's fingerprints (and, since fingerprints partition occurrences,
    * its occurrence numbers) are recomputed from the stored requests under the current normalizers.
    */
-  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false): CallRecord[] {
+  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false): CallRecord[] {
     const counts = new Map<string, number>();
     return calls.map((rec) => {
       let fingerprint = rec.fingerprint;
@@ -1261,10 +1313,11 @@ export class Sidecar {
           const [method = 'POST', ...pathParts] = rec.name.split(' ');
           const headers = (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {};
           if (provider) {
-            fingerprint = fingerprintApi({ method, path: pathParts.join(' '), headers, body: loadApiRequest(this.store, rec.requestRef) }, normalizers, provider.fingerprintHeaders, clockRef, { withoutPrompt: withoutPromptMask }).fingerprint;
+            const path = pathParts.join(' ');
+            fingerprint = fingerprintApi({ method, path, headers, body: loadApiRequest(this.store, rec.requestRef) }, normalizers, provider.fingerprintHeaders, clockRef, { withoutPrompt: withoutPromptMask, matchPath: provider.matchPath?.(path) }).fingerprint;
           }
         } else if (rec.kind === 'tool' && rec.requestRef) {
-          const req = this.store.getJson<{ args?: unknown }>(rec.requestRef);
+          const req = this.getJsonExact<{ args?: unknown }>(rec.requestRef);
           fingerprint = fingerprintTool(rec.name, req?.args ?? null, normalizers, clockRef).fingerprint;
         }
       } catch (err) {
@@ -1339,6 +1392,23 @@ function sdkFamily(userAgent: string | undefined): string {
   return 'other';
 }
 
+/** The error type Bedrock answers a status with, as its clients name the exception they raise. */
+function awsErrorType(status: number): string {
+  const named: Record<number, string> = {
+    400: 'ValidationException',
+    401: 'UnrecognizedClientException',
+    403: 'AccessDeniedException',
+    404: 'ResourceNotFoundException',
+    408: 'ModelTimeoutException',
+    409: 'ConflictException',
+    424: 'ModelErrorException',
+    429: 'ThrottlingException',
+    500: 'InternalServerException',
+    503: 'ServiceUnavailableException',
+  };
+  return named[status] ?? (status >= 500 ? 'InternalServerException' : 'ValidationException');
+}
+
 /** How a decision is stored: a planted result as overridden, a failure Shadowlap answered as live (with `injected` on its end). */
 function storedOrigin(kind: CallKind, decision: Decision): Origin {
   if (decision.origin === 'planted') return 'overridden';
@@ -1375,11 +1445,12 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+/** A request's JSON body; `exact` keeps each number as written (parseJsonExact), for what is stored and served back. */
+async function readJson(req: IncomingMessage, exact = false): Promise<unknown> {
   const raw = await readBody(req);
   if (raw.length === 0) return {};
   try {
-    return JSON.parse(raw.toString('utf8'));
+    return exact ? parseJsonExact(raw.toString('utf8')) : JSON.parse(raw.toString('utf8'));
   } catch {
     throw new HttpError(400, 'invalid JSON body');
   }

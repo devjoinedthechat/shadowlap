@@ -25,12 +25,13 @@ A recorded call of the same kind and name exists, and the request differs. The d
 | The diff shows | Cause | Fix |
 |---|---|---|
 | A UUID, ULID, temp path or other generated value inside a string | Ambient drift: `uuid()` or a random name in the agent's own code | Run `shadowlap calibrate --write`, add the suggested normalizer, or read the value through `uuid()` from the SDK so it is recorded |
-| A date or time | Dates within a day of each run's start already match, so this one is further away, or `"clock": "exact"` is set | A real change forks on purpose. A fixed date recorded within a day of it: see [Dates and times](./normalizers-and-redaction.md#dates-and-times) |
+| A date or time | Dates within a day of either run's start already match, so this one is further from both, or `"clock": "exact"` is set | A real change forks on purpose. A fixed date recorded within a day of it: see [Dates and times](./normalizers-and-redaction.md#dates-and-times) |
 | A whole different `system` or `tools` | A deliberate prompt or tool-definition change | Expected: system-prompt edits fork at call 1. `--prompt-from <call>` applies the change from a later model call; see [interventions](./interventions.md#apply-a-changed-prompt-from-a-later-call) |
 | An added block on the last user message (`+ $.messages[n].content[k]`), or an added user message after tool output (`+ $.messages[n]`) | The agent added a turn it didn't add before, or you used `--inject` (it goes into the user turn by default) | Expected for `--inject`: the report names it (`changed by --inject 15`); otherwise a code change in the loop |
 | A changed `tool_result` content | A tool returned something different: it ran live (after an earlier divergence), or `--override` | Read the timeline above the divergence; the first live call is the real cause |
 | Only `cache_control` moved | Nothing: it's excluded | It won't diverge on that; look at the rest of the diff |
 | A model name, `max_tokens`, `temperature` | Code or config change | Expected; or use `--set` / `--model` to try it from a later call |
+| `headers.anthropic-beta` (or `anthropic-version`, `openai-beta`) | The client sends another beta flag or API version than it recorded with: an SDK upgrade, or a flag turned on in code | Expected: these headers change what the model does, so they are part of the call key and no normalizer masks them. Send the recorded value, or record again |
 | Different `tool_use` ids in history | A model response ran live earlier in this replay | Same as above: find the first live call |
 
 ### `new_call`

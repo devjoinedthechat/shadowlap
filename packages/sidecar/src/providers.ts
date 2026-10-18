@@ -12,6 +12,17 @@ export interface Provider {
   upstream: string;
   /** Environment to point the provider's official SDKs at the sidecar. `baseUrl` is the sidecar's provider root. */
   env(baseUrl: string): Record<string, string>;
+  /**
+   * The path `env` adds to the provider root for the SDK's base URL (`/v1` for OpenAI): the SDK's own
+   * paths (`/chat/completions`) arrive under it. See `sdkBasesFromEnvironment`.
+   */
+  sdkPath?: string;
+  /**
+   * A request's path as it identifies the call, when part of it names where the call was made rather
+   * than what it asks: Vertex AI's `/projects/<project>/locations/<region>`, so a recording replays
+   * in a teammate's project or in CI's. The call keeps its full path as its name.
+   */
+  matchPath?(path: string): string;
   /** Lower-cased request headers that change model behavior and therefore fingerprint. */
   fingerprintHeaders: readonly string[];
   /** Lower-cased headers that are forwarded upstream but never stored. */
@@ -165,6 +176,7 @@ export const openai: Provider = {
   // The official SDK's base URL includes /v1; requests arrive as /openai/v1/... and forward to <upstream>/v1/...
   upstream: 'https://api.openai.com',
   env: (baseUrl) => ({ OPENAI_BASE_URL: `${baseUrl}/v1` }),
+  sdkPath: '/v1',
   fingerprintHeaders: ['openai-beta'],
   credentialHeaders: ['openai-organization', 'openai-project', ...COMMON_CREDENTIAL_HEADERS],
   retryCountHeader: 'x-stainless-retry-count',
@@ -193,6 +205,27 @@ export const openai: Provider = {
   extractModel: (_subpath, body) => modelInBody(body),
   hosts: /^api\.openai\.com$/,
 };
+
+/**
+ * Base URLs the agent's SDK was given before Shadowlap that are no root with the provider's SDK path
+ * under it: OPENAI_BASE_URL set to a server whose API root doesn't end in `/v1`, such as GitHub
+ * Models' `https://models.github.ai/inference` or Gemini's `.../v1beta/openai`, where the SDK sends
+ * `/chat/completions` straight under it. `shadowlap run` makes such a URL the upstream as it is, and
+ * the agent's base URL is the sidecar's `/openai/v1`, so the sidecar forwards a request's path under
+ * it without that `/v1` (`SidecarOptions.sdkBases`). A base that ends in `/v1` is a root plus `/v1`,
+ * and a sidecar's own URL (a nested run) is none.
+ */
+export function sdkBasesFromEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+  const value = env.OPENAI_BASE_URL?.trim();
+  if (!value || /\/t\/[0-9a-f]{32}(\/|$)/.test(value) || /\/v1\/?$/.test(value)) return {};
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return {};
+  } catch {
+    return {};
+  }
+  return { openai: value.replace(/\/+$/, '') };
+}
 
 // ---- Google Gemini (Generative Language API) ----
 
@@ -226,17 +259,18 @@ export const gemini: Provider = {
     if (contentType?.includes('text/event-stream')) {
       let usage: Usage | null = null;
       for (const obj of sseDataObjects(body.toString('utf8'))) usage = geminiUsage(obj.usageMetadata) ?? usage;
-      return usage;
+      // Gemini's OpenAI-compatible endpoint (/v1beta/openai/…) answers in OpenAI's format.
+      return usage ?? openai.extractUsage(body, contentType);
     }
-    return geminiUsage(parseJson(body)?.usageMetadata);
+    return geminiUsage(parseJson(body)?.usageMetadata) ?? openai.extractUsage(body, contentType);
   },
   extractStopReason(body, contentType) {
     if (contentType?.includes('text/event-stream')) {
       let reason: string | null = null;
       for (const obj of sseDataObjects(body.toString('utf8'))) reason = geminiStopReason(obj) ?? reason;
-      return reason;
+      return reason ?? openai.extractStopReason(body, contentType);
     }
-    return geminiStopReason(parseJson(body));
+    return geminiStopReason(parseJson(body)) ?? openai.extractStopReason(body, contentType);
   },
   extractModel: (subpath, body) => modelInPath(subpath) ?? modelInBody(body),
   hosts: /^generativelanguage\.googleapis\.com$/,
@@ -282,6 +316,10 @@ export const vertex: Provider = {
   extractUsage: (body, contentType) => anthropic.extractUsage(body, contentType) ?? gemini.extractUsage(body, contentType),
   extractStopReason: (body, contentType) => anthropic.extractStopReason(body, contentType) ?? gemini.extractStopReason(body, contentType),
   extractModel: (subpath, body) => modelInPath(subpath) ?? modelInBody(body),
+  // `/v1/projects/<project>/locations/<region>/publishers/anthropic/models/<model>:rawPredict`: the
+  // publisher, model and method say what the call asks; the project and region come from the
+  // environment (ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT), which differs per developer and in CI.
+  matchPath: (path) => path.replace(/^(\/v1[^/]*)\/projects\/[^/]+\/locations\/[^/]+(?=\/)/, '$1'),
   hosts: /^([a-z0-9-]+-)?aiplatform(\.[a-z]+\.rep)?\.googleapis\.com$/,
 };
 

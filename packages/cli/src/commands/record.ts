@@ -66,7 +66,7 @@ export function register(program: Command): void {
     .option('--strict', 'exit 1 if the replay diverges (for CI)')
     .option('--writes <policy>', 'what write tools do after divergence: block | stub | allow', parseChoice<WritePolicy>(['block', 'stub', 'allow']), 'block')
     .option('--reads <policy>', 'what read tools do after divergence: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
-    .option('--live-tool <name>', 'force this tool\'s first call live (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--live-tool <name>', 'force this tool live: its first call, and every call of it after a fork (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--live-input', 'after the fork, ask for what a person types instead of serving the recorded answers in order')
     .option('--diverge-at <call>', 'force call number <call> live', parseIntArg)
     .option('--prompt-from <call>', 'apply your changed system prompt and tool definitions only from model call <call>: earlier model calls replay from the recording', parseIntArg)

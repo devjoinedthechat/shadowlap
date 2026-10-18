@@ -46,7 +46,7 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--strict` | Exit 1 if the replay diverges (for CI) |
 | `--writes block\|stub\|allow` | What `write` tools do after divergence. Default `block` |
 | `--reads live\|replay` | What `read` tools do after divergence. Default `live` |
-| `--live-tool <name>` | Force this tool's first call live (repeatable); use after fixing a tool |
+| `--live-tool <name>` | Force this tool live: its first call, and every call of it after a fork (repeatable); use after fixing a tool |
 | `--live-input` | After the fork, ask for what a person types instead of serving the recorded answers in order ([recorded input](./sdk.md#what-a-person-types)) |
 | `--diverge-at <call>` | Force call *n* live |
 | `--fail-at <call>=<failure>` | Fail call *n* instead of serving it, so the agent's own error path runs: a model call with an HTTP status (`--fail-at 12=429`, [details](./interventions.md#inject-a-failure)), a tool call with `timeout`, `error`, `error:<message>` or a status (`--fail-at 19=timeout`); the tool does not run ([details](./interventions.md#fail-a-tool)). Repeatable |
@@ -151,7 +151,7 @@ Checks a change before it ships. Replays failing runs, which the change must now
 | `--attempts <n>` | Attempts per run where the replay forks. Default 5 |
 | `--passes <n>` | Attempts that must pass. Default 80% rounded up (4 of 5) |
 | `--model <model>`, `--set <key=value>` | The change is a request field, set from each run's first model call |
-| `--live-tool <name>` | The change is in this tool: run its first call live (repeatable) |
+| `--live-tool <name>` | The change is in this tool: run it live, its first call and every call of it after a fork (repeatable) |
 | `--writes stub\|block`, `--reads live\|replay` | As for `blame` |
 | `--concurrency <n>` | Runs verified at once. Default 1 |
 | `--budget <usd>`, `--timeout <seconds>` | As for `blame` |

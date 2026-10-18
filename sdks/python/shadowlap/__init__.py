@@ -307,14 +307,34 @@ def _check_args(tool_name: str, args: dict) -> None:
             ) from None
 
 
+def _string_keys(tool_name: str, value: Any, path: str = "result") -> None:
+    """Refuses a dict key that isn't a string. JSON keeps it only as a string, so a replay would hand
+    the agent {"2026": 5} where the tool returned {2026: 5}, and the agent's lookups would fail."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                as_json = next(iter(json.loads(json.dumps({key: None}))))
+                raise TypeError(
+                    f"tool {tool_name}: {path} has the key {key!r} ({type(key).__name__}), which JSON keeps only as the string "
+                    f"{as_json!r}, so a replay would return that instead; use string keys"
+                )
+            _string_keys(tool_name, item, f"{path}[{key!r}]")
+    elif isinstance(value, (list, tuple)):
+        for i, item in enumerate(value):
+            _string_keys(tool_name, item, f"{path}[{i}]")
+
+
 def _recordable(tool_name: str, value: Any) -> Any:
     """A result as JSON: Pydantic models and dataclasses are converted, anything else must already be JSON.
-    A replay returns this JSON form."""
+    A replay returns this JSON form. A dict key that isn't a string is refused, since JSON would turn
+    it into one and the replay would return something else."""
     try:
         json.dumps(value)
+        _string_keys(tool_name, value)
         return value
-    except (TypeError, ValueError):
-        pass
+    except (TypeError, ValueError) as err:
+        if isinstance(err, TypeError) and str(err).startswith(f"tool {tool_name}: "):
+            raise
     dump = getattr(value, "model_dump", None)
     if callable(dump):
         return dump(mode="json")
@@ -323,6 +343,7 @@ def _recordable(tool_name: str, value: Any) -> Any:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         converted = dataclasses.asdict(value)
         json.dumps(converted)
+        _string_keys(tool_name, converted)
         return converted
     if isinstance(value, tuple):
         return [_recordable(tool_name, v) for v in value]

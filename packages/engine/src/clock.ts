@@ -6,6 +6,10 @@
  * both read `<date>`, however far apart the two runs are. Dates further away stay as they are, so
  * a real change to one still forks.
  *
+ * A replay is matched against two references, its own start and the recording's, on both sides: a
+ * value the replay served back from the recording (a tool result, `now()`) carries the recording's
+ * "today" into the replay's requests, and the same request must read the same on both sides.
+ *
  * It applies to matching only: stored requests keep their values, and the agent's clock is never
  * touched, so live calls after a fork carry the real time (request signing depends on it).
  * `"clock": "exact"` in shadowlap.config.json turns it off.
@@ -87,9 +91,12 @@ const RULES: Rule[] = [
   },
 ];
 
-const near = (t: number, reference: number, window: number) => Number.isFinite(t) && Math.abs(t - reference) <= window;
+/** One run's start, or several (a replay's and its recording's): a value near any of them is masked. */
+export type ClockReference = number | readonly number[];
 
-export function maskClockText(text: string, reference: number): string {
+const near = (t: number, reference: ClockReference, window: number) => Number.isFinite(t) && (typeof reference === 'number' ? Math.abs(t - reference) <= window : reference.some((r) => Math.abs(t - r) <= window));
+
+export function maskClockText(text: string, reference: ClockReference): string {
   // Every form above has a run of at least four digits; most strings in a request have none.
   if (!/\d{4}/.test(text)) return text;
   let out = text;
@@ -103,8 +110,8 @@ export function maskClockText(text: string, reference: number): string {
   return out;
 }
 
-/** A copy of a JSON-like value with dates, timestamps and epoch values near `reference` masked. */
-export function maskClock(value: unknown, reference: number): unknown {
+/** A copy of a JSON-like value with dates, timestamps and epoch values near `reference` (any of them, for a list) masked. */
+export function maskClock(value: unknown, reference: ClockReference): unknown {
   if (typeof value === 'string') return maskClockText(value, reference);
   if (typeof value === 'number') {
     const ms = Number.isInteger(value) && value >= 1e12 && value < 1e13 ? value : value >= 1e9 && value < 1e10 ? value * 1000 : NaN;

@@ -218,13 +218,29 @@ export function placeFields(shape: RequestShape, fields: Record<string, unknown>
 }
 
 /**
+ * Chat Completions has two output limits: `max_tokens`, and `max_completion_tokens`, which reasoning
+ * models require (they refuse `max_tokens`). A limit set by either name goes into the one the request
+ * already uses, so it still carries a single limit.
+ */
+function chatLimit(body: Record<string, unknown>, fields: Record<string, unknown>): Record<string, unknown> {
+  const uses = (k: string) => body[k] !== undefined;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (key === 'max_tokens' && uses('max_completion_tokens') && !uses('max_tokens')) out.max_completion_tokens = value;
+    else if (key === 'max_completion_tokens' && uses('max_tokens') && !uses('max_completion_tokens')) out.max_tokens = value;
+    else out[key] = value;
+  }
+  return out;
+}
+
+/**
  * A copy of `body` with the fields set where `placeFields` says, and whether any value differs from
  * what the request had. A path goes into a list by index (`tools.0.description`). Gemini's REST API
  * also takes snake_case, so a body that spells its config `generation_config` keeps that spelling.
  */
 export function setRequestFields(shape: RequestShape, body: unknown, fields: Record<string, unknown>): { body: Record<string, unknown>; changed: boolean } | Refusal {
   if (!isObject(body)) return { refused: 'the request body is not a JSON object' };
-  const placed = placeFields(shape, fields);
+  const placed = placeFields(shape, shape === 'openai-chat' ? chatLimit(body, fields) : fields);
   if (refused(placed)) return placed;
   const snake = shape === 'gemini' && body.generationConfig === undefined && isObject(body.generation_config);
   const next: Record<string, unknown> = { ...body };

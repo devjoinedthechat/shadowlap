@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { APIError } from '@anthropic-ai/sdk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, type ReplayOptions } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { Sidecar } from '../src/index.js';
 
@@ -103,5 +103,98 @@ describe('injected failures', () => {
     expect(calls[0]!.end?.meta.injected).toBeUndefined();
     expect(summary.divergence).toBeNull();
     store.close();
+  });
+});
+
+describe('injected failures on Bedrock', () => {
+  it('answer in AWS\'s error shape, so the AWS SDK raises the exception a real failure raises', async () => {
+    // A Converse endpoint that answers every request.
+    const { createServer } = await import('node:http');
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ output: { message: { role: 'assistant', content: [{ text: 'ok' }] } }, stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 1 } }));
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()));
+    const address = upstream.address() as { port: number };
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { bedrock: `http://127.0.0.1:${address.port}` } });
+    const converse = (runId: string) =>
+      fetch(`${sidecar.url}/r/${runId}/bedrock/model/anthropic.claude-sonnet-5/converse`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: [{ text: 'hello' }] }] }) });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+      expect((await converse(rec.runId)).status).toBe(200);
+      sidecar.endRun(rec.runId, 'completed');
+      for (const [status, type] of [
+        [429, 'ThrottlingException'],
+        [503, 'ServiceUnavailableException'],
+        [500, 'InternalServerException'],
+        [400, 'ValidationException'],
+      ] as const) {
+        const run = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' }, replay: { failAt: new Map([[1, status]]) } });
+        const res = await converse(run.runId);
+        expect(res.status).toBe(status);
+        expect(res.headers.get('x-amzn-errortype')).toBe(type);
+        const body = (await res.json()) as { message?: string };
+        expect(body.message).toMatch(new RegExp(`shadowlap --fail-at 1=${status}`));
+        sidecar.endRun(run.runId, 'completed');
+      }
+    } finally {
+      await sidecar.close();
+      store.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
+
+describe('flags that name a model call, in a recording made with scopes', () => {
+  it('reach the call they named when sub-agents send their requests in another order', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    const step = async (runId: string, scope: string, n: number) => {
+      const client = new Anthropic({ apiKey: 'k', baseURL: sidecar.envFor(runId).ANTHROPIC_BASE_URL, maxRetries: 0, defaultHeaders: { 'x-shadowlap-scope': scope } });
+      try {
+        await client.messages.create({ ...params, messages: [{ role: 'user', content: `${scope}: step ${n}` }] });
+        return 'ok';
+      } catch (err) {
+        return err instanceof APIError ? err.status : 'error';
+      }
+    };
+    try {
+      // Recorded: #1 and #2 are alpha's, #3 and #4 beta's.
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+      for (const scope of ['alpha', 'beta']) for (const n of [1, 2]) await step(rec.runId, scope, n);
+      sidecar.endRun(rec.runId, 'completed');
+
+      // The replay runs beta first: alpha's second request is the replay's call #4.
+      const reversed = async (replay: Partial<ReplayOptions>) => {
+        const run = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' }, replay });
+        const got: Record<string, unknown> = {};
+        for (const scope of ['beta', 'alpha']) for (const n of [1, 2]) got[`${scope} ${n}`] = await step(run.runId, scope, n);
+        const { summary } = sidecar.endRun(run.runId, 'completed');
+        return { got, summary };
+      };
+      const failed = await reversed({ failAt: new Map([[2, 400]]) });
+      expect(failed.got).toEqual({ 'beta 1': 'ok', 'beta 2': 'ok', 'alpha 1': 'ok', 'alpha 2': 400 });
+      expect(failed.summary.divergence).toMatchObject({ type: 'forced', callNo: 4, counterpart: { callNo: 2 } });
+      expect(failed.summary.divergence!.reason).toMatch(/--fail-at 2=400/);
+      expect(failed.summary.warnings.join('\n')).not.toMatch(/changed nothing/);
+
+      const diverged = await reversed({ divergeAt: 2 });
+      expect(diverged.summary.divergence).toMatchObject({ type: 'forced', callNo: 4, reason: 'forced live by --diverge-at 2', counterpart: { callNo: 2 } });
+
+      const prompt = await reversed({ promptFrom: 4 });
+      expect(prompt.summary.divergence).toMatchObject({ type: 'forced', callNo: 2, counterpart: { callNo: 4 } });
+
+      // A place the replay never reaches says so.
+      const short = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' }, replay: { failAt: new Map([[4, 503]]) } });
+      await step(short.runId, 'alpha', 1);
+      expect(sidecar.endRun(short.runId, 'completed').summary.warnings.join('\n')).toMatch(/--fail-at 4=503 changed nothing: call #4 is the recording's model call 2 of scope beta, and the replay made none there/);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
   });
 });

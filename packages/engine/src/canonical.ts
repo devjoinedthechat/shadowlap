@@ -28,7 +28,9 @@ function write(value: unknown, out: string[]): void {
       out.push(JSON.stringify(value));
       return;
     case 'bigint':
-      throw new TypeError('RFC 8785 cannot represent BigInt');
+      // An integer a double can't hold, kept exact for matching (json-exact.ts): its digits.
+      out.push(value.toString());
+      return;
     case 'undefined':
     case 'function':
     case 'symbol':

@@ -36,6 +36,26 @@ function walk(a: unknown, b: unknown, path: string, out: DiffEntry[]): void {
   if (!deepEqual(a, b)) out.push({ path, op: 'changed', before: a, after: b });
 }
 
+/**
+ * The request headers a model call's fingerprint includes (`anthropic-beta`, `openai-beta`, …), as
+ * diff entries at `headers.<name>`: no JSON path, since they are not in the body and no normalizer
+ * reaches them.
+ */
+export function headerDiff(before: Record<string, string> | undefined, after: Record<string, string> | undefined): DiffEntry[] {
+  const out: DiffEntry[] = [];
+  const names = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].sort();
+  for (const name of names) {
+    const [b, a] = [before?.[name], after?.[name]];
+    if (b === a) continue;
+    const path = `headers.${name}`;
+    out.push(b === undefined ? { path, op: 'added', after: a } : a === undefined ? { path, op: 'removed', before: b } : { path, op: 'changed', before: b, after: a });
+  }
+  return out;
+}
+
+/** Whether a diff entry is a header's (headerDiff) rather than a place in the body. */
+export const isHeaderEntry = (entry: DiffEntry): boolean => entry.path.startsWith('headers.');
+
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== typeof b || a === null || b === null) return false;

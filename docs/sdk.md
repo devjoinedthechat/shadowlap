@@ -73,7 +73,7 @@ request_id = uuid()
 
 - Arguments are recorded by name whether the tool was called positionally or with keywords, with defaults applied.
 - Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by their annotation. `exclude=("name",)` drops any other. An argument that can't be recorded as JSON raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
-- A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns.
+- A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns. Numbers come back as the tool returned them, an int past 2^53 and a float such as `20.0` included. A dict key that isn't a string (`{2026: 5}`) raises `TypeError` naming it, since JSON keeps it only as `"2026"` and a replay would return that.
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - Python ≥ 3.9. Zero dependencies (`urllib`).
@@ -160,7 +160,7 @@ Every call made inside a scope carries it: model calls, wrapped tools and [HTTP 
 
 Scopes nest: a scope inside `orchestrator` is `orchestrator/researcher-0`. In TypeScript the scope follows the async context (`AsyncLocalStorage`); in Python it follows `contextvars`, so asyncio tasks created inside a scope keep it, and a thread started inside one needs `contextvars.copy_context()`. `currentScope()` / `current_scope()` read it. Outside Shadowlap, a scope only runs the code.
 
-A recording made without scopes ignores them on replay, so adding scopes to an agent doesn't make its old recordings fork. Removing them from a recording that had them does. Model calls carry scopes in Node and Python agents, where Shadowlap's preload adds them; other runtimes' model calls don't.
+A recording made without scopes ignores them on replay, so adding scopes to an agent doesn't make its old recordings fork. Removing them from a recording that had them does. Model calls carry scopes in Node and Python agents, where Shadowlap's preload adds them, whatever client sends them (`fetch`, `http.request` under node-fetch or axios, httpx, requests, urllib3), and a process started with `SHADOWLAP_SCOPE` carries it on its model calls as on its tools; other runtimes' model calls don't.
 
 ## HTTP services, without wrapping
 
@@ -177,7 +177,7 @@ Retrieval, vector databases and internal APIs are usually called straight from a
 }
 ```
 
-In Node and Python agents, requests to those hosts are [captured in the process](./providers.md#in-process-capture) like model calls: `fetch` and `http(s)` in Node; httpx, requests, botocore and urllib3 in Python. Each is recorded as a tool call named after its method, host and path, such as `POST idx-1.svc.pinecone.io/query`, with the request's URL and body as its arguments and the response as its result. From there it behaves like any tool with that effect: replayed before a fork, run live after it when it is `read`, and blocked or stubbed when it is `write`. A blocked call answers the agent with HTTP 409.
+In Node and Python agents, requests to those hosts are [captured in the process](./providers.md#in-process-capture) like model calls: `fetch` and `http(s)` in Node; httpx, requests, botocore and urllib3 in Python. Each is recorded as a tool call named after its method, host and path, such as `POST idx-1.svc.pinecone.io/query`, with the request's URL and body as its arguments and the response as its result. From there it behaves like any tool with that effect: replayed before a fork, run live after it when it is `read`, and blocked or stubbed when it is `write`. A replayed call answers with the bytes the service sent: a JSON response keeps its layout, escapes and numbers (a 64-bit id, `20.0`), so an agent that reads the text, or a number JSON parsing would round, gets what it got then. A blocked call answers the agent with HTTP 409.
 
 - A host is `api.example.com` or `*.example.com` (any subdomain), with an optional `:port`, over `http` or `https`.
 - The sidecar makes a live call itself, and only to a declared host.

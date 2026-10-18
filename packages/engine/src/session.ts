@@ -1,6 +1,7 @@
 import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
+import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
-import { hintsFor, structuralDiff } from './diff.js';
+import { headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 import { formatToolFailure, type ToolFailure } from './interventions.js';
 import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
 
@@ -13,7 +14,10 @@ import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReach
 export interface ReplayOptions {
   writes: WritePolicy;
   reads: ReadPolicy;
-  /** Tools whose first call is forced live: a fixed tool's call key doesn't change with its code, so it must be forced. */
+  /**
+   * Tools whose first call is forced live: a fixed tool's call key doesn't change with its code, so it
+   * must be forced. After the fork, every call of one runs live: none is served from the recording.
+   */
   liveTools: ReadonlySet<string>;
   /**
    * The calls the recording covers, when it is partial (see `RunMeta.covers`): call kinds, and
@@ -23,12 +27,17 @@ export interface ReplayOptions {
    */
   kinds?: ReadonlySet<Coverage>;
   /**
-   * Model calls to answer with an HTTP failure instead of the recording, by call number.
-   * Error handling is the part of an agent a replay exercises for free, and the part no
+   * Model calls to answer with an HTTP failure instead of the recording, by the parent run's call
+   * number. Error handling is the part of an agent a replay exercises for free, and the part no
    * recording of a healthy run contains: this is how a 429 or a 500 gets into the path.
+   *
+   * Like every flag that names a model call (this one, `divergeAt` on a model call and `promptFrom`),
+   * it names a place among the recording's model calls, per scope when the recording has scopes
+   * (see `place`): the replay's model call at that place is the one it applies to, whatever order
+   * calls arrive in.
    */
   failAt?: ReadonlyMap<number, number>;
-  /** A call number forced live. */
+  /** A call number forced live: for a model call, the replay's model call at its place. */
   divergeAt?: number;
   /** A model call from which a changed prompt applies: earlier model calls match without their prompt, and this one is forced live. */
   promptFrom?: number;
@@ -68,6 +77,18 @@ export interface ResolveInput {
   effect?: Effect | null;
   /** The (raw, un-normalized) request, used only to explain a divergence. */
   request?: unknown;
+  /**
+   * The call's name as matching reads it, when the provider leaves part of its path out of the
+   * fingerprint (a Vertex AI call without its project and location): a changed request is compared
+   * with recorded calls of this name, wherever they were made.
+   */
+  matchName?: string;
+  /**
+   * A model call's request headers that its fingerprint includes (`anthropic-beta`, …), as its
+   * record keeps them in `meta.fingerprintHeaders`: a change to one is a divergence like any other,
+   * so the report shows it too.
+   */
+  headers?: Record<string, string>;
   /** Reuse an occurrence instead of allocating one: this attempt retries an earlier call. */
   occurrence?: number;
   /**
@@ -109,7 +130,12 @@ export interface SessionOptions {
   replay?: Partial<ReplayOptions>;
   /** Loads a recorded call's request for divergence explanation. */
   loadRequest?: (record: CallRecord) => unknown;
-  /** Start times of the parent run and this one, when dates near them are masked for matching (clock.ts). */
+  /**
+   * A recorded call's name as matching reads it (`ResolveInput.matchName`), for finding the call a
+   * changed request is compared with. Defaults to its name.
+   */
+  matchName?: (record: CallRecord) => string;
+  /** Start times of the parent run and this one, when dates near either are masked for matching, on both sides (clock.ts). */
   clock?: { parent: number; run: number };
   /**
    * The parent run was made with what a person types recorded (`RunMeta.inputs`). One that wasn't
@@ -138,7 +164,16 @@ export class Session {
   private readonly declinedCalls = new Set<number>();
   private readonly occurrences = new Map<string, number>();
   private readonly forcedTools = new Set<string>();
+  /** The place (`place`) of each of the parent's model calls, by call number. */
+  private readonly parentPlaces = new Map<number, string>();
+  /** Model calls this run has made, retries not counted, per scope. */
+  private readonly apiCounts = new Map<string, number>();
+  /** This run's model calls answered with an injected failure, by its call number: the status, and the parent's call the flag named. */
+  private readonly injected = new Map<number, { status: number; target: number }>();
+  /** What forced the call being resolved live, for its divergence report. */
+  private forcing: { by: string; counterpart?: number } | null = null;
   private readonly loadRequest: (record: CallRecord) => unknown;
+  private readonly matchName: (record: CallRecord) => string;
   private readonly clock: SessionOptions['clock'];
   /** Whether the recording used scopes. If it didn't, scopes are ignored, so adding them later still replays. */
   private readonly scoped: boolean;
@@ -152,6 +187,7 @@ export class Session {
     this.parentRunId = opts.parentRunId ?? null;
     this.parentCalls = opts.parentCalls ?? [];
     this.loadRequest = opts.loadRequest ?? (() => undefined);
+    this.matchName = opts.matchName ?? ((record) => record.name);
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
     this.scoped = this.mode === 'record' || this.parentCalls.some((c) => typeof c.meta.scope === 'string');
@@ -159,6 +195,21 @@ export class Session {
     for (const c of this.parentCalls) {
       if (c.end) this.index.set(key(c.kind, c.fingerprint, c.occurrence, this.scopeOf(c.meta.scope)), c);
     }
+    const parentCounts = new Map<string, number>();
+    for (const c of [...this.parentCalls].sort((a, b) => a.callNo - b.callNo)) if (c.kind === 'api') this.parentPlaces.set(c.callNo, this.nextPlace(c.meta.scope, parentCounts));
+  }
+
+  /**
+   * A model call's place: the n-th model call of its scope, or of the run when the recording has no
+   * scopes, counted in `counts`. Flags that name a model call by number name its place, so they reach
+   * the same request when sub-agents send theirs in another order, or tool calls come in between
+   * differently.
+   */
+  private nextPlace(scope: unknown, counts: Map<string, number>): string {
+    const s = this.scopeOf(scope);
+    const n = counts.get(s) ?? 0;
+    counts.set(s, n + 1);
+    return `${s}\n${n}`;
   }
 
   private scopeOf(scope: unknown): string {
@@ -192,7 +243,8 @@ export class Session {
     // A recording made before what a person types was recorded never saw the agent's reads.
     if (input.input && !this.holdsInput) return { origin: 'live', occurrence };
 
-    const forced = this.isForced(input);
+    const place = input.kind === 'api' && input.occurrence === undefined ? this.nextPlace(input.scope, this.apiCounts) : undefined;
+    const forced = this.isForced(input, place);
     if (this.state === 'replaying') {
       const record = forced ? undefined : this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
@@ -203,10 +255,12 @@ export class Session {
         record && !this.consumed.has(record.callNo) && input.changedBy
           ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
           : this.explain(input, forced, occurrence);
-    } else if (input.kind === 'tool' && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites && !forced))) {
+    } else if (input.kind === 'tool' && !forced && !this.options.liveTools.has(input.name) && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) {
       // After divergence only declared-pure results (and reads, on request) may come from the
       // recording, and the writes it made, when asked: what the world answered them, never a fence
-      // or a failure a flag made, and never for a write `--live-tool` names.
+      // or a failure a flag made. Never for a call a flag forces live (`--diverge-at` on it), nor for
+      // a tool `--live-tool` names: its code changed since the recording, so what it returned then is
+      // no answer for it, however the run got here.
       const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       const answered = effect !== 'write' || (record && (record.origin === 'live' || record.origin === 'replayed') && !record.end?.meta.injected);
       if (record && answered && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
@@ -323,14 +377,59 @@ export class Session {
     return this.replayedCount;
   }
 
-  private isForced(input: ResolveInput): boolean {
-    if (input.forced) return true;
+  /**
+   * The failure `--fail-at` asked for on this run's model call `callNo` (every attempt of it): the
+   * status, and the parent's call number the flag named. Undefined for a call no flag named.
+   */
+  injectedFailure(callNo: number): { status: number; target: number } | undefined {
+    return this.injected.get(callNo);
+  }
+
+  /**
+   * `--fail-at` flags on model calls that no call of this run took, each with why: the replay never
+   * made a model call at that place. Meaningful once the run has ended.
+   */
+  unappliedFailures(): string[] {
+    const taken = new Set([...this.injected.values()].map((i) => i.target));
+    const out: string[] = [];
+    for (const [target, status] of this.options.failAt ?? []) {
+      if (taken.has(target)) continue;
+      const place = this.parentPlaces.get(target);
+      if (place === undefined) {
+        out.push(`--fail-at ${target}=${status} changed nothing: call #${target} is not a model call of the recording`);
+        continue;
+      }
+      const [scope, index] = place.split('\n') as [string, string];
+      const made = this.apiCounts.get(scope) ?? 0;
+      out.push(`--fail-at ${target}=${status} changed nothing: call #${target} is the recording's model call ${Number(index) + 1}${scope ? ` of scope ${scope}` : ''}, and the replay made ${made === 0 ? 'none' : `only ${made}`}${scope ? ' there' : ''}`);
+    }
+    return out;
+  }
+
+  /** Whether a call is forced live, with what forced it kept for its divergence report. */
+  private isForced(input: ResolveInput, place: string | undefined): boolean {
+    this.forcing = null;
+    const at = (target: number | undefined) => target !== undefined && place !== undefined && this.parentPlaces.get(target) === place;
     // An injected failure is a change to the response, so the run forks there like any other.
-    if (input.kind === 'api' && this.options.failAt?.has(input.callNo)) return true;
-    if (this.options.divergeAt !== undefined && input.callNo === this.options.divergeAt) return true;
-    if (this.options.promptFrom !== undefined && input.callNo === this.options.promptFrom) return true;
+    let failed: { by: string; counterpart: number } | undefined;
+    for (const [target, status] of input.kind === 'api' ? (this.options.failAt ?? []) : []) {
+      if (!at(target)) continue;
+      this.injected.set(input.callNo, { status, target });
+      failed = { by: `--fail-at ${target}=${status}: answered with HTTP ${status} instead of the recording, so the agent's error path runs`, counterpart: target };
+      break;
+    }
+    const divergeAt = this.options.divergeAt;
+    // --diverge-at on a model call names its place; on any other call, or past the recording, its number.
+    const diverged = divergeAt !== undefined && (this.parentPlaces.has(divergeAt) ? at(divergeAt) : input.callNo === divergeAt);
+    this.forcing =
+      input.forced ??
+      failed ??
+      (diverged ? { by: `--diverge-at ${divergeAt}`, ...(this.parentPlaces.has(divergeAt!) ? { counterpart: divergeAt! } : {}) } : null) ??
+      (at(this.options.promptFrom) ? { by: `--prompt-from ${this.options.promptFrom}: calls before it matched without their system prompt and tool definitions`, counterpart: this.options.promptFrom! } : null);
+    if (this.forcing) return true;
     if (input.kind === 'tool' && this.options.liveTools.has(input.name) && !this.forcedTools.has(input.name)) {
       this.forcedTools.add(input.name);
+      this.forcing = { by: `--live-tool ${input.name}` };
       return true;
     }
     return false;
@@ -339,18 +438,9 @@ export class Session {
   private explain(input: ResolveInput, forced: boolean, occurrence: number): DivergenceReport {
     const base = { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount };
     if (forced) {
-      const failed = input.kind === 'api' ? this.options.failAt?.get(input.callNo) : undefined;
-      const by = input.forced
-        ? input.forced.by
-        : failed !== undefined
-          ? `--fail-at ${input.callNo}=${failed}: answered with HTTP ${failed} instead of the recording, so the agent's error path runs`
-          : this.options.divergeAt === input.callNo
-            ? `--diverge-at ${input.callNo}`
-            : this.options.promptFrom === input.callNo
-              ? `--prompt-from ${input.callNo}: calls before it matched without their system prompt and tool definitions`
-              : `--live-tool ${input.name}`;
-      const record = input.forced?.counterpart !== undefined ? this.parentCalls.find((c) => c.callNo === input.forced!.counterpart) : this.index.get(key(input.kind, input.fingerprint, occurrence, this.scopeOf(input.scope)));
-      return { ...base, type: 'forced', reason: `forced live by ${by}`, ...(record ? { counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } } : {}) };
+      const forcing = this.forcing ?? { by: 'an intervention' };
+      const record = forcing.counterpart !== undefined ? this.parentCalls.find((c) => c.callNo === forcing.counterpart) : this.index.get(key(input.kind, input.fingerprint, occurrence, this.scopeOf(input.scope)));
+      return { ...base, type: 'forced', reason: `forced live by ${forcing.by}`, ...(record ? { counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } } : {}) };
     }
 
     const remaining = this.parentCalls.filter((c) => c.end && !this.consumed.has(c.callNo));
@@ -358,7 +448,8 @@ export class Session {
     if (remaining.length === 0) {
       return { ...base, type: 'beyond_recording', reason: 'the agent made more calls than the recording contains' };
     }
-    const sameName = remaining.filter((c) => c.kind === input.kind && c.name === input.name);
+    const name = input.matchName ?? input.name;
+    const sameName = remaining.filter((c) => c.kind === input.kind && this.matchName(c) === name);
     // Within the same scope first: the closest call is most likely the same branch's.
     const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
     const candidates = sameScope.length ? sameScope : sameName;
@@ -375,12 +466,16 @@ export class Session {
       } catch {
         continue;
       }
-      // Diffed the way they were matched, so dates that are "today" in both runs aren't reported as changes.
-      const mask = (v: unknown, ref?: number) => {
-        const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(v) : v;
-        return ref === undefined ? p : maskClock(p, ref);
+      // Diffed the way they were matched, both sides against both runs' starts, so dates that are
+      // "today" in either run (one the replay served back from the recording included) aren't reported as changes.
+      const refs = this.clock ? [this.clock.parent, this.clock.run] : undefined;
+      const mask = (v: unknown) => {
+        // A form upload as it was matched: its parts, not its bytes with their random boundary.
+        const view = input.kind === 'api' ? multipartView(v) : v;
+        const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(view) : view;
+        return refs === undefined ? p : maskClock(p, refs);
       };
-      const diff = structuralDiff(mask(recorded, this.clock?.parent), mask(input.request, this.clock?.run));
+      const diff = [...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []), ...structuralDiff(mask(recorded), mask(input.request))];
       if (!best || diff.length < best.diff.length) best = { record, diff };
     }
     if (!best) {
@@ -389,9 +484,13 @@ export class Session {
     }
     // A change a flag made is the point of the fork, not a value to mask: no normalizer hints for it.
     if (changedBy) return { ...base, type: 'request_changed', reason: changedBy, counterpart: { runId: this.parentRunId ?? best.record.runId, callNo: best.record.callNo }, diff: best.diff };
-    const hints = best.diff.flatMap((e) => hintsFor(e, input.kind, input.name));
+    const hints = best.diff.flatMap((e) => (isHeaderEntry(e) ? [] : hintsFor(e, input.kind, input.name)));
+    const headers = best.diff.filter(isHeaderEntry).map((e) => e.path.slice('headers.'.length));
+    if (headers.length) {
+      hints.push({ message: `the ${headers.join(' and ')} header${headers.length === 1 ? ' is' : 's are'} part of what makes a model call the same call, and no normalizer masks ${headers.length === 1 ? 'it' : 'them'}: send the recorded value, or record again with the new one` });
+    }
     if (this.clock && best.diff.some((e) => [e.before, e.after].some((v) => typeof v === 'string' && CLOCK_PLACEHOLDERS.some((p) => v.includes(p))))) {
-      hints.push({ message: 'dates and timestamps within a day of each run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from its run\'s start. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });
+      hints.push({ message: 'dates and timestamps within a day of either run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from both. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });
     }
     return {
       ...base,
