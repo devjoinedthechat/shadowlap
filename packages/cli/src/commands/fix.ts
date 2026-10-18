@@ -275,7 +275,7 @@ export function register(program: Command): void {
     .option('--passes <n>', 'attempts that must pass for a run to pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--model <model>', 'the change is this model, from each run\'s first model call')
     .option('--set <key=value>', 'the change sets this request field from each run\'s first model call (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
-    .option('--live-tool <name>', 'the change is in this tool: run its first call live instead of from the recording (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--live-tool <name>', 'the change is in this tool: run it live, its first call and every call of it after a fork (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--writes <policy>', 'what write tools do after a fork: stub (the agent carries on as if the write succeeded) or block', parseChoice(['stub', 'block'] as const), 'stub')
     .option('--reads <policy>', 'what read tools do after a fork: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
     .option('--concurrency <n>', 'runs verified at once', parseIntArg, 1)
