@@ -867,7 +867,7 @@ where the `credentials` came from, each step (`name`, `ok`, `detail`, `code`), w
 request whose folder it checked. `show` prints `{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, localAttempts, queued, check }`:
 the last push and pull (epoch milliseconds), the runs `inStore`, `onlyLocal` (a run counts while
 it, or an attempt filed under it, is only here), the attempts only here (`localAttempts`), the
-runs `queued` to go when they end, and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
+runs `queued` that are still recording, to go when they end (one that ended since counts as only here until the next push sends it, and one deleted is forgotten), and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
 `credentials`). `policy` prints `{ provider, writer, pullRequest, notes }`, each policy with whom
 it is `for`, its `kind`, its `text` and `notes`. `ci` prints `{ ci, provider, file, text, oidc, pullRequests, notes }`:
 the step's `text` and the `file` it goes in, whether it uses short-lived credentials (`oidc`), and

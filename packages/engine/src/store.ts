@@ -1393,6 +1393,9 @@ export class Store {
     this.stmts.deleteRun.run(runId);
     this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
     this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
+    // A run queued for a push while it recorded goes nowhere now. (A row of a run synced stays: it
+    // is what keeps a run deleted here from coming back with the next pull.)
+    this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
   }
 
   /** How much of a run the search index covers: its call count and status when it was indexed. */
@@ -1824,7 +1827,8 @@ export class Store {
   teamSummary(remote: string): { inStore: number; queued: number; authors: Array<{ author: string | null; runs: number }>; ciProviders: string[] } {
     const listed = `remote = ? AND state != 'queued' AND remote_hash IS NOT NULL`;
     const inStore = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs WHERE ${listed}`).get(remote)?.n ?? 0);
-    const queued = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs WHERE remote = ? AND state = 'queued'`).get(remote)?.n ?? 0);
+    // Queued and still recording: one that ended since goes with the next push, one deleted goes nowhere.
+    const queued = Number(this.db.prepare(`SELECT COUNT(*) AS n FROM team_runs t JOIN runs r ON r.run_id = t.run_id WHERE t.remote = ? AND t.state = 'queued' AND r.status = 'running'`).get(remote)?.n ?? 0);
     const authors = this.db
       .prepare(`SELECT json_extract(entry, '$.author') AS author, COUNT(*) AS n FROM team_runs WHERE ${listed} GROUP BY author ORDER BY author`)
       .all(remote)

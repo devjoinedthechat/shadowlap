@@ -141,9 +141,10 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   machine that has none; a run that came from a pack or the store keeps the author it came with.
 - **A run still recording** is queued and goes to the store when the command that recorded it
   ends it: `run`, `replay` (with `--repeat` too), `serve`, `blame` and `verify` push what was
-  queued as they finish. Anything else that ends a run leaves it for the next push. A run whose
-  recorder is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted,
-  as `gc` does, and sends it, and it counts as only on this machine until then.
+  queued as they finish. Anything else that ends a run leaves it for the next push, and it counts
+  as only on this machine until then; a queued run you delete goes nowhere. A run whose recorder
+  is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted, as `gc`
+  does, and sends it, and it counts as only on this machine until then.
 - **Labels and notes** merge both ways: something added on either machine is kept, something
   removed on either is removed. A copy that never synced with the store (a golden unpacked in CI)
   joins its labels and notes with the store's.

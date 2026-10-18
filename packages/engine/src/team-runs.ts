@@ -120,7 +120,7 @@ export function teamRunCounts(store: Store, remote: string, limit = 500, ended: 
     if (t.listed) {
       inStore++;
       if (run && t.state === 'pushed') pushedHere++;
-    } else if (t.queued) queued++;
+    } else if (t.queued && run?.status === 'running') queued++; // ended since, it goes with the next push; deleted, it goes nowhere
   }
   return { inStore, onlyLocal, localRuns, localAttempts, queued, pushedHere };
 }

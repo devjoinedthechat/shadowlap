@@ -410,9 +410,14 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
       named.add(r.runId);
     }
   }
-  // Runs queued while they recorded go too, with their lineage.
+  // Runs queued while they recorded go too, with their lineage. One deleted since goes nowhere: its
+  // row goes, so nothing counts it as still recording.
   for (const row of store.teamRuns(rid)) {
     if (row.state !== 'queued') continue;
+    if (!store.getRun(row.runId)) {
+      store.deleteTeamRun(rid, row.runId);
+      continue;
+    }
     for (const r of withAncestors(store, row.runId)) targets.set(r.runId, r);
   }
   const result: PushResult = { pushed: [], updated: [], unchanged: [], queued: [], repaired: [], refused: [], blobs: { uploaded: 0, present: 0, bytes: 0 }, segment: null, fixes: { sent: [], failed: [], repairs: [] } };

@@ -84,6 +84,26 @@ describe('teamRunCounts', () => {
     store.close();
   });
 
+  it('counts as still recording only a queued run that is, not one that ended or was deleted since', () => {
+    const store = Store.open(':memory:');
+    const queue = (runId: string) => store.setTeamRun(KEY, { runId, state: 'queued', at: clock, base: null, baseHash: null, remoteHash: null, entry: null });
+    // An SDK run over shadowlap serve's sidecar: queued by push --all while it recorded, ended over the API since.
+    const ended = run(store, { running: true });
+    const gone = run(store, { running: true });
+    const live = run(store, { running: true });
+    for (const id of [ended, gone, live]) queue(id);
+    store.endRun(ended, 'completed');
+    store.endRun(gone, 'completed');
+    store.deleteRun(gone);
+    // The ended one goes with the next push: it is only here until then.
+    expect(teamRunCounts(store, KEY)).toMatchObject({ queued: 1, onlyLocal: 1, localRuns: [ended] });
+    expect(store.teamSummary(KEY)).toMatchObject({ queued: 1 });
+    // A deleted run leaves no queued row behind.
+    expect(store.teamRun(KEY, gone)).toBeNull();
+    expect(store.teamRun(KEY, live)).toMatchObject({ state: 'queued' });
+    store.close();
+  });
+
   it('counts a recording whose recorder is gone, which a push ends and sends, but not one still recording', () => {
     const store = Store.open(':memory:');
     const now = Date.parse('2026-10-03T09:00:00Z');

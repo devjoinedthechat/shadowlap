@@ -245,6 +245,21 @@ describe('a run queued while it recorded', () => {
     expect(queuedRuns(a.store, loc.url)).toEqual({ ready: [], recording: [] });
     expect((await push(a, {})).refused).toEqual([]);
   });
+
+  it('is forgotten once a store from before deleted it with its queued row left', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const live = record(a.store, 'live', { running: true });
+    expect((await push(a, { all: true })).queued).toEqual([live.runId]);
+    // An older Shadowlap deleted the run and kept its row: nothing records it, nothing sends it.
+    a.store.endRun(live.runId, 'completed');
+    a.store.deleteRun(live.runId);
+    a.store.setTeamRun(loc.url, { runId: live.runId, state: 'queued', at: 1, base: null, baseHash: null, remoteHash: null, entry: null });
+    expect(a.store.teamSummary(loc.url)).toMatchObject({ queued: 0 });
+    const result = await push(a, { all: true });
+    expect(result.queued).toEqual([]);
+    expect(a.store.teamRun(loc.url, live.runId)).toBeNull();
+  });
 });
 
 describe('pull', () => {
