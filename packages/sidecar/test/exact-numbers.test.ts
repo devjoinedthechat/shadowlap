@@ -2,7 +2,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { proposeNormalizers, Store } from '@shadowlap/engine';
 import { Sidecar } from '../src/index.js';
 
 /**
@@ -45,10 +45,15 @@ describe('numbers in tool payloads', () => {
       expect(served).toContain('"result":{"id":1234567890123456789,"price":20.0,"tiny":1e-07}');
       expect(sidecar.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
 
-      // Another id that a double reads the same is another call.
+      // Another id that a double reads the same is another call, and the report shows both ids as they were sent.
       const other = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });
       expect(JSON.parse(await resolve(other.runId, '1234567890123456788'))).toMatchObject({ origin: 'live' });
-      sidecar.endRun(other.runId, 'completed');
+      const { divergence } = sidecar.endRun(other.runId, 'completed').summary;
+      expect(divergence).toMatchObject({ type: 'request_changed', callNo: 1, counterpart: { runId: rec.runId, callNo: 1 } });
+      expect(divergence!.diff).toEqual([{ path: '$.args.order_id', op: 'changed', before: '1234567890123456789', after: '1234567890123456788' }]);
+      expect(proposeNormalizers(divergence!).proposals.map((p) => p.normalizer)).toEqual([{ kind: 'tool', name: 'get_order', path: '$.args.order_id', replace: '<VAR>' }]);
+      // As stored with the run.
+      expect(store.getRun(other.runId)!.divergence!.diff).toEqual(divergence!.diff);
     } finally {
       await sidecar.close();
       store.close();

@@ -18,6 +18,7 @@ import {
   normalizersHash,
   isRawNumber,
   parseJsonExact,
+  reportable,
   storedModelResolver,
   summarizeRun,
   toolFailureError,
@@ -1144,8 +1145,8 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A person's answer (`user_input`): after a fork it is served from the recording in order.
     const input = kind === 'tool' && body.input === true;
-    // The session diffs requests as plain JSON: numbers kept as written can't be walked like numbers.
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request: plainJson(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
+    // The session diffs requests as plain JSON, with an integer past 2^53 as its digits, as loadRequest reads the recorded side.
+    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
     const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
     const stored = storedOrigin(kind, decision);
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
@@ -1294,7 +1295,7 @@ export class Sidecar {
 
   private loadRequest(rec: CallRecord): unknown {
     if (!rec.requestRef) return undefined;
-    return rec.kind === 'api' ? loadApiRequest(this.store, rec.requestRef) : this.store.getJson<{ args?: unknown }>(rec.requestRef);
+    return rec.kind === 'api' ? loadApiRequest(this.store, rec.requestRef) : reportable(this.getJsonExact<{ args?: unknown }>(rec.requestRef));
   }
 
   /**
@@ -1454,9 +1455,6 @@ async function readJson(req: IncomingMessage, exact = false): Promise<unknown> {
     throw new HttpError(400, 'invalid JSON body');
   }
 }
-
-/** A value from parseJsonExact as plain JSON, each number read as a double. */
-const plainJson = (value: unknown): unknown => (value === undefined ? value : JSON.parse(JSON.stringify(value)));
 
 function json(res: ServerResponse, status: number, value: unknown): void {
   const bytes = Buffer.from(JSON.stringify(value), 'utf8');

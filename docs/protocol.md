@@ -116,7 +116,9 @@ default; `--writes stub` produces `stubbed` instead.
 
 Reports what a `live` or `stubbed` tool call did. Exactly once per such call. Numbers in `result`
 (and in a resolve call's `args`) are kept as the client wrote them: a replay serves `20.0` and
-`1234567890123456789` back with the same digits, and arguments match by them.
+`1234567890123456789` back with the same digits. In `args`, an integer past 2^53 matches by its
+exact digits, and a divergence report shows it as its digits in a string; any other number matches
+by the value it reads as, so `20.0` matches `20`.
 
 ```json
 { "outcome": "ok",    "result": …,      "latencyMs": 12 }

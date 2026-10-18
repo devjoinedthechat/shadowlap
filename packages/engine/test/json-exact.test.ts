@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canonicalize } from '../src/canonical.js';
 import { fingerprintTool } from '../src/fingerprint.js';
-import { isRawNumber, matchable, parseJsonExact } from '../src/json-exact.js';
+import { isRawNumber, matchable, parseJsonExact, reportable } from '../src/json-exact.js';
 
 describe('JSON with exact numbers', () => {
   it('writes back every number as it was read', () => {
@@ -20,5 +20,12 @@ describe('JSON with exact numbers', () => {
     expect(fp('{"id":1234567890123456789}')).not.toBe(fp('{"id":1234567890123456788}'));
     // As before for numbers a double holds: a recording that stored 20 still matches a request with 20.0.
     expect(fp('{"price":20.0}')).toBe(fingerprintTool('get_order', { price: 20 }, []).fingerprint);
+  });
+
+  it('reports an integer past 2^53 by its digits, and other numbers as the double that matched', () => {
+    const value = reportable(parseJsonExact('{"id":1234567890123456789,"n":[20.0,-0,1e3,9007199254740993],"s":"x"}'));
+    expect(value).toEqual({ id: '1234567890123456789', n: [20, 0, 1000, '9007199254740993'], s: 'x' });
+    // Plain JSON, as the run stores its divergence.
+    expect(JSON.parse(JSON.stringify(value))).toEqual(value);
   });
 });

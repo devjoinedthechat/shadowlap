@@ -40,3 +40,24 @@ export function matchable(value: unknown): unknown {
   }
   return value;
 }
+
+/**
+ * A value from `parseJsonExact` as a divergence report shows it, as plain JSON: an integer a double
+ * can't hold as its digits in a string (`"1234567890123456789"`, so two ids that round alike show as
+ * the change they are, and survive the trip through the store), any other number as the double it
+ * reads as, which is how it matched.
+ */
+export function reportable(value: unknown): unknown {
+  if (isRawNumber(value)) {
+    if (!/^-?\d+$/.test(value.rawJSON)) return Number(value.rawJSON);
+    const n = BigInt(value.rawJSON);
+    return Number.isSafeInteger(Number(n)) ? Number(n) : n.toString();
+  }
+  if (Array.isArray(value)) return value.map(reportable);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = reportable(v);
+    return out;
+  }
+  return value;
+}
