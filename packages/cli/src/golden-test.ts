@@ -167,8 +167,9 @@ export interface GoldenOutcome {
  * A golden replays the recording and the command its own pack holds. The store may hold another
  * recording under the same run id: a copy pulled from a pull request's folder, a pack someone sent
  * that reused the id, the golden this one was copied from. When only its command differs, the
- * pack's runs, as wherever only the pack exists; when its calls differ, the golden fails, naming
- * where the store's copy came from. A command from that copy never runs.
+ * pack's command runs, as wherever only the pack exists; when its calls differ, the golden fails,
+ * naming where the store's copy came from. A command from that copy never runs. A copy that only
+ * carries more or fewer redaction rules than the pack is the pack's recording (see unpackRun).
  */
 export function importGolden(store: Store, dir: string): RunRecord {
   const { imported, skipped, mismatched } = unpackRun(store, dir);
