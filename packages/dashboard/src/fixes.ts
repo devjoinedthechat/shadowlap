@@ -16,8 +16,10 @@ import {
   GOOD_LABEL,
   noRepairerOf,
   outcomeOf,
+  patchFiles,
   recordingsOfRun,
   repairMarkdown,
+  repairPatchProblem,
   repairToApply,
   resolveFix,
   testsEntryFor,
@@ -271,9 +273,12 @@ export interface FixActions {
    * working tree applied (`mark`). Once `applied`, the button is "Patch applied" and disabled,
    * unless `pending` says what applying left undone, which running it again finishes. `pulled`: the
    * repair came from the team store, so its recordings are on the machine that ran it, and applying
-   * here puts in the patch alone.
+   * here puts in the patch alone and runs nothing from it. `files`: every file the patch changes,
+   * and `diff` the patch itself, for the confirm dialog to show what goes in. `refused`: why `fix
+   * apply` won't put it in (it is more than the one rewrite its repair verified); then there is no
+   * git apply command to copy either.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; refused: string | null } | null;
   applied: boolean;
 }
 
@@ -618,7 +623,7 @@ function candidateVerdict(c: RepairCandidate, r: StoredRepair): { verdict: Candi
 function patchNote(patch: string | null): string {
   if (!patch) return 'no patch';
   const lines = patch.split('\n');
-  const files = lines.filter((l) => l.startsWith('diff --git ')).length;
+  const files = patchFiles(patch).length;
   const plus = lines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;
   const minus = lines.filter((l) => l.startsWith('-') && !l.startsWith('---')).length;
   return `${files} file${s(files)} · +${plus} −${minus}`;
@@ -835,6 +840,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const expect = fix.check.expect;
   const blameRun = b?.runId ?? rec.failing[0] ?? null;
   const toApply = repairToApply(rec);
+  const refused = toApply ? repairPatchProblem(toApply.report) : null;
   // A repair a teammate ran, which came with a pull: its recordings are on their machine.
   const pulled = (r: StoredRepair | null) => !!r && store.repairPulled(r.repairId) !== null;
   const shortIds = (argv: string[]) => argv.map((a) => (/^[0-9A-Z]{26}$/.test(a) ? short(a) : a));
@@ -856,9 +862,12 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
           : {
               kind: toApply ? 'patch' : 'mark',
               argv: ['fix', 'apply', fix.fixId],
-              gitApply: toApply?.report.patch ? `git apply ${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
+              gitApply: toApply?.report.patch && !refused ? `git apply ${toApply.dir.replace(/\/+$/, '')}/fix.patch` : null,
               pending: pendingText(applyLeft(fix, toApply, { pulled: pulled(toApply) })),
               pulled: pulled(toApply),
+              files: toApply?.report.patch ? patchFiles(toApply.report.patch) : [],
+              diff: toApply?.report.patch ?? null,
+              refused,
             },
       applied: fix.status === 'applied',
     },

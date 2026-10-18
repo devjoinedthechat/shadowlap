@@ -168,6 +168,12 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   The recordings it made of the fixed runs (its goldens) stay on the machine that ran it, because a
   golden runs the command it recorded when it is tested: they are committed from there. The Fixes
   page says so, and applying the fix here puts in the patch alone, with nothing left to finish.
+  Nothing here runs the code it put in (no build, test or replay of your goldens) until you have
+  read the change and run `shadowlap test`. The patch is someone else's code, so a pull takes a
+  fix only when each repair's patch is the one rewrite its accepted candidate makes, to that file
+  alone: one that writes another file, makes, renames or deletes one, adds lines the candidate
+  doesn't, or is larger than a repair writes, keeps the fix out of the pull, which names it and
+  why.
 - **A fix too large to read** (over 16 MB, the size a pull reads of a run's record) stays on the
   machine that has it, and the push says so; a pull that meets one in the store names it and brings
   the others.

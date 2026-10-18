@@ -44,9 +44,58 @@ afterAll(() => {
 });
 
 function embedded(html: string): StaticPayload {
-  const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html);
-  expect(m, 'the data block is there and ends where it should').not.toBeNull();
-  return JSON.parse(m![1]!.split('<\\/').join('</')) as StaticPayload;
+  return JSON.parse(dataAsParsed(html)) as StaticPayload;
+}
+
+/**
+ * Where an HTML parser ends a script element whose text starts at `from`: the script data states of
+ * the HTML tokenizer (escaped and double-escaped included), up to the end tag that closes it. -1
+ * when nothing does. What the file's own regex finds is beside the point: this is what a browser does.
+ */
+function scriptEnd(html: string, from: number): number {
+  type State = 'data' | 'lt' | 'endOpen' | 'endName' | 'escStart' | 'escStartDash' | 'esc' | 'escDash' | 'escDashDash' | 'escLt' | 'escEndOpen' | 'escEndName' | 'dblStart' | 'dbl' | 'dblDash' | 'dblDashDash' | 'dblLt' | 'dblEnd';
+  const alpha = (c: string) => /[A-Za-z]/.test(c);
+  const ends = (c: string) => /[\t\n\f />]/.test(c);
+  let state = 'data' as State;
+  let buf = '';
+  let tagAt = -1;
+  for (let i = from; i < html.length; i++) {
+    const c = html[i]!;
+    const again = (s: State) => {
+      state = s;
+      i--;
+    };
+    switch (state) {
+      case 'data': if (c === '<') state = 'lt'; break;
+      case 'lt': if (c === '/') { buf = ''; tagAt = i - 1; state = 'endOpen'; } else if (c === '!') state = 'escStart'; else again('data'); break;
+      case 'endOpen': if (alpha(c)) again('endName'); else again('data'); break;
+      case 'endName': if (ends(c) && buf === 'script') return tagAt; else if (alpha(c)) buf += c.toLowerCase(); else again('data'); break;
+      case 'escStart': if (c === '-') state = 'escStartDash'; else again('data'); break;
+      case 'escStartDash': if (c === '-') state = 'escDashDash'; else again('data'); break;
+      case 'esc': if (c === '-') state = 'escDash'; else if (c === '<') state = 'escLt'; break;
+      case 'escDash': state = c === '-' ? 'escDashDash' : c === '<' ? 'escLt' : 'esc'; break;
+      case 'escDashDash': state = c === '-' ? 'escDashDash' : c === '<' ? 'escLt' : c === '>' ? 'data' : 'esc'; break;
+      case 'escLt': if (c === '/') { buf = ''; tagAt = i - 1; state = 'escEndOpen'; } else if (alpha(c)) { buf = ''; again('dblStart'); } else again('esc'); break;
+      case 'escEndOpen': if (alpha(c)) again('escEndName'); else again('esc'); break;
+      case 'escEndName': if (ends(c) && buf === 'script') return tagAt; else if (alpha(c)) buf += c.toLowerCase(); else again('esc'); break;
+      case 'dblStart': if (ends(c)) state = buf === 'script' ? 'dbl' : 'esc'; else if (alpha(c)) buf += c.toLowerCase(); else again('esc'); break;
+      case 'dbl': if (c === '-') state = 'dblDash'; else if (c === '<') state = 'dblLt'; break;
+      case 'dblDash': state = c === '-' ? 'dblDashDash' : c === '<' ? 'dblLt' : 'dbl'; break;
+      case 'dblDashDash': state = c === '-' ? 'dblDashDash' : c === '<' ? 'dblLt' : c === '>' ? 'data' : 'dbl'; break;
+      case 'dblLt': if (c === '/') { buf = ''; state = 'dblEnd'; } else again('dbl'); break;
+      case 'dblEnd': if (ends(c)) state = buf === 'script' ? 'esc' : 'dbl'; else if (alpha(c)) buf += c.toLowerCase(); else again('dbl'); break;
+    }
+  }
+  return -1;
+}
+
+/** The data block as a browser reads it: from its start tag to wherever the parser ends it. */
+function dataAsParsed(html: string): string {
+  const open = '<script type="application/json" id="shadowlap-data">';
+  const at = html.indexOf(open) + open.length;
+  const end = scriptEnd(html, at);
+  expect(end, 'the data block ends').toBeGreaterThan(0);
+  return html.slice(at, end);
 }
 
 describe('export html', () => {
@@ -142,6 +191,35 @@ describe('export html', () => {
       const six = embedded(exportHtml({ store: own, runIds: ids.slice(0, 6), uiDir }).html);
       expect(six.responses['meta']).toMatchObject({ compareWith: null });
       expect(Object.keys(six.responses).filter((k) => k.startsWith('compare?'))).toHaveLength(30);
+    } finally {
+      own.close();
+    }
+  });
+
+  it('ends the data block where it should whatever the runs hold: an HTML head cut short in a model answer included', () => {
+    const own = Store.open(':memory:');
+    try {
+      const parent = unpackRun(own, GOLDEN).imported[0]!;
+      // A model answer that quotes a page's head and stops before the comment it opened is closed.
+      const answers = ['Here is the page head:\n<html><head><!-- tag manager\n<script src="/t.js">', 'and <SCRIPT>, <!-- again, </script> and </SCRIPT >'];
+      const run = own.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '<!-- <script'], cwd: '.' } });
+      for (const [i, c] of own.getCalls(parent).slice(0, 2).entries()) {
+        const { end, attempts, ...start } = c;
+        void attempts;
+        own.appendCallStart({ ...start, runId: run.runId });
+        own.appendCallEnd(c, { ...end!, runId: run.runId, responseRef: own.putBlob(Buffer.from(JSON.stringify({ type: 'message', role: 'assistant', content: [{ type: 'text', text: answers[i] }] }))) });
+      }
+      own.endRun(run.runId, 'completed');
+      const { html } = exportHtml({ store: own, runIds: [run.runId], uiDir });
+      // A browser ends the block at its own end tag, so the app after it runs: before, it read on to the end of the file.
+      const text = dataAsParsed(html);
+      const data = JSON.parse(text) as StaticPayload;
+      expect(data.runIds).toEqual([run.runId]);
+      expect(html.slice(html.indexOf(text) + text.length)).toMatch(/^<\/script>\n<script type="module">/);
+      // What the runs hold comes back as it was recorded.
+      expect(JSON.stringify(data.responses)).toContain(JSON.stringify(answers[0]).slice(1, -1));
+      expect(JSON.stringify(data.responses)).toContain(JSON.stringify(answers[1]).slice(1, -1));
+      expect(text).not.toMatch(/<!--|<script|<\//i);
     } finally {
       own.close();
     }

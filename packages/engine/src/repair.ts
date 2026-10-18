@@ -122,6 +122,12 @@ export interface ProposedEdit {
 
 export type EditCheck = { ok: true } | { ok: false; reason: string };
 
+/** The largest file repair reads (`projectFiles` skips bigger ones), so the most text one candidate can rewrite. */
+export const REPAIR_FILE_LIMIT = 1024 * 1024;
+
+/** The longest replacement `checkEdit` lets a candidate make of a text so long. */
+const longestRewrite = (length: number) => Math.max(600, length * 4);
+
 /** Whether a proposed rewrite may be tried at all. */
 export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbidden: ReadonlySet<string>): EditCheck {
   const anchor = anchors.find((a) => a.id === edit.anchor);
@@ -133,7 +139,7 @@ export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbid
   // end or escape; in a prose file (a Markdown policy) they are just punctuation.
   if (/[\n\r]/.test(replace) && !/[\n\r]/.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
   if (!isProse(anchor.file) && /["'`\\]/.test(replace) && !/["'`\\]/.test(anchor.text)) return { ok: false, reason: 'the replacement has quotes or backslashes, which could break the string in code it goes into' };
-  if (replace.length > Math.max(600, anchor.text.length * 4)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
+  if (replace.length > longestRewrite(anchor.text.length)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
   const before = caseDetails(anchor.text);
   const brought = [...caseDetails(replace)].filter((d) => forbidden.has(d) && !before.has(d));
   if (brought.length) {
@@ -181,7 +187,16 @@ export function unifiedDiff(path: string, before: string, after: string, context
   if (p === a.lines.length && p === b.lines.length) {
     p = Math.max(0, a.lines.length - 1);
     s = 0;
+  } else if (p > 0 && ((p === a.lines.length && !a.eol) || (p === b.lines.length && !b.eol))) {
+    // A line of context reads the same in both files, its line break included. The shared line in
+    // front of the change is the last of one file, with no newline there, and has one in the other,
+    // where more lines follow it: it goes into the change, or git would give it a newline.
+    p--;
+    s = 0;
   }
+  // The shared lines after the change end both files, and only one ends with a newline: the last of
+  // them reads differently in each, so they all go into the change.
+  if (s > 0 && a.eol !== b.eol) s = 0;
   const start = Math.max(0, p - context);
   const aEnd = Math.min(a.lines.length, a.lines.length - s + context);
   const bEnd = Math.min(b.lines.length, b.lines.length - s + context);
@@ -196,6 +211,170 @@ export function unifiedDiff(path: string, before: string, after: string, context
   for (let i = p; i < b.lines.length - s; i++) push('+', b.lines[i]!, i === b.lines.length - 1, b.eol);
   for (let i = a.lines.length - s; i < aEnd; i++) push(' ', a.lines[i]!, i === a.lines.length - 1, a.eol && b.eol);
   return out.join('\n') + '\n';
+}
+
+/**
+ * Every file a patch names, as `git apply` reads its headers: both sides of `diff --git`, the `---`
+ * and `+++` lines, renames and copies; `/dev/null` (a file made or deleted) is left out. A hunk's
+ * lines are skipped by its counts, so a removed line that starts with `--` is not taken for a header.
+ */
+export function patchFiles(patch: string): string[] {
+  const files = new Set<string>();
+  const add = (name: string, prefix: boolean) => {
+    const n = name.replace(/\t.*$/, '').trim();
+    if (n && n !== '/dev/null') files.add(prefix ? n.replace(/^[ab]\//, '') : n);
+  };
+  const lines = patch.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]!;
+    const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(l);
+    if (hunk) {
+      let old = hunk[1] === undefined ? 1 : Number(hunk[1]);
+      let now = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      while ((old > 0 || now > 0) && i + 1 < lines.length) {
+        const h = lines[++i]!;
+        if (h.startsWith('\\')) continue;
+        if (!h.startsWith('+')) old--;
+        if (!h.startsWith('-')) now--;
+      }
+      continue;
+    }
+    const git = /^diff --git (.+)$/.exec(l);
+    if (git) {
+      // `a/<name> b/<name>`: the same name on both sides, spaces and all, unless it was renamed.
+      const both = git[1]!;
+      const n = (both.length - 5) / 2;
+      if (Number.isInteger(n) && both.startsWith('a/') && both.slice(2 + n, 5 + n) === ' b/' && both.slice(2, 2 + n) === both.slice(5 + n)) add(both.slice(2, 2 + n), false);
+      else for (const side of both.split(/ (?=b\/)/)) add(side, true);
+      continue;
+    }
+    const named = /^(?:---|\+\+\+) (.+)$/.exec(l);
+    if (named) add(named[1]!, true);
+    const moved = /^(?:rename|copy) (?:from|to) (.+)$/.exec(l);
+    if (moved) add(moved[1]!, false);
+  }
+  return [...files];
+}
+
+/** A path `git apply` reads as written: relative, inside the repository, outside `.git`, with nothing it would unquote or trim. */
+function plainRepoPath(file: string): boolean {
+  return (
+    file.length > 0 &&
+    file === file.trim() &&
+    !/[\u0000-\u001f\u007f-\u009f"\\]/.test(file) &&
+    !file.startsWith('/') &&
+    !/^[a-z]:/i.test(file) &&
+    file.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && s.toLowerCase() !== '.git')
+  );
+}
+
+const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).join(', ')} and ${files.at(-1)}` : (files[0] ?? 'nothing'));
+
+/**
+ * Why a repair's patch is not the change its accepted candidate makes, or null when it is (or when
+ * there is no patch). `shadowlap fix apply` hands the patch to `git apply`, and a store can come from
+ * elsewhere (a teammate's bucket, a copied file), so it is held to what `unifiedDiff` writes for that
+ * one rewrite and nothing more: the candidate's file alone, changed in place (no file made, deleted,
+ * renamed or copied, no mode or binary change), in one hunk whose removed side turns into its added
+ * side by the candidate's rewrite of its text, once, and by nothing else.
+ */
+export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candidates' | 'accepted'>): string | null {
+  const patch = report.patch;
+  if (patch === null) return null;
+  const c = report.candidates.find((x) => x.id === report.accepted);
+  if (!c) return 'no accepted candidate comes with it';
+  const file = c.file;
+  if (!plainRepoPath(file)) return `its accepted candidate names "${safeLine(file)}", which is not a plain path inside the repository`;
+  // Nothing larger than a repair makes is read any further: the text a candidate rewrites is in a
+  // file repair read, and its rewrite is held to longestRewrite. The patch holds the lines around
+  // the rewrite before and after it, a mark in front of each, which at most doubles them (empty lines).
+  if (c.before.length > REPAIR_FILE_LIMIT) return `its accepted candidate's text is ${c.before.length} characters, longer than any file a repair reads`;
+  if (c.after.length > longestRewrite(c.before.length)) return `its accepted candidate's rewrite is ${c.after.length} characters, longer than a repair keeps for the ${c.before.length} it replaces`;
+  if (patch.length > 2 * (2 * REPAIR_FILE_LIMIT + c.after.length) + 4 * file.length + 256) return `it is ${patch.length} characters, more than a repair writes for its accepted candidate`;
+  const files = patchFiles(patch);
+  if (files.some((f) => f !== file)) return `it changes ${fileList(files.map(safeLine))}, where its accepted candidate changes ${file} alone`;
+  if (!c.before) return 'its accepted candidate rewrites no text';
+  if (c.before === c.after) return 'its accepted candidate changes nothing';
+  const lines = patch.split('\n');
+  if (lines.pop() !== '') return 'it does not end with a line break';
+  const head = [`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`];
+  if (head.some((h, i) => lines[i] !== h)) return `its header is not the one a repair writes for ${file}: a repair never makes, deletes, renames or copies a file, nor changes its mode`;
+  const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@$/.exec(lines[3] ?? '');
+  if (!hunk) return 'it holds no hunk a repair writes';
+  let old = hunk[1] === undefined ? 1 : Number(hunk[1]);
+  let now = hunk[2] === undefined ? 1 : Number(hunk[2]);
+  const sides: Record<'-' | '+', Array<{ text: string; eol: boolean }>> = { '-': [], '+': [] };
+  let last: ' ' | '-' | '+' | null = null;
+  let i = 4;
+  for (; i < lines.length; i++) {
+    const l = lines[i]!;
+    if (l === '\\ No newline at end of file' && last) {
+      for (const side of last === ' ' ? (['-', '+'] as const) : [last]) sides[side].at(-1)!.eol = false;
+      last = null;
+      continue;
+    }
+    if (old <= 0 && now <= 0) break;
+    const kind = l[0];
+    if (kind !== ' ' && kind !== '-' && kind !== '+') return 'a line in its hunk is neither context, removed nor added';
+    if (kind !== '+') sides['-'].push({ text: l.slice(1), eol: true }), old--;
+    if (kind !== '-') sides['+'].push({ text: l.slice(1), eol: true }), now--;
+    last = kind;
+  }
+  if (old !== 0 || now !== 0) return 'its hunk holds a different number of lines than its header says';
+  if (i < lines.length) return 'it holds more than the one hunk a repair writes';
+  const text = (side: '-' | '+') => sides[side].map((x) => x.text + (x.eol ? '\n' : '')).join('');
+  const was = text('-');
+  const is = text('+');
+  // The hunk holds three lines of context around the lines that differ, so a long text whose last
+  // line alone was rewritten is not all in it: what has to be in it is the part of the rewrite that
+  // differs, with what the text and its rewrite share at either end left out.
+  let p = 0;
+  while (p < c.before.length && p < c.after.length && c.before[p] === c.after[p]) p++;
+  let s = 0;
+  while (s < c.before.length - p && s < c.after.length - p && c.before[c.before.length - 1 - s] === c.after[c.after.length - 1 - s]) s++;
+  const from = c.before.slice(p, c.before.length - s);
+  const to = c.after.slice(p, c.after.length - s);
+  return rewrites(was, is, from, to) ? null : `the lines it changes in ${file} are not its accepted candidate's rewrite`;
+}
+
+/**
+ * Whether `is` is `was` with `from` replaced by `to` at one place, found in time that grows with the
+ * texts' length alone: they come from a store someone else may write, and trying every place `from`
+ * appears in turn, comparing the whole text each time, grew with the square of the patch (43 seconds
+ * for a crafted megabyte). Before that place the texts agree, so it is at most where they first
+ * differ; after it they agree too, which bounds it from below.
+ */
+function rewrites(was: string, is: string, from: string, to: string): boolean {
+  if (is.length - to.length !== was.length - from.length) return false;
+  let start = 0;
+  while (start < was.length && start < is.length && was.charCodeAt(start) === is.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < was.length && end < is.length && was.charCodeAt(was.length - 1 - end) === is.charCodeAt(is.length - 1 - end)) end++;
+  const lo = Math.max(0, was.length - from.length - end);
+  const hi = Math.min(start, was.length - from.length);
+  if (lo > hi) return false;
+  // What `from` and `to` share at either end was left out, so when neither is empty they differ in
+  // their first character, and the place can only be where the texts first differ.
+  if (from && to) return lo <= start && start <= hi && was.startsWith(from, start) && is.startsWith(to, start);
+  // Text only added, or only taken away: any place between lo and hi where that text is will do.
+  return occursBetween(from ? was : is, from || to, lo, hi);
+}
+
+/** Whether `piece` (not empty) appears in `text` starting anywhere from `lo` to `hi`, by Knuth-Morris-Pratt: one pass, however the text repeats. */
+function occursBetween(text: string, piece: string, lo: number, hi: number): boolean {
+  const back = new Int32Array(piece.length);
+  for (let i = 1, k = 0; i < piece.length; i++) {
+    while (k > 0 && piece.charCodeAt(i) !== piece.charCodeAt(k)) k = back[k - 1]!;
+    if (piece.charCodeAt(i) === piece.charCodeAt(k)) k++;
+    back[i] = k;
+  }
+  const stop = Math.min(text.length, hi + piece.length);
+  for (let i = lo, k = 0; i < stop; i++) {
+    while (k > 0 && text.charCodeAt(i) !== piece.charCodeAt(k)) k = back[k - 1]!;
+    if (text.charCodeAt(i) === piece.charCodeAt(k)) k++;
+    if (k === piece.length) return true;
+  }
+  return false;
 }
 
 // ---- The report ------------------------------------------------------------------------------

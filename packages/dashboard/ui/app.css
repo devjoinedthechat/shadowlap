@@ -1738,6 +1738,7 @@ code.flag { white-space: nowrap; font-size: .92em; }
 .prbody h4 { margin: 16px 0 6px; font: 600 13px var(--body); color: var(--ink); }
 .prbody code { font-size: 12px; }
 .prbody pre.fxcode { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialog pre.fxpatch { margin: 10px 0 0; max-height: 40vh; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .fxcode .add { color: var(--add); }
 .fxcode .del { color: var(--del); }
 .fxtable { overflow-x: auto; margin: 0 0 12px; }

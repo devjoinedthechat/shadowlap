@@ -631,6 +631,20 @@ describe('the apply job', () => {
     expect((await json(done)).error).toMatch(/applied already/);
   });
 
+  it('refuses a patch that is more than the change its repair verified, and runs nothing', async () => {
+    const run = makeRun(store, { labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    const repair = repairReport({ targets: [run], dir: '.shadowlap/repairs/repair-tampered' });
+    repair.patch += ['diff --git a/EVIL.txt b/EVIL.txt', 'new file mode 100644', '--- /dev/null', '+++ b/EVIL.txt', '@@ -0,0 +1 @@', '+from the bucket', ''].join('\n');
+    recordRepair(store, { repairId: 'repair-tampered', dir: '.shadowlap/repairs/repair-tampered', report: repair, expect: EXPECT, command: 'r' });
+    await start();
+    const before = spawned.length;
+    const refused = await job({ kind: 'apply', fixId: fix.fixId });
+    expect(refused.status).toBe(409);
+    expect((await json(refused)).error).toBe(`${fix.fixId.slice(0, 13)}'s patch is not the change its repair verified: it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone. Nothing ran`);
+    expect(spawned.length).toBe(before);
+  });
+
   it('is listed with blame and repair among the kinds the dashboard runs', async () => {
     await start();
     const meta = await json(await api('meta'));

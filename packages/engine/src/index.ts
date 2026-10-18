@@ -68,7 +68,7 @@ export { formatRepeats, summarizeRepeats } from './repeat.js';
 export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeVerdict, searchBlame, unrescuedWhy } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, ProbeVerdict } from './blame.js';
 export { decideVerify, footprintDelta, footprintOf, formatVerify, outcomeOf, runVerdict } from './verify.js';
-export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, NO_REPAIRER, noRepairerOf, repairMarkdown, unifiedDiff } from './repair.js';
+export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';

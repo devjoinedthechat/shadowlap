@@ -1,4 +1,4 @@
-import { canonicalize, FIX_STATUSES, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict, type VerdictStanding } from '@shadowlap/engine';
+import { canonicalize, FIX_STATUSES, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict, type VerdictStanding } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**
@@ -13,8 +13,9 @@ import { LayoutError } from './layout.js';
  * there puts the patch in (or finds it in already, once the change came through git).
  *
  * Whatever comes from the bucket is someone else's data, checked as strictly as a run: every id in
- * its own form, every report in the shape the Fixes page reads, and no string that could rewrite a
- * terminal (`shadowlap fix show` prints them).
+ * its own form, every report in the shape the Fixes page reads, no string that could rewrite a
+ * terminal (`shadowlap fix show` prints them), and a repair's patch, which a pull writes beside the
+ * project for `git apply`, no more than the one rewrite its accepted candidate makes.
  */
 
 export const FIX_FORMAT = 'shadowlap-store-fix';
@@ -315,6 +316,9 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
       const r = v as StoredRepair;
       if (r.dir !== `.shadowlap/repairs/${r.repairId}`) fail(`${w}.dir`, `must be .shadowlap/repairs/${r.repairId}`);
       for (const g of r.report.output.goldens) if (!g.startsWith(`${r.dir}/goldens/`) || g.split('/').includes('..')) fail(`${w}.report.output.goldens`, `must be inside ${r.dir}/goldens/`);
+      // What the pull writes to fix.patch, and `git apply` puts in: never more than the one rewrite the repair verified.
+      const problem = repairPatchProblem(r.report);
+      if (problem) fail(`${w}.report.patch`, `must be the change its accepted candidate makes, but ${problem}`);
     },
     MAX.records,
   )(raw.repairs, `${where}.repairs`);
