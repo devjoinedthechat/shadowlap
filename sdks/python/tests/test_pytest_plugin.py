@@ -149,6 +149,44 @@ def test_short(prompt):
 '''
 
 
+# A marked test that diverges from its recording on its first attempt and matches it when run again,
+# with a conftest that runs a failed test a second time as pytest-rerunfailures does.
+RERUN = '''
+import os
+import pytest
+import shadowlap
+
+@shadowlap.tool(effect="read")
+def lookup(key):
+    return {"key": key}
+
+@pytest.mark.shadowlap
+def test_flaky():
+    attempts = os.path.join(os.path.dirname(__file__), "attempts")
+    n = int(open(attempts).read()) if os.path.exists(attempts) else 0
+    with open(attempts, "w") as f:
+        f.write(str(n + 1))
+    key = "B-2" if n == 1 else "A-1"
+    assert lookup(key) == {"key": key}
+'''
+
+RERUN_CONFTEST = '''
+import pytest
+from _pytest.runner import runtestprotocol
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_protocol(item, nextitem):
+    item.ihook.pytest_runtest_logstart(nodeid=item.nodeid, location=item.location)
+    reports = runtestprotocol(item, nextitem=nextitem, log=False)
+    if any(r.failed for r in reports):
+        reports = runtestprotocol(item, nextitem=nextitem, log=False)
+    for report in reports:
+        item.ihook.pytest_runtest_logreport(report=report)
+    item.ihook.pytest_runtest_logfinish(nodeid=item.nodeid, location=item.location)
+    return True
+'''
+
+
 @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
 class PytestPlugin(unittest.TestCase):
     def setUp(self):
@@ -245,6 +283,22 @@ class PytestPlugin(unittest.TestCase):
         self.assertEqual(legacy.returncode, 0, legacy.stdout + legacy.stderr)
         self.assertIn("2 passed", legacy.stdout)
 
+
+    @unittest.skipUnless(BUILT, "the shadowlap CLI of this repository is not built")
+    def test_a_test_run_again_is_judged_by_its_own_attempt(self):
+        with open(os.path.join(self.project, "test_rerun.py"), "w") as f:
+            f.write(textwrap.dedent(RERUN))
+        with open(os.path.join(self.project, "conftest.py"), "w") as f:
+            f.write(textwrap.dedent(RERUN_CONFTEST))
+        env = {"SHADOWLAP_CLI": CLI, "SHADOWLAP_TELEMETRY": "0"}
+        first = self.pytest("test_rerun.py", env=env)  # records A-1
+        self.assertIn("1 passed", first.stdout, first.stdout + first.stderr)
+        # Replayed: the first attempt asks for B-2 and diverges, the second asks for A-1 as recorded.
+        again = self.pytest("test_rerun.py", env=dict(env, SHADOWLAP_RECORD="none"))
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("1 passed", again.stdout)
+        with open(os.path.join(self.project, "attempts")) as f:
+            self.assertEqual(f.read(), "3")
 
 if __name__ == "__main__":
     unittest.main()

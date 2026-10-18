@@ -133,6 +133,8 @@ def _recording_path(item) -> str:
 # failure in its report.
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_call(item):
+    # A test run again (pytest-rerunfailures, --count) is judged by its own attempt, not the one before.
+    item.__dict__.pop(_FAILURE, None)
     marker = item.get_closest_marker("shadowlap")
     if marker is None or testing.under_shadowlap_run():
         yield
@@ -158,8 +160,10 @@ def pytest_runtest_call(item):
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
-    failure = getattr(item, _FAILURE, None)
-    if failure is None or call.when != "call":
+    if call.when != "call":
+        return
+    failure = item.__dict__.pop(_FAILURE, None)
+    if failure is None:
         return
     # The divergence explains whatever the test then did, so it is the failure pytest shows.
     report = outcome.get_result()
