@@ -115,6 +115,40 @@ def test_d_unmarked_again():
 '''
 
 
+# Tests whose names alone would share a recording: the same name in two classes, two parametrized
+# cases that agree for their first 130 characters, and two that differ only in punctuation.
+NAMES = '''
+import pytest
+import shadowlap
+
+@shadowlap.tool(effect="read")
+def lookup(key):
+    return {"key": key}
+
+class TestRefundAgent:
+    @pytest.mark.shadowlap
+    def test_happy_path(self):
+        assert lookup("A-1") == {"key": "A-1"}
+
+class TestTriageAgent:
+    @pytest.mark.shadowlap
+    def test_happy_path(self):
+        assert lookup("B-2") == {"key": "B-2"}
+
+LONG = "x" * 130
+
+@pytest.mark.shadowlap
+@pytest.mark.parametrize("prompt", [LONG + " refund", LONG + " triage"])
+def test_prompt(prompt):
+    assert lookup(prompt) == {"key": prompt}
+
+@pytest.mark.shadowlap
+@pytest.mark.parametrize("prompt", ["balance?", "balance!"])
+def test_short(prompt):
+    assert lookup(prompt) == {"key": prompt}
+'''
+
+
 @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
 class PytestPlugin(unittest.TestCase):
     def setUp(self):
@@ -183,6 +217,33 @@ class PytestPlugin(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    @unittest.skipUnless(BUILT, "the shadowlap CLI of this repository is not built")
+    def test_every_test_gets_a_recording_of_its_own(self):
+        with open(os.path.join(self.project, "test_names.py"), "w") as f:
+            f.write(textwrap.dedent(NAMES))
+        env = {"SHADOWLAP_CLI": CLI, "SHADOWLAP_TELEMETRY": "0"}
+        first = self.pytest("test_names.py", env=env)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertIn("6 passed", first.stdout)
+        folder = os.path.join(self.project, "__recordings__", "test_names")
+        recorded = sorted(os.path.relpath(root, folder) for root, _, files in os.walk(folder) if "run.json" in files)
+        self.assertEqual(len(recorded), 6, recorded)
+        # A class is a folder; a name that needs nothing else keeps the name alone.
+        self.assertIn(os.path.join("TestRefundAgent", "test_happy_path"), recorded)
+        self.assertIn(os.path.join("TestTriageAgent", "test_happy_path"), recorded)
+        self.assertIn("test_short-balance", recorded)
+        # The second of two that would share it ends in a hash of its identity, as docs/testing.md shows.
+        self.assertIn("test_short-balance-e33869db", recorded)
+        self.assertTrue(all(len(os.path.basename(r)) <= 129 for r in recorded), recorded)
+        again = self.pytest("test_names.py", env=dict(env, SHADOWLAP_RECORD="none"))
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("6 passed", again.stdout)
+        # A recording made before classes were part of the path still loads for the test that made it.
+        os.rename(os.path.join(folder, "TestRefundAgent", "test_happy_path"), os.path.join(folder, "test_happy_path"))
+        legacy = self.pytest("test_names.py", "-k", "happy_path", env=dict(env, SHADOWLAP_RECORD="none"))
+        self.assertEqual(legacy.returncode, 0, legacy.stdout + legacy.stderr)
+        self.assertIn("2 passed", legacy.stdout)
 
 
 if __name__ == "__main__":

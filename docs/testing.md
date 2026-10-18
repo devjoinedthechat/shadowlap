@@ -17,7 +17,9 @@ def test_triage():
     assert len(result.tickets) == 3
 ```
 
-The recording goes next to the test: `__recordings__/test_agent/test_triage/`. Commit it. `@pytest.mark.shadowlap(recording="path")` puts it somewhere else. Parametrized tests get one recording per case, and pytest-xdist works: each worker gets its own slot.
+The recording goes next to the test: `__recordings__/test_agent/test_triage/`, and `__recordings__/test_agent/TestTriage/test_happy_path/` for a test in a class. Commit it. `@pytest.mark.shadowlap(recording="path")` puts it somewhere else. Parametrized tests get one recording per case, and pytest-xdist works: each worker gets its own slot.
+
+Every test gets a recording of its own. A name is cut at 120 characters, and a name that was cut, or that would land on another test's recording (two cases that differ only in punctuation, such as `balance?` and `balance!`), ends in the first 8 hex digits of the SHA-256 of the test's name within its file (`test_short[balance!]` gives `test_short-balance-e33869db`). A recording an earlier version saved without the class folder or the hash is still used by the test that made it.
 
 Other runners can use the context manager the plugin is built on:
 
@@ -51,7 +53,7 @@ test('triages the inbox', recorded(async () => {
 }));
 ```
 
-The recording is named after the test, including its `describe` blocks, and lives in `__recordings__/<file>/` beside the test file. `recorded(fn, { recording: 'path' })` overrides that. Test files that run in parallel workers each get their own slot.
+The recording is named after the test, including its `describe` blocks, and lives in `__recordings__/<file>/` beside the test file. As with pytest, a name longer than 120 characters, or one that would land on another test's recording, ends in a short hash of the test's full name. `recorded(fn, { recording: 'path' })` overrides that. Test files that run in parallel workers each get their own slot.
 
 ## node:test
 

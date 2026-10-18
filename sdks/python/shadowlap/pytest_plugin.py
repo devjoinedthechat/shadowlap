@@ -11,8 +11,8 @@ nothing for tests without the marker.
         assert shadowlap_recording.called("send_email") == 0
 
 The ``shadowlap_recording`` fixture is the test's :class:`shadowlap.testing.Recording`, to assert on the
-calls the agent made. A recording lives next to the test, in ``__recordings__/<test file>/<test name>``;
-commit it. Pass
+calls the agent made. A recording lives next to the test, in ``__recordings__/<test file>/<test name>``
+(``<test file>/<Class>/<test name>`` for a test in a class); commit it. Pass
 ``@pytest.mark.shadowlap(recording="path")`` to put it elsewhere. ``--shadowlap-record`` (or
 ``SHADOWLAP_RECORD``) picks the mode: ``missing``, ``all`` or ``none``; see :mod:`shadowlap.testing`.
 
@@ -20,9 +20,12 @@ It loads into every pytest run once shadowlap is installed, so it uses only what
 on has, with the pluggy each one allows: old-style hook wrappers, and the recording kept on the item.
 """
 
+import hashlib
+import json
 import os
 import re
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -73,10 +76,55 @@ def shadowlap_recording(request):
     return _recording_for(request.node)
 
 
+_NAME_LIMIT = 120
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^\w.-]+", "-", name).strip("-") or "test"
+
+
+def _in_file(nodeid: str) -> str:
+    """The test's identity within its file: ``Class::test_name[case]``, its node id without the file,
+    which doesn't change with the directory pytest runs from."""
+    return nodeid.split("::", 1)[1] if "::" in nodeid else nodeid
+
+
+def _recorded_by(directory: Path) -> Optional[str]:
+    """Which test made the recording in ``directory`` (its identity within its file), from the
+    command its run.json holds; None when there is no recording or it doesn't say."""
+    try:
+        with open(directory / "run.json", encoding="utf-8") as f:
+            argv = json.load(f)["runs"][-1]["command"]["argv"]
+    except Exception:
+        return None
+    if isinstance(argv, list) and len(argv) == 2 and argv[0] == "pytest" and isinstance(argv[1], str):
+        return _in_file(argv[1])
+    return None
+
+
 def _recording_path(item) -> str:
+    """``__recordings__/<file>/<Class>/<name>`` beside the test file. A name is cut at 120 characters,
+    and one that was cut, or that would land on another test's recording (two cases that differ only
+    in punctuation), gets the first 8 hex digits of the sha256 of the test's identity. A recording
+    made where an earlier version put it (no class folder, no hash) is used by the test that made it."""
     path = Path(str(getattr(item, "path", None) or item.fspath))
-    name = re.sub(r"[^\w.-]+", "-", item.name).strip("-")[:120] or "test"
-    return str(path.parent / "__recordings__" / path.stem / name)
+    folder = path.parent / "__recordings__" / path.stem
+    identity = _in_file(item.nodeid)
+    classes = [_slug(part)[:_NAME_LIMIT] for part in identity.split("::")[:-1]]
+    full = _slug(item.name)
+    plain = full[:_NAME_LIMIT]
+    hashed = "%s-%s" % (plain, hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8])
+    here = folder.joinpath(*classes)
+    if len(full) <= _NAME_LIMIT:
+        owner = _recorded_by(here / plain)
+        chosen = here / (hashed if owner is not None and owner != identity else plain)
+    elif not (here / hashed / "run.json").exists() and _recorded_by(here / plain) == identity:
+        chosen = here / plain
+    else:
+        chosen = here / hashed
+    if classes and not (chosen / "run.json").exists() and _recorded_by(folder / plain) == identity:
+        chosen = folder / plain
+    return str(chosen)
 
 
 # Old-style wrappers (hookwrapper=True), which every pluggy has: wrapper=True needs pluggy 1.2, and

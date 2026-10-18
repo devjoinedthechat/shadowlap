@@ -11,11 +11,13 @@
  *     expect(await currentRecording().called('send_email')).toBe(0);
  *   }));
  *
- * Recordings live next to the test file, in `__recordings__/<file>/<test name>`; commit them.
+ * Recordings live next to the test file, in `__recordings__/<file>/<test name>`, one per test; commit them.
  * SHADOWLAP_RECORD picks the mode: `missing` (default) replays a recording when there is one and
  * records otherwise, `all` records again, `none` only replays and is the default when CI is set.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { HOST_ENV, SLOT_ENV, type HostInfo } from './host.js';
 
@@ -212,7 +214,38 @@ function currentTest(context: unknown): { name: string; file: string } | null {
   return null;
 }
 
-const slug = (s: string) => s.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120) || 'test';
+const NAME_LIMIT = 120;
+const slug = (s: string) => s.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'test';
+
+/** Which test made the recording in `dir`, from the command its run.json holds; null when there is none or it doesn't say. */
+function recordedBy(dir: string): string | null {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs?: Array<{ command?: { argv?: unknown } }> };
+    const argv = manifest.runs?.at(-1)?.command?.argv;
+    return Array.isArray(argv) && argv.length === 2 && argv[0] === '<test>' && typeof argv[1] === 'string' ? argv[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `__recordings__/<file>/<name>` beside the test file, one per test. A name is cut at 120 characters,
+ * and one that was cut, or that would land on another test's recording (two names that differ only
+ * in punctuation), ends in the first 8 hex digits of the sha256 of the test's full name. A long
+ * name's recording made before it had the hash is used by the test that made it.
+ */
+function recordingFor(file: string, name: string, identity: string): string {
+  const folder = join(dirname(file), '__recordings__', basename(file));
+  const full = slug(name);
+  const plain = full.slice(0, NAME_LIMIT);
+  const hashed = `${plain}-${createHash('sha256').update(name).digest('hex').slice(0, 8)}`;
+  if (full.length <= NAME_LIMIT) {
+    const owner = recordedBy(join(folder, plain));
+    return join(folder, owner !== null && owner !== identity ? hashed : plain);
+  }
+  if (!existsSync(join(folder, hashed, 'run.json')) && recordedBy(join(folder, plain)) === identity) return join(folder, plain);
+  return join(folder, hashed);
+}
 
 /**
  * Wraps a test function so it runs as a recorded test. The recording is named after the test, and
@@ -221,7 +254,7 @@ const slug = (s: string) => s.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').
 export function recorded<A extends unknown[]>(fn: (...args: A) => unknown, opts: RecordingOptions = {}): (...args: A) => Promise<void> {
   return async (...args: A) => {
     const test = currentTest(args[0]);
-    const recording = opts.recording ?? (test ? join(dirname(test.file), '__recordings__', basename(test.file), slug(test.name)) : undefined);
+    const recording = opts.recording ?? (test ? recordingFor(test.file, test.name, opts.name ?? test.name) : undefined);
     if (!recording) throw new Error('shadowlap: could not tell which test is running; pass { recording: "path" } to recorded()');
     await withRecording({ ...opts, recording, ...(opts.name ?? test?.name ? { name: opts.name ?? test!.name } : {}) }, () => fn(...args));
   };
