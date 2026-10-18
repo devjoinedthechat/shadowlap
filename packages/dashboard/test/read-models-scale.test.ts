@@ -20,6 +20,11 @@ import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
  */
 
 const RUNS = 5000;
+/**
+ * Room for a slower machine on the CPU bounds below: CI's Windows runners take up to twice what the
+ * others do (their CPU time is also counted in 15.6 ms ticks), while the work stays the same.
+ */
+const SLACK = process.platform === 'win32' ? 2 : 1;
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
 const DAY = 86_400_000;
 
@@ -122,7 +127,7 @@ describe('read models at scale', () => {
     expect(first.caches).toBeGreaterThan(1000);
     expect(first.caches).toBeLessThan(RUNS * 0.75);
     // Once in the store's life: about 2 s of CPU time alone; the bound leaves room for a slower machine.
-    expect(first.cpu, `the first look took ${ms(first)}`).toBeLessThan(6_000);
+    expect(first.cpu, `the first look took ${ms(first)}`).toBeLessThan(6_000 * SLACK);
 
     const summary = timed((s) => overviewSummary(s, { tz: 'Europe/Berlin', now: NOW }));
     const page = timed((s) => listRunsPage(s, {}));
@@ -153,7 +158,7 @@ describe('read models at scale', () => {
       expect(t.read, `${name} read the calls of ${t.read} runs`).toBe(0);
       expect(t.caches, `${name} worked out the prompt cache of ${t.caches} runs`).toBe(0);
       // Alone, each takes 60 to 130 ms of CPU time; the bound leaves room for a slower machine.
-      expect(t.cpu, `${name} took ${ms(t)}`).toBeLessThan(1000);
+      expect(t.cpu, `${name} took ${ms(t)}`).toBeLessThan(1000 * SLACK);
     }
   });
 
@@ -182,8 +187,8 @@ describe('read models at scale', () => {
       // A slice stops at the first batch that ends past its 50 ms, and batches are cut by the calls
       // they read: alone, slices take 50 to 70 ms. The bounds leave room for a slower machine.
       expect(slices).toBeGreaterThanOrEqual(10);
-      expect(median, `half the slices took more than ${Math.round(median)} ms of CPU time`).toBeLessThan(120);
-      expect(longest, `a slice took ${Math.round(longest)} ms of CPU time`).toBeLessThan(250);
+      expect(median, `half the slices took more than ${Math.round(median)} ms of CPU time`).toBeLessThan(120 * SLACK);
+      expect(longest, `a slice took ${Math.round(longest)} ms of CPU time`).toBeLessThan(250 * SLACK);
     } finally {
       store.close();
     }
