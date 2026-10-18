@@ -186,7 +186,11 @@ function jsonIn(text: string): unknown {
   } catch {
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    try {
+      if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    } catch {
+      // braces around something else
+    }
     throw new RepairerError('the repairer did not answer with JSON');
   }
 }
@@ -234,7 +238,8 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
     const child = spawn(start.command, start.args, start.options);
     child.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
     child.stderr!.on('data', (d: Buffer) => (stderr += d.toString()));
-    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`${bin} was not found`, 'install Claude Code, or set SHADOWLAP_CLAUDE to its path') : err));
+    // Not found, or found and not runnable (no execute bit, a directory): either way it can't be asked.
+    child.on('error', (err: NodeJS.ErrnoException) => reject(err.code === 'ENOENT' ? new RepairerError(`${bin} was not found`, 'install Claude Code, or set SHADOWLAP_CLAUDE to its path') : new RepairerError(`${bin} could not be run`, `${err.message}; check that it is Claude Code's binary and that you may run it, or set SHADOWLAP_CLAUDE to the one to run`)));
     // On 'close', not 'exit': the last of stdout can arrive after the process exits, through
     // cmd.exe most of all, and the report is read whole.
     child.on('close', (c) => resolveCode(c ?? 1));
@@ -287,7 +292,10 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
     if (err instanceof Anthropic.AuthenticationError) throw new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
     if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}`, err.message);
-    throw err;
+    // The SDK refuses before it sends anything when it finds no key, token or profile to sign in with.
+    const said = err instanceof Error ? err.message : String(err);
+    if (/could not resolve authentication method/i.test(said)) throw new RepairerError('no Anthropic credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+    throw new RepairerError('the Anthropic SDK could not send the request', said);
   }
   if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');
   if (message.stop_reason === 'max_tokens') throw new RepairerError('the repairer ran out of tokens before it finished its answer');

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, repairMarkdown, rewriteText, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, repairMarkdown, rewriteText, safeLine, Store, toolDefinitions, unifiedDiff, type Conversation, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -413,8 +413,16 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
       } else {
         const request = buildRepairPrompt({ oracle, system: prompt?.system ?? '', tools: prompt?.tools ?? [], cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
+        let answer: Awaited<ReturnType<typeof askRepairer>> | null = null;
         try {
-          const answer = await askRepairer({ ...s.repairer, ...(config.repair?.baseUrl && !s.repairer.baseUrl ? { baseUrl: config.repair.baseUrl } : {}) }, request, config.prices);
+          answer = await askRepairer({ ...s.repairer, ...(config.repair?.baseUrl && !s.repairer.baseUrl ? { baseUrl: config.repair.baseUrl } : {}) }, request, config.prices);
+        } catch (err) {
+          // Whatever kept it from answering, the blames and the fix they opened are kept, with why.
+          const e = err instanceof RepairerError ? err : new RepairerError(safeLine((err instanceof Error ? err.message : String(err)).split('\n')[0]!).slice(0, 200) || 'it failed');
+          report.noRepairer = `${NO_REPAIRER.notAsked}: ${e.what}`;
+          warnings.push(`${NO_REPAIRER.notAsked}: ${e.message}`);
+        }
+        if (answer) {
           cost.repairer = answer.cost;
           report.repairer = { provider: s.repairer.provider, model: s.repairer.model, served: answer.served, cost: answer.cost };
           report.diagnosis = answer.diagnosis || null;
@@ -429,10 +437,6 @@ export async function runRepair(input: RepairInput): Promise<RepairReport> {
           }
           candidates.push(...fresh);
           await tryAll(fresh);
-        } catch (err) {
-          if (!(err instanceof RepairerError)) throw err;
-          report.noRepairer = `${NO_REPAIRER.notAsked}: ${err.what}`;
-          warnings.push(`${NO_REPAIRER.notAsked}: ${err.message}`);
         }
       }
     }

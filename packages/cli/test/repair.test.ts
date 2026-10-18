@@ -353,6 +353,39 @@ process.stdin.on('end', () => {
     expect(readFileSync(join(project, report.output.report), 'utf8')).toContain('## Not fixed: the budget of $0.01 is spent');
   });
 
+  it('keeps the repair, and says why, when the repairer has no credentials or its binary cannot be run', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const home = mkdtempSync(join(tmpdir(), 'fp-home-'));
+    const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
+    try {
+      // No key, no token and no profile: an empty home, and none of this machine's ANTHROPIC_ variables.
+      const unset = Object.fromEntries(Object.keys(process.env).filter((k) => k.startsWith('ANTHROPIC_')).map((k) => [k, undefined]));
+      const nokey = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], { ...unset, ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: mock.url, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: home });
+      expect(nokey.code, nokey.out).toBe(1);
+      const report = JSON.parse(nokey.stdout) as Report & { noRepairer: string | null; fixes: Array<{ fixId: string }> };
+      expect(report).toMatchObject({ outcome: 'not-fixed', noRepairer: 'the repairer could not be asked: no Anthropic credentials', why: 'the repairer could not be asked: no Anthropic credentials' });
+      expect(report.targets[0]).toMatchObject({ outcome: 'blamed' });
+      expect(report.warnings).toContain('the repairer could not be asked: no Anthropic credentials: set ANTHROPIC_API_KEY, or run ant auth login');
+      expect(existsSync(join(project, report.output.dir, 'report.json'))).toBe(true);
+      expect(report.fixes).toHaveLength(1);
+
+      if (process.platform !== 'win32') {
+        // A claude that is there and can't be run: no execute bit.
+        writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho {}\n', { mode: 0o644 });
+        const eacces = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--json'], { SHADOWLAP_CLAUDE: join(bin, 'claude') });
+        expect(eacces.code, eacces.out).toBe(1);
+        const again = JSON.parse(eacces.stdout) as Report & { noRepairer: string | null };
+        expect(again).toMatchObject({ outcome: 'not-fixed', noRepairer: `the repairer could not be asked: ${join(bin, 'claude')} could not be run` });
+        expect(again.warnings.find((w) => w.startsWith('the repairer could not be asked'))).toContain('EACCES');
+        expect(existsSync(join(project, again.output.dir, 'report.json'))).toBe(true);
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
   it('checks its flags before running anything', async () => {
     const { failed } = await runs();
     expect((await shadowlap(['repair', '--expect', ORACLE])).out).toContain('give the failing runs to repair');
