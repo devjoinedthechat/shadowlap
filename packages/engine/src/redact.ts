@@ -323,7 +323,10 @@ function redactDivergence(d: DivergenceReport, rules: Normalizer[]): DivergenceR
  * can carry a whole `--override` result, and a copy is never made again from its record anyway, so
  * the `--expect` it was judged by goes too. Each flag is rebuilt from the fields a flag has, so a
  * record from someone else's pack carries nothing else along. Checks keep their verdicts, with their
- * details masked. A record that isn't a list is left for the read side, which skips it.
+ * details masked, and so does the last blame: the labels of the checks it judged its attempts by
+ * (the same labels as the checks', `output includes "…"`) and the request fields its probes changed,
+ * their strings wherever they are. Another record that isn't a list is left for the read side,
+ * which skips it.
  */
 function redactMeta(meta: RunMeta | undefined, rules: Normalizer[]): RunMeta {
   const { expect: _expect, ...rest } = meta ?? {};
@@ -331,6 +334,10 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[]): RunMeta {
   const text = (v: unknown): string => (typeof v === 'string' ? rewriteText(v, rules) : '');
   if (Array.isArray(meta?.interventions)) out.interventions = meta.interventions.filter(isObject).map((i) => ({ kind: i.kind, at: i.at, flag: text(i.flag) }));
   if (Array.isArray(meta?.checks)) out.checks = meta.checks.filter(isObject).map((c) => ({ ...c, label: text(c.label), detail: c.detail === null ? null : text(c.detail) }));
+  if (isObject(meta?.blame)) {
+    const b = meta.blame;
+    out.blame = { ...b, ...('oracle' in b ? { oracle: rewriteDeep(b.oracle, rules) as string[] } : {}), ...('fields' in b ? { fields: rewriteDeep(b.fields, rules) as Record<string, unknown> } : {}) };
+  }
   return out;
 }
 
