@@ -113,4 +113,76 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(store.getCalls(rec.runId)[0]!.end?.outcome).toBe('error');
     deactivate();
   });
+
+  it('stops the tool when its caller stops reading, as it stops bare, and records what the caller saw', async () => {
+    const log: string[] = [];
+    const steps = {
+      async *execute(_input: unknown, _options: unknown) {
+        try {
+          for (let n = 1; n <= 5; n++) {
+            log.push(`produced ${n}`);
+            yield { step: n };
+          }
+        } finally {
+          log.push('finally');
+        }
+      },
+    };
+    /** A caller that takes the first value and breaks, as an aborted stream does. */
+    async function first(execute: (input: unknown, options: unknown) => unknown) {
+      for await (const v of execute({}, {}) as AsyncIterable<unknown>) return v;
+      return undefined;
+    }
+
+    deactivate();
+    expect(await first(steps.execute)).toEqual({ step: 1 });
+    const bare = log.splice(0);
+    expect(bare).toEqual(['produced 1', 'finally']);
+
+    const tools = withEffects({ steps }, { steps: 'read' });
+    expect(await first(tools.steps.execute!)).toEqual({ step: 1 });
+    expect(log.splice(0)).toEqual(bare);
+
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    activate(rec.runId);
+    expect(await first(tools.steps.execute!)).toEqual({ step: 1 });
+    sidecar.endRun(rec.runId, 'completed');
+    // The tool ran as far as the caller read, not on to step 5 behind its back.
+    expect(log.splice(0)).toEqual(bare);
+    const [call] = store.getCalls(rec.runId);
+    expect(call!.end?.outcome).toBe('ok');
+    expect(store.getJson(call!.end!.responseRef!)).toEqual({ result: { step: 1 } });
+
+    const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
+    activate(rep.runId);
+    expect(await first(tools.steps.execute!)).toEqual({ step: 1 });
+    expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
+    expect(log).toEqual([]);
+    deactivate();
+  });
+
+  it('runs at the pace of its caller while recording', async () => {
+    const log: string[] = [];
+    const ticks = {
+      async *execute(_input: unknown, _options: unknown) {
+        for (let n = 1; n <= 3; n++) {
+          log.push(`produced ${n}`);
+          yield n;
+        }
+      },
+    };
+    const tools = withEffects({ ticks }, { ticks: 'read' });
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    activate(rec.runId);
+    const it = (tools.ticks.execute!({}, {}) as AsyncIterable<number>)[Symbol.asyncIterator]();
+    expect(await it.next()).toEqual({ done: false, value: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(log).toEqual(['produced 1']);
+    expect(await it.next()).toEqual({ done: false, value: 2 });
+    expect(await it.next()).toEqual({ done: false, value: 3 });
+    expect((await it.next()).done).toBe(true);
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getJson(store.getCalls(rec.runId)[0]!.end!.responseRef!)).toEqual({ result: 3 });
+    deactivate();
+  });
 });

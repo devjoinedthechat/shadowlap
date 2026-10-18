@@ -217,14 +217,71 @@ async function lastOf(stream: AsyncIterable<unknown>): Promise<unknown> {
 }
 
 /**
+ * A streaming tool's live call: each value is pulled from the tool when the caller asks for the
+ * next, so the tool runs at the caller's pace, as it does outside Shadowlap. The last value is
+ * recorded as the result once the stream ends. A caller that stops early (a break, an aborted AI
+ * SDK stream) stops the tool too, through its return(), and the last value it was handed is the
+ * result; an error the caller throws in is handed to the tool, as yield* does. A failure of the
+ * tool is recorded as its error.
+ */
+async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator<unknown, unknown, undefined>): AsyncGenerator<unknown, void, undefined> {
+  const started = Date.now();
+  const complete = (body: object) => post(cfg, `/v1/calls/${callNo}/complete`, { ...body, latencyMs: Date.now() - started });
+  let last: unknown = null;
+  let completed = false;
+  const fail = async (err: unknown): Promise<never> => {
+    completed = true;
+    await complete({ outcome: 'error', error: serializeError(err) });
+    throw err;
+  };
+  const succeed = async () => {
+    completed = true;
+    try {
+      await complete({ outcome: 'ok', result: last ?? null });
+    } catch (err) {
+      // A result the sidecar can't take (not JSON) still completes the call, as an error.
+      await complete({ outcome: 'error', error: serializeError(err) });
+      throw err;
+    }
+  };
+  const advance = async (step: () => Promise<IteratorResult<unknown, unknown>>) => {
+    try {
+      return await step();
+    } catch (err) {
+      return fail(err);
+    }
+  };
+  try {
+    let step = await advance(() => iterator.next());
+    while (!step.done) {
+      last = step.value;
+      let thrown: { error: unknown } | null = null;
+      try {
+        yield step.value;
+      } catch (error) {
+        thrown = { error };
+      }
+      step = await advance(() => (thrown ? iterator.throw(thrown.error) : iterator.next()));
+    }
+    await succeed();
+  } finally {
+    if (!completed) {
+      // The caller stopped reading: stop the tool as well, and record what the caller saw.
+      await advance(() => iterator.return(undefined));
+      await succeed();
+    }
+  }
+}
+
+/**
  * Wraps a tool implementation. The returned function has the same signature; results and errors
  * must be JSON-serializable. `effect` is required by design: the only safe default would be
  * `write`, and making that implicit would hide a decision the developer must make.
  *
  * An async generator function (`async function*`, the AI SDK's streaming `async *execute`) stays
- * one: what it yields is passed on as it comes, its last value is recorded as the result, and a
- * replay yields that value alone. Outside Shadowlap every call goes straight to `impl`, and its
- * stream or promise comes back as `impl` made it.
+ * one: what it yields is passed on as the caller reads it, its last value is recorded as the result,
+ * and a replay yields that value alone (see liveStream). Outside Shadowlap every call goes straight
+ * to `impl`, and its stream or promise comes back as `impl` made it.
  */
 export function tool<A, Y>(name: string, options: ToolOptions<A, Y>, impl: (args: A) => AsyncGenerator<Y, unknown, undefined>): (args: A) => AsyncGenerator<Y, void, undefined>;
 export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => R | Promise<R>): (args: A) => Promise<R>;
@@ -236,8 +293,8 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
   const implHash = createHash('sha256').update(String(options.source ?? impl)).digest('hex');
 
   /** One call under Shadowlap; `run` executes the implementation and gives the result to record. */
-  async function call(cfg: Config, args: A, run: (args: A) => Promise<unknown>): Promise<{ value: unknown; ran: boolean }> {
-    const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name, effect: options.effect, args, implHash });
+  async function call(cfg: Config, args: A, run: (args: A) => Promise<unknown>, decided?: ResolveResponse): Promise<{ value: unknown; ran: boolean }> {
+    const r = decided ?? (await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name, effect: options.effect, args, implHash }));
     switch (r.origin) {
       case 'replayed':
         if (r.outcome === 'ok') return { value: r.result, ran: false };
@@ -277,43 +334,13 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
         yield* stream(args);
         return;
       }
-      // The implementation runs inside call(), which records its last value; what it yields on the
-      // way is handed on from here as it comes.
-      const values: unknown[] = [];
-      let wake: (() => void) | null = null;
-      const notify = () => {
-        wake?.();
-        wake = null;
-      };
-      let settled: { ok: true; value: unknown; ran: boolean } | { ok: false; error: unknown } | null = null;
-      void call(cfg, args, async (a) => {
-        let last: unknown = null;
-        for await (const value of stream(a)) {
-          last = value;
-          values.push(value);
-          notify();
-        }
-        return last;
-      }).then(
-        ({ value, ran }) => {
-          settled = { ok: true, value, ran };
-          notify();
-        },
-        (error: unknown) => {
-          settled = { ok: false, error };
-          notify();
-        },
-      );
-      let next = 0;
-      for (;;) {
-        while (next < values.length) yield values[next++];
-        if (settled) break;
-        await new Promise<void>((resolve) => (wake = resolve));
+      const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name, effect: options.effect, args, implHash });
+      if (r.origin !== 'live') {
+        // Replayed or stubbed: the implementation doesn't run, so the recorded value is the stream.
+        yield (await call(cfg, args, async () => null, r)).value;
+        return;
       }
-      const done = settled as { ok: true; value: unknown; ran: boolean } | { ok: false; error: unknown };
-      if (!done.ok) throw done.error;
-      // Replayed or stubbed: the implementation didn't run, so the recorded value is the stream.
-      if (!done.ran) yield done.value;
+      yield* liveStream(cfg, r.callNo, stream(args));
     };
   }
 
