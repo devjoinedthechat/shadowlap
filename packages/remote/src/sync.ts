@@ -340,21 +340,30 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   const { doc, synced, fresh, wrote } = written;
   const repaired = repair && !fresh ? await repairParts(ctx, run, known, tally) : false;
   const hash = metaHash(synced);
-  applySynced(ctx.store, run, synced);
   // Not listed by any index this machine knows of, or listed as it was before: the index gets an entry.
   const unindexed = !row || row.remoteHash === null;
   const index = fresh || unindexed || row.remoteHash !== hash;
   const entry = indexEntry(doc.run, doc.calls, hash, attemptOfRun(ctx.store, run));
-  // What both sides now agree on is the base of the next merge. remoteHash stays what the index
-  // lists, so until push() has written the segment this run counts as not yet in the store.
-  ctx.store.setTeamRun(rid, {
-    runId: run.runId,
-    state: row?.state === 'pulled' ? 'pulled' : 'pushed',
-    at: now(ctx),
-    base: synced,
-    baseHash: hash,
-    remoteHash: fresh ? null : (row?.remoteHash ?? null),
-    entry: entry as unknown as Record<string, unknown>,
+  ctx.store.transaction(() => {
+    // Read again after the round trip, under the write lock: a label or note added meanwhile is
+    // merged with what the store now holds instead of written over, and, differing from the base,
+    // goes up with the next push.
+    const current = ctx.store.getRun(run.runId);
+    if (current) {
+      const origin = madeHere(current.meta);
+      applySynced(ctx.store, current, reconcile(current.meta, synced, syncedMeta(run.meta), origin));
+    }
+    // What both sides now agree on is the base of the next merge. remoteHash stays what the index
+    // lists, so until push() has written the segment this run counts as not yet in the store.
+    ctx.store.setTeamRun(rid, {
+      runId: run.runId,
+      state: row?.state === 'pulled' ? 'pulled' : 'pushed',
+      at: now(ctx),
+      base: synced,
+      baseHash: hash,
+      remoteHash: fresh ? null : (row?.remoteHash ?? null),
+      entry: entry as unknown as Record<string, unknown>,
+    });
   });
   const kind = fresh || (index && unindexed) ? 'pushed' : wrote || index ? 'updated' : 'unchanged';
   return { kind, entry, index, repaired };
@@ -652,21 +661,29 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
 
 /** Merges the store's newer labels, notes and results for a run that is here into this machine's copy. */
 async function mergeRun(ctx: SyncContext, row: TeamRunRow): Promise<'merged' | 'needs-push' | 'same' | 'missing'> {
-  const run = ctx.store.getRun(row.runId);
+  if (!ctx.store.getRun(row.runId)) return 'missing';
   const got = await ctx.remote.get(keys.run(row.runId), { maxBytes: PACK_LIMITS.manifestBytes });
-  if (!run || !got) return 'missing';
+  if (!got) return 'missing';
   const doc = parseRunDoc(got.body, row.runId);
-  const merged = reconcile(run.meta, doc.run.meta, row.base, madeHere(run.meta));
-  const mergedHash = metaHash(merged);
   const remote = syncedMeta(doc.run.meta);
   const remoteHash = metaHash(remote);
-  const before = metaHash(run.meta);
-  applySynced(ctx.store, run, merged);
-  // The store's copy is the new base. remoteHash stays what the index lists: when the index is behind
-  // the copy (a push cut short before its segment), this machine's next push lists it again.
-  ctx.store.setTeamRun(remoteId(ctx), { ...row, state: row.state === 'listed' ? 'pulled' : row.state, at: now(ctx), base: remote, baseHash: remoteHash });
-  if (mergedHash !== remoteHash) return 'needs-push';
-  return mergedHash === before ? 'same' : 'merged';
+  // This machine's copy is read after the round trip, under the write lock: a label or note added
+  // while the store's copy was on its way is in it, so it is merged, not written over, and, as it
+  // differs from the store's, the next push sends it.
+  return ctx.store.transaction(() => {
+    const run = ctx.store.getRun(row.runId);
+    if (!run) return 'missing';
+    const rid = remoteId(ctx);
+    const current = ctx.store.teamRun(rid, row.runId) ?? row;
+    const merged = reconcile(run.meta, doc.run.meta, current.base, madeHere(run.meta));
+    const before = metaHash(run.meta);
+    applySynced(ctx.store, run, merged);
+    // The store's copy is the new base. remoteHash stays what the index lists: when the index is behind
+    // the copy (a push cut short before its segment), this machine's next push lists it again.
+    ctx.store.setTeamRun(rid, { ...current, state: current.state === 'listed' ? 'pulled' : current.state, at: now(ctx), base: remote, baseHash: remoteHash });
+    if (metaHash(merged) !== remoteHash) return 'needs-push';
+    return metaHash(merged) === before ? 'same' : 'merged';
+  });
 }
 
 /**

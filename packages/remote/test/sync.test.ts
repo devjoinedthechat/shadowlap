@@ -484,6 +484,60 @@ describe('labels and notes on more than one machine', () => {
     const doc = JSON.parse(remote.objects.get(keys.run(r.runId))!.body.toString()) as { run: RunRecord };
     expect(doc.run.meta?.labels?.sort()).toEqual(['from-a', 'from-b']);
   });
+
+  /** Runs `edit` once, while the machine waits for the store's run.json of `runId`. */
+  function whileFetching(remote: MemoryStore, runId: string, edit: () => void): void {
+    const get = remote.get.bind(remote);
+    let done = false;
+    remote.get = async (key, options) => {
+      const got = await get(key, options);
+      if (!done && key === keys.run(runId)) {
+        done = true;
+        edit();
+      }
+      return got;
+    };
+  }
+  const addLabel = (m: { store: Store }, runId: string, label: string) => m.store.updateRunMeta(runId, { labels: [...(m.store.getRun(runId)!.meta?.labels ?? []), label] });
+
+  it('keeps a label added while a pull merges the run, and sends it with the next push', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'labelled during a pull');
+    a.store.updateRunMeta(r.runId, { labels: ['good'] });
+    await push(a, { all: true });
+    await pull(b);
+    addLabel(a, r.runId, 'from-alice');
+    await push(a, { all: true });
+    // Maya labels the run while her pull waits for its run.json from the store.
+    whileFetching(remote, r.runId, () => addLabel(b, r.runId, 'from-bob'));
+    const pulled = await pull(b);
+    expect(pulled.merged).toEqual([r.runId]);
+    expect(pulled.needPush).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'good']);
+    await push(b, { all: true });
+    await pull(a);
+    expect(a.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'good']);
+  });
+
+  it('keeps a label added while a push merges the run, and sends it with the next push', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const b = machine(remote, 'maya@northwind.example');
+    const r = record(a.store, 'labelled during a push');
+    await push(a, { all: true });
+    await pull(b);
+    addLabel(a, r.runId, 'from-alice');
+    await push(a, { all: true });
+    addLabel(b, r.runId, 'from-bob');
+    whileFetching(remote, r.runId, () => addLabel(b, r.runId, 'from-bob-later'));
+    expect((await push(b, { all: true })).updated).toEqual([r.runId]);
+    expect(b.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'from-bob-later']);
+    expect((await push(b, { all: true })).updated).toEqual([r.runId]);
+    await pull(a);
+    expect(a.store.getRun(r.runId)!.meta?.labels?.sort()).toEqual(['from-alice', 'from-bob', 'from-bob-later']);
+  });
 });
 
 describe('a run that came here another way', () => {

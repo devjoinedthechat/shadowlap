@@ -146,7 +146,8 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted, as `gc`
   does, and sends it, and it counts as only on this machine until then.
 - **Labels and notes** merge both ways: something added on either machine is kept, something
-  removed on either is removed. A copy that never synced with the store (a golden unpacked in CI)
+  removed on either is removed, and one you add while a push or pull of that run is on its way
+  goes up with the next push. A copy that never synced with the store (a golden unpacked in CI)
   joins its labels and notes with the store's.
 - **Results** (blame, verify and check results) belong to the machine that made the run: its push
   writes them, and every other machine takes the store's.
