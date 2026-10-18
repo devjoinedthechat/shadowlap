@@ -10,13 +10,15 @@ import { Store } from '@shadowlap/engine';
 
 /**
  * What a captured HTTP call (a host under "http" in shadowlap.config.json) carries out of the
- * machine: an agent that calls a search service with its API key in the query string, recorded
- * with `shadowlap run`, then packed and exported. The key is forwarded and never stored, so no copy
- * holds it and a rotated key still replays.
+ * machine, recorded with `shadowlap run`, then packed and exported: an agent that calls a search
+ * service with its API key in the query string (the key is forwarded and never stored, so no copy
+ * holds it and a rotated key still replays), and one that looks a contact up by the address in the
+ * path, which the email rule masks in the call's name as in its URL, and the pack still replays.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
 const KEY = 'AIzaSyD-live-key-0123456789abcdef';
+const ADDRESS = 'alice.martin@example.com';
 let upstream: Server;
 let origin: string;
 const received: string[] = [];
@@ -31,11 +33,12 @@ beforeAll(async () => {
   await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
   origin = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-http-redact-')));
-  writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ http: { [new URL(origin).host]: 'read' } }));
+  writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ http: { [new URL(origin).host]: 'read' }, redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
   writeFileSync(
     join(cwd, 'agent.mjs'),
     `const res = await fetch(process.env.SEARCH_URL + '/customsearch/v1?key=' + process.env.SEARCH_KEY + '&q=refund');\nconsole.log('status', res.status, (await res.json()).items.length);\n`,
   );
+  writeFileSync(join(cwd, 'contact-agent.mjs'), `const res = await fetch(process.env.SEARCH_URL + '/crm/v1/contacts/${ADDRESS}');\nconsole.log('status', res.status);\n`);
 });
 afterAll(() => {
   upstream.close();
@@ -86,5 +89,35 @@ describe('a captured HTTP call', () => {
     expect(replay.code, replay.out).toBe(0);
     expect(replay.out).toMatch(/Replay clean: 1\/1 calls replayed/);
     expect(received).toHaveLength(1);
+  });
+
+  it("masks an address in its path in the call's name in every copy, and the pack still replays", async () => {
+    const recorded = await shadowlap(['run', '--', process.execPath, 'contact-agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const port = new URL(origin).port;
+
+    const preview = JSON.parse((await shadowlap(['redact', 'preview', runId, '--json'])).out) as { rules: Array<{ count: number; samples: Array<{ after: string }> }> };
+    expect(preview.rules[0]!.count).toBe(2);
+    // The call's name and its URL.
+    expect(preview.rules[0]!.samples).toHaveLength(2);
+    for (const x of preview.rules[0]!.samples) expect(x.after.endsWith(`127.0.0.1:${port}/crm/v1/contacts/<EMAIL>`), x.after).toBe(true);
+
+    expect((await shadowlap(['pack', runId, 'goldens/contact'])).code).toBe(0);
+    const packed = readTree(join(cwd, 'goldens', 'contact'));
+    expect(packed).not.toContain(ADDRESS);
+    expect(packed).toContain(`"name":"GET 127.0.0.1:${port}/crm/v1/contacts/<EMAIL>"`);
+    expect((await shadowlap(['export', 'html', runId, 'contact.html'])).code).toBe(0);
+    expect(readFileSync(join(cwd, 'contact.html'), 'utf8')).not.toContain(ADDRESS);
+    const otel = await shadowlap(['export', 'otel', runId]);
+    expect(otel.code).toBe(0);
+    expect(otel.out).not.toContain(ADDRESS);
+
+    // Where the pack is all there is, as CI replays it: the live call matches the masked one.
+    const before = received.length;
+    const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/contact']);
+    expect(ci.code, ci.out).toBe(0);
+    expect(ci.out).toMatch(/contact: 1\/1 replayed/);
+    expect(received).toHaveLength(before);
   });
 });

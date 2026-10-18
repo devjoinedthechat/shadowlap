@@ -42,7 +42,7 @@ import {
   type ToolFailure,
 } from '@shadowlap/engine';
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
-import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
+import { recordNotRecorded, redactedCallName, type OverrideSources } from '@shadowlap/engine';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, withoutCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
@@ -162,6 +162,11 @@ class RunContext {
     readonly clockRef: number | undefined = undefined,
     /** `--prompt-from`: model calls are matched without their system prompt and tool definitions. */
     readonly withoutPrompt = false,
+    /**
+     * The rules that redacted the parent, which masked its captured HTTP calls' names
+     * (redactedCallName): a live call is matched by its name masked the same way.
+     */
+    readonly redactions: Normalizer[] = [],
   ) {}
 
   warnOnce(tool: string, message: string): void {
@@ -376,6 +381,7 @@ export class Sidecar {
     // Whether the parent was recorded with what a person types (RunMeta.inputs); see the Session.
     let parentRecordsInput = false;
     let normalizers = this.normalizers;
+    let redactions: Normalizer[] = [];
     // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
     let ownCommand: string[] | undefined;
     if (input.mode === 'replay') {
@@ -385,7 +391,10 @@ export class Sidecar {
       const argv = input.command.argv;
       if (argv.length && (argv.length !== parent.command.argv.length || argv.some((a, i) => a !== parent.command.argv[i]))) ownCommand = argv;
       // A redacted recording matches only if the live request is masked the same way.
-      if (parent.meta?.redactions?.length) normalizers = [...normalizers, ...parent.meta.redactions];
+      if (parent.meta?.redactions?.length) {
+        redactions = parent.meta.redactions;
+        normalizers = [...normalizers, ...redactions];
+      }
       const stored = this.store.getCalls(input.parentRunId);
       // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
       parentStartedAt = parent.startedAt;
@@ -399,7 +408,7 @@ export class Sidecar {
         this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls)`);
       } else {
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers`);
-        parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined);
+        parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined, redactions);
       }
     }
     // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
@@ -430,7 +439,7 @@ export class Sidecar {
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: clockRef } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined));
+    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions));
     if (input.slot !== undefined) this.slots.set(input.slot, run.runId);
     this.activeRunId = run.runId;
     this.log(`run ${run.runId} started (${input.mode})`);
@@ -988,7 +997,8 @@ export class Sidecar {
     const name = `${method} ${origin.host}${subpath}`;
     const url = `${origin.origin}${subpath}${search}`;
     const args = { method, url: `${origin.origin}${subpath}${withoutCredentials(search)}`, ...requestBody };
-    const { fingerprint } = fingerprintTool(name, args, ctx.normalizers, ctx.clockRef);
+    // A redacted parent holds this call under its name masked (an address in the path): matched so.
+    const { fingerprint } = fingerprintTool(redactedCallName({ kind: 'tool', name, meta: { http: origin.host } }, ctx.redactions), args, ctx.normalizers, ctx.clockRef);
     const callNo = ctx.nextCallNo++;
     const effect = rule.effect;
     const scope = scopeOf(req);
@@ -1254,8 +1264,10 @@ export class Sidecar {
    * Normalizers are a matching-time concern: a recording made before a normalizer was added must
    * still match under it. So a parent's fingerprints (and, since fingerprints partition occurrences,
    * its occurrence numbers) are recomputed from the stored requests under the current normalizers.
+   * A captured HTTP call is fingerprinted under its name masked by the rules that redacted the
+   * parent (`redactions`), as proxyHttp fingerprints a live one; a redacted copy already holds it so.
    */
-  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false): CallRecord[] {
+  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false, redactions: Normalizer[] = []): CallRecord[] {
     const counts = new Map<string, number>();
     return calls.map((rec) => {
       let fingerprint = rec.fingerprint;
@@ -1269,7 +1281,7 @@ export class Sidecar {
           }
         } else if (rec.kind === 'tool' && rec.requestRef) {
           const req = this.store.getJson<{ args?: unknown }>(rec.requestRef);
-          fingerprint = fingerprintTool(rec.name, req?.args ?? null, normalizers, clockRef).fingerprint;
+          fingerprint = fingerprintTool(redactedCallName(rec, redactions), req?.args ?? null, normalizers, clockRef).fingerprint;
         }
       } catch (err) {
         this.log(`could not re-fingerprint call #${rec.callNo}: ${err instanceof Error ? err.message : String(err)}`);

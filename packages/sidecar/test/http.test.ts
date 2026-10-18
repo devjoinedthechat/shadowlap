@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { redactRun, Store } from '@shadowlap/engine';
 import { credentialParam, matchHttpRule, validHttpHost, withoutCredentials } from '../src/http.js';
 import { Sidecar } from '../src/index.js';
 
@@ -119,6 +119,51 @@ describe('credentials in a captured call', () => {
     } finally {
       await sidecar.close();
       store.close();
+      upstream.close();
+    }
+  });
+});
+
+describe('a captured call whose path holds what a rule masks', () => {
+  it('replays from a redacted copy, matched by its name masked as the copy masks it', async () => {
+    let hits = 0;
+    const upstream = createServer((req, res) => {
+      hits++;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ name: 'Alice Martin', plan: 'pro' }));
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const call = (base: string, runId: string) => fetch(`${base}/r/${runId}/http/crm/v1/contacts/alice.martin@example.com`, { headers: { 'x-shadowlap-upstream': `http://${host}` } }).then(async (r) => [r.status, await r.text()] as const);
+    const store = Store.open(':memory:');
+    const copy = Store.open(':memory:');
+    const recording = await Sidecar.start({ store, http: [{ host, effect: 'read' }] });
+    let replaying: Sidecar | null = null;
+    try {
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect((await call(recording.url, run.runId))[0]).toBe(200);
+      recording.endRun(run.runId, 'completed');
+      expect(store.getCalls(run.runId)[0]!.name).toBe(`GET ${host}/crm/v1/contacts/alice.martin@example.com`);
+
+      // A pack's copy: the address is masked in the call's name as in its URL.
+      redactRun(store, run.runId, [{ pattern: 'email', replace: '<EMAIL>' }], copy);
+      const [packed] = copy.getCalls(run.runId);
+      expect(packed!.name).toBe(`GET ${host}/crm/v1/contacts/<EMAIL>`);
+      expect(JSON.stringify([packed, copy.getJson(packed!.requestRef!)])).not.toContain('alice.martin');
+
+      // Replayed where the copy is all there is: the same call, served from it.
+      replaying = await Sidecar.start({ store: copy, http: [{ host, effect: 'read' }] });
+      const replay = replaying.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' } });
+      expect(await call(replaying.url, replay.runId)).toEqual([200, JSON.stringify({ name: 'Alice Martin', plan: 'pro' })]);
+      expect(replaying.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
+      expect(hits).toBe(1);
+      // The replay keeps the name it was called by.
+      expect(copy.getCalls(replay.runId)[0]!.name).toBe(`GET ${host}/crm/v1/contacts/alice.martin@example.com`);
+    } finally {
+      await recording.close();
+      await replaying?.close();
+      store.close();
+      copy.close();
       upstream.close();
     }
   });

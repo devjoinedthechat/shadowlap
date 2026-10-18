@@ -122,6 +122,31 @@ export function keptAsRecorded(call: Pick<CallScope, 'kind'>): boolean {
   return call.kind === 'clock' || call.kind === 'random';
 }
 
+/**
+ * A call's name as every copy writes it. A captured HTTP call (a host under "http" in the config) is
+ * named after the address the agent asked for, `GET api.example.com/contacts/alice@example.com`,
+ * so the rules without a path that apply to tool calls mask its name as they mask the address in its
+ * arguments. Any other call's name is the code's (a tool, a model API path) and stays as it is.
+ *
+ * A replay of the copy matches such a call by its masked name: the sidecar masks the live call's
+ * name with the copy's rules (`meta.redactions`) before it fingerprints it, so a pack still replays.
+ * A rule's `name` scope is left out here: it names the call before its name is masked, which a
+ * replay of the copy no longer can. `observer` hears each rule's change, by its place in `rules`.
+ */
+export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, rules: readonly Normalizer[], observer?: RewriteObserver): string {
+  if (call.kind !== 'tool' || typeof call.meta.http !== 'string') return call.name;
+  let name = call.name;
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined || (rule.kind !== undefined && rule.kind !== 'tool')) return;
+    const regex = compilePattern(rule.pattern);
+    regex.lastIndex = 0;
+    const next = name.replace(regex, rule.replace);
+    if (next !== name) observer?.changed?.(i, name, next, countMatches(name, regex));
+    name = next;
+  });
+  return name;
+}
+
 /** What a call got back as a copy writes it: `read` for a copy that is only read (redactBytes' `call`). */
 function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallScope, read: boolean): string | null {
   if (!ref) return null;
@@ -367,19 +392,23 @@ export interface RedactRunOptions {
 export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: Store, options: RedactRunOptions = {}): RunRecord {
   const run = src.getRun(runId);
   if (!run) throw new Error(`unknown run ${runId}`);
+  const calls = src.getCalls(runId);
+  // The divergence report names the call the run forked at: a captured HTTP call's name is masked as the call's is.
+  const forkedAt = run.divergence && calls.find((c) => c.callNo === run.divergence!.callNo && c.name === run.divergence!.name);
   const copy: RunRecord = {
     ...run,
     parentRunId: run.parentRunId && dst.getRun(run.parentRunId) ? run.parentRunId : null,
-    divergence: run.divergence ? redactDivergence(run.divergence, rules) : null,
+    divergence: run.divergence ? { ...redactDivergence(run.divergence, rules), ...(forkedAt ? { name: redactedCallName(forkedAt, rules) } : {}) } : null,
     // The run page's facts in the metadata (the hosts the guard named) are masked too.
     meta: redactRunFacts(redactMeta(run.meta, rules), rules),
   };
   dst.transaction(() => {
     dst.importRun(copy);
-    for (const call of src.getCalls(runId)) {
+    for (const call of calls) {
       const { end, attempts, ...start } = call;
-      dst.appendCallStart({ ...start, requestRef: redactRequest(src, call, rules, dst) });
-      const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };
+      const name = redactedCallName(call, rules);
+      dst.appendCallStart({ ...start, name, requestRef: redactRequest(src, call, rules, dst) });
+      const identity = { kind: call.kind, name, fingerprint: call.fingerprint, occurrence: call.occurrence };
       const results = options.read ? call : undefined;
       const redactEnd = (e: CallEndRow): CallEndRow => ({ ...e, meta: redactCallMeta(e.meta, rules, results), responseRef: redactResponse(src, e.responseRef, rules, dst, call, options.read === true) });
       for (const a of attempts) dst.appendCallEnd(identity, redactEnd(a));
@@ -929,10 +958,11 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     // A path rule that reaches what this call got back, in the copies that are read.
     const reaches = rules.some((r) => r.path !== undefined && reachesResultsOf(r, call));
     try {
-      // What redactRun copies, read through the functions it copies with: the request, then each
-      // attempt's response and error.
+      // What redactRun copies, read through the functions it copies with: a captured HTTP call's
+      // name, the request, then each attempt's response and error.
+      here = { call, in: 'request' };
+      redactedCallName(call, rules, observer);
       if (call.requestRef) {
-        here = { call, in: 'request' };
         const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
         applyNormalizers(request, rules, call.kind, call.name, observer);
       }

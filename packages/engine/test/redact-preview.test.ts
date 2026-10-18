@@ -239,6 +239,39 @@ describe('previewRedaction', () => {
     store.close();
   });
 
+  it("masks a captured HTTP call's name, the address it asked for, in every copy and counts it; any other call's name stays", () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const http = { kind: 'tool' as const, name: 'GET crm.internal:8080/v1/contacts/alice.martin@example.com', fingerprint: 'c'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...http, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { method: 'GET', url: 'http://crm.internal:8080/v1/contacts/alice.martin@example.com' } }), meta: { http: 'crm.internal:8080' }, at: 1 });
+    store.appendCallEnd(http, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { status: 200, headers: {}, body: { plan: 'pro' }, encoding: 'json' } }), outcome: 'ok', meta: {}, at: 2 });
+    // A tool named by the code, whatever a rule matches in its name.
+    addCall(store, run.runId, 2, 'tool', 'notify_bob@example.com', { args: {} }, [{ body: '{"result":true}' }]);
+    store.endRun(run.runId, 'completed');
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: http.name, replayedBefore: 0 });
+    for (const read of [false, true]) {
+      const dst = Store.open(':memory:');
+      redactRun(store, run.runId, [EMAIL], dst, { read });
+      expect(dst.getCalls(run.runId).map((c) => c.name)).toEqual(['GET crm.internal:8080/v1/contacts/<EMAIL>', 'notify_bob@example.com']);
+      expect(dst.getCalls(run.runId)[0]!.end!.outcome).toBe('ok');
+      expect(dst.getRun(run.runId)!.divergence!.name).toBe('GET crm.internal:8080/v1/contacts/<EMAIL>');
+      dst.close();
+    }
+    // A rule for model calls doesn't reach a tool's name, as it doesn't reach its arguments.
+    const dst = Store.open(':memory:');
+    redactRun(store, run.runId, [{ ...EMAIL, kind: 'api' }], dst);
+    expect(dst.getCalls(run.runId)[0]!.name).toBe(http.name);
+    dst.close();
+    const [r] = previewRedaction(store, run.runId, [EMAIL]).rules;
+    // The address in the call's name and in its URL: two strings the copy changes.
+    expect(r!.count).toBe(2);
+    expect(r!.samples).toEqual([
+      { before: '…crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…crm.internal:8080/v1/contacts/<EMAIL>' },
+      { before: '…//crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…//crm.internal:8080/v1/contacts/<EMAIL>' },
+    ]);
+    store.close();
+  });
+
   it('masks the command line as one text in every copy, as the preview counts it, and cuts it back into its arguments', () => {
     const KEY: Normalizer = { pattern: '/(?<=--api-key )\\S+/', replace: '<KEY>' };
     const argv = ['node', 'agent.mjs', '--api-key', 'sk-live-abc123def456ghi789', '--note', 'for erin@example.com today'];
