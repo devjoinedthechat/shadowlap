@@ -76,14 +76,15 @@ describe('--watch and what a replay writes itself', () => {
           writeFileSync(join(dir, 'scratch.tmp'), 'x');
           rmSync(join(dir, 'scratch.tmp'));
           if (editDuringRun) writeFileSync(join(dir, 'prompt.md'), 'edited while it ran\n');
-          await sleep(300);
+          // Long enough for the file system to report those writes while it runs, on a busy machine too.
+          await sleep(1_000);
           writeFileSync(join(dir, 'summary.json'), '{}\n');
         },
       });
       await until(() => logs.some((l) => l.startsWith('watching')), 10_000, 'the first replay');
       expect(runs).toBe(1);
-      // However many of its writes the file system reported while it ran: macOS may fold some together.
-      expect(logs.join('\n')).toMatch(/changed while the replay ran: taken for the replay's own writes?, so no replay follows/);
+      // The first replay starts as watching does: macOS may not report its writes at all, so only
+      // what follows from them is checked here. Whatever was reported is taken for its own.
       await sleep(1_500);
       expect(runs, 'its own writes start no replay').toBe(1);
 
@@ -98,7 +99,9 @@ describe('--watch and what a replay writes itself', () => {
       await until(() => runs === 3, 10_000, 'the replay after a second save');
       await sleep(1_500);
       expect(runs).toBe(3);
-      expect(logs.at(-1)).toMatch(/prompt\.md/);
+      // However many of its writes the file system reported while it ran (macOS may fold some
+      // together), the save among them is named, and taken for one of its own.
+      expect(logs.at(-1)).toMatch(/prompt\.md.* changed while the replay ran: taken for the replay's own writes?, so no replay follows/);
       stop.abort();
       await watching;
     } finally {
