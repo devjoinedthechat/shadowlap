@@ -359,10 +359,12 @@ The `--json` report is `{ version, session, revision, passed, failed, interrupte
 ## bisect
 
 ```sh
-shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [--json]
+shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [-y] [--json] [-- <command>]
 ```
 
 [Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a replay that ends before its recording does, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one. The answer is kept in the project's activity either way: the first bad commit, or why there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of them can't be tested), with the golden's newest test result as the search started, the failure it answers. The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then: not once it passed, and never over a later failure (an answer given while the golden passed answers none). A search stopped with Ctrl-C keeps nothing.
+
+Each replay runs the recorded command, or the one after `--`, in the commit's worktree. A run from someone else's pack, or pulled from the [team store](./team.md), carries a command someone else chose, which would run at every commit: bisect asks first, as `replay` does, and with no terminal to ask in it refuses (exit status 1) unless given `--yes`. A golden is the project's own and runs as `test` runs it.
 
 | Option | Effect |
 |---|---|
@@ -372,6 +374,8 @@ shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>]
 | `--cwd <dir>` | Where the recorded command runs, inside the repository (default: the current directory) |
 | `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
+| `-y, --yes` | Run the recorded command of a run from a pack or the team store at each commit without asking |
+| `-- <command>` | The agent's command to run at each commit instead of the recorded one |
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
 
 `--json` prints `{ outcome, target, good, bad, commits, steps, first, untested, why, replays, tokens, upstreamRequests, spent, seconds }`: the `outcome` (`found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped`, with `why` when there is no answer), the `target` (`kind` `golden` or `run`, its `name` and `runId`), the `good` and `bad` commits and the `commits` between them, each replay in `steps` (`rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds`), the `first` bad commit with `why` it fails there, the `untested` commits just before it, and what it took: `replays`, `tokens`, `upstreamRequests`, USD `spent` and `seconds`. A commit is `{ rev, short, subject, author, date }`.

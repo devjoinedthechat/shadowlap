@@ -5,7 +5,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
-import { BisectError, formatBisect, runBisect } from '../bisect.js';
+import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
 import { specFor } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { readExpect } from './fix.js';
@@ -17,7 +17,7 @@ import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, type GuardMode } from '../run-agent.js';
-import { ancestorsOf, openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { takeoverReader } from '../tasks.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
@@ -362,6 +362,7 @@ export function register(program: Command): void {
     .command('bisect')
     .description('Find the commit that broke a golden or a run: replay it at commits between a good one and a bad one, halving each time, each in a temporary git worktree. Replays are offline, so it costs no tokens.')
     .argument('<recording>', 'a golden (a directory written by shadowlap pack) or a run id')
+    .argument('[command...]', 'the agent\'s command to run at each commit instead of the recorded one (after "--")')
     .requiredOption('--good <rev>', 'a commit where it still passed')
     .option('--bad <rev>', 'a commit where it fails (default: HEAD)', 'HEAD')
     .option('--expect <json|@file>', 'checks the replay must pass besides exiting 0 (default: the golden\'s under "tests" in shadowlap.config.json)')
@@ -370,13 +371,17 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option('-y, --yes', 'run the recorded command of a run from a pack or the team store at each commit without asking')
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
-    .action(async (target: string, flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; json?: boolean }) => {
+    .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       try {
         const report = await runBisect({
           opts,
           target,
+          ...(command.length ? { argv: command } : {}),
+          // A command someone else chose runs at every commit only with consent, as a replay of it does.
+          confirm: flags.yes ? async () => true : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
           good: flags.good,
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,
@@ -396,7 +401,8 @@ export function register(program: Command): void {
       } catch (err) {
         if (!(err instanceof BisectError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');
-        else process.stderr.write(`${p.red('✗')} ${err.message}\n`);
+        // Declined: the question, or why it couldn't be asked, is already on the terminal.
+        else if (!(err instanceof BisectDeclined)) process.stderr.write(`${p.red('✗')} ${err.message}\n`);
         process.exitCode = 1;
       }
     });

@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
 import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
@@ -50,6 +50,21 @@ export interface BisectInput {
   log: (line: string) => void;
   /** The project, for the config and the store (default: the current directory). */
   projectDir?: string;
+  /** The agent's command to run at each commit instead of the recorded one (given after `--`). */
+  argv?: string[];
+  /**
+   * Asked before a run whose recorded command someone else chose (a run from a pack, or pulled from
+   * the team store) is run at every commit; false refuses. Without it, such a run is refused.
+   */
+  confirm?: (run: RunRecord, argv: string[]) => Promise<boolean>;
+}
+
+/** The recorded command of a run from someone else was not run: the person said no, or could not be asked. */
+export class BisectDeclined extends BisectError {
+  constructor(name: string) {
+    super(`not run: ${name}'s recorded command came from someone else, and running it at every commit needs your consent (--yes), or give your own command after --`);
+    this.name = 'BisectDeclined';
+  }
 }
 
 export interface BisectCommit {
@@ -185,12 +200,16 @@ export function linkDependencies(root: string, from: string, to: string, worktre
   return linked;
 }
 
-/** The recording to bisect, copied into a store of its own: replays at old commits never touch the project's. */
-function loadTarget(input: BisectInput, projectDir: string, store: Store): { run: RunRecord; kind: 'golden' | 'run'; name: string; golden: string | null } {
+/**
+ * The recording to bisect, copied into a store of its own: replays at old commits never touch the
+ * project's. `imported` says whether a run's command came from someone else, as the project's store
+ * has it (every copy is marked imported); a golden is the project's own, as under `shadowlap test`.
+ */
+function loadTarget(input: BisectInput, projectDir: string, store: Store): { run: RunRecord; kind: 'golden' | 'run'; name: string; golden: string | null; imported: boolean } {
   const dir = resolve(projectDir, input.target);
   if (existsSync(join(dir, 'run.json')) && statSync(dir).isDirectory()) {
     const golden = goldenName(input.target, projectDir);
-    return { run: importGolden(store, dir), kind: 'golden', name: golden, golden };
+    return { run: importGolden(store, dir), kind: 'golden', name: golden, golden, imported: false };
   }
   const project = openStore(input.opts);
   const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-bisect-'));
@@ -202,7 +221,7 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
     if (found.status === 'running' && project.recordingRuns().live.some((r) => r.run.runId === found.runId)) throw new BisectError(`${shortId(found.runId)} is still recording: find the commit once it has ended`);
     packRun(project, found.runId, scratch);
     unpackRun(store, scratch);
-    return { run: store.getRun(found.runId)!, kind: 'run', name: shortId(found.runId), golden: found.meta?.test?.golden ?? null };
+    return { run: store.getRun(found.runId)!, kind: 'run', name: shortId(found.runId), golden: found.meta?.test?.golden ?? null, imported: commandIsImported(found) };
   } finally {
     project.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -269,9 +288,21 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     store.close();
     throw err instanceof BisectError ? err : new BisectError((err as Error).message);
   }
-  if (!hasRecordedCommand(target.run)) {
+  const own = input.argv?.length ? input.argv : null;
+  if (!own && !hasRecordedCommand(target.run)) {
     store.close();
-    throw new BisectError(`${target.name} was imported from a capture and has no command to run at each commit. Replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
+    throw new BisectError(`${target.name} was imported from a capture and has no command to run at each commit. Give your agent's command after --, or replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
+  }
+  // A run from someone else's pack, or pulled from the team store, carries a command someone else
+  // chose, and it would run at every commit: it needs consent, as a replay of it does.
+  if (!own && target.imported) {
+    let ok = false;
+    try {
+      ok = input.confirm ? await input.confirm(target.run, target.run.command.argv) : false;
+    } finally {
+      if (!ok) store.close();
+    }
+    if (!ok) throw new BisectDeclined(target.name);
   }
   // The failure this search answers: the golden's newest result now. Tests shows the answer only
   // while that failure is the golden's latest run of failures, not over a later, unrelated one.
@@ -331,7 +362,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
         const b = spawnSync(input.build, { cwd: worktreeCwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
         if (b.status !== 0) return done(false, true, `could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${input.build} exited ${b.status ?? b.signal}`}`);
       }
-      const argv = mapArgv(target.run.command.argv, { root, worktree, cwd, worktreeCwd });
+      const argv = mapArgv(own ?? target.run.command.argv, { root, worktree, cwd, worktreeCwd });
       let outcome: Awaited<ReturnType<typeof testRecording>>;
       try {
         outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped: () => stopped });
