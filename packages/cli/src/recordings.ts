@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { divergenceLine, finalAnswer, formatDivergence, formatSummary, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
+import { divergenceLine, finalAnswer, formatDivergence, formatSummary, packRun, TEST_COMMAND, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 
@@ -109,7 +109,8 @@ export class RecordingHost {
     }
     const exists = existsSync(join(dir, 'run.json'));
     const rel = relative(this.root, dir).split('\\').join('/');
-    const command = { argv: Array.isArray(body.command) && body.command.every((a) => typeof a === 'string') ? (body.command as string[]) : ['<test>', String(body.name ?? rel)], cwd: this.root };
+    // A test that gives no command starts its agent itself: the run names the test, and has no command to run again.
+    const command = { argv: Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? (body.command as string[]) : [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
     if (mode === 'all' || (!exists && mode === 'missing')) {
       const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot });
       stampAuthor(this.store, run.runId);

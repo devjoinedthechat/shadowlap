@@ -297,7 +297,7 @@ Runs, newest first, with their labels; `--tree` nests forks under their parents.
 | Field | |
 |---|---|
 | `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null`. A replay that stopped before its recording did has `type` `ended_early` at the first recorded call it never made, and lists as `ended early @n`, never as a clean replay |
-| `hasCommand` | `false` for a run imported from a capture or recorded through [`serve`](#serve): it has no command, so replaying it needs yours after `--` |
+| `hasCommand` | `false` for a run imported from a capture, recorded through [`serve`](#serve), or recorded by a test that gave no command (its command reads `<test>` and the test's name): it has no command, so replaying it needs yours after `--` |
 | `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md) (then `from` is the store's URL, `s3://…`, `gs://…`, `az://…` or `r2://…`), or `null` |
 | `partial` | the kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
 | `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |

@@ -1,6 +1,6 @@
 import { hostname } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { NO_COMMAND, recordBlame, recordEvent, Store, type TestResultData } from '@shadowlap/engine';
+import { EXTERNAL_COMMAND, NO_COMMAND, recordBlame, recordEvent, Store, TEST_COMMAND, type TestResultData } from '@shadowlap/engine';
 import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
 import { asksForAll, bisectChoices, bisectJob, checkedRevision, failingTests, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob, type GoldenSource } from '../src/tests.js';
 
@@ -763,6 +763,13 @@ describe('Find the commit from a run', () => {
     const capture = store.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY });
     store.endRun(capture.runId, 'failed', T0 + 5 * DAY + 1);
     expect(bisectChoices(store, capture.runId, { goldens: [] })!.unavailable).toMatch(/^this run was imported from a capture, so there is no command to run at each commit: replay it once with your agent \(shadowlap replay \w+ -- <command>\)/);
+    // Recorded through serve, or by a test that starts its agent itself: no command either, and it says which.
+    const served = store.createRun({ mode: 'record', command: { argv: [EXTERNAL_COMMAND], cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY });
+    store.endRun(served.runId, 'failed', T0 + 5 * DAY + 1);
+    expect(bisectChoices(store, served.runId, { goldens: [] })!.unavailable).toMatch(/^this run was recorded through shadowlap serve, so there is no command to run at each commit/);
+    const tested = store.createRun({ mode: 'record', command: { argv: [TEST_COMMAND, 'refunds a delivered order'], cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY });
+    store.endRun(tested.runId, 'failed', T0 + 5 * DAY + 1);
+    expect(bisectChoices(store, tested.runId, { goldens: [] })!.unavailable).toMatch(/^this run was recorded by a test run, so there is no command to run at each commit/);
     // A replay that exited 0 but failed a check, of a golden no longer on disk or in the config: no check to judge each commit by.
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/gone'] });
     const checked = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'fff6666', startedAt: T0 + 5 * DAY, meta: { test: { golden: 'goldens/gone', session: s.sessionId }, checks: [{ ok: false, label: 'escalate called 1 time', detail: 'called 0 times' }] } });

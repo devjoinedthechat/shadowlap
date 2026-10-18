@@ -74,7 +74,7 @@ Call it when a test starts, before the agent runs.
 | `slot` | yes | This worker's slot. |
 | `mode` | no | `missing` (default): replay when a recording exists, record when it does not. `all`: always record. `none`: only replay, and fail when there is nothing to replay. |
 | `name` | no | The test's name, used in the run's command line when none is given. |
-| `command` | no | The command to record as the run's own, for `shadowlap replay` later. |
+| `command` | no | The command to record as the run's own, for `shadowlap replay` later. Without one the run records `<test>` and the test's name, and has no command to run again: replaying it, finding its commit or forking it needs yours after `--`, as for a capture. |
 
 ```json
 { "runId": "01K5CQ4N7G…", "mode": "record", "recording": "tests/recordings/refund-flow" }

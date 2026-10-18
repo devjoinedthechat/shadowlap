@@ -320,10 +320,27 @@ export const NO_COMMAND = '<no-recorded-command>';
 export const EXTERNAL_COMMAND = '<external>';
 
 /**
+ * What a run recorded by a test carries instead of a command, followed by the test's name: a
+ * Vitest or node:test recording, or a Python one that gave no command, starts its agent inside the
+ * test, so there is nothing to run again on its own. (pytest's plugin gives `pytest <test id>`.)
+ */
+export const TEST_COMMAND = '<test>';
+
+/**
  * Whether the run knows how to start its agent. Replaying one that does not needs the agent's own
  * command supplied; the replay that results records everything, so it has a command of its own.
  */
 export function hasRecordedCommand(run: { command: { argv: readonly string[] } }): boolean {
   const argv = run.command.argv;
-  return argv.length > 0 && !(argv.length === 1 && (argv[0] === NO_COMMAND || argv[0] === EXTERNAL_COMMAND));
+  return argv.length > 0 && argv[0] !== TEST_COMMAND && !(argv.length === 1 && (argv[0] === NO_COMMAND || argv[0] === EXTERNAL_COMMAND));
+}
+
+/**
+ * How a run came to have no command to run again (`hasRecordedCommand` false), as the middle of a
+ * sentence: `shadowlap serve` never saw what started the agent, a test started it inside itself, and
+ * a capture records what was sent, not what sent it.
+ */
+export function withoutCommand(run: { command: { argv: readonly string[] } }): string {
+  const first = run.command.argv[0];
+  return first === EXTERNAL_COMMAND ? 'was recorded through shadowlap serve' : first === TEST_COMMAND ? 'was recorded by a test run' : 'was imported from a capture';
 }

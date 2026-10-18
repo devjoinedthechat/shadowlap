@@ -50,7 +50,7 @@ export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, forma
 export type { ModelResolver, SummaryOptions } from './report.js';
 export { DEFAULT_PRICES, canonicalModel, estimateCost, formatDuration, formatUsd, priceFor, shortModel } from './prices.js';
 export type { Price } from './prices.js';
-export { EXTERNAL_COMMAND, NO_COMMAND, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, asTheyStand, commandIsImported, hasRecordedCommand, importedCommandSource, packRun, unpackRun, writePackAttributes } from './pack.js';
+export { EXTERNAL_COMMAND, NO_COMMAND, PACK_FORMAT, PACK_GITATTRIBUTES, PACK_VERSION, TEST_COMMAND, asTheyStand, commandIsImported, hasRecordedCommand, importedCommandSource, packRun, unpackRun, withoutCommand, writePackAttributes } from './pack.js';
 export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { quoteArgv, safeLine, safeText } from './text.js';

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hasRecordedCommand, Store } from '@shadowlap/engine';
+import { hasRecordedCommand, Store, withoutCommand } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { envLines } from '../src/commands/testing.js';
 
@@ -104,5 +104,24 @@ describe('a run serve recorded, before this one too', () => {
     expect(hasRecordedCommand(old)).toBe(false);
     expect(hasRecordedCommand({ command: { argv: ['<external>', 'x'] } })).toBe(true);
     store.close();
+  });
+});
+
+describe('a run a test recorded without a command', () => {
+  it('has none to run again: replay asks for one after --, ls says so, and nothing tries to start the placeholder', async () => {
+    // As the recordings host stores a Vitest, node:test or Python recording that gave no command.
+    const db = join(project, 'tests.db');
+    const store = Store.open(db);
+    const recorded = store.createRun({ mode: 'record', command: { argv: ['<test>', 'refunds a delivered order'], cwd: project } });
+    store.endRun(recorded.runId, 'completed');
+    store.close();
+    expect(hasRecordedCommand(recorded)).toBe(false);
+    expect(withoutCommand(recorded)).toBe('was recorded by a test run');
+    const ls = await shadowlap(['--db', db, 'ls', '--json']);
+    expect(JSON.parse(ls.stdout)).toEqual([expect.objectContaining({ runId: recorded.runId, hasCommand: false })]);
+    const r = await shadowlap(['--db', db, 'replay', recorded.runId]);
+    expect(r.code, r.out).toBe(1);
+    expect(r.out).toContain(`${recorded.runId.slice(0, 10)} was recorded by a test run, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --`);
+    expect(r.out).not.toContain('<test>');
   });
 });
