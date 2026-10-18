@@ -25,7 +25,7 @@ export interface StreamPiece {
 /**
  * The pieces of streamed text one event of a provider's stream carries, in order: Anthropic's
  * content block deltas (Claude on Bedrock and Vertex too), OpenAI Chat Completions chunks (Azure and
- * compatible servers too), Responses API `….delta` events, Gemini and Vertex chunks, Bedrock
+ * compatible servers too) and text completions chunks, Responses API `….delta` events, Gemini and Vertex chunks, Bedrock
  * ConverseStream deltas, and other models' native streams on Bedrock.
  */
 export function streamPieces(event: unknown): StreamPiece[] {
@@ -46,7 +46,10 @@ export function streamPieces(event: unknown): StreamPiece[] {
   }
   if (Array.isArray(event.choices)) {
     event.choices.forEach((choice, n) => {
-      if (!isObject(choice) || !isObject(choice.delta)) return;
+      if (!isObject(choice)) return;
+      // A text completion's chunk (`/v1/completions`, which OpenAI-compatible servers such as vLLM
+      // serve) carries its text in the choice itself, with no delta.
+      if (!isObject(choice.delta)) return add(`completion ${at(choice.index, n)}`, choice, 'text');
       const c = `chat ${at(choice.index, n)}`;
       for (const key of ['content', 'reasoning_content', 'reasoning', 'refusal']) add(`${c} ${key}`, choice.delta, key);
       if (Array.isArray(choice.delta.tool_calls)) {

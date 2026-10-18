@@ -84,6 +84,32 @@ describe('redactBytes on a streamed response', () => {
     expect(out.toString()).toMatch(/data: \[DONE\]\n\n$/);
   });
 
+  it('OpenAI-compatible text completions: choice text split across chunks, two choices apart', () => {
+    const chunk = (index: number, text: string) => ({ object: 'text_completion', choices: [{ index, text, logprobs: null, finish_reason: null }] });
+    const body = Buffer.from(
+      sse([
+        [null, chunk(0, 'Sent to ma')],
+        [null, chunk(1, 'Key sk-li')],
+        [null, chunk(0, 'ya@exam')],
+        [null, chunk(1, 've-9f8e7d.')],
+        [null, chunk(0, 'ple.com today.')],
+        [null, '[DONE]'],
+      ]),
+    );
+    const out = redactBytes(body, RULES);
+    expect(out.toString()).not.toMatch(LEAKS);
+    const events = out
+      .toString()
+      .split('\n\n')
+      .filter((e) => e.startsWith('data: {'))
+      .map((e) => JSON.parse(e.slice(6)) as { choices: Array<{ index: number; text: string; logprobs: null }> });
+    const choice = (n: number) => events.flatMap((e) => e.choices.filter((c) => c.index === n).map((c) => c.text)).join('');
+    expect(choice(0)).toBe('Sent to <EMAIL> today.');
+    expect(choice(1)).toBe('Key <KEY>.');
+    expect(events.every((e) => e.choices[0]!.logprobs === null)).toBe(true);
+    expect(out.toString()).toMatch(/data: \[DONE\]\n\n$/);
+  });
+
   it('OpenAI Responses: output text deltas, and the whole text the done events repeat', () => {
     const body = Buffer.from(
       sse([
