@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { finalAnswer, formatDivergence, formatSummary, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
+import { finalAnswer, formatDivergence, formatSummary, heldFrom, packRun, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 
@@ -117,9 +117,16 @@ export class RecordingHost {
       return { runId: run.runId, mode: 'record', recording: rel };
     }
     if (!exists) throw new HttpError(404, `no recording at ${rel}. Record it by running the test without SHADOWLAP_RECORD=none (the default outside CI).`);
-    const { imported, skipped } = unpackRun(this.store, dir);
+    const { imported, skipped, mismatched } = unpackRun(this.store, dir);
     const parentRunId = imported.at(-1) ?? skipped.at(-1);
     if (!parentRunId) throw new HttpError(422, `${rel} contains no runs`);
+    // A test replays its own recording, never another the store holds under the same run id (a
+    // recording folder copied to another test and recorded again by hand). The test's own command
+    // runs, so only the calls matter.
+    if (mismatched.some((m) => m.runId === parentRunId && m.calls)) {
+      const held = this.store.getRun(parentRunId)!;
+      throw new HttpError(409, `${rel}: the store already holds another recording under its run id ${parentRunId.slice(0, 10)} (${heldFrom(held)}), and its calls differ from the recording's. Delete the store's copy (shadowlap rm ${parentRunId.slice(0, 10)}) to replay this one, or record this test again with SHADOWLAP_RECORD=all.`);
+    }
     const covers = this.store.getRun(parentRunId)?.meta?.covers;
     const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) } });
     stampAuthor(this.store, run.runId);

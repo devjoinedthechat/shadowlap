@@ -442,7 +442,12 @@ export function register(program: Command): void {
         store.close();
       }
       for (const { runId, argv } of result.commands) process.stdout.write(`imported ${runId}  ${p.dim(`command: ${safe(quoteArgv(argv))}`)}\n`);
-      for (const id of result.skipped) process.stdout.write(p.dim(`skipped ${id} (already present)\n`));
+      for (const id of result.skipped) {
+        // The store's run under that id may be another recording: it stays as it is, and is not the pack's.
+        const other = result.mismatched.find((m) => m.runId === id);
+        if (other) process.stdout.write(p.yellow(`skipped ${id}: the store already holds another recording under this id (${other.calls ? 'other calls' : 'another command'}), kept as it is\n`));
+        else process.stdout.write(p.dim(`skipped ${id} (already present)\n`));
+      }
       // A dashboard job opens what it brought in: the pack's own run, which comes after its ancestors.
       for (const runId of result.imported) emitJobEvent({ type: 'run', runId, role: 'imported' });
       emitJobEvent({ type: 'result', data: { imported: result.imported, skipped: result.skipped } });

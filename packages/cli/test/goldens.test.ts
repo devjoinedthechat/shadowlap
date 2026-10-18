@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { packRun, Store } from '@shadowlap/engine';
+import { packRun, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
 import { parseTests } from '../src/checks.js';
 import { givenCommand } from '../src/commands/testing.js';
 import { importGolden } from '../src/golden-test.js';
@@ -90,5 +90,85 @@ describe('importing a golden', () => {
     store.deleteRun(parent.runId);
     expect(importGolden(store, join(project, 'elsewhere', 'lineage')).runId).toBe(fork.runId);
     store.close();
+  });
+});
+
+describe('a golden whose run id the store already holds as another recording', () => {
+  /** A finished recording of one model call about a ticket, from `argv`. */
+  function recordTicket(store: Store, ticket: string, argv = ['node', 'agent.mjs', ticket]) {
+    const run = store.createRun({ mode: 'record', command: { argv, cwd: '/p' } });
+    const req = storeApiRequest(store, { model: 'm', system: 'Support agent. Escalate to ops@northwind.example.', messages: [{ role: 'user', content: `ticket ${ticket}` }] });
+    const res = store.putBlob(Buffer.from(`event: message_start\ndata: {"text":"refund ${ticket}"}\n\n`));
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: req, meta: { provider: 'anthropic' }, at: 1 });
+    store.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: res, outcome: 'ok', meta: { status: 200 }, at: 2 });
+    store.endRun(run.runId, 'completed');
+    return store.getRun(run.runId)!;
+  }
+  const editPack = (dir: string, edit: (m: { runs: Array<{ command: { argv: string[] }; meta?: Record<string, unknown> }> }) => void) => {
+    const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8'));
+    edit(m);
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(m));
+  };
+
+  it("replays its own pack's command, never the command of the store's copy", () => {
+    const source = Store.open(':memory:');
+    const run = recordTicket(source, 'A-1042');
+    const golden = join(project, 'goldens', 'ticket-1042');
+    packRun(source, run.runId, golden);
+    source.close();
+
+    // A pack someone sent reuses the golden's run id with a command of its own, and is unpacked here.
+    const sent = mkdtempSync(join(tmpdir(), 'sl-sent-'));
+    cpSync(golden, sent, { recursive: true });
+    editPack(sent, (m) => (m.runs[0]!.command.argv = ['sh', '-c', 'echo owned > PWNED.txt; node agent.mjs A-1042']));
+    const store = Store.open(':memory:');
+    unpackRun(store, sent);
+    expect(importGolden(store, golden).command.argv).toEqual(['node', 'agent.mjs', 'A-1042']);
+
+    // A golden copied and given another ticket replays the original's recording with its own command,
+    // in a store that holds the original, as it does alone.
+    const copy = join(project, 'goldens', 'ticket-1077');
+    cpSync(golden, copy, { recursive: true });
+    editPack(copy, (m) => (m.runs[0]!.command.argv = ['node', 'agent.mjs', 'A-1077']));
+    expect(importGolden(store, copy)).toMatchObject({ runId: run.runId, command: { argv: ['node', 'agent.mjs', 'A-1077'] } });
+    // The store's copy itself is left as it was.
+    expect(store.getRun(run.runId)!.command.argv[0]).toBe('sh');
+    store.close();
+    rmSync(sent, { recursive: true, force: true });
+  });
+
+  it('fails when the calls differ, naming where the store got its copy', () => {
+    const source = Store.open(':memory:');
+    const run = recordTicket(source, 'A-1042');
+    const golden = join(project, 'goldens', 'ticket-calls');
+    packRun(source, run.runId, golden);
+    source.close();
+    // A pull request's folder held the run with another answer, and was pulled with --include-pr.
+    const store = Store.open(':memory:');
+    store.importRun({ ...run, meta: { imported: { at: 1, from: 's3://team/support-agent/pr/12', pr: '12' } } });
+    const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'm', messages: [{ role: 'user', content: 'ticket A-1042' }] }), meta: {}, at: 1 });
+    store.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from('event: message_start\ndata: {"text":"all good"}\n\n')), outcome: 'ok', meta: { status: 200 }, at: 2 });
+    expect(() => importGolden(store, golden)).toThrow(`the store already holds another recording under this golden's run id ${run.runId.slice(0, 10)} (pulled from pull request 12's folder in the team store), and its calls differ from the pack's`);
+    store.close();
+  });
+
+  it('replays the run recorded here when the golden is its redacted pack', () => {
+    const store = Store.open(':memory:');
+    const run = recordTicket(store, 'A-1042');
+    const golden = join(project, 'goldens', 'ticket-redacted');
+    packRun(store, run.runId, golden, { redact: [{ pattern: 'email', replace: '<EMAIL>' }] });
+    expect(readFileSync(join(golden, 'run.json'), 'utf8')).toContain('<EMAIL>');
+    expect(importGolden(store, golden)).toEqual(run);
+    // Packed again with one more rule, on top of a store that holds a redacted copy: the same recording.
+    const other = Store.open(':memory:');
+    unpackRun(other, golden);
+    const again = join(project, 'goldens', 'ticket-redacted-more');
+    packRun(other, run.runId, again, { redact: [{ pattern: '/refund A-\\d+/', replace: '<ANSWER>' }] });
+    expect(importGolden(other, again).runId).toBe(run.runId);
+    expect(() => importGolden(Store.open(':memory:'), again)).not.toThrow();
+    store.close();
+    other.close();
   });
 });

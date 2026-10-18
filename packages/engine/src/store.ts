@@ -1328,6 +1328,19 @@ export class Store {
       );
   }
 
+  /**
+   * Puts another copy of a run in place of the one held (a pull's copy of a run that a pull
+   * request's folder brought first): the held record and its calls go, the copy's record comes in
+   * for the caller to append its calls, and the runs made from it stay linked to it.
+   */
+  replaceRun(run: RunRecord): void {
+    const children = this.childRuns(run.runId).map((r) => r.runId);
+    this.deleteRun(run.runId);
+    this.importRun(run);
+    const link = this.db.prepare(`UPDATE runs SET parent_run_id = ? WHERE run_id = ?`);
+    for (const child of children) link.run(run.runId, child);
+  }
+
   endRun(runId: string, status: Exclude<RunStatus, 'running'>, endedAt: number = Date.now()): void {
     this.stmts.endRun.run(status, endedAt, runId);
     this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);

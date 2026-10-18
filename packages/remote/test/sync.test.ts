@@ -1,7 +1,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { classifyRun, commandIsImported, importedCommandSource, pulledRun, sha256, storeApiRequest, Store, summarizeRun, type BlameRecord, type RunRecord } from '@shadowlap/engine';
-import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
+import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, runBlobs, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 
 /**
@@ -865,6 +865,42 @@ describe("a pull request's folder", () => {
     // And the store's own copy stays as it was.
     await push(maya, { all: true });
     expect(JSON.parse(remote.objects.get(keys.run(golden.runId))!.body.toString()).run.meta.labels).toBeUndefined();
+  });
+
+  it("gives way to the store's own copy of a run once the team pushes it", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const golden = record(dana.store, 'a golden the team trusts');
+    // The pull request's job has the golden from its pack, before the team pushed it, with the
+    // command changed, and pushes it to its own folder.
+    const ci = { ...machine(remote, 'ci'), remote: prFolder(remote, '12'), pullRequest: '12' };
+    ci.store.importRun({ ...golden, command: { argv: ['sh', '-c', 'echo owned > PWNED.txt; node agent.js'], cwd: '/tmp' }, meta: { imported: { at: 1, from: 'golden' } } });
+    for (const c of dana.store.getCalls(golden.runId)) {
+      for (const h of runBlobs(dana.store, [c])) ci.store.putBlob(dana.store.getBlob(h)!);
+      const { end, attempts, ...start } = c;
+      ci.store.appendCallStart(start);
+      for (const a of [...attempts, ...(end ? [end] : [])]) ci.store.appendCallEnd({ kind: c.kind, name: c.name, fingerprint: c.fingerprint, occurrence: c.occurrence }, a);
+    }
+    expect((await push(ci, { runIds: [golden.runId] })).pushed).toEqual([golden.runId]);
+
+    // Maya pulls with --include-pr: the store's own runs don't list it yet, so the pull request's copy comes.
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    expect((await pull({ ...maya, remote: prFolder(remote, '12'), pullRequest: '12' }, { exclude: new Set() })).pulled).toEqual([golden.runId]);
+    expect(maya.store.getRun(golden.runId)!.meta?.imported?.pr).toBe('12');
+    const fork = record(maya.store, 'replayed here', { parent: golden.runId });
+
+    // The team pushes its own copy; Maya's next pull replaces the pull request's with it.
+    await push(dana, { all: true });
+    const result = await pull(maya);
+    expect(result.pulled).toEqual([golden.runId]);
+    const here = maya.store.getRun(golden.runId)!;
+    expect(here.command.argv).toEqual(['node', 'agent.js']);
+    expect(here.meta?.imported).toEqual({ at: expect.any(Number), from: loc.url });
+    expect(maya.store.getCalls(golden.runId)).toEqual(dana.store.getCalls(golden.runId));
+    // What was made from it here stays linked to it, and the next pull has nothing more to bring.
+    expect(maya.store.getRun(fork.runId)!.parentRunId).toBe(golden.runId);
+    expect((await pull(maya)).pulled).toEqual([]);
   });
 });
 

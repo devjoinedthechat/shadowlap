@@ -22,7 +22,8 @@ import { storeKey } from './url.js';
  *
  * A pull request's folder (pr/<number>/, see pr.ts) is a store of its own to push and pull, with
  * `pullRequest` set: its runs come down marked as that pull request's, it changes nothing about runs
- * already here, and a run marked so never goes up into the store's own runs.
+ * already here, and a run marked so never goes up into the store's own runs. Once the store's own
+ * runs list one of them (the team pushed its own copy), a pull replaces it with that copy.
  */
 
 export interface SyncContext {
@@ -615,14 +616,20 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
   }
   const shared = sharedMeta(doc.run.meta);
   ctx.store.transaction(() => {
-    if (ctx.store.getRun(runId)) return;
+    const held = ctx.store.getRun(runId);
+    // A copy a pull request's folder brought makes way for the store's own, whole: a run the store
+    // holds comes from its own folder, and nothing a pull request's job wrote stays in it.
+    const replace = held !== null && !ctx.pullRequest && Boolean(held.meta?.imported?.pr);
+    if (held && !replace) return;
     // Replaying a pulled run runs a command someone else recorded: it is marked as imported, so replay
     // asks first. The mark names the store's URL, which is what tells a pulled run from a pack
     // (`pulledRun`): it reads as its author's recording, with what it spent. One from a pull request's
     // folder is marked as that pull request's, so no push takes it into the store's own runs.
     const imported = { at: now(ctx), from: ctx.remote.location.url, ...(ctx.pullRequest ? { pr: ctx.pullRequest } : {}) };
     // No process here records it: one marked running comes in as interrupted (asImportedRun).
-    ctx.store.importRun({ ...asImportedRun(doc.run, calls), meta: { ...(shared as RunRecord['meta'] & object), imported } });
+    const copy = { ...asImportedRun(doc.run, calls), meta: { ...(shared as RunRecord['meta'] & object), imported } };
+    if (replace) ctx.store.replaceRun(copy);
+    else ctx.store.importRun(copy);
     for (const call of calls) {
       const { end, attempts, ...start } = call;
       ctx.store.appendCallStart(start);
@@ -671,6 +678,10 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
   const result: PullResult = { pulled: [], merged: [], needPush: [], skippedDeleted: [], missing: [], unknown: [], failed: [], skippedSegments: skipped, blobs: { downloaded: 0, bytes: 0 }, segments, inStore: 0, byAuthor: {}, fixes: { pulled: [], merged: [], failed: [], repairs: [] } };
 
   const excluded = options.exclude ?? new Set<string>();
+  // A run here that a pull request's folder brought is the store's to replace, once the store's own
+  // runs list it (pullRun): a run in both comes from the store's own folder.
+  const fromPr = (id: string) => !ctx.pullRequest && Boolean(store.getRun(id)?.meta?.imported?.pr);
+  const here = (id: string) => store.getRun(id) !== null && !fromPr(id);
   const wanted = new Set<string>();
   if (options.runIds?.length) {
     // A run id or a unique prefix of one, as the store's index lists them.
@@ -678,12 +689,12 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
       const name = raw.trim().toUpperCase();
       const matches = isRunId(name) && rows.has(name) ? [name] : name.length >= 4 ? [...rows.keys()].filter((k) => k.startsWith(name)) : [];
       if (matches.length !== 1) result.unknown.push(raw);
-      else if (!store.getRun(matches[0]!) && !excluded.has(matches[0]!)) wanted.add(matches[0]!);
+      else if (!here(matches[0]!) && !excluded.has(matches[0]!)) wanted.add(matches[0]!);
     }
   } else {
     for (const row of rows.values()) {
-      if (store.getRun(row.runId) || excluded.has(row.runId)) continue;
-      if (row.state === 'listed') wanted.add(row.runId);
+      if (here(row.runId) || excluded.has(row.runId)) continue;
+      if (row.state === 'listed' || fromPr(row.runId)) wanted.add(row.runId);
       else if (row.state === 'pushed' || row.state === 'pulled') result.skippedDeleted.push(row.runId);
     }
   }
@@ -694,7 +705,7 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
   for (const id of [...wanted]) {
     let parent = parentOf(id);
     for (let depth = 0; parent && depth < 64; depth++) {
-      if (store.getRun(parent) || !rows.has(parent)) break;
+      if (here(parent) || !rows.has(parent)) break;
       if (excluded.has(parent)) {
         elsewhere.add(parent);
         break;

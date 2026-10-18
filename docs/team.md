@@ -259,7 +259,8 @@ writes to the team's runs:
   leaves them out and `push <run>` refuses one, so a pull request's run never reaches the team's
   through a teammate. A run the store itself holds always comes from the store's own folder, even
   as the parent of a pull request's run, and nothing a pull request's folder says about a run
-  already here (its labels, notes or results) is taken.
+  already here (its labels, notes or results) is taken. A run a pull request's folder brought before
+  the store held it is replaced by the store's own copy on the next pull, once the team pushes it.
 - **The cloud enforces it.** The CLI only puts a pull request's runs in their place; the
   pull-request policy from `shadowlap store policy` is what keeps a job from writing anywhere else.
   `shadowlap store ci` prints the step that gives a pull request's job those credentials and
