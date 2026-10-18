@@ -82,7 +82,8 @@ describe('--watch and what a replay writes itself', () => {
       });
       await until(() => logs.some((l) => l.startsWith('watching')), 10_000, 'the first replay');
       expect(runs).toBe(1);
-      expect(logs.join('\n')).toContain("changed while the replay ran: taken for the replay's own writes, so no replay follows");
+      // However many of its writes the file system reported while it ran: macOS may fold some together.
+      expect(logs.join('\n')).toMatch(/changed while the replay ran: taken for the replay's own writes?, so no replay follows/);
       await sleep(1_500);
       expect(runs, 'its own writes start no replay').toBe(1);
 
