@@ -52,7 +52,7 @@ export const SHAPES = {
   previewUnmasked: { section: 'normalize', fields: ['count', 'samples', 'places', 'remedies', 'covered', 'reasons'] },
   previewUnmaskedSample: { section: 'normalize', fields: ['value', 'key', 'callNo', 'kind', 'name', 'in', 'path', 'event'] },
   previewRemedy: { section: 'normalize', fields: ['rule', 'command', 'copies'] },
-  gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'deferred', 'store'] },
+  gc: { section: 'rm', fields: ['dryRun', 'olderThanDays', 'keep', 'cutoff', 'total', 'count', 'runs', 'expect', 'blobs', 'bytes', 'recording', 'recordingCount', 'abandoned', 'abandonedCount', 'held', 'heldCount', 'deferred', 'store'] },
   gcStore: { section: 'rm', fields: ['path', 'before', 'after', 'free'] },
   doctor: { section: 'doctor', fields: ['name', 'verdict', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'hardcodedBaseUrls', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
