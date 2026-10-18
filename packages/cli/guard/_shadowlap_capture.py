@@ -37,6 +37,10 @@ _routes = []
 _hosts = {}
 _http = []
 
+# shadowlap.testing turns capture off between recorded tests, so a test without a recording reaches
+# its hosts directly; under shadowlap run it is always on.
+active = True
+
 # The SDK's scope() variable, shared through sys so either side can create it first.
 _SCOPE = getattr(sys, "_shadowlap_scope_var", None)
 if _SCOPE is None:
@@ -82,6 +86,8 @@ def _provider_for(url):
 
 def _rewrite(url):
     """(sidecar URL, upstream origin, provider), or None when the URL is not a host Shadowlap captures."""
+    if not active:
+        return None
     provider = _provider_for(url)
     if provider is None:
         return None

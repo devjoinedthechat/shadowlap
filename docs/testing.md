@@ -140,6 +140,8 @@ If the change is intended, record the test again with SHADOWLAP_RECORD=all. To i
 
 The plugin starts `shadowlap serve --recordings` once per test process (per Vitest run), in the project directory. Model calls reach it the same way they do under `shadowlap run`: base-URL variables for clients created after it starts, and [in-process capture](./providers.md#in-process-capture) for everything else, including clients created when a module is imported. Each test worker has a slot in those URLs, and each test's run takes over its worker's slot while the test runs.
 
+In Python, all of that holds only while a recorded test runs: the base-URL variables and `SHADOWLAP_URL` point at the slot from the start of the recording to its end, and capture is off outside it. A test without the marker sees the environment it had and calls its model and tools directly, whether or not a recorded test ran before it. A client created while a recorded test runs keeps pointing at Shadowlap afterwards, so don't hand one from a recorded test to a test without the marker.
+
 - Tool calls go through the Shadowlap SDK as usual, so wrap tools with `tool()` or an [adapter](./frameworks.md). Tools that aren't wrapped run for real on every replay.
 - `shadowlap.config.json` applies: normalizers when matching, and redaction rules when a recording is saved.
 - Recordings are packs, the same format as `shadowlap pack`, so `shadowlap test` and `shadowlap unpack` read them. They still belong to their test runner, which replays them with the test's own assertions: the [test history](./ci.md#test-history) that `shadowlap test` keeps covers the project's goldens, the packs in `goldens/` and those named under `tests` in the config.

@@ -68,9 +68,57 @@ def test_marked(shadowlap_recording):
 '''
 
 
+# A recorded test, then tests without the marker: they must see the environment they had and call
+# their model and tools directly, whatever ran before them.
+MIXED = '''
+import json, os, sys, urllib.request
+import pytest
+import shadowlap
+
+def ask(prompt):
+    body = {"model": "gpt-5", "messages": [{"role": "user", "content": prompt}]}
+    req = urllib.request.Request(os.environ["OPENAI_BASE_URL"].rstrip("/") + "/chat/completions", data=json.dumps(body).encode(), headers={"content-type": "application/json", "authorization": "Bearer test"})
+    return json.load(urllib.request.urlopen(req))["choices"][0]["message"]["content"]
+
+@shadowlap.tool(effect="read")
+def lookup(key):
+    return {"key": key}
+
+def captured(url):
+    capture = sys.modules.get("_shadowlap_capture")
+    return capture is not None and capture._rewrite(url) is not None
+
+@pytest.mark.shadowlap
+def test_a_marked():
+    assert shadowlap.is_active()
+    assert os.environ["OPENAI_BASE_URL"] != os.environ["MODEL_URL"]
+    assert captured("https://api.openai.com/v1/chat/completions")
+    assert lookup("A-1") == {"key": "A-1"}
+    assert ask("recorded") == "echo: recorded"
+
+def test_b_unmarked():
+    assert not shadowlap.is_active()
+    assert os.environ["OPENAI_BASE_URL"] == os.environ["MODEL_URL"]
+    assert "SHADOWLAP_CAPTURE" not in os.environ
+    assert not captured("https://api.openai.com/v1/chat/completions")
+    assert lookup("B-2") == {"key": "B-2"}
+    assert ask("direct") == "echo: direct"
+
+@pytest.mark.shadowlap
+def test_c_marked_again():
+    assert shadowlap.is_active()
+    assert ask("recorded again") == "echo: recorded again"
+
+def test_d_unmarked_again():
+    assert not shadowlap.is_active()
+    assert ask("direct again") == "echo: direct again"
+'''
+
+
 @unittest.skipUnless(HAS_PYTEST, "pytest is not installed")
 class PytestPlugin(unittest.TestCase):
     def setUp(self):
+        _Model.hits = 0
         self.project = tempfile.mkdtemp(prefix="sl-pytest-plugin-")
         with open(os.path.join(self.project, "test_agent.py"), "w") as f:
             f.write(textwrap.dedent(TESTS))
@@ -111,6 +159,27 @@ class PytestPlugin(unittest.TestCase):
             self.assertEqual(changed.returncode, 1, changed.stdout + changed.stderr)
             self.assertIn("1 failed, 1 passed", changed.stdout)
             self.assertIn("diverged from its recording at call 1", changed.stdout)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    @unittest.skipUnless(BUILT, "the shadowlap CLI of this repository is not built")
+    def test_tests_without_the_marker_call_their_model_directly_after_a_recorded_one(self):
+        with open(os.path.join(self.project, "test_mixed.py"), "w") as f:
+            f.write(textwrap.dedent(MIXED))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Model)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            model = "http://127.0.0.1:%d" % server.server_address[1]
+            env = {"SHADOWLAP_CLI": CLI, "SHADOWLAP_UPSTREAM_OPENAI": model, "OPENAI_BASE_URL": model + "/v1", "MODEL_URL": model + "/v1", "SHADOWLAP_TELEMETRY": "0"}
+            r = self.pytest("test_mixed.py", env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("4 passed", r.stdout)
+            self.assertEqual(_Model.hits, 4)  # two recorded through Shadowlap, two direct
+            # Replayed: the recorded tests call nothing, the others still call the model themselves.
+            again = self.pytest("test_mixed.py", env=dict(env, SHADOWLAP_RECORD="none"))
+            self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+            self.assertEqual(_Model.hits, 6)
         finally:
             server.shutdown()
             server.server_close()
