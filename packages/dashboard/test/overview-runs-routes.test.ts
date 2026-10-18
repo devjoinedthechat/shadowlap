@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
@@ -482,6 +483,44 @@ describe('searching what runs recorded', () => {
     } finally {
       await d.close();
       s.close();
+    }
+  });
+
+  it('keeps answering every page while another command writes the store, and catches up once it is done', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-search-busy-'));
+    const dbPath = join(dir, 'shadowlap.db');
+    const s = Store.open(dbPath);
+    const runs = Array.from({ length: 20 }, (_, i) => addRun(s, { startedAt: NOW - DAY + i * 1000, calls: [say('l', `refund order A-${1000 + i}`)] }));
+    // Another command writing the store as the dashboard starts catching up: gc's VACUUM, a pull, an import.
+    const holder = new DatabaseSync(dbPath);
+    holder.exec('BEGIN IMMEDIATE');
+    const started = Date.now();
+    const d = await startDashboard({ store: s, dbPath, project: { path: project } });
+    try {
+      await new Promise((r) => setTimeout(r, 150));
+      // A search answers from what the index holds, and has it catch up again from there; the other
+      // pages go on being answered. Neither waits for the index waiting for the store's write lock
+      // (10 s, after which it gave up).
+      const timed = async <T,>(path: string): Promise<T> => {
+        const t0 = Date.now();
+        const out = await get<T>(d, path);
+        expect(Date.now() - t0, path).toBeLessThan(1500);
+        return out;
+      };
+      expect(await timed<Answer>('search?q=refund&limit=40')).toEqual({ hits: [], indexing: { runs: 20, of: 20 } });
+      for (let i = 0; i < 4; i++) {
+        await timed('meta');
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(Date.now() - started).toBeLessThan(5000);
+      holder.exec('ROLLBACK');
+      const later = await settled(d, 'search?q=refund&limit=40');
+      expect(new Set(later.hits.map((h) => h.runId))).toEqual(new Set(runs));
+    } finally {
+      holder.close();
+      await d.close();
+      s.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

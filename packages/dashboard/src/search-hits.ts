@@ -14,9 +14,10 @@ import { keepingIndex, loadRunIndex, type RunIndex } from './run-index.js';
  * A search answers from what the index holds: building it reads every call's request and answer, a
  * minute for a store of thousands of runs, and the dashboard answers every tab from one thread. So
  * the index is brought up to date beside the requests, in slices of about 50 ms while the server is
- * idle (`catchUpSearch`, as the run totals are warmed), and a search made before it caught up says
- * how many runs it has yet to cover (`searchBehind`). A run still recording is indexed from where the
- * last slice stopped, never again from its first call.
+ * idle (`catchUpSearch`, as the run totals are warmed), each waiting a moment at most for another
+ * command's write, and a search made before it caught up says how many runs it has yet to cover
+ * (`searchBehind`). A run still recording is indexed from where the last slice stopped, never again
+ * from its first call.
  */
 
 export interface RecordedHit extends SearchHit {
@@ -120,36 +121,53 @@ export function searchBehind(store: Store, index: RunIndex = loadRunIndex(store)
 }
 
 /**
- * About `budgetMs` of bringing the index up to date, newest runs first; how many runs it is still
- * behind on after. Writing the index changes nothing the run index reads, so the run index read
- * before stays current.
+ * About `budgetMs` of bringing the index up to date, newest runs first: how many runs it is still
+ * behind on after, and whether it stopped because another command was writing the store (`busy`:
+ * gc's VACUUM, a pull, an import), which it waits a moment for at most, never the 10 s a write
+ * waits otherwise, as it runs on the thread that answers every page. Writing the index changes
+ * nothing the run index reads, so the run index read before stays current.
  */
-export function indexSearchSlice(store: Store, budgetMs = SLICE_MS): number {
+export function indexSearchSlice(store: Store, budgetMs = SLICE_MS): { behind: number; busy: boolean } {
   const index = loadRunIndex(store);
-  return keepingIndex(store, () => indexSearch(store, { budgetMs, runs: indexRuns(index) })).behind;
+  const done = keepingIndex(store, () => indexSearch(store, { budgetMs, runs: indexRuns(index), briefly: true }));
+  return { behind: done.behind, busy: done.busy === true };
 }
 
 const SLICE_MS = 50;
+/** Between two slices: time for whatever else the server has to do. */
+const GAP_MS = 20;
+/** After a slice found the store busy, or failed: the first wait before the next, doubled each time after, up to the last. */
+const RETRY_MS = 1000;
+const RETRY_MAX_MS = 8000;
 const catching = new WeakSet<Store>();
+
+/** A store closed under the slices: the dashboard stopped, or serves another project's store now. */
+const closed = (err: unknown) => (err as { code?: unknown } | null)?.code === 'ERR_INVALID_STATE';
 
 /**
  * Brings the index up to date in the background unless that is under way already: a slice of about
- * 50 ms, then 20 ms for whatever else the server has to do, until it covers every run. The dashboard
- * starts it when it starts and again with each search, which then finds what has arrived since.
+ * 50 ms, then 20 ms for whatever else the server has to do, until it covers every run. While another
+ * command writes the store, it tries again a second later, then two, up to eight, leaving the store
+ * to that command meanwhile, and stops only once the store is closed. The dashboard starts it when
+ * it starts and again with each search, which then finds what has arrived since.
  */
 export function catchUpSearch(store: Store): void {
   if (catching.has(store)) return;
   catching.add(store);
+  let retry = RETRY_MS;
   const slice = () => {
-    let behind = 0;
+    let wait: number | null;
     try {
-      behind = indexSearchSlice(store);
-    } catch {
-      // the store was closed: the dashboard stopped
-      behind = 0;
+      const { behind, busy } = indexSearchSlice(store);
+      wait = busy ? retry : behind > 0 ? GAP_MS : null;
+      retry = busy ? Math.min(retry * 2, RETRY_MAX_MS) : RETRY_MS;
+    } catch (err) {
+      // Anything but a closed store (a read SQLite refused for a moment) is tried again later.
+      wait = closed(err) ? null : retry;
+      retry = Math.min(retry * 2, RETRY_MAX_MS);
     }
-    if (behind > 0) setTimeout(slice, 20).unref();
-    else catching.delete(store);
+    if (wait === null) catching.delete(store);
+    else setTimeout(slice, wait).unref();
   };
   setTimeout(slice, 0).unref();
 }

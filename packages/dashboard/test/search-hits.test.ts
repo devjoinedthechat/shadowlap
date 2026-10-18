@@ -1,6 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchExpression, Store, updateSearchIndex } from '@shadowlap/engine';
-import { indexSearchSlice, PER_RUN, searchBehind, searchRecorded } from '../src/search-hits.js';
+import { catchUpSearch, indexSearchSlice, PER_RUN, searchBehind, searchRecorded } from '../src/search-hits.js';
 import { addRun, DAY, HOUR, type CallSpec } from './read-model-store.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC.
@@ -92,10 +96,10 @@ describe('the index behind the search', () => {
     expect(searchRecorded(store, 'refund', 40)).toEqual([]);
     expect(searchBehind(store)).toBe(6);
     // A slice with no time to spare still indexes a call, newest run first, and the next goes on from there.
-    expect(indexSearchSlice(store, 0)).toBe(6);
+    expect(indexSearchSlice(store, 0)).toEqual({ behind: 6, busy: false });
     expect(searchRecorded(store, 'refund', 40).map((h) => h.runId)).toEqual([runs[5]]);
     let slices = 1;
-    while (indexSearchSlice(store, 0) > 0) slices++;
+    while (indexSearchSlice(store, 0).behind > 0) slices++;
     expect(slices).toBeGreaterThan(6);
     expect(new Set(searchRecorded(store, 'refund', 40).map((h) => h.runId))).toEqual(new Set(runs));
     expect(searchBehind(store)).toBe(0);
@@ -109,11 +113,54 @@ describe('the index behind the search', () => {
       store.appendCallEnd(identity, { runId, callNo: n, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: {}, at: NOW + n });
     };
     for (let n = 1; n <= 300; n++) call(n, `note ${n}`);
-    while (indexSearchSlice(store) > 0);
+    while (indexSearchSlice(store).behind > 0);
     call(301, 'refund A-1042');
     expect(searchBehind(store)).toBe(1);
-    expect(indexSearchSlice(store)).toBe(0);
+    expect(indexSearchSlice(store)).toEqual({ behind: 0, busy: false });
     expect(searchRecorded(store, 'refund', 40)).toMatchObject([{ runId, callNo: 301, field: 'arguments' }]);
     expect(store.searchState(runId)).toMatchObject({ calls: 301, status: 'running' });
+  });
+
+  it('leaves the store to another command writing it, waiting a moment at most, and catches up once it is free', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-search-busy-'));
+    const path = join(dir, 'shadowlap.db');
+    const file = Store.open(path);
+    const holder = new DatabaseSync(path);
+    try {
+      const runs = Array.from({ length: 4 }, (_, i) => addRun(file, { startedAt: NOW - DAY + i * HOUR, calls: [say('l', `refund order A-10${i}`, 's1')] }));
+      // Another command writing the store: gc's VACUUM, a pull, an import.
+      holder.exec('BEGIN IMMEDIATE');
+      const t0 = Date.now();
+      expect(indexSearchSlice(file)).toEqual({ behind: 4, busy: true });
+      // A moment, not the 10 s a write waits otherwise, for which every page would wait too.
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(file.searchStates().size).toBe(0);
+      // In the background it writes nothing while the store is busy, and tries again later.
+      catchUpSearch(file);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(file.searchStates().size).toBe(0);
+      holder.exec('ROLLBACK');
+      for (let i = 0; i < 200 && searchBehind(file) > 0; i++) await new Promise((r) => setTimeout(r, 50));
+      expect(searchBehind(file)).toBe(0);
+      expect(new Set(searchRecorded(file, 'refund', 40).map((h) => h.runId))).toEqual(new Set(runs));
+    } finally {
+      holder.close();
+      file.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('goes on after a slice that failed: only a closed store ends it', async () => {
+    const runs = Array.from({ length: 3 }, (_, i) => addRun(store, { startedAt: NOW - DAY + i * HOUR, calls: [say('l', `refund order A-20${i}`, 's1')] }));
+    const states = vi.spyOn(store, 'searchStates').mockImplementationOnce(() => {
+      throw Object.assign(new Error('disk I/O error'), { code: 'ERR_SQLITE_ERROR', errcode: 10 });
+    });
+    catchUpSearch(store);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(states).toHaveBeenCalled();
+    states.mockRestore();
+    expect(searchBehind(store)).toBe(3);
+    for (let i = 0; i < 100 && searchBehind(store) > 0; i++) await new Promise((r) => setTimeout(r, 50));
+    expect(new Set(searchRecorded(store, 'refund', 40).map((h) => h.runId))).toEqual(new Set(runs));
   });
 });

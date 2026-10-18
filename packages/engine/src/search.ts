@@ -171,9 +171,10 @@ function settled(c: CallRecord, running: boolean): boolean {
 
 /**
  * Indexes the next batch of a run: the answers that arrived for its open calls and up to BATCH calls
- * after the last one indexed, stopping early past `deadline`. False when there was nothing to index.
+ * after the last one indexed, stopping early past `deadline`. False when there was nothing to index;
+ * 'busy' when another command was writing the store and `briefly` would not wait for it.
  */
-function indexBatch(store: Store, run: SearchIndexRun, state: SearchState | null, deadline: number): boolean {
+function indexBatch(store: Store, run: SearchIndexRun, state: SearchState | null, deadline: number, briefly: boolean): boolean | 'busy' {
   let p = state ? progressOf(state) : { last: 0, scopes: {}, open: [] };
   let fresh = false;
   let indexed = state && p ? state.calls : 0;
@@ -181,7 +182,7 @@ function indexBatch(store: Store, run: SearchIndexRun, state: SearchState | null
     // A row that covered its run whole when the run had ended, and only its status moved since:
     // what it holds stands.
     if (state.calls === run.calls && state.status !== 'running' && run.status !== 'running') {
-      return store.addSearchDocs(run.runId, { expected: state, next: { ...state, status: run.status }, docs: [] }) || true;
+      return store.addSearchDocs(run.runId, { expected: state, next: { ...state, status: run.status }, docs: [], briefly }) === 'busy' ? 'busy' : true;
     }
   }
   if (!p) {
@@ -217,8 +218,7 @@ function indexBatch(store: Store, run: SearchIndexRun, state: SearchState | null
   if (!moved && state && state.status === run.status && !whole) return false;
   const next: SearchState = { calls: indexed, status: run.status, progress: whole ? null : JSON.stringify({ last: p.last, scopes: p.scopes, open }) };
   // Another process indexing the same run meanwhile wins; the next look starts from where it got to.
-  store.addSearchDocs(run.runId, { expected: state, next, docs, fresh });
-  return true;
+  return store.addSearchDocs(run.runId, { expected: state, next, docs, fresh, briefly }) === 'busy' ? 'busy' : true;
 }
 
 /** The store's runs as the index needs them, newest first. */
@@ -237,17 +237,23 @@ export function searchIndexBehind(store: Store, runs: readonly SearchIndexRun[] 
  * batch of calls at a time: runs that are new or ended since they were indexed, and the calls a run
  * still recording made since. Each batch is written as it is done, so a slice cut short keeps what it
  * did, and the next one goes on from there. `runs` saves reading the run list when the caller has it.
- * Returns the batches written, and how many runs the index is still behind on (0 when it caught up).
+ * `briefly` waits for another command's write a moment only, as a dashboard must on the thread that
+ * answers its pages: while gc, a pull or an import writes the store, the slice stops at the batch it
+ * could not write, writing nothing more (`busy`), and a later one goes on. Returns the batches
+ * written, and how many runs the index is still behind on (0 when it caught up).
  */
-export function indexSearch(store: Store, options: { budgetMs?: number; runs?: readonly SearchIndexRun[] } = {}): { batches: number; behind: number } {
+export function indexSearch(store: Store, options: { budgetMs?: number; runs?: readonly SearchIndexRun[]; briefly?: boolean } = {}): { batches: number; behind: number; busy?: true } {
   const deadline = performance.now() + (options.budgetMs ?? Number.POSITIVE_INFINITY);
   const runs = options.runs ?? storeRuns(store);
   const states = store.searchStates();
+  const briefly = options.briefly === true;
   let batches = 0;
   for (const run of runs) {
     if (standing(run, states.get(run.runId)) === 'none') continue;
     for (let state = store.searchState(run.runId); standing(run, state) !== 'none'; state = store.searchState(run.runId)) {
-      if (!indexBatch(store, run, state, deadline)) break;
+      const done = indexBatch(store, run, state, deadline, briefly);
+      if (done === 'busy') return { batches, behind: searchIndexBehind(store, runs), busy: true };
+      if (!done) break;
       batches++;
       if (performance.now() >= deadline) return { batches, behind: searchIndexBehind(store, runs) };
     }

@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { storeApiRequest } from '../src/manifest.js';
 import { indexSearch, searchCalls, searchIndexBehind, updateSearchIndex } from '../src/search.js';
@@ -133,6 +137,36 @@ describe('the search index', () => {
     updateSearchIndex(store);
     expect(searchCalls(store, 'stripe', { limit: 10 }).map((h) => h.callNo).sort()).toEqual([1, 2]);
     expect(searchCalls(store, 'first')).toHaveLength(1);
+  });
+
+  it('waits only a moment for another command’s write when asked to, writes nothing then, and goes on once the store is free', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-search-busy-'));
+    const was = store;
+    store = Store.open(join(dir, 'store.db'));
+    const holder = new DatabaseSync(join(dir, 'store.db'));
+    try {
+      const runs = [newRun(), newRun()];
+      for (const runId of runs) {
+        for (let n = 1; n <= 3; n++) toolCall(runId, n, `ibex ${n}`, 'done');
+        store.endRun(runId, 'completed');
+      }
+      // Another command writing the store: gc's VACUUM, a pull, an import.
+      holder.exec('BEGIN IMMEDIATE');
+      const t0 = Date.now();
+      expect(indexSearch(store, { briefly: true })).toEqual({ batches: 0, behind: 2, busy: true });
+      // Not the 10 s a write waits otherwise: a dashboard indexes on the thread that answers its pages.
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(store.searchStates().size).toBe(0);
+      expect((store as unknown as { db: DatabaseSync }).db.prepare('PRAGMA busy_timeout').get()).toEqual({ timeout: 10_000 });
+      holder.exec('ROLLBACK');
+      expect(indexSearch(store, { briefly: true })).toEqual({ batches: 2, behind: 0 });
+      expect(searchCalls(store, 'ibex', { limit: 10 })).toHaveLength(6);
+    } finally {
+      holder.close();
+      store.close();
+      store = was;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('leaves a batch to another process that indexed the run meanwhile', () => {

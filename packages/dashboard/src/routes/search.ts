@@ -11,8 +11,13 @@ import { catchUpSearch, searchBehind, searchRecorded, type SearchAnswer } from '
  * the index has yet to cover: it is brought up to date beside the requests, never inside one.
  */
 export function register(router: Router, ctx: RouteContext): void {
-  // From the start, so the first search finds the index built: a slice at a time while idle.
-  catchUpSearch(ctx.store);
+  // From the start, so the first search finds the index built: a slice at a time while idle. A
+  // project whose store can't be opened now has nothing to index.
+  try {
+    catchUpSearch(ctx.store);
+  } catch {
+    // its searches start the catching up once it can be
+  }
 
   router.get('/search', (r) => {
     const q = (r.query.get('q') ?? '').slice(0, 500);

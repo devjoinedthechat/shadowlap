@@ -658,7 +658,7 @@ export interface CreateRunInput {
   meta?: RunMeta;
 }
 
-/** How long a write that only keeps a cache (saveRunStats) waits for another command's lock before it gives up. */
+/** How long a write that only keeps a cache (saveRunStats, a batch of the search index) waits for another command's lock before it gives up. */
 const CACHE_WAIT_MS = 100;
 
 /** Creates a file readable only by its owner, unless something already exists at the path. */
@@ -1412,18 +1412,34 @@ export class Store {
    * Adds a batch of a run's search documents and moves its state on to `next`, in one write, if its
    * state is still `expected`: another process indexing the same run meanwhile wins, and this batch
    * is dropped (false). `fresh` drops the run's documents first, for a run indexed again from its start.
+   * `briefly` waits for another command's write lock a moment only, as saveRunStats does, not the
+   * 10 s anything else waits: a dashboard indexes on the thread that answers its pages. Then it is
+   * 'busy' while that command writes (gc's VACUUM, a pull), and nothing is written.
    */
-  addSearchDocs(runId: string, o: { expected: SearchState | null; next: SearchState; docs: Array<{ callNo: number; field: string; text: string }>; fresh?: boolean }): boolean {
-    return this.transaction(() => {
-      const now = this.searchState(runId);
-      const same = now === null || o.expected === null ? now === o.expected : now.calls === o.expected.calls && now.status === o.expected.status && now.progress === o.expected.progress;
-      if (!same) return false;
-      if (o.fresh && now !== null) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
-      const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
-      for (const d of o.docs) insert.run(d.text, runId, d.callNo, d.field);
-      this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, ?)`).run(runId, o.next.calls, o.next.status, o.next.progress);
-      return true;
-    }, 'immediate');
+  addSearchDocs(runId: string, o: { expected: SearchState | null; next: SearchState; docs: Array<{ callNo: number; field: string; text: string }>; fresh?: boolean; briefly?: boolean }): boolean | 'busy' {
+    const write = () =>
+      this.transaction(() => {
+        const now = this.searchState(runId);
+        const same = now === null || o.expected === null ? now === o.expected : now.calls === o.expected.calls && now.status === o.expected.status && now.progress === o.expected.progress;
+        if (!same) return false;
+        if (o.fresh && now !== null) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
+        const insert = this.db.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES (?, ?, ?, ?)`);
+        for (const d of o.docs) insert.run(d.text, runId, d.callNo, d.field);
+        this.db.prepare(`INSERT OR REPLACE INTO search_state (run_id, calls, status, progress) VALUES (?, ?, ?, ?)`).run(runId, o.next.calls, o.next.status, o.next.progress);
+        return true;
+      }, 'immediate');
+    if (!o.briefly) return write();
+    const wait = Number((this.db.prepare('PRAGMA busy_timeout').get() as { timeout?: number } | undefined)?.timeout ?? 10_000);
+    this.db.exec(`PRAGMA busy_timeout = ${Math.min(wait, CACHE_WAIT_MS)}`);
+    try {
+      return write();
+    } catch (err) {
+      // SQLITE_BUSY, its extended codes included: the lock was not free in time.
+      if (((err as { errcode?: number }).errcode ?? 0) % 256 === 5) return 'busy';
+      throw err;
+    } finally {
+      this.db.exec(`PRAGMA busy_timeout = ${wait}`);
+    }
   }
 
   /** Full-text matches, best first. `match` is an FTS5 expression; snippets mark matches with characters 1 and 2. */
