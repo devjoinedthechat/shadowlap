@@ -1594,22 +1594,7 @@ export class Store {
    * latest call, whichever is later.
    */
   recordingRuns(now = Date.now()): { live: Array<{ run: RunRecord; lastAt: number }>; abandoned: Array<{ run: RunRecord; lastAt: number }> } {
-    const rows = this.db
-      .prepare(
-        `SELECT r.*, o.pid AS owner_pid, o.host AS owner_host, (SELECT MAX(c.at) FROM call_events c WHERE c.run_id = r.run_id) AS last_call
-         FROM runs r LEFT JOIN run_owners o ON o.run_id = r.run_id
-         WHERE r.status = 'running' ORDER BY r.started_at, r.run_id`,
-      )
-      .all();
-    const live: Array<{ run: RunRecord; lastAt: number }> = [];
-    const abandoned: Array<{ run: RunRecord; lastAt: number }> = [];
-    for (const row of rows) {
-      const run = rowToRun(row);
-      const lastAt = Math.max(run.startedAt, Number(row.last_call ?? 0));
-      const owner: RunOwner | null = row.owner_pid === null || row.owner_pid === undefined ? null : { pid: Number(row.owner_pid), host: String(row.owner_host) };
-      (recorderGone(owner, lastAt, now) ? abandoned : live).push({ run, lastAt });
-    }
-    return { live, abandoned };
+    return splitRecordingRuns(this.db.prepare(RECORDING_RUNS_SQL).all(), now);
   }
 
   /**
@@ -2075,6 +2060,24 @@ function rowToTeamRun(row: Record<string, unknown>): TeamRunRow {
     remoteHash: (row.remote_hash as string | null) ?? null,
     entry: json(row.entry),
   };
+}
+
+/** The runs still `running`, with the process the store names for each and their latest call: read by recordingRuns, and by a project's store opened read-only. */
+export const RECORDING_RUNS_SQL = `SELECT r.*, o.pid AS owner_pid, o.host AS owner_host, (SELECT MAX(c.at) FROM call_events c WHERE c.run_id = r.run_id) AS last_call
+  FROM runs r LEFT JOIN run_owners o ON o.run_id = r.run_id
+  WHERE r.status = 'running' ORDER BY r.started_at, r.run_id`;
+
+/** Rows of {@link RECORDING_RUNS_SQL} split into the runs a process records and those it left (recorderGone). */
+export function splitRecordingRuns(rows: readonly Record<string, unknown>[], now: number): { live: Array<{ run: RunRecord; lastAt: number }>; abandoned: Array<{ run: RunRecord; lastAt: number }> } {
+  const live: Array<{ run: RunRecord; lastAt: number }> = [];
+  const abandoned: Array<{ run: RunRecord; lastAt: number }> = [];
+  for (const row of rows) {
+    const run = rowToRun(row);
+    const lastAt = Math.max(run.startedAt, Number(row.last_call ?? 0));
+    const owner: RunOwner | null = row.owner_pid === null || row.owner_pid === undefined ? null : { pid: Number(row.owner_pid), host: String(row.owner_host) };
+    (recorderGone(owner, lastAt, now) ? abandoned : live).push({ run, lastAt });
+  }
+  return { live, abandoned };
 }
 
 /** A `runs` row as a run. Exported for readers that open a store read-only (projects/store-reader.ts). */

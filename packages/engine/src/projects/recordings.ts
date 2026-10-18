@@ -1,7 +1,7 @@
 import { accessSync, constants, existsSync, lstatSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectDbPath } from './paths.js';
-import { isLiveRun } from './setup.js';
+import { processAlive } from '../liveness.js';
 import { readStore } from './store-reader.js';
 
 /**
@@ -37,20 +37,13 @@ export class RecordingsError extends Error {
 
 const STORE_FILES = ['shadowlap.db', 'shadowlap.db-wal', 'shadowlap.db-shm', 'shadowlap.db-journal'];
 
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 /**
- * Whether something is recording into the folder's store right now: a `shadowlap run` whose
- * process is alive (`.shadowlap/active.json`), or a run still marked running that started within
- * the last hour, as the setup counts a live run (`isLiveRun`). A store that can't be opened to look
- * (one held by a long write, or from a newer Shadowlap) can't be said to be idle: that throws rather
+ * Whether something is recording into the folder's store right now, by the store's own record of
+ * the process recording each run still running (run_owners), the rule gc, rm and the dashboard's
+ * delete follow: a run whose process is alive is recorded however long ago it started, and one
+ * whose process was killed is not, however recently. A `shadowlap run` whose process is alive
+ * (`.shadowlap/active.json`) counts too, as it starts. A store that can't be opened to look (one
+ * held by a long write, or from a newer Shadowlap) can't be said to be idle: that throws rather
  * than answering no.
  */
 export function recordingInProgress(folder: string, now: number = Date.now()): boolean {
@@ -58,7 +51,7 @@ export function recordingInProgress(folder: string, now: number = Date.now()): b
   if (existsSync(active)) {
     try {
       const pid = (JSON.parse(readFileSync(active, 'utf8')) as { pid?: unknown }).pid;
-      if (typeof pid === 'number' && alive(pid)) return true;
+      if (typeof pid === 'number' && processAlive(pid)) return true;
     } catch {
       // unreadable: the store check below still applies
     }
@@ -67,7 +60,7 @@ export function recordingInProgress(folder: string, now: number = Date.now()): b
   if (!existsSync(db)) return false;
   try {
     // Read-only: a store about to be deleted isn't migrated first.
-    return readStore(db, (store) => store.runningRuns().some((r) => isLiveRun(r, now)));
+    return readStore(db, (store) => store.liveRecordings(now).length > 0);
   } catch (err) {
     throw new RecordingsError('store', `Shadowlap can’t open the store to check that nothing is recording into it: ${(err as Error).message}`);
   }

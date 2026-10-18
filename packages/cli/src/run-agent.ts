@@ -458,7 +458,12 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   process.off('SIGTERM', onSignal);
 
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
-  rmSync(activeFile, { force: true });
+  // Only while it still names this run: another run that started here since has written its own.
+  try {
+    if ((JSON.parse(readFileSync(activeFile, 'utf8')) as { runId?: unknown }).runId === run.runId) rmSync(activeFile, { force: true });
+  } catch {
+    // gone already, or not ours to remove
+  }
   const result = sidecar.endRun(run.runId, status);
   if (run.mode === 'record') noteUnrecordedTools(store, run.runId, process.cwd());
   await sidecar.close();
