@@ -24,8 +24,13 @@ export const PACK_LIMITS = {
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
-/** C0 and C1 control characters: never legitimate in ids, names or command lines, and dangerous in a terminal. */
+/** C0 and C1 control characters: never legitimate in ids or names, and dangerous in a terminal. */
 export const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+/**
+ * The same but tabs and line breaks, which a command line may hold (`python -c '…'`, `node -e`
+ * with a script) and its folder too: every terminal shows them escaped (safeLine).
+ */
+const CONTROL_BUT_LINES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
 
 const KINDS = new Set(['api', 'tool', 'clock', 'random']);
 const ORIGINS = new Set(['live', 'replayed', 'blocked', 'stubbed', 'overridden']);
@@ -41,10 +46,10 @@ function fail(where: string, what: string): never {
   throw new PackError(`${where}: ${what}`);
 }
 
-function text(v: unknown, where: string, max = PACK_LIMITS.stringBytes): string {
+function text(v: unknown, where: string, max = PACK_LIMITS.stringBytes, control = CONTROL): string {
   if (typeof v !== 'string') fail(where, 'must be a string');
   if (v.length > max) fail(where, `is longer than ${max} characters`);
-  if (CONTROL.test(v)) fail(where, 'contains control characters');
+  if (control.test(v)) fail(where, 'contains control characters');
   return v;
 }
 
@@ -79,8 +84,8 @@ export function validateRun(v: unknown, where: string): RunRecord {
   if (!isObject(v.command)) fail(`${where}.command`, 'must be an object');
   const argv = v.command.argv;
   if (!Array.isArray(argv) || argv.length === 0 || argv.length > PACK_LIMITS.argv) fail(`${where}.command.argv`, `must be 1 to ${PACK_LIMITS.argv} strings`);
-  argv.forEach((a, i) => text(a, `${where}.command.argv[${i}]`, 8192));
-  text(v.command.cwd, `${where}.command.cwd`, 4096);
+  argv.forEach((a, i) => text(a, `${where}.command.argv[${i}]`, 8192, CONTROL_BUT_LINES));
+  text(v.command.cwd, `${where}.command.cwd`, 4096, CONTROL_BUT_LINES);
   if (v.codeVersion !== null && v.codeVersion !== undefined) text(v.codeVersion, `${where}.codeVersion`, 128);
   int(v.startedAt, `${where}.startedAt`);
   if (v.endedAt !== null && v.endedAt !== undefined) int(v.endedAt, `${where}.endedAt`);

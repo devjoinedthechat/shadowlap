@@ -82,4 +82,24 @@ describe('pack / unpack', () => {
     src.close();
     dst.close();
   });
+
+  it('unpacks a run recorded from a command line with tabs and line breaks, as it packs it', () => {
+    const src = Store.open(':memory:');
+    // `node -e` with a script of its own, from a folder whose name has a tab in it.
+    const argv = ['node', '--input-type=module', '-e', "const r = await fetch(url);\n\tconsole.log(await r.text());\n"];
+    const run = src.createRun({ mode: 'record', command: { argv, cwd: '/tmp/odd\tfolder' } });
+    src.endRun(run.runId, 'completed');
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-pack-')), 'multi');
+    packRun(src, run.runId, dir);
+    const dst = Store.open(':memory:');
+    expect(unpackRun(dst, dir).commands).toEqual([{ runId: run.runId, argv }]);
+    expect(dst.getRun(run.runId)!.command).toEqual({ argv, cwd: '/tmp/odd\tfolder' });
+    // Anything else that could move a terminal's cursor is still refused.
+    const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+    m.runs[0]!.command.argv[3] = 'console.log(1)\r\u001b[2Kclean';
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(m));
+    expect(() => unpackRun(Store.open(':memory:'), dir)).toThrow(/argv\[3\]: contains control characters/);
+    src.close();
+    dst.close();
+  });
 });
