@@ -90,6 +90,10 @@ describe('setRequestFields', () => {
     expect(setRequestFields('anthropic', { max_tokens: 10 }, { temperature: 0, max_tokens: 2048 })).toEqual({ body: { max_tokens: 2048, temperature: 0 }, changed: true });
     expect(setRequestFields('openai-chat', {}, { temperature: 0 })).toEqual({ body: { temperature: 0 }, changed: true });
     expect(setRequestFields('openai-responses', {}, { max_tokens: 100, temperature: 1 })).toEqual({ body: { max_output_tokens: 100, temperature: 1 }, changed: true });
+    // Chat Completions keeps one output limit, under the name the request already uses.
+    expect(setRequestFields('openai-chat', { model: 'gpt-5', max_completion_tokens: 256 }, { max_tokens: 64 })).toEqual({ body: { model: 'gpt-5', max_completion_tokens: 64 }, changed: true });
+    expect(setRequestFields('openai-chat', { model: 'gpt-4o', max_tokens: 256 }, { max_completion_tokens: 64 })).toEqual({ body: { model: 'gpt-4o', max_tokens: 64 }, changed: true });
+    expect(setRequestFields('openai-chat', { model: 'gpt-4o' }, { max_tokens: 64 })).toEqual({ body: { model: 'gpt-4o', max_tokens: 64 }, changed: true });
   });
 
   it('puts sampling settings in Gemini\'s generationConfig, keeping what is there', () => {
