@@ -100,11 +100,13 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         </div>
         <div className="meta">
           {run.source ? (
-            <span>
+            <span className="src" title={run.source}>
               from <code>{run.source}</code>
             </span>
           ) : (
-            <code>{r.command.argv.join(' ')}</code>
+            <code className="cmd" title={r.command.argv.join(' ')}>
+              {r.command.argv.join(' ')}
+            </code>
           )}
           {r.codeVersion ? (
             <span>

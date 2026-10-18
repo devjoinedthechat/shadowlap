@@ -39,7 +39,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail
       {items.map(([v, label, cls], i) => (
         <span className="metric" key={i}>
           <b className={cls || undefined}>{typeof v === 'number' ? num(v) : v}</b>
-          <span>{label}</span>
+          <span title={label}>{label}</span>
         </span>
       ))}
     </section>

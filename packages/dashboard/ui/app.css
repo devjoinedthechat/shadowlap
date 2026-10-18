@@ -289,11 +289,11 @@ table.runst .rsub { padding-left: 22px; }
 .labelbar input { height: 22px; width: 140px; border-radius: 6px; border: 1px solid var(--accent-line); background: var(--panel); color: var(--ink); font: 11.5px var(--mono); padding: 0 8px; outline: none; }
 .rhead .actions { margin-left: auto; justify-content: flex-end; }
 .metrics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding: 10px 24px 12px; border-top: 1px solid var(--line); }
-.metric { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+.metric { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; min-width: 0; max-width: 100%; }
 .metric b { font: 700 17px/1 var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .metric b.lime { color: var(--accent); }
 .metric b.q { font-size: 15px; color: var(--dim); }
-.metric span { font-size: 12px; color: var(--faint); }
+.metric span { font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
 .banner.fork { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 .banner.blame { background: color-mix(in srgb, var(--err) 5%, transparent); }
@@ -447,7 +447,9 @@ table.ctab tr.miss td { color: var(--warn); }
 .ihead { display: flex; align-items: center; gap: 10px; padding: 12px 18px 0; }
 .ihead .cn { font: 600 13px var(--mono); color: var(--faint); }
 .ihead .ct { font: 600 14.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ihead .isum { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
+.ihead .isum { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; display: flex; min-width: 0; max-width: 100%; }
+.ihead .isum .im { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ihead .isum .ir { flex: none; white-space: pre; }
 .ihead .nav { margin-left: auto; display: flex; gap: 4px; }
 .insp .tabs { padding-left: 10px; }
 .ibody { flex: 1; overflow: auto; min-height: 0; padding: 12px 18px 24px; }
@@ -1209,6 +1211,9 @@ code, pre, kbd, .mono, .kbd, .rawsse, .codebox, .cmdline, .jbox, .tree { font-va
 .panel > header { flex-wrap: wrap; row-gap: 2px; }
 .panel > header h2 { white-space: nowrap; }
 .rhead .meta code, .rhead .meta > span { white-space: nowrap; }
+/* A long command or capture path wraps at any width, three lines at most, the whole of it on hover: never wider than the page. */
+.rhead .meta > code.cmd, .rhead .meta > span.src { white-space: normal; overflow-wrap: anywhere; min-width: 0; max-width: 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.rhead .meta > span.src code { white-space: normal; }
 
 
 .attempts span { white-space: nowrap; }
