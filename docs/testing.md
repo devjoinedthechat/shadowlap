@@ -6,7 +6,7 @@ It works like vcrpy or Polly.js, with Shadowlap's matching (calls are matched by
 
 ## pytest
 
-Install the Python package ([from a clone](./sdk.md#install) until it is published); the plugin loads itself and does nothing for tests without the marker.
+Install the Python package ([from a clone](./sdk.md#install) until it is published); the plugin loads itself and does nothing for tests without the marker. It works with pytest 6.2 and later, with any pluggy that pytest allows.
 
 ```python
 import pytest

@@ -15,6 +15,9 @@ calls the agent made. A recording lives next to the test, in ``__recordings__/<t
 commit it. Pass
 ``@pytest.mark.shadowlap(recording="path")`` to put it elsewhere. ``--shadowlap-record`` (or
 ``SHADOWLAP_RECORD``) picks the mode: ``missing``, ``all`` or ``none``; see :mod:`shadowlap.testing`.
+
+It loads into every pytest run once shadowlap is installed, so it uses only what every pytest from 6.2
+on has, with the pluggy each one allows: old-style hook wrappers, and the recording kept on the item.
 """
 
 import os
@@ -44,19 +47,21 @@ def pytest_unconfigure(config):
     testing.close()
 
 
-_RECORDING = pytest.StashKey()
+# Kept on the item: pytest.StashKey and item.stash only exist from pytest 7.0.
+_RECORDING = "_shadowlap_recording"
+_FAILURE = "_shadowlap_failure"
 
 
 def _recording_for(item):
     """The marked test's recording, created once: by the fixture during setup or when the test body runs."""
-    rec = item.stash.get(_RECORDING, None)
+    rec = getattr(item, _RECORDING, None)
     if rec is None:
         marker = item.get_closest_marker("shadowlap")
         path = marker.kwargs.get("recording") or _recording_path(item)
         if not os.path.isabs(path):
             path = str(Path(str(item.config.rootpath)) / path)
         rec = testing.Recording(path, name=item.nodeid, mode=item.config.getoption("shadowlap_record"), command=["pytest", item.nodeid], root=str(item.config.rootpath))
-        item.stash[_RECORDING] = rec
+        setattr(item, _RECORDING, rec)
     return rec
 
 
@@ -69,37 +74,48 @@ def shadowlap_recording(request):
 
 
 def _recording_path(item) -> str:
-    path = Path(str(item.fspath))
+    path = Path(str(getattr(item, "path", None) or item.fspath))
     name = re.sub(r"[^\w.-]+", "-", item.name).strip("-")[:120] or "test"
     return str(path.parent / "__recordings__" / path.stem / name)
 
 
-@pytest.hookimpl(wrapper=True)
+# Old-style wrappers (hookwrapper=True), which every pluggy has: wrapper=True needs pluggy 1.2, and
+# pytest 7.4 allows 1.1. An old-style wrapper doesn't raise after its yield (pluggy warns about that,
+# and older ones don't route it), so a divergence found when the test ends is made the test's
+# failure in its report.
+@pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_call(item):
     marker = item.get_closest_marker("shadowlap")
     if marker is None or testing.under_shadowlap_run():
-        return (yield)
+        yield
+        return
     rec = _recording_for(item)
     try:
         rec.start()
     except testing.ShadowlapTestError as err:
         raise pytest.fail.Exception("shadowlap: %s" % err, pytrace=False) from None
-    diverged = None
+    outcome = yield
+    excinfo = outcome.excinfo
     try:
-        result = yield
-    except BaseException as exc:
-        try:
-            rec.finish(False, exc)
-        except testing.ShadowlapReplayDiverged as err:
-            diverged = err
-        if diverged is None:
-            raise
-    else:
-        try:
+        if excinfo is None:
             rec.finish(True)
-        except testing.ShadowlapReplayDiverged as err:
-            diverged = err
-    if diverged is not None:
-        # The divergence explains whatever the test then did, so it is the failure pytest shows.
-        raise pytest.fail.Exception(str(diverged), pytrace=False) from None
-    return result
+        else:
+            rec.finish(False, excinfo[1])
+    except testing.ShadowlapReplayDiverged as err:
+        setattr(item, _FAILURE, str(err))
+    except testing.ShadowlapTestError as err:
+        setattr(item, _FAILURE, "shadowlap: %s" % err)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    failure = getattr(item, _FAILURE, None)
+    if failure is None or call.when != "call":
+        return
+    # The divergence explains whatever the test then did, so it is the failure pytest shows.
+    report = outcome.get_result()
+    report.outcome = "failed"
+    report.longrepr = failure
+    if hasattr(report, "wasxfail"):
+        del report.wasxfail
