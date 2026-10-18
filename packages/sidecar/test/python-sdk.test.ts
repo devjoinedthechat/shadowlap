@@ -130,7 +130,8 @@ describe.skipIf(!PYTHON)('Python SDK', () => {
   it('passes the SDK\'s own unit tests: context left out, clear errors, JSON results', async () => {
     const tests = fileURLToPath(new URL('../../../sdks/python/tests', import.meta.url));
     const { stdout, stderr } = await promisify(execFile)(PYTHON!, ['-m', 'unittest', 'discover', '-s', tests, '-p', 'test_*.py'], { encoding: 'utf8' });
-    expect(`${stdout}${stderr}`).toMatch(/\nOK\s*$/);
+    // Tests that need pytest are skipped where the interpreter has none: OK (skipped=N) passes too.
+    expect(`${stdout}${stderr}`).toMatch(/\nOK( \(skipped=\d+\))?\s*$/);
   });
 
   it('fails tools as --fail-at asks, sync and async, without running them', async () => {
