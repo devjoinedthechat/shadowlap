@@ -376,9 +376,11 @@ export function runFixes({ cli, db, workdir, report, budget, repairer, guard = '
       const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
       const accepted = repair?.candidates?.find((c) => c.id === repair.accepted) ?? null;
       const runs = accepted?.verify?.runs ?? [];
+      // Each run as verify --json prints it (outcome fixed or kept); a CLI from before that printed the verdict.
+      const passed = (x) => (typeof x.outcome === 'string' ? x.outcome === 'fixed' || x.outcome === 'kept' : x.verdict === 'pass');
       const count = (role) => {
         const of = runs.filter((x) => x.role === role);
-        return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter((x) => x.verdict === 'pass').length} of ${of.length}` : null;
+        return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter(passed).length} of ${of.length}` : null;
       };
       const verify = accepted ? ['target', 'holdout', 'good'].map(count).filter(Boolean).join(' · ') : null;
       if (repair?.outcome === 'fixed' && repair.output?.branch) {
