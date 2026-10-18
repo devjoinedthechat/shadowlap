@@ -45,6 +45,36 @@ switch (step) {
     }
     break;
   }
+  case 'error-shapes': {
+    class OrderMissing extends Error {
+      constructor(message) {
+        super(message);
+        this.name = 'OrderMissing';
+      }
+    }
+    const shapes = [
+      () => new Error('order A-17 not found'),
+      () => new TypeError('A-17'),
+      () => new Error(),
+      () => Object.assign(new Error('no such order'), { code: 'ENOENT' }),
+      () => new OrderMissing('gone'),
+    ];
+    const fail = tool('fail', { effect: 'read' }, ({ kind }) => {
+      implRuns++;
+      throw shapes[kind]();
+    });
+    const caught = [];
+    for (let kind = 0; kind < shapes.length; kind++) {
+      try {
+        await fail({ kind });
+        caught.push(null);
+      } catch (err) {
+        caught.push({ replayed: err instanceof ReplayedError, text: String(err), repr: inspect(err).split('\n')[0], last: String(err.stack).split('\n')[0] });
+      }
+    }
+    out({ caught, implRuns });
+    break;
+  }
   case 'unserializable': {
     const circular = tool('weird', { effect: 'read' }, () => {
       implRuns++;

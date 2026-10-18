@@ -1,6 +1,6 @@
 # SDK conformance suite
 
-Twenty scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
+Twenty-one scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
 No API keys, no network, no model calls: only tools, the clock and randomness.
 
 The protocol being tested is specified in [docs/protocol.md](../../docs/protocol.md).
@@ -22,6 +22,7 @@ That runs the TypeScript and Python SDKs. A Python 3 on the path is enough for t
 | `replay-ok` | A replayed call returns the recorded result **and never runs the implementation**. |
 | `replay-error` | A recorded error is raised again as a distinct replayed-error type. |
 | `replay-error-text` | A replayed error reads as the recorded one (`str()` and `repr()` in Python, `String()` and `util.inspect()` in TypeScript), so an agent that hands a tool's error to the model sends the same request on replay. |
+| `replay-error-shapes` | Errors of every shape replay reading as recorded: no message, several arguments, a key error, an OS error, a class of the program's own (its `repr()` and traceback line in Python; `String()`, `util.inspect()` and the stack's first line in TypeScript). |
 | `non-finite-result` | A NaN or Infinity in a result is recorded as `null`, as JSON has it: the call completes, the caller gets the tool's own value, and a replay serves the `null`. |
 | `clock-random` | Clock and randomness resolve in one round trip and replay to the same values. |
 | `scope` | Parallel branches keep their own answers. Failing here means a client that silently swaps recorded results between sub-agents. |
@@ -59,6 +60,7 @@ diagnostic output, and a non-zero exit is fine as long as the JSON object was pr
 | `scope-names-replay` | The same three, in the opposite order. | `{ got, implRuns }` |
 | `write` | Call a `pure` tool `ping()`, then a `write` tool `send(to="ops")` whose implementation returns `"sent"` and whose stub is `"stub"`. Catch write-blocked. | `{ result, implRuns, blocked, tool }` |
 | `bad-effect` | Try to declare a tool with effect `"nope"`. | `{ rejected }` |
+| `error-shapes` | Call a `read` tool `fail(kind=i)` once for each of several errors, each caught: one made from a string, one with no message, the language's key or type error, one with a code or several arguments, an OS error, one of a class the program defines. `last` is the line a stack trace or traceback names the error with. | `{ caught: [{ replayed, text, repr, last }], implRuns }` |
 | `unserializable` | Call a `read` tool `weird()` whose implementation returns something JSON cannot represent (a circular object, an opaque value). Catch it. | `{ raised, implRuns }` |
 | `non-finite` | Call a `read` tool `stats()` returning `{ mean: 4, std: NaN }`. Catch any error. `std` is the string `"NaN"` when the caller got a NaN. | `{ raised, mean, std, implRuns }` |
 | `impl-hash-a` | Call a `read` tool `stable(k=1)` returning `"value"`. | `{ result, implRuns }` |

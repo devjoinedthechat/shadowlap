@@ -224,6 +224,17 @@ A serialized error is:
 preserved across a replay — only these fields — so a client SHOULD raise a dedicated
 "replayed error" type carrying them, rather than trying to reconstruct the original.
 
+Two more optional fields let a replayed error print as the original did, where the language prints
+more than the message. `module` is the module that defined the error's class, left out for a
+builtin: a traceback names a class by it (`myapp.errors.OrderMissing`). `args` is the list of
+arguments the error was made with, left out when it is the message alone or isn't JSON as it is
+(a tuple, say): Python's `repr()` prints them (`KeyError('A-17')`, `RuntimeError()`). The Python
+SDK records and replays both; a client that doesn't use them ignores them.
+
+```json
+{ "name": "FileNotFoundError", "message": "[Errno 2] No such file or directory: 'orders/A-17'", "args": [2, "No such file or directory"] }
+```
+
 Two error types every client SHOULD expose, because agent code catches them by name:
 
 - **replayed error** — raised for `replayed` with `outcome: "error"`. Carries `name`, `message`, `code`, `data`. It SHOULD read as the recorded error did: the same text when turned into a string or printed (Python's `str()` and `repr()`, TypeScript's `String()` and `util.inspect()`). Agents hand a tool's error to the model as text, so a replayed error that reads differently changes the next request, and a replay of unchanged code forks. Both SDKs raise an instance of a subclass of their replayed-error type named after the recorded error.

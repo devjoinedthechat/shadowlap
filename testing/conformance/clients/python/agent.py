@@ -70,6 +70,39 @@ elif step == "live-error":
             "implRuns": state["impl_runs"],
         })
 
+elif step == "error-shapes":
+
+    class OrderMissing(Exception):
+        pass
+
+    def not_found():
+        open("/nonexistent/orders/A-17")
+
+    shapes = [
+        lambda: (_ for _ in ()).throw(ValueError("order A-17 not found")),
+        lambda: (_ for _ in ()).throw(KeyError("A-17")),
+        not_found,
+        lambda: (_ for _ in ()).throw(RuntimeError()),
+        lambda: (_ for _ in ()).throw(ValueError("a", "b")),
+        lambda: (_ for _ in ()).throw(OrderMissing("gone")),
+    ]
+
+    @shadowlap.tool(effect="read")
+    def fail(kind):
+        state["impl_runs"] += 1
+        shapes[kind]()
+
+    caught = []
+    for kind in range(len(shapes)):
+        try:
+            fail(kind=kind)
+            caught.append(None)
+        except BaseException as err:
+            import traceback
+
+            caught.append({"replayed": isinstance(err, shadowlap.ReplayedError), "text": str(err), "repr": repr(err), "last": traceback.format_exception_only(type(err), err)[-1].rstrip("\n")})
+    out({"caught": caught, "implRuns": state["impl_runs"]})
+
 elif step == "unserializable":
 
     @shadowlap.tool(name="weird", effect="read")

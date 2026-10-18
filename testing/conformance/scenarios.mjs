@@ -76,6 +76,21 @@ export const SCENARIOS = [
     },
   },
   {
+    name: 'replay-error-shapes',
+    why: 'errors of every shape the language has (no message, several arguments, a class of the program\'s own) replay reading as they were recorded',
+    record: 'error-shapes',
+    replay: 'error-shapes',
+    check({ recordOut, replayOut }) {
+      assert.ok(recordOut.caught?.length > 0, 'the step must raise its errors');
+      assert.equal(replayOut.implRuns, 0, 'the implementation MUST NOT run on a replayed call');
+      recordOut.caught.forEach((recorded, i) => {
+        const replayed = replayOut.caught[i];
+        assert.equal(replayed?.replayed, true, `error ${i} must be replayed`);
+        for (const key of ['text', 'repr', 'last']) assert.equal(replayed[key], recorded[key], `error ${i} (${recorded.repr}) must read as recorded: ${key}`);
+      });
+    },
+  },
+  {
     name: 'unserializable-result',
     why: 'a result that cannot become JSON still completes the call, so the recording has no hole',
     record: 'unserializable',

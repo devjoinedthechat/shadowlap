@@ -279,31 +279,67 @@ class RecordingRules(unittest.TestCase):
             self.assertIsInstance(clone, shadowlap.ReplayedError)
 
     def test_a_replayed_error_reads_as_the_recorded_one(self):
-        # An agent hands a tool's error to the model as f"error: {err}" or repr(err): a replay of
-        # unchanged code must hand it the same text, or the next model call forks.
+        # An agent hands a tool's error to the model as f"error: {err}", or as repr(err) the way
+        # LangGraph's ToolNode does: a replay of unchanged code must hand it the same text, or the
+        # next model call forks. Recorded through the SDK and the JSON the sidecar stores, then replayed.
+        import copy
+        import pickle
         import traceback
 
-        original = ValueError("order A-17 not found")
-        shadowlap._post = Sidecar({"origin": "replayed", "callNo": 1, "outcome": "error", "error": shadowlap.serialize_error(original)})
+        try:
+            open("/nonexistent/orders/A-17")
+        except FileNotFoundError as err:
+            not_found = err
+        originals = [
+            ValueError("order A-17 not found"),
+            KeyError("A-17"),
+            not_found,
+            RuntimeError(),
+            ValueError("a", "b"),
+            OrderMissing("gone"),
+            OrderMissing({"order": "A-17", "tries": 2}),
+            ValueError(("a", 1)),  # a tuple comes back from JSON a list: the message stands for it
+            ValueError(object()),
+        ]
+        for original in originals:
+            with self.subTest(original=repr(original)):
 
-        @tool(effect="read")
-        def lookup(order: str):
-            raise AssertionError("a replayed call never runs")
+                @tool(effect="read")
+                def lookup(order: str):
+                    raise original
 
-        with self.assertRaises(shadowlap.ReplayedError) as caught:
-            lookup("A-17")
-        err = caught.exception
-        self.assertEqual(str(err), str(original))
-        self.assertEqual(repr(err), repr(original))
-        self.assertEqual(type(err).__name__, "ValueError")
-        self.assertEqual(traceback.format_exception_only(type(err), err), traceback.format_exception_only(type(original), original))
-        self.assertEqual((err.name, err.args[0]), ("ValueError", "order A-17 not found"))
+                live = Sidecar({"origin": "live", "callNo": 1})
+                shadowlap._post = live
+                with self.assertRaises(type(original)):
+                    lookup("A-17")
+                recorded = json.loads(json.dumps(live.sent[-1][1]["error"]))
+                shadowlap._post = Sidecar({"origin": "replayed", "callNo": 1, "outcome": "error", "error": recorded})
+                with self.assertRaises(shadowlap.ReplayedError) as caught:
+                    lookup("A-17")
+                err = caught.exception
+                self.assertEqual(str(err), str(original))
+                self.assertEqual(type(err).__name__, type(original).__name__)
+                self.assertEqual(traceback.format_exception_only(type(err), err), traceback.format_exception_only(type(original), original))
+                if "object at 0x" not in repr(original) and not isinstance(original.args[0] if original.args else None, tuple):
+                    self.assertEqual(repr(err), repr(original))
+                    self.assertEqual(err.args, original.args)
+                for again in (copy.copy(err), pickle.loads(pickle.dumps(err))):
+                    self.assertIs(type(again), type(err))
+                    self.assertEqual((str(again), repr(again), again.args), (str(err), repr(err), err.args))
+
         # One class per recorded name, so `except` clauses and `type(e) is` checks agree across calls.
-        self.assertIs(type(shadowlap.ReplayedError({"name": "ValueError", "message": "again"})), type(err))
-        self.assertIsNot(type(shadowlap.ReplayedError({"name": "KeyError", "message": "k"})), type(err))
+        first = shadowlap.ReplayedError({"name": "ValueError", "message": "once"})
+        self.assertIs(type(shadowlap.ReplayedError({"name": "ValueError", "message": "again"})), type(first))
+        self.assertIsNot(type(shadowlap.ReplayedError({"name": "KeyError", "message": "k"})), type(first))
+        # A recording made before arguments and modules were kept still reads as it did.
+        old = shadowlap.ReplayedError({"name": "ValueError", "message": "order A-17 not found"})
+        self.assertEqual((str(old), repr(old), old.args), ("order A-17 not found", "ValueError('order A-17 not found')", ("order A-17 not found",)))
         custom = shadowlap.ReplayedError({"name": "OrderMissing", "message": "A-17"})
         self.assertEqual((type(custom).__name__, str(custom)), ("OrderMissing", "A-17"))
 
+
+class OrderMissing(Exception):
+    """An error class of the agent's own, for the replayed-error test."""
 
 if __name__ == "__main__":
     unittest.main()

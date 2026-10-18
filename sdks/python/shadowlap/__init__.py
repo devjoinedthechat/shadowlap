@@ -68,40 +68,59 @@ class ShadowlapWriteBlocked(RuntimeError):
 class ReplayedError(Exception):
     """A recorded error, replayed. The original class is not preserved; name, message and code are.
 
-    It reads as the recorded error: ``ReplayedError({"name": "ValueError", ...})`` is an instance of a
-    subclass named ``ValueError``, so ``str()``, ``repr()``, ``type(e).__name__`` and a traceback's
-    last line are what they were when the call was recorded. An agent that hands a tool's error to
-    the model hands it the same text on replay, and ``except ReplayedError`` still catches it."""
+    It reads as the recorded error: ``ReplayedError({"name": "KeyError", ...})`` is an instance of a
+    subclass named ``KeyError`` in the recorded module, holding the recorded arguments, so ``str()``,
+    ``repr()``, ``type(e).__name__``, ``e.args`` and a traceback's last line are what they were when
+    the call was recorded. An agent that hands a tool's error to the model hands it the same text on
+    replay, and ``except ReplayedError`` still catches it."""
 
     def __new__(cls, error: Optional[dict] = None, *args: Any, **kwargs: Any):
         if cls is ReplayedError and isinstance(error, dict):
-            cls = _replayed_class(str(error.get("name") or "Error"))
+            module = error.get("module")
+            cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
         return super().__new__(cls)
 
     def __init__(self, error: dict):
-        super().__init__(error.get("message", "recorded error"))
+        message = error.get("message", "recorded error")
+        args = error.get("args")
+        # A recording made before arguments were kept, or of an error whose arguments aren't JSON,
+        # has the message alone, which is what an error made from one string holds.
+        super().__init__(*(args if isinstance(args, list) else [message]))
+        self._message = message if isinstance(message, str) else str(message)
         self.name = error.get("name", "Error")
         self.code = error.get("code")
         self.data = error.get("data")
 
+    def __str__(self) -> str:
+        # The recorded str(), which the arguments alone don't give back: str(KeyError("A-17")) is
+        # "'A-17'", and an OSError's names its errno and file.
+        return self._message
+
     def __reduce__(self):
         # Rebuilt through ReplayedError, which picks the class for the name again: the class itself is
         # made at run time, and pickle would look it up by its name (ValueError) and find another.
-        return (ReplayedError, ({"name": self.name, "message": super().__str__(), "code": self.code, "data": self.data},))
+        error = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
+        module = type(self).__module__
+        if module != __name__:
+            error["module"] = module
+        return (ReplayedError, (error,))
 
 
 _REPLAYED_CLASSES: dict = {}
 
 
-def _replayed_class(name: str) -> type:
-    """The ReplayedError subclass for a recorded error's name, one per name. A builtin's name (ValueError,
-    KeyError) is shown without a module, as the builtin is."""
-    cls = _REPLAYED_CLASSES.get(name)
-    if cls is None:
+def _replayed_class(name: str, module: Optional[str] = None) -> type:
+    """The ReplayedError subclass for a recorded error's name and module, one per pair. Its module is
+    the recorded one, so a traceback names it as it named the original (``myapp.errors.OrderMissing``,
+    and ``OrderMissing`` alone for ``__main__`` and builtins). A recording without a module shows a
+    builtin's name (ValueError, KeyError) without one, as the builtin is."""
+    if module is None:
         builtin = getattr(builtins, name, None)
-        is_builtin = isinstance(builtin, type) and issubclass(builtin, BaseException)
-        cls = type(name, (ReplayedError,), {"__module__": "builtins" if is_builtin else __name__, "__qualname__": name, "__doc__": ReplayedError.__doc__})
-        _REPLAYED_CLASSES[name] = cls
+        module = "builtins" if isinstance(builtin, type) and issubclass(builtin, BaseException) else __name__
+    cls = _REPLAYED_CLASSES.get((name, module))
+    if cls is None:
+        cls = type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__})
+        _REPLAYED_CLASSES[(name, module)] = cls
     return cls
 
 
@@ -276,11 +295,38 @@ def _post(cfg: tuple, path: str, body: dict) -> dict:
 
 
 def serialize_error(err: BaseException) -> dict:
-    out = {"name": type(err).__name__, "message": str(err)}
+    """An error as it is recorded: its class's name, ``str()`` as the message, a string ``code``, and,
+    so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
+    and its arguments when they aren't the message alone and survive JSON as they are."""
+    message = str(err)
+    out: dict = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
     if isinstance(code, str):
         out["code"] = code
+    module = getattr(type(err), "__module__", None)
+    if isinstance(module, str) and module != "builtins":
+        out["module"] = module
+    args = getattr(err, "args", ())
+    if isinstance(args, tuple) and list(args) != [message]:
+        try:
+            kept = json.loads(json.dumps(list(args), allow_nan=False))
+        except (TypeError, ValueError, RecursionError):
+            kept = None
+        # Only what JSON gives back unchanged: a tuple would come back a list, and print as one.
+        if kept == list(args) and _same_types(kept, list(args)):
+            out["args"] = kept
     return out
+
+
+def _same_types(a: Any, b: Any) -> bool:
+    """Whether JSON gave ``b`` back as ``a`` with the same types all through (1 == 1.0 == True)."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, list):
+        return len(a) == len(b) and all(_same_types(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(_same_types(a[k], b[k]) for k in a)
+    return True
 
 
 # The process is stopping (Ctrl-C, sys.exit()): that is not the tool's answer, so the call is left
