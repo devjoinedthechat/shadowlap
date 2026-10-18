@@ -129,6 +129,29 @@ describe('Store', () => {
     expect(store.listRuns()[0]!.runId).toBe(child.runId);
     store.close();
   });
+
+  it('links a run that came without its parent once the parent is here, and never into a loop', () => {
+    const store = Store.open(':memory:');
+    const parent = store.createRun({ mode: 'record', command: cmd });
+    const fork = store.createRun({ mode: 'replay', parentRunId: parent.runId, command: cmd });
+    const record = store.getRun(fork.runId)!;
+    // The fork came without its parent: imported while the parent wasn't here.
+    store.deleteRun(fork.runId);
+    store.deleteRun(parent.runId);
+    store.importRun(record);
+    expect(store.getRun(fork.runId)!.parentRunId).toBeNull();
+    expect(store.linkParent(fork.runId, parent.runId)).toBe(false); // not here yet
+    store.importRun({ ...store.getRun(fork.runId)!, runId: parent.runId, parentRunId: null });
+    expect(store.linkParent(fork.runId, parent.runId)).toBe(true);
+    expect(store.getRun(fork.runId)!.parentRunId).toBe(parent.runId);
+    // A link already set stays, and a run is never made its own ancestor.
+    const other = store.createRun({ mode: 'record', command: cmd });
+    expect(store.linkParent(fork.runId, other.runId)).toBe(false);
+    expect(store.linkParent(parent.runId, fork.runId)).toBe(false);
+    expect(store.linkParent(other.runId, other.runId)).toBe(false);
+    expect(store.getRun(parent.runId)!.parentRunId).toBeNull();
+    store.close();
+  });
 });
 
 describe('request manifests', () => {

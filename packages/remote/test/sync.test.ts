@@ -418,8 +418,10 @@ describe('pull', () => {
     expect(result.skippedDeleted).toEqual([r.runId]);
     expect(b.store.getRun(r.runId)).toBeNull();
     expect(b.store.getRun(fork.runId)!.parentRunId).toBeNull();
-    // Named, the run comes back.
+    // Named, the run comes back, and the replay is linked to it again, as the store links them.
     expect((await pull(b, { runIds: [r.runId] })).pulled).toEqual([r.runId]);
+    expect(b.store.getRun(fork.runId)!.parentRunId).toBe(r.runId);
+    expect(b.store.childRuns(r.runId).map((x) => x.runId)).toEqual([fork.runId]);
   });
 
   it('refuses a blob changed in the bucket, and skips an index segment that is not one', async () => {

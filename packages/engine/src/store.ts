@@ -1344,6 +1344,22 @@ export class Store {
   }
 
   /**
+   * Links a run that came here without its parent (unset, as an import leaves it when the parent
+   * isn't here) to that parent, once the parent is here. A link already set stays, and one that
+   * would make the run its own ancestor is never made. Whether it was linked.
+   */
+  linkParent(runId: string, parentRunId: string): boolean {
+    if (this.getRun(runId)?.parentRunId !== null) return false;
+    for (let at: string | null = parentRunId, depth = 0; at; depth++) {
+      if (at === runId || depth > 10_000) return false;
+      const up = this.getRun(at);
+      if (!up) return false;
+      at = up.parentRunId;
+    }
+    return Number(this.db.prepare(`UPDATE runs SET parent_run_id = ? WHERE run_id = ? AND parent_run_id IS NULL`).run(parentRunId, runId).changes) > 0;
+  }
+
+  /**
    * Gives a run another start time. An import writes its run as of the moment it starts, so the
    * store hears from it now (recordingRuns) however old the capture's times are, and gives it the
    * capture's start once it has ended.

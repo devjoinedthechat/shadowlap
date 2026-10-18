@@ -182,7 +182,8 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   the others.
 - **A run you delete here** stays deleted: a pull doesn't bring it back unless you name it. A
   teammate's replay or fork of it still comes, without it: the fork's link to it is left unset, as
-  `unpack` leaves a fork whose parent isn't there.
+  `unpack` leaves a fork whose parent isn't there. Name the run in a pull and it comes back, linked
+  to its forks here again.
 - **A pulled run is someone else's recording.** It reads as what it is (a recording, a fork, a
   test), by who made it, never as a pack: with the requests it sent and what it spent where it was
   recorded, as `≈$0.0030 spent · by maya` on its page (Provenance's Upstream row names her too)

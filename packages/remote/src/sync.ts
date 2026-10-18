@@ -781,6 +781,14 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
     return (state === 'pushed' || state === 'pulled') && store.getRun(id) === null;
   };
   const parentOf = (id: string) => (rows.get(id)?.entry?.parentRunId as string | null | undefined) ?? null;
+  const childrenOf = new Map<string, string[]>();
+  for (const id of rows.keys()) {
+    const parent = parentOf(id);
+    if (!parent) continue;
+    const siblings = childrenOf.get(parent);
+    if (siblings) siblings.push(id);
+    else childrenOf.set(parent, [id]);
+  }
   const elsewhere = new Set<string>();
   for (const id of [...wanted]) {
     let parent = parentOf(id);
@@ -822,6 +830,9 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
       continue;
     }
     result.pulled.push(id);
+    // A run here that came without it (deleted here when the run came, then named) links to it again,
+    // as the store's index links them.
+    for (const child of childrenOf.get(id) ?? []) store.linkParent(child, id);
     const who = doc.run.meta?.author ?? 'unknown';
     result.byAuthor[who] = (result.byAuthor[who] ?? 0) + 1;
     ctx.log?.(`pulled ${id}${doc.run.meta?.author ? ` (${doc.run.meta.author})` : ''}`);
