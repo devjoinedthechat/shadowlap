@@ -81,7 +81,7 @@ export { applyDeltas, finalAnswer, normalizeResponse } from './responses.js';
 export type { Block, Delta, NormalizedResponse } from './responses.js';
 export type { PackOptions, PackResult, UnpackResult } from './pack.js';
 export type { Palette } from './report.js';
-export { conversationRequest, conversationRequestFor, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
+export { conversationRequest, conversationRequestFor, LiveConversations, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
 export type { CallConversation, ConversationOptions, ConversationSpan, RequestedTool, RunConversations } from './conversations.js';
 export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, importedRecording, runCache, runCacheUse, sumCacheUse, wholeInput } from './cache.js';
 export type { CacheMiss, CacheUse, CacheUseMiss, CacheUseOptions, RunCache, RunCacheUse } from './cache.js';
