@@ -5,7 +5,7 @@ import { loadApiRequest } from './manifest.js';
 import { estimateCost, formatUsd, type Price } from './prices.js';
 import { safeLine, safeText } from './text.js';
 import type { Store } from './store.js';
-import type { CallKind, CallRecord, DivergenceReport, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
+import type { CallKind, CallRecord, DivergenceReport, EndedEarly, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
 
 /** The model a call was made with: stored at record time, or supplied by a resolver that can read the request. */
 export type ModelResolver = (call: CallRecord) => string | null | undefined;
@@ -93,7 +93,21 @@ export function summarizeRun(run: RunRecord, calls: CallRecord[], notReached: No
     notReached,
     warnings,
     divergence: run.divergence,
+    endedEarly: run.mode === 'replay' && !run.divergence ? endedEarly(notReached, byOrigin) : null,
   };
+}
+
+/**
+ * A replay that never diverged, yet left recorded model or tool calls unmade, stopped earlier than
+ * its recording: it is no clean replay, though every request it sent matched. Clock and random reads
+ * left over count among the recorded calls, but never make it one.
+ */
+function endedEarly(notReached: readonly NotReached[], byOrigin: Record<Origin, number>): EndedEarly | null {
+  const first = notReached.filter((n) => n.kind === 'api' || n.kind === 'tool').reduce<NotReached | null>((a, n) => (a && a.callNo < n.callNo ? a : n), null);
+  if (!first) return null;
+  // Without a fork every recorded call the replay made was served from the recording, as it was or overridden.
+  const replayed = byOrigin.replayed + byOrigin.overridden;
+  return { callNo: first.callNo, kind: first.kind, name: first.name, replayed, recorded: replayed + notReached.length };
 }
 
 export interface Palette {
@@ -125,6 +139,10 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     lines.push(`${p.yellow('⚠')} ${s.mode === 'record' ? 'Recorded' : 'Replayed'} ${p.bold(s.runId)}: no calls were made. Did the agent start, and does it use the Shadowlap environment?`);
   } else if (s.mode === 'record') {
     lines.push(`${p.green('●')} Recorded ${p.bold(s.runId)}: ${s.total} calls (${kinds}), ${s.upstreamRequests} upstream requests${s.cost.spent ? `, ≈${formatUsd(s.cost.spent)}` : ''}`);
+  } else if (!s.divergence && s.endedEarly) {
+    const e = s.endedEarly;
+    const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
+    lines.push(`${p.red('✗')} Ended early at call ${e.callNo}: ${e.replayed} of ${e.recorded} recorded calls replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent`);
   } else if (!s.divergence) {
     const saved = s.tokensNotRespent.inputTokens + (s.tokensNotRespent.cacheReadInputTokens ?? 0);
     lines.push(

@@ -102,8 +102,10 @@ export function givenCommand(argv: readonly string[], name: string): string[] {
 function passedLine(o: GoldenOutcome): string {
   const r = o.result!;
   const s = r.shown.ended.summary;
+  // Out of what the recording holds, not what this replay made: one that stopped short never reads as whole.
+  const replayed = s.byOrigin.replayed + s.byOrigin.overridden;
   return [
-    s.divergence ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed` : `${s.byOrigin.replayed}/${s.total} replayed`,
+    s.divergence ? `forked at call ${s.divergence.callNo}, ${s.byOrigin.replayed}/${s.total} replayed` : `${replayed}/${replayed + s.notReached.length} replayed`,
     `${formatTokens(s.tokensNotRespent.inputTokens)} input tokens not re-spent`,
     ...(r.shown.checks?.length ? [`${r.shown.checks.length} check${r.shown.checks.length === 1 ? '' : 's'} passed`] : []),
     ...(r.attempts.length > 1 ? [`${r.passed}/${r.attempts.length} attempts passed`] : []),

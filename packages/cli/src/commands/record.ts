@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
-import { addRules, calibrationTarget, commandIsImported, formatDivergence, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { addRules, calibrationTarget, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, summarizeRepeats, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from '../checks.js';
 import { codeVersion, configPath, loadConfig } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
@@ -200,7 +200,7 @@ export function register(program: Command): void {
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report }, null, 2) + '\n');
         emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
         emitJobEvent({ type: 'link', label: 'Open the attempts', href: `#/run/${parent.runId}/${first?.callNo ?? 1}/forks` });
-        const anyDiverged = attempts.some((a) => a.summary.divergence);
+        const anyDiverged = attempts.some((a) => a.summary.divergence || a.summary.endedEarly);
         const checksFailed = judged.some((c) => c.some((x) => !x.ok));
         process.exitCode = flags.strict && anyDiverged ? 1 : attempts.length < flags.repeat || attempts.some((a) => a.code !== 0) || checksFailed ? 1 : 0;
         return;
@@ -218,7 +218,8 @@ export function register(program: Command): void {
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}) }, null, 2) + '\n');
-        process.exitCode = flags.strict && summary.divergence ? 1 : judged?.some((c) => !c.ok) ? 1 : code;
+        // A replay that stopped before its recording did is no clean one either.
+        process.exitCode = flags.strict && (summary.divergence || summary.endedEarly) ? 1 : judged?.some((c) => !c.ok) ? 1 : code;
       };
 
       await once();
@@ -283,6 +284,7 @@ export function register(program: Command): void {
           if (!d) {
             if (s.total === 0 && store.getCalls(parent.runId).length > 0) outcome = { clean: false, why: 'the replay made no calls through Shadowlap, so the agent reached its model some other way (a local model server needs SHADOWLAP_UPSTREAM_OPENAI or the like, as when it was recorded)', details: attempt.output.trim().split('\n').slice(-15).join('\n') };
             else if (attempt.code !== 0) outcome = { clean: false, why: `the agent exited with code ${attempt.code} without diverging`, details: attempt.output.trim().split('\n').slice(-15).join('\n') };
+            else if (s.endedEarly) outcome = { clean: false, why: `the agent ended before call ${s.endedEarly.callNo} (${s.endedEarly.kind} ${s.endedEarly.name}), which it made when recorded: its control flow varies between runs, and no normalizer changes that`, details: formatSummary(s) };
             else {
               say(`${label}${p.green(`clean: ${s.byOrigin.replayed}/${s.total} calls replayed`)}\n`);
               outcome = { clean: true, total: s.total };

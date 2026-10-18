@@ -58,6 +58,42 @@ describe('formatSummary after a fork', () => {
   });
 });
 
+describe('a replay that stops before its recording ends', () => {
+  const notReached = [
+    { callNo: 3, kind: 'api' as const, name: 'POST /v1/messages' },
+    { callNo: 4, kind: 'tool' as const, name: 'write_report' },
+    { callNo: 5, kind: 'clock' as const, name: 'Date.now' },
+  ];
+  const replayed = [call(1, 'api', 'POST /v1/messages', 'replayed'), call(2, 'tool', 'search', 'replayed')];
+
+  it('ended early, not clean: it names the first recorded call it never made, and how much of the recording it replayed', () => {
+    const s = summarizeRun(run(null), replayed, notReached);
+    expect(s.endedEarly).toEqual({ callNo: 3, kind: 'api', name: 'POST /v1/messages', replayed: 2, recorded: 5 });
+    const text = formatSummary(s);
+    expect(text).toContain('✗ Ended early at call 3: 2 of 5 recorded calls replayed (1 api, 1 tool)');
+    expect(text).not.toContain('Replay clean');
+    expect(text).toContain('3 recorded calls not reached: #3 POST /v1/messages, #4 write_report, #5 Date.now');
+  });
+
+  it('is clean when only clock and random reads are left over', () => {
+    const s = summarizeRun(run(null), replayed, [{ callNo: 3, kind: 'clock', name: 'Date.now' }, { callNo: 4, kind: 'random', name: 'Math.random' }]);
+    expect(s.endedEarly).toBeNull();
+    expect(formatSummary(s)).toContain('✓ Replay clean: 2/2 calls replayed');
+  });
+
+  it('counts an overridden call as replayed from the recording', () => {
+    const s = summarizeRun(run(null), [call(1, 'api', 'POST /v1/messages', 'replayed'), call(2, 'tool', 'search', 'overridden')], notReached);
+    expect(s.endedEarly).toMatchObject({ replayed: 2, recorded: 5 });
+  });
+
+  it('is never set after a fork, or on a recording', () => {
+    const forked = summarizeRun(run({ type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1 }), replayed, notReached);
+    expect(forked.endedEarly).toBeNull();
+    const recording = summarizeRun({ ...run(null), mode: 'record', parentRunId: null }, replayed, notReached);
+    expect(recording.endedEarly).toBeNull();
+  });
+});
+
 describe('summarizeRun: where the calls were answered and paid for', () => {
   const priced = (c: CallRecord, extra: Record<string, unknown> = {}): CallRecord => ({ ...c, meta: { model: 'claude-sonnet-4-5' }, end: { ...c.end!, meta: { usage: { inputTokens: 1_000_000, outputTokens: 0 }, ...extra } } });
   const prices = { 'claude-sonnet-4-5': { input: 3, output: 15 } };

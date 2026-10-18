@@ -258,6 +258,12 @@ export async function testAttempt(
   } else if (summary.total === 0) {
     kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
+  } else if (summary.endedEarly && !o.spec?.fork) {
+    // Every request matched, but the agent stopped before the recording did: what it never sent
+    // (a write, the last model turn) is as much a change as a request sent differently.
+    const e = summary.endedEarly;
+    kind = 'diverged';
+    failure = { message: `ended early at call ${e.callNo} (${e.kind} ${e.name}): ${e.replayed} of ${e.recorded} recorded calls replayed`, details: formatSummary(summary) };
   } else if (failedChecks.length) {
     kind = 'check';
     const first = failedChecks[0]!;

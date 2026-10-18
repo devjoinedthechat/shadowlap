@@ -10,7 +10,7 @@ Claude Code, Cursor, Codex and other coding agents can debug an agent with Shado
 | Read a run | `shadowlap show <run> --json` | The summary (calls by origin, divergence, cost) and every call |
 | Read one call | `shadowlap show <run> --request <n>` / `--response <n>` | The request as sent, the response as received |
 | Search what runs recorded | `shadowlap search <words> --json` | Matching prompts, responses, tool arguments and results |
-| Check a change | `shadowlap replay <run> --strict --summary-json out.json` | Exit code 1 on divergence; the summary in `out.json` |
+| Check a change | `shadowlap replay <run> --strict --summary-json out.json` | Exit code 1 on divergence or an early end; the summary in `out.json` |
 | Check a prompt change from a later step | `shadowlap replay <run> --prompt-from <call> --summary-json out.json` | As above |
 | See whether a fix holds | `shadowlap replay <run> --repeat 5 --summary-json out.json` | Every attempt, and the paths they took |
 | Find where a failed run went wrong | `shadowlap blame <run> --expect '<checks>' --json` | The model call that lost the run, what the model answered there in the recording and in a fork that passed, and that fork's run id ([fields](./blame.md#json)) |

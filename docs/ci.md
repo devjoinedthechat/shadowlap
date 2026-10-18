@@ -20,7 +20,7 @@ A pack is a directory: `run.json`, `calls.jsonl`, one file per blob. It's git-fr
 shadowlap test goldens/* --junit shadowlap-junit.xml
 ```
 
-For each pack, `shadowlap test` imports it into the project's store, re-runs the recorded command under a replay sidecar with **every provider set to offline**, and passes only if the replay is clean and the process exits 0. A divergence prints the report; a live call is refused with a 503 that names the call; both fail the pack. `--online` allows live calls after a divergence if you really want them; `--cwd` sets the working directory for the recorded commands; `--writes` sets the write policy. A `*` in the last part of a path is expanded by `shadowlap test` itself, so `'goldens/*'` works without a shell.
+For each pack, `shadowlap test` imports it into the project's store, re-runs the recorded command under a replay sidecar with **every provider set to offline**, and passes only if the replay is clean and the process exits 0. Clean means the agent sent every request the recording holds, unchanged, and no more: a request sent differently, a call the recording doesn't have, or a recorded call never made (the agent [ended early](#a-replay-that-ends-early)) each fails it. A divergence prints the report; a live call is refused with a 503 that names the call; both fail the pack. `--online` allows live calls after a divergence if you really want them; `--cwd` sets the working directory for the recorded commands; `--writes` sets the write policy. A `*` in the last part of a path is expanded by `shadowlap test` itself, so `'goldens/*'` works without a shell.
 
 Output, when one agent puts a new UUID in every request's metadata:
 
@@ -42,6 +42,18 @@ Output, when one agent puts a new UUID in every request's metadata:
 ```
 
 Besides dates, UUIDs and ULIDs, the report names the normalizer for an id the agent makes anew on every run: one that looks generated (16 or more hex digits, a prefix with a random tail such as `req_8f3a2c1d9e7b`, a long random token), or one under a key that names a request, a trace, a span, a session, a nonce or an idempotency key. Any other id that changed, such as a customer's number or an order's code, may be a real change: the agent acting on another customer is what the test is there to catch. The report says so, and gives the normalizer only for when you know that id changes on every run; a normalizer would hide a real change from every later test.
+
+### A replay that ends early
+
+An agent can stop before its recording did and still exit 0: an exception it catches, a stop condition that changed, a step it now skips. Every request it sent matched, so nothing diverged, but what it never sent (the last model turn, the write) is as much a change. The golden fails, at the first recorded model or tool call it never made:
+
+```
+✗ research: ended early at call 11 (api POST /v1/messages): 10 of 30 recorded calls replayed
+    ✗ Ended early at call 11: 10 of 30 recorded calls replayed (3 api, 5 tool, 2 clock/random), 0 upstream requests, 3k input tokens not re-spent
+      20 recorded calls not reached: #11 POST /v1/messages, #12 read_file, #13 read_file, …
+```
+
+Its failure kind is `diverged`, so the GitHub Action and `bisect` treat it as one. Clock and random reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
 
 The JUnit report renders in GitHub, GitLab and most CI dashboards; each pack is a test case, and a failure carries the divergence report and the agent's output.
 
@@ -390,4 +402,4 @@ They need an incoming webhook from your Slack workspace, its URL as a repository
 
 ## Strict replays outside `test`
 
-`shadowlap replay <run> --strict` exits 1 on divergence and is the same check against a run in the local store, for scripts and pre-commit hooks.
+`shadowlap replay <run> --strict` exits 1 on divergence, or when the replay ends early, and is the same check against a run in the local store, for scripts and pre-commit hooks.

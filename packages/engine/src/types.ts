@@ -317,4 +317,21 @@ export interface RunSummary {
   notReached: NotReached[];
   warnings: string[];
   divergence: DivergenceReport | null;
+  /**
+   * A replay that never diverged but left recorded model or tool calls unmade: the agent stopped
+   * earlier than it did when recorded, so it is no clean replay. Null otherwise. `summarizeRun`
+   * always sets it; a summary built or saved elsewhere may not have it.
+   */
+  endedEarly?: EndedEarly | null;
+}
+
+/** Where a replay that never diverged stopped short of its recording (`RunSummary.endedEarly`). */
+export interface EndedEarly {
+  /** The first recorded model or tool call the replay never made. */
+  callNo: number;
+  kind: CallKind;
+  name: string;
+  /** Recorded calls the replay was served, and how many the recording holds (clock and random reads included). */
+  replayed: number;
+  recorded: number;
 }

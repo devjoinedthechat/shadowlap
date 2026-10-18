@@ -47,7 +47,7 @@ The agent made more calls than the recording contains. Usually the loop's stop c
 
 ### Not reached
 
-At the end, the report lists recorded calls the replay never made. Harmless after a fork; before one, it means the agent stopped earlier than recorded.
+At the end, the report lists recorded calls the replay never made. Harmless after a fork. Without one, recorded model or tool calls left unmade mean the agent stopped earlier than recorded, and the replay is not clean: it reads `✗ Ended early at call N: X of Y recorded calls replayed`, `--strict` exits 1, and `shadowlap test` and `bisect` fail it. Clock and random reads left over don't count. Read the agent's output for why it stopped: an exception it caught, a stop condition that changed, a step it now skips.
 
 ## Symptoms that aren't divergences
 
