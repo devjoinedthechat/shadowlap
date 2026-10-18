@@ -205,26 +205,42 @@ export function serializeError(err: unknown): SerializedError {
   return { name: 'Error', message: String(err) };
 }
 
+const isAsyncGeneratorFunction = (fn: unknown): boolean => Object.prototype.toString.call(fn) === '[object AsyncGeneratorFunction]';
+const isAsyncIterable = (v: unknown): v is AsyncIterable<unknown> =>
+  v !== null && (typeof v === 'object' || typeof v === 'function') && typeof (v as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function';
+const isThenable = (v: unknown): v is PromiseLike<unknown> => v !== null && (typeof v === 'object' || typeof v === 'function') && typeof (v as { then?: unknown }).then === 'function';
+
+async function lastOf(stream: AsyncIterable<unknown>): Promise<unknown> {
+  let last: unknown = null;
+  for await (const value of stream) last = value;
+  return last;
+}
+
 /**
  * Wraps a tool implementation. The returned function has the same signature; results and errors
  * must be JSON-serializable. `effect` is required by design: the only safe default would be
  * `write`, and making that implicit would hide a decision the developer must make.
+ *
+ * An async generator function (`async function*`, the AI SDK's streaming `async *execute`) stays
+ * one: what it yields is passed on as it comes, its last value is recorded as the result, and a
+ * replay yields that value alone. Outside Shadowlap every call goes straight to `impl`, and its
+ * stream or promise comes back as `impl` made it.
  */
-export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => R | Promise<R>): (args: A) => Promise<R> {
+export function tool<A, Y>(name: string, options: ToolOptions<A, Y>, impl: (args: A) => AsyncGenerator<Y, unknown, undefined>): (args: A) => AsyncGenerator<Y, void, undefined>;
+export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => R | Promise<R>): (args: A) => Promise<R>;
+export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => unknown): (args: A) => unknown {
   if (!name) throw new TypeError('tool name is required');
   if (options.effect !== 'pure' && options.effect !== 'read' && options.effect !== 'write') {
     throw new TypeError(`tool ${name}: effect must be "pure", "read" or "write"`);
   }
   const implHash = createHash('sha256').update(String(options.source ?? impl)).digest('hex');
 
-  return async (args: A): Promise<R> => {
-    const cfg = config();
-    if (!cfg) return impl(args);
-
+  /** One call under Shadowlap; `run` executes the implementation and gives the result to record. */
+  async function call(cfg: Config, args: A, run: (args: A) => Promise<unknown>): Promise<{ value: unknown; ran: boolean }> {
     const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name, effect: options.effect, args, implHash });
     switch (r.origin) {
       case 'replayed':
-        if (r.outcome === 'ok') return r.result as R;
+        if (r.outcome === 'ok') return { value: r.result, ran: false };
         if (r.injected) throw new ShadowlapInjectedFailure(name, args, r.injected, r.error);
         throw replayedError(r.error);
       case 'blocked':
@@ -232,16 +248,16 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
       case 'stubbed': {
         // What is recorded is what the agent gets: null without a stub, as a replay of this call
         // returns it (JSON has no undefined), so a run with stubbed writes replays as it went.
-        const stub = ((options.onFork ? await options.onFork(args) : null) ?? null) as R;
+        const stub = (options.onFork ? await options.onFork(args) : null) ?? null;
         await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: stub, latencyMs: 0 });
-        return stub;
+        return { value: stub, ran: false };
       }
       case 'live': {
         const started = Date.now();
         try {
-          const result = await impl(args);
+          const result = await run(args);
           await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: result ?? null, latencyMs: Date.now() - started });
-          return result;
+          return { value: result, ran: true };
         } catch (err) {
           await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'error', error: serializeError(err), latencyMs: Date.now() - started });
           throw err;
@@ -251,6 +267,74 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
         // Never guess: running the tool on an answer this SDK doesn't know could repeat a side effect.
         throw new Error(`shadowlap sidecar answered ${name} with an unknown origin "${String((r as { origin?: unknown }).origin)}"; update @shadowlap/sdk`);
     }
+  }
+
+  if (isAsyncGeneratorFunction(impl)) {
+    const stream = impl as (args: A) => AsyncGenerator<unknown, unknown, undefined>;
+    return async function* (args: A): AsyncGenerator<unknown, void, undefined> {
+      const cfg = config();
+      if (!cfg) {
+        yield* stream(args);
+        return;
+      }
+      // The implementation runs inside call(), which records its last value; what it yields on the
+      // way is handed on from here as it comes.
+      const values: unknown[] = [];
+      let wake: (() => void) | null = null;
+      const notify = () => {
+        wake?.();
+        wake = null;
+      };
+      let settled: { ok: true; value: unknown; ran: boolean } | { ok: false; error: unknown } | null = null;
+      void call(cfg, args, async (a) => {
+        let last: unknown = null;
+        for await (const value of stream(a)) {
+          last = value;
+          values.push(value);
+          notify();
+        }
+        return last;
+      }).then(
+        ({ value, ran }) => {
+          settled = { ok: true, value, ran };
+          notify();
+        },
+        (error: unknown) => {
+          settled = { ok: false, error };
+          notify();
+        },
+      );
+      let next = 0;
+      for (;;) {
+        while (next < values.length) yield values[next++];
+        if (settled) break;
+        await new Promise<void>((resolve) => (wake = resolve));
+      }
+      const done = settled as { ok: true; value: unknown; ran: boolean } | { ok: false; error: unknown };
+      if (!done.ok) throw done.error;
+      // Replayed or stubbed: the implementation didn't run, so the recorded value is the stream.
+      if (!done.ran) yield done.value;
+    };
+  }
+
+  return (args: A): Promise<R> => {
+    const cfg = config();
+    if (!cfg) {
+      // A direct passthrough: a stream impl returns (an async iterable) comes back as it is, where
+      // a promise around it would hide it from a framework that looks for one.
+      try {
+        const out = impl(args);
+        return (isAsyncIterable(out) && !isThenable(out) ? out : Promise.resolve(out)) as Promise<R>;
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+    // A stream from a function that isn't a generator is only seen once it is returned, after the
+    // caller already has this promise: it is read to its end, and its last value is the result.
+    return call(cfg, args, async (a) => {
+      const out = await impl(a);
+      return isAsyncIterable(out) ? lastOf(out) : out;
+    }).then(({ value }) => value as R);
   };
 }
 

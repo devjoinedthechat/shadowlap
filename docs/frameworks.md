@@ -23,7 +23,7 @@ const tools = withEffects(
 await generateText({ model, tools, prompt });
 ```
 
-Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through.
+Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through. A streaming tool (`async *execute`) still streams: its progress values reach the UI as they come, its last value is recorded as the result the model is shown, and a replay yields that value alone.
 
 ## OpenAI Agents SDK
 
