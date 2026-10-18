@@ -11,7 +11,7 @@ import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-f
 import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, parseChoice, parseIntArg, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 import { runVerify } from '../verify.js';
 import { HandOverError, handOver, RepairError, runRepair, splitHoldout } from '../repair.js';
@@ -173,7 +173,7 @@ async function targetsOf(runs: RunRecord[], command: string[], yes: boolean | un
   const out: Array<{ parent: RunRecord; argv: string[]; commandFromImport: boolean }> = [];
   for (const run of runs) {
     if (!command.length && !hasRecordedCommand(run)) {
-      throw new InvalidArgumentError(`${shortId(run.runId)} was imported from a capture and has no command to re-run. Give yours after --:\n  shadowlap ${verb} … -- python agent.py`);
+      throw new InvalidArgumentError(`${shortId(run.runId)} ${withoutCommand(run)} and has no command to re-run. Give yours after --:\n  shadowlap ${verb} … -- python agent.py`);
     }
     const argv = command.length ? command : run.command.argv;
     const commandFromImport = !command.length && commandIsImported(run);
@@ -220,7 +220,7 @@ export function register(program: Command): void {
       const steps = store.getCalls(parent.runId).filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, flags.scope)).length;
       store.close();
       if (!command.length && !hasRecordedCommand(parent)) {
-        throw new InvalidArgumentError(`${shortId(parent.runId)} was imported from a capture and has no command to re-run. Give yours after --:\n  shadowlap blame ${shortId(parent.runId)} -- python agent.py`);
+        throw new InvalidArgumentError(`${shortId(parent.runId)} ${withoutCommand(parent)} and has no command to re-run. Give yours after --:\n  shadowlap blame ${shortId(parent.runId)} -- python agent.py`);
       }
       const argv = command.length ? command : parent.command.argv;
       const commandFromImport = !command.length && commandIsImported(parent);

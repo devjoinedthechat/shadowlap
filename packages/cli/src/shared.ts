@@ -118,6 +118,14 @@ export async function confirmImportedCommand(run: RunRecord, argv: string[], own
   }
 }
 
+/**
+ * How a run came to have no command to run again (`hasRecordedCommand` false): a capture records
+ * what was sent and declares what it covers, and `shadowlap serve` never saw what started the agent.
+ */
+export function withoutCommand(run: Pick<RunRecord, 'meta'>): string {
+  return run.meta?.covers?.length ? 'was imported from a capture' : 'was recorded through shadowlap serve';
+}
+
 export function requireRun(store: Store, idOrPrefix: string): RunRecord {
   const run = store.findRun(idOrPrefix);
   if (!run) throw new Error(`no run matches "${idOrPrefix}" (see: shadowlap ls)`);

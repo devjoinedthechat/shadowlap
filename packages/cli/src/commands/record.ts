@@ -9,7 +9,7 @@ import { runMcp } from '../mcp.js';
 import { watchAndRerun } from '../watch.js';
 import { parseFailures, parseInterventions, parseOverrides, providerIds, repeatUnderSidecar, runUnderSidecar, testAttempt, type GuardMode } from '../run-agent.js';
 import { readExpect } from './fix.js';
-import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireEnded, requireRun, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
@@ -130,7 +130,7 @@ export function register(program: Command): void {
       // fail and still record a failed run with no calls, which is worse than refusing.
       if (!command.length && !hasRecordedCommand(parent)) {
         throw new InvalidArgumentError(
-          `${shortId(parent.runId)} was imported from a capture, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --:\n  shadowlap replay ${shortId(parent.runId)} -- python agent.py\nThat replay records everything, tool calls included, so it has a command of its own and every fork works on it.`,
+          `${shortId(parent.runId)} ${withoutCommand(parent)}, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --:\n  shadowlap replay ${shortId(parent.runId)} -- python agent.py\nThat replay records everything, tool calls included, so it has a command of its own and every fork works on it.`,
         );
       }
       const argv = command.length ? command : parent.command.argv;

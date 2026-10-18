@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { formatTokens, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { formatTokens, NO_COMMAND, packRun, recordEvent, resolveAuthor, settleAppliedFixes, Store, unpackRun, volatileValues, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
@@ -96,6 +96,15 @@ export function givenCommand(argv: readonly string[], name: string): string[] {
   let i = 0;
   while (i < args.length && args[i]!.startsWith('-') && args[i] !== name) i += args[i] === '--db' ? 2 : 1;
   return ['shadowlap', ...(args[i] === name ? args.slice(i) : [name, ...args.slice(i)])];
+}
+
+/**
+ * The environment `serve` prints, as the shell it is pasted into sets it: `export K=V` lines for a
+ * POSIX shell, and on Windows PowerShell's `$env:K = 'V'`, which its terminals open by default.
+ */
+export function envLines(env: Record<string, string>, platform: NodeJS.Platform = process.platform): string {
+  const lines = Object.entries(env).map(([k, v]) => (platform === 'win32' ? `$env:${k} = '${v.replace(/'/g, "''")}'` : `export ${k}=${v}`));
+  return lines.join('\n');
 }
 
 /** The one-line result of a golden that passed: `30/30 replayed, 12k input tokens not re-spent, 2 checks passed`. */
@@ -472,11 +481,13 @@ export function register(program: Command): void {
         return;
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });
-      const run = sidecar.startRun({ mode: 'record', command: { argv: ['<external>'], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
+      // The person starts the agent, so serve never knows its command: the run has none, as a
+      // capture has none, and a replay of it asks for one after --.
+      const run = sidecar.startRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) });
       stampAuthor(store, run.runId);
       emitJobEvent({ type: 'run', runId: run.runId, role: 'new' });
       const env = sidecar.envFor(run.runId);
-      process.stdout.write(Object.entries(env).map(([k, v]) => `export ${k}=${v}`).join('\n') + '\n');
+      process.stdout.write(envLines(env) + '\n');
       process.stderr.write(p.dim(`[shadowlap] recording run ${run.runId}; Ctrl-C to end it\n`));
       await new Promise<void>((resolve) => {
         const stop = () => resolve();

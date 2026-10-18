@@ -9,7 +9,7 @@ import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokens
 import { goldenName, scratchDir } from './goldens.js';
 import { type GuardMode } from './run-agent.js';
 import { physicalPath, realPath } from './real-path.js';
-import { openStore, type GlobalOpts } from './shared.js';
+import { openStore, withoutCommand, type GlobalOpts } from './shared.js';
 import { shortId } from './ui.js';
 
 /**
@@ -291,7 +291,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   const own = input.argv?.length ? input.argv : null;
   if (!own && !hasRecordedCommand(target.run)) {
     store.close();
-    throw new BisectError(`${target.name} was imported from a capture and has no command to run at each commit. Give your agent's command after --, or replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
+    throw new BisectError(`${target.name} ${withoutCommand(target.run)} and has no command to run at each commit. Give your agent's command after --, or replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
   }
   // A run from someone else's pack, or pulled from the team store, carries a command someone else
   // chose, and it would run at every commit: it needs consent, as a replay of it does.

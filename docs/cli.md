@@ -295,7 +295,7 @@ Runs, newest first, with their labels; `--tree` nests forks under their parents.
 | Field | |
 |---|---|
 | `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null` |
-| `hasCommand` | `false` for a run imported from a capture: it has no command, so replaying it needs yours after `--` |
+| `hasCommand` | `false` for a run imported from a capture or recorded through [`serve`](#serve): it has no command, so replaying it needs yours after `--` |
 | `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md) (then `from` is the store's URL, `s3://…`, `gs://…`, `az://…` or `r2://…`), or `null` |
 | `partial` | the kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
 | `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
@@ -603,7 +603,7 @@ Each add and rm is recorded in the project's activity, in a store that exists.
 shadowlap serve
 ```
 
-Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export. Ends the run on Ctrl-C. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
+Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. Ends the run on Ctrl-C. Serve never sees the command that starts your process, so the run has none, as a capture has none: replaying it, or a fork, blame or Find the commit, needs your command after `--`. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
 
 ## mcp
 
