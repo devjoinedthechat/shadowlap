@@ -222,14 +222,16 @@ export function register(program: Command): void {
         process.exitCode = flags.strict && (summary.divergence || summary.endedEarly) ? 1 : judged?.some((c) => !c.ok) ? 1 : code;
       };
 
-      await once();
-      if (!flags.watch) return;
+      if (!flags.watch) return once();
       // The prefix before a fork replays for free, so re-running after every edit costs nothing.
+      // What a replay writes itself is no edit: the store (with its journals) and the summary file.
+      const db = opts.db && opts.db !== ':memory:' ? [opts.db, `${opts.db}-wal`, `${opts.db}-shm`, `${opts.db}-journal`] : [];
       await watchAndRerun({
         cwd: process.cwd(),
+        ignore: [...db, ...(flags.summaryJson ? [flags.summaryJson] : [])],
         log: (m) => process.stderr.write(`\n${p.dim(m)}\n`),
-        onChange: async () => {
-          process.stderr.write(`\n${p.dim('\u2500'.repeat(40))}\n`);
+        run: async (again) => {
+          if (again) process.stderr.write(`\n${p.dim('\u2500'.repeat(40))}\n`);
           await once();
         },
       });
