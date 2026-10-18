@@ -74,7 +74,7 @@ The runner's API calls are recorded through `ANTHROPIC_BASE_URL`; nothing else i
 
 ## Python
 
-Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument. The SDK recognizes them by their annotation. Name any other with `exclude=(...)`; an argument that isn't JSON fails before the tool runs, with a message naming it.
+Parameters a framework injects are never recorded, in any Python framework: a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback manager or `Injected…` argument. The SDK recognizes them by their annotation. Name any other with `exclude=(...)`. Typed arguments, as Pydantic AI documents them (a Pydantic model, a dataclass, a `datetime.date`, a UUID, an `Enum`), are the tool's real input and are recorded in their JSON form, as results are; an argument that can't be recorded fails before the tool runs, with a message naming it.
 
 ### Pydantic AI
 
@@ -141,7 +141,7 @@ def search_web(query: str) -> str:
 researcher = Agent(role="Researcher", tools=[with_effect(search_web, "read"), with_effect(SendEmail(), "write")], ...)
 ```
 
-Results are recorded as JSON. A tool that returns a Pydantic model or a dataclass gets its JSON form back on replay, so frameworks that print a tool's result see the same text only if they print it the same way; return strings or dicts when that matters.
+Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass or a date gets its JSON form back on replay, so frameworks that print a tool's result see the same text only if they print it the same way; return strings or dicts when that matters.
 
 ## Tested against
 

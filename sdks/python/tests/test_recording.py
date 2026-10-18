@@ -70,6 +70,55 @@ class RecordingRules(unittest.TestCase):
         self.assertIn("exclude=('client',)", str(caught.exception))
         self.assertEqual(ran, [])
 
+    def test_model_dataclass_date_and_other_typed_arguments_are_recorded_as_json(self):
+        # Pydantic AI validates a tool's typed arguments into these types before calling it; they
+        # are the tool's real input, and recorded by the rules results already follow.
+        import datetime
+        import decimal
+        import enum
+        import uuid
+
+        sidecar = Sidecar({"origin": "live", "callNo": 1})
+        shadowlap._post = sidecar
+
+        class Priority(enum.Enum):
+            HIGH = "high"
+
+        class Ticket:  # a Pydantic model, as far as the SDK can tell
+            def __init__(self, subject):
+                self.subject = subject
+
+            def model_dump(self, mode="python"):
+                return {"subject": self.subject, "mode": mode}
+
+        @dataclasses.dataclass
+        class Window:
+            start: datetime.date
+            hours: float
+
+        got = []
+
+        @tool(effect="write")
+        def open_ticket(ticket: Ticket, day: datetime.date, at: datetime.datetime, window: Window, priority: Priority, ref: uuid.UUID, amount: decimal.Decimal, tags: frozenset):
+            got.append((ticket, day, priority))
+            return "T-1"
+
+        ticket = Ticket("refund")
+        ref = uuid.UUID("12345678-1234-5678-1234-567812345678")
+        day = datetime.date(2026, 10, 18)
+        self.assertEqual(open_ticket(ticket, day, datetime.datetime(2026, 10, 18, 9, 30), Window(day, 1.5), Priority.HIGH, ref, decimal.Decimal("12.50"), frozenset({"b", "a"})), "T-1")
+        self.assertEqual(got, [(ticket, day, Priority.HIGH)])  # the tool still gets the objects themselves
+        self.assertEqual(sidecar.sent[0][1]["args"], {
+            "ticket": {"subject": "refund", "mode": "json"},
+            "day": "2026-10-18",
+            "at": "2026-10-18T09:30:00",
+            "window": {"start": "2026-10-18", "hours": 1.5},
+            "priority": "high",
+            "ref": "12345678-1234-5678-1234-567812345678",
+            "amount": "12.50",
+            "tags": ["a", "b"],
+        })
+
     def test_dataclass_and_model_results_are_recorded_as_json(self):
         sidecar = Sidecar({"origin": "live", "callNo": 1})
         shadowlap._post = sidecar

@@ -364,61 +364,86 @@ def _is_json(value: Any) -> bool:
         return False
 
 
-def _finite(value: Any, path: Optional[set] = None) -> Any:
-    """``value`` with every NaN and Infinity replaced by None, as JSON (and the TypeScript SDK's
-    ``JSON.stringify``) records them: null. A container inside itself is left for json to refuse."""
+def _jsonable(value: Any, path: set) -> Any:
+    """``value`` converted, recursively, by the rules in ``_json_form``; whatever has no rule is
+    left as it is, for the caller's check to refuse."""
+    import dataclasses
+    import datetime
+    import decimal
+    import enum
+
+    if value is None or isinstance(value, str) and not isinstance(value, enum.Enum):
+        return value
+    if isinstance(value, enum.Enum):
+        return _jsonable(value.value, path)
+    if isinstance(value, (bool, int)):
+        return value
     if isinstance(value, float):
         return value if math.isfinite(value) else None
-    if not isinstance(value, (dict, list, tuple)):
-        return value
-    path = set() if path is None else path
+    if isinstance(value, (datetime.date, datetime.time)):  # datetime is a date
+        return value.isoformat()
+    if isinstance(value, (_uuid.UUID, decimal.Decimal)):
+        return str(value)
     if id(value) in path:
-        return value
+        return value  # inside itself: json refuses it
     path.add(id(value))
     try:
         if isinstance(value, dict):
-            return {k: _finite(v, path) for k, v in value.items()}
-        return [_finite(v, path) for v in value]
+            return {k: _jsonable(v, path) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_jsonable(v, path) for v in value]
+        if isinstance(value, (set, frozenset)):
+            items = [_jsonable(v, path) for v in value]
+            try:
+                return sorted(items)  # a set's order changes from one process to the next
+            except TypeError:
+                return items
+        dump = getattr(value, "model_dump", None)
+        if callable(dump) and not isinstance(value, type):
+            return _jsonable(dump(mode="json"), path)
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return _jsonable(dataclasses.asdict(value), path)
+        try:
+            from pydantic_core import to_jsonable_python
+        except ImportError:
+            return value
+        try:
+            return _jsonable(to_jsonable_python(value), path)
+        except Exception:
+            return value
     finally:
         path.discard(id(value))
 
 
 def _json_form(value: Any) -> Any:
-    """``value`` as it is recorded. JSON as it is, a NaN or Infinity as None; a Pydantic model or a
-    dataclass as its JSON form. Raises TypeError for anything else."""
+    """``value`` as it is recorded, for arguments and results alike: JSON as it is, a NaN or Infinity
+    as None, a Pydantic model as ``model_dump(mode="json")``, a dataclass as ``dataclasses.asdict``,
+    a date, time or datetime as its ISO 8601 text, a UUID or Decimal as its text, an Enum as its
+    value, a set as a sorted list, and whatever else pydantic_core turns into JSON when it is
+    installed. Raises TypeError for anything else."""
     if _is_json(value):
         return value
-    dump = getattr(value, "model_dump", None)
-    if callable(dump):
-        converted = dump(mode="json")
-    else:
-        import dataclasses
-
-        if dataclasses.is_dataclass(value) and not isinstance(value, type):
-            converted = dataclasses.asdict(value)
-        elif isinstance(value, tuple):
-            converted = [_json_form(v) for v in value]
-        else:
-            converted = value
-    converted = _finite(converted)
+    converted = _jsonable(value, set())
     if not _is_json(converted):
         raise TypeError(type(value).__name__)
     return converted
 
 
 def _check_args(tool_name: str, args: dict) -> dict:
-    """The arguments as they are recorded. Fails before the tool runs, naming the argument, when
-    something can't be recorded."""
+    """The arguments as they are recorded, by the rules results follow (``_json_form``). Fails before
+    the tool runs, naming the argument, when something can't be recorded."""
     if _is_json(args):
         return args
     out = {}
     for key, value in args.items():
-        out[key] = _finite(value)
-        if not _is_json(out[key]):
+        try:
+            out[key] = _json_form(value)
+        except TypeError:
             raise TypeError(
-                f"tool {tool_name}: argument {key!r} ({type(value).__name__}) can't be recorded because it isn't JSON. "
-                f"If a framework passes it in, leave it out with @tool(..., exclude=({key!r},))."
-            )
+                f"tool {tool_name}: argument {key!r} ({type(value).__name__}) can't be recorded: it isn't JSON, "
+                f"a Pydantic model, a dataclass or a date. If it is a framework's context object, not part of what "
+                f"the tool was asked to do, leave it out with @tool(..., exclude=({key!r},)); otherwise pass it as one of those."
+            ) from None
     return out
 
 
