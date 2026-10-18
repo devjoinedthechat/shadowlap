@@ -161,8 +161,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
   team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
   copies merge: every blame, repair and verdict either made, open turned verified by either, and a
-  title someone gave it (the store's when both did). A push that meets a teammate's newer copy
-  merges it the same way.
+  title someone gave it, the latest rename when it was renamed on both (`fix title` again after a
+  sync replaces the title both had). A push that meets a teammate's newer copy merges it the same
+  way.
 - **Applied is each machine's own.** A fix is applied in a working tree: one applied on one
   machine is verified on the others, with its patch ready to apply there, and stays in their Needs
   a look until it is. `shadowlap fix apply` there puts the patch in, or finds it in already once

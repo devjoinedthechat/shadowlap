@@ -232,6 +232,7 @@ const fixData = obj({
   source: optional(obj({ ci: optional(pattern(/^[a-z][a-z0-9-]{0,31}$/, 'a CI provider')), pr: optional(obj({ url: line, number: nullable(num), state: optional(oneOf('open', 'merged', 'closed')), at: optional(num) })) })),
   openedBy: optional(nullable(line)),
   titleEdited: optional(bool),
+  titleEditedAt: optional(num),
   applied: optional(
     obj({
       patch: oneOf('applied', 'already', 'none'),
@@ -401,17 +402,25 @@ function mergeSource(here: FixData['source'], there: FixData['source']): FixData
   return { ...here, ...there, ...(pr ? { pr } : {}) };
 }
 
+/** When a copy's title was given, or null when it keeps the one it was opened with; 0 for a title given before the time was kept. */
+const titleGivenAt = (data: FixData): number | null => (data.titleEdited ? (data.titleEditedAt ?? 0) : null);
+
 /**
  * Two copies of a fix as one. A fix only grows, so they join: every link (the first made of each)
  * and every report, the labels of both, the status furthest along with the earliest time it got
  * there, and where it came from as far as either knows. A title someone gave it wins over the one
- * it was opened with; given on both, the store's (`there`) stays. How either was applied is left
- * out (`sharedFix`): the copy merged is the one that syncs.
+ * it was opened with, and of two given, the later rename (`titleEditedAt`), so a rename made since
+ * the last sync wins over the title both copies agreed on; at the same time, the store's (`there`)
+ * stays. How either was applied is left out (`sharedFix`): the copy merged is the one that syncs.
  */
 export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
   const a = sharedFix(here.fix);
   const b = sharedFix(there.fix);
-  const title = a.data.titleEdited && !b.data.titleEdited ? a.title : b.title;
+  const givenHere = titleGivenAt(a.data);
+  const givenThere = titleGivenAt(b.data);
+  const ours = givenHere !== null && (givenThere === null || givenHere > givenThere);
+  const title = ours ? a.title : b.title;
+  const titleAt = ours ? givenHere : givenThere;
   const labels = [...new Set([...b.labels, ...a.labels])];
   const status = STATUS_RANK[a.status] > STATUS_RANK[b.status] ? a.status : b.status;
   const source = mergeSource(a.data.source, b.data.source);
@@ -421,6 +430,7 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
     ...(source ? { source } : {}),
     ...(a.data.openedBy || b.data.openedBy ? { openedBy: b.data.openedBy ?? a.data.openedBy ?? null } : {}),
     ...(a.data.titleEdited || b.data.titleEdited ? { titleEdited: true } : {}),
+    ...(titleAt ? { titleEditedAt: titleAt } : {}),
   };
   const links = new Map<string, Omit<FixLink, 'fixId'>>();
   for (const l of [...there.links, ...here.links]) {

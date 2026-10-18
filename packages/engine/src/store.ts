@@ -532,6 +532,8 @@ export interface FixData {
   openedBy?: string | null;
   /** Someone gave it a title of their own (`shadowlap fix title`). */
   titleEdited?: boolean;
+  /** When the title was last given (ms): of two copies renamed apart, the later rename wins. */
+  titleEditedAt?: number;
   /** How it was applied: by `shadowlap fix apply`, or by `repair --apply`, which copies no goldens unless asked and runs no test. */
   applied?: { patch: 'applied' | 'already' | 'none'; repairId: string | null; goldens: string[]; tests: 'passed' | 'failed' | 'skipped'; by?: string | null; via?: 'fix apply' | 'repair --apply' };
 }

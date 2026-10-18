@@ -249,6 +249,46 @@ describe('a fix in the team store', () => {
   });
 });
 
+describe('a fix renamed more than once', () => {
+  it('keeps the latest rename, made on either machine, through each push and pull', async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { run, fixId } = blamed(dana.store);
+    inStore(dana.store, run);
+    await push(dana, { runIds: [] });
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    let at = Date.now();
+    const rename = (m: { store: Store }, title: string) => setFixTitle(m.store, fixId, title, (at += 1000));
+    const titles = () => [dana.store.getFix(fixId)!.title, maya.store.getFix(fixId)!.title];
+
+    rename(dana, 'Refunds over 200 need approval');
+    await push(dana, { runIds: [] });
+    expect(dana.store.getFix(fixId)!.title).toBe('Refunds over 200 need approval');
+    await pull(maya);
+    expect(titles()).toEqual(['Refunds over 200 need approval', 'Refunds over 200 need approval']);
+
+    // Renamed again: the store's copy already holds a title someone gave it.
+    rename(maya, 'Refund agent skips the approval step');
+    expect((await push(maya, { runIds: [] })).fixes.sent).toEqual([fixId]);
+    expect(maya.store.getFix(fixId)!.title).toBe('Refund agent skips the approval step');
+    await pull(dana);
+    expect(titles()).toEqual(['Refund agent skips the approval step', 'Refund agent skips the approval step']);
+    rename(dana, 'Approval step skipped above the limit');
+    await push(dana, { runIds: [] });
+    await pull(maya);
+    expect(titles()).toEqual(['Approval step skipped above the limit', 'Approval step skipped above the limit']);
+
+    // Renamed on both before either syncs: the later rename wins, on both.
+    rename(dana, 'Dana’s name for it');
+    rename(maya, 'Maya’s name for it');
+    await push(dana, { runIds: [] });
+    await push(maya, { runIds: [] });
+    await pull(dana);
+    expect(titles()).toEqual(['Maya’s name for it', 'Maya’s name for it']);
+  });
+});
+
 describe('two copies of a fix', () => {
   it('join: links, reports and labels of both, the furthest status at its earliest time, a title given beating the one it opened with', () => {
     const a = Store.open(':memory:');
