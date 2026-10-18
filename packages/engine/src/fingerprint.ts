@@ -1,6 +1,7 @@
 import { canonicalize } from './canonical.js';
 import { maskClock, type ClockMode, type ClockReference } from './clock.js';
 import { matchable } from './json-exact.js';
+import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
 import { applyNormalizers, stripKeysDeep } from './normalize.js';
@@ -15,7 +16,7 @@ import type { CallKind, Normalizer } from './types.js';
 export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 
 /** Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on replay. */
-export const FINGERPRINT_VERSION = 2;
+export const FINGERPRINT_VERSION = 3;
 
 export interface ApiRequestShape {
   method: string;
@@ -23,7 +24,10 @@ export interface ApiRequestShape {
   path: string;
   /** Lower-cased request headers. Only `allowHeaders` take part in the fingerprint. */
   headers: Record<string, string | undefined>;
-  /** Parsed JSON body, or a string for non-JSON bodies. */
+  /**
+   * Parsed JSON body, or a string for non-JSON bodies: the base64 of their bytes, as the proxy
+   * stores them. A multipart/form-data body is matched by its parts (multipart.ts).
+   */
   body: unknown;
 }
 
@@ -48,7 +52,9 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
     const v = req.headers[h.toLowerCase()];
     if (v !== undefined) headers[h.toLowerCase()] = v;
   }
-  const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(req.body) : req.body, BUILTIN_STRIPPED_KEYS);
+  // A form's parts, not its bytes: its client picks a new boundary for every request.
+  const view = multipartView(req.body);
+  const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS);
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
   const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: req.path, headers, body });
   return { fingerprint: sha256(canonical), canonical };

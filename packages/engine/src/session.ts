@@ -1,4 +1,5 @@
 import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
+import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
 import { formatToolFailure, type ToolFailure } from './interventions.js';
@@ -455,7 +456,9 @@ export class Session {
       // "today" in either run (one the replay served back from the recording included) aren't reported as changes.
       const refs = this.clock ? [this.clock.parent, this.clock.run] : undefined;
       const mask = (v: unknown) => {
-        const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(v) : v;
+        // A form upload as it was matched: its parts, not its bytes with their random boundary.
+        const view = input.kind === 'api' ? multipartView(v) : v;
+        const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(view) : view;
         return refs === undefined ? p : maskClock(p, refs);
       };
       const diff = [...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []), ...structuralDiff(mask(recorded), mask(input.request))];
