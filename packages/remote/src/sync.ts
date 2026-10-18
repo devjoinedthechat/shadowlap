@@ -285,22 +285,31 @@ function cutShort(store: Store, run: RunRecord, row: TeamRunRow | null): boolean
  * Sends a run cut short in the store whole again (cutShort): its calls, then its record with this
  * machine's status, end and call count, over the store's copy only while that copy still lists
  * fewer calls as interrupted. Returns the store's new copy, or null when there was nothing to mend.
+ * `there` is the store's copy as the push just read it: one that isn't cut short costs nothing more.
  */
-async function mendCutShort(ctx: SyncContext, run: RunRecord, known: Set<string>, tally: PushResult['blobs']): Promise<StoredRunDoc | null> {
+async function mendCutShort(ctx: SyncContext, run: RunRecord, there: StoredRunDoc, known: Set<string>, tally: PushResult['blobs']): Promise<StoredRunDoc | null> {
+  const held = ctx.store.countCalls(run.runId);
+  const short = (doc: StoredRunDoc) => run.status !== 'running' && doc.run.status === 'crashed' && doc.calls < held;
+  if (!short(there)) return null;
   const calls = ctx.store.getCalls(run.runId);
   const blobs = runBlobs(ctx.store, calls);
   if (localProblem(ctx, calls, blobs)) return null; // this machine's copy can't mend it
   const { lines, gz } = callsFile(calls);
   if (lines.length > PACK_LIMITS.callsBytes || gz.length > CALLS_MAX_GZ) return null;
+  let sent = false;
   for (let attempt = 0; ; attempt++) {
+    // Read again for its version: the record goes over the store's copy only while that is still cut short.
     const got = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
     if (!got) return null;
-    const there = parseRunDoc(got.body, run.runId);
-    if (there.run.status !== 'crashed' || there.calls >= calls.length) return null;
-    const next: StoredRunDoc = { ...there, run: { ...there.run, status: run.status, endedAt: run.endedAt, divergence: run.divergence }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
+    const current = parseRunDoc(got.body, run.runId);
+    if (!short(current) || current.calls >= calls.length) return null;
+    const next: StoredRunDoc = { ...current, run: { ...current.run, status: run.status, endedAt: run.endedAt, divergence: run.divergence }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
     if (storeProblem(next.run, calls)) return null;
-    await uploadBlobs(ctx, blobs, known, tally, true);
-    await ctx.remote.put(keys.calls(run.runId), gz, { contentType: 'application/gzip' });
+    if (!sent) {
+      await uploadBlobs(ctx, blobs, known, tally, true);
+      await ctx.remote.put(keys.calls(run.runId), gz, { contentType: 'application/gzip' });
+      sent = true;
+    }
     try {
       await ctx.remote.put(keys.run(run.runId), json(next), { contentType: 'application/json', ...(got.version ? { ifMatch: got.version } : {}) });
       return next;
@@ -384,7 +393,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   let { doc } = written;
   let repaired = repair && !fresh ? await repairParts(ctx, run, known, tally) : false;
   // Sent before it had finished being written: sent whole now, and listed again with its calls.
-  const mended = !fresh && (cut || repair) ? await mendCutShort(ctx, run, known, tally) : null;
+  const mended = !fresh && (cut || repair) ? await mendCutShort(ctx, run, doc, known, tally) : null;
   if (mended) {
     doc = mended;
     repaired = true;

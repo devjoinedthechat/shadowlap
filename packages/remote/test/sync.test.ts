@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { classifyRun, commandIsImported, importedCommandSource, pulledRun, sha256, storeApiRequest, Store, summarizeRun, type BlameRecord, type RunRecord } from '@shadowlap/engine';
 import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, runBlobs, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
@@ -265,6 +265,21 @@ describe('a run the store got cut short', () => {
     await push(a, { all: true });
     remote.log.length = 0;
     expect((await push(a, { all: true })).repaired).toEqual([]);
+    expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
+  });
+
+  it('costs a push by name nothing more when the store holds it whole', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'refund order 1');
+    moreCalls(a.store, r.runId, 2, 4);
+    await push(a, { all: true });
+    remote.log.length = 0;
+    const reads = vi.spyOn(a.store, 'getCalls');
+    expect((await push(a, { runIds: [r.runId] })).repaired).toEqual([]);
+    // The store's copy is read once, and this machine's calls once, to check what the bucket lost.
+    expect(remote.log.filter((l) => l.op === 'get' && l.key === keys.run(r.runId))).toHaveLength(1);
+    expect(reads.mock.calls.filter(([id]) => id === r.runId)).toHaveLength(1);
     expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
   });
 });
