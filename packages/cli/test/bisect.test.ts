@@ -270,6 +270,61 @@ describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
   });
 });
 
+describe('a good commit on a branch that was merged', () => {
+  // main:     Start ─ Main one ─ Main two ─ Merge
+  //              └─ Feature prompt (good) ─ Feature breaks ─┘
+  // The golden is recorded at Feature prompt. Main one and Main two never had its prompt, so their
+  // replays diverge too, but neither has the good commit in its history: the first bad commit on
+  // the first-parent line that does is the merge.
+  let repo = '';
+  const at: Record<string, string> = {};
+  const git = (args: string[]) => execFileSync('git', args, { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  const step = (name: string, files: Record<string, string>) => {
+    for (const [f, content] of Object.entries(files)) writeFileSync(join(repo, f), content);
+    git(['add', '.']);
+    git(['commit', '-q', '-m', name]);
+    at[name] = git(['rev-parse', '--short', 'HEAD']);
+  };
+  const run = (args: string[]) =>
+    new Promise<{ code: number | null; out: string; stdout: string }>((resolve) => {
+      const child = spawn(process.execPath, [CLI, ...args], { cwd: repo, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      let stdout = '';
+      child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+      child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      child.on('exit', (code) => resolve({ code, out, stdout }));
+    });
+
+  beforeAll(async () => {
+    repo = mkdtempSync(join(tmpdir(), 'sl-bisect-merge-'));
+    git(['init', '-q', '-b', 'main']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Test']);
+    step('Start', { '.gitignore': '.shadowlap/\ngoldens/\n', 'agent.mjs': AGENT, 'prompt.txt': 'You summarize support tickets.\n', 'marker.txt': '\n', 'NOTES.md': 'start\n' });
+    git(['checkout', '-q', '-b', 'feature']);
+    step('Feature prompt', { 'prompt.txt': 'You summarize support tickets, in order.\n' });
+    const recorded = await run(['run', '--', process.execPath, 'agent.mjs']);
+    expect(recorded.code, recorded.out).toBe(0);
+    expect((await run(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/merged'])).code).toBe(0);
+    step('Feature breaks', { 'prompt.txt': 'You summarize support tickets. Be brief.\n' });
+    git(['checkout', '-q', 'main']);
+    step('Main one', { 'NOTES.md': 'start\none\n' });
+    step('Main two', { 'NOTES.md': 'start\none\ntwo\n' });
+    git(['merge', '-q', '--no-ff', 'feature', '-m', 'Merge']);
+    at['Merge'] = git(['rev-parse', '--short', 'HEAD']);
+  });
+  afterAll(() => rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+
+  it('names the merge that brought the breaking commit in, not a main-line commit that never had the good one', async () => {
+    const r = await run(['bisect', 'goldens/merged', '--good', at['Feature prompt']!, '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as { outcome: string; commits: number; first: { short: string }; steps: Array<{ short: string }> };
+    expect(report).toMatchObject({ outcome: 'found', commits: 1, first: { short: at['Merge'] } });
+    expect(report.steps.map((x) => x.short)).not.toContain(at['Main one']);
+    expect(report.steps.map((x) => x.short)).not.toContain(at['Main two']);
+  });
+});
+
 describe('a package this repository links into node_modules', () => {
   let repo = '';
   const at: Record<string, string> = {};

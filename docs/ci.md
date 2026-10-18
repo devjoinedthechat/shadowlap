@@ -194,7 +194,7 @@ It replays the recording at commits between the two, halving the range each time
 - **A run works too:** `shadowlap bisect <run> --good <rev>` replays a run from the store, once it has ended: a run still recording is refused, since only part of it is there. For a run that failed a check rather than one that should replay clean, add the check and `--fork`: older commits send different requests, so each replay runs live from where it diverges and the check decides. That part costs tokens, and the result says how many. A test replay of a golden takes the golden's checks from `tests` without `--expect`.
 - **A golden marked `fork`** replays as `shadowlap test` replays it: live from where it diverges, so its search costs tokens too.
 - **Commits it can't test.** A commit that won't check out, or where `--build` fails, is skipped, as `git bisect skip` would, and the nearest other commit is tried instead. When the first bad commit could be one it skipped, it names those too.
-- History is followed by first parents, so a merged branch counts as its merge commit. A `--good` commit on another branch works from where the two histories meet, which is checked like any good commit. The worktrees are removed after each replay, and on Ctrl-C.
+- History is followed by first parents, so a merged branch counts as its merge commit. Only commits that have `--good` in their history are replayed: for a `--good` commit on a branch that was merged, that starts at the merge that brought it in. A `--good` commit on another branch works from where the two histories meet, which is checked like any good commit. The worktrees are removed after each replay, and on Ctrl-C.
 
 ## GitHub Actions
 

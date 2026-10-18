@@ -255,7 +255,11 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     fromBase = `--good ${input.good} is not an ancestor of --bad ${input.bad}: searching from where their histories meet`;
     goodRev = base;
   }
-  const commits = git(root, ['rev-list', '--first-parent', '--reverse', `${goodRev}..${badRev}`]).split('\n').filter(Boolean);
+  // The first-parent line, kept to the commits that have the good one in their history. A good commit
+  // on a branch since merged reaches --bad through the merge's second parent: the first-parent
+  // commits before that merge never had it, and the merge is the first that does.
+  const descends = new Set(git(root, ['rev-list', '--ancestry-path', `${goodRev}..${badRev}`]).split('\n').filter(Boolean));
+  const commits = git(root, ['rev-list', '--first-parent', '--reverse', `${goodRev}..${badRev}`]).split('\n').filter((c) => c && descends.has(c));
   if (commits.at(-1) !== badRev) commits.push(badRev);
   const good = commitInfo(root, goodRev);
   const bad = commitInfo(root, badRev);
