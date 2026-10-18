@@ -369,6 +369,56 @@ function copied(store: Store, runId: string, rules: Normalizer[], o: { read?: bo
   return out;
 }
 
+describe("previewRedaction: the run's own record", () => {
+  it('counts what a copy masks there as masked: a blamed run, a fork, its divergence, the response headers', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'replay', command: cmd });
+    const tool = { kind: 'tool' as const, name: 'lookup', fingerprint: 'c'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...tool, origin: 'live', effect: 'read', requestRef: store.putJson({ args: { q: 'refund' } }), meta: {}, at: 1 });
+    store.appendCallEnd(tool, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: 'ok' }), outcome: 'ok', meta: { headers: { 'x-owner': 'dave@example.com' } }, at: 1 });
+    store.endRun(run.runId, 'failed');
+    // What `shadowlap blame --expect '{"output":{"includes":["alice.martin@example.com"]}}'` writes: the check's label is the oracle's too.
+    const label = 'output includes "alice.martin@example.com"';
+    store.updateRunMeta(run.runId, {
+      checks: [{ ok: false, label, detail: 'got bob@example.com' }],
+      blame: { at: 5, outcome: 'blamed', callNo: 1, confidence: 'high', rescuedRunId: null, fields: { system: 'Reply to carol@example.com' }, oracle: ['the agent exits 0', label], probes: [], spent: 0 },
+      interventions: [{ kind: 'override', at: 1, flag: '--override 1=erin@example.com' }],
+    });
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'lookup', replayedBefore: 0, diff: [{ op: 'changed', path: '$.args.q', before: 'frank@example.com', after: 'refund' }] });
+
+    const p = previewRedaction(store, run.runId, [EMAIL]);
+    // The label once though blame repeats it; the check's detail, the probes' field, the flag, the diff's value and the header.
+    expect(p.rules[0]).toMatchObject({ count: 6, note: null });
+    expect(p.total).toBe(6);
+    expect(p.rules[0]!.samples[0]).toEqual({ before: 'dave@example.com', after: '<EMAIL>' });
+    expect(p.details.count).toBe(0);
+
+    // What the pack's copy masks there, the same values.
+    const dst = Store.open(':memory:');
+    const copy = redactRun(store, run.runId, [EMAIL], dst);
+    const kept = JSON.stringify([copy.meta?.checks, copy.meta?.blame, copy.meta?.interventions, copy.divergence, dst.getCalls(run.runId)[0]!.end!.meta]);
+    expect(kept).not.toContain('example.com');
+    expect(kept.match(/<EMAIL>/g)).toHaveLength(7);
+    dst.close();
+    store.close();
+  });
+
+  it('counts a path rule on the diff of a divergence where it was in the request', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'replay', command: cmd });
+    store.endRun(run.runId, 'failed');
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'charge', replayedBefore: 0, diff: [{ op: 'changed', path: '$.args.card', before: 4242424242424242, after: 4000056655665556 }] });
+    const p = previewRedaction(store, run.runId, [EMAIL, { kind: 'tool', path: '$.args.card', replace: '<CARD>' }]);
+    expect(p.rules.map((r) => r.count)).toEqual([0, 2]);
+    expect(p.rules[1]!.samples).toEqual([{ before: '4242424242424242', after: '<CARD>' }, { before: '4000056655665556', after: '<CARD>' }]);
+    // A path no rule can name gets the rules without a path, each counted as itself.
+    store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'charge', replayedBefore: 0, diff: [{ op: 'changed', path: "$['a]", before: 'grace@example.com', after: 'x' }] });
+    const q = previewRedaction(store, run.runId, [{ kind: 'tool', path: '$.args.card', replace: '<CARD>' }, EMAIL]);
+    expect(q.rules.map((r) => r.count)).toEqual([0, 1]);
+    store.close();
+  });
+});
+
 describe('what a copy leaves as it is', () => {
   it('counts the strings of a JSON document, and the numbers a pattern matches apart, with where each is and the path rule that masks it', () => {
     const store = Store.open(':memory:');
