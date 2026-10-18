@@ -219,6 +219,56 @@ describe('blobs this machine pushed before', () => {
   });
 });
 
+describe('a run the store got cut short', () => {
+  /** A second call on a run, as its recorder (an import) writes on after a push took it for one its process left. */
+  function moreCalls(store: Store, runId: string, from: number, to: number): void {
+    for (let callNo = from; callNo <= to; callNo++) {
+      const req = storeApiRequest(store, { model: 'm', messages: [{ role: 'user', content: `call ${callNo}` }] });
+      const call = id(callNo.toString(16));
+      store.appendCallStart({ runId, callNo, ...call, origin: 'live', effect: null, requestRef: req, meta: { provider: 'anthropic' }, at: callNo * 10 });
+      store.appendCallEnd(call, { runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(`answer ${callNo}`)), outcome: 'ok', meta: { status: 200 }, at: callNo * 10 + 1 });
+    }
+  }
+
+  it('is sent whole again once it has ended here, by --all as by name, and a teammate pulls it whole', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'imported', { running: true });
+    moreCalls(a.store, r.runId, 2, 3);
+    // An older push ended it as interrupted while it was still being written, and sent 3 calls.
+    a.store.endRun(r.runId, 'crashed', 31);
+    await push(a, { all: true });
+    expect(readDoc(remote, r.runId)).toMatchObject({ calls: 3, run: { status: 'crashed' } });
+    // The import went on and finished: 5 calls, completed.
+    moreCalls(a.store, r.runId, 4, 5);
+    a.store.endRun(r.runId, 'completed', 51);
+    const pushed = await push(a, { all: true });
+    expect(pushed.repaired).toEqual([r.runId]);
+    expect(pushed.updated).toEqual([r.runId]);
+    expect(readDoc(remote, r.runId)).toMatchObject({ calls: 5, run: { status: 'completed', endedAt: 51 } });
+    expect(gunzipSync(remote.objects.get(keys.calls(r.runId))!.body).toString().trim().split('\n')).toHaveLength(5);
+    const b = machine(remote, 'maya@northwind.example');
+    await pull(b);
+    expect(b.store.getRun(r.runId)).toMatchObject({ status: 'completed', endedAt: 51 });
+    expect(b.store.getCalls(r.runId)).toHaveLength(5);
+    // Nothing more to send.
+    const again = await push(a, { all: true });
+    expect([again.repaired, again.updated]).toEqual([[], []]);
+    expect((await push(a, { runIds: [r.runId] })).repaired).toEqual([]);
+  });
+
+  it('is left as it is when this machine holds no more of it', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'killed', { running: true });
+    a.store.endRun(r.runId, 'crashed', 2);
+    await push(a, { all: true });
+    remote.log.length = 0;
+    expect((await push(a, { all: true })).repaired).toEqual([]);
+    expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
+  });
+});
+
 describe('a run queued while it recorded', () => {
   it('goes with its lineage, even when nothing named the parent', async () => {
     const remote = new MemoryStore(loc);

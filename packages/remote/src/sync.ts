@@ -269,6 +269,47 @@ async function repairParts(ctx: SyncContext, run: RunRecord, known: Set<string>,
   return sent || tally.uploaded > before;
 }
 
+/**
+ * Whether the store's copy of a run was sent before the run had finished being written, as the
+ * index lists it: interrupted, with fewer calls than this machine's copy holds now that it has
+ * ended. An older push took an import of old captures for a run its process had left, ended it as
+ * interrupted and sent what was written so far; the import then went on and finished here.
+ */
+function cutShort(store: Store, run: RunRecord, row: TeamRunRow | null): boolean {
+  const entry = row?.entry as Partial<IndexEntry> | null | undefined;
+  if (run.status === 'running' || entry?.status !== 'crashed' || typeof entry.calls !== 'number') return false;
+  return store.countCalls(run.runId) > entry.calls;
+}
+
+/**
+ * Sends a run cut short in the store whole again (cutShort): its calls, then its record with this
+ * machine's status, end and call count, over the store's copy only while that copy still lists
+ * fewer calls as interrupted. Returns the store's new copy, or null when there was nothing to mend.
+ */
+async function mendCutShort(ctx: SyncContext, run: RunRecord, known: Set<string>, tally: PushResult['blobs']): Promise<StoredRunDoc | null> {
+  const calls = ctx.store.getCalls(run.runId);
+  const blobs = runBlobs(ctx.store, calls);
+  if (localProblem(ctx, calls, blobs)) return null; // this machine's copy can't mend it
+  const { lines, gz } = callsFile(calls);
+  if (lines.length > PACK_LIMITS.callsBytes || gz.length > CALLS_MAX_GZ) return null;
+  for (let attempt = 0; ; attempt++) {
+    const got = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
+    if (!got) return null;
+    const there = parseRunDoc(got.body, run.runId);
+    if (there.run.status !== 'crashed' || there.calls >= calls.length) return null;
+    const next: StoredRunDoc = { ...there, run: { ...there.run, status: run.status, endedAt: run.endedAt, divergence: run.divergence }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
+    if (storeProblem(next.run, calls)) return null;
+    await uploadBlobs(ctx, blobs, known, tally, true);
+    await ctx.remote.put(keys.calls(run.runId), gz, { contentType: 'application/gzip' });
+    try {
+      await ctx.remote.put(keys.run(run.runId), json(next), { contentType: 'application/json', ...(got.version ? { ifMatch: got.version } : {}) });
+      return next;
+    } catch (err) {
+      if (!isPrecondition(err) || attempt >= 3) throw err;
+    }
+  }
+}
+
 type Written = { doc: StoredRunDoc; synced: SharedMeta; fresh: boolean; wrote: boolean } | { refused: string };
 
 /** Puts a run in the bucket: whole when it isn't there, or its synced metadata merged into the store's copy. */
@@ -333,17 +374,25 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   const row = ctx.store.teamRun(rid, run.runId);
   // What of this copy would go up: a result this machine made of a run made elsewhere never does.
   const localHash = metaHash(asTheStoreHolds(run.meta, row?.base ?? null, madeHere(run.meta)));
-  if (!verify && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
+  const cut = cutShort(ctx.store, run, row);
+  if (!verify && !cut && row && (row.state === 'pushed' || row.state === 'pulled') && row.baseHash === localHash && row.remoteHash === localHash) {
     return { kind: 'unchanged', entry: (row.entry as unknown as IndexEntry | null) ?? indexEntry(run, ctx.store.countCalls(run.runId), localHash, attemptOfRun(ctx.store, run)), index: false, repaired: false };
   }
   const written = await writeRun(ctx, run, row, known, tally);
   if ('refused' in written) return { kind: 'refused', reason: written.refused };
-  const { doc, synced, fresh, wrote } = written;
-  const repaired = repair && !fresh ? await repairParts(ctx, run, known, tally) : false;
+  const { synced, fresh, wrote } = written;
+  let { doc } = written;
+  let repaired = repair && !fresh ? await repairParts(ctx, run, known, tally) : false;
+  // Sent before it had finished being written: sent whole now, and listed again with its calls.
+  const mended = !fresh && (cut || repair) ? await mendCutShort(ctx, run, known, tally) : null;
+  if (mended) {
+    doc = mended;
+    repaired = true;
+  }
   const hash = metaHash(synced);
   // Not listed by any index this machine knows of, or listed as it was before: the index gets an entry.
   const unindexed = !row || row.remoteHash === null;
-  const index = fresh || unindexed || row.remoteHash !== hash;
+  const index = fresh || unindexed || row.remoteHash !== hash || mended !== null;
   const entry = indexEntry(doc.run, doc.calls, hash, attemptOfRun(ctx.store, run));
   ctx.store.transaction(() => {
     // Read again after the round trip, under the write lock: a label or note added meanwhile is

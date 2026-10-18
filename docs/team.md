@@ -144,7 +144,11 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   queued as they finish. Anything else that ends a run leaves it for the next push, and it counts
   as only on this machine until then; a queued run you delete goes nowhere. A run whose recorder
   is gone (killed, or out of memory) never ends by itself: a push ends it as interrupted, as `gc`
-  does, and sends it, and it counts as only on this machine until then.
+  does, and sends it, and it counts as only on this machine until then. A run the store holds as
+  interrupted with fewer calls than your copy, which ended since (an import an older Shadowlap
+  pushed while it was still writing), goes up whole again with the next push, and a pull then
+  brings all of it; a machine that pulled the short copy gets the whole one by deleting its copy
+  and pulling the run by name.
 - **Labels and notes** merge both ways: something added on either machine is kept, something
   removed on either is removed, and one you add while a push or pull of that run is on its way
   goes up with the next push. A copy that never synced with the store (a golden unpacked in CI)
