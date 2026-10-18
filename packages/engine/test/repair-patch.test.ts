@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEdit, patchFiles, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
 
 /**
  * A repair's patch, as `shadowlap fix apply` checks it before `git apply` puts it in: the change its
@@ -100,6 +100,34 @@ describe('repairPatchProblem', () => {
     expect(repairPatchProblem(report(candidate(), AGENT, own.replace('@@ -1,4 +1,4 @@', '@@ -1,3 +1,3 @@')))).toBe('it holds more than the one hunk a repair writes');
     expect(repairPatchProblem(report(candidate(), AGENT, own.replace('@@ -1,4 +1,4 @@', '@@ -1,9 +1,9 @@')))).toBe('its hunk holds a different number of lines than its header says');
     expect(repairPatchProblem(report(candidate(), AGENT, own.replace("\n const tools", '\n\nconst tools')))).toBe('a line in its hunk is neither context, removed nor added');
+  });
+
+  it('reads a patch from the store in time that grows with its length alone, and refuses one larger than a repair writes', () => {
+    const one = (before: string, after: string, patch: string) => ({ patch, accepted: 1, candidates: [candidate({ id: 1, before, after })] });
+    const hunk = (old: string[], now: string[], same: string[] = []) => ['diff --git a/agent.mjs b/agent.mjs', '--- a/agent.mjs', '+++ b/agent.mjs', `@@ -1,${same.length + old.length} +1,${same.length + now.length} @@`, ...same.map((l) => ` ${l}`), ...old.map((l) => `-${l}`), ...now.map((l) => `+${l}`), ''].join('\n');
+    const quick = (r: ReturnType<typeof one>) => {
+      const t = performance.now();
+      const problem = repairPatchProblem(r);
+      expect(performance.now() - t).toBeLessThan(1000);
+      return problem;
+    };
+    const not = "the lines it changes in agent.mjs are not its accepted candidate's rewrite";
+    // About 1 MB of context holding the candidate's text on every line: every line was a place to try it.
+    const context = hunk([], [], Array.from({ length: 340_000 }, () => 'a'));
+    expect(context.length).toBeGreaterThan(1_000_000);
+    expect(quick(one('a', 'b', context))).toBe(not);
+    // Text added where it could go anywhere in a long line, and is not in the patch.
+    expect(quick(one('x', `x${'a'.repeat(300)}b`, hunk(['a'.repeat(300_000)], ['a'.repeat(300_301)])))).toBe(not);
+    expect(quick(one('a', 'aa', context))).toBe(not);
+    expect(quick(one('aa', 'a', context))).toBe(not);
+    // A long line rewritten for real is still taken, as quickly.
+    expect(quick(one('a'.repeat(300_000), 'a'.repeat(300_500), hunk(['a'.repeat(300_000)], ['a'.repeat(300_500)])))).toBeNull();
+    expect(quick(one(`${'a'.repeat(300_000)}b`, `${'a'.repeat(300_000)}c`, hunk([`${'a'.repeat(300_000)}b`], [`${'a'.repeat(300_000)}c`])))).toBeNull();
+    // Larger than what a repair writes: a patch, the text it rewrites, the rewrite; and a rewrite of nothing.
+    expect(quick(one('a', 'b', hunk([], [], Array.from({ length: 2_000_000 }, () => 'a'))))).toMatch(/^it is 6000\d+ characters, more than a repair writes for its accepted candidate$/);
+    expect(quick(one('a'.repeat(REPAIR_FILE_LIMIT + 1), 'b', context))).toBe(`its accepted candidate's text is ${REPAIR_FILE_LIMIT + 1} characters, longer than any file a repair reads`);
+    expect(quick(one('a', 'b'.repeat(601), context))).toBe("its accepted candidate's rewrite is 601 characters, longer than a repair keeps for the 1 it replaces");
+    expect(quick(one('a', 'a', context))).toBe('its accepted candidate changes nothing');
   });
 
   it('refuses a candidate that names a path outside the repository, or none', () => {

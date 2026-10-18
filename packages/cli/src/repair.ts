@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { applyEdit, checkEdit, commitTitle, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, REPAIR_FILE_LIMIT, repairMarkdown, toolDefinitions, unifiedDiff, type Conversation, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type Store, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -143,7 +143,7 @@ function projectFiles(root: string): SourceFile[] {
     if (/(^|\/)blobs\/[0-9a-f]{64}$/.test(path)) continue;
     const abs = join(root, path);
     try {
-      if (statSync(abs).size > 1024 * 1024) continue;
+      if (statSync(abs).size > REPAIR_FILE_LIMIT) continue;
       const content = readFileSync(abs, 'utf8');
       if (!content.includes('\u0000')) out.push({ path, content });
     } catch {

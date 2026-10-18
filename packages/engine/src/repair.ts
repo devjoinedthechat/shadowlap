@@ -122,6 +122,12 @@ export interface ProposedEdit {
 
 export type EditCheck = { ok: true } | { ok: false; reason: string };
 
+/** The largest file repair reads (`projectFiles` skips bigger ones), so the most text one candidate can rewrite. */
+export const REPAIR_FILE_LIMIT = 1024 * 1024;
+
+/** The longest replacement `checkEdit` lets a candidate make of a text so long. */
+const longestRewrite = (length: number) => Math.max(600, length * 4);
+
 /** Whether a proposed rewrite may be tried at all. */
 export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbidden: ReadonlySet<string>): EditCheck {
   const anchor = anchors.find((a) => a.id === edit.anchor);
@@ -133,7 +139,7 @@ export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbid
   // end or escape; in a prose file (a Markdown policy) they are just punctuation.
   if (/[\n\r]/.test(replace) && !/[\n\r]/.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
   if (!isProse(anchor.file) && /["'`\\]/.test(replace) && !/["'`\\]/.test(anchor.text)) return { ok: false, reason: 'the replacement has quotes or backslashes, which could break the string in code it goes into' };
-  if (replace.length > Math.max(600, anchor.text.length * 4)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
+  if (replace.length > longestRewrite(anchor.text.length)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
   const before = caseDetails(anchor.text);
   const brought = [...caseDetails(replace)].filter((d) => forbidden.has(d) && !before.has(d));
   if (brought.length) {
@@ -270,9 +276,16 @@ export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candida
   if (!c) return 'no accepted candidate comes with it';
   const file = c.file;
   if (!plainRepoPath(file)) return `its accepted candidate names "${safeLine(file)}", which is not a plain path inside the repository`;
+  // Nothing larger than a repair makes is read any further: the text a candidate rewrites is in a
+  // file repair read, and its rewrite is held to longestRewrite. The patch holds the lines around
+  // the rewrite before and after it, a mark in front of each, which at most doubles them (empty lines).
+  if (c.before.length > REPAIR_FILE_LIMIT) return `its accepted candidate's text is ${c.before.length} characters, longer than any file a repair reads`;
+  if (c.after.length > longestRewrite(c.before.length)) return `its accepted candidate's rewrite is ${c.after.length} characters, longer than a repair keeps for the ${c.before.length} it replaces`;
+  if (patch.length > 2 * (2 * REPAIR_FILE_LIMIT + c.after.length) + 4 * file.length + 256) return `it is ${patch.length} characters, more than a repair writes for its accepted candidate`;
   const files = patchFiles(patch);
   if (files.some((f) => f !== file)) return `it changes ${fileList(files.map(safeLine))}, where its accepted candidate changes ${file} alone`;
   if (!c.before) return 'its accepted candidate rewrites no text';
+  if (c.before === c.after) return 'its accepted candidate changes nothing';
   const lines = patch.split('\n');
   if (lines.pop() !== '') return 'it does not end with a line break';
   const head = [`diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`];
@@ -312,10 +325,47 @@ export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candida
   while (s < c.before.length - p && s < c.after.length - p && c.before[c.before.length - 1 - s] === c.after[c.after.length - 1 - s]) s++;
   const from = c.before.slice(p, c.before.length - s);
   const to = c.after.slice(p, c.after.length - s);
-  for (let at = was.indexOf(from); at >= 0; at = at < was.length ? was.indexOf(from, at + 1) : -1) {
-    if (was.slice(0, at) + to + was.slice(at + from.length) === is) return null;
+  return rewrites(was, is, from, to) ? null : `the lines it changes in ${file} are not its accepted candidate's rewrite`;
+}
+
+/**
+ * Whether `is` is `was` with `from` replaced by `to` at one place, found in time that grows with the
+ * texts' length alone: they come from a store someone else may write, and trying every place `from`
+ * appears in turn, comparing the whole text each time, grew with the square of the patch (43 seconds
+ * for a crafted megabyte). Before that place the texts agree, so it is at most where they first
+ * differ; after it they agree too, which bounds it from below.
+ */
+function rewrites(was: string, is: string, from: string, to: string): boolean {
+  if (is.length - to.length !== was.length - from.length) return false;
+  let start = 0;
+  while (start < was.length && start < is.length && was.charCodeAt(start) === is.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < was.length && end < is.length && was.charCodeAt(was.length - 1 - end) === is.charCodeAt(is.length - 1 - end)) end++;
+  const lo = Math.max(0, was.length - from.length - end);
+  const hi = Math.min(start, was.length - from.length);
+  if (lo > hi) return false;
+  // What `from` and `to` share at either end was left out, so when neither is empty they differ in
+  // their first character, and the place can only be where the texts first differ.
+  if (from && to) return lo <= start && start <= hi && was.startsWith(from, start) && is.startsWith(to, start);
+  // Text only added, or only taken away: any place between lo and hi where that text is will do.
+  return occursBetween(from ? was : is, from || to, lo, hi);
+}
+
+/** Whether `piece` (not empty) appears in `text` starting anywhere from `lo` to `hi`, by Knuth-Morris-Pratt: one pass, however the text repeats. */
+function occursBetween(text: string, piece: string, lo: number, hi: number): boolean {
+  const back = new Int32Array(piece.length);
+  for (let i = 1, k = 0; i < piece.length; i++) {
+    while (k > 0 && piece.charCodeAt(i) !== piece.charCodeAt(k)) k = back[k - 1]!;
+    if (piece.charCodeAt(i) === piece.charCodeAt(k)) k++;
+    back[i] = k;
   }
-  return `the lines it changes in ${file} are not its accepted candidate's rewrite`;
+  const stop = Math.min(text.length, hi + piece.length);
+  for (let i = lo, k = 0; i < stop; i++) {
+    while (k > 0 && text.charCodeAt(i) !== piece.charCodeAt(k)) k = back[k - 1]!;
+    if (text.charCodeAt(i) === piece.charCodeAt(k)) k++;
+    if (k === piece.length) return true;
+  }
+  return false;
 }
 
 // ---- The report ------------------------------------------------------------------------------
