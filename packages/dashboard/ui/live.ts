@@ -88,15 +88,15 @@ export function recordingToast(ended: readonly EndedRecording[]): string | null 
 
 /**
  * The calls of a recording's page that won't change any more: every call up to the first still on
- * its way, except a last one that failed (the agent may retry it, which answers it again). The page
- * asks the server only for the calls after these (`?after=`). 0 when none is settled yet.
+ * its way or answered with a failure the agent may retry (`retryable`, as the server marks it while
+ * the run records). A retry answers the call again under its number, also once another branch of
+ * the agent has made calls after it. The page asks the server only for the calls after these
+ * (`?after=`). 0 when none is settled yet.
  */
-export function settledThrough(calls: readonly { callNo: number; outcome: string | null }[]): number {
+export function settledThrough(calls: readonly { callNo: number; outcome: string | null; retryable?: boolean }[]): number {
   let through = 0;
-  for (let i = 0; i < calls.length; i++) {
-    const c = calls[i]!;
-    if (c.outcome === null) break;
-    if (c.outcome === 'error' && i === calls.length - 1) break;
+  for (const c of calls) {
+    if (c.outcome === null || c.retryable) break;
     through = c.callNo;
   }
   return through;

@@ -85,6 +85,12 @@ export interface CallRow extends CallFacts {
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
   input?: true;
+  /**
+   * While its run records, a call answered with a failure the agent may retry (a 429, a 5xx, a
+   * connection that broke): the retry answers it again under its number, also after calls made since
+   * in another branch of the agent, so a page following the recording asks for it again.
+   */
+  retryable?: true;
 }
 
 export interface RunDetail extends RunPageFacts {
@@ -169,7 +175,8 @@ function oneLine(v: unknown): string {
   return s.length > ONE_LINE ? `${s.slice(0, ONE_LINE - 1)}…` : s;
 }
 
-function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS): CallRow {
+/** A call's row; `recording` while its run records, when a failure the agent may retry is marked so. */
+function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
   const end = c.end;
   const u = end?.meta.usage;
   const model = end?.meta.model ?? c.meta.model ?? (c.kind === 'api' ? modelResolver(store)(c) : null) ?? null;
@@ -200,6 +207,7 @@ function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts
     scope: typeof c.meta.scope === 'string' ? c.meta.scope : null,
     ...ownFacts(store, c),
     ...facts,
+    ...(recording && end?.outcome === 'error' && end.meta.retryable === true ? { retryable: true as const } : {}),
   };
 }
 
@@ -247,7 +255,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     source: captureSource(run),
     summary,
     // A recording's page asks only for the calls after those it has: rows are read for those alone.
-    calls: (after === undefined ? calls : calls.filter((c) => c.callNo > after)).map((c) => row(store, c, options, analysis.facts(c.callNo))),
+    calls: (after === undefined ? calls : calls.filter((c) => c.callNo > after)).map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     actions: actionsFor(run, undefined),

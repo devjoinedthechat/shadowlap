@@ -84,8 +84,13 @@ describe('what a run’s page loads again on', () => {
       { callNo: 5, outcome: 'ok' },
     ];
     expect(settledThrough(calls)).toBe(3);
-    // A last call that failed may be answered again by the agent's retry.
-    expect(settledThrough(calls.slice(0, 2))).toBe(1);
+    // A failure the agent may retry is answered again under its number, also once another branch
+    // of the agent made calls after it: nothing from it on is settled.
+    const retried = calls.map((c) => (c.callNo === 2 ? { ...c, retryable: true } : c));
+    expect(settledThrough(retried)).toBe(1);
+    expect(settledThrough(retried.slice(0, 2))).toBe(1);
+    // One it won't retry is as final as an answer, last or not.
+    expect(settledThrough(calls.slice(0, 2))).toBe(2);
     expect(settledThrough([])).toBe(0);
     const had = { status: 'running', calls: calls.map((c) => ({ ...c })) };
     const part = { status: 'running', after: 3, calls: [{ callNo: 4, outcome: 'ok' }, { callNo: 5, outcome: 'ok' }, { callNo: 6, outcome: null }] };
@@ -184,6 +189,41 @@ describe('a run’s page on the server', () => {
     expect((await get(`runs/${rec}?after=4`, res.headers.get('etag')!)).status).toBe(304);
     expect((await get(`runs/${rec}?after=-1`)).status).toBe(400);
     expect((await get(`runs/${rec}?after=two`)).status).toBe(400);
+  });
+
+  it('asks again for a failure the agent may retry, though calls of another branch came after it', async () => {
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' } }).runId;
+    addCall(store, rec, 1);
+    // A model call the provider answered 529, which the agent retries; meanwhile its other branch goes on.
+    const model = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'm2', occurrence: 0 };
+    store.appendCallStart({ runId: rec, callNo: 2, ...model, origin: 'live', effect: null, requestRef: null, meta: { scope: 'triage' }, at: Date.now() });
+    store.appendCallEnd(model, { runId: rec, callNo: 2, attempt: 0, responseRef: null, outcome: 'error', meta: { status: 529, retryable: true, latencyMs: 300 }, at: Date.now() });
+    addCall(store, rec, 3);
+    let page = (await (await get(`runs/${rec}`)).json()) as RunDetail;
+    expect(page.calls.map((c) => [c.callNo, c.outcome, c.retryable ?? false])).toEqual([
+      [1, 'ok', false],
+      [2, 'error', true],
+      [3, 'ok', false],
+    ]);
+    // The page follows from call 1: call 2 may still be answered again.
+    const after = settledThrough(page.calls);
+    expect(after).toBe(1);
+    // The retry answers call 2 under its number.
+    store.appendCallEnd(model, { runId: rec, callNo: 2, attempt: 1, responseRef: null, outcome: 'ok', meta: { status: 200, latencyMs: 800 }, at: Date.now() });
+    page = mergeRun(page, (await (await get(`runs/${rec}?after=${after}`)).json()) as RunDetail);
+    expect(page.calls.map((c) => [c.callNo, c.outcome, c.attempts, c.retryable ?? false])).toEqual([
+      [1, 'ok', 0, false],
+      [2, 'ok', 1, false],
+      [3, 'ok', 0, false],
+    ]);
+    expect(settledThrough(page.calls)).toBe(3);
+    // Once the run has ended, no failure is waiting for a retry.
+    store.appendCallStart({ runId: rec, callNo: 4, ...model, fingerprint: 'm4', origin: 'live', effect: null, requestRef: null, meta: {}, at: Date.now() });
+    store.appendCallEnd({ ...model, fingerprint: 'm4' }, { runId: rec, callNo: 4, attempt: 0, responseRef: null, outcome: 'error', meta: { status: 529, retryable: true, latencyMs: 300 }, at: Date.now() });
+    store.endRun(rec, 'failed');
+    const ended = (await (await get(`runs/${rec}`)).json()) as RunDetail;
+    expect(ended.calls.find((c) => c.callNo === 4)).toMatchObject({ outcome: 'error' });
+    expect(ended.calls.some((c) => c.retryable)).toBe(false);
   });
 
   it('works out only the calls that arrived for a recording’s page, and the finished run whole', async () => {
