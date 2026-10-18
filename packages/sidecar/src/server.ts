@@ -43,7 +43,7 @@ import {
 } from '@shadowlap/engine';
 // The run page: what a run did that was never recorded, kept on the run (engine run-facts.ts).
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
-import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, type HttpResult, type HttpRule } from './http.js';
+import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, withoutCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { providers as defaultProviders, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
@@ -965,7 +965,10 @@ export class Sidecar {
   /**
    * A captured call to a host under `http` in the config, resolved like a tool call the SDK would
    * make: replayed from the recording, run live, blocked or stubbed. The sidecar makes the request
-   * itself when it runs live, and only to a declared host. Request headers are never stored.
+   * itself when it runs live, and only to a declared host. Request headers are never stored, nor
+   * the credentials in its query string or form body (an API key, a token, a signature): the
+   * request is stored and matched with them masked (withoutCredentials), so a rotated key still
+   * replays, and only the live forward carries them.
    */
   private async proxyHttp(req: IncomingMessage, res: ServerResponse, subpath: string, search: string, pinned?: string): Promise<void> {
     const ctx = this.contextFor(req, pinned);
@@ -981,9 +984,10 @@ export class Sidecar {
     const method = (req.method ?? 'GET').toUpperCase();
     const rawBody = await readBody(req);
     const contentType = req.headers['content-type'];
-    const requestBody = decodeBody(rawBody, contentType);
+    const requestBody = storedRequestBody(rawBody, contentType);
     const name = `${method} ${origin.host}${subpath}`;
-    const args = { method, url: `${origin.origin}${subpath}${search}`, ...requestBody };
+    const url = `${origin.origin}${subpath}${search}`;
+    const args = { method, url: `${origin.origin}${subpath}${withoutCredentials(search)}`, ...requestBody };
     const { fingerprint } = fingerprintTool(name, args, ctx.normalizers, ctx.clockRef);
     const callNo = ctx.nextCallNo++;
     const effect = rule.effect;
@@ -1085,7 +1089,7 @@ export class Sidecar {
     let upstream: Response;
     let bytes: Buffer;
     try {
-      upstream = await requestUpstream(args.url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null);
+      upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null);
       bytes = Buffer.from(await upstream.arrayBuffer());
     } catch (err) {
       return fail(502, { name: 'ShadowlapUpstreamError', message: `${name}: ${err instanceof Error ? err.message : String(err)}` }, 'shadowlap_upstream_error');

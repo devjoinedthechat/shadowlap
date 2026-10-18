@@ -37,6 +37,71 @@ export function matchHttpRule(rules: readonly HttpRule[], url: URL): HttpRule | 
   });
 }
 
+/**
+ * What a credential in a captured call's query string or form body is stored as. The call is
+ * forwarded with the real value; the store, every copy made from it and matching on replay see this.
+ */
+export const CREDENTIAL_PLACEHOLDER = '<CREDENTIAL>';
+
+/** Last words of a parameter name that make it a credential whatever comes before: `client_secret`, `X-Amz-Signature`. */
+const SECRET_LAST = new Set(['secret', 'signature', 'password', 'passwd', 'pwd', 'credential', 'credentials']);
+/** Whole names (their words run together) that are credentials: `key`, `api_key`, `apiKey`, `sig`, `appid`. */
+const SECRET_NAME = new Set(['key', 'apikey', 'appid', 'appkey', 'token', 'sig', 'hmac', 'auth', 'authorization', 'pass', 'passphrase', 'sessionid', 'jsessionid', 'phpsessid']);
+/** Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`), unlike a `sort_key` or an `idempotency_key`. */
+const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing']);
+/** Words before `token` that make it a pagination cursor, not a credential: `page_token`, `nextPageToken`. */
+const CURSOR = new Set(['page', 'next', 'prev', 'previous', 'continuation', 'sync', 'cursor', 'resume', 'start', 'pagination']);
+
+/**
+ * Whether a query or form parameter carries a credential: an API key, a token, a signature, a
+ * password. Read by its words (`api_key`, `apiKey`, `X-Amz-Security-Token`), and narrowly: a value
+ * masked here is left out of matching too, so two calls that differ only in it would match the same
+ * recorded call. A sort key, a page token or an author stays a value like any other.
+ */
+export function credentialParam(name: string): boolean {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (!words.length) return false;
+  const last = words[words.length - 1]!;
+  const before = words.slice(0, -1);
+  if (SECRET_NAME.has(words.join('')) || SECRET_LAST.has(last)) return true;
+  if (last === 'key') return before.some((w) => KEY_OWNER.has(w));
+  if (last === 'token') return !before.some((w) => CURSOR.has(w));
+  return false;
+}
+
+/**
+ * URL-encoded parameters (a query string with or without its `?`, or a form body) with the value of
+ * each credential (credentialParam) replaced by CREDENTIAL_PLACEHOLDER; everything else stays byte
+ * for byte, in its order.
+ */
+export function withoutCredentials(encoded: string): string {
+  return encoded.replace(/(^\??|&)([^&=]*)=([^&]*)/g, (whole, lead: string, raw: string, value: string) => {
+    if (!value) return whole;
+    let name: string;
+    try {
+      name = decodeURIComponent(raw.replace(/\+/g, ' '));
+    } catch {
+      name = raw;
+    }
+    return credentialParam(name) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole;
+  });
+}
+
+/**
+ * A request body as stored: decodeBody's, with the credentials of a form body
+ * (`application/x-www-form-urlencoded`, an OAuth token request's `client_secret`) masked as a query
+ * string's are (withoutCredentials). The call is forwarded with the body as it was sent.
+ */
+export function storedRequestBody(bytes: Buffer, contentType: string | undefined): StoredBody {
+  const body = decodeBody(bytes, contentType);
+  if (body.encoding !== 'text' || !/^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '')) return body;
+  return { ...body, body: withoutCredentials(body.body as string) };
+}
+
 /** A body as stored: parsed JSON, text, or base64 for anything else. */
 export interface StoredBody {
   body?: unknown;

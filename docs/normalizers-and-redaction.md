@@ -115,7 +115,7 @@ A path rule masks only at its path. A tool argument the model wrote also appears
 
 Because a replay applies the rules a second time, `redact add` refuses a replacement the pattern would rewrite again (`--pattern number --replace n0` turns into `nn0`). It also refuses a replacement that copies matched text back into the copy (`$&`, `$1`, `$<name>`, `` $` `` or `$'`); `$$` is a literal dollar sign. To keep the text around a secret, match only the secret, with a lookbehind for what comes before it: `--pattern '/(?<=key=)\w+/'`. Redaction is pattern-based: it masks what your rules describe and nothing else, so preview it, and review a pack before sharing it.
 
-Credentials never need redacting: API keys and authorization headers are forwarded upstream and never stored in the first place.
+Credentials sent the way providers and services take them never need redacting: a model call's API key and authorization headers, and a [captured HTTP call](./sdk.md#http-services-without-wrapping)'s request headers and the credentials in its query string or form body (`key`, `access_token`, `sig`, stored as `<CREDENTIAL>`), are forwarded upstream and never stored in the first place. A key the agent puts anywhere else, a tool's arguments, a JSON body or a URL's path, is stored like any other value, so mask it with a rule.
 
 ### Where the rules apply
 
