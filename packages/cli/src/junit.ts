@@ -1,3 +1,5 @@
+import { safeText } from '@shadowlap/engine';
+
 /** Minimal JUnit XML for CI systems that render test reports. */
 
 export interface JunitCase {
@@ -8,12 +10,23 @@ export interface JunitCase {
   systemOut?: string;
 }
 
+/**
+ * Text as XML 1.0 can carry it. An agent's output is recorded as it printed it, escape codes from a
+ * coloured logger included, and XML has no way to write most control characters, not even escaped:
+ * one makes every parser refuse the whole report. They show as escapes (`\x1b`), as the Markdown
+ * report shows them; what XML has no character for at all (a lone surrogate, U+FFFE, U+FFFF)
+ * becomes U+FFFD. A Windows line break is a line break.
+ */
+function xmlText(s: string): string {
+  return safeText(s.replace(/\r\n/g, '\n')).replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]|[￾￿]/g, '�');
+}
+
 function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return xmlText(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function cdata(s: string): string {
-  return `<![CDATA[${s.replace(/\]\]>/g, ']]]]><![CDATA[>')}]]>`;
+  return `<![CDATA[${xmlText(s).replace(/\]\]>/g, ']]]]><![CDATA[>')}]]>`;
 }
 
 export function junitXml(suiteName: string, cases: JunitCase[]): string {
