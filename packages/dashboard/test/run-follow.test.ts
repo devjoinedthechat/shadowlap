@@ -215,6 +215,21 @@ describe('a run’s page on the server', () => {
     expect(ended.calls.map((c) => [c.callNo, c.conversation, c.requestedBy])).toEqual([...first.calls, ...part.calls].map((c) => [c.callNo, c.conversation, c.requestedBy]));
   });
 
+  it('gives the run’s family from the calls its page read, not by reading the run again', async () => {
+    const done = addRun(store, { startedAt: Date.now() - HOUR, calls: 'lolo' });
+    const fork = addRun(store, { parent: done, startedAt: Date.now(), calls: 'rrl', divergence: 3 });
+    expect((await get(`runs/${done}`)).status).toBe(200);
+    const reads = vi.spyOn(store, 'getCalls');
+    const nodes = (await (await get(`runs/${done}/lineage`)).json()) as { nodes: Array<{ runId: string; calls: number }> };
+    expect(nodes.nodes.map((n) => [n.runId, n.calls])).toEqual([
+      [done, 4],
+      [fork, 3],
+    ]);
+    // The fork is read; the run the page shows is not read again.
+    expect(reads.mock.calls.map(([id]) => id)).toEqual([fork]);
+    reads.mockRestore();
+  });
+
   it('counts a recording’s call events in the live runs, so an answer moves its page too', () => {
     const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/work' } }).runId;
     addCall(store, rec, 1, false);

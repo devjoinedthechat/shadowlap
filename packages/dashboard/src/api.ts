@@ -474,8 +474,10 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
   const out: LineageNode[] = [];
   const walk = (r: RunRecord, depth: number) => {
     if (out.length >= 1000) return;
-    const calls = store.getCalls(r.runId);
-    const s = summarizeRun(r, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
+    // The run asked about is the page's own: its calls as the page last read them (run-calls.ts),
+    // so its Forks view, asked again as runs move, doesn't read a long run again.
+    const calls = r.runId === run.runId ? runCalls(store, r.runId) : store.getCalls(r.runId);
+    const s = summarizeRun(r, calls as CallRecord[], [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
     const state = stateOf(r.runId);
     out.push({
       runId: r.runId,
