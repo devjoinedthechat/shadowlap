@@ -22,7 +22,10 @@ export interface MetaInput {
  * interrupted. Asked fresh each time: a process can end without anything in the store changing.
  */
 export function liveRuns(store: Store): LiveRun[] {
-  return store.recordingRuns().live.map(({ run }) => ({ runId: run.runId, calls: store.countCalls(run.runId) }));
+  return store.recordingRuns().live.map(({ run }) => {
+    const row = store.query(`SELECT COUNT(*) AS events, COALESCE(SUM(phase = 'start'), 0) AS calls FROM call_events WHERE run_id = ?`, run.runId)[0];
+    return { runId: run.runId, calls: Number(row?.calls ?? 0), events: Number(row?.events ?? 0) };
+  });
 }
 
 export function metaView(store: Store, input: MetaInput): MetaView {

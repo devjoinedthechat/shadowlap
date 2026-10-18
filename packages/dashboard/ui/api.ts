@@ -116,7 +116,8 @@ export interface Client {
   exported: boolean;
   meta(): Promise<Meta>;
   runs(): Promise<RunListItem[]>;
-  run(id: string): Promise<RunDetail>;
+  /** A run's page; `after`, for a recording the page follows: only the calls numbered after it (`RunDetail.after`). */
+  run(id: string, after?: number): Promise<RunDetail>;
   call(id: string, n: number): Promise<CallDetail>;
   lineage(id: string): Promise<LineageNode[]>;
   /** The run's record for Provenance, or null when the server does not work it out. */
@@ -306,8 +307,8 @@ export function createClient(token: string): Client {
         return shape(m, normalizeMeta);
       }),
     runs: () => request<{ runs: RunListItem[] }>('runs').then((r) => shape(r, (x) => normalizeRuns(x.runs))),
-    run: (runId) =>
-      request<RunDetail>(`runs/${id(runId)}`).then((d) => {
+    run: (runId, after) =>
+      request<RunDetail>(`runs/${id(runId)}${after === undefined ? '' : `?after=${after}`}`).then((d) => {
         const out = shape(d, normalizeRunDetail);
         // The top bar's crumb names the parent of a run the run list leaves out from here (parents.ts).
         noteParent([runId, out.run.runId], out.run.parentRunId ?? null);

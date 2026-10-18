@@ -87,6 +87,11 @@ export type JobListItem = Omit<JobView, 'lines' | 'result'>;
 export interface LiveRun {
   runId: string;
   calls: number;
+  /**
+   * Its call events, starts and answers: moves when a call starts and when one is answered, so a
+   * recording's page asks for what changed, its newest calls, and nothing when another run records.
+   */
+  events?: number;
 }
 
 /** The project folder the dashboard works in: jobs run there, uploads and exports are kept there. */

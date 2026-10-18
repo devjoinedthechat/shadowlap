@@ -75,9 +75,45 @@ export function secondsLeft(s: ConnState, now: number): number {
  * output or an activity entry.
  */
 export function reloadFor(ch: { changed?: boolean; runs?: boolean; calls?: boolean }, first: boolean): boolean {
-  if (first) return true;
-  if (ch.runs !== undefined || ch.calls !== undefined) return !!ch.runs || !!ch.calls;
-  return ch.changed !== false;
+  return feedMoves(ch, first) !== null;
+}
+
+/**
+ * What moved since the last look, as the page reloads for it: `runs` (a run added, ended or
+ * changed, or a server that doesn't say what moved), which loads the run list again and every view
+ * keyed on it; `calls`, only calls recorded, which means the recordings that are growing (the change
+ * feed names each with its counts) and nothing else; or nothing a run view shows.
+ */
+export function feedMoves(ch: { changed?: boolean; runs?: boolean; calls?: boolean }, first: boolean): 'runs' | 'calls' | null {
+  if (first) return 'runs';
+  if (ch.runs !== undefined || ch.calls !== undefined) return ch.runs ? 'runs' : ch.calls ? 'calls' : null;
+  return ch.changed !== false ? 'runs' : null;
+}
+
+/**
+ * The run list with each recording's call count as the change feed has it now: when only calls
+ * moved, the list itself is not asked for again. The same list when no count moved.
+ */
+export function withLiveCalls<R extends { runId: string; calls: number }>(runs: readonly R[] | null, live: readonly { runId: string; calls: number }[]): readonly R[] | null {
+  if (!runs) return runs;
+  const now = new Map(live.map((l) => [l.runId, l.calls]));
+  let changed = false;
+  const out = runs.map((r) => {
+    const calls = now.get(r.runId);
+    if (calls === undefined || calls === r.calls) return r;
+    changed = true;
+    return { ...r, calls };
+  });
+  return changed ? out : runs;
+}
+
+/**
+ * What a run's page loads again on: the run list moving (`runsTick`: a run started, ended or
+ * changed, which may be this one or its family), and while it records, its own call events (a call
+ * started or answered). Another run recording moves neither.
+ */
+export function runRefresh(runsTick: number, live: { calls: number; events?: number } | null | undefined): string {
+  return live ? `${runsTick}:${live.events ?? live.calls}` : String(runsTick);
 }
 
 /**
@@ -89,4 +125,10 @@ export function reloadFor(ch: { changed?: boolean; runs?: boolean; calls?: boole
 export function feedCursor(ch: { cursor?: string; version?: string | number } | null): string | null {
   if (!ch) return null;
   return ch.cursor ?? (ch.version !== undefined ? String(ch.version) : null);
+}
+
+/** What a run's family (Forks) loads again on: the run list moving, and the calls of each run of the family that records. */
+export function familyRefresh(runsTick: number, live: readonly { runId: string; calls: number }[], family: ReadonlySet<string>): string {
+  const growing = live.filter((l) => family.has(l.runId)).map((l) => `${l.runId}:${l.calls}`);
+  return growing.length ? `${runsTick}|${growing.join(',')}` : String(runsTick);
 }

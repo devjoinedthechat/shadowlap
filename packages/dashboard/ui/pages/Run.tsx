@@ -5,8 +5,9 @@ import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
 import { callName, sameRun, shortId } from '../format.js';
+import { runRefresh } from '../connection.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
-import { followNewest } from '../live.js';
+import { followNewest, mergeRun, settledThrough } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { CYCLE_VIEWS, href, nextView, type View } from '../route.js';
@@ -37,14 +38,36 @@ import { TurnsView } from '../run/TurnsView.js';
 let lastTab: InspectorTab = 'conversation';
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
-  const { client, tick } = useApp();
+  const { client, runsTick, live } = useApp();
   // Opened by a short id, the page settles on the full one (the workspace rewrites the URL). That is
   // the run already loaded: the load keeps the id the page opened with, and asks by the full id from
   // then on, so the run and everything on its page aren't loaded a second time.
   const opened = useRef<{ key: string; runId: string | null }>({ key: id, runId: null });
   if (id !== opened.current.key && id !== opened.current.runId) opened.current = { key: id, runId: null };
-  const loaded = useLoad(() => client.run(opened.current.runId ?? opened.current.key), opened.current.key, tick);
+  // Loaded again when runs move (this one may have ended or changed), and while it records, when its
+  // own calls do: another run recording asks this page for nothing.
+  const recording = live.find((l) => (opened.current.runId ? l.runId === opened.current.runId : sameRun(opened.current.key, l.runId))) ?? null;
+  // What the page has: a recording it follows asks only for the calls after those that won't change.
+  const had = useRef<{ key: string; run: RunDetail; part: RunDetail | null } | null>(null);
+  const loaded = useLoad(
+    () => {
+      const key = opened.current.key;
+      const asked = opened.current.runId ?? key;
+      const prev = had.current?.key === key ? had.current : null;
+      if (!prev || !recording || prev.run.run.status !== 'running' || prev.run.run.runId !== recording.runId) return client.run(asked);
+      return client.run(asked, settledThrough(prev.run.calls)).then((part) => {
+        // The same answer again (a 304): the page as it was, so nothing redraws.
+        if (part === prev.part) return prev.run;
+        const run = mergeRun(prev.run, part);
+        had.current = { key, run, part };
+        return run;
+      });
+    },
+    opened.current.key,
+    runRefresh(runsTick, recording),
+  );
   const run = loaded.data;
+  if (run && had.current?.run !== run) had.current = { key: opened.current.key, run, part: null };
   if (run && opened.current.runId === null && sameRun(opened.current.key, run.run.runId)) opened.current.runId = run.run.runId;
   if (!run) {
     if (loaded.error)
@@ -117,7 +140,7 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
 
 function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
-  const { client, exported, actionsOff, setRunCommands, runKeys, setPalette, tick } = app;
+  const { client, exported, actionsOff, setRunCommands, runKeys, setPalette, runsTick } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   // Each model named as the page names it everywhere: claude-opus-5, not opus-5 here and the full id there.
@@ -180,7 +203,7 @@ function Workspace({ run, id, call, view }: { run: RunDetail; id: string; call: 
   const forkMenu = useMenu();
   // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find the commit.
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
-  const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : tick).data ?? null;
+  const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const actions = useActionRunner(runId, !!run.source, offers);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;

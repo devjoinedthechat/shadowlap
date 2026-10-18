@@ -112,6 +112,11 @@ export interface RunDetail extends RunPageFacts {
    * reads `crashed`, ended at its last call (`run.endedAt`), as gc would end it.
    */
   state: RunState | null;
+  /**
+   * Set on an answer to `?after=<n>`, a recording's page following it: `calls` holds only the calls
+   * numbered after `n`, and the page keeps the ones it has up to there. Everything else is the whole run's.
+   */
+  after?: number;
 }
 
 export interface CallDetail {
@@ -222,9 +227,10 @@ function childRows(store: Store, runId: string): RunDetail['children'] {
   return store.childRuns(runId).map((r) => ({ runId: r.runId, label: runLabel(r, kindFacts(store, r, store.countCalls(r.runId))), startedAt: r.startedAt, ...(index.byId.get(r.runId)?.bundled ? { attempt: true as const } : {}) }));
 }
 
-export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}): RunDetail | null {
+export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions = {}, part: { after?: number } = {}): RunDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
+  const after = part.after;
   const runId = run.runId;
   const calls = runCalls(store, runId);
   const state = runState(store, runId);
@@ -240,13 +246,15 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     label: runLabel(run, kindFacts(store, run, calls.length)),
     source: captureSource(run),
     summary,
-    calls: calls.map((c) => row(store, c, options, analysis.facts(c.callNo))),
+    // A recording's page asks only for the calls after those it has: rows are read for those alone.
+    calls: (after === undefined ? calls : calls.filter((c) => c.callNo > after)).map((c) => row(store, c, options, analysis.facts(c.callNo))),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     actions: actionsFor(run, undefined),
     ...runPageFacts(store, run, calls),
     fix: fixForRun(store, run.runId),
     state,
+    ...(after === undefined ? {} : { after }),
   };
 }
 

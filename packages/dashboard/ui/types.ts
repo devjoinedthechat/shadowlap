@@ -241,6 +241,8 @@ export type TestBannerOffer = NonNullable<ServerRunOffers['test']>;
 export interface LiveRun {
   runId: string;
   calls: number;
+  /** Its call events, starts and answers: a recording's page asks for its newest calls when they move. */
+  events?: number;
 }
 
 export interface Meta {

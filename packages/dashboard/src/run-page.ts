@@ -3,6 +3,7 @@ import {
   canonicalModel,
   Lru,
   hasRecordedCommand,
+  LiveConversations,
   previewRedaction,
   recordedDurations,
   responseInfo,
@@ -79,20 +80,66 @@ export interface RunAnalysis {
 /** Analyses of the runs read lately, per store: the run page asks for a run and then its calls, one by one. */
 const analyses = new WeakMap<Store, Map<string, RunAnalysis>>();
 
+/**
+ * The runs still recording whose pages are followed, per store: their conversations as their calls
+ * arrive (LiveConversations), and the tools each model call's answer asked for, with the record they
+ * were read from. A recording's page asks for its newest calls every two seconds; working out where
+ * every call of a long run belongs each time held up the dashboard for seconds at 50,000 calls.
+ */
+const following = new WeakMap<Store, Map<string, { live: LiveConversations; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
+
+/** The runs followed at once per store. */
+const FOLLOW = 4;
+
+/** The tools a model call's answer asked for, by name; cached by response blob. */
+const asked = (store: Store, c: CallRecord) => responseInfo(store, c).tools.map((t) => t.name);
+
+/**
+ * A run's conversations and what each model call asked for. A run still recording is placed as its
+ * calls arrive, from where it was last asked for (`following`): each call is worked out once, and its
+ * answer once it arrives. A finished run is placed whole, every call with everything known.
+ */
+function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): { conversations: RunConversations; asks: Map<number, string[]> } {
+  let byRun = following.get(store);
+  if (run.status !== 'running') {
+    byRun?.delete(run.runId);
+    const asks = new Map<number, string[]>();
+    for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, asked(store, c));
+    return { conversations: runConversations(store, calls, { attribute: true }), asks };
+  }
+  if (!byRun) following.set(store, (byRun = new Map()));
+  let entry = byRun.get(run.runId);
+  let conversations = entry?.live.update(calls) ?? null;
+  if (!entry || !conversations) {
+    entry = { live: new LiveConversations(store, { attribute: true }), asks: new Map() };
+    conversations = entry.live.update(calls)!;
+  }
+  byRun.delete(run.runId);
+  byRun.set(run.runId, entry);
+  for (const key of byRun.keys()) if (byRun.size > FOLLOW) byRun.delete(key);
+  const asks = new Map<number, string[]>();
+  for (const c of calls) {
+    if (c.kind !== 'api') continue;
+    let had = entry.asks.get(c.callNo);
+    if (had?.rec !== c) entry.asks.set(c.callNo, (had = { rec: c, names: asked(store, c) }));
+    asks.set(c.callNo, had.names);
+  }
+  return { conversations, asks };
+}
+
 /** A run's conversations, cache misses and recorded durations, computed once per state of the run. */
 export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
   let byRun = analyses.get(store);
   if (!byRun) analyses.set(store, (byRun = new Map()));
-  const key = `${run.runId}\n${runStamp(calls)}`;
+  // Its status too: a recording is placed as its calls arrive, the finished run whole.
+  const key = `${run.runId}\n${run.status}\n${runStamp(calls)}`;
   const known = byRun.get(key);
   if (known) return known;
-  const conversations = runConversations(store, calls, { attribute: true });
+  // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
+  const { conversations, asks } = conversationsOf(store, run, calls);
   const cache = cacheMisses(calls, conversations);
   const recorded = run.mode === 'replay' ? recordedDurations(store, run, calls) : new Map<number, number>();
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
-  // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
-  const asks = new Map<number, string[]>();
-  for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, responseInfo(store, c).tools.map((t) => t.name));
   const byNo = new Map(calls.map((c) => [c.callNo, c]));
   // Each conversation's requests in call order, for requestFor.
   const requests = new Map<number, CallRecord[]>();

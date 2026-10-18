@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
-import { connStart, connStep, feedCursor, onTick, reloadFor, secondsLeft, type Conn } from './connection.js';
+import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
 import { useLatest } from './hooks.js';
 import { afterPollError, endToast, jobStatus, jobTitle } from './jobs.js';
 import { endedRecordings, recordingToast } from './live.js';
@@ -50,8 +50,14 @@ export interface AppState {
   retryIn: number;
   retrying: boolean;
   retryNow: () => void;
-  /** Goes up whenever runs or calls may have changed: an open run reloads on it. */
+  /** Goes up whenever runs or calls may have changed: a page of counts reloads on it. */
   tick: number;
+  /**
+   * Goes up whenever the run list loads again: a run started, ended or changed. A run's page reloads
+   * on it, and while the run records on its own call events (`live`, `runRefresh`), so another run
+   * recording asks it for nothing.
+   */
+  runsTick: number;
   /**
    * How often each other part of the change feed has moved since the page loaded: `jobs` (a job
    * started, ended or reported something) and each table a feature counts (`fixes`, …). A page that
@@ -129,6 +135,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
   const [now, setNow] = useState(() => Date.now());
   const [retrying, setRetrying] = useState(false);
   const [tick, setTick] = useState(0);
+  const [runsTick, setRunsTick] = useState(0);
   const [feeds, setFeeds] = useState<Readonly<Record<string, number>>>({});
   const [live, setLive] = useState<LiveRun[]>([]);
   const [toastText, setToastText] = useState<{ id: number; text: string; kind: ToastKind } | null>(null);
@@ -153,7 +160,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     [goOffline],
   );
 
-  // A later list means runs or calls moved: `tick` goes up and every open run and panel loads again.
+  // A later list means runs moved: `tick` and `runsTick` go up and every open run and panel loads again.
   // The page's first list (`first`) doesn't: what the page loads beside it is as new. A recording
   // that ended since the list before says so, on whatever page is open, once (two lists can arrive
   // out of order), unless a job this page follows made it: its drawer, or its own toast, says how.
@@ -170,7 +177,10 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       setRuns(list);
       setLoadedAt(Date.now());
       setSyncedAt(Date.now());
-      if (!o.first) setTick((n) => n + 1);
+      if (!o.first) {
+        setTick((n) => n + 1);
+        setRunsTick((n) => n + 1);
+      }
       const said = recordingToast(ended);
       if (said) toast(said);
     },
@@ -246,7 +256,16 @@ export function AppProvider({ client, children }: { client: Client; children: Re
           cursor.current = feedCursor(ch);
           if (ch.live) setLive(ch.live);
           setSyncedAt(Date.now());
-          if (reloadFor(ch, first)) await loadRuns();
+          // Runs moved: the list loads again. Only calls: the recordings growing, whose counts the
+          // feed carries, so the list takes them as they are and pages of counts reload (`tick`); a
+          // run's page reloads on its own calls alone.
+          const moves = feedMoves(ch, first);
+          if (moves === 'runs') await loadRuns();
+          else if (moves === 'calls') {
+            const live = ch.live;
+            if (live) setRuns((list) => withLiveCalls(list, live) as RunListItem[] | null);
+            setTick((n) => n + 1);
+          }
           const moved = first ? [] : [...(ch.jobs ? ['jobs'] : []), ...(ch.other ?? [])];
           if (moved.length) setFeeds((f) => Object.fromEntries([...Object.entries(f), ...moved.map((k) => [k, (f[k] ?? 0) + 1] as const)]));
           // The counts in the status bar and the nav are the server's: they move with the runs.
@@ -463,6 +482,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       retrying,
       retryNow,
       tick,
+      runsTick,
       feeds,
       live,
       refresh,
@@ -489,7 +509,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       runCommands,
       setRunCommands,
     }),
-    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
+    [client, meta, runs, loadedAt, syncedAt, conn, retryIn, retrying, retryNow, tick, runsTick, feeds, live, refresh, reload, actionsOff, hasKind, guard, toast, toastText, watchJob, jobs, closeJob, closeJobs, registerLayer, closeTopLayer, blockingLayer, sideOpen, palette, help, runCommands],
   );
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

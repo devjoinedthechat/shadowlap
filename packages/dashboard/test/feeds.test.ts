@@ -202,7 +202,7 @@ describe('live runs', () => {
     // Still marked running, recorded by no process here and silent for two days, as a crash leaves a run.
     mem.importRun({ runId: '01K5CQ4N7G0000000000000001', parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['x'], cwd: '.' }, codeVersion: null, startedAt: Date.now() - 2 * 86_400_000, endedAt: null });
     const recording = mem.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
-    expect(liveRuns(mem)).toEqual([{ runId: recording.runId, calls: 0 }]);
+    expect(liveRuns(mem)).toEqual([{ runId: recording.runId, calls: 0, events: 0 }]);
     mem.close();
   });
 });

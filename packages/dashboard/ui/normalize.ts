@@ -26,7 +26,7 @@ export function sentence(text: string): string {
 
 export function normalizeMeta(m: Meta): Meta {
   const out: Meta = { ...m };
-  if (m.live !== undefined) out.live = Array.isArray(m.live) ? m.live.filter((l) => isObject(l) && typeof l.runId === 'string').map((l) => ({ runId: l.runId, calls: int(l.calls) ?? 0 })) : [];
+  if (m.live !== undefined) out.live = Array.isArray(m.live) ? m.live.filter((l) => isObject(l) && typeof l.runId === 'string').map((l) => ({ runId: l.runId, calls: int(l.calls) ?? 0, ...(int(l.events) !== null ? { events: int(l.events)! } : {}) })) : [];
   if (m.jobKinds !== undefined) out.jobKinds = Array.isArray(m.jobKinds) ? m.jobKinds.filter((k): k is string => typeof k === 'string') : [];
   const reason = str(m.readOnlyReason);
   out.readOnlyReason = reason ? sentence(reason) : null;
