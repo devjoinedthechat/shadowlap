@@ -38,7 +38,7 @@ const seed = await random();            // [0, 1)
 const requestId = await uuid();
 ```
 
-- `tool(name, { effect, onFork? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved.
+- `tool(name, { effect, onFork? }, impl)` returns a function with the same signature. Arguments, results and thrown errors must be JSON-serializable. A replayed error is thrown as `ReplayedError` with the recorded `name`, `message` and `code`; the original class is not preserved, but the error reads as it did: `String(err)`, `util.inspect(err)` and the stack's first line are what they were when the call was recorded.
 - `effect` is required: `pure` (depends only on the arguments), `read` (touches outside state), `write` (changes it). See [effects](./how-it-works.md#effects).
 - Under `--writes stub` a `write` tool doesn't run: it returns what `onFork` gives, or `null` without one, and a replay of the run returns the same.
 - After a fork, a `write` tool under the default `--writes block` throws `ShadowlapWriteBlocked`. A well-behaved agent catches tool errors and returns them to the model as an error result; the run then completes and the timeline shows the blocked call.
@@ -74,6 +74,7 @@ request_id = uuid()
 - Arguments are recorded by name whether the tool was called positionally or with keywords, with defaults applied.
 - Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by their annotation. `exclude=("name",)` drops any other. An argument that can't be recorded as JSON raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
 - A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns.
+- A replayed error is raised as `ReplayedError` with the recorded `name`, `message` and `code`. It reads as the recorded error did: `str(err)`, `repr(err)` and `type(err).__name__` are what they were, so an agent that hands a tool's error to the model sends it the same text on replay.
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - Python ≥ 3.9. Zero dependencies (`urllib`).

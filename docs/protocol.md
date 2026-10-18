@@ -206,7 +206,7 @@ preserved across a replay — only these fields — so a client SHOULD raise a d
 
 Two error types every client SHOULD expose, because agent code catches them by name:
 
-- **replayed error** — raised for `replayed` with `outcome: "error"`. Carries `name`, `message`, `code`, `data`.
+- **replayed error** — raised for `replayed` with `outcome: "error"`. Carries `name`, `message`, `code`, `data`. It SHOULD read as the recorded error did: the same text when turned into a string or printed (Python's `str()` and `repr()`, TypeScript's `String()` and `util.inspect()`). Agents hand a tool's error to the model as text, so a replayed error that reads differently changes the next request, and a replay of unchanged code forks. Both SDKs raise an instance of a subclass of their replayed-error type named after the recorded error.
 - **write-blocked error** — raised for `blocked`. Carries the tool name and the arguments it was called with, so a handler can report what was prevented.
 
 ### Injected failures

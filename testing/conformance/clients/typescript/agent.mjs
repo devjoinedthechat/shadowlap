@@ -1,5 +1,6 @@
 // The TypeScript SDK as a client under test. One step per invocation, named by argv[2]; the result
 // is one JSON object on stdout. See ../../README.md for the contract a new client implements.
+import { inspect } from 'node:util';
 import { currentScope, ShadowlapWriteBlocked, isActive, now, random, ReplayedError, scope, tool, uuid } from '../../../../packages/sdk/dist/index.js';
 
 const step = process.argv[2];
@@ -40,7 +41,7 @@ switch (step) {
       await boom({});
       out({ caught: null, implRuns });
     } catch (err) {
-      out({ caught: { name: err.name, message: err.message, replayed: err instanceof ReplayedError }, implRuns });
+      out({ caught: { name: err.name, message: err.message, replayed: err instanceof ReplayedError, text: String(err), repr: inspect(err).split('\n')[0] }, implRuns });
     }
     break;
   }

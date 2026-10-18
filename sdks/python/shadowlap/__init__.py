@@ -65,7 +65,17 @@ class ShadowlapWriteBlocked(RuntimeError):
 
 
 class ReplayedError(Exception):
-    """A recorded error, replayed. The original class is not preserved; name, message and code are."""
+    """A recorded error, replayed. The original class is not preserved; name, message and code are.
+
+    It reads as the recorded error: ``ReplayedError({"name": "ValueError", ...})`` is an instance of a
+    subclass named ``ValueError``, so ``str()``, ``repr()``, ``type(e).__name__`` and a traceback's
+    last line are what they were when the call was recorded. An agent that hands a tool's error to
+    the model hands it the same text on replay, and ``except ReplayedError`` still catches it."""
+
+    def __new__(cls, error: Optional[dict] = None, *args: Any, **kwargs: Any):
+        if cls is ReplayedError and isinstance(error, dict):
+            cls = _replayed_class(str(error.get("name") or "Error"))
+        return super().__new__(cls)
 
     def __init__(self, error: dict):
         super().__init__(error.get("message", "recorded error"))
@@ -74,10 +84,24 @@ class ReplayedError(Exception):
         self.data = error.get("data")
 
     def __reduce__(self):
-        return (type(self), ({"name": self.name, "message": super().__str__(), "code": self.code, "data": self.data},))
+        # Rebuilt through ReplayedError, which picks the class for the name again: the class itself is
+        # made at run time, and pickle would look it up by its name (ValueError) and find another.
+        return (ReplayedError, ({"name": self.name, "message": super().__str__(), "code": self.code, "data": self.data},))
 
-    def __str__(self) -> str:  # pragma: no cover - cosmetic
-        return f"{self.name}: {super().__str__()}"
+
+_REPLAYED_CLASSES: dict = {}
+
+
+def _replayed_class(name: str) -> type:
+    """The ReplayedError subclass for a recorded error's name, one per name. A builtin's name (ValueError,
+    KeyError) is shown without a module, as the builtin is."""
+    cls = _REPLAYED_CLASSES.get(name)
+    if cls is None:
+        builtin = getattr(builtins, name, None)
+        is_builtin = isinstance(builtin, type) and issubclass(builtin, BaseException)
+        cls = type(name, (ReplayedError,), {"__module__": "builtins" if is_builtin else __name__, "__qualname__": name, "__doc__": ReplayedError.__doc__})
+        _REPLAYED_CLASSES[name] = cls
+    return cls
 
 
 class ShadowlapInjectedFailure(Exception):

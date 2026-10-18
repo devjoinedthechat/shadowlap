@@ -37,7 +37,11 @@ export class ShadowlapWriteBlocked extends Error {
   }
 }
 
-/** A recorded error, replayed. The original class is not preserved; name, message and code are. */
+/**
+ * A recorded error, replayed. The original class is not preserved; name, message and code are. A
+ * replayed tool error is an instance of a subclass named after the recorded error, so it reads as
+ * that error did: `String(err)`, `util.inspect(err)` and the stack's first line are the same.
+ */
 export class ReplayedError extends Error {
   readonly code: string | undefined;
   readonly data: unknown;
@@ -47,6 +51,19 @@ export class ReplayedError extends Error {
     this.code = e.code;
     this.data = e.data;
   }
+}
+
+const REPLAYED_CLASSES = new Map<string, typeof ReplayedError>();
+
+/** The replayed error for a recorded one, of the ReplayedError subclass for its name (one per name). */
+function replayedError(e: SerializedError): ReplayedError {
+  let cls = REPLAYED_CLASSES.get(e.name);
+  if (!cls) {
+    cls = class extends ReplayedError {};
+    Object.defineProperty(cls, 'name', { value: e.name });
+    REPLAYED_CLASSES.set(e.name, cls);
+  }
+  return new cls(e);
 }
 
 /** How `shadowlap replay --fail-at <call>=timeout|error[:message]|<status>` fails a tool call. */
@@ -188,7 +205,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
       case 'replayed':
         if (r.outcome === 'ok') return r.result as R;
         if (r.injected) throw new ShadowlapInjectedFailure(name, args, r.injected, r.error);
-        throw new ReplayedError(r.error);
+        throw replayedError(r.error);
       case 'blocked':
         throw new ShadowlapWriteBlocked(name, args, r.error.message);
       case 'stubbed': {
@@ -248,7 +265,7 @@ export async function userInput(prompt: string, read: (prompt: string) => string
   const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind: 'tool', name: 'user_input', effect: 'read', args: { prompt }, input: true });
   if (r.origin === 'replayed') {
     if (r.outcome === 'ok') return answerText(r.result);
-    throw new ReplayedError(r.error);
+    throw replayedError(r.error);
   }
   if (r.origin !== 'live') throw new Error(`unexpected origin ${r.origin} for user input`);
   const started = Date.now();
@@ -267,7 +284,7 @@ async function misc<T>(kind: 'clock' | 'random', name: string, label: string | u
   if (!cfg) return fallback();
   const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', { kind, name, label: label ?? '' });
   if (r.origin === 'replayed' || r.origin === 'live') {
-    if ('outcome' in r && r.outcome === 'error') throw new ReplayedError(r.error);
+    if ('outcome' in r && r.outcome === 'error') throw replayedError(r.error);
     return r.result as T;
   }
   throw new Error(`unexpected origin ${r.origin} for ${kind}`);

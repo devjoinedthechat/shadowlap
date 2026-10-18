@@ -65,6 +65,17 @@ export const SCENARIOS = [
     },
   },
   {
+    name: 'replay-error-text',
+    why: 'a replayed error reads as the recorded one, so an agent that hands it to the model sends the same request',
+    record: 'live-error',
+    replay: 'live-error',
+    check({ recordOut, replayOut }) {
+      assert.equal(replayOut.caught?.replayed, true);
+      assert.equal(replayOut.caught?.text, recordOut.caught?.text, 'the error as a string must be what it was when recorded');
+      assert.equal(replayOut.caught?.repr, recordOut.caught?.repr, 'the error as the language prints it must be what it was when recorded');
+    },
+  },
+  {
     name: 'unserializable-result',
     why: 'a result that cannot become JSON still completes the call, so the recording has no hole',
     record: 'unserializable',

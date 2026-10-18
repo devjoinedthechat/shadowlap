@@ -62,8 +62,10 @@ elif step == "live-error":
         out({
             "caught": {
                 "name": getattr(err, "name", type(err).__name__),
-                "message": str(err).split(": ", 1)[-1] if isinstance(err, shadowlap.ReplayedError) else str(err),
+                "message": str(err),
                 "replayed": isinstance(err, shadowlap.ReplayedError),
+                "text": str(err),
+                "repr": repr(err),
             },
             "implRuns": state["impl_runs"],
         })

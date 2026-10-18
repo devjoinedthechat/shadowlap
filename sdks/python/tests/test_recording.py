@@ -138,6 +138,34 @@ class RecordingRules(unittest.TestCase):
         err = shadowlap.ReplayedError({"name": "FileNotFoundError", "message": "no such file", "code": "ENOENT"})
         for clone in (copy.copy(err), pickle.loads(pickle.dumps(err))):
             self.assertEqual((clone.name, clone.code, clone.args[0]), ("FileNotFoundError", "ENOENT", "no such file"))
+            self.assertEqual((type(clone).__name__, str(clone), repr(clone)), (type(err).__name__, str(err), repr(err)))
+            self.assertIsInstance(clone, shadowlap.ReplayedError)
+
+    def test_a_replayed_error_reads_as_the_recorded_one(self):
+        # An agent hands a tool's error to the model as f"error: {err}" or repr(err): a replay of
+        # unchanged code must hand it the same text, or the next model call forks.
+        import traceback
+
+        original = ValueError("order A-17 not found")
+        shadowlap._post = Sidecar({"origin": "replayed", "callNo": 1, "outcome": "error", "error": shadowlap.serialize_error(original)})
+
+        @tool(effect="read")
+        def lookup(order: str):
+            raise AssertionError("a replayed call never runs")
+
+        with self.assertRaises(shadowlap.ReplayedError) as caught:
+            lookup("A-17")
+        err = caught.exception
+        self.assertEqual(str(err), str(original))
+        self.assertEqual(repr(err), repr(original))
+        self.assertEqual(type(err).__name__, "ValueError")
+        self.assertEqual(traceback.format_exception_only(type(err), err), traceback.format_exception_only(type(original), original))
+        self.assertEqual((err.name, err.args[0]), ("ValueError", "order A-17 not found"))
+        # One class per recorded name, so `except` clauses and `type(e) is` checks agree across calls.
+        self.assertIs(type(shadowlap.ReplayedError({"name": "ValueError", "message": "again"})), type(err))
+        self.assertIsNot(type(shadowlap.ReplayedError({"name": "KeyError", "message": "k"})), type(err))
+        custom = shadowlap.ReplayedError({"name": "OrderMissing", "message": "A-17"})
+        self.assertEqual((type(custom).__name__, str(custom)), ("OrderMissing", "A-17"))
 
 
 if __name__ == "__main__":

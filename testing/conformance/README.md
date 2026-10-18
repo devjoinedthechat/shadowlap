@@ -1,6 +1,6 @@
 # SDK conformance suite
 
-Seventeen scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
+Eighteen scenarios every Shadowlap SDK must pass, run against a real sidecar on an in-memory store.
 No API keys, no network, no model calls: only tools, the clock and randomness.
 
 The protocol being tested is specified in [docs/protocol.md](../../docs/protocol.md).
@@ -21,6 +21,7 @@ That runs the TypeScript and Python SDKs. A Python 3 on the path is enough for t
 | `live-error` | A throwing tool is still completed, with `outcome: "error"`, and the error reaches the caller. |
 | `replay-ok` | A replayed call returns the recorded result **and never runs the implementation**. |
 | `replay-error` | A recorded error is raised again as a distinct replayed-error type. |
+| `replay-error-text` | A replayed error reads as the recorded one (`str()` and `repr()` in Python, `String()` and `util.inspect()` in TypeScript), so an agent that hands a tool's error to the model sends the same request on replay. |
 | `clock-random` | Clock and randomness resolve in one round trip and replay to the same values. |
 | `scope` | Parallel branches keep their own answers. Failing here means a client that silently swaps recorded results between sub-agents. |
 | `blocked` | A write tool after a fork raises write-blocked and never runs. |
@@ -48,7 +49,7 @@ diagnostic output, and a non-zero exit is fine as long as the JSON object was pr
 | Step | What the program does | JSON it prints |
 |---|---|---|
 | `live-ok` | Call a `read` tool `echo(n=1)` whose implementation returns `{"got": 1}` and counts its runs. | `{ result, implRuns, active }` |
-| `live-error` | Call a `read` tool `boom()` whose implementation raises `boom`. Catch it. | `{ caught: { name, message, replayed }, implRuns }` |
+| `live-error` | Call a `read` tool `boom()` whose implementation raises `boom`. Catch it. `text` is the error as a string and `repr` as the language prints it (its first line). | `{ caught: { name, message, replayed, text, repr }, implRuns }` |
 | `clock-random` | Read the clock, a random float and a uuid. | `{ now, random, uuid }` |
 | `scope-record` | In scope `a` call `pick()`, then in scope `b` call `pick()`. The implementation returns the branch it ran in. | `{ a, b }` |
 | `scope-replay` | The same two calls **in the opposite order**: `b` first. | `{ a, b }` |
