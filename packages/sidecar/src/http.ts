@@ -45,8 +45,14 @@ export const CREDENTIAL_PLACEHOLDER = '<CREDENTIAL>';
 
 /** Last words of a parameter name that make it a credential whatever comes before: `client_secret`, `X-Amz-Signature`. */
 const SECRET_LAST = new Set(['secret', 'signature', 'password', 'passwd', 'pwd', 'credential', 'credentials']);
-/** Whole names (their words run together) that are credentials: `key`, `api_key`, `apiKey`, `sig`, `appid`. */
-const SECRET_NAME = new Set(['key', 'apikey', 'appid', 'appkey', 'token', 'sig', 'hmac', 'auth', 'authorization', 'pass', 'passphrase', 'sessionid', 'jsessionid', 'phpsessid']);
+/** Whole names (their words run together) that are credentials: `api_key`, `apiKey`, `sig`, `appid`. */
+const SECRET_NAME = new Set(['apikey', 'appid', 'appkey', 'sig', 'hmac', 'auth', 'authorization', 'pass', 'passphrase', 'sessionid', 'jsessionid', 'phpsessid']);
+/**
+ * Whole names that carry a credential as often as a lookup (`?key=AIzaSy…` beside `?key=checkout_v2`
+ * for a feature flag or a cache entry): one is a credential only when its value reads as one
+ * (credentialValue).
+ */
+const EITHER_NAME = new Set(['key', 'token']);
 /** Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`), unlike a `sort_key` or an `idempotency_key`. */
 const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing']);
 /** Words before `token` that make it a pagination cursor, not a credential: `page_token`, `nextPageToken`. */
@@ -56,9 +62,11 @@ const CURSOR = new Set(['page', 'next', 'prev', 'previous', 'continuation', 'syn
  * Whether a query or form parameter carries a credential: an API key, a token, a signature, a
  * password. Read by its words (`api_key`, `apiKey`, `X-Amz-Security-Token`), and narrowly: a value
  * masked here is left out of matching too, so two calls that differ only in it would match the same
- * recorded call. A sort key, a page token or an author stays a value like any other.
+ * recorded call. A sort key, a page token or an author stays a value like any other. A bare `key` or
+ * `token` is a credential when its `value` (decoded) reads as one (credentialValue); with no value
+ * given, it is taken for one.
  */
-export function credentialParam(name: string): boolean {
+export function credentialParam(name: string, value?: string): boolean {
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .toLowerCase()
@@ -67,27 +75,45 @@ export function credentialParam(name: string): boolean {
   if (!words.length) return false;
   const last = words[words.length - 1]!;
   const before = words.slice(0, -1);
+  if (EITHER_NAME.has(words.join(''))) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(words.join('')) || SECRET_LAST.has(last)) return true;
   if (last === 'key') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.has(w));
   return false;
 }
 
+/** A part of a value that reads as written by a person: a word (`checkout`, `Refund`, `EU`), a number, or a short tag (`v2`). */
+const WORDLIKE = /^(?:[a-z]{1,20}|[A-Z][a-z]{0,19}|[A-Z]{1,20}|\d{1,20}|[A-Za-z]{1,2}\d{1,3})$/;
+
+/**
+ * Whether a value reads as a credential rather than a name looked up: 16 characters or more, with a
+ * part between its punctuation that is no word or number (WORDLIKE), as in an API key (`AIzaSy…`,
+ * `sk_live_51H…`), a hex or base64 token or a JWT. `checkout_v2`, `checkout_redesign_2026` and
+ * `user:12345:settings` read as names.
+ */
+export function credentialValue(value: string): boolean {
+  if (value.length < 16) return false;
+  return value.split(/[^A-Za-z0-9]+/).some((part) => part !== '' && !WORDLIKE.test(part));
+}
+
+/** A URL-encoded name or value as text: `+` a space, `%xx` its character; as it is when it doesn't decode. */
+function decoded(raw: string): string {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, ' '));
+  } catch {
+    return raw;
+  }
+}
+
 /**
  * URL-encoded parameters (a query string with or without its `?`, or a form body) with the value of
  * each credential (credentialParam) replaced by CREDENTIAL_PLACEHOLDER; everything else stays byte
- * for byte, in its order.
+ * for byte, in its order. Applied again, it changes nothing.
  */
 export function withoutCredentials(encoded: string): string {
   return encoded.replace(/(^\??|&)([^&=]*)=([^&]*)/g, (whole, lead: string, raw: string, value: string) => {
     if (!value) return whole;
-    let name: string;
-    try {
-      name = decodeURIComponent(raw.replace(/\+/g, ' '));
-    } catch {
-      name = raw;
-    }
-    return credentialParam(name) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole;
+    return credentialParam(decoded(raw), decoded(value)) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole;
   });
 }
 

@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { redactRun, Store, type Normalizer } from '@shadowlap/engine';
-import { credentialParam, matchHttpRule, validHttpHost, withoutCredentials } from '../src/http.js';
+import { credentialParam, credentialValue, matchHttpRule, validHttpHost, withoutCredentials } from '../src/http.js';
 import { Sidecar } from '../src/index.js';
 
 let server: Server;
@@ -66,10 +66,60 @@ describe('credentials in a captured call', () => {
   it('are read from a parameter name narrowly, so a sort key or a page token still tells calls apart', () => {
     for (const name of ['key', 'api_key', 'apiKey', 'API-KEY', 'x-api-key', 'Subscription-Key', 'access_token', 'token', 'id_token', 'X-Amz-Security-Token', 'X-Amz-Signature', 'X-Amz-Credential', 'sig', 'signature', 'client_secret', 'password', 'appid', 'app_key']) expect(credentialParam(name), name).toBe(true);
     for (const name of ['q', 'keyword', 'keywords', 'sort_key', 'idempotency_key', 'monkey', 'author', 'page_token', 'nextPageToken', 'tokens', 'client_id', 'X-Amz-Date', 'signed']) expect(credentialParam(name), name).toBe(false);
-    expect(withoutCredentials('?key=AIza-1&q=refund+policy&page_token=abc')).toBe('?key=<CREDENTIAL>&q=refund+policy&page_token=abc');
+    expect(withoutCredentials('?key=AIzaSyD-live-key-0123&q=refund+policy&page_token=abc')).toBe('?key=<CREDENTIAL>&q=refund+policy&page_token=abc');
     expect(withoutCredentials('grant_type=client_credentials&client_id=app&client_secret=s3cr%3Dt')).toBe('grant_type=client_credentials&client_id=app&client_secret=<CREDENTIAL>');
     expect(withoutCredentials('?flag&api%5Fkey=v&key=')).toBe('?flag&api%5Fkey=<CREDENTIAL>&key=');
     expect(withoutCredentials('')).toBe('');
+  });
+
+  it('are read from the value too for a bare key or token, which is as often a lookup', () => {
+    for (const value of ['AIzaSyD-live-key-0123456789abcdef', 'sk_live_51H8xYzAbC0123', '9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln', 'qwertyuiopasdfghjklzxcvb']) {
+      expect(credentialValue(value), value).toBe(true);
+      expect(credentialParam('key', value), value).toBe(true);
+      expect(credentialParam('token', value), value).toBe(true);
+    }
+    for (const value of ['checkout_v2', 'checkout_redesign_2026', 'user:12345:settings', 'flags/New-Checkout-Flow', 'SECRET12']) {
+      expect(credentialValue(value), value).toBe(false);
+      expect(credentialParam('key', value), value).toBe(false);
+      expect(credentialParam('Token', value), value).toBe(false);
+    }
+    // A name that says what it holds is a credential whatever its value.
+    expect(credentialParam('api_key', 'v')).toBe(true);
+    expect(credentialParam('access_token', 'abc')).toBe(true);
+    // Decoded before it is read; and a masked query, masked again, is as it was.
+    expect(withoutCredentials('?key=checkout_v2&token=flags%2Fnew-checkout')).toBe('?key=checkout_v2&token=flags%2Fnew-checkout');
+    const masked = withoutCredentials('?key=AIzaSyD%2Dlive%2Dkey%2D0123&token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln&q=refund');
+    expect(masked).toBe('?key=<CREDENTIAL>&token=<CREDENTIAL>&q=refund');
+    expect(withoutCredentials(masked)).toBe(masked);
+  });
+
+  it('leave a lookup by a bare key as recorded, so lookups replayed in another order get their own answers', async () => {
+    const upstream = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ flag: new URL(req.url ?? '/', 'http://x').searchParams.get('key') }));
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }] });
+    const flag = (runId: string, key: string) => fetch(`${sidecar.url}/r/${runId}/http/flags?key=${key}`, { headers: { 'x-shadowlap-upstream': `http://${host}` } }).then((r) => r.json());
+    try {
+      const run = sidecar.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await flag(run.runId, 'checkout_v2')).toEqual({ flag: 'checkout_v2' });
+      expect(await flag(run.runId, 'search_v3')).toEqual({ flag: 'search_v3' });
+      sidecar.endRun(run.runId, 'completed');
+      expect(store.getJson(store.getCalls(run.runId)[0]!.requestRef!)).toEqual({ args: { method: 'GET', url: `http://${host}/flags?key=checkout_v2` } });
+
+      upstream.close();
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' } });
+      expect(await flag(replay.runId, 'search_v3')).toEqual({ flag: 'search_v3' });
+      expect(await flag(replay.runId, 'checkout_v2')).toEqual({ flag: 'checkout_v2' });
+      expect(sidecar.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
+    } finally {
+      await sidecar.close();
+      store.close();
+      upstream.close();
+    }
   });
 
   it('are forwarded, never stored, and a rotated key still replays', async () => {
