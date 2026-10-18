@@ -376,12 +376,26 @@ describe('planning fixes from a test report', () => {
   const result = (over: Partial<ReportResult>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', ok: false, failure: 'check', runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: 'A', ok: false }, { runId: 'B', ok: true }, { runId: 'C', ok: false }], expect: { tools: { send_email: 0 } }, ...over });
 
   it('fixes failed checks only, with the failing attempts to fix and the passing ones to keep', () => {
-    const plans = planFixes({ results: [result({}), result({ name: 'drift', failure: 'diverged' }), result({ name: 'crash', failure: 'exit' }), result({ name: 'unchecked', expect: null }), result({ name: 'fine', ok: true })] });
+    const unpriced = { ok: false, label: 'cost at most $1.00', detail: 'no price for small-model; add it under "prices" in shadowlap.config.json' };
+    const plans = planFixes({
+      results: [
+        result({}),
+        result({ name: 'drift', failure: 'diverged' }),
+        result({ name: 'crash', failure: 'exit' }),
+        result({ name: 'unchecked', expect: null }),
+        result({ name: 'fine', ok: true }),
+        result({ name: 'unpriced', checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }, unpriced] }),
+        result({ name: 'refunds-too', checks: [{ ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' }, unpriced] }),
+      ],
+    });
     expect(plans.map((p) => [p.result.name, p.skip])).toEqual([
       ['refund-flow', null],
       ['drift', 'diverged: never fixed automatically, because most divergences are intended. Update the golden or add a normalizer'],
       ['crash', 'the agent exited with an error, which is not an outcome check'],
       ['unchecked', 'its checks are not under "tests" in shadowlap.config.json'],
+      // A cost check that fails for want of a price fails whatever the model answers: no prompt fix changes it.
+      ['unpriced', 'it fails only because small-model has no price, which no prompt fix changes: add it under "prices" in shadowlap.config.json'],
+      ['refunds-too', null],
     ]);
     expect(plans[0]).toMatchObject({ fixes: ['A', 'C'], keeps: ['B'] });
     expect(branchName(result({}))).toBe('shadowlap/fix-refund-flow-t9rb1d');

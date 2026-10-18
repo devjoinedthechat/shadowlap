@@ -26,6 +26,17 @@ const NOT_FIXED = {
   error: 'it could not be replayed',
 };
 
+/**
+ * The models with no price, when a cost check that couldn't be judged for want of one is the only
+ * check that failed (`shadowlap test` words it "no price for <models>; add it under "prices" …").
+ */
+function unpricedOnly(checks) {
+  const failed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
+  const models = failed.map((c) => /^no price for (.+?); add it under "prices"/.exec(String(c.detail ?? ''))?.[1]);
+  if (!failed.length || !models.every(Boolean)) return null;
+  return [...new Set(models.flatMap((m) => m.split(', ')))];
+}
+
 /** The failed goldens of a test report, each with the fix it gets or why it gets none. */
 export function planFixes(report) {
   return report.results
@@ -33,6 +44,8 @@ export function planFixes(report) {
     .map((r) => {
       if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
+      const unpriced = unpricedOnly(r.checks);
+      if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
       const failing = (r.runs ?? []).filter((x) => !x.ok).map((x) => x.runId);
       if (!failing.length) return { result: r, skip: 'no failing replay was kept' };
       return { result: r, skip: null, fixes: failing, keeps: (r.runs ?? []).filter((x) => x.ok).map((x) => x.runId) };

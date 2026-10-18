@@ -49,7 +49,7 @@ export interface BlameInput {
 export class BlameError extends Error {
   constructor(
     message: string,
-    readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'prefix' | 'interrupted',
+    readonly reason: 'no-model-calls' | 'diverged' | 'bypassed' | 'passes' | 'unpriced' | 'prefix' | 'interrupted',
   ) {
     super(message);
     this.name = 'BlameError';
@@ -94,6 +94,12 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const oracle = runner.oracle();
     if (baseline.passed) {
       throw new BlameError(`${shortId(parent.runId)} passes its oracle when replayed (${oracle.join('; ')}), so there is no failure to blame. Say what it should have done with --expect.`, 'passes');
+    }
+    // A cost check fails on a model with no price whatever the model answers: no probe could rescue
+    // the run, and searching would spend money to say it is not the answer, which says nothing.
+    const unpriced = unpricedOnly(baseline);
+    if (unpriced) {
+      throw new BlameError(`${shortId(parent.runId)} fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, so the cost check can't be judged whatever the model answers. Add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json, and blame again if it still fails.`, 'unpriced');
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
@@ -220,6 +226,21 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
   } finally {
     await runner.close();
   }
+}
+
+/** What a cost check says when a model it counts has no price (checks.ts). */
+const NO_PRICE = /^no price for (.+?); add it under "prices"/;
+
+/**
+ * The models with no price, when they are the only reason an attempt failed: every failure is a
+ * cost check that could not be judged for want of a price. Null when anything else failed too.
+ */
+export function unpricedOnly(a: Pick<Attempt, 'checks' | 'failures'>): string[] | null {
+  const failed = a.checks.filter((c) => !c.ok);
+  if (!failed.length || failed.length !== a.failures.length) return null;
+  const models = failed.map((c) => NO_PRICE.exec(c.detail ?? '')?.[1]);
+  if (!models.every((m): m is string => !!m)) return null;
+  return [...new Set(models.flatMap((m) => m.split(', ')))];
 }
 
 /** One attempt in a line: its verdict, what ran live, what it cost, how long it took and its run. */
