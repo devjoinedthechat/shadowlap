@@ -7,6 +7,7 @@ import { normalizeCallDetail, normalizeMeta, normalizeRunDetail, normalizeRuns }
 import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
 import { readTokenLink } from './route.js';
+import { holdWhile, Revalidation } from './revalidate.js';
 import { noSettings, settingsApi, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
@@ -211,17 +212,20 @@ export interface Client {
 }
 
 
-const etags = new Map<string, { etag: string; body: unknown }>();
+/** The answers kept for revalidation, bounded (revalidate.ts). */
+const etags = new Revalidation();
 
 /**
  * Each answer in the shape the views read (`normalize.ts`), worked out once per answer: an unchanged
- * answer (a 304 hands back the same object) comes back as the same object, so nothing redraws.
+ * answer (a 304 hands back the same object) comes back as the same object, so nothing redraws. What
+ * the views read keeps the answer it came from, so a large one stays revalidated while it is shown.
  */
 const shaped = new WeakMap<object, unknown>();
 function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
   if (shaped.has(raw)) return shaped.get(raw) as U;
   const out = fn(raw);
   shaped.set(raw, out);
+  holdWhile(out, raw);
   return out;
 }
 
@@ -280,7 +284,7 @@ export function createClient(token: string): Client {
       throw new ApiError(res.status, (body as { error?: string } | null)?.error ?? `HTTP ${res.status}`);
     }
     const etag = res.headers.get('etag');
-    if (etag && method === 'GET') etags.set(path, { etag, body });
+    if (etag && method === 'GET') etags.set(path, etag, body, text.length);
     return body as T;
   }
   const id = encodeURIComponent;
