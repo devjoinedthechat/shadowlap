@@ -448,7 +448,9 @@ describe('shadowlap test --update', () => {
     const status = git(['status', '--porcelain', '--untracked-files=all', 'goldens']).split('\n').filter(Boolean);
     expect(status).toContain(' M goldens/reference-agent/run.json');
     expect(status).toContain('?? goldens/reference-agent/expect.json');
-    expect(status.filter((l) => !/^( M| D|\?\?) goldens\/reference-agent\/(run\.json|calls\.jsonl|blobs\/[0-9a-f]{64}|expect\.json)$/.test(l))).toEqual([]);
+    // A golden packed before packs carried their .gitattributes gets one, so no checkout converts its line endings.
+    expect(status).toContain('?? goldens/reference-agent/.gitattributes');
+    expect(status.filter((l) => !/^( M| D|\?\?) goldens\/reference-agent\/(run\.json|calls\.jsonl|blobs\/[0-9a-f]{64}|expect\.json|\.gitattributes)$/.test(l))).toEqual([]);
     // Nothing is left behind where a pattern such as goldens/* would find it, or in .shadowlap/.
     expect(readdirSync(join(work, 'goldens'))).toEqual(['reference-agent']);
     expect(readdirSync(join(work, '.shadowlap', 'update'))).toEqual([]);

@@ -56,6 +56,52 @@ describe('pack / unpack', () => {
     dst.close();
   });
 
+  it('keeps git from converting its line endings, with a .gitattributes of its own', () => {
+    const src = Store.open(':memory:');
+    const { parent } = seed(src);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-pack-')), 'out');
+    packRun(src, parent.runId, dir);
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toMatch(/^\* -text$/m);
+    // One the folder has already is the person's own.
+    writeFileSync(join(dir, '.gitattributes'), '* -text -diff\n');
+    packRun(src, parent.runId, dir);
+    expect(readFileSync(join(dir, '.gitattributes'), 'utf8')).toBe('* -text -diff\n');
+    src.close();
+  });
+
+  it('reads a pack a git checkout converted to CRLF line endings as it was committed', () => {
+    const src = Store.open(':memory:');
+    const { parent } = seed(src);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-pack-')), 'out');
+    packRun(src, parent.runId, dir);
+    // What core.autocrlf does on checkout to every text file of a pack committed without its .gitattributes.
+    const crlf = (path: string) => writeFileSync(path, readFileSync(path, 'latin1').replace(/\n/g, '\r\n'), 'latin1');
+    for (const name of readdirSync(join(dir, 'blobs'))) crlf(join(dir, 'blobs', name));
+    crlf(join(dir, 'calls.jsonl'));
+    crlf(join(dir, 'run.json'));
+    const dst = Store.open(':memory:');
+    expect(unpackRun(dst, dir).imported).toEqual([parent.runId]);
+    expect(dst.getCalls(parent.runId)).toEqual(src.getCalls(parent.runId));
+    const res = src.getCalls(parent.runId)[0]!.end!.responseRef!;
+    expect(dst.getBlob(res)).toEqual(src.getBlob(res));
+    src.close();
+    dst.close();
+  });
+
+  it('names the .gitattributes when a blob with CRLF line endings still does not match', () => {
+    const src = Store.open(':memory:');
+    const { parent } = seed(src);
+    const dir = join(mkdtempSync(join(tmpdir(), 'fp-pack-')), 'out');
+    packRun(src, parent.runId, dir);
+    const res = src.getCalls(parent.runId)[0]!.end!.responseRef!;
+    writeFileSync(join(dir, 'blobs', res), 'event: message_stop\r\ndata: {}\r\n\r\n');
+    const dst = Store.open(':memory:');
+    expect(() => unpackRun(dst, dir)).toThrow(/does not match its hash: it has CRLF line endings.*"\* -text"/);
+    expect(dst.listRuns()).toEqual([]);
+    src.close();
+    dst.close();
+  });
+
   it('rejects a tampered blob', () => {
     const src = Store.open(':memory:');
     const { parent } = seed(src);

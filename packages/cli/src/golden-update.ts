@@ -1,6 +1,6 @@
 import { cpSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describeChanges, formatUsd, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { describeChanges, formatUsd, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
@@ -227,6 +227,13 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
     return { ...result, reason: `the new recording could not replace ${dir}: ${(err as Error).message}${kept}` };
   }
   rmSync(stage, { recursive: true, force: true });
+  // A golden packed before packs carried their .gitattributes gets one, so a checkout that converts
+  // line endings can't break it. The golden is replaced either way.
+  try {
+    writePackAttributes(resolve(dir));
+  } catch {
+    // its folder can't be written to: the pack itself is in place
+  }
   return { ...result, replaced: true };
 }
 

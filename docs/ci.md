@@ -12,7 +12,9 @@ shadowlap pack 01K5CQ4N7G goldens/triage-inbox
 git add goldens/triage-inbox
 ```
 
-A pack is a directory: `run.json`, `calls.jsonl`, one file per blob. It's git-friendly (stable file names, one file per message), and [redaction rules](./normalizers-and-redaction.md#redaction) are applied on export. Commit only what you'd be comfortable with a colleague reading.
+A pack is a directory: `run.json`, `calls.jsonl`, one file per blob, and a `.gitattributes` holding `* -text`. It's git-friendly (stable file names, one file per message), and [redaction rules](./normalizers-and-redaction.md#redaction) are applied on export. Commit only what you'd be comfortable with a colleague reading.
+
+Commit the `.gitattributes` with the pack. Every blob is checked against its hash, and the file keeps git from converting line endings, as Git for Windows does by default (`core.autocrlf`) and a `* text=auto` in your own `.gitattributes` would: a golden committed on macOS or Linux then passes in a Windows checkout too. A golden packed before packs carried the file is read as it was committed when git converted only its line endings; `test --update` adds the file to it.
 
 ## Run it
 
@@ -279,7 +281,7 @@ On other CI systems, run the CLI directly. `--junit`, `--json` and `--markdown` 
 
 When a golden fails an outcome check in CI, the action can propose the fix itself: it runs `shadowlap repair` on the failing replay, which blames it (finds the model call where it was lost), asks the repairer to rewrite the prompt or a tool description, and keeps a rewrite only when `verify` accepts it. A fix verify accepted becomes a pull request with the patch and its report.
 
-A fix changes what the agent sends, so a golden that must replay exactly would diverge on the fix's own branch and fail the pull request's checks. The pull request's one commit therefore carries the golden re-recorded under the fix too: the recording verify accepted replaces the golden's pack (`run.json`, `calls.jsonl`, `blobs/`; other files in its folder stay), once it replays clean with the fix applied, which the action checks in its working tree before it pushes. When it can't, the golden stays as it was, and the pull request and the job summary say to run `shadowlap test <golden> --update` on the branch. A golden marked `fork` is left as it is: it passes on its checks from wherever it diverges. The step:
+A fix changes what the agent sends, so a golden that must replay exactly would diverge on the fix's own branch and fail the pull request's checks. The pull request's one commit therefore carries the golden re-recorded under the fix too: the recording verify accepted replaces the golden's pack (`run.json`, `calls.jsonl`, `blobs/`, with the pack's `.gitattributes`; other files in its folder stay), once it replays clean with the fix applied, which the action checks in its working tree before it pushes. When it can't, the golden stays as it was, and the pull request and the job summary say to run `shadowlap test <golden> --update` on the branch. A golden marked `fork` is left as it is: it passes on its checks from wherever it diverges. The step:
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write }

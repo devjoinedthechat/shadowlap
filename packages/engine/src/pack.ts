@@ -11,7 +11,8 @@ import type { CallRecord, Normalizer, RunRecord } from './types.js';
 /**
  * Portable recordings: a directory with `run.json`, `calls.jsonl` and one
  * uncompressed file per blob under `blobs/`. Stable names and one file per blob keep it
- * git-friendly, so a recording can be committed as a CI golden or shared.
+ * git-friendly, so a recording can be committed as a CI golden or shared. A `.gitattributes`
+ * beside them keeps git from converting line endings, which would break every blob's hash.
  */
 
 export const PACK_FORMAT = 'shadowlap-pack';
@@ -65,6 +66,33 @@ export interface PackResult {
   calls: number;
   blobs: number;
   redacted: boolean;
+}
+
+/** What a pack's `.gitattributes` says: git keeps every file's bytes as they are. */
+export const PACK_GITATTRIBUTES = '# A Shadowlap pack: every blob is checked against its hash, so git must not convert line endings.\n* -text\n';
+
+/**
+ * Writes the pack's `.gitattributes` unless the folder has one: committed without it, a checkout
+ * that converts line endings (Git for Windows' core.autocrlf, a `text=auto` attribute) changes the
+ * blobs, and the pack no longer matches its hashes. One already there is the person's own, and is
+ * never written through a link.
+ */
+export function writePackAttributes(dir: string): void {
+  try {
+    writeFileSync(join(dir, '.gitattributes'), PACK_GITATTRIBUTES, { flag: 'wx' });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+}
+
+/**
+ * A blob as it was committed, when git checked it out with its line endings converted: every CRLF
+ * back to LF. Null when it has none. The result counts only if it matches the blob's hash.
+ */
+function withoutCrlf(bytes: Buffer): Buffer | null {
+  if (!bytes.includes('\r\n')) return null;
+  // latin1 maps each byte to one character and back, so nothing else changes.
+  return Buffer.from(bytes.toString('latin1').replace(/\r\n/g, '\n'), 'latin1');
 }
 
 function blobRefs(call: CallRecord): string[] {
@@ -127,6 +155,7 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
   const manifest: PackManifest = { format: PACK_FORMAT, version: PACK_VERSION, createdAt: Date.now(), runs: asTheyStand(source, runs).map((r) => forPack(r, opts.keepAuthor === true)) };
   writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest, null, 2) + '\n');
   writeFileSync(join(dir, 'calls.jsonl'), lines.join('\n') + (lines.length ? '\n' : ''));
+  writePackAttributes(dir);
   if (store !== source) store.close();
   return { dir, runs: runs.map((r) => r.runId), calls: lines.length, blobs: blobs.size, redacted };
 }
@@ -204,10 +233,19 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
     let total = 0;
     for (const name of readdirSync(blobDir)) {
       if (!/^[0-9a-f]{64}$/.test(name)) throw new PackError(`${dir}: unexpected file blobs/${name}`);
-      const bytes = readPackFile(join(blobDir, name), PACK_LIMITS.blobBytes, `blobs/${name}`);
+      let bytes = readPackFile(join(blobDir, name), PACK_LIMITS.blobBytes, `blobs/${name}`);
+      if (sha256(bytes) !== name) {
+        // A pack committed without its .gitattributes, checked out by a git that converts line
+        // endings: undone, the blob is exactly the bytes its name hashes, or it is refused.
+        const restored = withoutCrlf(bytes);
+        if (!restored || sha256(restored) !== name) {
+          const crlf = restored ? `: it has CRLF line endings, as git writes them when it converts a pack committed without the .gitattributes "* -text" that shadowlap pack writes beside it. Add that file to ${dir}, commit it and check the pack out again` : '';
+          throw new PackError(`${dir}: blobs/${name} does not match its hash${crlf}`);
+        }
+        bytes = restored;
+      }
       total += bytes.length;
       if (total > PACK_LIMITS.totalBytes) throw new PackError(`${dir}: blobs exceed ${PACK_LIMITS.totalBytes} bytes in total`);
-      if (sha256(bytes) !== name) throw new PackError(`${dir}: blobs/${name} does not match its hash`);
       blobs.push({ name, bytes });
     }
   }
