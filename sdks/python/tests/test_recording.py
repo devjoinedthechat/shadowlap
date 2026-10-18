@@ -112,6 +112,28 @@ class RecordingRules(unittest.TestCase):
         self.assertEqual(body["outcome"], "error")
         self.assertIn("can't be recorded", body["error"]["message"])
 
+    def test_a_dict_key_that_is_not_a_string_is_refused_and_named(self):
+        sidecar = Sidecar({"origin": "live", "callNo": 4})
+        shadowlap._post = sidecar
+
+        @tool(effect="read")
+        def counts(kind: str):
+            return {"by_year": {2025: 3, 2026: 5}}
+
+        # JSON keeps 2026 only as "2026": a replay would hand back a dict where c[2026] fails.
+        with self.assertRaises(TypeError) as raised:
+            counts("orders")
+        self.assertIn("result['by_year'] has the key 2025 (int)", str(raised.exception))
+        path, body = sidecar.sent[-1]
+        self.assertEqual(path, "/v1/calls/4/complete")
+        self.assertEqual(body["outcome"], "error")
+
+        @tool(effect="read")
+        def named(kind: str):
+            return {"by_year": {"2025": 3}, "list": [{"a": 1.0}]}
+
+        self.assertEqual(named("orders"), {"by_year": {"2025": 3}, "list": [{"a": 1.0}]})
+
     def test_a_blocked_write_keeps_its_message_and_arguments_apart(self):
         shadowlap._post = Sidecar({"origin": "blocked", "callNo": 1, "error": {"name": "ShadowlapWriteBlocked", "message": "write tool send blocked after divergence"}})
 

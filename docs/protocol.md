@@ -114,7 +114,9 @@ default; `--writes stub` produces `stubbed` instead.
 
 ### `POST /v1/calls/{callNo}/complete`
 
-Reports what a `live` or `stubbed` tool call did. Exactly once per such call.
+Reports what a `live` or `stubbed` tool call did. Exactly once per such call. Numbers in `result`
+(and in a resolve call's `args`) are kept as the client wrote them: a replay serves `20.0` and
+`1234567890123456789` back with the same digits, and arguments match by them.
 
 ```json
 { "outcome": "ok",    "result": …,      "latencyMs": 12 }

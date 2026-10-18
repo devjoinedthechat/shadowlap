@@ -1,0 +1,81 @@
+import { execFile, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
+import { Sidecar } from '../src/index.js';
+
+/**
+ * What a tool returned reaches the agent on replay exactly as it was recorded: numbers JSON.parse
+ * would change (an id past 2^53, a float written 20.0) are stored and served as the SDK wrote them,
+ * and arguments match by their exact digits.
+ */
+
+const AGENT = fileURLToPath(new URL('./exact_numbers_agent.py', import.meta.url));
+function python(): string | null {
+  for (const cmd of ['python3', 'python']) {
+    try {
+      if (/Python 3\.(9|[1-9]\d)/.test(execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString())) return cmd;
+    } catch {
+      // next
+    }
+  }
+  return null;
+}
+const PYTHON = python();
+
+describe('numbers in tool payloads', () => {
+  it('are stored and served back as written, and arguments match by their exact digits', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store });
+    // Raw bodies, as a Python SDK writes them.
+    const post = async (runId: string, path: string, body: string) => {
+      const res = await fetch(`${sidecar.envFor(runId).SHADOWLAP_URL}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shadowlap-run': runId }, body });
+      return res.text();
+    };
+    const resolve = (runId: string, id: string) => post(runId, '/v1/calls/resolve', `{"kind":"tool","name":"get_order","effect":"read","args":{"order_id":${id}}}`);
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['a'], cwd: '.' } });
+      const { callNo } = JSON.parse(await resolve(rec.runId, '1234567890123456789')) as { callNo: number };
+      await post(rec.runId, `/v1/calls/${callNo}/complete`, '{"outcome":"ok","result":{"id":1234567890123456789,"price":20.0,"tiny":1e-07},"latencyMs":3}');
+      sidecar.endRun(rec.runId, 'completed');
+
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });
+      const served = await resolve(replay.runId, '1234567890123456789');
+      expect(served).toContain('"result":{"id":1234567890123456789,"price":20.0,"tiny":1e-07}');
+      expect(sidecar.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
+
+      // Another id that a double reads the same is another call.
+      const other = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });
+      expect(JSON.parse(await resolve(other.runId, '1234567890123456788'))).toMatchObject({ origin: 'live' });
+      sidecar.endRun(other.runId, 'completed');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it.skipIf(!PYTHON)('reach a Python agent on a clean replay as the tool returned them', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store });
+    const run = async (runId: string) => {
+      const { stdout } = await promisify(execFile)(PYTHON!, [AGENT], { env: { ...process.env, ...sidecar.envFor(runId) }, encoding: 'utf8' });
+      return JSON.parse(stdout.trim().split('\n').pop()!) as { text: string; types: string[] };
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['a'], cwd: '.' } });
+      const recorded = await run(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      expect(recorded).toEqual({ text: '{"id": 1234567890123456789, "price": 20.0, "scores": [1.5, 1e-07, -0.0], "order": 9007199254740993}', types: ['int', 'float'] });
+
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });
+      expect(await run(replay.runId)).toEqual(recorded);
+      const { summary } = sidecar.endRun(replay.runId, 'completed');
+      expect(summary.divergence).toBeNull();
+      expect(summary.byOrigin.replayed).toBe(1);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});

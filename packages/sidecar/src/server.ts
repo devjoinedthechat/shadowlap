@@ -16,6 +16,8 @@ import {
   refused,
   storeApiRequest,
   normalizersHash,
+  isRawNumber,
+  parseJsonExact,
   storedModelResolver,
   summarizeRun,
   toolFailureError,
@@ -561,7 +563,8 @@ export class Sidecar {
     }
 
     if (rest === 'v1/calls/resolve' && method === 'POST') {
-      const body = (await readJson(req)) as ResolveBody;
+      // Numbers kept as the SDK wrote them: a 64-bit id or a Python 20.0 is stored and served exactly.
+      const body = (await readJson(req, true)) as ResolveBody;
       const ctx = this.contextFor(req, pinned);
       ctx.sdksSeen.add(sdkFamily(req.headers['user-agent']));
       return json(res, 200, this.resolveCall(ctx, body, scopeOf(req)));
@@ -581,7 +584,7 @@ export class Sidecar {
 
     const completeMatch = /^v1\/calls\/(\d+)\/complete$/.exec(rest);
     if (completeMatch && method === 'POST') {
-      const body = (await readJson(req)) as CompleteBody;
+      const body = (await readJson(req, true)) as CompleteBody;
       this.completeCall(this.contextFor(req, pinned), Number(completeMatch[1]), body);
       return json(res, 200, { ok: true });
     }
@@ -1121,7 +1124,8 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A person's answer (`user_input`): after a fork it is served from the recording in order.
     const input = kind === 'tool' && body.input === true;
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request, ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
+    // The session diffs requests as plain JSON: numbers kept as written can't be walked like numbers.
+    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request: plainJson(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
     const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
     const stored = storedOrigin(kind, decision);
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };
@@ -1161,7 +1165,7 @@ export class Sidecar {
       ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
       this.store.appendCallEnd(identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: end.responseRef, outcome: end.outcome, meta: { ...end.meta, replayedFrom: record.callNo, latencyMs: 0 }, at: Date.now() });
       tracked.done = true;
-      if (end.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
+      if (end.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (end.responseRef ? this.getJsonExact<{ result?: unknown }>(end.responseRef) : null)?.result };
       return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
     }
 
@@ -1184,7 +1188,8 @@ export class Sidecar {
     if (decision.origin === 'replayed') {
       const record = decision.record;
       const end = record.end!;
-      const payload = (end.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
+      // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
+      const payload = (end.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(end.responseRef) : null) ?? {};
       if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(body.name)) {
         ctx.warnOnce(body.name, `${body.name} changed since the recording; pass --live-tool ${body.name} to run it live`);
       }
@@ -1227,7 +1232,8 @@ export class Sidecar {
     const outcome = body.outcome === 'error' ? 'error' : 'ok';
     const payload = outcome === 'ok' ? { result: body.result ?? null } : { error: body.error ?? { name: 'Error', message: 'unknown error' } };
     const meta: CallStartRow['meta'] = {};
-    if (typeof body.latencyMs === 'number') meta.latencyMs = body.latencyMs;
+    const latency = isRawNumber(body.latencyMs) ? Number(body.latencyMs.rawJSON) : body.latencyMs;
+    if (typeof latency === 'number') meta.latencyMs = latency;
     if (outcome === 'error' && body.error) meta.error = body.error;
     this.store.appendCallEnd(tracked.identity, { runId: ctx.run.runId, callNo, attempt: 0, responseRef: this.store.putJson(payload), outcome, meta, at: Date.now() });
     tracked.done = true;
@@ -1250,6 +1256,12 @@ export class Sidecar {
       this.store.setDivergence(ctx.run.runId, d);
       this.log(`run ${ctx.run.runId} diverged at call ${d.callNo} (${d.type})`);
     }
+  }
+
+  /** A stored JSON blob with each number as it was written (parseJsonExact): for what is served back and fingerprinted. */
+  private getJsonExact<T>(ref: string): T | null {
+    const bytes = this.store.getBlob(ref);
+    return bytes ? (parseJsonExact(bytes.toString('utf8')) as T) : null;
   }
 
   private loadRequest(rec: CallRecord): unknown {
@@ -1275,7 +1287,7 @@ export class Sidecar {
             fingerprint = fingerprintApi({ method, path: pathParts.join(' '), headers, body: loadApiRequest(this.store, rec.requestRef) }, normalizers, provider.fingerprintHeaders, clockRef, { withoutPrompt: withoutPromptMask }).fingerprint;
           }
         } else if (rec.kind === 'tool' && rec.requestRef) {
-          const req = this.store.getJson<{ args?: unknown }>(rec.requestRef);
+          const req = this.getJsonExact<{ args?: unknown }>(rec.requestRef);
           fingerprint = fingerprintTool(rec.name, req?.args ?? null, normalizers, clockRef).fingerprint;
         }
       } catch (err) {
@@ -1403,15 +1415,19 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+/** A request's JSON body; `exact` keeps each number as written (parseJsonExact), for what is stored and served back. */
+async function readJson(req: IncomingMessage, exact = false): Promise<unknown> {
   const raw = await readBody(req);
   if (raw.length === 0) return {};
   try {
-    return JSON.parse(raw.toString('utf8'));
+    return exact ? parseJsonExact(raw.toString('utf8')) : JSON.parse(raw.toString('utf8'));
   } catch {
     throw new HttpError(400, 'invalid JSON body');
   }
 }
+
+/** A value from parseJsonExact as plain JSON, each number read as a double. */
+const plainJson = (value: unknown): unknown => (value === undefined ? value : JSON.parse(JSON.stringify(value)));
 
 function json(res: ServerResponse, status: number, value: unknown): void {
   const bytes = Buffer.from(JSON.stringify(value), 'utf8');

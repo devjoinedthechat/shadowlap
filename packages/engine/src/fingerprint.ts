@@ -1,5 +1,6 @@
 import { canonicalize } from './canonical.js';
 import { maskClock, type ClockMode, type ClockReference } from './clock.js';
+import { matchable } from './json-exact.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
 import { applyNormalizers, stripKeysDeep } from './normalize.js';
@@ -53,9 +54,11 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
   return { fingerprint: sha256(canonical), canonical };
 }
 
+/** `args` may hold numbers kept as written (json-exact.ts): an integer past 2^53 matches by its exact digits. */
 export function fingerprintTool(name: string, args: unknown, normalizers: Normalizer[], clock?: ClockReference): Fingerprinted {
+  const exact = matchable(args);
   // Paths are relative to the stored request, `{ args }`, as in redaction rules and divergence reports: `$.args.path`.
-  const normalized = (applyNormalizers({ args: clock === undefined ? args : maskClock(args, clock) }, normalizers, 'tool', name) as { args: unknown }).args;
+  const normalized = (applyNormalizers({ args: clock === undefined ? exact : maskClock(exact, clock) }, normalizers, 'tool', name) as { args: unknown }).args;
   const canonical = canonicalize({ kind: 'tool', name, args: normalized });
   return { fingerprint: sha256(canonical), canonical };
 }

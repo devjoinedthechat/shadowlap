@@ -73,7 +73,7 @@ request_id = uuid()
 
 - Arguments are recorded by name whether the tool was called positionally or with keywords, with defaults applied.
 - Parameters a framework injects (a Pydantic AI `RunContext`, an OpenAI Agents `RunContextWrapper`, a LangChain config, injected graph state) are left out of the recording by their annotation. `exclude=("name",)` drops any other. An argument that can't be recorded as JSON raises `TypeError` before the tool runs, naming the argument. See [Frameworks](./frameworks.md#python).
-- A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns.
+- A result that is a Pydantic model or a dataclass is recorded as its JSON form, which is what a replay returns. Numbers come back as the tool returned them, an int past 2^53 and a float such as `20.0` included. A dict key that isn't a string (`{2026: 5}`) raises `TypeError` naming it, since JSON keeps it only as `"2026"` and a replay would return that.
 - `ShadowlapWriteBlocked` has `tool` and `tool_args`. It and `ReplayedError` survive `copy` and `pickle`.
 - A tool that [`--fail-at`](./interventions.md#fail-a-tool) fails raises without running: `ShadowlapInjectedTimeout`, a `TimeoutError`, for a timeout; `ShadowlapInjectedHTTPError`, with `status_code`, `status` and `response.status_code`, for an HTTP status; `ShadowlapInjectedFailure`, their base, with the given message for an error. Each has `tool`, `tool_args`, `kind` and `injected = True`, and survives `copy` and `pickle`.
 - Python ≥ 3.9. Zero dependencies (`urllib`).
