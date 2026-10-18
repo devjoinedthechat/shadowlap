@@ -220,6 +220,12 @@ describe('a captured call whose path holds what a rule masks', () => {
   }
   const EMAIL: Normalizer = { pattern: 'email', replace: '<EMAIL>' };
 
+  it('reports a changed request against the recorded call it stands for, whose name the copy masked', async () => {
+    const divergence = await replayCopy(() => [EMAIL], { query: '?fields=plan' }, { query: '?fields=plan,tier' });
+    expect(divergence).toMatchObject({ type: 'request_changed', callNo: 1, counterpart: { callNo: 1 } });
+    expect(divergence!.diff).toEqual([expect.objectContaining({ path: '$.args.url', op: 'changed' })]);
+  });
+
   it('applies a rule written for the call by its name in a replay of the copy, though the copy masked that name', async () => {
     // A note that changes every run, masked for this one call, named as the run page shows it before a copy masks it.
     const NOTE = (host: string): Normalizer => ({ kind: 'tool', name: `POST ${host}/crm/v1/contacts/alice.martin@example.com`, path: '$.args.body.note', replace: '<NOTE>' });

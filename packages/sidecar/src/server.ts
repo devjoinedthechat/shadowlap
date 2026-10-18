@@ -1004,7 +1004,7 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     const effect = rule.effect;
     const scope = scopeOf(req);
-    const decision = ctx.session.resolve({ callNo, kind: 'tool', name, fingerprint, effect, request: { args }, ...(scope ? { scope } : {}) });
+    const decision = ctx.session.resolve({ callNo, kind: 'tool', name, fingerprint, effect, request: { args }, ...(scope ? { scope } : {}), ...(matched.name !== name ? { recordedName: matched.name } : {}) });
     const identity: CallIdentity = { kind: 'tool', name, fingerprint, occurrence: decision.occurrence };
     const stored = storedOrigin('tool', decision);
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, ends: 0, retryable: false, done: false };

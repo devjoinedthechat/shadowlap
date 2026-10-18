@@ -89,6 +89,12 @@ export interface ResolveInput {
   changedBy?: string;
   /** A person's input (a `user_input` tool call, recorded with `meta.input`). */
   input?: boolean;
+  /**
+   * The name the recording holds this call under, when it is not `name`: a captured HTTP call's,
+   * masked by the rules of the redacted copy being replayed. A divergence is explained against the
+   * recorded calls of either name.
+   */
+  recordedName?: string;
 }
 
 export type Decision =
@@ -358,7 +364,7 @@ export class Session {
     if (remaining.length === 0) {
       return { ...base, type: 'beyond_recording', reason: 'the agent made more calls than the recording contains' };
     }
-    const sameName = remaining.filter((c) => c.kind === input.kind && c.name === input.name);
+    const sameName = remaining.filter((c) => c.kind === input.kind && (c.name === input.name || c.name === input.recordedName));
     // Within the same scope first: the closest call is most likely the same branch's.
     const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
     const candidates = sameScope.length ? sameScope : sameName;
