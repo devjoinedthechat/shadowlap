@@ -23,7 +23,7 @@ import { flagText } from '../run/banner.js';
 import { askedTools } from '../run/calls.js';
 import { bisectLabel } from '../run/offers.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
-import { Banner, DiffPanel, Metrics, ScopeBar } from '../run/parts.js';
+import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { ProvenanceView } from '../run/ProvenanceView.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { TimelineView } from '../run/TimelineView.js';
@@ -81,7 +81,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
           </div>
         </Page>
       );
-    return <div className="rv loading" />;
+    return <RunLoading />;
   }
   return <Workspace run={run} id={id} call={call} view={view} />;
 }

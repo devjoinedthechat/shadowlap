@@ -162,12 +162,15 @@ export interface TimelineRow<C extends CallLike = CallLike> {
 export function timelineOf<C extends CallLike>(calls: readonly C[], now = Date.now()): { rows: Array<TimelineRow<C>>; end: number; parallel: Array<[number, number]> } {
   const timed = calls.filter((c) => c.startedAt > 0);
   if (!timed.length) return { rows: [], end: 1, parallel: [] };
-  const t0 = Math.min(...timed.map((c) => c.startedAt));
+  // A loop, not Math.min(...): a run of 100,000 calls is more arguments than a call can take.
+  let t0 = Infinity;
+  for (const c of timed) t0 = Math.min(t0, c.startedAt);
   const rows = timed.map((c) => {
     const endAt = c.endedAt ?? (c.outcome === null ? now : c.startedAt + (c.latencyMs ?? 0));
     return { call: c, start: c.startedAt - t0, end: Math.max(c.startedAt, endAt) - t0, firstToken: c.ttftMs !== null && c.origin === 'live' ? c.ttftMs : null };
   });
-  const end = Math.max(1, ...rows.map((r) => r.end));
+  let end = 1;
+  for (const r of rows) end = Math.max(end, r.end);
   // A call ran at once with another when it started before the one still running ended.
   const parallel: Array<[number, number]> = [];
   const byStart = [...rows].filter((r) => r.call.kind !== 'clock' && r.call.kind !== 'random').sort((a, b) => a.start - b.start || a.call.callNo - b.call.callNo);

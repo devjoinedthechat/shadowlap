@@ -18,6 +18,15 @@ import { originOf, pulledSpender, runLikeOf } from './model.js';
 import { blameOfferFor, blameTitle, divergedActions, goldenName, updateGoldenCopy } from './offers.js';
 import { UpdateGoldenDialog } from './RunDialogs.js';
 
+/** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
+export function RunLoading() {
+  return (
+    <div className="rv loading" aria-busy="true">
+      <div className="empty tall">Loading the run…</div>
+    </div>
+  );
+}
+
 /** The run's numbers: the counts lead; what replaying saved comes last, as a quieter receipt. */
 export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
   const s = run.summary;

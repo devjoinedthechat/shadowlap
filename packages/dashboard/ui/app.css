@@ -1560,6 +1560,10 @@ a.livechip:hover { color: var(--ink); }
 .empty.tall { padding: 80px 0; }
 .rmain { min-width: 0; }
 .rv.loading { flex: 1; }
+/* A long list's rows not drawn, above and below those in view: their height and nothing else. */
+tr.wspace td, table.calls tr.wspace td, table.t tr.wspace td, table.ctab tr.wspace td { padding: 0; border: 0; }
+table.calls tbody tr.wspace, table.t tbody tr.wspace { cursor: default; }
+table.calls tbody tr.wspace:hover td, table.t tbody tr.wspace:hover td { background: none; }
 .meta .bad { color: var(--err); }
 .rid a.rlink { text-decoration: none; color: inherit; }
 .rid a.rlink:hover code { text-decoration: underline; text-underline-offset: 3px; }

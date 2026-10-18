@@ -15,6 +15,7 @@ import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, lineageWords, tallyProviders, upstreamParts } from './provenance.js';
+import { useWindow } from './window-hook.js';
 
 /**
  * The providers a run's model calls went to, with how many calls each: the server's count when it
@@ -58,8 +59,11 @@ function UpstreamValue({ text, note }: { text: string; note: string | null }) {
 /**
  * Provenance: the run's record (command, code version, times in UTC, models, provider, upstream
  * requests, origins), its lineage, each call's fingerprint and blobs when the server sends them,
- * what a copy made now would mask, and its labels and notes.
+ * what a copy made now would mask, and its labels and notes. The calls' ledger draws only the rows
+ * in view (window-hook.ts).
  */
+
+const LEDGER_ROWS = { keyOf: (c: RunDetail['calls'][number]) => c.callNo, shapeOf: () => 'row', estimate: () => 39 };
 export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: number | null }) {
   const { client, meta, exported, toast, runs } = useApp();
   const r = run.run;
@@ -125,6 +129,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
   const uncounted = prov?.mask?.why ?? null;
   const ledger = run.calls.some((c) => c.fingerprint || c.requestRef || c.responseRef);
+  const win = useWindow(ledger ? run.calls : NO_CALLS, LEDGER_ROWS);
   const rows: Array<[string, React.ReactNode]> = [
     ['Run', <code key="r">{r.runId}</code>],
     ['What it is', what],
@@ -250,9 +255,14 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                   <th>Response blob</th>
                 </tr>
               </thead>
-              <tbody>
-                {run.calls.map((c) => (
-                  <tr key={c.callNo} aria-selected={c.callNo === selected} onClick={() => navigate(href.run(r.runId, c.callNo, 'provenance'), true)}>
+              <tbody ref={win.listRef}>
+                {win.before ? (
+                  <tr className="wspace" aria-hidden="true" style={{ height: win.before }}>
+                    <td colSpan={scopes.length ? 6 : 5} />
+                  </tr>
+                ) : null}
+                {run.calls.slice(win.start, win.end).map((c, j) => (
+                  <tr key={c.callNo} data-wi={win.start + j} aria-selected={c.callNo === selected} onClick={() => navigate(href.run(r.runId, c.callNo, 'provenance'), true)}>
                     <td className="num left">{c.callNo}</td>
                     <td>{callName(c.kind, c.name)}</td>
                     {scopes.length ? (
@@ -272,6 +282,11 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                     </td>
                   </tr>
                 ))}
+                {win.after ? (
+                  <tr className="wspace" aria-hidden="true" style={{ height: win.after }}>
+                    <td colSpan={scopes.length ? 6 : 5} />
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -295,6 +310,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     </div>
   );
 }
+
+const NO_CALLS: RunDetail['calls'] = [];
 
 function Pair({ k, v }: { k: string; v: React.ReactNode }) {
   return (
