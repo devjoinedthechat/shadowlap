@@ -123,7 +123,7 @@ Every way a run's content leaves the machine applies the rules; Shadowlap's test
 
 | Export | Applies | The run's details |
 |---|---|---|
-| `shadowlap pack` | every rule on the requests it copies; the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise | copied as recorded: a replay runs the command |
+| `shadowlap pack` | every rule on the requests it copies; the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded | copied as recorded: a replay runs the command |
 | `shadowlap export html` | every rule, as `pack` applies them, and the rules with a path on what calls got back too | masked by the rules without a path, with the run's folder, checks, author and divergence |
 | `shadowlap export har` | every rule on the model calls it holds, as `export html` applies them to their requests and responses, and the rules without a path on URLs and headers | not in a HAR, nor are tool calls |
 | `shadowlap export dataset` | every rule on the conversations and answers it keeps, as `export html` applies them, then the rules without a path on the rest of each row | masked |

@@ -1158,7 +1158,7 @@ export interface RedactionExport {
  * never stored at all.
  */
 export const REDACTION_EXPORTS: readonly RedactionExport[] = [
-  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise; the command line, labels and notes are copied as recorded, since a replay runs the command' },
+  { id: 'pack', command: 'shadowlap pack', applies: 'all', details: 'kept', note: 'every rule on the requests it copies, and the rules without a path on the strings of what calls got back and the errors with them, which a replay hands the agent as recorded otherwise, but for a clock or random read, which stays as recorded; the command line, labels and notes are copied as recorded, since a replay runs the command' },
   { id: 'html', command: 'shadowlap export html', applies: 'all', details: 'masked', note: 'every rule, as pack applies them, the rules with a path on what calls got back too, and the rules without a path on the command line, labels and notes' },
   { id: 'har', command: 'shadowlap export har', applies: 'all', details: 'absent', note: 'every rule on the model calls it holds, as export html applies them to their requests and responses, and the rules without a path on URLs and headers; it holds no tool calls and no command line' },
   { id: 'dataset', command: 'shadowlap export dataset', applies: 'messages', details: 'masked', note: 'every rule on the conversations and answers it keeps, as export html applies them, and the rules without a path on the rest of each row: command line, labels and notes' },
