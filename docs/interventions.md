@@ -85,7 +85,10 @@ things a replay exercises for free — and the one thing no recording of a healt
 without this there is no way to ask what the agent does when a call fails.
 
 Nothing leaves the machine: Shadowlap writes the response itself, so the run makes no upstream
-request and spends nothing. The body names Shadowlap as the source, the call is stored as
+request and spends nothing. The answer is in the provider's error shape, so its client raises what
+a real failure raises: on Bedrock, the AWS SDK's `ThrottlingException` for a 429,
+`ServiceUnavailableException` for a 503, `InternalServerException` for a 500 and
+`ValidationException` for a 400. The body names Shadowlap as the source, the call is stored as
 `injected`, and `show`, the terminal UI and the dashboard label it that way and count it apart from
 live calls, so neither the agent's error nor the recording can be mistaken for something the
 provider did.

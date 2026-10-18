@@ -807,9 +807,12 @@ export class Sidecar {
    */
   private serveInjectedFailure(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, status: number): void {
     const message = `injected failure: HTTP ${status} (shadowlap --fail-at ${callNo}=${status})`;
-    const bytes = Buffer.from(JSON.stringify({ type: 'error', error: { type: 'shadowlap_injected', message } }), 'utf8');
+    // In the provider's own error shape, as a real failure arrives: AWS clients read a top-level
+    // message and the error's type from a header, and branch on that type (ThrottlingException).
+    const aws = provider.id === 'bedrock';
+    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_injected', message } }), 'utf8');
     const retryable = provider.isRetryableStatus(status);
-    res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'injected' });
+    res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'injected', ...(aws ? { 'x-amzn-errortype': awsErrorType(status) } : {}) });
     res.end(bytes);
     const error = { name: 'ShadowlapInjectedFailure', message };
     this.store.appendCallEnd(tracked.identity, {
@@ -1346,6 +1349,23 @@ function sdkFamily(userAgent: string | undefined): string {
   if (ua.includes('python')) return 'python';
   if (ua.includes('node') || ua.includes('undici') || ua.includes('bun') || ua.includes('deno')) return 'typescript';
   return 'other';
+}
+
+/** The error type Bedrock answers a status with, as its clients name the exception they raise. */
+function awsErrorType(status: number): string {
+  const named: Record<number, string> = {
+    400: 'ValidationException',
+    401: 'UnrecognizedClientException',
+    403: 'AccessDeniedException',
+    404: 'ResourceNotFoundException',
+    408: 'ModelTimeoutException',
+    409: 'ConflictException',
+    424: 'ModelErrorException',
+    429: 'ThrottlingException',
+    500: 'InternalServerException',
+    503: 'ServiceUnavailableException',
+  };
+  return named[status] ?? (status >= 500 ? 'InternalServerException' : 'ValidationException');
 }
 
 /** How a decision is stored: a planted result as overridden, a failure Shadowlap answered as live (with `injected` on its end). */

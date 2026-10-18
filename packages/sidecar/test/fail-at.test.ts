@@ -105,3 +105,46 @@ describe('injected failures', () => {
     store.close();
   });
 });
+
+describe('injected failures on Bedrock', () => {
+  it('answer in AWS\'s error shape, so the AWS SDK raises the exception a real failure raises', async () => {
+    // A Converse endpoint that answers every request.
+    const { createServer } = await import('node:http');
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ output: { message: { role: 'assistant', content: [{ text: 'ok' }] } }, stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 1 } }));
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()));
+    const address = upstream.address() as { port: number };
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { bedrock: `http://127.0.0.1:${address.port}` } });
+    const converse = (runId: string) =>
+      fetch(`${sidecar.url}/r/${runId}/bedrock/model/anthropic.claude-sonnet-5/converse`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: [{ text: 'hello' }] }] }) });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+      expect((await converse(rec.runId)).status).toBe(200);
+      sidecar.endRun(rec.runId, 'completed');
+      for (const [status, type] of [
+        [429, 'ThrottlingException'],
+        [503, 'ServiceUnavailableException'],
+        [500, 'InternalServerException'],
+        [400, 'ValidationException'],
+      ] as const) {
+        const run = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' }, replay: { failAt: new Map([[1, status]]) } });
+        const res = await converse(run.runId);
+        expect(res.status).toBe(status);
+        expect(res.headers.get('x-amzn-errortype')).toBe(type);
+        const body = (await res.json()) as { message?: string };
+        expect(body.message).toMatch(new RegExp(`shadowlap --fail-at 1=${status}`));
+        sidecar.endRun(run.runId, 'completed');
+      }
+    } finally {
+      await sidecar.close();
+      store.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+});
