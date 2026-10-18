@@ -76,6 +76,16 @@ describe('runToOtlp', () => {
     expect(providerOf(tool)).toBeNull();
   });
 
+  it('masks the command line as one text, so a rule that spans two arguments masks the value in both its forms', () => {
+    const KEY = { pattern: '/(?<=--api-key )\\S+/', replace: '<KEY>' };
+    const keyed: RunRecord = { ...run, command: { argv: ['node', 'agent.mjs', '--api-key', 'sk-live-abc123def456ghi789'], cwd: '/w' } };
+    const out = JSON.stringify(runToOtlp(keyed, [api], { redact: [KEY] }));
+    expect(out).not.toContain('sk-live');
+    const spans = (JSON.parse(out) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string; attributes: Array<{ key: string; value: { arrayValue?: { values: Array<{ stringValue: string }> } } }> }> }> }> }).resourceSpans[0]!.scopeSpans[0]!.spans;
+    expect(spans[0]!.name).toBe('shadowlap.record node agent.mjs --api-key <KEY>');
+    expect(spans[0]!.attributes.find((a) => a.key === 'process.command_args')!.value.arrayValue!.values.map((v) => v.stringValue)).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>']);
+  });
+
   it('parses OTLP header lists', () => {
     expect(otlpHeaders('authorization=Bearer%20x, x-scope-orgid=team')).toEqual({ authorization: 'Bearer x', 'x-scope-orgid': 'team' });
     expect(otlpHeaders(undefined)).toEqual({});

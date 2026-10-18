@@ -391,19 +391,82 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
 
 // ---- the run's own record ----
 
+/**
+ * A command line with the rules without a path applied to it as one text, `argv.join(' ')`, as the
+ * preview counts it and `export dataset` writes it: so a rule sees what runs across arguments, the
+ * lookbehind in `(?<=--api-key )\S+` included. The text is then cut back into arguments: a space
+ * between two arguments that no match covered still parts them, and arguments a match runs across
+ * become one. Joined, the result is the masked text, so every copy that carries the command line,
+ * as one text or as its arguments, masks it alike. `observer` hears each rule's change of the text.
+ */
+export function redactArgv(argv: readonly string[], rules: readonly Normalizer[], observer?: RewriteObserver): string[] {
+  let args = [...argv];
+  rules.forEach((rule, i) => {
+    if (rule.path !== undefined || rule.pattern === undefined) return;
+    const text = args.join(' ');
+    const regex = compilePattern(rule.pattern);
+    regex.lastIndex = 0;
+    const found = regex.global ? [...text.matchAll(regex)] : [regex.exec(text)].filter((m): m is RegExpExecArray => m !== null);
+    if (!found.length) return;
+    // Where the spaces between arguments are in the text.
+    const spaces: number[] = [];
+    let end = 0;
+    for (const a of args.slice(0, -1)) {
+      end += a.length;
+      spaces.push(end);
+      end += 1;
+    }
+    // A match's replacement as the rule writes it there: `replace` on the whole text at that place
+    // alone, so a lookbehind still sees what comes before it.
+    const there = new RegExp(regex.source, `${regex.flags.replace(/[gy]/g, '')}y`);
+    let out = '';
+    let from = 0;
+    let shift = 0;
+    let next = 0;
+    const kept: number[] = [];
+    for (const m of found) {
+      const start = m.index!;
+      const stop = start + m[0].length;
+      there.lastIndex = start;
+      const whole = text.replace(there, rule.replace);
+      const replacement = whole.slice(start, whole.length - (text.length - stop));
+      for (; next < spaces.length && spaces[next]! < start; next++) kept.push(spaces[next]! + shift);
+      // A space inside the match is gone: the arguments on either side of it become one.
+      for (; next < spaces.length && spaces[next]! < stop; next++);
+      out += text.slice(from, start) + replacement;
+      shift += replacement.length - (stop - start);
+      from = stop;
+    }
+    for (; next < spaces.length; next++) kept.push(spaces[next]! + shift);
+    out += text.slice(from);
+    if (out === text) return;
+    observer?.changed?.(i, text, out, countMatches(text, regex));
+    const cut: string[] = [];
+    let at = 0;
+    for (const k of kept) {
+      cut.push(out.slice(at, k));
+      at = k + 1;
+    }
+    cut.push(out.slice(at));
+    args = cut;
+  });
+  return args;
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * A run's own record with the rules without a path applied to what a person or a command line
- * wrote in it, outside its calls: the command line and its folder, labels, notes, outcome checks,
- * the file or golden it came from, its author, what blame changed, and the divergence report's
- * values and words. Ids, times and Shadowlap's own words stay as they are.
+ * wrote in it, outside its calls: the command line (as one text, redactArgv) and its folder,
+ * labels, notes, outcome checks, the file or golden it came from, its author, what blame changed,
+ * and the divergence report's values and words. Ids, times and Shadowlap's own words stay as they
+ * are.
  */
 export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord {
   if (!rules.some((r) => r.path === undefined && r.pattern !== undefined)) return run;
   const text = (value: string) => rewriteText(value, rules);
   const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isRecord(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
-  const out: RunRecord = { ...run, command: { ...run.command, argv: run.command.argv.map(text), cwd: text(run.command.cwd) } };
+  const out: RunRecord = { ...run, command: { ...run.command, argv: redactArgv(run.command.argv, rules), cwd: text(run.command.cwd) } };
   const meta = run.meta;
   if (meta) {
     // A record imported from someone else's pack may hold anything the pack's checks let through:
@@ -908,7 +971,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
     const returned = { count: r.returned.count, samples: r.returned.samples };
     return { n: i + 1, rule, count: r.count, samples: r.samples, reached: rule.path === undefined ? null : r.reached.requests + r.reached.results, note: r.count ? null : zeroNote(rule, r.scoped, r.reached, r.unmasked, returned.count), returned, unmasked };
   });
-  // The run's details, as the exports that carry them mask them (redactRunDetails): the command line as one text, each label and each note.
+  // The run's details, as the exports that carry them mask them (redactRunDetails): the command line as one text (redactArgv), each label and each note.
   const details: RedactionPreview['details'] = { count: 0, samples: [], rules: [] };
   const detailObserver: RewriteObserver = {
     changed(i, before, after, count) {
@@ -917,7 +980,8 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (details.samples.length < SAMPLES) details.samples.push(clipChange(shownText(before), shownText(after)));
     },
   };
-  for (const text of [run.command.argv.join(' '), ...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
+  redactArgv(run.command.argv, rules, detailObserver);
+  for (const text of [...(run.meta?.labels ?? []), ...(run.meta?.notes ?? []).map((n) => n.text)]) rewriteText(text, rules, detailObserver);
   details.rules.sort((a, b) => a - b);
   return {
     runId,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { applyNormalizers, parsePath, rewriteText, type RewriteObserver } from '../src/normalize.js';
-import { REDACTION_EXPORTS, clipChange, jsonPath, previewRedaction, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
+import { REDACTION_EXPORTS, clipChange, jsonPath, previewRedaction, redactArgv, redactRun, redactRunDetails, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer, RunMeta } from '../src/types.js';
 
@@ -236,6 +236,33 @@ describe('previewRedaction', () => {
     expect(pack.getRun(run.runId)!.command.argv).toEqual(original.command.argv);
     html.close();
     pack.close();
+    store.close();
+  });
+
+  it('masks the command line as one text in every copy, as the preview counts it, and cuts it back into its arguments', () => {
+    const KEY: Normalizer = { pattern: '/(?<=--api-key )\\S+/', replace: '<KEY>' };
+    const argv = ['node', 'agent.mjs', '--api-key', 'sk-live-abc123def456ghi789', '--note', 'for erin@example.com today'];
+    expect(redactArgv(argv, [KEY, EMAIL])).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>', '--note', 'for <EMAIL> today']);
+    // A match that runs across arguments makes them one; joined, the arguments are always the masked text.
+    const SPAN: Normalizer = { pattern: '/--api-key \\S+/', replace: '<KEY>' };
+    expect(redactArgv(argv, [SPAN])).toEqual(['node', 'agent.mjs', '<KEY>', '--note', 'for erin@example.com today']);
+    const AROUND: Normalizer = { pattern: '/mjs --api/', replace: '$&$$' };
+    for (const rules of [[KEY], [SPAN], [EMAIL], [AROUND], [KEY, EMAIL, SPAN], [{ pattern: '/(?=--)/g', replace: '>' }], [{ pattern: '/ /g', replace: '_' }]]) {
+      expect(redactArgv(argv, rules).join(' ')).toBe(rewriteText(argv.join(' '), rules));
+    }
+    expect(redactArgv(argv, [{ pattern: 'uuid', replace: '<U>' }])).toEqual(argv);
+    expect(redactArgv([], [KEY])).toEqual([]);
+
+    // export html's copy, and the preview's count of it.
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: argv.slice(0, 4), cwd: '/tmp' } });
+    store.endRun(run.runId, 'completed');
+    expect(redactRunDetails(store.getRun(run.runId)!, [KEY]).command.argv).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>']);
+    const html = Store.open(':memory:');
+    redactRunWithDetails(store, run.runId, [KEY], html);
+    expect(JSON.stringify(html.getRun(run.runId))).not.toContain('sk-live');
+    html.close();
+    expect(previewRedaction(store, run.runId, [KEY]).details).toEqual({ count: 1, samples: [{ before: 'node agent.mjs --api-key sk-live-abc123def456ghi789', after: 'node agent.mjs --api-key <KEY>' }], rules: [1] });
     store.close();
   });
 

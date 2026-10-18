@@ -171,7 +171,7 @@ What masks each, for each place it was found, comes after them:
 
 The commands come for the requests first, up to 20 in all; past that it says how many places are left, and after you add these, the next preview lists them. Run a command and preview again: the value moves into the count.
 
-The run's details come on a line of their own, since the exports differ on them: what the rules without a path match in the run's command line, labels and notes, which `export html`, `dataset` and `otel` mask and `pack` copies as recorded.
+The run's details come on a line of their own, since the exports differ on them: what the rules without a path match in the run's command line, labels and notes, which `export html`, `dataset` and `otel` mask and `pack` copies as recorded. The command line is read as one text, its arguments joined by spaces, and every copy that carries it masks it that way, as text or as its list of arguments, so `--pattern '/(?<=--api-key )\S+/'` masks the key in `--api-key sk-live-…` everywhere the line goes.
 
 ```
   the run's command line, labels and notes: 2 (#1)  masked by export html, dataset and otel; pack copies them as recorded, since a replay runs the command
