@@ -137,6 +137,14 @@ then raise. Both shipped SDKs do this, and the `unserializable-result` conforman
 A completion the sidecar refuses (a `400`) is the same hole, so a client that fails to send the `ok`
 completion SHOULD complete the call with an error before raising.
 
+A call the caller cuts off (Python's `asyncio.wait_for` deadline, a cancelled task) has not
+failed: the tool was stopped. The Python SDK completes it with `outcome: "error"`, the error named
+`CancelledError` and `data: { "cancelled": true }` (`false` when the tool raised `CancelledError`
+from an awaitable of its own). Replaying it, a client MUST NOT raise a replayed error: it waits
+until the caller cancels the call again, as its deadline or cancel did when it was recorded, so the
+agent takes the same path. An interrupt or an exit inside a tool (`KeyboardInterrupt`,
+`SystemExit`) is not the tool's answer either, and leaves the call as the run left it.
+
 JSON has no NaN or Infinity, and the sidecar refuses a body that has them. Both shipped SDKs record
 them as `null`, in arguments and results, as `JSON.stringify` does; the caller still gets the
 tool's own value while recording, and the `null` on replay (the `non-finite-result` scenario).

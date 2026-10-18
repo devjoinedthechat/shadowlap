@@ -269,6 +269,45 @@ def serialize_error(err: BaseException) -> dict:
     return out
 
 
+# The process is stopping (Ctrl-C, sys.exit()): that is not the tool's answer, so the call is left
+# as the run left it rather than recorded as the tool's error.
+_STOPPING = (KeyboardInterrupt, SystemExit)
+
+
+def _cancelled_error(err: BaseException) -> dict:
+    """A cancelled call as it is recorded: ``data.cancelled`` is true when the caller cancelled it (a
+    deadline in ``asyncio.wait_for``, a task cancelled), false when the tool raised CancelledError
+    from an awaitable of its own. Before Python 3.11 a task can't tell, and the caller is assumed."""
+    out = serialize_error(err)
+    task = asyncio.current_task()
+    cancelling = getattr(task, "cancelling", None)
+    out["data"] = {"cancelled": bool(cancelling()) if callable(cancelling) else True}
+    return out
+
+
+def _cancellation(error: dict) -> Optional[bool]:
+    """Whether a recorded error is a cancellation: True when the caller cancelled the call, False when
+    the tool raised CancelledError itself, None when it is an ordinary error. A CancelledError
+    recorded before cancellations were marked is taken as the caller's."""
+    data = error.get("data")
+    flag = data.get("cancelled") if isinstance(data, dict) else None
+    if isinstance(flag, bool):
+        return flag
+    return True if error.get("name") == "CancelledError" else None
+
+
+async def _replay_cancellation(error: dict) -> None:
+    """A replayed cancellation. The caller cancelled the call while it was recorded, so the replay
+    waits until the caller cancels it again, as its deadline or cancel did then: the agent takes the
+    path it took. A CancelledError the tool raised itself is raised again as one."""
+    cancelled = _cancellation(error)
+    if cancelled:
+        await asyncio.get_running_loop().create_future()  # never resolves; the caller's cancel ends it
+    if cancelled is False:
+        message = error.get("message")
+        raise asyncio.CancelledError(*([message] if message else []))
+
+
 def _impl_hash(fn: Callable[..., Any]) -> str:
     try:
         source = inspect.getsource(fn)
@@ -455,6 +494,7 @@ def tool(
                         return r.get("result")
                     if r.get("injected"):
                         raise _injected(tool_name, bound, r["injected"], r["error"])
+                    await _replay_cancellation(r["error"])
                     raise ReplayedError(r["error"])
                 if origin == "blocked":
                     raise ShadowlapWriteBlocked(tool_name, bound, r["error"]["message"])
@@ -469,6 +509,13 @@ def tool(
                 started = time.time()
                 try:
                     result = await fn(*args, **kwargs)
+                except _STOPPING:
+                    raise
+                except asyncio.CancelledError as err:
+                    # Not the tool's failure: the caller cut the call off. A thread can't be cancelled,
+                    # so this completion is sent even if the caller cancels again while it is.
+                    await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": _cancelled_error(err), "latencyMs": int((time.time() - started) * 1000)})
+                    raise
                 except BaseException as err:
                     await asyncio.to_thread(complete, cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
                     raise
@@ -502,6 +549,8 @@ def tool(
             started = time.time()
             try:
                 result = fn(*args, **kwargs)
+            except _STOPPING:
+                raise
             except BaseException as err:
                 complete(cfg, r["callNo"], {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
                 raise
@@ -592,6 +641,8 @@ def user_input(prompt: str = "", read: Optional[Callable[[str], str]] = None) ->
         # A read through input() inside is not recorded a second time.
         with preload.passthrough() if preload else contextlib.nullcontext():
             text = reader(prompt)
+    except _STOPPING:
+        raise
     except BaseException as err:
         _post(cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
         raise
@@ -609,6 +660,8 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
         return await answer if inspect.isawaitable(answer) else answer
     r = await asyncio.to_thread(_resolve_input, cfg, prompt)
     if r["origin"] == "replayed":
+        if r["outcome"] != "ok":
+            await _replay_cancellation(r.get("error") or {})
         return _replayed_answer(r)
     if r["origin"] != "live":
         raise RuntimeError(f"unexpected origin {r['origin']} for user input")
@@ -620,6 +673,11 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
         with preload.passthrough() if preload else contextlib.nullcontext():
             answer = read(prompt)
             text = await answer if inspect.isawaitable(answer) else answer
+    except _STOPPING:
+        raise
+    except asyncio.CancelledError as err:
+        await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": _cancelled_error(err), "latencyMs": int((time.time() - started) * 1000)})
+        raise
     except BaseException as err:
         await asyncio.to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": serialize_error(err), "latencyMs": int((time.time() - started) * 1000)})
         raise
