@@ -613,6 +613,28 @@ describe('what the bucket may hold', () => {
     expect(b.store.getRun(multi.runId)!.command.argv).toEqual(['python', '-c', 'import agent\n\tagent.main()']);
   });
 
+  it('brings a run marked running as interrupted, and refuses one that starts years ahead', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const r = record(a.store, 'left running');
+    const ahead = record(a.store, 'from the future');
+    await push(a, { all: true });
+    // Anyone who can write to the bucket marks them running; the index needs nothing new.
+    const doc = readDoc(remote, r.runId);
+    writeDoc(remote, r.runId, { ...doc, run: { ...doc.run, status: 'running', endedAt: null } });
+    const later = readDoc(remote, ahead.runId);
+    writeDoc(remote, ahead.runId, { ...later, run: { ...later.run, status: 'running', endedAt: null, startedAt: Date.now() + 10 * 365 * 24 * 3600_000 } });
+
+    const b = machine(remote, 'maya@northwind.example');
+    const pulled = await pull(b);
+    expect(pulled.pulled).toEqual([r.runId]);
+    expect(pulled.failed).toEqual([{ runId: ahead.runId, reason: expect.stringMatching(/startedAt: is more than a day in the future/) }]);
+    // Ended at the last thing it recorded (its calls here are stamped before its start): no process
+    // here records it, so nothing takes it for a recording.
+    expect(b.store.getRun(r.runId)).toMatchObject({ status: 'crashed', endedAt: r.startedAt });
+    expect(b.store.recordingRuns().live).toEqual([]);
+  });
+
   it("can't change how a run made here replays, or who made it, whatever run.json says", async () => {
     const remote = new MemoryStore(loc);
     const a = machine(remote, 'dana@northwind.example');

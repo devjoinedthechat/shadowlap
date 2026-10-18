@@ -59,6 +59,20 @@ export function asTheyStand<R extends RunRecord>(store: Store, runs: readonly R[
   });
 }
 
+/**
+ * A run as a copy brings it into a store (a pack, the team store): no process here records it, so
+ * one marked running (a pack edited by hand, or made by another tool) comes in as interrupted,
+ * `crashed` and ended at its last call or its start, as gc ends one its recorder left. Kept running,
+ * it would read as recording and hold up rm and gc for a day, or for good with a start time ahead.
+ * The fields a copy may leave out get their empty value.
+ */
+export function asImportedRun(run: RunRecord, calls: readonly CallRecord[]): RunRecord {
+  const copy: RunRecord = { ...run, parentRunId: run.parentRunId ?? null, codeVersion: run.codeVersion ?? null, endedAt: run.endedAt ?? null, divergence: run.divergence ?? null };
+  if (run.status !== 'running') return copy;
+  const last = calls.reduce((n, c) => Math.max(n, c.at, c.end?.at ?? 0, ...c.attempts.map((a) => a.at)), run.startedAt);
+  return { ...copy, status: 'crashed', endedAt: run.endedAt ?? last };
+}
+
 export interface PackResult {
   dir: string;
   runs: string[];
@@ -326,8 +340,9 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
       }
       // Whatever the pack claims, the run is marked as imported here.
       const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
-      store.importRun({ ...run, meta: { ...rest, imported: { at, from } } });
-      for (const call of calls.filter((c) => c.runId === run.runId)) {
+      const own = calls.filter((c) => c.runId === run.runId);
+      store.importRun({ ...asImportedRun(run, own), meta: { ...rest, imported: { at, from } } });
+      for (const call of own) {
         const { end, attempts, ...start } = call;
         store.appendCallStart(start);
         const identity = { kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence };

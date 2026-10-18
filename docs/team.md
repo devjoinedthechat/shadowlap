@@ -180,7 +180,8 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   still says *from a pack* and isn't counted. A pulled run is checked as strictly as a
   [pack](./cli.md#pack-unpack): every record validated, every blob checked against its hash, and
   nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
-  (`python -c '…'`), shown escaped. Its replay asks before running the command it was recorded
+  (`python -c '…'`), shown escaped. One the store marks as still running comes in as interrupted,
+  since nothing here records it. Its replay asks before running the command it was recorded
   with, as an unpacked run's does, saying it came from the team store and who recorded it.
 - **A run a pull would refuse** never goes up: `push` checks each run with the same rules and
   leaves one that fails here, saying why. A run in the store that can't be read (changed there by

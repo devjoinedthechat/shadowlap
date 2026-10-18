@@ -42,6 +42,9 @@ const DIVERGENCES = new Set(['request_changed', 'new_call', 'forced', 'beyond_re
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** How far ahead of this machine's clock a recorded time may be: another machine's clock may run fast. */
+const FUTURE_ALLOWANCE_MS = 24 * 60 * 60 * 1000;
+
 function fail(where: string, what: string): never {
   throw new PackError(`${where}: ${what}`);
 }
@@ -56,6 +59,13 @@ function text(v: unknown, where: string, max = PACK_LIMITS.stringBytes, control 
 function int(v: unknown, where: string, min = 0): number {
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < min) fail(where, `must be an integer ≥ ${min}`);
   return v;
+}
+
+/** A time recorded somewhere: never further ahead of this machine's clock than another's could be. */
+function time(v: unknown, where: string): number {
+  const at = int(v, where);
+  if (at > Date.now() + FUTURE_ALLOWANCE_MS) fail(where, 'is more than a day in the future');
+  return at;
 }
 
 function oneOf(v: unknown, set: Set<string>, where: string): string {
@@ -87,8 +97,8 @@ export function validateRun(v: unknown, where: string): RunRecord {
   argv.forEach((a, i) => text(a, `${where}.command.argv[${i}]`, 8192, CONTROL_BUT_LINES));
   text(v.command.cwd, `${where}.command.cwd`, 4096, CONTROL_BUT_LINES);
   if (v.codeVersion !== null && v.codeVersion !== undefined) text(v.codeVersion, `${where}.codeVersion`, 128);
-  int(v.startedAt, `${where}.startedAt`);
-  if (v.endedAt !== null && v.endedAt !== undefined) int(v.endedAt, `${where}.endedAt`);
+  time(v.startedAt, `${where}.startedAt`);
+  if (v.endedAt !== null && v.endedAt !== undefined) time(v.endedAt, `${where}.endedAt`);
   if (v.divergence !== null && v.divergence !== undefined) {
     const d = v.divergence;
     if (!isObject(d)) fail(`${where}.divergence`, 'must be an object or null');
@@ -147,7 +157,7 @@ function validateEnd(v: unknown, where: string, runId: string, callNo: number): 
   ref(v.responseRef, `${where}.responseRef`);
   oneOf(v.outcome, OUTCOMES, `${where}.outcome`);
   meta(v.meta, `${where}.meta`);
-  int(v.at, `${where}.at`);
+  time(v.at, `${where}.at`);
   return v as unknown as CallEndRow;
 }
 
@@ -163,7 +173,7 @@ export function validateCall(v: unknown, where: string): CallRecord {
   if (v.effect !== null && v.effect !== undefined) oneOf(v.effect, EFFECTS, `${where}.effect`);
   ref(v.requestRef, `${where}.requestRef`);
   meta(v.meta, `${where}.meta`);
-  int(v.at, `${where}.at`);
+  time(v.at, `${where}.at`);
   if (v.end !== null && v.end !== undefined) validateEnd(v.end, `${where}.end`, v.runId, callNo);
   if (!Array.isArray(v.attempts)) fail(`${where}.attempts`, 'must be an array');
   v.attempts.forEach((a, i) => validateEnd(a, `${where}.attempts[${i}]`, v.runId as string, callNo));

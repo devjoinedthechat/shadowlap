@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -621,7 +621,8 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
     // (`pulledRun`): it reads as its author's recording, with what it spent. One from a pull request's
     // folder is marked as that pull request's, so no push takes it into the store's own runs.
     const imported = { at: now(ctx), from: ctx.remote.location.url, ...(ctx.pullRequest ? { pr: ctx.pullRequest } : {}) };
-    ctx.store.importRun({ ...doc.run, meta: { ...(shared as RunRecord['meta'] & object), imported } });
+    // No process here records it: one marked running comes in as interrupted (asImportedRun).
+    ctx.store.importRun({ ...asImportedRun(doc.run, calls), meta: { ...(shared as RunRecord['meta'] & object), imported } });
     for (const call of calls) {
       const { end, attempts, ...start } = call;
       ctx.store.appendCallStart(start);
