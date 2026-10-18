@@ -65,6 +65,8 @@ At the end, the report lists recorded calls the replay never made. Harmless afte
 
 **Parallel tool calls come back in a different order.** That's fine: matching never uses arrival order. If you see a divergence in that region, it's the arguments, not the order.
 
+**A Node agent behind a proxy records no model calls, and its model client fails with "Request was cancelled" or "fetch failed".** Its `fetch` goes through a dispatcher it set itself, undici's `ProxyAgent`, which sends every request to the proxy, the sidecar's loopback address too, where the proxy can't reach it. Use `EnvHttpProxyAgent` instead: it takes the proxy from `HTTP_PROXY` and `HTTPS_PROXY` (or its options) and honours the `NO_PROXY` that `shadowlap run` sets. Tools, the clock and recorded input never go through it.
+
 **I replayed a run recorded on another machine and it diverges.** Paths in prompts, hostnames in tool arguments, locale-formatted dates. Normalize them, or read them through the SDK.
 
 ## Getting help

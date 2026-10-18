@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer, type AddressInfo, type Server as TcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ import { agentEnv, noProxyEnv } from '../src/run-agent.js';
  * anyway, so nothing would be recorded. A stand-in proxy logs whatever reaches it and answers 502.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+const TS_SDK = new URL('../../sdk/dist/index.js', import.meta.url).href;
 const PY_SDK = fileURLToPath(new URL('../../../sdks/python', import.meta.url));
 
 function pythonAvailable(): string | null {
@@ -61,11 +62,11 @@ afterAll(async () => {
   rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-function run(argv: string[], input: string, env: Record<string, string>): Promise<{ code: number | null; out: string }> {
+function run(argv: string[], input: string, env: Record<string, string>, dir = cwd): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
     const child = spawn(argv[0]!, argv.slice(1), {
-      cwd,
+      cwd: dir,
       env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', PYTHONPATH: PY_SDK, SHADOWLAP_UPSTREAM_OPENAI: mock.url, HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, http_proxy: proxyUrl, https_proxy: proxyUrl, NO_PROXY: 'corp.internal', no_proxy: '', ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -95,6 +96,56 @@ print("you said:", input("you? "))
 socket.create_connection(("127.0.0.1", ${otherPort})).close()
 `;
 
+// A Node agent that sends its own traffic through a proxy in code, as corporate setups do:
+// fetch through a dispatcher of its own (as setGlobalDispatcher(new ProxyAgent(...)) sets one,
+// which ignores NO_PROXY) and http.request through a replaced http.globalAgent (as proxy packages
+// do). Both stand-ins log what reached them and refuse it, as a proxy that can't reach the
+// machine's loopback does. A wrapped tool, the clock, a readline answer and a connection the
+// guard reports must still reach the sidecar.
+const NODE_AGENT = (otherPort: number) => `
+import http from 'node:http';
+import net from 'node:net';
+import readline from 'node:readline/promises';
+import { now, tool } from ${JSON.stringify(TS_SDK)};
+
+globalThis[Symbol.for('undici.globalDispatcher.1')] = {
+  dispatch(opts, handler) {
+    process.stderr.write('PROXIED fetch ' + opts.origin + opts.path + '\\n');
+    queueMicrotask(() => handler.onError(new Error('proxy: cannot reach upstream')));
+    return true;
+  },
+  close: async () => {},
+  destroy: async () => {},
+};
+class ViaProxy extends http.Agent {
+  addRequest(req, options) {
+    process.stderr.write('PROXIED http ' + options.host + ':' + options.port + req.path + '\\n');
+    process.nextTick(() => req.destroy(new Error('proxy: cannot reach upstream')));
+  }
+}
+http.globalAgent = new ViaProxy();
+
+const findCustomer = tool('find_customer', { effect: 'read' }, async ({ email }) => ({ id: 'cust-1', email }));
+console.log('tool:', (await findCustomer({ email: 'jane@example.com' })).id);
+// A declared HTTP host, called with http.request: captured, and sent to the sidecar.
+const search = await new Promise((resolve, reject) => {
+  const req = http.request(process.env.SEARCH_URL + '/search', { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+    let body = '';
+    res.on('data', (c) => (body += c));
+    res.on('end', () => resolve(body));
+  });
+  req.on('error', reject);
+  req.end(JSON.stringify({ query: 'refunds' }));
+});
+console.log('search:', search);
+console.log('clock:', typeof (await now()));
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+console.log('you said:', await rl.question('you? '));
+rl.close();
+await new Promise((resolve) => net.connect(${otherPort}, '127.0.0.1').on('close', resolve).on('error', resolve));
+await new Promise((resolve) => setTimeout(resolve, 200));
+`;
+
 describe('behind a proxy', () => {
   it('keeps the existing NO_PROXY entries and adds the loopback addresses, in both spellings', () => {
     expect(noProxyEnv({ NO_PROXY: 'corp.internal, .example.com', no_proxy: 'localhost' })).toEqual({ NO_PROXY: 'corp.internal,.example.com,localhost,127.0.0.1,::1', no_proxy: 'corp.internal,.example.com,localhost,127.0.0.1,::1' });
@@ -120,6 +171,30 @@ describe('behind a proxy', () => {
     expect(rec.out).toContain('you said: refund it');
     expect(rec.out).toMatch(/outbound connection to 127\.0\.0\.1:\d+ bypasses Shadowlap/);
     expect(rec.out).toMatch(/Recorded \w+: 3 calls \(1 api, 2 tool\)/);
+    expect(proxied).toEqual([]);
+  });
+
+  it('records a Node agent whose fetch and http go through a proxy of its own, with nothing for the sidecar sent there', async () => {
+    const search = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => res.writeHead(200, { 'content-type': 'application/json' }).end('{"hits":2}'));
+    });
+    await new Promise<void>((r) => search.listen(0, '127.0.0.1', () => r()));
+    const dir = join(cwd, 'node');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ http: { [`127.0.0.1:${(search.address() as AddressInfo).port}`]: 'read' } }));
+    writeFileSync(join(dir, 'agent.mjs'), NODE_AGENT((other.address() as AddressInfo).port));
+    proxied.length = 0;
+    const rec = await run([process.execPath, CLI, '--db', join(dir, 'store.db'), 'run', '--', process.execPath, 'agent.mjs'], 'refund it\n', { SEARCH_URL: `http://127.0.0.1:${(search.address() as AddressInfo).port}` }, dir).finally(
+      () => new Promise<void>((r) => search.close(() => r())),
+    );
+    expect(rec.out).toContain('tool: cust-1');
+    expect(rec.out).toContain('search: {"hits":2}');
+    expect(rec.out).toContain('clock: number');
+    expect(rec.out).toContain('you said: refund it');
+    expect(rec.out).toMatch(/outbound connection to 127\.0\.0\.1:\d+ bypasses Shadowlap/);
+    expect(rec.out).toMatch(/Recorded \w+: 4 calls \(0 api, 3 tool, 1 clock\/random\)/);
+    expect(rec.out).not.toContain('PROXIED');
     expect(proxied).toEqual([]);
   });
 

@@ -51,8 +51,12 @@ There is no authentication header. The token in the path is the whole of it.
 **Never through a proxy.** The sidecar is on the machine's loopback. A client MUST reach it
 directly, whatever proxy the environment names (`HTTP_PROXY`, a system proxy): through a proxy, the
 call would cross the network in clear text with the session token in its URL, and the proxy can't
-reach the loopback anyway. Both SDKs open the sidecar with proxies turned off, and `shadowlap run`
-adds `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` for the agent.
+reach the loopback anyway. Both SDKs open the sidecar with proxies turned off, whatever the agent
+sets up for its own traffic: the Python SDK with a urllib opener that has no proxy handler, the
+TypeScript SDK with `node:http` and an agent of its own rather than `fetch`, whose dispatcher an
+agent may route through a proxy (undici's `ProxyAgent` ignores `NO_PROXY`). `shadowlap run` adds
+`127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` for the agent, for the clients
+that read them.
 
 **Timeouts.** A client SHOULD apply a request timeout of about 30 seconds. The sidecar answers
 `resolve` and `complete` locally and does not wait on the network, so a slow response means it is

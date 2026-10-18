@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
+import { Agent as HttpAgent, request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http';
+import { Agent as HttpsAgent, request as httpsRequest } from 'node:https';
 
 /**
  * The Shadowlap SDK for TypeScript: an effect-typed tool wrapper, clock/random helpers, and
@@ -176,14 +178,45 @@ type ResolveResponse =
   | { origin: 'blocked'; callNo: number; outcome: 'error'; error: SerializedError }
   | { origin: 'stubbed'; callNo: number };
 
+/**
+ * Agents of the SDK's own for the sidecar, which is on the machine's loopback and is reached
+ * directly, never through a proxy: not with fetch, whose dispatcher an agent may route through one
+ * (undici's ProxyAgent set with setGlobalDispatcher ignores NO_PROXY), nor with http.globalAgent,
+ * which a proxy package may replace. Kept alive, as fetch keeps them; an idle socket doesn't hold
+ * the process open.
+ */
+const direct: { http?: HttpAgent; https?: HttpsAgent } = {};
+
+/** POSTs to the sidecar and reads the whole answer. A kept-alive socket the sidecar closed while it was idle is retried once on a new one. */
+function send(url: string, headers: Record<string, string>, body: string, retried = false): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const secure = target.protocol === 'https:';
+    const agent = secure ? (direct.https ??= new HttpsAgent({ keepAlive: true })) : (direct.http ??= new HttpAgent({ keepAlive: true }));
+    const options = { method: 'POST', headers: { ...headers, 'content-length': String(Buffer.byteLength(body)) }, agent };
+    const answered = (res: IncomingMessage) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
+      res.on('error', reject);
+    };
+    const req: ClientRequest = secure ? httpsRequest(target, options, answered) : httpRequest(target, options, answered);
+    req.on('error', (err: NodeJS.ErrnoException) => {
+      if (req.reusedSocket && !retried && (err.code === 'ECONNRESET' || err.code === 'EPIPE')) send(url, headers, body, true).then(resolve, reject);
+      else reject(err);
+    });
+    req.end(body);
+  });
+}
+
 async function post<T>(cfg: Config, path: string, body: unknown): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (cfg.runId) headers['x-shadowlap-run'] = cfg.runId;
   const scoped = currentScope();
   if (scoped) headers['x-shadowlap-scope'] = encodeScope(scoped);
-  const res = await fetch(`${cfg.url}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
-  const text = await res.text();
-  if (!res.ok) {
+  const res = await send(`${cfg.url}${path}`, headers, JSON.stringify(body));
+  const text = res.text;
+  if (res.status < 200 || res.status >= 300) {
     let message = text;
     try {
       message = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? text;

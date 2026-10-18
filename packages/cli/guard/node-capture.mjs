@@ -205,6 +205,10 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return { url, options, callback };
   }
 
+  // The sidecar is reached directly: the client's own agent (dropped above) was for the host it
+  // named, and http.globalAgent may be a proxy package's, which would send the request to its proxy.
+  const sidecarAgent = new http.Agent({ keepAlive: true });
+
   function wrap(original, defaultProtocol) {
     return function capturedRequest(...args) {
       let parsed;
@@ -223,7 +227,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       if (provider === 'http') headers['x-shadowlap-failures'] = 'raise';
       const { agent: _agent, protocol: _protocol, host: _host, hostname: _hostname, port: _port, path: _path, servername: _servername, ...rest } = options;
       const req = http.request(
-        { ...rest, protocol: sidecar.protocol, hostname: sidecar.hostname, port: sidecar.port, path: sidecarPath(provider, url), headers },
+        { ...rest, protocol: sidecar.protocol, hostname: sidecar.hostname, port: sidecar.port, path: sidecarPath(provider, url), headers, agent: sidecarAgent },
         callback,
       );
       return provider === 'http' ? failOnInjected(req) : req;

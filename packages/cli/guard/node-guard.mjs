@@ -40,9 +40,13 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
     return null; // a path string
   }
 
+  // Reports go to the sidecar directly, with an agent of the guard's own: an http.globalAgent a
+  // proxy package replaced would send them through its proxy.
+  const direct = new http.Agent();
+  const request = http.request;
   function report(key, action) {
     try {
-      const req = http.request(`${url}/v1/guard`, { method: 'POST', headers: { 'content-type': 'application/json', ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) } });
+      const req = request(`${url}/v1/guard`, { method: 'POST', agent: direct, headers: { 'content-type': 'application/json', ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) } });
       req.on('error', () => {});
       req.on('socket', (s) => s.unref());
       req.end(JSON.stringify({ target: key, action, runtime: 'node' }));
