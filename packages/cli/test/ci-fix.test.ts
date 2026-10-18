@@ -432,6 +432,20 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     // Not "there was no candidate to try": what kept the repairer from proposing one.
     expect(r.out).toContain('refund-over-limit: no fix pull request: the repairer could not be asked: /nonexistent/claude was not found');
     expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the repairer could not be asked: \/nonexistent\/claude was not found \|/);
+
+    // An anthropic repairer whose key the job lacks, as when the secret isn't set: found out before any blame, so nothing is spent.
+    const home = mkdtempSync(join(tmpdir(), 'sl-home-'));
+    try {
+      const unset = Object.fromEntries(Object.keys(process.env).filter((k) => k.startsWith('ANTHROPIC_')).map((k) => [k, undefined]));
+      const hits = mock.requests.length;
+      const nokey = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' }, { ...unset, ANTHROPIC_API_KEY: undefined, ANTHROPIC_BASE_URL: mock.url, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: home });
+      expect(nokey.outputs).toMatchObject({ failed: '1', fixes: '0' });
+      expect(nokey.out).toContain('refund-over-limit: no fix pull request: the repairer could not be asked: no Anthropic credentials');
+      expect(nokey.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the repairer could not be asked: no Anthropic credentials \| \$0\.00 of \$1\.00 \|/);
+      expect(mock.requests.length).toBe(hits);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('opens nothing from a detached HEAD, and says how to check out the branch', async () => {

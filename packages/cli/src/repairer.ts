@@ -263,6 +263,44 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   return { ...out, served, usage, cost: typeof d.total_cost_usd === 'number' ? d.total_cost_usd : estimateCost(served, usage, prices) };
 }
 
+const SDK_MISSING = () => new RepairerError('the Anthropic SDK is not installed', 'an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install @anthropic-ai/sdk');
+const REFUSED = () => new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+
+/** Why the SDK sent nothing: it refuses before it sends when it finds no key, token or profile to sign in with. */
+function unsent(err: unknown): RepairerError {
+  const said = err instanceof Error ? err.message : String(err);
+  if (/could not resolve authentication method/i.test(said)) return new RepairerError('no Anthropic credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+  return new RepairerError('the Anthropic SDK could not send the request', said);
+}
+
+/**
+ * Why the repairer can't be asked, found out before a repair spends anything on blame, or null. An
+ * Anthropic repairer is asked of the Models API (`GET /v1/models/<model>`, which reads no prompt and
+ * spends no tokens) with the credentials it would ask with: the SDK finds none to sign in with, or
+ * the API refuses them. Anything else (a gateway with no Models API, a model it doesn't list, a
+ * server out of reach) tells nothing for certain, so it is null, and asking finds out. Other
+ * repairers are found out when they are asked.
+ */
+export async function cannotAsk(r: Repairer): Promise<RepairerError | null> {
+  if (r.provider !== 'anthropic') return null;
+  let sdk: typeof import('@anthropic-ai/sdk');
+  try {
+    sdk = await import('@anthropic-ai/sdk');
+  } catch {
+    return SDK_MISSING();
+  }
+  const Anthropic = sdk.default;
+  try {
+    const client = new Anthropic(r.baseUrl ? { baseURL: r.baseUrl } : {});
+    await client.models.retrieve(r.model, {}, { maxRetries: 0, timeout: 15_000 });
+    return null;
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) return REFUSED();
+    if (err instanceof Anthropic.APIError) return null;
+    return unsent(err);
+  }
+}
+
 async function askAnthropic(r: Repairer, prompt: { system: string; user: string }, prices?: Record<string, Price>): Promise<RepairerAnswer> {
   // An optional peer: installed by those who ask Claude for fixes, and by nobody else.
   let sdk: typeof import('@anthropic-ai/sdk');
@@ -271,7 +309,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
     sdk = await import('@anthropic-ai/sdk');
     helpers = await import('@anthropic-ai/sdk/helpers/beta/json-schema');
   } catch {
-    throw new RepairerError('the Anthropic SDK is not installed', 'an anthropic repairer needs it, and Shadowlap does not install it for everyone: npm install @anthropic-ai/sdk');
+    throw SDK_MISSING();
   }
   const Anthropic = sdk.default;
   const { betaJSONSchemaOutputFormat } = helpers;
@@ -289,13 +327,10 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
       ...(FALLBACK.has(r.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
     });
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) throw new RepairerError('the Anthropic API refused the credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
+    if (err instanceof Anthropic.AuthenticationError) throw REFUSED();
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
     if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}`, err.message);
-    // The SDK refuses before it sends anything when it finds no key, token or profile to sign in with.
-    const said = err instanceof Error ? err.message : String(err);
-    if (/could not resolve authentication method/i.test(said)) throw new RepairerError('no Anthropic credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
-    throw new RepairerError('the Anthropic SDK could not send the request', said);
+    throw unsent(err);
   }
   if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');
   if (message.stop_reason === 'max_tokens') throw new RepairerError('the repairer ran out of tokens before it finished its answer');

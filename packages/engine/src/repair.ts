@@ -413,11 +413,16 @@ export function repairMarkdown(r: RepairReport): string {
   }
 
   out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => one(o, 120)).join('; ')}.`, '');
-  out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
-  out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
-  for (const t of r.targets) {
-    const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
-    out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
+  if (r.targets.length) {
+    out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
+    out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
+    for (const t of r.targets) {
+      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? 'not rescued from any model call' : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
+      out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
+    }
+  } else {
+    // Found out before blame ran, as a repairer that can't sign in is.
+    out.push(`No failing run was blamed${r.noRepairer ? `: ${one(r.noRepairer, 200)}` : ''}.`);
   }
   if (r.diagnosis) out.push('', `The repairer's diagnosis: ${one(r.diagnosis, 600)}`);
   out.push('');
