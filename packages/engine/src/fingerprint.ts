@@ -16,7 +16,7 @@ import type { CallKind, Normalizer } from './types.js';
 export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 
 /** Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on replay. */
-export const FINGERPRINT_VERSION = 3;
+export const FINGERPRINT_VERSION = 4;
 
 export interface ApiRequestShape {
   method: string;
@@ -44,8 +44,10 @@ export interface Fingerprinted {
 /**
  * `clock`: the run's start time, to mask dates and timestamps near it (see clock.ts), or for a replay
  * its start and its recording's, which both sides of a match must use; undefined matches them exactly.
+ * `opts.matchPath`: the path as it identifies the call, when the provider leaves something out of it
+ * (a Vertex AI path without its project and location); normalizers still find the call by its name.
  */
-export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: ClockReference, opts: { withoutPrompt?: boolean } = {}): Fingerprinted {
+export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: ClockReference, opts: { withoutPrompt?: boolean; matchPath?: string | undefined } = {}): Fingerprinted {
   const name = apiCallName(req.method, req.path);
   const headers: Record<string, string> = {};
   for (const h of allowHeaders) {
@@ -56,7 +58,7 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
   const view = multipartView(req.body);
   const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS);
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
-  const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: req.path, headers, body });
+  const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: opts.matchPath ?? req.path, headers, body });
   return { fingerprint: sha256(canonical), canonical };
 }
 

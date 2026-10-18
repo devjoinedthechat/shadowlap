@@ -449,6 +449,7 @@ export class Sidecar {
       ...(parentCalls ? { parentCalls } : {}),
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
+      matchName: (rec) => this.matchName(rec),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
@@ -673,7 +674,7 @@ export class Sidecar {
       // sends (an embeddings call too), and a retry as the call it retries. A retry is told apart as the
       // recording tells it, by its fingerprint, here of the request before any rewrite, so it gets the
       // same rewrite as the attempt it repeats.
-      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt }).fingerprint}`;
+      const key = `${scope ?? ''}\n${fingerprintApi({ method, path: subpath, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath: provider.matchPath?.(subpath) }).fingerprint}`;
       const same = ctx.lastByRequest.get(key);
       const repeats = same !== undefined && ctx.calls.get(same.callNo)?.retryable === true && (retryCount > 0 || retryHeader === undefined);
       counted = { key, place: repeats ? same!.place : ctx.interventions.next(scope) };
@@ -701,7 +702,10 @@ export class Sidecar {
     }
 
     const name = apiCallName(method, path);
-    const { fingerprint } = fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt });
+    // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
+    const matchPath = provider.matchPath?.(path);
+    const matchName = matchPath !== undefined && matchPath !== path ? apiCallName(method, matchPath) : undefined;
+    const { fingerprint } = fingerprintApi({ method, path, headers, body }, ctx.normalizers, provider.fingerprintHeaders, ctx.clockRef, { withoutPrompt: ctx.withoutPrompt, matchPath });
     const fingerprintHeaders: Record<string, string> = {};
     for (const h of provider.fingerprintHeaders) if (headers[h] !== undefined) fingerprintHeaders[h] = headers[h]!;
 
@@ -720,7 +724,7 @@ export class Sidecar {
       callNo = ctx.nextCallNo++;
       // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
       const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: fingerprintHeaders, ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+      const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: body, headers: fingerprintHeaders, ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
       const origin = storedOrigin('api', decision);
       tracked = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin, decision, ends: 0, retryable: false, done: false };
       ctx.calls.set(callNo, tracked);
@@ -1280,6 +1284,14 @@ export class Sidecar {
     return bytes ? (parseJsonExact(bytes.toString('utf8')) as T) : null;
   }
 
+  /** A recorded model call's name as matching reads it (`Provider.matchPath`): a Vertex AI call without its project and region. */
+  private matchName(rec: CallRecord): string {
+    const provider = rec.kind === 'api' && typeof rec.meta.provider === 'string' ? this.providers.get(rec.meta.provider) : undefined;
+    if (!provider?.matchPath) return rec.name;
+    const [method = 'POST', ...pathParts] = rec.name.split(' ');
+    return apiCallName(method, provider.matchPath(pathParts.join(' ')));
+  }
+
   private loadRequest(rec: CallRecord): unknown {
     if (!rec.requestRef) return undefined;
     return rec.kind === 'api' ? loadApiRequest(this.store, rec.requestRef) : this.store.getJson<{ args?: unknown }>(rec.requestRef);
@@ -1300,7 +1312,8 @@ export class Sidecar {
           const [method = 'POST', ...pathParts] = rec.name.split(' ');
           const headers = (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {};
           if (provider) {
-            fingerprint = fingerprintApi({ method, path: pathParts.join(' '), headers, body: loadApiRequest(this.store, rec.requestRef) }, normalizers, provider.fingerprintHeaders, clockRef, { withoutPrompt: withoutPromptMask }).fingerprint;
+            const path = pathParts.join(' ');
+            fingerprint = fingerprintApi({ method, path, headers, body: loadApiRequest(this.store, rec.requestRef) }, normalizers, provider.fingerprintHeaders, clockRef, { withoutPrompt: withoutPromptMask, matchPath: provider.matchPath?.(path) }).fingerprint;
           }
         } else if (rec.kind === 'tool' && rec.requestRef) {
           const req = this.getJsonExact<{ args?: unknown }>(rec.requestRef);

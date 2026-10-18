@@ -36,7 +36,7 @@ A replayed call never reaches the provider, but the client still has to be willi
 
 - **Bedrock.** AWS clients refuse to send a request without credentials. `shadowlap test` supplies placeholder credentials to a run with Bedrock calls when the environment has none (no `AWS_ACCESS_KEY_ID`, `AWS_PROFILE`, web identity or container credentials, and no shared config files), so CI needs no AWS secrets. The region still has to come from the code or `AWS_REGION`. `shadowlap replay` goes live after a fork, so it uses your real credentials.
 - **Azure OpenAI.** Any API key works on replay, so set `AZURE_OPENAI_API_KEY` to a placeholder in CI. A client that authenticates with Entra ID fetches a token first, which a replay can't serve.
-- **Vertex AI.** Google clients fetch an OAuth token before calling Vertex, and that request isn't a model call. In CI, give the client a token from the environment (`accessToken` in Node, `access_token` in Python) or use Gemini's express mode with an API key.
+- **Vertex AI.** Google clients fetch an OAuth token before calling Vertex, and that request isn't a model call. In CI, give the client a token from the environment (`accessToken` in Node, `access_token` in Python) or use Gemini's express mode with an API key. The project and region in a call's path don't count when it is matched, so a recording made in one developer's project replays in another's or in CI's (`ANTHROPIC_VERTEX_PROJECT_ID`, `GOOGLE_CLOUD_PROJECT` and the region can differ).
 
 ## Upstreams
 

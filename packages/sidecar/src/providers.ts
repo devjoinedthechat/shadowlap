@@ -17,6 +17,12 @@ export interface Provider {
    * paths (`/chat/completions`) arrive under it. See `sdkBasesFromEnvironment`.
    */
   sdkPath?: string;
+  /**
+   * A request's path as it identifies the call, when part of it names where the call was made rather
+   * than what it asks: Vertex AI's `/projects/<project>/locations/<region>`, so a recording replays
+   * in a teammate's project or in CI's. The call keeps its full path as its name.
+   */
+  matchPath?(path: string): string;
   /** Lower-cased request headers that change model behavior and therefore fingerprint. */
   fingerprintHeaders: readonly string[];
   /** Lower-cased headers that are forwarded upstream but never stored. */
@@ -310,6 +316,10 @@ export const vertex: Provider = {
   extractUsage: (body, contentType) => anthropic.extractUsage(body, contentType) ?? gemini.extractUsage(body, contentType),
   extractStopReason: (body, contentType) => anthropic.extractStopReason(body, contentType) ?? gemini.extractStopReason(body, contentType),
   extractModel: (subpath, body) => modelInPath(subpath) ?? modelInBody(body),
+  // `/v1/projects/<project>/locations/<region>/publishers/anthropic/models/<model>:rawPredict`: the
+  // publisher, model and method say what the call asks; the project and region come from the
+  // environment (ANTHROPIC_VERTEX_PROJECT_ID, GOOGLE_CLOUD_PROJECT), which differs per developer and in CI.
+  matchPath: (path) => path.replace(/^(\/v1[^/]*)\/projects\/[^/]+\/locations\/[^/]+(?=\/)/, '$1'),
   hosts: /^([a-z0-9-]+-)?aiplatform(\.[a-z]+\.rep)?\.googleapis\.com$/,
 };
 

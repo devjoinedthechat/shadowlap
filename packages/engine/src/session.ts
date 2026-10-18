@@ -78,6 +78,12 @@ export interface ResolveInput {
   /** The (raw, un-normalized) request, used only to explain a divergence. */
   request?: unknown;
   /**
+   * The call's name as matching reads it, when the provider leaves part of its path out of the
+   * fingerprint (a Vertex AI call without its project and location): a changed request is compared
+   * with recorded calls of this name, wherever they were made.
+   */
+  matchName?: string;
+  /**
    * A model call's request headers that its fingerprint includes (`anthropic-beta`, …), as its
    * record keeps them in `meta.fingerprintHeaders`: a change to one is a divergence like any other,
    * so the report shows it too.
@@ -124,6 +130,11 @@ export interface SessionOptions {
   replay?: Partial<ReplayOptions>;
   /** Loads a recorded call's request for divergence explanation. */
   loadRequest?: (record: CallRecord) => unknown;
+  /**
+   * A recorded call's name as matching reads it (`ResolveInput.matchName`), for finding the call a
+   * changed request is compared with. Defaults to its name.
+   */
+  matchName?: (record: CallRecord) => string;
   /** Start times of the parent run and this one, when dates near either are masked for matching, on both sides (clock.ts). */
   clock?: { parent: number; run: number };
   /**
@@ -162,6 +173,7 @@ export class Session {
   /** What forced the call being resolved live, for its divergence report. */
   private forcing: { by: string; counterpart?: number } | null = null;
   private readonly loadRequest: (record: CallRecord) => unknown;
+  private readonly matchName: (record: CallRecord) => string;
   private readonly clock: SessionOptions['clock'];
   /** Whether the recording used scopes. If it didn't, scopes are ignored, so adding them later still replays. */
   private readonly scoped: boolean;
@@ -175,6 +187,7 @@ export class Session {
     this.parentRunId = opts.parentRunId ?? null;
     this.parentCalls = opts.parentCalls ?? [];
     this.loadRequest = opts.loadRequest ?? (() => undefined);
+    this.matchName = opts.matchName ?? ((record) => record.name);
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
     this.scoped = this.mode === 'record' || this.parentCalls.some((c) => typeof c.meta.scope === 'string');
@@ -435,7 +448,8 @@ export class Session {
     if (remaining.length === 0) {
       return { ...base, type: 'beyond_recording', reason: 'the agent made more calls than the recording contains' };
     }
-    const sameName = remaining.filter((c) => c.kind === input.kind && c.name === input.name);
+    const name = input.matchName ?? input.name;
+    const sameName = remaining.filter((c) => c.kind === input.kind && this.matchName(c) === name);
     // Within the same scope first: the closest call is most likely the same branch's.
     const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
     const candidates = sameScope.length ? sameScope : sameName;
