@@ -103,7 +103,8 @@ export interface AppState {
   setRunCommands: (items: PaletteCommand[]) => void;
 }
 
-const AppContext = createContext<AppState | null>(null);
+/** The app's state as every component reads it (`useApp`): AppProvider gives it, or a test that renders a component with an app of its own. */
+export const AppContext = createContext<AppState | null>(null);
 
 export function useApp(): AppState {
   const app = useContext(AppContext);
