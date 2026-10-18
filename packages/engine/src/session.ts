@@ -109,7 +109,7 @@ export interface SessionOptions {
   replay?: Partial<ReplayOptions>;
   /** Loads a recorded call's request for divergence explanation. */
   loadRequest?: (record: CallRecord) => unknown;
-  /** Start times of the parent run and this one, when dates near them are masked for matching (clock.ts). */
+  /** Start times of the parent run and this one, when dates near either are masked for matching, on both sides (clock.ts). */
   clock?: { parent: number; run: number };
   /**
    * The parent run was made with what a person types recorded (`RunMeta.inputs`). One that wasn't
@@ -375,12 +375,14 @@ export class Session {
       } catch {
         continue;
       }
-      // Diffed the way they were matched, so dates that are "today" in both runs aren't reported as changes.
-      const mask = (v: unknown, ref?: number) => {
+      // Diffed the way they were matched, both sides against both runs' starts, so dates that are
+      // "today" in either run (one the replay served back from the recording included) aren't reported as changes.
+      const refs = this.clock ? [this.clock.parent, this.clock.run] : undefined;
+      const mask = (v: unknown) => {
         const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(v) : v;
-        return ref === undefined ? p : maskClock(p, ref);
+        return refs === undefined ? p : maskClock(p, refs);
       };
-      const diff = structuralDiff(mask(recorded, this.clock?.parent), mask(input.request, this.clock?.run));
+      const diff = structuralDiff(mask(recorded), mask(input.request));
       if (!best || diff.length < best.diff.length) best = { record, diff };
     }
     if (!best) {
@@ -391,7 +393,7 @@ export class Session {
     if (changedBy) return { ...base, type: 'request_changed', reason: changedBy, counterpart: { runId: this.parentRunId ?? best.record.runId, callNo: best.record.callNo }, diff: best.diff };
     const hints = best.diff.flatMap((e) => hintsFor(e, input.kind, input.name));
     if (this.clock && best.diff.some((e) => [e.before, e.after].some((v) => typeof v === 'string' && CLOCK_PLACEHOLDERS.some((p) => v.includes(p))))) {
-      hints.push({ message: 'dates and timestamps within a day of each run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from its run\'s start. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });
+      hints.push({ message: 'dates and timestamps within a day of either run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from both. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });
     }
     return {
       ...base,

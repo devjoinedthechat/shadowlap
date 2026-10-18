@@ -51,3 +51,14 @@ describe('clock masking', () => {
     expect(performance.now() - started).toBeLessThan(250);
   });
 });
+
+describe('masking against several references', () => {
+  it('masks a value near any of them, so a replay reads its recording\'s "today" and its own alike', () => {
+    const june = Date.parse('2026-06-01T09:00:00Z');
+    const sept = Date.parse('2026-09-17T15:00:00Z');
+    const text = 'created 2026-06-01T08:40:00Z, seen 2026-09-17, due 2026-07-01';
+    expect(maskClockText(text, june)).toBe('created <datetime>, seen 2026-09-17, due 2026-07-01');
+    expect(maskClockText(text, [june, sept])).toBe('created <datetime>, seen <date>, due 2026-07-01');
+    expect(maskClock({ at: Math.floor(june / 1000), later: sept, never: 1700000000 }, [june, sept])).toEqual({ at: '<epoch>', later: '<epoch>', never: 1700000000 });
+  });
+});

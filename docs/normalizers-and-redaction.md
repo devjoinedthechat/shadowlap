@@ -64,9 +64,10 @@ An agent that writes "Today is 2026-09-16" into its prompt sends a different req
 
 It recognizes ISO dates and timestamps (`2026-09-16`, `2026-09-16T10:31:22Z`, with or without an offset), HTTP dates (`Wed, 16 Sep 2026 10:31:22 GMT`), JavaScript's `Date.toString()`, English dates (`September 16, 2026`, `16 Sep 2026`, with or without the weekday), and epoch seconds and milliseconds (`time.time()`, `Date.now()`), in model requests and tool arguments.
 
-- Only values near each run's own start are masked. A date a week earlier stays as it is, so changing "since 2026-09-09" to "since 2026-09-02" still forks, and the diff shows that change without the dates that were "today".
+- Only values near a run's start are masked. A date a week earlier stays as it is, so changing "since 2026-09-09" to "since 2026-09-02" still forks, and the diff shows that change without the dates that were "today".
+- A replay reads both sides against both starts, its own and the recording's. What it serves back from the recording, a tool's result or `now()`, carries the recording's dates into its requests: a ticket's `created_at` the model is shown, or "Today is" written from `now()`. A request the replay sends as it was recorded then matches however long after the recording it runs.
 - It affects matching only. Stored requests keep their values, and the agent's clock is never changed, so a live call after a fork carries the real time. Request signing depends on it.
-- A fixed date that happens to fall within a day of when a run was recorded is masked in that recording and not in a later replay, so it forks. The report says so. Set `"clock": "exact"` in `shadowlap.config.json` to match dates exactly, and add normalizers where you need them, such as `shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date` for the date in a system prompt.
+- A fixed date that happens to fall within a day of when a run was recorded is masked in that recording and not in a later replay, so it forks. The report says so, and `calibrate` proposes no rule for it, since one would hide the whole value. Set `"clock": "exact"` in `shadowlap.config.json` to match dates exactly, and add normalizers where you need them, such as `shadowlap normalize add --kind api --path '$.system[0].text' --pattern iso-date` for the date in a system prompt.
 
 ## Calibrate
 

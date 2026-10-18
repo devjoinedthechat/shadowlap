@@ -1,5 +1,5 @@
 import { canonicalize } from './canonical.js';
-import { maskClock, type ClockMode } from './clock.js';
+import { maskClock, type ClockMode, type ClockReference } from './clock.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
 import { applyNormalizers, stripKeysDeep } from './normalize.js';
@@ -37,10 +37,10 @@ export interface Fingerprinted {
 }
 
 /**
- * `clock`: the run's start time, to mask dates and timestamps near it (see clock.ts); undefined
- * matches them exactly.
+ * `clock`: the run's start time, to mask dates and timestamps near it (see clock.ts), or for a replay
+ * its start and its recording's, which both sides of a match must use; undefined matches them exactly.
  */
-export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: number, opts: { withoutPrompt?: boolean } = {}): Fingerprinted {
+export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: ClockReference, opts: { withoutPrompt?: boolean } = {}): Fingerprinted {
   const name = apiCallName(req.method, req.path);
   const headers: Record<string, string> = {};
   for (const h of allowHeaders) {
@@ -53,7 +53,7 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
   return { fingerprint: sha256(canonical), canonical };
 }
 
-export function fingerprintTool(name: string, args: unknown, normalizers: Normalizer[], clock?: number): Fingerprinted {
+export function fingerprintTool(name: string, args: unknown, normalizers: Normalizer[], clock?: ClockReference): Fingerprinted {
   // Paths are relative to the stored request, `{ args }`, as in redaction rules and divergence reports: `$.args.path`.
   const normalized = (applyNormalizers({ args: clock === undefined ? args : maskClock(args, clock) }, normalizers, 'tool', name) as { args: unknown }).args;
   const canonical = canonicalize({ kind: 'tool', name, args: normalized });

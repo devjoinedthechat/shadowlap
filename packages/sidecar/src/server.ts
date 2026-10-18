@@ -158,8 +158,12 @@ class RunContext {
     readonly normalizers: Normalizer[],
     readonly offline = false,
     readonly slot: string | null = null,
-    /** The reference time dates are masked against, or undefined to match them exactly. */
-    readonly clockRef: number | undefined = undefined,
+    /**
+     * The reference times dates are masked against, or undefined to match them exactly: the run's
+     * start, and for a replay its recording's too, since what the replay serves back from the
+     * recording carries the recording's dates.
+     */
+    readonly clockRef: readonly number[] | undefined = undefined,
     /** `--prompt-from`: model calls are matched without their system prompt and tool definitions. */
     readonly withoutPrompt = false,
   ) {}
@@ -371,6 +375,8 @@ export class Sidecar {
 
   startRun(input: StartRunInput): RunRecord {
     if (input.slot !== undefined) this.envForSlot(input.slot);
+    // Known before the parent is fingerprinted, which masks dates against it.
+    const startedAt = Date.now();
     let parentCalls: CallRecord[] | undefined;
     let parentStartedAt: number | undefined;
     // Whether the parent was recorded with what a person types (RunMeta.inputs); see the Session.
@@ -394,12 +400,14 @@ export class Sidecar {
         const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
         if (!target || target.kind !== 'api') throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}`);
       }
-      if (parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
+      // Under "clock": "auto" both sides are masked against both runs' starts, and this run's start
+      // is new, so the parent's stored fingerprints (made against its own start) never apply.
+      if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
         parentCalls = stored;
         this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls)`);
       } else {
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers`);
-        parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? parent.startedAt : undefined, input.replay?.promptFrom !== undefined);
+        parentCalls = this.refingerprint(stored, normalizers, this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, input.replay?.promptFrom !== undefined);
       }
     }
     // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
@@ -414,20 +422,21 @@ export class Sidecar {
       parentRunId: input.parentRunId ?? null,
       command: input.command,
       codeVersion: input.codeVersion ?? null,
+      startedAt,
       meta: {
         normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
         ...(input.commandFromImport ? { commandFromImport: true } : {}),
         ...(described ? { interventions: described } : {}),
       },
     });
-    const clockRef = this.clock === 'auto' ? run.startedAt : undefined;
+    const clockRef = this.clock !== 'auto' ? undefined : parentStartedAt !== undefined ? [parentStartedAt, run.startedAt] : [run.startedAt];
     const session = new Session({
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
       ...(parentCalls ? { parentCalls } : {}),
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
-      ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: clockRef } } : {}),
+      ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
     this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined));
@@ -1251,7 +1260,7 @@ export class Sidecar {
    * still match under it. So a parent's fingerprints (and, since fingerprints partition occurrences,
    * its occurrence numbers) are recomputed from the stored requests under the current normalizers.
    */
-  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: number | undefined, withoutPromptMask = false): CallRecord[] {
+  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false): CallRecord[] {
     const counts = new Map<string, number>();
     return calls.map((rec) => {
       let fingerprint = rec.fingerprint;
