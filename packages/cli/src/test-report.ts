@@ -100,7 +100,8 @@ export function markdownReport(report: TestReport): string {
   for (const r of report.results.filter((x) => !x.ok)) {
     lines.push('', `<details open><summary><b>${cell(r.name)}</b>: ${cell(r.message ?? 'failed')}</summary>`, '');
     if (r.checks?.length) lines.push(...r.checks.map((c) => `- ${c.ok ? '✅' : '❌'} ${cell(c.label)}${c.ok ? '' : `: ${cell(c.detail ?? '')}`}`), '');
-    if (r.details) lines.push(fence(r.details), '');
+    const details = moreThanMessage(r);
+    if (details) lines.push(fence(details), '');
     if (r.output) lines.push('Agent output, last lines:', '', fence(r.output), '');
     lines.push('</details>');
   }
@@ -132,6 +133,14 @@ function escapeProperty(s: string): string {
   return escapeData(s).replace(/:/g, '%3A').replace(/,/g, '%2C');
 }
 
+/**
+ * A failure's details when they say more than its message: a pack that could not be replayed at all
+ * (no run.json, say) has the one sentence for both, which a report says once.
+ */
+function moreThanMessage(r: PackResult): string | null {
+  return r.details && r.details.trim() !== (r.message ?? '').trim() ? r.details : null;
+}
+
 /** One `::error` per failed pack, pointing at its run.json. */
 export function githubAnnotations(report: TestReport): string {
   return report.results
@@ -139,7 +148,8 @@ export function githubAnnotations(report: TestReport): string {
     .map((r) => {
       const file = `${r.dir.replace(/\\/g, '/').replace(/\/+$/, '')}/run.json`;
       const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`);
-      const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(r.details ? ['', ...safeText(r.details).split('\n').slice(0, 30)] : [])].join('\n');
+      const details = moreThanMessage(r);
+      const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
       return `::error file=${escapeProperty(file)},title=${escapeProperty(`Shadowlap: ${safeText(r.name)}`)}::${escapeData(body)}`;
     })
     .join('\n');

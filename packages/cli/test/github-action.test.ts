@@ -94,6 +94,9 @@ describe('the GitHub Action', () => {
     expect(typo.outputs).toMatchObject({ passed: '1', failed: '1' });
     expect(typo.out).toContain('shadowlap test testing/golden/reference-agent testing/golden/reference-agnet');
     expect(typo.out).toContain('testing/golden/reference-agnet is not a Shadowlap pack (no run.json)');
+    // Its annotation and its part of the summary say that once: the failure's message is all there is to it.
+    expect(typo.out).toMatch(/^::error file=testing\/golden\/reference-agnet\/run\.json,title=Shadowlap%3A reference-agnet::testing\/golden\/reference-agnet is not a Shadowlap pack \(no run\.json\)$/m);
+    expect(typo.summary.split('reference-agnet is not a Shadowlap pack')).toHaveLength(3);
     // A pattern beside one that matches, which matches nothing: the step fails before anything runs.
     const empty = action({ RECORDINGS: 'testing/golden/* testing/golden/refund-*', WORKING_DIRECTORY: ROOT, GUARD: 'off' });
     expect(empty.code).toBe(1);
