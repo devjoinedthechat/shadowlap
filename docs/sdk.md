@@ -177,7 +177,7 @@ Retrieval, vector databases and internal APIs are usually called straight from a
 }
 ```
 
-In Node and Python agents, requests to those hosts are [captured in the process](./providers.md#in-process-capture) like model calls: `fetch` and `http(s)` in Node; httpx, requests, botocore and urllib3 in Python. Each is recorded as a tool call named after its method, host and path, such as `POST idx-1.svc.pinecone.io/query`, with the request's URL and body as its arguments and the response as its result. From there it behaves like any tool with that effect: replayed before a fork, run live after it when it is `read`, and blocked or stubbed when it is `write`. A blocked call answers the agent with HTTP 409.
+In Node and Python agents, requests to those hosts are [captured in the process](./providers.md#in-process-capture) like model calls: `fetch` and `http(s)` in Node; httpx, requests, botocore and urllib3 in Python. Each is recorded as a tool call named after its method, host and path, such as `POST idx-1.svc.pinecone.io/query`, with the request's URL and body as its arguments and the response as its result. From there it behaves like any tool with that effect: replayed before a fork, run live after it when it is `read`, and blocked or stubbed when it is `write`. A replayed call answers with the bytes the service sent: a JSON response keeps its layout, escapes and numbers (a 64-bit id, `20.0`), so an agent that reads the text, or a number JSON parsing would round, gets what it got then. A blocked call answers the agent with HTTP 409.
 
 - A host is `api.example.com` or `*.example.com` (any subdomain), with an optional `:port`, over `http` or `https`.
 - The sidecar makes a live call itself, and only to a declared host.
