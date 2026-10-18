@@ -48,6 +48,12 @@ Every request is `POST` with a JSON body and `content-type: application/json`. R
 
 There is no authentication header. The token in the path is the whole of it.
 
+**Never through a proxy.** The sidecar is on the machine's loopback. A client MUST reach it
+directly, whatever proxy the environment names (`HTTP_PROXY`, a system proxy): through a proxy, the
+call would cross the network in clear text with the session token in its URL, and the proxy can't
+reach the loopback anyway. Both SDKs open the sidecar with proxies turned off, and `shadowlap run`
+adds `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` for the agent.
+
 **Timeouts.** A client SHOULD apply a request timeout of about 30 seconds. The sidecar answers
 `resolve` and `complete` locally and does not wait on the network, so a slow response means it is
 wedged, not busy.

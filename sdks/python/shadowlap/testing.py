@@ -87,7 +87,8 @@ class _Host:
     def post(self, path: str, body: dict) -> dict:
         req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=120) as res:
+            # Never through a proxy: the host is on this machine's loopback.
+            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=120) as res:
                 return json.loads(res.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             text = e.read().decode("utf-8", "replace")

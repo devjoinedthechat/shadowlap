@@ -90,9 +90,22 @@ export function guardEnv(mode: GuardMode, base: NodeJS.ProcessEnv = process.env,
   };
 }
 
+/**
+ * NO_PROXY and no_proxy with the loopback addresses added, so the agent's HTTP clients reach the
+ * sidecar directly even behind a proxy (HTTP_PROXY): through one, a model call would carry the API
+ * key, the prompt and the session token in clear text, and the proxy can't reach this machine's
+ * loopback anyway. Every entry either spelling had is kept, in both: a client that reads only one of
+ * them (Python prefers the lowercase one) still bypasses what the person set.
+ */
+export function noProxyEnv(base: NodeJS.ProcessEnv): { NO_PROXY: string; no_proxy: string } {
+  const entries = [base.NO_PROXY, base.no_proxy].flatMap((v) => (v ?? '').split(',')).map((e) => e.trim()).filter(Boolean);
+  const value = [...new Set([...entries, '127.0.0.1', 'localhost', '::1'])].join(',');
+  return { NO_PROXY: value, no_proxy: value };
+}
+
 /** The agent's environment for a run: base URLs to the sidecar, and the preloads. */
 export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upstreams: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...sidecar.envFor(runId), ...guardEnv(guard, process.env, upstreams, sidecar.httpRules) };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...noProxyEnv(process.env), ...sidecar.envFor(runId), ...guardEnv(guard, process.env, upstreams, sidecar.httpRules) };
   // The dashboard job's event pipe is this command's; an agent that runs shadowlap itself reports nothing into it.
   delete env.SHADOWLAP_EVENTS_FD;
   // The Node capture preload shows this value to the OpenAI SDK's AzureOpenAI constructor, which takes

@@ -16,7 +16,7 @@ import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
 import { RecordingHost } from '../recordings.js';
-import { captureConfig, type GuardMode } from '../run-agent.js';
+import { captureConfig, noProxyEnv, type GuardMode } from '../run-agent.js';
 import { ancestorsOf, openStore, parseChoice, parseIntArg, printOutcome, requireEnded, requireRun, telemetry, unredacted, usageOf, VERSION, type GlobalOpts } from '../shared.js';
 import { prepareTestPush, pushIfQueued, teamEnv } from '../team.js';
 import { takeoverReader } from '../tasks.js';
@@ -45,7 +45,8 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
       shadowlap: VERSION,
       url: sidecar.url,
       root,
-      env: { ...sidecar.envForSlot('__SLOT__'), SHADOWLAP_CAPTURE: process.env.SHADOWLAP_CAPTURE === 'off' ? 'off' : captureConfig(upstreams, sidecar.httpRules) },
+      // The loopback addresses in NO_PROXY: a test worker behind a proxy reaches the sidecar directly.
+      env: { ...noProxyEnv(process.env), ...sidecar.envForSlot('__SLOT__'), SHADOWLAP_CAPTURE: process.env.SHADOWLAP_CAPTURE === 'off' ? 'off' : captureConfig(upstreams, sidecar.httpRules) },
       capture: { node: join(captureDir, 'node-capture.mjs'), python: captureDir },
     }) + '\n',
   );

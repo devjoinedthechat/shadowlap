@@ -101,7 +101,8 @@ def _post(path, body):
         headers["x-shadowlap-scope"] = _scope_header(scope)
     req = urllib.request.Request(_url.rstrip("/") + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as res:
+        # Never through a proxy (HTTP_PROXY): the sidecar is on this machine's loopback.
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=30) as res:
             return json.loads(res.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "replace")

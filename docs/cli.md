@@ -887,5 +887,5 @@ whether pull requests' jobs push to their `own-folder` or not at all (`no-push`,
 | `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` |
 | `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters; a random one is printed without it |
 | `OLLAMA_HOST` | Where `tasks models` lists Ollama's installed models (default `127.0.0.1:11434`) |
-| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Reach the team store and the clouds' sign-in services through a proxy ([details](./team.md#the-store)) |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Reach the team store and the clouds' sign-in services through a proxy ([details](./team.md#the-store)). The agent never reaches the sidecar through one: `run`, `replay`, `test` and `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` |
 | `NO_COLOR` | Plain output |
