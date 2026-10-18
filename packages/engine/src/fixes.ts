@@ -292,7 +292,7 @@ export interface RecordedVerdict {
  * fix stays verified whatever a later verdict says.
  */
 export function recordVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
-  return store.transaction(() => keepVerdict(store, input), 'immediate');
+  return store.transaction(() => keepVerdict(store, input));
 }
 
 function keepVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {

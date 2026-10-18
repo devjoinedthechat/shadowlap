@@ -812,10 +812,13 @@ export class Store {
   }
 
   /**
-   * Runs `fn` in one transaction. `immediate` takes the write lock first, for a read that decides a
-   * write: another process doing the same waits for this one, then reads what it wrote.
+   * Runs `fn` in one transaction, which takes the write lock first (`immediate`): another process
+   * writing waits for this one, then reads what it wrote, and this one waits for it the same way.
+   * A deferred transaction that reads before it writes gets "database is locked" at once when
+   * another process wrote in between: SQLite won't wait out the busy timeout to turn a read into a
+   * write. So `deferred` is only for a transaction that never writes.
    */
-  transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'deferred'): T {
+  transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T {
     this.db.exec(mode === 'immediate' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     try {
       const result = fn();
