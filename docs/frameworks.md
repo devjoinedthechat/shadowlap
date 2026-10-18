@@ -110,7 +110,7 @@ def email(to: str, body: str) -> str: ...
 
 ### LangChain and LangGraph (Python)
 
-Wrap tool instances; `ToolNode` and agents use them as usual. It works on `@tool` functions, `StructuredTool.from_function` and `BaseTool` subclasses. The recording holds the arguments after LangChain validated them, a replay returns a real `ToolMessage`, and a `content_and_artifact` tool gets its pair back as a tuple.
+Wrap tool instances; `ToolNode` and agents use them as usual. It works on `@tool` functions, `StructuredTool.from_function` and `BaseTool` subclasses. The recording holds the arguments after LangChain validated them, a replay returns a real `ToolMessage`, and a `content_and_artifact` tool gets its pair back as a tuple. A tool that returns a LangGraph `Command` (to update the graph's state) or a message such as a `ToolMessage` is recorded in a tagged JSON form, its messages as `messages_to_dict` writes them, and gets a real `Command` or message back on replay, so the state update happens again.
 
 ```python
 from langchain_core.tools import tool
