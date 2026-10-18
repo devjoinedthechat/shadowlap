@@ -164,12 +164,10 @@ describe('shadowlap run when the agent does not end well', () => {
     const before = runCount();
     const r = await shadowlap(['run', '--', 'definitely-not-a-command-xyz']);
     expect(r.code).toBe(127);
-    expect(r.out).toContain('failed to start definitely-not-a-command-xyz');
+    expect(r.out).toContain('✗ definitely-not-a-command-xyz: command not found on PATH');
     const store = Store.open(db);
-    const runs = store.allRuns();
-    // The run exists (it was started before the spawn failed) but is closed, not left running.
-    expect(runs).toHaveLength(before + 1);
-    expect(runs[0]!.status).not.toBe('running');
+    // The run made before the spawn failed is not kept: nothing ran.
+    expect(store.allRuns()).toHaveLength(before);
     store.close();
   });
 

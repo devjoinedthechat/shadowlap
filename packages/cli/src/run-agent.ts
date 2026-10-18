@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
-import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, writeFileSync, type BigIntStats } from 'node:fs';
+import { existsSync, fstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, type BigIntStats } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, estimateCost, finalAnswer, formatDivergence, formatDuration, formatSummary, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { spawnAgent } from './agent-registry.js';
@@ -15,7 +15,7 @@ import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
 import { pushIfQueued, teamEnv } from './team.js';
-import { palette as p } from './ui.js';
+import { palette as p, shortId } from './ui.js';
 
 /** Running an agent command under a sidecar: its environment (base URLs, capture, the network guard), interventions, repeated attempts, and the offline replays of `shadowlap test` and `calibrate`. */
 
@@ -201,8 +201,10 @@ export async function testAttempt(
         setTimeout(() => kill('SIGKILL'), 5_000).unref();
       }, o.timeoutMs)
     : null;
+  let notFound = false;
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') notFound = true;
       output += `failed to start ${argv[0]}: ${err.message}\n`;
       res(127);
     });
@@ -254,7 +256,8 @@ export async function testAttempt(
   } else if (code !== 0 || timedOut) {
     // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
-    failure = { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
+    // A command that isn't on PATH never started, whatever its empty summary would suggest about the environment.
+    failure = notFound ? { message: `${argv[0]}: command not found on PATH`, details: output.trim() } : { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
     kind = 'no-calls';
     failure = { message: 'no calls were made', details: formatSummary(summary) };
@@ -411,7 +414,36 @@ function teeOutput(child: ReturnType<typeof spawn>): () => string {
   return () => output;
 }
 
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string }> {
+/**
+ * Whether a program by this name is on PATH, as a shell would find it (on Windows with each of
+ * PATHEXT's extensions).
+ */
+export function onPath(name: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  const win = platform === 'win32';
+  const path = (win ? (env.Path ?? env.PATH) : env.PATH) ?? '';
+  const exts = win ? ['', ...(env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
+  return path.split(win ? ';' : delimiter).some((dir) => dir && exts.some((ext) => {
+    try {
+      return statSync(join(dir, name + ext)).isFile();
+    } catch {
+      return false;
+    }
+  }));
+}
+
+/**
+ * What to say when the agent's command isn't on PATH: `✗ pythn: command not found on PATH`, and for
+ * `python` where only `python3` is (macOS, most Linux distributions), or the other way round, the
+ * command again with the one that is there. `again` gives the command line to show for an argv.
+ */
+export function notFoundMessage(argv: readonly string[], again: (argv: string[]) => string, has: (name: string) => boolean = (name) => onPath(name)): string {
+  const lines = [`${p.red('✗')} ${argv[0]}: command not found on PATH`];
+  const other = argv[0] === 'python' ? 'python3' : argv[0] === 'python3' ? 'python' : argv[0] === 'pip' ? 'pip3' : null;
+  if (other && has(other)) lines.push(`  ${other} is on PATH: ${again([other, ...argv.slice(1)])}`);
+  return lines.join('\n');
+}
+
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -452,9 +484,12 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+  // A command that isn't on PATH never started: nothing ran, so nothing is kept of it.
+  let notFound = false;
   const code = await new Promise<number>((resolve) => {
     child.on('error', (err) => {
-      process.stderr.write(p.red(`failed to start ${argv[0]}: ${err.message}\n`));
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') notFound = true;
+      else process.stderr.write(p.red(`failed to start ${argv[0]}: ${err.message}\n`));
       resolve(127);
     });
     if (extra.capture) onDrained(child, resolve);
@@ -466,6 +501,17 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
   rmSync(activeFile, { force: true });
   const result = sidecar.endRun(run.runId, status);
+  if (notFound) {
+    // Not a failed recording, or a replay that made no calls: the agent never ran. The run goes, and
+    // so does the paragraph about the environment its empty summary would print.
+    store.deleteRun(run.runId);
+    await sidecar.close();
+    store.close();
+    const again = (a: string[]) => (run.mode === 'replay' && run.parentRunId ? `shadowlap replay ${shortId(run.parentRunId)} -- ${quoteArgv(a)}` : `shadowlap run -- ${quoteArgv(a)}`);
+    process.stderr.write(`${notFoundMessage(argv, again)}\n${p.dim(`  nothing ran, so run ${shortId(run.runId)} is not kept`)}\n`);
+    emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary, started: false } });
+    return { code, run, summary: result.summary, output: output(), started: false };
+  }
   if (run.mode === 'record') noteUnrecordedTools(store, run.runId, process.cwd());
   await sidecar.close();
   store.close();
@@ -475,7 +521,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
-  return { code, run, summary: result.summary, output: output() };
+  return { code, run, summary: result.summary, output: output(), started: true };
 }
 
 export interface AttemptResult {

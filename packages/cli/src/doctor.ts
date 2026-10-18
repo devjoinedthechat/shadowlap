@@ -27,8 +27,8 @@ export interface DoctorOptions {
   nodeVersion?: string;
   /** The guard directory (tests). */
   guardDir?: string;
-  /** Runs `python3 --version` (tests stub it). */
-  python?: () => string | null;
+  /** Runs `<command> --version` for python3 and python, null for one that isn't there (tests stub it). */
+  python?: (command: string) => string | null;
 }
 
 const MIN_NODE = [22, 13] as const;
@@ -44,15 +44,26 @@ function bytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function defaultPython(): string | null {
-  for (const exe of ['python3', 'python']) {
-    try {
-      return execFileSync(exe, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).toString().trim();
-    } catch {
-      // try the next name
-    }
+function defaultPython(command: string): string | null {
+  try {
+    return execFileSync(command, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).toString().trim() || null;
+  } catch {
+    return null;
   }
-  return null;
+}
+
+/**
+ * The python line: which names start Python here, since an agent's command names one. Where only
+ * python3 does (macOS, most Linux distributions), `python agent.py` fails, so it says so.
+ */
+export function pythonCheck(probe: (command: string) => string | null): { found: boolean; detail: string } {
+  const three = probe('python3');
+  const plain = probe('python');
+  const usable = '(Python SDK and guard usable)';
+  if (three && plain) return { found: true, detail: three === plain ? `${three} on PATH as python3 and python ${usable}` : `${three} as python3 and ${plain} as python on PATH ${usable}` };
+  if (three) return { found: true, detail: `${three} on PATH as python3 ${usable}; there is no python, so start agents with python3 agent.py` };
+  if (plain) return { found: true, detail: `${plain} on PATH as python ${usable}; there is no python3, so start agents with python agent.py` };
+  return { found: false, detail: 'no python3 or python on PATH' };
 }
 
 function alive(pid: number): boolean {
@@ -91,8 +102,8 @@ export function runDoctor(options: DoctorOptions): Check[] {
   const guardDir = options.guardDir ?? fileURLToPath(new URL('../guard/', import.meta.url));
   const guardFiles = ['node-guard.mjs', 'sitecustomize.py'].filter((f) => !existsSync(join(guardDir, f)));
   push('network guard', guardFiles.length ? 'fail' : 'ok', guardFiles.length ? `missing ${guardFiles.join(', ')} in ${guardDir}` : `preloads present in ${guardDir}`, guardFiles.length ? 'Reinstall the shadowlap package; the guard directory ships with it.' : undefined);
-  const py = (options.python ?? defaultPython)();
-  push('python', py ? 'ok' : 'warn', py ? `${py} on PATH (Python SDK and guard usable)` : 'no python3 on PATH', py ? undefined : 'Only needed for Python agents; the Python SDK requires Python ≥ 3.9.');
+  const py = pythonCheck(options.python ?? defaultPython);
+  push('python', py.found ? 'ok' : 'warn', py.detail, py.found ? undefined : 'Only needed for Python agents; the Python SDK requires Python ≥ 3.9.');
   const guardMode = env.SHADOWLAP_GUARD;
   if (guardMode) push('SHADOWLAP_GUARD', 'warn', `set to "${guardMode}" in this shell`, 'This is set by shadowlap run for the agent process; unset it in your own shell so it does not leak into unrelated commands.');
 

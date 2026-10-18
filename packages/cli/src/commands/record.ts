@@ -47,13 +47,14 @@ export function register(program: Command): void {
     .passThroughOptions()
     .action(async (argv: string[], flags: { guard: GuardMode; summaryJson?: string }) => {
       const opts = program.opts<GlobalOpts>();
-      const { code, summary } = await runUnderSidecar(
+      const { code, summary, started } = await runUnderSidecar(
         opts,
         argv,
         (sidecar) => sidecar.startRun({ mode: 'record', command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()) }),
         flags.guard,
       );
-      printOutcome(summary);
+      // A command that never started has said so, and left no run to show.
+      if (started) printOutcome(summary);
       if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary }, null, 2) + '\n');
       process.exitCode = code;
     });
@@ -206,13 +207,19 @@ export function register(program: Command): void {
         return;
       }
       const once = async (): Promise<void> => {
-        const { code, summary, run, output } = await runUnderSidecar(
+        const { code, summary, run, output, started } = await runUnderSidecar(
           opts,
           argv,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
           { capture },
         );
+        if (!started) {
+          // The command never started: it has said so, and no run is kept to show or judge.
+          if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary }, null, 2) + '\n');
+          process.exitCode = code;
+          return;
+        }
         printOutcome(summary);
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
