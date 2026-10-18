@@ -76,6 +76,25 @@ describe('@shadowlap/test', () => {
     assert.match(r.out, /Tests\s+1 failed \| 4 passed/);
   });
 
+  it('Vitest: a test not wrapped with recorded() calls its model and tools directly, before and after a recorded one', async () => {
+    const model = `http://127.0.0.1:${mock.address().port}`;
+    const mixed = (env) => run([VITEST, 'run', '--config', 'vitest.mixed.config.mjs'], { ANTHROPIC_BASE_URL: model, SHADOWLAP_UPSTREAM_ANTHROPIC: model, ...env });
+    const hitsBefore = hits;
+    const first = await mixed({});
+    assert.equal(first.code, 0, first.out);
+    assert.match(first.out, /Tests\s+3 passed/);
+    assert.ok(existsSync(recording('mixed.check.mjs', 'a-recorded-test')), first.out);
+    assert.equal(hits - hitsBefore, 6); // two calls each: the recorded test's through Shadowlap, the others' direct
+    // Replayed: the recorded test calls nothing, the others still call the model themselves.
+    const again = await mixed({ CI: 'true' });
+    assert.equal(again.code, 0, again.out);
+    assert.equal(hits - hitsBefore, 10);
+    // Alone, as when it is the only test picked.
+    const alone = await run([VITEST, 'run', '--config', 'vitest.mixed.config.mjs', '-t', 'after a recorded one'], { ANTHROPIC_BASE_URL: model, SHADOWLAP_UPSTREAM_ANTHROPIC: model });
+    assert.equal(alone.code, 0, alone.out);
+    assert.match(alone.out, /1 passed/);
+  });
+
   it('node:test with --import @shadowlap/test/register: records, then replays offline', async () => {
     const argv = ['--import', '@shadowlap/test/register', '--test', 'node-agent.fixture.mjs'];
     const first = await run(argv, {});

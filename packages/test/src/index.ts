@@ -19,9 +19,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { HOST_ENV, SLOT_ENV, type HostInfo } from './host.js';
+import { HOST_ENV, pointAtSlot, SLOT_ENV, type HostInfo } from './host.js';
 
-export { startHost, useHost, workerSlot, type HostInfo, type RunningHost } from './host.js';
+export { pointAtSlot, startHost, useHost, workerSlot, type HostInfo, type RunningHost } from './host.js';
 
 export type RecordMode = 'missing' | 'all' | 'none';
 
@@ -172,9 +172,10 @@ export async function withRecording<T>(opts: RecordingOptions & { recording: str
     throw new Error('shadowlap: recordings are not set up for this test run. With Vitest, add "@shadowlap/test/global-setup" to globalSetup and "@shadowlap/test/setup" to setupFiles; with node:test, run node --import @shadowlap/test/register --test.');
   }
   const info = JSON.parse(raw) as HostInfo;
+  const slot = process.env[SLOT_ENV] ?? 'main';
   const started = await post<{ runId: string; mode: 'record' | 'replay'; recording: string }>(info, '/v1/recordings/start', {
     recording: opts.recording,
-    slot: process.env[SLOT_ENV] ?? 'main',
+    slot,
     mode: recordMode(opts.mode),
     ...(opts.name ? { name: opts.name } : {}),
   });
@@ -182,11 +183,15 @@ export async function withRecording<T>(opts: RecordingOptions & { recording: str
   let error: unknown;
   let failed = false;
   const rec = new Recording(info, started.runId, started.mode, started.recording);
+  // The model clients and the SDK point at the slot only while the test runs.
+  const restore = pointAtSlot(info, slot);
   try {
     value = await current.run(rec, () => fn(rec));
   } catch (err) {
     failed = true;
     error = err;
+  } finally {
+    restore();
   }
   const result = await post<RecordingResult>(info, '/v1/recordings/end', { runId: started.runId, passed: !failed });
   if (!result.ok) throw new ShadowlapReplayDiverged(result, failed ? error : undefined);

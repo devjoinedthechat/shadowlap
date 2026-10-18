@@ -1,6 +1,7 @@
 /**
  * `node --import @shadowlap/test/register --test`: for node:test and plain scripts. Starts a Shadowlap
- * host for this process and points its model clients at it.
+ * host for this process and makes it ready for recorded tests, whose model clients and SDK calls
+ * reach the host while each runs.
  */
 import { HOST_ENV, startHost, useHost } from './host.js';
 

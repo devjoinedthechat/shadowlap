@@ -53,7 +53,7 @@ test('triages the inbox', recorded(async () => {
 }));
 ```
 
-The recording is named after the test, including its `describe` blocks, and lives in `__recordings__/<file>/` beside the test file. As with pytest, a name longer than 120 characters, or one that would land on another test's recording, ends in a short hash of the test's full name. `recorded(fn, { recording: 'path' })` overrides that. Test files that run in parallel workers each get their own slot.
+The recording is named after the test, including its `describe` blocks, and lives in `__recordings__/<file>/` beside the test file. As with pytest, a name longer than 120 characters, or one that would land on another test's recording, ends in a short hash of the test's full name. `recorded(fn, { recording: 'path' })` overrides that. Test files that run in parallel workers each get their own slot. A test not wrapped with `recorded()` is left alone: it calls its model and tools directly, whatever ran before it.
 
 ## node:test
 
@@ -140,9 +140,9 @@ If the change is intended, record the test again with SHADOWLAP_RECORD=all. To i
 
 ## How it works
 
-The plugin starts `shadowlap serve --recordings` once per test process (per Vitest run), in the project directory. Model calls reach it the same way they do under `shadowlap run`: base-URL variables for clients created after it starts, and [in-process capture](./providers.md#in-process-capture) for everything else, including clients created when a module is imported. Each test worker has a slot in those URLs, and each test's run takes over its worker's slot while the test runs.
+The plugin starts `shadowlap serve --recordings` once per test process (per Vitest run), in the project directory. Model calls reach it the same way they do under `shadowlap run`: base-URL variables for clients created during a recorded test, and [in-process capture](./providers.md#in-process-capture) for everything else, including clients created when a module is imported (capture also takes calls to the base URLs the suite had, so a client made from them is recorded too). Each test worker has a slot in those URLs, and each test's run takes over its worker's slot while the test runs.
 
-In Python, all of that holds only while a recorded test runs: the base-URL variables and `SHADOWLAP_URL` point at the slot from the start of the recording to its end, and capture is off outside it. A test without the marker sees the environment it had and calls its model and tools directly, whether or not a recorded test ran before it. A client created while a recorded test runs keeps pointing at Shadowlap afterwards, so don't hand one from a recorded test to a test without the marker.
+All of that holds only while a recorded test runs, in both plugins: the base-URL variables and `SHADOWLAP_URL` point at the slot from the start of the recording to its end, and capture is off outside it. A test without the marker, or not wrapped with `recorded()`, sees the environment it had and calls its model and tools directly, whether or not a recorded test ran before it. A client created while a recorded test runs keeps pointing at Shadowlap afterwards, so don't hand one from a recorded test to a test without a recording.
 
 - Tool calls go through the Shadowlap SDK as usual, so wrap tools with `tool()` or an [adapter](./frameworks.md). Tools that aren't wrapped run for real on every replay.
 - `shadowlap.config.json` applies: normalizers when matching, and redaction rules when a recording is saved.

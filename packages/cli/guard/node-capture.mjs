@@ -65,8 +65,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     });
   }
 
+  // On unless a test runner turns it off between recorded tests (@shadowlap/test sets `active`), so
+  // a test without a recording calls its model where it was going, as the Python module's `active`.
+  const state = (globalThis[Symbol.for('shadowlap.capture')] ??= { active: true });
+
   /** The provider a URL belongs to, or null to leave the request alone. */
   function providerFor(url) {
+    if (!state.active) return null;
     const port = url.port || (url.protocol === 'https:' ? '443' : '80');
     const key = `${url.hostname}:${port}`;
     if (key === sidecarKey) return null;

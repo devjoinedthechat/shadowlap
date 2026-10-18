@@ -42,8 +42,8 @@ that process does.
 
    A call that reaches a slot no recording holds is refused with `409`. So a runner whose tests
    don't all have a recording sets the variables only from `start` to `end` and then puts back what
-   they were, and turns capture off in between (the Python module's `active = False`), as the pytest
-   plugin does. Capture reads its configuration when it loads, so load it with the variables set.
+   they were, and turns capture off in between (the Python module's `active = False`; in Node,
+   `globalThis[Symbol.for('shadowlap.capture')].active = false`), as the pytest and Vitest plugins do. Capture reads its configuration when it loads, so load it with the variables set.
 5. **Keep stdin open.** The host runs until its stdin closes, which is how it shuts down when the
    runner exits. Closing stdin (or `SIGINT`/`SIGTERM`) is the only stop signal; there is no endpoint
    for it.
